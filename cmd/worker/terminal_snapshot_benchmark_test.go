@@ -4,17 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
+	_ "vectis/internal/dbdrivers"
 	"vectis/internal/interfaces"
 	"vectis/internal/migrations"
 	"vectis/internal/orchestrator"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 func BenchmarkWorker_PersistTerminalExecutionSnapshot(b *testing.B) {
@@ -71,21 +72,61 @@ func benchmarkWorkerPersistTerminalExecutionSnapshot(b *testing.B, totalTasks in
 func newTerminalSnapshotBenchmarkDB(b *testing.B) *sql.DB {
 	b.Helper()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	driver := os.Getenv("VECTIS_PERF_DATABASE_DRIVER")
+	if driver == "" {
+		driver = "sqlite3"
+	}
+
+	dsn := os.Getenv("VECTIS_PERF_DATABASE_DSN")
+	if dsn == "" && driver == "sqlite3" {
+		dsn = ":memory:"
+	}
+
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		b.Fatalf("open benchmark db: %v", err)
 	}
 
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(terminalSnapshotBenchmarkEnvInt("VECTIS_PERF_DATABASE_MAX_OPEN_CONNS", terminalSnapshotBenchmarkDefaultMaxOpenConns(driver)))
+	db.SetMaxIdleConns(terminalSnapshotBenchmarkEnvInt("VECTIS_PERF_DATABASE_MAX_IDLE_CONNS", terminalSnapshotBenchmarkDefaultMaxIdleConns(driver)))
 
-	if err := migrations.Run(db, "sqlite3"); err != nil {
+	if err := migrations.Run(db, driver); err != nil {
 		_ = db.Close()
 		b.Fatalf("run migrations: %v", err)
 	}
 
 	b.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func terminalSnapshotBenchmarkDefaultMaxOpenConns(driver string) int {
+	if driver == "pgx" {
+		return 32
+	}
+
+	return 1
+}
+
+func terminalSnapshotBenchmarkDefaultMaxIdleConns(driver string) int {
+	if driver == "pgx" {
+		return 16
+	}
+
+	return 1
+}
+
+func terminalSnapshotBenchmarkEnvInt(name string, defaultValue int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return defaultValue
+	}
+
+	return value
 }
 
 func terminalSnapshotBenchmarkFixture(b *testing.B, ctx context.Context, runs dal.RunsRepository, totalTasks, runIndex int) dal.ExecutionFinalizationResult {
