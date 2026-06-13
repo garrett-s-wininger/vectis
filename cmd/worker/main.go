@@ -613,6 +613,12 @@ func (w *worker) executionChoreographer() executionChoreographer {
 	return missingExecutionChoreographer{}
 }
 
+func (w *worker) executionUsesHotStateOnly(env *cell.ExecutionEnvelope) bool {
+	return env != nil &&
+		env.TaskKey != dal.RootTaskKey &&
+		!w.executionChoreographer().RequiresDurableTaskRows()
+}
+
 type missingExecutionChoreographer struct{}
 
 func (missingExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope, []orchestrator.TaskExecutionSnapshot) error {
@@ -629,6 +635,10 @@ func (missingExecutionChoreographer) RenewExecutionLease(context.Context, *cell.
 
 func (missingExecutionChoreographer) CompleteExecution(context.Context, *cell.ExecutionEnvelope, string, string, string, string, string) (dal.ExecutionFinalizationResult, error) {
 	return dal.ExecutionFinalizationResult{}, errors.New("execution choreographer is not configured")
+}
+
+func (missingExecutionChoreographer) RequiresDurableTaskRows() bool {
+	return true
 }
 
 func (w *worker) run() {
@@ -800,6 +810,17 @@ func (w *worker) recordRunCatalogEvent(update dal.RunStatusUpdate) {
 
 func (w *worker) recordExecutionCatalogEvent(ctx context.Context, env *cell.ExecutionEnvelope, status string) {
 	if env == nil {
+		return
+	}
+
+	if w.executionUsesHotStateOnly(env) {
+		trace.SpanFromContext(ctx).AddEvent("execution.catalog.skipped_hot_state", trace.WithAttributes(
+			append(
+				executionEnvelopeAttrs(env),
+				attribute.String("vectis.execution.status", status),
+			)...,
+		))
+
 		return
 	}
 
@@ -1094,12 +1115,12 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 		return nil
 	}
 
-	plan, err := job.PlanTaskExecutions(j)
-	if err != nil {
-		return err
-	}
+	if w.executionChoreographer().RequiresDurableTaskRows() && w.store != nil && env.TaskKey == dal.RootTaskKey {
+		plan, err := job.PlanTaskExecutions(j)
+		if err != nil {
+			return err
+		}
 
-	if len(plan) > 0 && w.store != nil && env.TaskKey == dal.RootTaskKey {
 		if _, err := job.EnsurePlannedTaskExecutions(w.runCtx, w.store, env.RunID, plan, env.CellID); err != nil {
 			w.noteDBError(err)
 			return fmt.Errorf("materialize planned task executions: %w", err)
@@ -1765,6 +1786,11 @@ func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEn
 		return
 	}
 
+	if w.executionUsesHotStateOnly(env) {
+		w.recordExecutionStarted(ctx, env)
+		return
+	}
+
 	if err := w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID); err != nil {
 		w.noteDBError(err)
 		w.logger.Warn("MarkExecutionStarted execution %s failed: %v", env.ExecutionID, err)
@@ -1805,6 +1831,12 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, j *
 		Activated:   result.Activated,
 	})
 
+	if err := w.persistTerminalExecutionSnapshot(ctx, result, failureCode, reason); err != nil {
+		w.logger.Warn("Persist terminal execution snapshot for run %s failed: %v", result.RunID, err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return dal.ExecutionFinalizationResult{}, false
+	}
+
 	w.recordExecutionCatalogEvent(ctx, env, status)
 	w.recordRunCatalogEventForExecutionFinalization(result, failureCode, reason)
 	trace.SpanFromContext(ctx).AddEvent("execution.finalized", trace.WithAttributes(
@@ -1822,6 +1854,144 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, j *
 	))
 
 	return result, true
+}
+
+func (w *worker) persistTerminalExecutionSnapshot(ctx context.Context, result dal.ExecutionFinalizationResult, failureCode, reason string) error {
+	if w.store == nil ||
+		w.executionChoreographer().RequiresDurableTaskRows() ||
+		!isTerminalFinalizationOutcome(result.Outcome) ||
+		len(result.Executions) == 0 {
+		return nil
+	}
+
+	var lastErr error
+	clock := w.clock
+	if clock == nil {
+		clock = interfaces.SystemClock{}
+	}
+
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		if err := w.persistTerminalExecutionSnapshotOnce(ctx, result, failureCode, reason); err != nil {
+			lastErr = err
+			w.noteDBError(err)
+			if attempt == finalizeMaxAttempts {
+				break
+			}
+
+			delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+			w.logger.Warn("Persist terminal execution snapshot for run %s failed (attempt %d/%d): %v; retrying in %v",
+				result.RunID, attempt, finalizeMaxAttempts, err, delay)
+
+			if sleepErr := clock.Sleep(w.runCtx, delay); sleepErr != nil {
+				return sleepErr
+			}
+
+			continue
+		}
+
+		w.noteDBRecovered()
+		trace.SpanFromContext(ctx).AddEvent("execution.snapshot.persisted", trace.WithAttributes(
+			attribute.String("run.id", result.RunID),
+			attribute.Int("vectis.task.snapshot.executions", len(result.Executions)),
+		))
+		return nil
+	}
+
+	return lastErr
+}
+
+func (w *worker) persistTerminalExecutionSnapshotOnce(ctx context.Context, result dal.ExecutionFinalizationResult, failureCode, reason string) error {
+	for _, snapshot := range result.Executions {
+		rec := snapshot.Record
+		if strings.TrimSpace(rec.ExecutionID) == "" || strings.TrimSpace(rec.TaskKey) == "" {
+			continue
+		}
+
+		if rec.TaskKey != dal.RootTaskKey {
+			if _, _, err := w.store.EnsurePlannedTaskExecution(w.runCtx, dal.TaskExecutionCreate{
+				RunID:        rec.RunID,
+				ParentTaskID: rec.ParentTaskID,
+				TaskKey:      rec.TaskKey,
+				Name:         rec.Name,
+				TargetCellID: rec.CellID,
+			}); err != nil && !dal.IsConflict(err) {
+				return fmt.Errorf("materialize terminal task %s: %w", rec.TaskKey, err)
+			}
+		}
+
+		if !shouldApplySnapshotExecutionStatus(snapshot.Status) {
+			continue
+		}
+
+		if err := w.store.ApplyExecutionStatusUpdate(w.runCtx, dal.ExecutionStatusUpdate{
+			ExecutionID: rec.ExecutionID,
+			Status:      snapshot.Status,
+		}); err != nil {
+			return fmt.Errorf("apply terminal task %s status %s: %w", rec.TaskKey, snapshot.Status, err)
+		}
+	}
+
+	if err := w.applyTerminalRunStatus(result, failureCode, reason); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *worker) applyTerminalRunStatus(result dal.ExecutionFinalizationResult, failureCode, reason string) error {
+	update := dal.RunStatusUpdate{RunID: result.RunID}
+	switch result.Outcome {
+	case dal.ExecutionFinalizationOutcomeRunSucceeded:
+		update.Status = dal.RunStatusSucceeded
+	case dal.ExecutionFinalizationOutcomeRunFailed:
+		if failureCode == "" {
+			failureCode = dal.FailureCodeExecution
+		}
+
+		update.Status = dal.RunStatusFailed
+		update.FailureCode = failureCode
+		update.Reason = reason
+	case dal.ExecutionFinalizationOutcomeRunCancelled:
+		if reason == "" {
+			reason = dal.CancelReasonAPI
+		}
+
+		update.Status = dal.RunStatusCancelled
+		update.Reason = reason
+	default:
+		return nil
+	}
+
+	if err := w.store.ApplyRunStatusUpdate(w.runCtx, update); err != nil {
+		return fmt.Errorf("apply terminal run %s status %s: %w", result.RunID, update.Status, err)
+	}
+
+	return nil
+}
+
+func shouldApplySnapshotExecutionStatus(status string) bool {
+	switch status {
+	case dal.ExecutionStatusAccepted,
+		dal.ExecutionStatusRunning,
+		dal.ExecutionStatusSucceeded,
+		dal.ExecutionStatusFailed,
+		dal.ExecutionStatusCancelled,
+		dal.ExecutionStatusAborted:
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalFinalizationOutcome(outcome dal.ExecutionFinalizationOutcome) bool {
+	switch outcome {
+	case dal.ExecutionFinalizationOutcomeRunSucceeded,
+		dal.ExecutionFinalizationOutcomeRunFailed,
+		dal.ExecutionFinalizationOutcomeRunCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
@@ -2201,6 +2371,11 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, env *cell.ExecutionEn
 		return nil
 	}
 
+	if w.executionUsesHotStateOnly(env) {
+		trace.SpanFromContext(ctx).AddEvent("execution.claim.mirror_skipped_hot_state", trace.WithAttributes(executionEnvelopeAttrs(env)...))
+		return nil
+	}
+
 	if strings.TrimSpace(claimToken) == "" {
 		return fmt.Errorf("%w: execution claim token is required", dal.ErrConflict)
 	}
@@ -2244,6 +2419,10 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, env *cell.ExecutionEn
 
 func (w *worker) renewMirroredExecutionClaim(ctx context.Context, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
 	if w.store == nil || env == nil || strings.TrimSpace(claimToken) == "" {
+		return nil
+	}
+
+	if w.executionUsesHotStateOnly(env) {
 		return nil
 	}
 

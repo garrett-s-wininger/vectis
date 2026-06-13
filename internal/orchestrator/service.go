@@ -51,10 +51,7 @@ type TaskSpec struct {
 	ChildTaskKeys []string
 }
 
-type TaskExecutionSnapshot struct {
-	Record dal.TaskExecutionRecord
-	Status string
-}
+type TaskExecutionSnapshot = dal.TaskExecutionSnapshot
 
 type LoadResult struct {
 	RunID   string
@@ -361,7 +358,12 @@ func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, execution
 			Children:    children,
 			Activated:   activated,
 		}
+
 		run.applyRunStatus(result.Outcome)
+		if isTerminalFinalizationOutcome(result.Outcome) {
+			result.Executions = run.executionSnapshots()
+		}
+
 		return result, nil
 	})
 
@@ -754,6 +756,19 @@ func (r *runState) recomputeSummary() {
 	r.summary = summary
 }
 
+func (r *runState) executionSnapshots() []dal.TaskExecutionSnapshot {
+	out := make([]dal.TaskExecutionSnapshot, 0, len(r.order))
+	for _, taskKey := range r.order {
+		task := r.tasks[taskKey]
+		out = append(out, dal.TaskExecutionSnapshot{
+			Record: task.record,
+			Status: task.status,
+		})
+	}
+
+	return out
+}
+
 func normalizeSnapshotStatus(status string) string {
 	switch strings.TrimSpace(status) {
 	case dal.ExecutionStatusPlanned:
@@ -904,6 +919,15 @@ func (r *runState) applyRunStatus(outcome dal.ExecutionFinalizationOutcome) {
 		r.status = dal.RunStatusCancelled
 	default:
 		r.status = dal.RunStatusRunning
+	}
+}
+
+func isTerminalFinalizationOutcome(outcome dal.ExecutionFinalizationOutcome) bool {
+	switch outcome {
+	case dal.ExecutionFinalizationOutcomeRunSucceeded, dal.ExecutionFinalizationOutcomeRunFailed, dal.ExecutionFinalizationOutcomeRunCancelled:
+		return true
+	default:
+		return false
 	}
 }
 

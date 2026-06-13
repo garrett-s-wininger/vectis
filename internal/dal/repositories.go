@@ -271,6 +271,11 @@ type TaskExecutionRecord struct {
 	Attempt       int
 }
 
+type TaskExecutionSnapshot struct {
+	Record TaskExecutionRecord
+	Status string
+}
+
 type QueuedRun struct {
 	RunID             string
 	JobID             string
@@ -509,6 +514,7 @@ type ExecutionFinalizationResult struct {
 	Outcome     ExecutionFinalizationOutcome
 	Summary     RunTaskCompletion
 	Children    []TaskExecutionRecord
+	Executions  []TaskExecutionSnapshot
 	Activated   int
 }
 

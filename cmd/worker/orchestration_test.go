@@ -53,6 +53,10 @@ func (c sqlExecutionChoreographer) CompleteExecution(ctx context.Context, env *c
 	return c.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, env.ExecutionID, owner, claimToken, status, failureCode, reason)
 }
 
+func (c sqlExecutionChoreographer) RequiresDurableTaskRows() bool {
+	return true
+}
+
 type localOrchestratorChoreographer struct {
 	service *orchestrator.Service
 }
@@ -91,6 +95,10 @@ func (c *localOrchestratorChoreographer) RenewExecutionLease(ctx context.Context
 
 func (c *localOrchestratorChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
 	return c.service.CompleteExecutionByClaim(ctx, env.RunID, env.ExecutionID, owner, claimToken, status, failureCode, reason)
+}
+
+func (c *localOrchestratorChoreographer) RequiresDurableTaskRows() bool {
+	return false
 }
 
 func TestGRPCExecutionChoreographerLoadRunHydratesSnapshots(t *testing.T) {

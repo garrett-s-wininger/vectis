@@ -857,6 +857,7 @@ type CompleteExecutionResponse struct {
 	Summary       *OrchestratorRunTaskCompletion `protobuf:"bytes,4,opt,name=summary" json:"summary,omitempty"`
 	Children      []*OrchestratorTaskExecution   `protobuf:"bytes,5,rep,name=children" json:"children,omitempty"`
 	Activated     *int32                         `protobuf:"varint,6,opt,name=activated" json:"activated,omitempty"`
+	Executions    []*OrchestratorTaskExecution   `protobuf:"bytes,7,rep,name=executions" json:"executions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -931,6 +932,13 @@ func (x *CompleteExecutionResponse) GetActivated() int32 {
 		return *x.Activated
 	}
 	return 0
+}
+
+func (x *CompleteExecutionResponse) GetExecutions() []*OrchestratorTaskExecution {
+	if x != nil {
+		return x.Executions
+	}
+	return nil
 }
 
 type GetRunTaskCompletionRequest struct {
@@ -1057,14 +1065,17 @@ const file_orchestrator_proto_rawDesc = "" +
 	"claimToken\x12\x16\n" +
 	"\x06status\x18\x05 \x01(\tR\x06status\x12!\n" +
 	"\ffailure_code\x18\x06 \x01(\tR\vfailureCode\x12\x16\n" +
-	"\x06reason\x18\a \x01(\tR\x06reason\"\xff\x01\n" +
+	"\x06reason\x18\a \x01(\tR\x06reason\"\xbb\x02\n" +
 	"\x19CompleteExecutionResponse\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x18\n" +
 	"\aoutcome\x18\x03 \x01(\tR\aoutcome\x128\n" +
 	"\asummary\x18\x04 \x01(\v2\x1e.OrchestratorRunTaskCompletionR\asummary\x126\n" +
 	"\bchildren\x18\x05 \x03(\v2\x1a.OrchestratorTaskExecutionR\bchildren\x12\x1c\n" +
-	"\tactivated\x18\x06 \x01(\x05R\tactivated\"4\n" +
+	"\tactivated\x18\x06 \x01(\x05R\tactivated\x12:\n" +
+	"\n" +
+	"executions\x18\a \x03(\v2\x1a.OrchestratorTaskExecutionR\n" +
+	"executions\"4\n" +
 	"\x1bGetRunTaskCompletionRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId2\xa5\x03\n" +
 	"\x13OrchestratorService\x12,\n" +
@@ -1114,23 +1125,24 @@ var file_orchestrator_proto_depIdxs = []int32{
 	1,  // 6: ListPendingResponse.executions:type_name -> OrchestratorTaskExecution
 	2,  // 7: CompleteExecutionResponse.summary:type_name -> OrchestratorRunTaskCompletion
 	1,  // 8: CompleteExecutionResponse.children:type_name -> OrchestratorTaskExecution
-	3,  // 9: OrchestratorService.LoadRun:input_type -> LoadRunRequest
-	5,  // 10: OrchestratorService.ListPending:input_type -> ListPendingRequest
-	7,  // 11: OrchestratorService.ClaimExecution:input_type -> ClaimExecutionRequest
-	9,  // 12: OrchestratorService.RenewExecutionLease:input_type -> RenewExecutionLeaseRequest
-	10, // 13: OrchestratorService.CompleteExecution:input_type -> CompleteExecutionRequest
-	12, // 14: OrchestratorService.GetRunTaskCompletion:input_type -> GetRunTaskCompletionRequest
-	4,  // 15: OrchestratorService.LoadRun:output_type -> LoadRunResponse
-	6,  // 16: OrchestratorService.ListPending:output_type -> ListPendingResponse
-	8,  // 17: OrchestratorService.ClaimExecution:output_type -> ClaimExecutionResponse
-	13, // 18: OrchestratorService.RenewExecutionLease:output_type -> common.Empty
-	11, // 19: OrchestratorService.CompleteExecution:output_type -> CompleteExecutionResponse
-	2,  // 20: OrchestratorService.GetRunTaskCompletion:output_type -> OrchestratorRunTaskCompletion
-	15, // [15:21] is the sub-list for method output_type
-	9,  // [9:15] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	1,  // 9: CompleteExecutionResponse.executions:type_name -> OrchestratorTaskExecution
+	3,  // 10: OrchestratorService.LoadRun:input_type -> LoadRunRequest
+	5,  // 11: OrchestratorService.ListPending:input_type -> ListPendingRequest
+	7,  // 12: OrchestratorService.ClaimExecution:input_type -> ClaimExecutionRequest
+	9,  // 13: OrchestratorService.RenewExecutionLease:input_type -> RenewExecutionLeaseRequest
+	10, // 14: OrchestratorService.CompleteExecution:input_type -> CompleteExecutionRequest
+	12, // 15: OrchestratorService.GetRunTaskCompletion:input_type -> GetRunTaskCompletionRequest
+	4,  // 16: OrchestratorService.LoadRun:output_type -> LoadRunResponse
+	6,  // 17: OrchestratorService.ListPending:output_type -> ListPendingResponse
+	8,  // 18: OrchestratorService.ClaimExecution:output_type -> ClaimExecutionResponse
+	13, // 19: OrchestratorService.RenewExecutionLease:output_type -> common.Empty
+	11, // 20: OrchestratorService.CompleteExecution:output_type -> CompleteExecutionResponse
+	2,  // 21: OrchestratorService.GetRunTaskCompletion:output_type -> OrchestratorRunTaskCompletion
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_orchestrator_proto_init() }

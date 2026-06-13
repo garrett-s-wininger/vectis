@@ -118,6 +118,7 @@ func (s *grpcServer) CompleteExecution(ctx context.Context, req *api.CompleteExe
 		Summary:     runTaskCompletionToProto(result.Summary),
 		Children:    taskExecutionsToProto(result.Children),
 		Activated:   int32Ptr(int32(result.Activated)),
+		Executions:  taskExecutionSnapshotsToProto(result.Executions),
 	}, nil
 }
 
@@ -193,6 +194,21 @@ func taskExecutionsToProto(in []dal.TaskExecutionRecord) []*api.OrchestratorTask
 	out := make([]*api.OrchestratorTaskExecution, 0, len(in))
 	for _, record := range in {
 		out = append(out, taskExecutionToProto(record))
+	}
+
+	return out
+}
+
+func taskExecutionSnapshotsToProto(in []dal.TaskExecutionSnapshot) []*api.OrchestratorTaskExecution {
+	out := make([]*api.OrchestratorTaskExecution, 0, len(in))
+	for _, snapshot := range in {
+		execution := taskExecutionToProto(snapshot.Record)
+		if execution == nil {
+			continue
+		}
+
+		execution.Status = stringPtr(snapshot.Status)
+		out = append(out, execution)
 	}
 
 	return out

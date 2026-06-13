@@ -98,6 +98,7 @@ message CompleteExecutionResponse {
     OrchestratorRunTaskCompletion summary = 4;
     repeated OrchestratorTaskExecution children = 5;
     int32 activated = 6;
+    repeated OrchestratorTaskExecution executions = 7;
 }
 
 message GetRunTaskCompletionRequest {

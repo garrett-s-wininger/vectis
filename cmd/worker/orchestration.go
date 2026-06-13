@@ -15,6 +15,7 @@ type executionChoreographer interface {
 	ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error)
 	RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error
 	CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error)
+	RequiresDurableTaskRows() bool
 }
 
 type durableCompletionChoreographer interface {
@@ -115,8 +116,13 @@ func (c grpcExecutionChoreographer) CompleteExecution(ctx context.Context, env *
 		Outcome:     dal.ExecutionFinalizationOutcome(result.GetOutcome()),
 		Summary:     runTaskCompletionFromProto(result.GetSummary()),
 		Children:    taskExecutionsFromProto(result.GetChildren()),
+		Executions:  taskExecutionSnapshotsFromProto(result.GetExecutions()),
 		Activated:   int(result.GetActivated()),
 	}, nil
+}
+
+func (c grpcExecutionChoreographer) RequiresDurableTaskRows() bool {
+	return false
 }
 
 func taskExecutionToProto(in dal.TaskExecutionRecord) *api.OrchestratorTaskExecution {
@@ -172,6 +178,34 @@ func taskExecutionsFromProto(in []*api.OrchestratorTaskExecution) []dal.TaskExec
 			ExecutionID:   record.GetExecutionId(),
 			CellID:        record.GetCellId(),
 			Attempt:       int(record.GetAttempt()),
+		})
+	}
+
+	return out
+}
+
+func taskExecutionSnapshotsFromProto(in []*api.OrchestratorTaskExecution) []dal.TaskExecutionSnapshot {
+	out := make([]dal.TaskExecutionSnapshot, 0, len(in))
+	for _, record := range in {
+		if record == nil {
+			continue
+		}
+
+		out = append(out, dal.TaskExecutionSnapshot{
+			Record: dal.TaskExecutionRecord{
+				RunID:         record.GetRunId(),
+				TaskID:        record.GetTaskId(),
+				ParentTaskID:  record.GetParentTaskId(),
+				TaskKey:       record.GetTaskKey(),
+				Name:          record.GetName(),
+				TaskAttemptID: record.GetTaskAttemptId(),
+				SegmentID:     record.GetSegmentId(),
+				SegmentName:   record.GetSegmentName(),
+				ExecutionID:   record.GetExecutionId(),
+				CellID:        record.GetCellId(),
+				Attempt:       int(record.GetAttempt()),
+			},
+			Status: record.GetStatus(),
 		})
 	}
 

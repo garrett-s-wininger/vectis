@@ -602,6 +602,10 @@ func (c *restartOnCompleteChoreographer) CompleteExecution(ctx context.Context, 
 	return service.CompleteExecutionByClaim(ctx, env.RunID, env.ExecutionID, owner, claimToken, status, failureCode, reason)
 }
 
+func (c *restartOnCompleteChoreographer) RequiresDurableTaskRows() bool {
+	return false
+}
+
 func (c *restartOnCompleteChoreographer) completeClaimTokens() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1395,6 +1399,14 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("queued child trace metadata: got %q, want trace-a", env.Metadata["traceparent"])
 	}
 
+	var taskRows int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ?`, runID).Scan(&taskRows); err != nil {
+		t.Fatalf("count run tasks: %v", err)
+	}
+
+	if taskRows != 1 {
+		t.Fatalf("run task rows after orchestrator fanout: got %d, want root row only", taskRows)
+	}
 }
 
 func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailure(t *testing.T) {
@@ -2049,41 +2061,6 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 		},
 	}
 
-	plan, err := job.PlanTaskExecutions(j)
-	if err != nil {
-		t.Fatalf("plan task executions: %v", err)
-	}
-
-	materialized, err := job.EnsurePlannedTaskExecutions(ctx, runs, runID, plan, "local")
-	if err != nil {
-		t.Fatalf("materialize planned tasks: %v", err)
-	}
-
-	var child dal.TaskExecutionRecord
-	for _, rec := range materialized.Tasks {
-		if rec.TaskKey == childID {
-			child = rec
-			break
-		}
-	}
-
-	if child.ExecutionID == "" {
-		t.Fatal("expected materialized child execution")
-	}
-
-	rootClaim, err := runs.TryClaimExecution(ctx, rootDispatch.ExecutionID, "root-worker", time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatalf("claim root execution: %v", err)
-	}
-
-	if !rootClaim.Claimed || rootClaim.ClaimToken == "" {
-		t.Fatalf("expected root execution claim, got %+v", rootClaim)
-	}
-
-	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, rootDispatch.ExecutionID, "root-worker", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); err != nil {
-		t.Fatalf("complete root execution: %v", err)
-	}
-
 	rootReq := &api.JobRequest{Job: j}
 	rootEnv, err := cell.AttachExecutionEnvelope(rootReq, rootDispatch, 1)
 	if err != nil {
@@ -2091,11 +2068,34 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	}
 
 	childReq := &api.JobRequest{Job: j}
+	child := dal.TaskExecutionRecord{
+		RunID:         runID,
+		TaskID:        runID + ":" + childID,
+		ParentTaskID:  runID + ":" + dal.RootTaskKey,
+		TaskKey:       childID,
+		Name:          childID,
+		TaskAttemptID: runID + ":" + childID + ":attempt:1",
+		SegmentID:     runID + ":" + childID + ":segment",
+		SegmentName:   childID,
+		ExecutionID:   runID + ":" + childID + ":attempt:1:execution",
+		CellID:        "local",
+		Attempt:       1,
+	}
+
 	childDispatch := executionDispatchRecordFromTaskExecution(j, rootEnv, child)
 	childDispatch.RunIndex = runIndex
 	childEnv, err := cell.AttachExecutionEnvelope(childReq, childDispatch, 2)
 	if err != nil {
 		t.Fatalf("attach child execution envelope: %v", err)
+	}
+
+	var childRowsBefore int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).Scan(&childRowsBefore); err != nil {
+		t.Fatalf("count child task rows before execution: %v", err)
+	}
+
+	if childRowsBefore != 0 {
+		t.Fatalf("child task durable rows before hot-state execution: got %d, want 0", childRowsBefore)
 	}
 
 	logClient := mocks.NewMockLogClient()
@@ -2137,6 +2137,23 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	}
 	if !sawChild {
 		t.Fatalf("expected child task marker in chunks=%v", chunks)
+	}
+
+	var childRows int
+	var childStatus string
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(status), '') FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).Scan(&childRows, &childStatus); err != nil {
+		t.Fatalf("query child task row: %v", err)
+	}
+	if childRows != 1 || childStatus != dal.TaskStatusSucceeded {
+		t.Fatalf("child task durable state after terminal snapshot: rows=%d status=%q, want 1/%q", childRows, childStatus, dal.TaskStatusSucceeded)
+	}
+
+	var runStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+	if runStatus != dal.RunStatusSucceeded {
+		t.Fatalf("run durable state after terminal snapshot: got %q, want %q", runStatus, dal.RunStatusSucceeded)
 	}
 }
 
