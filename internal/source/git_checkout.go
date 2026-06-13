@@ -10,9 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
+
+	"vectis/internal/source/refspec"
 )
 
 type GitCheckoutOption func(*GitCheckout)
@@ -752,14 +753,18 @@ func (s *GitCheckoutStatus) setError(code, message string) {
 	}
 }
 
-func normalizeRef(ref string) (string, error) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return "", fmt.Errorf("%w: revision is required", ErrInvalidReference)
-	}
+func NormalizeRef(ref string) (string, error) {
+	return normalizeRef(ref)
+}
 
-	if strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, ":\x00\n\r") {
-		return "", fmt.Errorf("%w: unsafe revision %q", ErrInvalidReference, ref)
+func NormalizeTreePath(filePath string) (string, error) {
+	return normalizeTreePath(filePath)
+}
+
+func normalizeRef(ref string) (string, error) {
+	ref, err := refspec.NormalizeRef(ref)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidReference, err)
 	}
 
 	return ref, nil
@@ -812,43 +817,21 @@ func normalizeBranchPrefix(prefix, remote string) (string, error) {
 }
 
 func normalizeTreeListPath(filePath string) (string, error) {
-	filePath = strings.TrimSpace(filepath.ToSlash(filePath))
-	if filePath == "" || filePath == "." {
-		return "", nil
+	filePath, err := refspec.NormalizeTreeListPath(filePath)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidReference, err)
 	}
 
-	if strings.ContainsAny(filePath, "\x00\n\r") || path.IsAbs(filePath) {
-		return "", fmt.Errorf("%w: unsafe tree path %q", ErrInvalidReference, filePath)
-	}
-
-	cleanPath := path.Clean(filePath)
-	if cleanPath == "." {
-		return "", nil
-	}
-
-	if cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
-		return "", fmt.Errorf("%w: unsafe tree path %q", ErrInvalidReference, filePath)
-	}
-
-	return cleanPath, nil
+	return filePath, nil
 }
 
 func normalizeTreePath(filePath string) (string, error) {
-	filePath = strings.TrimSpace(filepath.ToSlash(filePath))
-	if filePath == "" {
-		return "", fmt.Errorf("%w: file path is required", ErrInvalidReference)
+	filePath, err := refspec.NormalizeTreePath(filePath)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidReference, err)
 	}
 
-	if strings.ContainsAny(filePath, "\x00\n\r") || path.IsAbs(filePath) {
-		return "", fmt.Errorf("%w: unsafe file path %q", ErrInvalidReference, filePath)
-	}
-
-	cleanPath := path.Clean(filePath)
-	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
-		return "", fmt.Errorf("%w: unsafe file path %q", ErrInvalidReference, filePath)
-	}
-
-	return cleanPath, nil
+	return filePath, nil
 }
 
 func parseTreeEntryRecord(record []byte, treePath string) (TreeEntry, bool, error) {

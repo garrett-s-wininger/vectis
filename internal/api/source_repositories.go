@@ -418,6 +418,15 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if req.DefaultRef != "" {
+		ref, err := sourcepkg.NormalizeRef(req.DefaultRef)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_source_reference", "invalid source reference", nil)
+			return
+		}
+		req.DefaultRef = ref
+	}
+
 	if req.CheckoutPath == "" {
 		if req.CheckoutMode != dal.SourceCheckoutModeManaged {
 			writeAPIError(w, http.StatusBadRequest, "missing_checkout_path", "checkout_path is required", nil)
@@ -875,6 +884,26 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 	if req.Ref == "" && req.Path == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_source_schedule_override", "ref or path is required", nil)
 		return
+	}
+
+	if req.Ref != "" {
+		ref, err := sourcepkg.NormalizeRef(req.Ref)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_source_reference", "invalid source reference", nil)
+			return
+		}
+
+		req.Ref = ref
+	}
+
+	if req.Path != "" {
+		filePath, err := sourcepkg.NormalizeTreePath(req.Path)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_source_reference", "invalid source reference", nil)
+			return
+		}
+
+		req.Path = filePath
 	}
 
 	ctx, cancel := s.handlerDBCtx(r)
@@ -2179,6 +2208,16 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 	if !sourceAuthoringModeCompatible(updated.AuthoringMode, updated.CheckoutMode) {
 		writeAPIError(w, http.StatusBadRequest, "incompatible_authoring_mode", "authoring_mode is not compatible with checkout_mode", nil)
 		return
+	}
+
+	if updated.DefaultRef != "" {
+		ref, err := sourcepkg.NormalizeRef(updated.DefaultRef)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_source_reference", "invalid source reference", nil)
+			return
+		}
+
+		updated.DefaultRef = ref
 	}
 
 	if updated.CheckoutPath == "" {

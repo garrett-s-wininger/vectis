@@ -703,6 +703,11 @@ func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected unknown JSON field error")
 	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","default_ref":"HEAD~1"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected invalid default_ref error")
+	}
 }
 
 func TestSourceScheduleDeclarations_Viper(t *testing.T) {
@@ -783,6 +788,21 @@ func TestSourceScheduleDeclarations_RejectsInvalid(t *testing.T) {
 	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build"}]`)
 	if _, err := SourceScheduleDeclarations(); err == nil {
 		t.Fatal("expected missing cron_spec error")
+	}
+
+	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","ref":"HEAD~1"}]`)
+	if _, err := SourceScheduleDeclarations(); err == nil {
+		t.Fatal("expected invalid ref error")
+	}
+
+	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","path":"../build.json"}]`)
+	if _, err := SourceScheduleDeclarations(); err == nil {
+		t.Fatal("expected invalid path error")
+	}
+
+	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"team/build","cron_spec":"0 * * * *"}]`)
+	if _, err := SourceScheduleDeclarations(); err == nil {
+		t.Fatal("expected invalid derived job path error")
 	}
 }
 

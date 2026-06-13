@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"vectis/internal/source/refspec"
 )
 
 var (
@@ -20,7 +22,7 @@ const DefaultMaxFileBytes int64 = 1024 * 1024
 const (
 	DefaultBranchListLimit = 50
 	DefaultTreeListLimit   = 100
-	DefaultDefinitionPath  = ".vectis/jobs"
+	DefaultDefinitionPath  = refspec.DefaultDefinitionPath
 )
 
 // Repository reads immutable source content from a repository-like backing store.

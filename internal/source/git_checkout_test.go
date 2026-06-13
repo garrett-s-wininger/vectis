@@ -106,6 +106,50 @@ func TestGitCheckoutReadFileHonorsMaxFileBytes(t *testing.T) {
 	}
 }
 
+func TestNormalizeRefAcceptsSafeRefs(t *testing.T) {
+	for _, ref := range []string{
+		"HEAD",
+		"main",
+		"feature/build",
+		"refs/heads/main",
+		"refs/tags/v1.2.3",
+		"0123456789abcdef0123456789abcdef01234567",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			got, err := normalizeRef(ref)
+			if err != nil {
+				t.Fatalf("normalizeRef(%q): %v", ref, err)
+			}
+
+			if got != ref {
+				t.Fatalf("normalizeRef(%q)=%q", ref, got)
+			}
+		})
+	}
+}
+
+func TestNormalizeRefRejectsRevisionExpressions(t *testing.T) {
+	for _, ref := range []string{
+		"-main",
+		"/main",
+		"main/",
+		"main..other",
+		"HEAD~1",
+		"main^{}",
+		"main:path",
+		"feature/*",
+		"main@{1}",
+		"refs/heads/.hidden",
+		"refs/heads/main.lock",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			if _, err := normalizeRef(ref); !errors.Is(err, ErrInvalidReference) {
+				t.Fatalf("expected ErrInvalidReference for %q, got %v", ref, err)
+			}
+		})
+	}
+}
+
 func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")

@@ -618,6 +618,51 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	}
 }
 
+func TestAPIServer_SourceScheduleOverrideRejectsInvalidSourceReference(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	ctx := context.Background()
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-build",
+		JobID:              "build",
+		CronSpec:           "30 8 * * *",
+		NextRunAt:          time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC),
+		SourceRepositoryID: "vectis-local",
+		SourceRef:          "main",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		body map[string]any
+	}{
+		{name: "revision expression", body: map[string]any{"ref": "HEAD~1"}},
+		{name: "path escape", body: map[string]any{"path": "../build.json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-schedules/nightly-build/override", tc.body)
+			assertAPIError(t, rec, http.StatusBadRequest, "invalid_source_reference")
+		})
+	}
+}
+
 func TestAPIServer_DeleteSourceScheduleGuards(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"declared-disabled","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":false}]`)
@@ -2584,6 +2629,39 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	})
 
 	assertAPIError(t, incompatibleAuthoringModeRec, http.StatusBadRequest, "incompatible_authoring_mode")
+}
+
+func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+
+	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "invalid-ref",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": t.TempDir(),
+		"default_ref":   "HEAD~1",
+	})
+
+	assertAPIError(t, createRec, http.StatusBadRequest, "invalid_source_reference")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": t.TempDir(),
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"default_ref": "main..other",
+	})
+
+	assertAPIError(t, updateRec, http.StatusBadRequest, "invalid_source_reference")
 }
 
 func TestAPIServer_UpdateSourceRepositoryRejectsDuplicateCheckoutPath(t *testing.T) {

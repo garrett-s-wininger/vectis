@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+
+	"vectis/internal/source/refspec"
 )
 
 const (
@@ -286,6 +288,15 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 			return nil, fmt.Errorf("source.repositories[%d].repository_id is required", i)
 		}
 
+		if repo.DefaultRef != "" {
+			ref, err := refspec.NormalizeRef(repo.DefaultRef)
+			if err != nil {
+				return nil, fmt.Errorf("source.repositories[%d].default_ref: %w", i, err)
+			}
+
+			repo.DefaultRef = ref
+		}
+
 		if _, ok := seen[repo.RepositoryID]; ok {
 			return nil, fmt.Errorf("source.repositories[%d].repository_id %q is duplicated", i, repo.RepositoryID)
 		}
@@ -322,6 +333,26 @@ func normalizeSourceScheduleDeclarations(in []SourceScheduleDeclaration) ([]Sour
 
 		if sched.JobID == "" {
 			return nil, fmt.Errorf("source.schedules[%d].job_id is required", i)
+		}
+
+		if sched.Ref != "" {
+			ref, err := refspec.NormalizeRef(sched.Ref)
+			if err != nil {
+				return nil, fmt.Errorf("source.schedules[%d].ref: %w", i, err)
+			}
+
+			sched.Ref = ref
+		}
+
+		if sched.Path != "" {
+			filePath, err := refspec.NormalizeTreePath(sched.Path)
+			if err != nil {
+				return nil, fmt.Errorf("source.schedules[%d].path: %w", i, err)
+			}
+
+			sched.Path = filePath
+		} else if _, err := refspec.DefinitionPathForJobID(sched.JobID); err != nil {
+			return nil, fmt.Errorf("source.schedules[%d].job_id: %w", i, err)
 		}
 
 		if sched.CronSpec == "" {
