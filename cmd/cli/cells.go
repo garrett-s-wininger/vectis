@@ -17,18 +17,26 @@ type cellsStatusResult struct {
 }
 
 type cellStatusResult struct {
-	CellID            string `json:"cell_id"`
-	IngressRequired   bool   `json:"ingress_required"`
-	IngressConfigured bool   `json:"ingress_configured"`
-	IngressReachable  bool   `json:"ingress_reachable"`
-	Status            string `json:"status"`
-	HTTPStatus        int    `json:"http_status,omitempty"`
-	Error             string `json:"error,omitempty"`
-	Queued            int64  `json:"queued"`
-	Stuck             int64  `json:"stuck"`
-	CatalogPending    int64  `json:"catalog_pending"`
-	CatalogFailed     int64  `json:"catalog_failed"`
-	CatalogTotal      int64  `json:"catalog_total"`
+	CellID            string                  `json:"cell_id"`
+	Ready             bool                    `json:"ready"`
+	IngressRequired   bool                    `json:"ingress_required"`
+	IngressConfigured bool                    `json:"ingress_configured"`
+	IngressReachable  bool                    `json:"ingress_reachable"`
+	Status            string                  `json:"status"`
+	HTTPStatus        int                     `json:"http_status,omitempty"`
+	Error             string                  `json:"error,omitempty"`
+	Queued            int64                   `json:"queued"`
+	Stuck             int64                   `json:"stuck"`
+	CatalogPending    int64                   `json:"catalog_pending"`
+	CatalogFailed     int64                   `json:"catalog_failed"`
+	CatalogTotal      int64                   `json:"catalog_total"`
+	Checks            []cellStatusCheckResult `json:"checks"`
+}
+
+type cellStatusCheckResult struct {
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	Summary string `json:"summary,omitempty"`
 }
 
 func runCellsStatus(cmd *cobra.Command, args []string) {
@@ -74,7 +82,7 @@ func writeCellsStatusText(w io.Writer, result cellsStatusResult) error {
 	})
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "CELL\tSTATUS\tQUEUED\tSTUCK\tCATALOG P/F/T\tERROR")
+	fmt.Fprintln(tw, "CELL\tREADY\tROUTE\tQUEUED\tSTUCK\tCATALOG P/F/T\tCHECKS\tERROR")
 	for _, cell := range result.Cells {
 		status := strings.TrimSpace(cell.Status)
 		if status == "" {
@@ -86,19 +94,51 @@ func writeCellsStatusText(w io.Writer, result cellsStatusResult) error {
 			errText = "-"
 		}
 
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d/%d/%d\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d/%d/%d\t%s\t%s\n",
 			cell.CellID,
+			readyText(cell.Ready),
 			status,
 			cell.Queued,
 			cell.Stuck,
 			cell.CatalogPending,
 			cell.CatalogFailed,
 			cell.CatalogTotal,
+			formatCellChecks(cell.Checks),
 			errText,
 		)
 	}
 
 	return tw.Flush()
+}
+
+func readyText(ready bool) string {
+	if ready {
+		return "yes"
+	}
+
+	return "no"
+}
+
+func formatCellChecks(checks []cellStatusCheckResult) string {
+	parts := make([]string, 0, len(checks))
+	for _, check := range checks {
+		status := strings.TrimSpace(check.Status)
+		if status == "" || status == "pass" {
+			continue
+		}
+
+		id := strings.TrimSpace(check.ID)
+		if id == "" {
+			id = "check"
+		}
+		parts = append(parts, id+":"+status)
+	}
+
+	if len(parts) == 0 {
+		return "-"
+	}
+
+	return strings.Join(parts, ",")
 }
 
 var cellsCmd = &cobra.Command{

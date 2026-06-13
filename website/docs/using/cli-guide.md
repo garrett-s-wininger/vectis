@@ -76,7 +76,7 @@ The health check covers API liveness/readiness, schema state, queue backlog, rec
 
 ## Inspect Cells
 
-In multi-cell deployments, inspect execution cell routing, dispatch repair pressure, and fan-in pressure directly:
+In multi-cell deployments, inspect execution cell routing, dispatch repair pressure, and fan-in pressure directly. The table includes a per-cell `READY` summary plus check details for routing, dispatch, and catalog fan-in:
 
 ```sh
 ./bin/vectis-cli cells status

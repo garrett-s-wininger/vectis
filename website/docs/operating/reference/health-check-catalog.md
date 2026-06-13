@@ -74,7 +74,7 @@ When `queue.backlog.ratio` warns in a multi-cell deployment, `evidence` includes
 
 When `reconciler.stuck.runs` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `stuck=3 cells=iad-a:2,pdx-b:1`. The `stuck` bucket is scoped to root-dispatch redispatch candidates. Orphaned task runs whose stored task summary can already reduce to a terminal state use `task_finalization_pending` and `task_finalization_cells`, for example `stuck=0 task_finalization_pending=1 task_finalization_cells=pdx-b:1`.
 
-When `cells.ingress` warns, `evidence` includes each observed cell and readiness state, for example `iad-a:ready,pdx-b:missing_route`. The endpoint reports cell IDs, route health, queued run counts, root-dispatch stuck counts, and catalog inbox counts; it does not return private ingress URLs.
+When `cells.ingress` warns, `evidence` includes each observed cell and ingress state, for example `iad-a:ready,pdx-b:missing_route`. The endpoint reports cell IDs, a per-cell `ready` summary, ingress/dispatch/catalog checks, queued run counts, root-dispatch stuck counts, and catalog inbox counts; it does not return private ingress URLs.
 
 When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes source-cell inbox pressure for cells with pending or failed events, for example `sources=iad-a:p=2/f=1,pdx-b:p=101/f=0`.
 

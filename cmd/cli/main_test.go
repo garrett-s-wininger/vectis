@@ -279,6 +279,7 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 			"cells": []map[string]any{
 				{
 					"cell_id":            "pdx-b",
+					"ready":              false,
 					"ingress_required":   true,
 					"ingress_configured": false,
 					"ingress_reachable":  false,
@@ -289,9 +290,15 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 					"catalog_failed":     1,
 					"catalog_total":      9,
 					"error":              "cell ingress endpoint is not configured",
+					"checks": []map[string]string{
+						{"id": "ingress", "status": "fail"},
+						{"id": "dispatch", "status": "warn"},
+						{"id": "catalog", "status": "fail"},
+					},
 				},
 				{
 					"cell_id":            "iad-a",
+					"ready":              true,
 					"ingress_required":   true,
 					"ingress_configured": true,
 					"ingress_reachable":  true,
@@ -312,7 +319,7 @@ func TestCellsStatus_tableOutput(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"CELL", "STATUS", "CATALOG P/F/T", "iad-a", "ready", "0/0/5", "pdx-b", "missing_route", "4/1/9"} {
+	for _, want := range []string{"CELL", "READY", "ROUTE", "CATALOG P/F/T", "CHECKS", "iad-a", "yes", "ready", "0/0/5", "pdx-b", "no", "missing_route", "4/1/9", "ingress:fail,dispatch:warn,catalog:fail"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -330,6 +337,7 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 			"cells": []map[string]any{
 				{
 					"cell_id":            "iad-a",
+					"ready":              true,
 					"ingress_required":   true,
 					"ingress_configured": true,
 					"ingress_reachable":  true,
@@ -337,6 +345,9 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 					"queued":             1,
 					"stuck":              0,
 					"catalog_total":      5,
+					"checks": []map[string]string{
+						{"id": "ingress", "status": "pass"},
+					},
 				},
 			},
 		})
@@ -352,7 +363,7 @@ func TestCellsStatus_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || result.Cells[0].CatalogTotal != 5 {
+	if len(result.Cells) != 1 || result.Cells[0].CellID != "iad-a" || !result.Cells[0].Ready || result.Cells[0].CatalogTotal != 5 || len(result.Cells[0].Checks) != 1 {
 		t.Fatalf("unexpected cells status JSON: %+v", result)
 	}
 }

@@ -381,6 +381,7 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 	var body struct {
 		Cells []struct {
 			CellID            string `json:"cell_id"`
+			Ready             bool   `json:"ready"`
 			IngressRequired   bool   `json:"ingress_required"`
 			IngressConfigured bool   `json:"ingress_configured"`
 			IngressReachable  bool   `json:"ingress_reachable"`
@@ -389,6 +390,10 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 			Error             string `json:"error"`
 			Queued            int64  `json:"queued"`
 			Stuck             int64  `json:"stuck"`
+			Checks            []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"checks"`
 		} `json:"cells"`
 	}
 
@@ -400,16 +405,28 @@ func TestAPIServer_GetCellsStatusChecksConfiguredIngress(t *testing.T) {
 		t.Fatalf("cells len: got %d, want 3 (%+v)", len(body.Cells), body.Cells)
 	}
 
-	if body.Cells[0].CellID != "iad-a" || !body.Cells[0].IngressRequired || !body.Cells[0].IngressConfigured || !body.Cells[0].IngressReachable || body.Cells[0].Status != "ready" || body.Cells[0].HTTPStatus != http.StatusOK {
+	if body.Cells[0].CellID != "iad-a" || !body.Cells[0].Ready || !body.Cells[0].IngressRequired || !body.Cells[0].IngressConfigured || !body.Cells[0].IngressReachable || body.Cells[0].Status != "ready" || body.Cells[0].HTTPStatus != http.StatusOK {
 		t.Fatalf("ready cell: got %+v", body.Cells[0])
 	}
 
-	if body.Cells[1].CellID != "pdx-b" || !body.Cells[1].IngressRequired || !body.Cells[1].IngressConfigured || body.Cells[1].IngressReachable || body.Cells[1].Status != "unhealthy" || body.Cells[1].HTTPStatus != http.StatusServiceUnavailable {
+	if len(body.Cells[0].Checks) != 3 || body.Cells[0].Checks[0].ID != "ingress" || body.Cells[0].Checks[0].Status != "pass" {
+		t.Fatalf("ready cell checks: got %+v", body.Cells[0].Checks)
+	}
+
+	if body.Cells[1].CellID != "pdx-b" || body.Cells[1].Ready || !body.Cells[1].IngressRequired || !body.Cells[1].IngressConfigured || body.Cells[1].IngressReachable || body.Cells[1].Status != "unhealthy" || body.Cells[1].HTTPStatus != http.StatusServiceUnavailable {
 		t.Fatalf("unhealthy cell: got %+v", body.Cells[1])
 	}
 
-	if body.Cells[2].CellID != "sjc-c" || !body.Cells[2].IngressRequired || body.Cells[2].IngressConfigured || body.Cells[2].IngressReachable || body.Cells[2].Status != "missing_route" || body.Cells[2].Queued != 4 || body.Cells[2].Stuck != 2 {
+	if len(body.Cells[1].Checks) != 3 || body.Cells[1].Checks[0].ID != "ingress" || body.Cells[1].Checks[0].Status != "fail" {
+		t.Fatalf("unhealthy cell checks: got %+v", body.Cells[1].Checks)
+	}
+
+	if body.Cells[2].CellID != "sjc-c" || body.Cells[2].Ready || !body.Cells[2].IngressRequired || body.Cells[2].IngressConfigured || body.Cells[2].IngressReachable || body.Cells[2].Status != "missing_route" || body.Cells[2].Queued != 4 || body.Cells[2].Stuck != 2 {
 		t.Fatalf("missing route cell: got %+v", body.Cells[2])
+	}
+
+	if len(body.Cells[2].Checks) != 3 || body.Cells[2].Checks[0].Status != "fail" || body.Cells[2].Checks[1].Status != "warn" {
+		t.Fatalf("missing route cell checks: got %+v", body.Cells[2].Checks)
 	}
 }
 
@@ -443,10 +460,15 @@ func TestAPIServer_GetCellsStatusIncludesCatalogSourceCounts(t *testing.T) {
 	var body struct {
 		Cells []struct {
 			CellID         string `json:"cell_id"`
+			Ready          bool   `json:"ready"`
 			Status         string `json:"status"`
 			CatalogPending int64  `json:"catalog_pending"`
 			CatalogFailed  int64  `json:"catalog_failed"`
 			CatalogTotal   int64  `json:"catalog_total"`
+			Checks         []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"checks"`
 		} `json:"cells"`
 	}
 
@@ -458,8 +480,12 @@ func TestAPIServer_GetCellsStatusIncludesCatalogSourceCounts(t *testing.T) {
 		t.Fatalf("cells len: got %d, want 1 (%+v)", len(body.Cells), body.Cells)
 	}
 
-	if body.Cells[0].CellID != "pdx-b" || body.Cells[0].Status != "missing_route" || body.Cells[0].CatalogPending != 1 || body.Cells[0].CatalogFailed != 1 || body.Cells[0].CatalogTotal != 2 {
+	if body.Cells[0].CellID != "pdx-b" || body.Cells[0].Ready || body.Cells[0].Status != "missing_route" || body.Cells[0].CatalogPending != 1 || body.Cells[0].CatalogFailed != 1 || body.Cells[0].CatalogTotal != 2 {
 		t.Fatalf("unexpected catalog source cell: %+v", body.Cells[0])
+	}
+
+	if len(body.Cells[0].Checks) != 3 || body.Cells[0].Checks[2].ID != "catalog" || body.Cells[0].Checks[2].Status != "fail" {
+		t.Fatalf("unexpected catalog source checks: %+v", body.Cells[0].Checks)
 	}
 }
 

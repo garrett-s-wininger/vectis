@@ -101,7 +101,7 @@ For production-like deployments:
 - keep the cell queue and cell database reachable only by services in that cell
 - scrape cell ingress health and metrics from a trusted monitoring network only
 
-The global API never returns private ingress URLs from `GET /api/v1/cells/status`; it reports readiness, queued/root-dispatch counts, and catalog counts only.
+The global API never returns private ingress URLs from `GET /api/v1/cells/status`; it reports a per-cell `ready` summary, ingress/dispatch/catalog checks, queued/root-dispatch counts, and catalog counts only.
 
 ## Required Catalog Configuration
 
@@ -149,13 +149,13 @@ Scrape API and reconciler metrics to see dispatch health across cells:
 
 Use `source="api"` failures to find initial dispatch problems. Use `source="reconciler"` failures to find automatic repair attempts that still cannot reach a cell. A later `source="reconciler", event_type="success"` for the same target cell means the repair loop is catching up.
 
-The global API also exposes configured ingress readiness:
+The global API also exposes a cell readiness view:
 
 ```sh
 ./bin/vectis-cli cells status
 ```
 
-This reports cell IDs, ingress route readiness, queued/stuck run counts, and catalog inbox counts without returning the private ingress URLs. Use `--format json` when automation needs the raw response. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
+This reports cell IDs, a `ready` summary, ingress route readiness, dispatch repair pressure, queued/stuck run counts, and catalog inbox counts without returning the private ingress URLs. JSON output includes `checks` entries for `ingress`, `dispatch`, and `catalog`, with `pass`, `warn`, or `fail` status values. Cells are included when they have a configured ingress route or when the global run/catalog state already references them. `vectis-cli doctor` uses the same endpoint for the `cells.ingress` check, so work targeting a cell with no route shows up as `missing_route`.
 
 ## Running Locally
 

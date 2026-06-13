@@ -22,18 +22,26 @@ type cellsStatusResponse struct {
 }
 
 type cellStatusResponse struct {
-	CellID            string `json:"cell_id"`
-	IngressRequired   bool   `json:"ingress_required"`
-	IngressConfigured bool   `json:"ingress_configured"`
-	IngressReachable  bool   `json:"ingress_reachable"`
-	Status            string `json:"status"`
-	HTTPStatus        int    `json:"http_status,omitempty"`
-	Error             string `json:"error,omitempty"`
-	Queued            int64  `json:"queued"`
-	Stuck             int64  `json:"stuck"`
-	CatalogPending    int64  `json:"catalog_pending"`
-	CatalogFailed     int64  `json:"catalog_failed"`
-	CatalogTotal      int64  `json:"catalog_total"`
+	CellID            string                    `json:"cell_id"`
+	Ready             bool                      `json:"ready"`
+	IngressRequired   bool                      `json:"ingress_required"`
+	IngressConfigured bool                      `json:"ingress_configured"`
+	IngressReachable  bool                      `json:"ingress_reachable"`
+	Status            string                    `json:"status"`
+	HTTPStatus        int                       `json:"http_status,omitempty"`
+	Error             string                    `json:"error,omitempty"`
+	Queued            int64                     `json:"queued"`
+	Stuck             int64                     `json:"stuck"`
+	CatalogPending    int64                     `json:"catalog_pending"`
+	CatalogFailed     int64                     `json:"catalog_failed"`
+	CatalogTotal      int64                     `json:"catalog_total"`
+	Checks            []cellStatusCheckResponse `json:"checks"`
+}
+
+type cellStatusCheckResponse struct {
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	Summary string `json:"summary,omitempty"`
 }
 
 func (s *APIServer) GetCellsStatus(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +103,9 @@ func (s *APIServer) GetCellsStatus(w http.ResponseWriter, r *http.Request) {
 
 	cells := make([]cellStatusResponse, 0, len(cellIDs))
 	for _, cellID := range cellIDs {
-		cells = append(cells, *known[cellID])
+		cell := known[cellID]
+		finalizeCellReadiness(cell)
+		cells = append(cells, *cell)
 	}
 	writeJSON(w, http.StatusOK, cellsStatusResponse{Cells: cells})
 }
@@ -219,6 +229,94 @@ func ensureCellStatus(cells map[string]*cellStatusResponse, cellID, localCellID 
 
 	cells[cellID] = cell
 	return cell
+}
+
+func finalizeCellReadiness(cell *cellStatusResponse) {
+	if cell == nil {
+		return
+	}
+
+	cell.Checks = []cellStatusCheckResponse{
+		cellIngressReadinessCheck(*cell),
+		cellDispatchReadinessCheck(*cell),
+		cellCatalogReadinessCheck(*cell),
+	}
+
+	cell.Ready = true
+	for _, check := range cell.Checks {
+		if check.Status == "fail" {
+			cell.Ready = false
+			return
+		}
+	}
+}
+
+func cellIngressReadinessCheck(cell cellStatusResponse) cellStatusCheckResponse {
+	check := cellStatusCheckResponse{ID: "ingress", Status: "pass"}
+	if !cell.IngressRequired {
+		check.Summary = "local dispatch does not require cell ingress"
+		return check
+	}
+
+	if cell.IngressConfigured && cell.IngressReachable && cell.Status == "ready" {
+		check.Summary = "cell ingress route is ready"
+		return check
+	}
+
+	check.Status = "fail"
+	switch strings.TrimSpace(cell.Status) {
+	case "missing_route":
+		check.Summary = "cell ingress route is not configured"
+	case "invalid":
+		check.Summary = "cell ingress route configuration is invalid"
+	case "unreachable":
+		check.Summary = "cell ingress route is unreachable"
+	case "unhealthy":
+		check.Summary = "cell ingress readiness check is unhealthy"
+	default:
+		check.Summary = "cell ingress route is not ready"
+	}
+	return check
+}
+
+func cellDispatchReadinessCheck(cell cellStatusResponse) cellStatusCheckResponse {
+	check := cellStatusCheckResponse{ID: "dispatch", Status: "pass"}
+	if cell.Stuck > 0 {
+		check.Status = "warn"
+		check.Summary = fmt.Sprintf("%d queued runs are past the dispatch repair gap", cell.Stuck)
+		return check
+	}
+
+	if cell.Queued > 0 {
+		check.Summary = fmt.Sprintf("%d queued runs are waiting for execution", cell.Queued)
+		return check
+	}
+
+	check.Summary = "no queued dispatch pressure"
+	return check
+}
+
+func cellCatalogReadinessCheck(cell cellStatusResponse) cellStatusCheckResponse {
+	check := cellStatusCheckResponse{ID: "catalog", Status: "pass"}
+	if cell.CatalogFailed > 0 {
+		check.Status = "fail"
+		check.Summary = fmt.Sprintf("%d catalog events failed", cell.CatalogFailed)
+		return check
+	}
+
+	if cell.CatalogPending > 0 {
+		check.Status = "warn"
+		check.Summary = fmt.Sprintf("%d catalog events are pending fan-in", cell.CatalogPending)
+		return check
+	}
+
+	if cell.CatalogTotal > 0 {
+		check.Summary = fmt.Sprintf("%d catalog events observed", cell.CatalogTotal)
+		return check
+	}
+
+	check.Summary = "catalog inbox is clear"
+	return check
 }
 
 func cellIngressRequired(cellID, localCellID string, splitDatabases bool) bool {

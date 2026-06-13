@@ -11,7 +11,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Actions | Inspect configured action descriptors and resolve friendly names to digests for pinning. | `vectis-cli actions list`, `actions resolve`, `--ignore-policy` |
 | Jobs | Manage stored jobs and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `trigger --cell`, `run`, `run --cell` |
 | Runs | Inspect, cancel, retry, download artifacts, or manually repair run state. | `vectis-cli runs list`, `runs list --cell`, `show`, `tasks`, `artifacts list`, `artifacts download`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
-| Cells | Inspect execution cell routing, queued pressure, orchestrator-driven task progress, and catalog fan-in counts. | `vectis-cli cells status` |
+| Cells | Inspect execution cell readiness, routing, queued pressure, orchestrator-driven task progress, and catalog fan-in counts. | `vectis-cli cells status` |
 | Logs | Stream logs for one run or follow future runs for a job. | `vectis-cli logs run`, `logs job` |
 | Auth sessions | Log in and out for API-backed CLI use. | `vectis-cli auth login`, `logout` |
 | API tokens | Manage personal/API tokens through the auth API. | `vectis-cli auth tokens list`, `create`, `delete` |
@@ -31,7 +31,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Check whether the system is healthy | `vectis-cli health check --strict` |
 | Get machine-readable health evidence | `vectis-cli health check --json` |
 | Discover an action digest to pin | `vectis-cli actions resolve <uses>` |
-| Inspect multi-cell routing, task progress, and fan-in state | `vectis-cli cells status` |
+| Inspect multi-cell readiness, routing, task progress, and fan-in state | `vectis-cli cells status` |
 | Inspect a stuck run | `vectis-cli runs show <run-id>` |
 | Inspect task and attempt state for a run | `vectis-cli runs tasks <run-id>` |
 | Download a run artifact | `vectis-cli runs artifacts download <run-id> <artifact-name> --output <path>` |
