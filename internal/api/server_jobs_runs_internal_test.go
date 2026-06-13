@@ -83,6 +83,39 @@ func TestRunNextAction(t *testing.T) {
 	}
 }
 
+func TestBuildDispatchSummary(t *testing.T) {
+	failureMessage := "queue unavailable"
+	events := []dal.DispatchEvent{
+		{Source: dal.DispatchSourceCron, EventType: dal.DispatchEventAttempt, CreatedAt: 10},
+		{Source: dal.DispatchSourceCron, EventType: dal.DispatchEventFailure, Message: &failureMessage, CreatedAt: 12},
+		{Source: dal.DispatchSourceReconciler, EventType: dal.DispatchEventAttempt, CreatedAt: 20},
+		{Source: dal.DispatchSourceReconciler, EventType: dal.DispatchEventSuccess, CreatedAt: 21},
+		{Source: dal.DispatchSourceCron, EventType: dal.DispatchEventAttempt, CreatedAt: 30},
+		{Source: dal.DispatchSourceCron, EventType: dal.DispatchEventSuccess, CreatedAt: 31},
+	}
+
+	got := buildDispatchSummary(events)
+	if len(got) != 2 {
+		t.Fatalf("summary len: got %d want 2 (%+v)", len(got), got)
+	}
+
+	if got[0].Source != dal.DispatchSourceCron || got[0].Attempts != 2 || got[0].Successes != 1 || got[0].Failures != 1 {
+		t.Fatalf("cron summary: %+v", got[0])
+	}
+
+	if got[0].FirstEventAt != 10 || got[0].LastEventAt != 31 || got[0].LastEventType != dal.DispatchEventSuccess || got[0].LastMessage != nil {
+		t.Fatalf("cron last event summary: %+v", got[0])
+	}
+
+	if got[1].Source != dal.DispatchSourceReconciler || got[1].Attempts != 1 || got[1].Successes != 1 || got[1].Failures != 0 {
+		t.Fatalf("reconciler summary: %+v", got[1])
+	}
+
+	if got[1].FirstEventAt != 20 || got[1].LastEventAt != 21 || got[1].LastEventType != dal.DispatchEventSuccess {
+		t.Fatalf("reconciler last event summary: %+v", got[1])
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }

@@ -38,13 +38,15 @@ The event type may be:
 
 ## Where To Look
 
-- `vectis-cli runs show <run-id>` prints `next_action`, dispatch events, and task completion with the rest of the run detail.
+- `vectis-cli runs show <run-id>` prints `next_action`, `dispatch_summary`, dispatch events, and task completion with the rest of the run detail.
 - `vectis-cli runs tasks <run-id>` lists task graph nodes and task attempts for the run, including execution status and worker lease ownership when present.
-- `GET /api/v1/runs/{id}` includes `next_action`, `dispatch_events`, and task completion for API-based tooling.
+- `GET /api/v1/runs/{id}` includes `next_action`, `dispatch_summary`, `dispatch_events`, and task completion for API-based tooling.
 - `GET /api/v1/runs/{id}/tasks` returns task graph nodes and attempts for API-based tooling, including execution status and worker lease ownership when present.
 - Reconciler metrics and logs explain whether stuck queued runs are being scanned and redispatched.
 
 Normal triage should not require SQL.
+
+`dispatch_summary` is derived from the raw dispatch events. It groups by producer source and reports accepted, attempt, success, and failure counts plus the producer's last event, timestamp, and last failure message when present. Use it to compare API, cron, and reconciler handoff attempts quickly, then read `dispatch_events` for the exact chronological audit trail.
 
 ## Reading Common Patterns
 

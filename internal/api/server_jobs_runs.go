@@ -2216,6 +2216,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		RequestedCells       []string           `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash string             `json:"execution_payload_hash,omitempty"`
 		NextAction           *string            `json:"next_action,omitempty"`
+		DispatchSummary      []dispatchSummary  `json:"dispatch_summary,omitempty"`
 		DispatchEvents       []dispatchEventRow `json:"dispatch_events"`
 		TaskCompletion       *taskCompletionRow `json:"task_completion,omitempty"`
 	}
@@ -2241,6 +2242,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		RequestedCells:       rec.RequestedCells,
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
 		NextAction:           runNextAction(rec.Status, taskCompletionSummary, pendingTaskContinuation),
+		DispatchSummary:      buildDispatchSummary(dispatchEvents),
 		DispatchEvents:       []dispatchEventRow{},
 	}
 
@@ -2279,6 +2281,61 @@ const (
 	runNextActionTaskContinuationPending       = "task_continuation_pending"
 	runNextActionTaskFinalizationRepairPending = "task_finalization_repair_pending"
 )
+
+type dispatchSummary struct {
+	Source        string  `json:"source"`
+	Accepted      int     `json:"accepted"`
+	Attempts      int     `json:"attempts"`
+	Successes     int     `json:"successes"`
+	Failures      int     `json:"failures"`
+	FirstEventAt  int64   `json:"first_event_at"`
+	LastEventAt   int64   `json:"last_event_at"`
+	LastEventType string  `json:"last_event_type"`
+	LastMessage   *string `json:"last_message,omitempty"`
+}
+
+func buildDispatchSummary(events []dal.DispatchEvent) []dispatchSummary {
+	if len(events) == 0 {
+		return nil
+	}
+
+	bySource := map[string]int{}
+	summary := make([]dispatchSummary, 0)
+	for _, event := range events {
+		source := strings.TrimSpace(event.Source)
+		if source == "" {
+			source = "unknown"
+		}
+
+		idx, ok := bySource[source]
+		if !ok {
+			idx = len(summary)
+			bySource[source] = idx
+			summary = append(summary, dispatchSummary{
+				Source:       source,
+				FirstEventAt: event.CreatedAt,
+			})
+		}
+
+		row := &summary[idx]
+		switch event.EventType {
+		case dal.DispatchEventAccepted:
+			row.Accepted++
+		case dal.DispatchEventAttempt:
+			row.Attempts++
+		case dal.DispatchEventSuccess:
+			row.Successes++
+		case dal.DispatchEventFailure:
+			row.Failures++
+		}
+
+		row.LastEventAt = event.CreatedAt
+		row.LastEventType = event.EventType
+		row.LastMessage = event.Message
+	}
+
+	return summary
+}
 
 func runNextAction(status string, taskCompletion dal.RunTaskCompletion, pendingTaskContinuation bool) *string {
 	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 && (taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {

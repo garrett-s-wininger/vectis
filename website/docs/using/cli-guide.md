@@ -158,6 +158,8 @@ Use that ID later with:
 ./bin/vectis-cli logs run <run-id>
 ```
 
+`runs show` includes a `dispatch_summary` that groups API, cron, and reconciler handoff attempts by producer, plus the raw `dispatch_events` audit trail when events exist.
+
 For safe client retries after a network error, pass an idempotency key:
 
 ```sh

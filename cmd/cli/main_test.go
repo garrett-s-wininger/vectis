@@ -1691,6 +1691,59 @@ func TestGetRun_successIncludesTaskCompletion(t *testing.T) {
 	}
 }
 
+func TestGetRun_successIncludesDispatchSummary(t *testing.T) {
+	lastFailure := "queue unavailable"
+	cronAt := time.Date(2026, 6, 13, 12, 30, 0, 0, time.UTC).Unix()
+	reconcilerAt := time.Date(2026, 6, 13, 12, 35, 0, 0, time.UTC).Unix()
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/runs/run-1" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":      "run-1",
+			"run_index":   3,
+			"status":      "queued",
+			"owning_cell": "pdx-b",
+			"dispatch_summary": []map[string]any{
+				{
+					"source":          "cron",
+					"attempts":        1,
+					"failures":        1,
+					"first_event_at":  cronAt,
+					"last_event_at":   cronAt,
+					"last_event_type": "failure",
+					"last_message":    lastFailure,
+				},
+				{
+					"source":          "reconciler",
+					"attempts":        1,
+					"successes":       1,
+					"first_event_at":  reconcilerAt,
+					"last_event_at":   reconcilerAt,
+					"last_event_type": "success",
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"dispatch_summary:",
+		"cron: accepted=0 attempts=1 successes=0 failures=1 last=failure at 2026-06-13T12:30:00Z: queue unavailable",
+		"reconciler: accepted=0 attempts=1 successes=1 failures=0 last=success at 2026-06-13T12:35:00Z",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestGetRun_jsonOutput(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {

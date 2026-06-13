@@ -2273,8 +2273,18 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	}
 
 	var got struct {
-		RunID          string `json:"run_id"`
-		Status         string `json:"status"`
+		RunID           string `json:"run_id"`
+		Status          string `json:"status"`
+		DispatchSummary []struct {
+			Source        string `json:"source"`
+			Accepted      int    `json:"accepted"`
+			Attempts      int    `json:"attempts"`
+			Successes     int    `json:"successes"`
+			Failures      int    `json:"failures"`
+			FirstEventAt  int64  `json:"first_event_at"`
+			LastEventAt   int64  `json:"last_event_at"`
+			LastEventType string `json:"last_event_type"`
+		} `json:"dispatch_summary"`
 		DispatchEvents []struct {
 			Source    string `json:"source"`
 			EventType string `json:"event_type"`
@@ -2295,6 +2305,14 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 
 	if len(got.DispatchEvents) != 3 {
 		t.Fatalf("expected dispatch trail in run response, got %+v", got.DispatchEvents)
+	}
+
+	if len(got.DispatchSummary) != 1 {
+		t.Fatalf("expected dispatch summary in run response, got %+v", got.DispatchSummary)
+	}
+
+	if got.DispatchSummary[0].Source != dal.DispatchSourceAPI || got.DispatchSummary[0].Accepted != 1 || got.DispatchSummary[0].Attempts != 1 || got.DispatchSummary[0].Successes != 1 || got.DispatchSummary[0].Failures != 0 || got.DispatchSummary[0].LastEventType != dal.DispatchEventSuccess {
+		t.Fatalf("unexpected dispatch summary: %+v", got.DispatchSummary[0])
 	}
 
 	if got.DispatchEvents[0].Source != dal.DispatchSourceAPI || got.DispatchEvents[0].EventType != dal.DispatchEventAccepted {
