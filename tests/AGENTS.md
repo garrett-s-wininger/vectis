@@ -67,6 +67,13 @@ Useful e2e controls:
 | `VECTIS_E2E_DEPLOY_LINUX_TEMPLATE` | Override the VM template used when creating the Linux deploy smoke instance. |
 | `VECTIS_E2E_DEPLOY_LINUX_TIMEOUT` | Timeout for the Linux deploy VM smoke; defaults to `10m`. |
 | `VECTIS_E2E_KEEP_DEPLOY_LINUX=true` | Leave Linux deploy smoke artifacts and the VM running after the test for debugging. |
+| `VECTIS_E2E_PACKAGE_CLI_DEB` | Path to a built `vectis-cli` DEB for package e2e testing. |
+| `VECTIS_E2E_PACKAGE_LINUX_PROVIDER` | Linux package VM provider; defaults to `auto` (currently Lima). |
+| `VECTIS_E2E_PACKAGE_LINUX_PROVIDER_PATH` | Override the VM provider command path, such as `limactl`. |
+| `VECTIS_E2E_PACKAGE_LINUX_INSTANCE` | Override the Linux package smoke VM instance name. |
+| `VECTIS_E2E_PACKAGE_LINUX_TEMPLATE` | Override the VM template used when creating the Linux package smoke instance. |
+| `VECTIS_E2E_PACKAGE_LINUX_TIMEOUT` | Timeout for the Linux package VM smoke; defaults to `10m`. |
+| `VECTIS_E2E_KEEP_PACKAGE_LINUX=true` | Leave the Linux package smoke VM running after the test for debugging. |
 
 ## Mocks
 

@@ -166,6 +166,34 @@ DEPLOY_LINUX_OUT ?= artifacts/deploy/linux
 deploy-artifacts-render:
 	go run ./cmd/cli deploy linux render --output $(DEPLOY_LINUX_OUT)
 
+PACKAGE_OUT ?= artifacts/packages
+PACKAGE_BUILD_DIR ?= $(PACKAGE_OUT)/build
+PACKAGE_ARCH ?= $(shell go env GOARCH)
+PACKAGE_DEB_ARCH ?= $(if $(filter x86_64,$(PACKAGE_ARCH)),amd64,$(if $(filter aarch64,$(PACKAGE_ARCH)),arm64,$(if $(filter 386,$(PACKAGE_ARCH)),i386,$(PACKAGE_ARCH))))
+PACKAGE_VERSION ?= 0.0.0+$(COMMIT)
+PACKAGE_RELEASE ?= 1
+PACKAGE_CLI_BIN := $(PACKAGE_BUILD_DIR)/linux-$(PACKAGE_ARCH)/vectis-cli
+PACKAGE_CLI_DEB := $(PACKAGE_OUT)/vectis-cli_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(PACKAGE_DEB_ARCH).deb
+
+$(PACKAGE_CLI_BIN): cmd/cli/main.go $(API) $(INTERNAL)
+	mkdir -p $(dir ${@})
+	GOOS=linux GOARCH=$(PACKAGE_ARCH) CGO_ENABLED=0 $(GO) build -tags=nosqlite -ldflags '${LDFLAGS}' -o ${@} ./cmd/cli
+
+.PHONY: package-cli-deb
+package-cli-deb: $(PACKAGE_CLI_BIN)
+	go run ./deploy/package/cmd/build --package vectis-cli --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch $(PACKAGE_ARCH) --input vectis-cli=$(PACKAGE_CLI_BIN)
+
+.PHONY: package-cli
+package-cli: package-cli-deb
+
+.PHONY: test-package
+test-package:
+	go test ./deploy/package/...
+
+.PHONY: test-e2e-package-cli-deb
+test-e2e-package-cli-deb: package-cli-deb
+	VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIDeb -count=1 -v
+
 .PHONY: website-a11y
 website-a11y:
 	cd website && \

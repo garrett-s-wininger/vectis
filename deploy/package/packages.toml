@@ -1,0 +1,25 @@
+[defaults]
+maintainer = "Garrett Wininger <garrett.s.wininger@outlook.com>"
+vendor = "Vectis"
+homepage = "https://github.com/garrett-s-wininger/vectis"
+license = "MIT"
+section = "devel"
+priority = "optional"
+
+[[package]]
+id = "vectis-cli"
+name = "vectis-cli"
+summary = "Command line client for Vectis"
+description = """
+Vectis CLI provides a one-shot command line client for Vectis APIs and operator
+helpers.
+"""
+depends = ["ca-certificates"]
+
+[[package.file]]
+id = "vectis-cli"
+source = "vectis-cli"
+destination = "/usr/bin/vectis-cli"
+mode = "0755"
+owner = "root"
+group = "root"
