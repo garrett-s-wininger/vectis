@@ -21,6 +21,8 @@ type SQLRunsRepository struct {
 	cellID string
 }
 
+const terminalSnapshotBatchRows = 2000
+
 func (r *SQLRunsRepository) currentCellID() string {
 	return normalizeCellID(r.cellID)
 }
@@ -55,16 +57,666 @@ func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upda
 		return fmt.Errorf("%w: execution_id is required", ErrNotFound)
 	}
 
+	update.ExecutionID = executionID
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := applyExecutionStatusUpdateTx(ctx, tx, update); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func applyExecutionStatusUpdateTx(ctx context.Context, tx *sql.Tx, update ExecutionStatusUpdate) error {
 	switch update.Status {
 	case ExecutionStatusAccepted:
-		return r.applyCatalogExecutionAccepted(ctx, executionID)
+		return transitionExecutionStatusTx(ctx, tx, update.ExecutionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPlanned, ExecutionStatusPending}, true, false, false)
 	case ExecutionStatusRunning:
-		return r.applyCatalogExecutionStarted(ctx, executionID)
+		return transitionExecutionStatusTx(ctx, tx, update.ExecutionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
 	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
-		return r.applyCatalogExecutionTerminal(ctx, executionID, update.Status)
+		return transitionExecutionStatusTx(ctx, tx, update.ExecutionID, update.Status, update.Status, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, true, true)
 	default:
 		return fmt.Errorf("%w: unsupported execution status %s", ErrConflict, update.Status)
 	}
+}
+
+func transitionExecutionStatusTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	executionID, targetStatus, targetSegmentStatus string,
+	allowedFrom []string,
+	markAccepted, markStarted, markFinished bool,
+) error {
+	_, err := transitionExecutionTx(ctx, tx, executionID, targetStatus, targetSegmentStatus, allowedFrom, markAccepted, markStarted, markFinished)
+	return err
+}
+
+func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, update TerminalExecutionSnapshotUpdate) error {
+	runUpdate, err := terminalSnapshotRunStatusUpdate(update)
+	if err != nil {
+		return err
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var owningCell string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), runUpdate.RunID).Scan(&owningCell); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runUpdate.RunID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	rows, err := terminalSnapshotRows(runUpdate.RunID, owningCell, update.Executions)
+	if err != nil {
+		return err
+	}
+
+	if err := insertTerminalSnapshotRowsTx(ctx, tx, rows); err != nil {
+		return err
+	}
+
+	if err := verifyTerminalSnapshotExecutionsTx(ctx, tx, rows); err != nil {
+		return err
+	}
+
+	for _, batch := range terminalSnapshotStatusBatches(rows) {
+		if err := applyTerminalSnapshotStatusBatchTx(ctx, tx, batch); err != nil {
+			return err
+		}
+	}
+
+	if err := applyTerminalRunStatusUpdateTx(ctx, tx, runUpdate); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+type terminalSnapshotRow struct {
+	runID         string
+	taskID        string
+	parentTaskID  string
+	taskKey       string
+	name          string
+	taskAttemptID string
+	segmentID     string
+	executionID   string
+	cellID        string
+	status        string
+	attempt       int
+	root          bool
+}
+
+type terminalSnapshotStatusBatch struct {
+	status         string
+	executionIDs   []string
+	segmentIDs     []string
+	taskAttemptIDs []string
+	taskIDs        []string
+}
+
+func terminalSnapshotRunStatusUpdate(update TerminalExecutionSnapshotUpdate) (RunStatusUpdate, error) {
+	runID := strings.TrimSpace(update.RunID)
+	if runID == "" {
+		return RunStatusUpdate{}, fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	out := RunStatusUpdate{RunID: runID}
+	switch update.Outcome {
+	case ExecutionFinalizationOutcomeRunSucceeded:
+		out.Status = RunStatusSucceeded
+	case ExecutionFinalizationOutcomeRunFailed:
+		out.Status = RunStatusFailed
+		out.FailureCode = update.FailureCode
+		if out.FailureCode == "" {
+			out.FailureCode = FailureCodeExecution
+		}
+		out.Reason = update.Reason
+	case ExecutionFinalizationOutcomeRunCancelled:
+		out.Status = RunStatusCancelled
+		out.Reason = update.Reason
+		if out.Reason == "" {
+			out.Reason = CancelReasonAPI
+		}
+	default:
+		return RunStatusUpdate{}, fmt.Errorf("%w: unsupported terminal snapshot outcome %s", ErrConflict, update.Outcome)
+	}
+
+	return out, nil
+}
+
+func terminalSnapshotRows(runID, owningCell string, snapshots []TaskExecutionSnapshot) ([]terminalSnapshotRow, error) {
+	rows := make([]terminalSnapshotRow, 0, len(snapshots))
+	rootID := rootTaskID(runID)
+	for _, snapshot := range snapshots {
+		rec := snapshot.Record
+		executionID := strings.TrimSpace(rec.ExecutionID)
+		taskKey := strings.TrimSpace(rec.TaskKey)
+		if executionID == "" || taskKey == "" {
+			continue
+		}
+
+		recRunID := strings.TrimSpace(rec.RunID)
+		if recRunID == "" {
+			recRunID = runID
+		}
+
+		if recRunID != runID {
+			return nil, fmt.Errorf("%w: terminal snapshot execution %s belongs to run %s, want %s", ErrConflict, executionID, recRunID, runID)
+		}
+
+		root := taskKey == RootTaskKey
+		taskID := taskIDForKey(runID, taskKey)
+		if root && strings.TrimSpace(rec.TaskID) != "" {
+			taskID = strings.TrimSpace(rec.TaskID)
+		}
+
+		attempt := rec.Attempt
+		if attempt <= 0 {
+			attempt = 1
+		}
+
+		parentTaskID := strings.TrimSpace(rec.ParentTaskID)
+		if !root && parentTaskID == "" {
+			parentTaskID = rootID
+		}
+
+		name := strings.TrimSpace(rec.Name)
+		if name == "" {
+			name = taskKey
+		}
+
+		rows = append(rows, terminalSnapshotRow{
+			runID:         runID,
+			taskID:        taskID,
+			parentTaskID:  parentTaskID,
+			taskKey:       taskKey,
+			name:          name,
+			taskAttemptID: terminalSnapshotTaskAttemptID(root, rec.TaskAttemptID, taskID, attempt),
+			segmentID:     terminalSnapshotSegmentID(root, rec.SegmentID, taskID),
+			executionID:   executionID,
+			cellID:        normalizeTargetCellID(rec.CellID, owningCell),
+			status:        strings.TrimSpace(snapshot.Status),
+			attempt:       attempt,
+			root:          root,
+		})
+	}
+
+	return rows, nil
+}
+
+func terminalSnapshotTaskAttemptID(root bool, snapshotAttemptID, taskID string, attempt int) string {
+	snapshotAttemptID = strings.TrimSpace(snapshotAttemptID)
+	if root && snapshotAttemptID != "" {
+		return snapshotAttemptID
+	}
+
+	return taskAttemptID(taskID, attempt)
+}
+
+func terminalSnapshotSegmentID(root bool, snapshotSegmentID, taskID string) string {
+	snapshotSegmentID = strings.TrimSpace(snapshotSegmentID)
+	if root && snapshotSegmentID != "" {
+		return snapshotSegmentID
+	}
+
+	return taskSegmentID(taskID)
+}
+
+func insertTerminalSnapshotRowsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
+	if err := insertTerminalSnapshotTasksTx(ctx, tx, rows); err != nil {
+		return err
+	}
+
+	if err := insertTerminalSnapshotTaskAttemptsTx(ctx, tx, rows); err != nil {
+		return err
+	}
+
+	if err := insertTerminalSnapshotSegmentsTx(ctx, tx, rows); err != nil {
+		return err
+	}
+
+	if err := insertTerminalSnapshotExecutionsTx(ctx, tx, rows); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func insertTerminalSnapshotTasksTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
+	values := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		if row.root {
+			continue
+		}
+
+		values = append(values, []any{row.taskID, row.runID, row.parentTaskID, row.taskKey, row.name, TaskStatusPlanned, ""})
+	}
+
+	return execBatchedValuesTx(ctx, tx, `
+		INSERT INTO run_tasks (task_id, run_id, parent_task_id, task_key, name, status, spec_hash)
+		VALUES `, values, `
+		ON CONFLICT(task_id) DO NOTHING
+	`)
+}
+
+func insertTerminalSnapshotTaskAttemptsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
+	values := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		if row.root {
+			continue
+		}
+
+		values = append(values, []any{row.taskAttemptID, row.taskID, row.runID, row.cellID, TaskStatusPlanned, row.attempt})
+	}
+
+	return execBatchedValuesTx(ctx, tx, `
+		INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt)
+		VALUES `, values, `
+		ON CONFLICT(task_id, attempt) DO NOTHING
+	`)
+}
+
+func insertTerminalSnapshotSegmentsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
+	values := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		if row.root {
+			continue
+		}
+
+		values = append(values, []any{row.segmentID, row.runID, row.name, SegmentStatusPlanned})
+	}
+
+	return execBatchedValuesTx(ctx, tx, `
+		INSERT INTO run_segments (segment_id, run_id, name, status)
+		VALUES `, values, `
+		ON CONFLICT(segment_id) DO NOTHING
+	`)
+}
+
+func insertTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
+	values := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		if row.root {
+			continue
+		}
+
+		values = append(values, []any{
+			row.executionID,
+			row.segmentID,
+			row.runID,
+			row.taskID,
+			row.taskAttemptID,
+			row.cellID,
+			ExecutionStatusPlanned,
+			row.attempt,
+			nil,
+		})
+	}
+
+	return execBatchedValuesTx(ctx, tx, `
+		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano)
+		VALUES `, values, `
+		ON CONFLICT(task_attempt_id) DO NOTHING
+	`)
+}
+
+func verifyTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
+	ids := uniqueTerminalSnapshotExecutionIDs(rows)
+	if len(ids) == 0 {
+		return nil
+	}
+
+	found := 0
+	for start := 0; start < len(ids); start += terminalSnapshotBatchRows {
+		end := min(start+terminalSnapshotBatchRows, len(ids))
+		chunk := ids[start:end]
+
+		var count int
+		args := stringsToAny(chunk)
+		if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COUNT(*) FROM segment_executions WHERE execution_id IN ("+questionPlaceholders(len(chunk))+")"), args...).Scan(&count); err != nil {
+			return normalizeSQLError(err)
+		}
+
+		found += count
+	}
+
+	if found != len(ids) {
+		return fmt.Errorf("%w: terminal snapshot materialized %d/%d executions", ErrNotFound, found, len(ids))
+	}
+
+	return nil
+}
+
+func uniqueTerminalSnapshotExecutionIDs(rows []terminalSnapshotRow) []string {
+	seen := make(map[string]struct{}, len(rows))
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.executionID == "" {
+			continue
+		}
+
+		if _, ok := seen[row.executionID]; ok {
+			continue
+		}
+
+		seen[row.executionID] = struct{}{}
+		out = append(out, row.executionID)
+	}
+
+	return out
+}
+
+func terminalSnapshotStatusBatches(rows []terminalSnapshotRow) []terminalSnapshotStatusBatch {
+	byStatus := make(map[string]*terminalSnapshotStatusBatch)
+	for _, row := range rows {
+		if !shouldApplyTerminalSnapshotExecutionStatus(row.status) {
+			continue
+		}
+
+		batch := byStatus[row.status]
+		if batch == nil {
+			batch = &terminalSnapshotStatusBatch{status: row.status}
+			byStatus[row.status] = batch
+		}
+
+		batch.executionIDs = append(batch.executionIDs, row.executionID)
+		batch.segmentIDs = append(batch.segmentIDs, row.segmentID)
+		batch.taskAttemptIDs = append(batch.taskAttemptIDs, row.taskAttemptID)
+		batch.taskIDs = append(batch.taskIDs, row.taskID)
+	}
+
+	out := make([]terminalSnapshotStatusBatch, 0, len(byStatus))
+	for _, batch := range byStatus {
+		for start := 0; start < len(batch.executionIDs); start += terminalSnapshotBatchRows {
+			end := min(start+terminalSnapshotBatchRows, len(batch.executionIDs))
+			out = append(out, terminalSnapshotStatusBatch{
+				status:         batch.status,
+				executionIDs:   batch.executionIDs[start:end],
+				segmentIDs:     batch.segmentIDs[start:end],
+				taskAttemptIDs: batch.taskAttemptIDs[start:end],
+				taskIDs:        batch.taskIDs[start:end],
+			})
+		}
+	}
+
+	return out
+}
+
+func shouldApplyTerminalSnapshotExecutionStatus(status string) bool {
+	switch status {
+	case ExecutionStatusAccepted,
+		ExecutionStatusRunning,
+		ExecutionStatusSucceeded,
+		ExecutionStatusFailed,
+		ExecutionStatusCancelled,
+		ExecutionStatusAborted:
+		return true
+	default:
+		return false
+	}
+}
+
+func applyTerminalSnapshotStatusBatchTx(ctx context.Context, tx *sql.Tx, batch terminalSnapshotStatusBatch) error {
+	allowedFrom, markAccepted, markStarted, markFinished, err := terminalSnapshotStatusTransition(batch.status)
+	if err != nil {
+		return err
+	}
+
+	observedAt := time.Now().UnixNano()
+	if err := updateTerminalSnapshotExecutionsTx(ctx, tx, batch.status, allowedFrom, batch.executionIDs, observedAt, markAccepted, markStarted, markFinished); err != nil {
+		return err
+	}
+
+	if err := updateTerminalSnapshotSegmentsTx(ctx, tx, batch.status, allowedFrom, batch.segmentIDs); err != nil {
+		return err
+	}
+
+	if err := updateTerminalSnapshotTaskAttemptsTx(ctx, tx, batch.status, allowedFrom, batch.taskAttemptIDs, observedAt, markAccepted, markStarted, markFinished); err != nil {
+		return err
+	}
+
+	if err := updateTerminalSnapshotTasksTx(ctx, tx, batch.status, allowedFrom, batch.taskIDs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func terminalSnapshotStatusTransition(status string) ([]string, bool, bool, bool, error) {
+	switch status {
+	case ExecutionStatusAccepted:
+		return []string{ExecutionStatusPlanned, ExecutionStatusPending}, true, false, false, nil
+	case ExecutionStatusRunning:
+		return []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false, nil
+	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
+		return []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, true, true, nil
+	default:
+		return nil, false, false, false, fmt.Errorf("%w: unsupported execution status %s", ErrConflict, status)
+	}
+}
+
+func updateTerminalSnapshotExecutionsTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, executionIDs []string, observedAt int64, markAccepted, markStarted, markFinished bool) error {
+	if len(executionIDs) == 0 {
+		return nil
+	}
+
+	setParts := []string{"status = ?"}
+	args := []any{status}
+	if markAccepted {
+		setParts = append(setParts, "accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markStarted {
+		setParts = append(setParts, "started_at = COALESCE(started_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markFinished {
+		setParts = append(setParts,
+			"finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)",
+			"lease_owner = NULL",
+			"lease_until = NULL",
+			"claim_token = NULL",
+		)
+	}
+
+	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, observedAt)
+	args = append(args, stringsToAny(executionIDs)...)
+	args = append(args, status)
+	args = append(args, stringsToAny(allowedFrom)...)
+
+	_, err := tx.ExecContext(ctx, rebindQueryForPgx(
+		"UPDATE segment_executions SET "+strings.Join(setParts, ", ")+
+			" WHERE execution_id IN ("+questionPlaceholders(len(executionIDs))+")"+
+			" AND status <> ? AND status IN ("+questionPlaceholders(len(allowedFrom))+")",
+	), args...)
+
+	return normalizeSQLError(err)
+}
+
+func updateTerminalSnapshotSegmentsTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, segmentIDs []string) error {
+	if len(segmentIDs) == 0 {
+		return nil
+	}
+
+	args := []any{status}
+	args = append(args, stringsToAny(segmentIDs)...)
+	args = append(args, status)
+	args = append(args, stringsToAny(allowedFrom)...)
+
+	_, err := tx.ExecContext(ctx, rebindQueryForPgx(
+		"UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP"+
+			" WHERE segment_id IN ("+questionPlaceholders(len(segmentIDs))+")"+
+			" AND status <> ? AND status IN ("+questionPlaceholders(len(allowedFrom))+")",
+	), args...)
+
+	return normalizeSQLError(err)
+}
+
+func updateTerminalSnapshotTaskAttemptsTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, taskAttemptIDs []string, observedAt int64, markAccepted, markStarted, markFinished bool) error {
+	if len(taskAttemptIDs) == 0 {
+		return nil
+	}
+
+	setParts := []string{"status = ?"}
+	args := []any{status}
+	if markAccepted {
+		setParts = append(setParts, "accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markStarted {
+		setParts = append(setParts, "started_at = COALESCE(started_at, CURRENT_TIMESTAMP)")
+	}
+
+	if markFinished {
+		setParts = append(setParts, "finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP)")
+	}
+
+	setParts = append(setParts, "last_observed_at = ?", "event_sequence = event_sequence + 1", "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, observedAt)
+	args = append(args, stringsToAny(taskAttemptIDs)...)
+	args = append(args, status)
+	args = append(args, stringsToAny(allowedFrom)...)
+
+	_, err := tx.ExecContext(ctx, rebindQueryForPgx(
+		"UPDATE task_attempts SET "+strings.Join(setParts, ", ")+
+			" WHERE attempt_id IN ("+questionPlaceholders(len(taskAttemptIDs))+")"+
+			" AND status <> ? AND status IN ("+questionPlaceholders(len(allowedFrom))+")",
+	), args...)
+
+	return normalizeSQLError(err)
+}
+
+func updateTerminalSnapshotTasksTx(ctx context.Context, tx *sql.Tx, status string, allowedFrom, taskIDs []string) error {
+	if len(taskIDs) == 0 {
+		return nil
+	}
+
+	args := []any{status}
+	args = append(args, stringsToAny(taskIDs)...)
+	args = append(args, status)
+	args = append(args, stringsToAny(allowedFrom)...)
+
+	_, err := tx.ExecContext(ctx, rebindQueryForPgx(
+		"UPDATE run_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP"+
+			" WHERE task_id IN ("+questionPlaceholders(len(taskIDs))+")"+
+			" AND status <> ? AND status IN ("+questionPlaceholders(len(allowedFrom))+")",
+	), args...)
+
+	return normalizeSQLError(err)
+}
+
+func applyTerminalRunStatusUpdateTx(ctx context.Context, tx *sql.Tx, update RunStatusUpdate) error {
+	switch update.Status {
+	case RunStatusSucceeded:
+		_, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
+			orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL,
+			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+		`), RunStatusSucceeded, update.RunID)
+
+		return normalizeSQLError(err)
+	case RunStatusFailed:
+		failureCode := update.FailureCode
+		if failureCode == "" {
+			failureCode = FailureCodeExecution
+		}
+
+		_, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
+			orphan_reason = '', lease_owner = NULL, lease_until = NULL,
+			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+		`), RunStatusFailed, failureCode, update.Reason, update.RunID)
+
+		return normalizeSQLError(err)
+	case RunStatusCancelled:
+		reason := update.Reason
+		if reason == "" {
+			reason = CancelReasonAPI
+		}
+
+		_, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
+			orphan_reason = '', lease_owner = NULL, lease_until = NULL, cancel_token = NULL,
+			cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
+		`), RunStatusCancelled, reason, update.RunID)
+
+		return normalizeSQLError(err)
+	default:
+		return fmt.Errorf("%w: unsupported terminal run status %s", ErrConflict, update.Status)
+	}
+}
+
+func execBatchedValuesTx(ctx context.Context, tx *sql.Tx, prefix string, rows [][]any, suffix string) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	for start := 0; start < len(rows); start += terminalSnapshotBatchRows {
+		end := min(start+terminalSnapshotBatchRows, len(rows))
+		batch := rows[start:end]
+
+		var query strings.Builder
+		query.WriteString(prefix)
+		args := make([]any, 0, len(batch)*len(batch[0]))
+
+		for i, row := range batch {
+			if i > 0 {
+				query.WriteString(", ")
+			}
+
+			query.WriteByte('(')
+			query.WriteString(questionPlaceholders(len(row)))
+			query.WriteByte(')')
+			args = append(args, row...)
+		}
+
+		query.WriteString(suffix)
+
+		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(query.String()), args...); err != nil {
+			return normalizeSQLError(err)
+		}
+	}
+
+	return nil
+}
+
+func questionPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+
+		b.WriteByte('?')
+	}
+
+	return b.String()
+}
+
+func stringsToAny(values []string) []any {
+	out := make([]any, len(values))
+	for i, value := range values {
+		out[i] = value
+	}
+
+	return out
 }
 
 func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) error {
@@ -2648,16 +3300,29 @@ func (s taskExecutionStatusSnapshot) hasConsistentAdvancedStatus() bool {
 }
 
 func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create TaskExecutionCreate, taskStatus, segmentStatus, executionStatus string) (TaskExecutionRecord, bool, error) {
-	normalized, err := normalizeTaskExecutionCreate(create)
-	if err != nil {
-		return TaskExecutionRecord{}, false, err
-	}
-
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return TaskExecutionRecord{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	record, created, err := ensureTaskExecutionTx(ctx, tx, create, taskStatus, segmentStatus, executionStatus)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
+
+	return record, created, nil
+}
+
+func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecutionCreate, taskStatus, segmentStatus, executionStatus string) (TaskExecutionRecord, bool, error) {
+	normalized, err := normalizeTaskExecutionCreate(create)
+	if err != nil {
+		return TaskExecutionRecord{}, false, err
+	}
 
 	var owningCell string
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), normalized.RunID).Scan(&owningCell); err != nil {
@@ -2785,10 +3450,6 @@ func (r *SQLRunsRepository) ensureTaskExecution(ctx context.Context, create Task
 
 	if storedExecutionID != executionID || executionSegmentID != segmentID || executionRunID != normalized.RunID || executionTaskID != taskID || executionTaskAttemptID != attemptID || executionCellID != cellID || executionAttempt != attempt {
 		return TaskExecutionRecord{}, false, fmt.Errorf("%w: execution %s has different payload", ErrConflict, executionID)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return TaskExecutionRecord{}, false, err
 	}
 
 	return TaskExecutionRecord{

@@ -1901,86 +1901,13 @@ func (w *worker) persistTerminalExecutionSnapshot(ctx context.Context, result da
 }
 
 func (w *worker) persistTerminalExecutionSnapshotOnce(ctx context.Context, result dal.ExecutionFinalizationResult, failureCode, reason string) error {
-	for _, snapshot := range result.Executions {
-		rec := snapshot.Record
-		if strings.TrimSpace(rec.ExecutionID) == "" || strings.TrimSpace(rec.TaskKey) == "" {
-			continue
-		}
-
-		if rec.TaskKey != dal.RootTaskKey {
-			if _, _, err := w.store.EnsurePlannedTaskExecution(w.runCtx, dal.TaskExecutionCreate{
-				RunID:        rec.RunID,
-				ParentTaskID: rec.ParentTaskID,
-				TaskKey:      rec.TaskKey,
-				Name:         rec.Name,
-				TargetCellID: rec.CellID,
-			}); err != nil && !dal.IsConflict(err) {
-				return fmt.Errorf("materialize terminal task %s: %w", rec.TaskKey, err)
-			}
-		}
-
-		if !shouldApplySnapshotExecutionStatus(snapshot.Status) {
-			continue
-		}
-
-		if err := w.store.ApplyExecutionStatusUpdate(w.runCtx, dal.ExecutionStatusUpdate{
-			ExecutionID: rec.ExecutionID,
-			Status:      snapshot.Status,
-		}); err != nil {
-			return fmt.Errorf("apply terminal task %s status %s: %w", rec.TaskKey, snapshot.Status, err)
-		}
-	}
-
-	if err := w.applyTerminalRunStatus(result, failureCode, reason); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (w *worker) applyTerminalRunStatus(result dal.ExecutionFinalizationResult, failureCode, reason string) error {
-	update := dal.RunStatusUpdate{RunID: result.RunID}
-	switch result.Outcome {
-	case dal.ExecutionFinalizationOutcomeRunSucceeded:
-		update.Status = dal.RunStatusSucceeded
-	case dal.ExecutionFinalizationOutcomeRunFailed:
-		if failureCode == "" {
-			failureCode = dal.FailureCodeExecution
-		}
-
-		update.Status = dal.RunStatusFailed
-		update.FailureCode = failureCode
-		update.Reason = reason
-	case dal.ExecutionFinalizationOutcomeRunCancelled:
-		if reason == "" {
-			reason = dal.CancelReasonAPI
-		}
-
-		update.Status = dal.RunStatusCancelled
-		update.Reason = reason
-	default:
-		return nil
-	}
-
-	if err := w.store.ApplyRunStatusUpdate(w.runCtx, update); err != nil {
-		return fmt.Errorf("apply terminal run %s status %s: %w", result.RunID, update.Status, err)
-	}
-
-	return nil
-}
-
-func shouldApplySnapshotExecutionStatus(status string) bool {
-	switch status {
-	case dal.ExecutionStatusAccepted,
-		dal.ExecutionStatusRunning,
-		dal.ExecutionStatusSucceeded,
-		dal.ExecutionStatusFailed,
-		dal.ExecutionStatusCancelled,
-		dal.ExecutionStatusAborted:
-		return true
-	default:
-		return false
-	}
+	return w.store.ApplyTerminalExecutionSnapshot(w.runCtx, dal.TerminalExecutionSnapshotUpdate{
+		RunID:       result.RunID,
+		Outcome:     result.Outcome,
+		FailureCode: failureCode,
+		Reason:      reason,
+		Executions:  result.Executions,
+	})
 }
 
 func isTerminalFinalizationOutcome(outcome dal.ExecutionFinalizationOutcome) bool {

@@ -518,6 +518,14 @@ type ExecutionFinalizationResult struct {
 	Activated   int
 }
 
+type TerminalExecutionSnapshotUpdate struct {
+	RunID       string
+	Outcome     ExecutionFinalizationOutcome
+	FailureCode string
+	Reason      string
+	Executions  []TaskExecutionSnapshot
+}
+
 type CatalogEventRecord struct {
 	ID         int64
 	SourceCell string
@@ -745,6 +753,7 @@ type RunsRepository interface {
 	LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*ExecutionSecurityEvent, error)
 	EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
+	ApplyTerminalExecutionSnapshot(ctx context.Context, update TerminalExecutionSnapshotUpdate) error
 	ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error)
 	ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error)
 	MarkRunQueuedForContinuation(ctx context.Context, runID string) error

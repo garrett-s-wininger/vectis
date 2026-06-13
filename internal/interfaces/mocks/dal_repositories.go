@@ -149,6 +149,7 @@ type MockRunsRepository struct {
 	PendingExecutionErr           error
 	MarkExecutionErr              error
 	ExecutionFinalizationErr      error
+	TerminalSnapshotErr           error
 	ValidateExecutionClaimErr     error
 	LogShardErr                   error
 	EnsureExecutionDeadlineErr    error
@@ -229,6 +230,7 @@ type MockRunsRepository struct {
 	LastFinalizedStatus    string
 	LastRunStatusUpdate    dal.RunStatusUpdate
 	LastExecStatusUpdate   dal.ExecutionStatusUpdate
+	LastTerminalSnapshot   dal.TerminalExecutionSnapshotUpdate
 }
 
 func NewMockRunsRepository() *MockRunsRepository {
@@ -1076,6 +1078,18 @@ func (m *MockRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, cre
 	}
 
 	return m.TaskExecution, m.TaskCreated, nil
+}
+
+func (m *MockRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+	m.mu.Lock()
+	m.LastTerminalSnapshot = update
+	m.mu.Unlock()
+
+	if m.TerminalSnapshotErr != nil {
+		return m.TerminalSnapshotErr
+	}
+
+	return nil
 }
 
 func (m *MockRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, taskID string) (dal.TaskExecutionRecord, bool, error) {

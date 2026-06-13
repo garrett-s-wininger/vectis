@@ -2851,6 +2851,92 @@ func TestRunCatalogUpdater_AppliesRunAndExecutionStatusUpdates(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	ctx := context.Background()
+
+	_, err := repos.Namespaces().Create(ctx, "team-terminal-snapshot", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-terminal-snapshot"
+	def := `{"id":"job-terminal-snapshot","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	root, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	childTaskID := runID + ":child"
+	childAttemptID := childTaskID + ":attempt:1"
+	childExecutionID := childAttemptID + ":execution"
+	err = repos.Runs().ApplyTerminalExecutionSnapshot(ctx, dal.TerminalExecutionSnapshotUpdate{
+		RunID:   runID,
+		Outcome: dal.ExecutionFinalizationOutcomeRunSucceeded,
+		Executions: []dal.TaskExecutionSnapshot{
+			{
+				Record: dal.TaskExecutionRecord{
+					RunID:         runID,
+					TaskID:        root.TaskID,
+					TaskKey:       dal.RootTaskKey,
+					Name:          dal.RootTaskKey,
+					TaskAttemptID: root.TaskAttemptID,
+					SegmentID:     root.SegmentID,
+					SegmentName:   root.SegmentName,
+					ExecutionID:   root.ExecutionID,
+					CellID:        root.CellID,
+					Attempt:       root.Attempt,
+				},
+				Status: dal.ExecutionStatusSucceeded,
+			},
+			{
+				Record: dal.TaskExecutionRecord{
+					RunID:         runID,
+					TaskID:        childTaskID,
+					ParentTaskID:  root.TaskID,
+					TaskKey:       "child",
+					Name:          "child task",
+					TaskAttemptID: childAttemptID,
+					SegmentID:     childTaskID + ":segment",
+					SegmentName:   "child task",
+					ExecutionID:   childExecutionID,
+					CellID:        "local",
+					Attempt:       1,
+				},
+				Status: dal.ExecutionStatusSucceeded,
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("ApplyTerminalExecutionSnapshot: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, root.ExecutionID, root.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
+	assertExecutionAndSegmentStatus(t, db, childExecutionID, childTaskID+":segment", dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
+	assertTaskAndAttemptStatus(t, db, root.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
+	assertTaskAndAttemptStatus(t, db, childTaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
+
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	if run.Status != dal.RunStatusSucceeded {
+		t.Fatalf("run status: got %q, want %q", run.Status, dal.RunStatusSucceeded)
+	}
+}
+
 func TestRunCatalogUpdater_AppliesExecutionUpdatesFromPlannedRows(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
