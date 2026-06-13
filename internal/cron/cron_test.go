@@ -681,6 +681,102 @@ func TestCronServiceChaos_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 	}
 }
 
+func TestCronServiceChaos_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *testing.T) {
+	service, _, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
+	clock := mocks.NewMockClock()
+	now := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	clock.SetNow(now)
+	service.SetClock(clock)
+	service.SetClaimTTL(time.Minute)
+
+	jobDef := `{"id": "scheduled-claim-restore", "root": {"uses": "builtins/shell"}}`
+	insertCronTestJob(t, db, "scheduled-claim-restore", jobDef)
+	scheduleID := insertCronTestSchedule(t, db, "scheduled-claim-restore", "* * * * *", now)
+
+	claimed, err := service.ClaimDue(ctx, scheduleID, now, "crashed-before-trigger", now.Add(time.Minute), now)
+	if err != nil {
+		t.Fatalf("claim schedule before simulated crash: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected simulated crashed worker to claim schedule")
+	}
+
+	if err := service.ProcessSchedules(ctx); err != nil {
+		t.Fatalf("process schedules during active crashed claim: %v", err)
+	}
+
+	if got := len(queueService.GetJobs()); got != 0 {
+		t.Fatalf("active crashed claim should hide schedule, got %d queued jobs", got)
+	}
+
+	var runCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-claim-restore").Scan(&runCount); err != nil {
+		t.Fatalf("count runs before claim expiry: %v", err)
+	}
+
+	if runCount != 0 {
+		t.Fatalf("simulated crash before trigger should not create a run, got %d", runCount)
+	}
+
+	clock.SetNow(now.Add(2 * time.Minute))
+	if err := service.ProcessSchedules(ctx); err != nil {
+		t.Fatalf("process schedules after crashed claim expiry: %v", err)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected expired claim to be recovered with one queued job, got %d", len(jobs))
+	}
+
+	runID := jobs[0].GetRunId()
+	if runID == "" {
+		t.Fatal("expected recovered cron handoff to include run_id")
+	}
+
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-claim-restore").Scan(&runCount); err != nil {
+		t.Fatalf("count runs after claim expiry: %v", err)
+	}
+
+	if runCount != 1 {
+		t.Fatalf("expected one durable run after expired claim recovery, got %d", runCount)
+	}
+
+	var fireCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+		t.Fatalf("count schedule fires after claim expiry: %v", err)
+	}
+
+	if fireCount != 1 {
+		t.Fatalf("expected one schedule fire after expired claim recovery, got %d", fireCount)
+	}
+
+	var claimToken sql.NullString
+	var claimedUntil sql.NullString
+	var nextRunStr string
+	if err := db.QueryRowContext(ctx, `
+		SELECT claim_token, claimed_until, next_run_at
+		FROM cron_trigger_specs
+		WHERE id = ?
+	`, scheduleID).Scan(&claimToken, &claimedUntil, &nextRunStr); err != nil {
+		t.Fatalf("query recovered schedule claim fields: %v", err)
+	}
+
+	if claimToken.Valid || claimedUntil.Valid {
+		t.Fatalf("expected recovered schedule claim to be cleared, got token=%v until=%v", claimToken, claimedUntil)
+	}
+
+	nextRun, err := time.Parse(time.RFC3339, nextRunStr)
+	if err != nil {
+		t.Fatalf("parse recovered next_run_at: %v", err)
+	}
+
+	if !nextRun.After(now) {
+		t.Fatalf("expected recovered schedule to advance, got %v", nextRun)
+	}
+}
+
 type failOnceCompleteClaimSchedulesRepository struct {
 	dal.SchedulesRepository
 	err    error

@@ -9,7 +9,9 @@ import (
 
 	"vectis/internal/cell"
 	"vectis/internal/dal"
+	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/reconciler"
 	"vectis/internal/testutil/dbtest"
 )
 
@@ -191,6 +193,80 @@ func TestExecutionRepairService_ProcessMarkEnqueuedFailureRetriesHandoff(t *test
 	}
 
 	assertReceiptEnqueued(t, db, acceptance.ExecutionID)
+}
+
+func TestExecutionRepairService_EnqueuedReceiptWithLostQueueIsRecoveredByReconciler(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+	req := validJobRequestForCell(t, "iad-a")
+
+	submission, err := cell.NewExecutionSubmission(req)
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	acceptance, err := executionAcceptance(submission)
+	if err != nil {
+		t.Fatalf("executionAcceptance: %v", err)
+	}
+
+	if _, err := repos.CellExecutionAcceptances().AcceptExecution(ctx, acceptance); err != nil {
+		t.Fatalf("AcceptExecution: %v", err)
+	}
+
+	markedAt := time.Now().UTC().UnixNano()
+	if err := repos.CellExecutionAcceptances().MarkEnqueued(ctx, acceptance.ExecutionID, markedAt); err != nil {
+		t.Fatalf("MarkEnqueued: %v", err)
+	}
+
+	repairQueue := mocks.NewMockQueueService()
+	repair := NewExecutionRepairService(repos.CellExecutionAcceptances(), repairQueue, mocks.NewMockLogger(), mocks.NewMockClock())
+	repair.SetMinAttemptGap(0)
+
+	if err := repair.Process(ctx); err != nil {
+		t.Fatalf("repair Process: %v", err)
+	}
+
+	if got := len(repairQueue.GetJobRequests()); got != 0 {
+		t.Fatalf("already-enqueued receipt should not be repaired by acceptance repair loop, got %d requests", got)
+	}
+
+	restoredQueue := mocks.NewMockQueueService()
+	clock := mocks.NewMockClock()
+	clock.SetNow(time.Now().UTC())
+	svc := reconciler.NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
+	svc.SetServiceLeases(nil)
+	svc.SetExecutionIngress(cell.NewQueueExecutionIngress(restoredQueue, mocks.NewMockLogger()))
+	svc.SetMinDispatchGap(time.Second)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("reconciler Process: %v", err)
+	}
+
+	reqs := restoredQueue.GetJobRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("expected reconciler to repopulate lost local queue handoff, got %d requests", len(reqs))
+	}
+
+	if reqs[0].GetJob().GetId() != acceptance.JobID || reqs[0].GetJob().GetRunId() != acceptance.RunID {
+		t.Fatalf("reconciled request identity mismatch: job=%q run=%q", reqs[0].GetJob().GetId(), reqs[0].GetJob().GetRunId())
+	}
+
+	if got := reqs[0].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]; got == "" || got != req.GetMetadata()[cell.ExecutionEnvelopeMetadataKey] {
+		t.Fatalf("reconciled request changed execution envelope:\noriginal: %s\nreplayed:  %s", req.GetMetadata()[cell.ExecutionEnvelopeMetadataKey], got)
+	}
+
+	assertReceiptEnqueued(t, db, acceptance.ExecutionID)
+
+	var lastDispatched sql.NullInt64
+	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", acceptance.RunID).Scan(&lastDispatched); err != nil {
+		t.Fatalf("query last_dispatched_at: %v", err)
+	}
+
+	if !lastDispatched.Valid || lastDispatched.Int64 == 0 {
+		t.Fatalf("expected reconciler to touch dispatched after lost queue repair, got %v", lastDispatched)
+	}
 }
 
 func assertReceiptEnqueued(t *testing.T, db *sql.DB, executionID string) {

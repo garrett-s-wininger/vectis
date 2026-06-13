@@ -257,6 +257,141 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 	}
 }
 
+func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilReclaim(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	jobID := "job-restore-skew-claimed"
+	runID := seedStoredJobAndRun(t, db, jobID)
+
+	queueDir := t.TempDir()
+	clock := mocks.NewMockClock()
+	now := time.Now().UTC()
+	clock.SetNow(now)
+
+	repos := dal.NewSQLRepositories(db)
+	firstQueue := newPersistedQueueForRestoreTest(t, queueDir)
+	firstSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), firstQueue, clock)
+	firstSvc.SetServiceLeases(nil)
+	firstSvc.SetMinDispatchGap(time.Second)
+
+	if err := firstSvc.Process(ctx); err != nil {
+		t.Fatalf("first Process: %v", err)
+	}
+
+	delivered, err := firstQueue.TryDequeue(ctx, &api.DequeueRequest{})
+	if err != nil {
+		t.Fatalf("dequeue first delivery: %v", err)
+	}
+
+	if delivered == nil {
+		t.Fatal("expected first delivery, got nil")
+	}
+
+	if delivered.GetJob().GetId() != jobID || delivered.GetJob().GetRunId() != runID {
+		t.Fatalf("first delivery identity mismatch: job=%q run=%q", delivered.GetJob().GetId(), delivered.GetJob().GetRunId())
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	firstClaimUntil := time.Now().Add(time.Minute)
+	firstClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-a", firstClaimUntil)
+	if err != nil {
+		t.Fatalf("claim first delivery: %v", err)
+	}
+
+	if !firstClaim.Claimed || firstClaim.ClaimToken == "" {
+		t.Fatalf("expected first delivery to claim execution, claim=%+v", firstClaim)
+	}
+
+	closeQueueServiceForRestoreTest(t, firstQueue)
+	if err := os.RemoveAll(queueDir); err != nil {
+		t.Fatalf("remove queue persistence dir: %v", err)
+	}
+
+	restoredQueue := newPersistedQueueForRestoreTest(t, queueDir)
+	defer closeQueueServiceForRestoreTest(t, restoredQueue)
+
+	clock.SetNow(now.Add(2 * time.Second))
+	restoredSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
+	restoredSvc.SetServiceLeases(nil)
+	restoredSvc.SetMinDispatchGap(time.Second)
+
+	if err := restoredSvc.Process(ctx); err != nil {
+		t.Fatalf("Process with active durable claim after queue state loss: %v", err)
+	}
+
+	pending, inflight, dlq := queuepkg.MetricsSnapshot(restoredQueue)
+	if pending != 0 || inflight != 0 || dlq != 0 {
+		t.Fatalf("active durable claim should suppress redispatch, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+	}
+
+	duplicateClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("duplicate claim with active owner: %v", err)
+	}
+
+	if duplicateClaim.Claimed || duplicateClaim.ClaimToken != "" {
+		t.Fatalf("active durable claim should fence duplicate owner, claim=%+v", duplicateClaim)
+	}
+
+	expiredLease := now.Add(-time.Minute).Unix()
+	if _, err := db.ExecContext(ctx, "UPDATE segment_executions SET lease_until = ? WHERE execution_id = ?", expiredLease, dispatch.ExecutionID); err != nil {
+		t.Fatalf("expire execution lease: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, "UPDATE job_runs SET lease_until = ? WHERE run_id = ?", expiredLease, runID); err != nil {
+		t.Fatalf("expire run lease: %v", err)
+	}
+
+	clock.SetNow(now.Add(4 * time.Second))
+	if err := restoredSvc.Process(ctx); err != nil {
+		t.Fatalf("Process after durable claim expiry: %v", err)
+	}
+
+	pending, inflight, dlq = queuepkg.MetricsSnapshot(restoredQueue)
+	if pending != 0 || inflight != 0 || dlq != 0 {
+		t.Fatalf("expired durable claim should orphan without queue redispatch, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
+	}
+
+	var status string
+	if err := db.QueryRowContext(ctx, "SELECT status FROM job_runs WHERE run_id = ?", runID).Scan(&status); err != nil {
+		t.Fatalf("query run status after lease expiry: %v", err)
+	}
+
+	if status != dal.RunStatusOrphaned {
+		t.Fatalf("expired durable claim should orphan run, got %q", status)
+	}
+
+	replacementClaim, err := repos.Runs().TryClaimExecution(ctx, dispatch.ExecutionID, "worker-b", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("replacement claim after orphaning: %v", err)
+	}
+
+	if !replacementClaim.Claimed || replacementClaim.ClaimToken == "" || replacementClaim.ClaimToken == firstClaim.ClaimToken {
+		t.Fatalf("expected replacement claim with new token, first=%+v replacement=%+v", firstClaim, replacementClaim)
+	}
+
+	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-a", firstClaim.ClaimToken, time.Now().Add(time.Minute)); !dal.IsConflict(err) {
+		t.Fatalf("expected stale owner renew conflict, got %v", err)
+	}
+
+	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", firstClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(err) {
+		t.Fatalf("expected stale owner completion conflict, got %v", err)
+	}
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", replacementClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("complete replacement claim: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		t.Fatalf("replacement finalization outcome: %+v", result)
+	}
+}
+
 func newPersistedQueueForRestoreTest(t *testing.T, dir string) api.QueueServiceServer {
 	t.Helper()
 

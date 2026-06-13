@@ -3,7 +3,9 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"testing/quick"
 
 	"vectis/internal/cell"
 	"vectis/internal/dal"
@@ -270,6 +272,161 @@ func TestFanInProcessorChaos_RetryAfterSourceMarkAppliedFailure(t *testing.T) {
 	if len(targetPending) != 1 {
 		t.Fatalf("target duplicate should not be copied twice, got %+v", targetPending)
 	}
+}
+
+func TestFanInProcessorProperty_DrainsUniqueSourceEventsWithoutTargetDuplicates(t *testing.T) {
+	prop := func(raw []byte) bool {
+		if err := checkFanInDrainsUniqueSourceEvents(t, raw); err != nil {
+			t.Logf("fan-in property failed for %v: %v", raw, err)
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(prop, &quick.Config{MaxCount: 50}); err != nil {
+		t.Fatalf("fan-in property failed: %v", err)
+	}
+}
+
+func checkFanInDrainsUniqueSourceEvents(t *testing.T, raw []byte) error {
+	t.Helper()
+
+	ctx := context.Background()
+	sourceADB := dbtest.NewTestDB(t)
+	sourceBDB := dbtest.NewTestDB(t)
+	targetDB := dbtest.NewTestDB(t)
+	sourceA := dal.NewSQLRepositories(sourceADB)
+	sourceB := dal.NewSQLRepositories(sourceBDB)
+	target := dal.NewSQLRepositories(targetDB)
+
+	events := fanInPropertyEvents(raw)
+	unique := make(map[string]struct{})
+	for _, event := range events {
+		repos := sourceA
+		if event.sourceCell == "pdx-b" {
+			repos = sourceB
+		}
+
+		if _, _, err := repos.CatalogEvents().Record(ctx, event.sourceCell, event.eventKey, event.eventType, event.payload); err != nil {
+			return fmt.Errorf("record source event %s/%s: %w", event.sourceCell, event.eventKey, err)
+		}
+
+		unique[event.sourceCell+"\x00"+event.eventKey] = struct{}{}
+	}
+
+	processor := NewFanInProcessor(target.CatalogEvents(), []FanInSource{
+		{CellID: "iad-a", Events: sourceA.CatalogEvents()},
+		{CellID: "pdx-b", Events: sourceB.CatalogEvents()},
+	})
+	limit := fanInPropertyLimit(raw)
+	for i := 0; i < len(unique)+len(events)+2; i++ {
+		if _, err := processor.IngestPending(ctx, limit); err != nil {
+			return fmt.Errorf("ingest pass %d: %w", i, err)
+		}
+	}
+
+	if err := assertFanInPropertySourceDrained(ctx, sourceA.CatalogEvents(), "iad-a"); err != nil {
+		return err
+	}
+
+	if err := assertFanInPropertySourceDrained(ctx, sourceB.CatalogEvents(), "pdx-b"); err != nil {
+		return err
+	}
+
+	targetPending, err := target.CatalogEvents().ListPending(ctx, len(unique)+1)
+	if err != nil {
+		return fmt.Errorf("list target pending: %w", err)
+	}
+
+	if len(targetPending) != len(unique) {
+		return fmt.Errorf("target pending count = %d, want %d", len(targetPending), len(unique))
+	}
+
+	seen := make(map[string]struct{}, len(targetPending))
+	for _, rec := range targetPending {
+		key := rec.SourceCell + "\x00" + rec.EventKey
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("target duplicate event %s/%s", rec.SourceCell, rec.EventKey)
+		}
+
+		if _, ok := unique[key]; !ok {
+			return fmt.Errorf("target contains unexpected event %s/%s", rec.SourceCell, rec.EventKey)
+		}
+
+		seen[key] = struct{}{}
+	}
+
+	result, err := processor.IngestPending(ctx, limit)
+	if err != nil {
+		return fmt.Errorf("final idempotent ingest: %w", err)
+	}
+
+	if result.Read != 0 || result.Copied != 0 {
+		return fmt.Errorf("final idempotent ingest read/copy = %d/%d, want 0/0", result.Read, result.Copied)
+	}
+
+	return nil
+}
+
+type fanInPropertyEvent struct {
+	sourceCell string
+	eventKey   string
+	eventType  string
+	payload    []byte
+}
+
+func fanInPropertyEvents(raw []byte) []fanInPropertyEvent {
+	if len(raw) > 24 {
+		raw = raw[:24]
+	}
+
+	events := make([]fanInPropertyEvent, 0, len(raw))
+	for _, b := range raw {
+		sourceCell := "iad-a"
+		if b&1 == 1 {
+			sourceCell = "pdx-b"
+		}
+
+		keyIndex := int((b >> 1) % 8)
+		eventKey := fmt.Sprintf("event-%d", keyIndex)
+		eventType := cell.CatalogEventTypeRunStatus
+		payload := []byte(fmt.Sprintf(`{"run_id":"run-%d","status":"running"}`, keyIndex))
+		if b&0x10 != 0 {
+			eventType = cell.CatalogEventTypeExecutionStatus
+			payload = []byte(fmt.Sprintf(`{"execution_id":"execution-%d","status":"accepted"}`, keyIndex))
+		}
+
+		events = append(events, fanInPropertyEvent{
+			sourceCell: sourceCell,
+			eventKey:   eventKey,
+			eventType:  eventType,
+			payload:    payload,
+		})
+	}
+
+	return events
+}
+
+func fanInPropertyLimit(raw []byte) int {
+	if len(raw) == 0 {
+		return 1
+	}
+
+	return 1 + int(raw[0]%4)
+}
+
+func assertFanInPropertySourceDrained(ctx context.Context, events dal.CatalogEventsRepository, sourceCell string) error {
+	pending, err := events.ListPending(ctx, 1)
+	if err != nil {
+		return fmt.Errorf("list source %s pending: %w", sourceCell, err)
+	}
+
+	if len(pending) != 0 {
+		return fmt.Errorf("source %s still has pending events: %+v", sourceCell, pending)
+	}
+
+	return nil
 }
 
 func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {

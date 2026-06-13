@@ -793,6 +793,108 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 	}
 }
 
+func TestWorkerRunTaskExecution_UploadArtifactFailureFinalizesRunFailedAndClearsClaim(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-artifact-failure-finalize", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	workerID := "worker-test-artifact-failure-finalize"
+	w := &worker{
+		ctx:               context.Background(),
+		runCtx:            context.Background(),
+		logger:            interfaces.NewLogger("worker-test"),
+		workerID:          workerID,
+		cellID:            "local",
+		renewInterval:     time.Hour,
+		queue:             mocks.NewMockQueueClient(),
+		logClient:         mocks.NewMockLogClient(),
+		core:              testWorkerCore(job.NewExecutor()),
+		store:             runs,
+		choreographer:     sqlExecutionChoreographer{runs: runs},
+		catalog:           cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+		artifactManifests: repos.Artifacts(),
+	}
+
+	jobID := "job-worker-artifact-failure-finalize"
+	deliveryID := "delivery-artifact-failure-finalize"
+	action := "builtins/upload-artifact"
+	root := &api.Node{
+		Id:   workerStrp("upload"),
+		Uses: &action,
+		With: map[string]string{
+			"name": "coverage",
+			"path": "missing/out.txt",
+		},
+	}
+
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root:       root,
+	}
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("worker outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	var runStatus string
+	var failureReason sql.NullString
+	var runLeaseOwner sql.NullString
+	var runLeaseUntil sql.NullInt64
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_reason, lease_owner, lease_until
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&runStatus, &failureReason, &runLeaseOwner, &runLeaseUntil); err != nil {
+		t.Fatalf("query run after artifact failure: %v", err)
+	}
+
+	if runStatus != dal.RunStatusFailed {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusFailed)
+	}
+
+	if !failureReason.Valid || !strings.Contains(failureReason.String, "artifact") {
+		t.Fatalf("expected artifact failure reason, got %+v", failureReason)
+	}
+
+	if runLeaseOwner.Valid || runLeaseUntil.Valid {
+		t.Fatalf("expected run lease cleared after artifact failure, got owner=%v until=%v", runLeaseOwner, runLeaseUntil)
+	}
+
+	var executionStatus string
+	var executionLeaseOwner sql.NullString
+	var executionLeaseUntil sql.NullInt64
+	var claimToken sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, lease_owner, lease_until, claim_token
+		FROM segment_executions
+		WHERE execution_id = ?
+	`, env.ExecutionID).Scan(&executionStatus, &executionLeaseOwner, &executionLeaseUntil, &claimToken); err != nil {
+		t.Fatalf("query execution after artifact failure: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusFailed {
+		t.Fatalf("execution status: got %q, want %q", executionStatus, dal.ExecutionStatusFailed)
+	}
+
+	if executionLeaseOwner.Valid || executionLeaseUntil.Valid || claimToken.Valid {
+		t.Fatalf("expected execution claim cleared after artifact failure, got owner=%v until=%v token=%v", executionLeaseOwner, executionLeaseUntil, claimToken)
+	}
+
+	if _, err := repos.Artifacts().GetByRunAndName(ctx, runID, "coverage"); !dal.IsNotFound(err) {
+		t.Fatalf("expected no artifact manifest after failed upload action, got %v", err)
+	}
+}
+
 func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
