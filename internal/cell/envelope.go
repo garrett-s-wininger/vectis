@@ -11,6 +11,8 @@ import (
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 	"vectis/internal/dispatchmeta"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -152,18 +154,69 @@ func ExecutionEnvelopeFromRequest(req *api.JobRequest) (*ExecutionEnvelope, bool
 		return nil, true, err
 	}
 
-	job := req.GetJob()
-	if job != nil {
-		if env.Job.GetId() != job.GetId() {
-			return nil, true, fmt.Errorf("execution envelope job.id %q does not match request job.id %q", env.Job.GetId(), job.GetId())
-		}
-
-		if env.RunID != job.GetRunId() {
-			return nil, true, fmt.Errorf("execution envelope run_id %q does not match request job.run_id %q", env.RunID, job.GetRunId())
-		}
+	if err := validateExecutionEnvelopeRequest(env, req); err != nil {
+		return nil, true, err
 	}
 
 	return env, true, nil
+}
+
+func validateExecutionEnvelopeRequest(env *ExecutionEnvelope, req *api.JobRequest) error {
+	if env == nil {
+		return errors.New("execution envelope is required")
+	}
+
+	if req == nil {
+		return errors.New("job request is required")
+	}
+
+	job := req.GetJob()
+	if job == nil {
+		return errors.New("execution envelope request job is required")
+	}
+
+	if env.Job.GetId() != job.GetId() {
+		return fmt.Errorf("execution envelope job.id %q does not match request job.id %q", env.Job.GetId(), job.GetId())
+	}
+
+	if env.RunID != job.GetRunId() {
+		return fmt.Errorf("execution envelope run_id %q does not match request job.run_id %q", env.RunID, job.GetRunId())
+	}
+
+	taskKey, ok := req.GetMetadata()[ExecutionTaskKeyMetadataKey]
+	if !ok {
+		return fmt.Errorf("execution envelope task key metadata %q is required", ExecutionTaskKeyMetadataKey)
+	}
+
+	if taskKey != env.TaskKey {
+		return fmt.Errorf("execution envelope task_key %q does not match request metadata %s %q", env.TaskKey, ExecutionTaskKeyMetadataKey, taskKey)
+	}
+
+	if !jobsEqualIgnoringDeliveryID(env.Job, job) {
+		return fmt.Errorf("execution envelope job does not match request job")
+	}
+
+	return nil
+}
+
+func jobsEqualIgnoringDeliveryID(a, b *api.Job) bool {
+	a = cloneJobWithoutDeliveryID(a)
+	b = cloneJobWithoutDeliveryID(b)
+	return proto.Equal(a, b)
+}
+
+func cloneJobWithoutDeliveryID(job *api.Job) *api.Job {
+	if job == nil {
+		return nil
+	}
+
+	cloned, ok := proto.Clone(job).(*api.Job)
+	if !ok {
+		return job
+	}
+
+	cloned.DeliveryId = nil
+	return cloned
 }
 
 func EncodeExecutionEnvelope(env *ExecutionEnvelope) ([]byte, error) {
@@ -332,7 +385,7 @@ func cloneMetadata(metadata map[string]string) map[string]string {
 
 	out := make(map[string]string, len(metadata))
 	for key, value := range metadata {
-		if key == ExecutionEnvelopeMetadataKey {
+		if key == ExecutionEnvelopeMetadataKey || key == ExecutionTaskKeyMetadataKey {
 			continue
 		}
 

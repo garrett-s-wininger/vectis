@@ -8,6 +8,8 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestExecutionEnvelopeEncodeDecode(t *testing.T) {
@@ -315,6 +317,10 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 	if _, ok := got.Metadata[ExecutionEnvelopeMetadataKey]; ok {
 		t.Fatal("envelope metadata recursively included itself")
 	}
+
+	if _, ok := got.Metadata[ExecutionTaskKeyMetadataKey]; ok {
+		t.Fatal("envelope metadata included reserved task key metadata")
+	}
 }
 
 func TestAttachExecutionEnvelopeWithActionsResolvesLocks(t *testing.T) {
@@ -453,6 +459,7 @@ func TestExecutionEnvelopeFromRequest(t *testing.T) {
 		Job: env.Job,
 		Metadata: map[string]string{
 			ExecutionEnvelopeMetadataKey: string(payload),
+			ExecutionTaskKeyMetadataKey:  env.TaskKey,
 		},
 	}
 
@@ -467,6 +474,34 @@ func TestExecutionEnvelopeFromRequest(t *testing.T) {
 
 	if got.ExecutionID != env.ExecutionID {
 		t.Fatalf("execution id: got %q, want %q", got.ExecutionID, env.ExecutionID)
+	}
+}
+
+func TestExecutionEnvelopeFromRequestAllowsDeliveryIDMutation(t *testing.T) {
+	env := validExecutionEnvelope()
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	job, ok := proto.Clone(env.Job).(*api.Job)
+	if !ok {
+		t.Fatal("clone job")
+	}
+
+	deliveryID := "queue-a/delivery-1"
+	job.DeliveryId = &deliveryID
+
+	req := &api.JobRequest{
+		Job: job,
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+			ExecutionTaskKeyMetadataKey:  env.TaskKey,
+		},
+	}
+
+	if _, ok, err := ExecutionEnvelopeFromRequest(req); !ok || err != nil {
+		t.Fatalf("ExecutionEnvelopeFromRequest() ok=%v err=%v, want present valid envelope", ok, err)
 	}
 }
 
@@ -497,11 +532,96 @@ func TestExecutionEnvelopeFromRequestRejectsRequestMismatch(t *testing.T) {
 		},
 		Metadata: map[string]string{
 			ExecutionEnvelopeMetadataKey: string(payload),
+			ExecutionTaskKeyMetadataKey:  env.TaskKey,
 		},
 	}
 
 	if _, ok, err := ExecutionEnvelopeFromRequest(req); !ok || err == nil {
 		t.Fatalf("expected present mismatched envelope to return error, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestExecutionEnvelopeFromRequestRejectsMissingRequestJob(t *testing.T) {
+	env := validExecutionEnvelope()
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	req := &api.JobRequest{
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+			ExecutionTaskKeyMetadataKey:  env.TaskKey,
+		},
+	}
+
+	if _, ok, err := ExecutionEnvelopeFromRequest(req); !ok || err == nil {
+		t.Fatalf("expected present envelope with missing request job to return error, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestExecutionEnvelopeFromRequestRejectsMissingTaskKeyMetadata(t *testing.T) {
+	env := validExecutionEnvelope()
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	req := &api.JobRequest{
+		Job: env.Job,
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+		},
+	}
+
+	if _, ok, err := ExecutionEnvelopeFromRequest(req); !ok || err == nil {
+		t.Fatalf("expected present envelope with missing task key metadata to return error, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestExecutionEnvelopeFromRequestRejectsTaskKeyMetadataMismatch(t *testing.T) {
+	env := validExecutionEnvelope()
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	req := &api.JobRequest{
+		Job: env.Job,
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+			ExecutionTaskKeyMetadataKey:  "other-task",
+		},
+	}
+
+	if _, ok, err := ExecutionEnvelopeFromRequest(req); !ok || err == nil {
+		t.Fatalf("expected present envelope with task key mismatch to return error, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestExecutionEnvelopeFromRequestRejectsJobBodyMismatch(t *testing.T) {
+	env := validExecutionEnvelope()
+	payload, err := EncodeExecutionEnvelope(env)
+	if err != nil {
+		t.Fatalf("EncodeExecutionEnvelope: %v", err)
+	}
+
+	job, ok := proto.Clone(env.Job).(*api.Job)
+	if !ok {
+		t.Fatal("clone job")
+	}
+
+	job.Root.Uses = stringPtr("builtins/sequence")
+	req := &api.JobRequest{
+		Job: job,
+		Metadata: map[string]string{
+			ExecutionEnvelopeMetadataKey: string(payload),
+			ExecutionTaskKeyMetadataKey:  env.TaskKey,
+		},
+	}
+
+	if _, ok, err := ExecutionEnvelopeFromRequest(req); !ok || err == nil {
+		t.Fatalf("expected present envelope with job body mismatch to return error, ok=%v err=%v", ok, err)
 	}
 }
 

@@ -192,6 +192,10 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 		return nil, err
 	}
 
+	if err := validateEnqueueHandoff(req); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid execution handoff metadata: %v", err)
+	}
+
 	queuedReq := cloneJobRequestForEnqueue(ctx, req, now)
 	if s.persistence != nil {
 		if err := s.beforeFault(ctx, FaultPointEnqueuePersist); err != nil {
@@ -215,6 +219,20 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 	}
 
 	return &api.Empty{}, nil
+}
+
+func validateEnqueueHandoff(req *api.JobRequest) error {
+	if req == nil || req.GetMetadata()[cell.ExecutionEnvelopeMetadataKey] == "" {
+		return nil
+	}
+
+	if _, ok, err := cell.ExecutionEnvelopeFromRequest(req); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("execution envelope metadata is required")
+	}
+
+	return nil
 }
 
 func (s *queueServer) Dequeue(ctx context.Context, req *api.DequeueRequest) (*api.JobRequest, error) {

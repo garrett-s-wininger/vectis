@@ -8,6 +8,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/cell"
+	"vectis/internal/dal"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/queueid"
 
@@ -94,6 +95,51 @@ func TestQueueDelivery_IncludesInstanceID(t *testing.T) {
 
 	if instanceID != "queue-a" {
 		t.Fatalf("expected instance queue-a, got %q", instanceID)
+	}
+}
+
+func TestQueueDelivery_EnqueueRejectsInvalidExecutionHandoff(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	jobID := "job-invalid-handoff"
+	runID := "run-invalid-handoff"
+	req := &api.JobRequest{
+		Job: &api.Job{
+			Id:    &jobID,
+			RunId: &runID,
+			Root:  queueTestNode("root", "builtins/shell"),
+		},
+	}
+
+	if _, err := cell.AttachExecutionEnvelope(req, dal.ExecutionDispatchRecord{
+		RunID:             runID,
+		JobID:             jobID,
+		TaskKey:           dal.RootTaskKey,
+		SegmentID:         "segment-invalid-handoff",
+		ExecutionID:       "execution-invalid-handoff",
+		CellID:            dal.DefaultCellID,
+		Attempt:           1,
+		DefinitionVersion: 1,
+		DefinitionHash:    "sha256:invalidhandoff",
+	}, time.Now().UnixNano()); err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	req.Metadata[cell.ExecutionTaskKeyMetadataKey] = "other-task"
+	if _, err := svc.Enqueue(ctx, req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("Enqueue error = %v, want InvalidArgument", err)
+	}
+
+	got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
+	if err != nil {
+		t.Fatalf("TryDequeue: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("invalid handoff was enqueued: %#v", got)
 	}
 }
 
