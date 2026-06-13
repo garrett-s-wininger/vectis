@@ -299,6 +299,10 @@ func blobDescriptorFromAPI(desc *api.BlobDescriptor) (BlobDescriptor, error) {
 		return BlobDescriptor{}, fmt.Errorf("artifact upload returned negative blob size")
 	}
 
+	if err := ValidateBlobDescriptor(out); err != nil {
+		return BlobDescriptor{}, fmt.Errorf("artifact upload returned invalid blob descriptor: %w", err)
+	}
+
 	return out, nil
 }
 

@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	api "vectis/api/gen/go"
 	"vectis/internal/dal"
 	"vectis/internal/testutil/dbtest"
+
+	"google.golang.org/grpc"
 )
 
 func TestPublisher_PublishUploadsBlobAndRecordsManifest(t *testing.T) {
@@ -33,6 +36,7 @@ func TestPublisher_PublishUploadsBlobAndRecordsManifest(t *testing.T) {
 		ArtifactShardID:  "artifact-1",
 		UploadChunkBytes: 4,
 	})
+
 	if err != nil {
 		t.Fatalf("new publisher: %v", err)
 	}
@@ -293,6 +297,41 @@ func TestPublisherFault_ManifestFailureLeavesRetryableUploadedBlob(t *testing.T)
 	}
 }
 
+func TestPublisher_InvalidBlobDescriptorDoesNotRecordManifest(t *testing.T) {
+	repos := dal.NewSQLRepositories(dbtest.NewTestDB(t))
+	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher-invalid-descriptor")
+	goodDigest := sha256BytesHex([]byte("payload"))
+	badDigest := sha256BytesHex([]byte("other"))
+	publisher, err := NewPublisher(PublisherOptions{
+		Client: malformedArtifactClient{desc: &api.BlobDescriptor{
+			Key:       strPointer(BlobKeySHA256(goodDigest)),
+			Algorithm: strPointer(HashSHA256),
+			Digest:    strPointer(badDigest),
+			Size:      int64Pointer(7),
+		}},
+		Manifests:       repos.Artifacts(),
+		ArtifactShardID: "artifact-1",
+	})
+
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+
+	_, err = publisher.Publish(context.Background(), PublishRequest{
+		RunID:  runID,
+		Name:   "bad-descriptor",
+		Reader: strings.NewReader("payload"),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "invalid blob descriptor") {
+		t.Fatalf("expected invalid descriptor error, got %v", err)
+	}
+
+	if _, err := repos.Artifacts().GetByRunAndName(context.Background(), runID, "bad-descriptor"); !dal.IsNotFound(err) {
+		t.Fatalf("expected no manifest after invalid descriptor, got %v", err)
+	}
+}
+
 func TestPublisher_RunQuotaRejectsBeforeUpload(t *testing.T) {
 	store, err := NewLocalStore(t.TempDir())
 	if err != nil {
@@ -479,4 +518,33 @@ func createPublisherTestRun(t *testing.T, ctx context.Context, repos *dal.SQLRep
 	}
 
 	return runID
+}
+
+type malformedArtifactClient struct {
+	desc *api.BlobDescriptor
+}
+
+func (c malformedArtifactClient) UploadBlob(context.Context, ...grpc.CallOption) (grpc.ClientStreamingClient[api.UploadBlobRequest, api.BlobDescriptor], error) {
+	return &malformedUploadStream{desc: c.desc}, nil
+}
+
+func (c malformedArtifactClient) StatBlob(context.Context, *api.GetBlobRequest, ...grpc.CallOption) (*api.BlobDescriptor, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (c malformedArtifactClient) ReadBlob(context.Context, *api.GetBlobRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[api.ReadBlobResponse], error) {
+	return nil, errors.New("not implemented")
+}
+
+type malformedUploadStream struct {
+	grpc.ClientStream
+	desc *api.BlobDescriptor
+}
+
+func (s *malformedUploadStream) Send(*api.UploadBlobRequest) error {
+	return nil
+}
+
+func (s *malformedUploadStream) CloseAndRecv() (*api.BlobDescriptor, error) {
+	return s.desc, nil
 }

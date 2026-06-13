@@ -22,13 +22,14 @@ const (
 )
 
 var (
-	ErrBlobNotFound       = errors.New("artifact blob not found")
-	ErrBlobDigestMismatch = errors.New("artifact blob digest mismatch")
-	ErrBlobSizeMismatch   = errors.New("artifact blob size mismatch")
-	ErrBlobTooLarge       = errors.New("artifact blob exceeds size limit")
-	ErrInvalidBlobKey     = errors.New("invalid artifact blob key")
-	ErrInvalidDigest      = errors.New("invalid artifact digest")
-	ErrStoreReadOnly      = errors.New("artifact storage is read-only for new blobs")
+	ErrBlobNotFound          = errors.New("artifact blob not found")
+	ErrBlobDigestMismatch    = errors.New("artifact blob digest mismatch")
+	ErrBlobSizeMismatch      = errors.New("artifact blob size mismatch")
+	ErrBlobTooLarge          = errors.New("artifact blob exceeds size limit")
+	ErrInvalidBlobKey        = errors.New("invalid artifact blob key")
+	ErrInvalidBlobDescriptor = errors.New("invalid artifact blob descriptor")
+	ErrInvalidDigest         = errors.New("invalid artifact digest")
+	ErrStoreReadOnly         = errors.New("artifact storage is read-only for new blobs")
 )
 
 type BlobDescriptor struct {
@@ -472,6 +473,40 @@ func descriptorForSHA256(digest string, size int64) BlobDescriptor {
 		Digest:    digest,
 		Size:      size,
 	}
+}
+
+func ValidateBlobDescriptor(desc BlobDescriptor) error {
+	key := strings.TrimSpace(desc.Key)
+	algorithm := strings.TrimSpace(desc.Algorithm)
+	digest := strings.TrimSpace(desc.Digest)
+
+	if key == "" {
+		return fmt.Errorf("%w: artifact blob key is required", ErrInvalidBlobDescriptor)
+	}
+
+	if algorithm != HashSHA256 {
+		return fmt.Errorf("%w: artifact blob algorithm %q is not supported", ErrInvalidBlobDescriptor, algorithm)
+	}
+
+	keyDigest, err := parseSHA256BlobKey(key)
+	if err != nil {
+		return err
+	}
+
+	normalizedDigest, err := normalizeSHA256Digest(digest)
+	if err != nil {
+		return err
+	}
+
+	if keyDigest != normalizedDigest {
+		return fmt.Errorf("%w: blob key digest %q does not match descriptor digest %q", ErrInvalidBlobDescriptor, keyDigest, normalizedDigest)
+	}
+
+	if desc.Size < 0 {
+		return fmt.Errorf("%w: artifact blob size must be >= 0", ErrInvalidBlobDescriptor)
+	}
+
+	return nil
 }
 
 func parseSHA256BlobKey(key string) (string, error) {

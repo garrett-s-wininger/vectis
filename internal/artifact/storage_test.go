@@ -71,6 +71,36 @@ func TestLocalStore_PutStatAndOpen(t *testing.T) {
 	}
 }
 
+func TestValidateBlobDescriptor(t *testing.T) {
+	digest := sha256Hex("payload")
+	valid := descriptorForSHA256(digest, 7)
+	if err := ValidateBlobDescriptor(valid); err != nil {
+		t.Fatalf("ValidateBlobDescriptor valid: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*BlobDescriptor)
+		want   error
+	}{
+		{name: "bad algorithm", mutate: func(d *BlobDescriptor) { d.Algorithm = "md5" }, want: ErrInvalidBlobDescriptor},
+		{name: "bad key", mutate: func(d *BlobDescriptor) { d.Key = "md5:" + digest }, want: ErrInvalidBlobKey},
+		{name: "bad digest", mutate: func(d *BlobDescriptor) { d.Digest = strings.ToUpper(digest) }, want: ErrInvalidDigest},
+		{name: "key digest mismatch", mutate: func(d *BlobDescriptor) { d.Digest = sha256Hex("other") }, want: ErrInvalidBlobDescriptor},
+		{name: "negative size", mutate: func(d *BlobDescriptor) { d.Size = -1 }, want: ErrInvalidBlobDescriptor},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desc := valid
+			tt.mutate(&desc)
+			if err := ValidateBlobDescriptor(desc); !errors.Is(err, tt.want) {
+				t.Fatalf("ValidateBlobDescriptor error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestLocalStore_PutUsesContentAddressedLayout(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewLocalStore(dir)

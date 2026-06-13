@@ -207,6 +207,7 @@ func mapArtifactError(err error) error {
 
 	if errors.Is(err, ErrBlobDigestMismatch) ||
 		errors.Is(err, ErrBlobSizeMismatch) ||
+		errors.Is(err, ErrInvalidBlobDescriptor) ||
 		errors.Is(err, ErrInvalidBlobKey) ||
 		errors.Is(err, ErrInvalidDigest) {
 		return status.Error(codes.InvalidArgument, err.Error())
