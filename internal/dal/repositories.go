@@ -166,6 +166,19 @@ type SourceRepositorySyncRecord struct {
 	RunningStaleBeforeUnix int64
 }
 
+type SourceRepositoryCountSummary struct {
+	Total         int
+	Enabled       int
+	Disabled      int
+	Declared      int
+	StaleEnabled  int
+	StaleDisabled int
+	SyncSucceeded int
+	SyncFailed    int
+	SyncRunning   int
+	SyncNever     int
+}
+
 type JobDefinitionSourceRecord struct {
 	JobID          string
 	Version        int
@@ -639,6 +652,16 @@ type SourceScheduleOverride struct {
 	CreatedAtUnix int64
 }
 
+type SourceCronScheduleCountSummary struct {
+	Total           int
+	Enabled         int
+	Disabled        int
+	Declared        int
+	StaleEnabled    int
+	StaleDisabled   int
+	ActiveOverrides int
+}
+
 type RunForCancel struct {
 	RunID             string
 	Status            string
@@ -756,6 +779,7 @@ type SchedulesRepository interface {
 	UpdateCronSchedule(ctx context.Context, rec CronScheduleRecord) (CronScheduleRecord, error)
 	GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
 	ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]CronScheduleRecord, error)
+	CountSourceCronSchedules(ctx context.Context, declaredScheduleIDs []string) (SourceCronScheduleCountSummary, error)
 	SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override SourceScheduleOverride) (CronScheduleRecord, error)
 	ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (CronScheduleRecord, error)
 	DeleteSourceCronSchedule(ctx context.Context, scheduleID string) error
@@ -796,6 +820,7 @@ type SourcesRepository interface {
 	UpdateRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, error)
 	GetRepository(ctx context.Context, repositoryID string) (SourceRepositoryRecord, error)
 	ListRepositories(ctx context.Context, namespaceID int64) ([]SourceRepositoryRecord, error)
+	CountRepositories(ctx context.Context, declaredRepositoryIDs []string) (SourceRepositoryCountSummary, error)
 	RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error
 	GetDefinitionSource(ctx context.Context, jobID string, version int) (JobDefinitionSourceRecord, error)
 	GetDefinitionSources(ctx context.Context, jobID string, versions []int) (map[int]JobDefinitionSourceRecord, error)

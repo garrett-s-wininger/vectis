@@ -57,48 +57,39 @@ func (s *APIServer) GetSourceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repositoryDeclared := sourceRepositoryDeclarationIDSet(repositoryDecls)
-	scheduleDeclared := sourceScheduleDeclarationIDSet(scheduleDecls)
+	repositoryDeclared := sourceStatusRepositoryDeclarationIDs(repositoryDecls)
+	scheduleDeclared := sourceStatusScheduleDeclarationIDs(scheduleDecls)
 
 	repositoryCounts := sourceStatusRepositoryCounts{}
 	scheduleCounts := sourceStatusScheduleCounts{}
-	if s.namespaces != nil && (s.sources != nil || s.schedules != nil) {
-		namespaces, err := s.namespaces.List(r.Context())
+	if s.sources != nil {
+		counts, err := s.sources.CountRepositories(r.Context(), repositoryDeclared)
 		if err != nil {
 			if s.handleDBUnavailableError(w, err) {
 				return
 			}
 
-			s.logger.Error("Database error listing namespaces for source status: %v", err)
+			s.logger.Error("Database error counting repositories for source status: %v", err)
 			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 			return
 		}
 
-		if s.sources != nil {
-			repositoryCounts, err = s.sourceStatusRepositoryCounts(r, namespaces, repositoryDeclared)
-			if err != nil {
-				if s.handleDBUnavailableError(w, err) {
-					return
-				}
+		repositoryCounts = sourceStatusRepositoryCountsFromDAL(counts)
+	}
 
-				s.logger.Error("Database error listing repositories for source status: %v", err)
-				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+	if s.schedules != nil {
+		counts, err := s.schedules.CountSourceCronSchedules(r.Context(), scheduleDeclared)
+		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
 				return
 			}
+
+			s.logger.Error("Database error counting schedules for source status: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
 		}
 
-		if s.schedules != nil {
-			scheduleCounts, err = s.sourceStatusScheduleCounts(r, namespaces, scheduleDeclared)
-			if err != nil {
-				if s.handleDBUnavailableError(w, err) {
-					return
-				}
-
-				s.logger.Error("Database error listing schedules for source status: %v", err)
-				writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
-				return
-			}
-		}
+		scheduleCounts = sourceStatusScheduleCountsFromDAL(counts)
 	}
 
 	writeJSON(w, http.StatusOK, sourceStatusResponse{
@@ -113,95 +104,51 @@ func (s *APIServer) GetSourceStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *APIServer) sourceStatusRepositoryCounts(r *http.Request, namespaces []dal.NamespaceRecord, declared map[string]struct{}) (sourceStatusRepositoryCounts, error) {
-	counts := sourceStatusRepositoryCounts{}
-	for _, ns := range namespaces {
-		recs, err := s.sources.ListRepositories(r.Context(), ns.ID)
-		if err != nil {
-			return sourceStatusRepositoryCounts{}, err
-		}
-
-		for _, rec := range recs {
-			counts.Total++
-			if rec.Enabled {
-				counts.Enabled++
-			} else {
-				counts.Disabled++
-			}
-
-			if sourceRepositoryIsDeclared(rec.RepositoryID, declared) {
-				counts.Declared++
-			} else if rec.Enabled {
-				counts.StaleEnabled++
-			} else {
-				counts.StaleDisabled++
-			}
-
-			switch strings.TrimSpace(rec.SyncStatus) {
-			case dal.SourceSyncStatusSucceeded:
-				counts.SyncSucceeded++
-			case dal.SourceSyncStatusFailed:
-				counts.SyncFailed++
-			case dal.SourceSyncStatusRunning:
-				counts.SyncRunning++
-			default:
-				counts.SyncNever++
-			}
-		}
+func sourceStatusRepositoryCountsFromDAL(counts dal.SourceRepositoryCountSummary) sourceStatusRepositoryCounts {
+	return sourceStatusRepositoryCounts{
+		Total:         counts.Total,
+		Enabled:       counts.Enabled,
+		Disabled:      counts.Disabled,
+		Declared:      counts.Declared,
+		StaleEnabled:  counts.StaleEnabled,
+		StaleDisabled: counts.StaleDisabled,
+		SyncSucceeded: counts.SyncSucceeded,
+		SyncFailed:    counts.SyncFailed,
+		SyncRunning:   counts.SyncRunning,
+		SyncNever:     counts.SyncNever,
 	}
-
-	return counts, nil
 }
 
-func (s *APIServer) sourceStatusScheduleCounts(r *http.Request, namespaces []dal.NamespaceRecord, declared map[string]struct{}) (sourceStatusScheduleCounts, error) {
-	counts := sourceStatusScheduleCounts{}
-	for _, ns := range namespaces {
-		recs, err := s.schedules.ListSourceCronSchedules(r.Context(), ns.ID, "")
-		if err != nil {
-			return sourceStatusScheduleCounts{}, err
-		}
-
-		for _, rec := range recs {
-			counts.Total++
-			if rec.Enabled {
-				counts.Enabled++
-			} else {
-				counts.Disabled++
-			}
-
-			if sourceCronScheduleIsDeclared(rec.ScheduleID, declared) {
-				counts.Declared++
-			} else if rec.Enabled {
-				counts.StaleEnabled++
-			} else {
-				counts.StaleDisabled++
-			}
-
-			if sourceCronScheduleHasOverride(rec) {
-				counts.ActiveOverrides++
-			}
-		}
+func sourceStatusScheduleCountsFromDAL(counts dal.SourceCronScheduleCountSummary) sourceStatusScheduleCounts {
+	return sourceStatusScheduleCounts{
+		Total:           counts.Total,
+		Enabled:         counts.Enabled,
+		Disabled:        counts.Disabled,
+		Declared:        counts.Declared,
+		StaleEnabled:    counts.StaleEnabled,
+		StaleDisabled:   counts.StaleDisabled,
+		ActiveOverrides: counts.ActiveOverrides,
 	}
-
-	return counts, nil
 }
 
-func sourceRepositoryDeclarationIDSet(decls []config.SourceRepositoryDeclaration) map[string]struct{} {
-	declared := make(map[string]struct{}, len(decls))
+func sourceStatusRepositoryDeclarationIDs(decls []config.SourceRepositoryDeclaration) []string {
+	declared := make([]string, 0, len(decls))
 	for _, decl := range decls {
 		if repositoryID := strings.TrimSpace(decl.RepositoryID); repositoryID != "" {
-			declared[repositoryID] = struct{}{}
+			declared = append(declared, repositoryID)
 		}
 	}
+
 	return declared
 }
 
-func sourceScheduleDeclarationIDSet(decls []config.SourceScheduleDeclaration) map[string]struct{} {
-	declared := make(map[string]struct{}, len(decls))
+func sourceStatusScheduleDeclarationIDs(decls []config.SourceScheduleDeclaration) []string {
+	declared := make([]string, 0, len(decls))
 	for _, decl := range decls {
 		if scheduleID := strings.TrimSpace(decl.ScheduleID); scheduleID != "" {
-			declared[scheduleID] = struct{}{}
+			declared = append(declared, scheduleID)
 		}
 	}
+
 	return declared
 }

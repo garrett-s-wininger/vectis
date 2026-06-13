@@ -328,6 +328,52 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 	return out, nil
 }
 
+func (r *SQLSourcesRepository) CountRepositories(ctx context.Context, declaredRepositoryIDs []string) (SourceRepositoryCountSummary, error) {
+	declaredCTE, args := sourceCountDeclaredIDsCTE(declaredRepositoryIDs)
+	args = append(args,
+		SourceSyncStatusSucceeded,
+		SourceSyncStatusFailed,
+		SourceSyncStatusRunning,
+		SourceSyncStatusSucceeded,
+		SourceSyncStatusFailed,
+		SourceSyncStatusRunning,
+	)
+
+	query := `
+		WITH ` + declaredCTE + `
+		SELECT
+			COUNT(*),
+			COUNT(CASE WHEN sr.enabled THEN 1 END),
+			COUNT(CASE WHEN NOT sr.enabled THEN 1 END),
+			COUNT(CASE WHEN EXISTS (SELECT 1 FROM declared_source_ids d WHERE d.id = sr.repository_id) THEN 1 END),
+			COUNT(CASE WHEN sr.enabled AND NOT EXISTS (SELECT 1 FROM declared_source_ids d WHERE d.id = sr.repository_id) THEN 1 END),
+			COUNT(CASE WHEN NOT sr.enabled AND NOT EXISTS (SELECT 1 FROM declared_source_ids d WHERE d.id = sr.repository_id) THEN 1 END),
+			COUNT(CASE WHEN COALESCE(sr.sync_status, '') = ? THEN 1 END),
+			COUNT(CASE WHEN COALESCE(sr.sync_status, '') = ? THEN 1 END),
+			COUNT(CASE WHEN COALESCE(sr.sync_status, '') = ? THEN 1 END),
+			COUNT(CASE WHEN COALESCE(sr.sync_status, '') NOT IN (?, ?, ?) THEN 1 END)
+		FROM source_repositories sr
+	`
+
+	var counts SourceRepositoryCountSummary
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(query), args...).Scan(
+		&counts.Total,
+		&counts.Enabled,
+		&counts.Disabled,
+		&counts.Declared,
+		&counts.StaleEnabled,
+		&counts.StaleDisabled,
+		&counts.SyncSucceeded,
+		&counts.SyncFailed,
+		&counts.SyncRunning,
+		&counts.SyncNever,
+	); err != nil {
+		return SourceRepositoryCountSummary{}, normalizeSQLError(err)
+	}
+
+	return counts, nil
+}
+
 func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceRepositoryRecord, error) {
 	rec.RepositoryID = strings.TrimSpace(rec.RepositoryID)
 	rec.SourceKind = strings.TrimSpace(rec.SourceKind)

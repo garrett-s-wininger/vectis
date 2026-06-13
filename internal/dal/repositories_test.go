@@ -5182,6 +5182,21 @@ func TestSchedulesRepository_ListSourceCronSchedules(t *testing.T) {
 		t.Fatalf("expected update to preserve source schedule override: %+v", updated)
 	}
 
+	counts, err := repos.Schedules().CountSourceCronSchedules(ctx, []string{"nightly-a", "nightly-c", "nightly-a", " ", "nightly-b' OR 1=1 --"})
+	if err != nil {
+		t.Fatalf("count source cron schedules: %v", err)
+	}
+
+	if counts.Total != 3 ||
+		counts.Enabled != 2 ||
+		counts.Disabled != 1 ||
+		counts.Declared != 2 ||
+		counts.StaleEnabled != 0 ||
+		counts.StaleDisabled != 1 ||
+		counts.ActiveOverrides != 1 {
+		t.Fatalf("unexpected source schedule counts: %+v", counts)
+	}
+
 	cleared, err := repos.Schedules().ClearSourceCronScheduleOverride(ctx, "nightly-a")
 	if err != nil {
 		t.Fatalf("clear source schedule override: %v", err)

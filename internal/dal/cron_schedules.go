@@ -235,6 +235,39 @@ func (r *SQLSchedulesRepository) ListSourceCronSchedules(ctx context.Context, na
 	return out, nil
 }
 
+func (r *SQLSchedulesRepository) CountSourceCronSchedules(ctx context.Context, declaredScheduleIDs []string) (SourceCronScheduleCountSummary, error) {
+	declaredCTE, args := sourceCountDeclaredIDsCTE(declaredScheduleIDs)
+	query := `
+		WITH ` + declaredCTE + `
+		SELECT
+			COUNT(*),
+			COUNT(CASE WHEN jt.enabled THEN 1 END),
+			COUNT(CASE WHEN NOT jt.enabled THEN 1 END),
+			COUNT(CASE WHEN EXISTS (SELECT 1 FROM declared_source_ids d WHERE d.id = COALESCE(cts.schedule_id, '')) THEN 1 END),
+			COUNT(CASE WHEN jt.enabled AND NOT EXISTS (SELECT 1 FROM declared_source_ids d WHERE d.id = COALESCE(cts.schedule_id, '')) THEN 1 END),
+			COUNT(CASE WHEN NOT jt.enabled AND NOT EXISTS (SELECT 1 FROM declared_source_ids d WHERE d.id = COALESCE(cts.schedule_id, '')) THEN 1 END),
+			COUNT(CASE WHEN COALESCE(jt.source_override_ref, '') <> '' OR COALESCE(jt.source_override_path, '') <> '' THEN 1 END)
+		FROM cron_trigger_specs cts
+		JOIN job_triggers jt ON jt.id = cts.trigger_id
+		JOIN source_repositories sr ON sr.repository_id = jt.source_repository_id
+	`
+
+	var counts SourceCronScheduleCountSummary
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(query), args...).Scan(
+		&counts.Total,
+		&counts.Enabled,
+		&counts.Disabled,
+		&counts.Declared,
+		&counts.StaleEnabled,
+		&counts.StaleDisabled,
+		&counts.ActiveOverrides,
+	); err != nil {
+		return SourceCronScheduleCountSummary{}, normalizeSQLError(err)
+	}
+
+	return counts, nil
+}
+
 func (r *SQLSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override SourceScheduleOverride) (CronScheduleRecord, error) {
 	scheduleID = strings.TrimSpace(scheduleID)
 	override = normalizeSourceScheduleOverride(override)

@@ -60,6 +60,57 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 	}
 }
 
+func TestSourcesRepository_CountRepositories(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{RepositoryID: "declared-ready", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/declared-ready", Enabled: true},
+		{RepositoryID: "stale-failed", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/stale-failed", Enabled: true},
+		{RepositoryID: "declared-disabled", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/declared-disabled", Enabled: false},
+	} {
+		if _, err := sources.CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("create repository %s: %v", rec.RepositoryID, err)
+		}
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "declared-ready",
+		Status:       dal.SourceSyncStatusSucceeded,
+		Ref:          "main",
+		Commit:       "abc123",
+	}); err != nil {
+		t.Fatalf("sync declared-ready: %v", err)
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "stale-failed",
+		Status:       dal.SourceSyncStatusFailed,
+		Error:        "fetch failed",
+	}); err != nil {
+		t.Fatalf("sync stale-failed: %v", err)
+	}
+
+	counts, err := sources.CountRepositories(ctx, []string{"declared-ready", "declared-disabled", "declared-ready", " ", "stale-failed' OR 1=1 --"})
+	if err != nil {
+		t.Fatalf("CountRepositories: %v", err)
+	}
+
+	if counts.Total != 3 ||
+		counts.Enabled != 2 ||
+		counts.Disabled != 1 ||
+		counts.Declared != 2 ||
+		counts.StaleEnabled != 1 ||
+		counts.StaleDisabled != 0 ||
+		counts.SyncSucceeded != 1 ||
+		counts.SyncFailed != 1 ||
+		counts.SyncRunning != 0 ||
+		counts.SyncNever != 1 {
+		t.Fatalf("unexpected counts: %+v", counts)
+	}
+}
+
 func TestSourcesRepository_CreateRepositoryConflicts(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	sources := dal.NewSQLRepositories(db).Sources()

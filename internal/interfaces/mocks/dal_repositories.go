@@ -1470,6 +1470,48 @@ func (m *MockSchedulesRepository) ListSourceCronSchedules(ctx context.Context, n
 	return out, nil
 }
 
+func (m *MockSchedulesRepository) CountSourceCronSchedules(ctx context.Context, declaredScheduleIDs []string) (dal.SourceCronScheduleCountSummary, error) {
+	if m.ListSourceCronSchedulesErr != nil {
+		return dal.SourceCronScheduleCountSummary{}, m.ListSourceCronSchedulesErr
+	}
+
+	declared := make(map[string]struct{}, len(declaredScheduleIDs))
+	for _, id := range declaredScheduleIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			declared[id] = struct{}{}
+		}
+	}
+
+	counts := dal.SourceCronScheduleCountSummary{}
+	for _, rec := range m.CronSchedules {
+		if rec.SourceRepositoryID == "" {
+			continue
+		}
+
+		counts.Total++
+		if rec.Enabled {
+			counts.Enabled++
+		} else {
+			counts.Disabled++
+		}
+
+		if _, ok := declared[strings.TrimSpace(rec.ScheduleID)]; ok {
+			counts.Declared++
+		} else if rec.Enabled {
+			counts.StaleEnabled++
+		} else {
+			counts.StaleDisabled++
+		}
+
+		if strings.TrimSpace(rec.SourceOverrideRef) != "" || strings.TrimSpace(rec.SourceOverridePath) != "" {
+			counts.ActiveOverrides++
+		}
+	}
+
+	return counts, nil
+}
+
 func (m *MockSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override dal.SourceScheduleOverride) (dal.CronScheduleRecord, error) {
 	if m.SetSourceCronScheduleOverrideErr != nil {
 		return dal.CronScheduleRecord{}, m.SetSourceCronScheduleOverrideErr
