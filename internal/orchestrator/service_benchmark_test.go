@@ -34,6 +34,14 @@ func BenchmarkService_ClaimCompleteRootChild(b *testing.B) {
 	benchmarkServiceClaimCompleteRootChild(b, runtime.GOMAXPROCS(0), runtime.GOMAXPROCS(0))
 }
 
+func BenchmarkService_LoadClaimCompleteFanoutWidth(b *testing.B) {
+	for _, width := range []int{1, 10, 100, 1000, 5000} {
+		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
+			benchmarkServiceLoadClaimCompleteFanoutWidth(b, width)
+		})
+	}
+}
+
 func benchmarkServiceClaimCompleteLeaf(b *testing.B, shardCount, workerCount int) {
 	ctx := context.Background()
 	svc := orchestrator.New(shardCount)
@@ -103,6 +111,93 @@ func benchmarkServiceClaimCompleteLeaf(b *testing.B, shardCount, workerCount int
 
 	b.ReportMetric(float64(shardCount), "orchestrator_shards")
 	b.ReportMetric(float64(workerCount), "worker_count")
+}
+
+func benchmarkServiceLoadClaimCompleteFanoutWidth(b *testing.B, width int) {
+	if width <= 0 {
+		b.Fatal("fanout width must be positive")
+	}
+
+	ctx := context.Background()
+	tasks := benchmarkFanoutTasks(width)
+	leaseUntil := time.Now().Add(time.Hour)
+	shardCount := runtime.GOMAXPROCS(0)
+	runsPerService := max(1, min(128, 20000/width))
+
+	b.ReportAllocs()
+	b.ReportMetric(float64(width), "fanout_width")
+	b.ReportMetric(float64(runsPerService), "runs_per_service")
+	b.ResetTimer()
+	start := time.Now()
+
+	activated := 0
+	for i := 0; i < b.N; {
+		svc := orchestrator.New(shardCount)
+		batch := min(runsPerService, b.N-i)
+		for j := 0; j < batch; j++ {
+			runIndex := i + j
+			runID := fmt.Sprintf("bench-fanout-width-%d-%d", width, runIndex)
+			loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+				RunID: runID,
+				Tasks: tasks,
+			})
+
+			if err != nil {
+				svc.Close()
+				b.Fatalf("load run %s: %v", runID, err)
+			}
+
+			claim, err := svc.ClaimExecution(ctx, runID, loaded.Root.ExecutionID, "bench-worker", leaseUntil)
+			if err != nil {
+				svc.Close()
+				b.Fatalf("claim root %s: %v", runID, err)
+			}
+
+			if !claim.Claimed {
+				svc.Close()
+				b.Fatalf("root execution %s was not claimed", loaded.Root.ExecutionID)
+			}
+
+			result, err := svc.CompleteExecutionByClaim(ctx, runID, loaded.Root.ExecutionID, "bench-worker", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+			if err != nil {
+				svc.Close()
+				b.Fatalf("complete root %s: %v", runID, err)
+			}
+
+			if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != width || len(result.Children) != width {
+				svc.Close()
+				b.Fatalf("root result for width %d: outcome=%q activated=%d children=%d", width, result.Outcome, result.Activated, len(result.Children))
+			}
+
+			activated += result.Activated
+		}
+
+		svc.Close()
+		i += batch
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "parent_completions/s")
+		b.ReportMetric(float64(activated)/elapsed.Seconds(), "activated_tasks/s")
+	}
+
+	b.ReportMetric(float64(shardCount), "orchestrator_shards")
+}
+
+func benchmarkFanoutTasks(width int) []orchestrator.TaskSpec {
+	tasks := make([]orchestrator.TaskSpec, 0, width)
+	for i := 0; i < width; i++ {
+		key := fmt.Sprintf("child-%05d", i)
+		tasks = append(tasks, orchestrator.TaskSpec{
+			TaskKey:       key,
+			ParentTaskKey: dal.RootTaskKey,
+			Name:          key,
+		})
+	}
+
+	return tasks
 }
 
 func benchmarkServiceClaimCompleteRootChild(b *testing.B, shardCount, workerCount int) {
