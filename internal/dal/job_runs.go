@@ -219,7 +219,7 @@ func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, reason s
 	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE job_runs SET status = ?, failure_reason = ?,
 		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?
-	`), "orphaned", reason, orphanReason, runID)
+	`), RunStatusOrphaned, reason, orphanReason, runID)
 
 	return normalizeSQLError(err)
 }
@@ -3076,6 +3076,13 @@ func markRunFailedForExpiredDispatchTx(ctx context.Context, tx *sql.Tx, runID, r
 	return nil
 }
 
+func startDeadlineExpiredForClaim(status string, startDeadline sql.NullInt64, now time.Time) bool {
+	return statusIn(status, []string{ExecutionStatusPending, ExecutionStatusAccepted}) &&
+		startDeadline.Valid &&
+		startDeadline.Int64 > 0 &&
+		startDeadline.Int64 <= now.UTC().UnixNano()
+}
+
 func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error) {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
@@ -3125,7 +3132,7 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 		return ExecutionClaimResult{}, nil
 	}
 
-	if statusIn(currentStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted}) && startDeadline.Valid && startDeadline.Int64 > 0 && startDeadline.Int64 <= now.UnixNano() {
+	if startDeadlineExpiredForClaim(currentStatus, startDeadline, now) {
 		expired, didExpire, err := expireExecutionStartDeadlineTx(ctx, tx, executionID, now)
 		if err != nil {
 			return ExecutionClaimResult{}, err
@@ -3257,12 +3264,13 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 	var runStatus string
 	var leaseOwner sql.NullString
 	var currentLeaseUntil sql.NullInt64
+	var startDeadline sql.NullInt64
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT se.run_id, se.segment_id, se.task_id, se.task_attempt_id, se.attempt, se.status, se.lease_owner, se.lease_until, jr.status
+		SELECT se.run_id, se.segment_id, se.task_id, se.task_attempt_id, se.attempt, se.status, se.lease_owner, se.lease_until, se.start_deadline_unix_nano, jr.status
 		FROM segment_executions se
 		JOIN job_runs jr ON jr.run_id = se.run_id
 		WHERE se.execution_id = ?
-	`), executionID).Scan(&runID, &segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &leaseOwner, &currentLeaseUntil, &runStatus); err != nil {
+	`), executionID).Scan(&runID, &segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &leaseOwner, &currentLeaseUntil, &startDeadline, &runStatus); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
 		}
@@ -3278,7 +3286,25 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 		return fmt.Errorf("%w: run %s status %s cannot mirror an active execution claim", ErrConflict, runID, runStatus)
 	}
 
-	nowUnix := time.Now().UTC().Unix()
+	now := time.Now().UTC()
+	nowUnix := now.Unix()
+	if startDeadlineExpiredForClaim(currentStatus, startDeadline, now) {
+		expired, didExpire, err := expireExecutionStartDeadlineTx(ctx, tx, executionID, now)
+		if err != nil {
+			return err
+		}
+
+		if didExpire {
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+
+			return fmt.Errorf("%w: %w: execution %s expired before mirrored claim", ErrConflict, ErrDispatchExpired, expired.ExecutionID)
+		}
+
+		return fmt.Errorf("%w: %w: execution %s expired before mirrored claim", ErrConflict, ErrDispatchExpired, executionID)
+	}
+
 	if currentLeaseUntil.Valid && currentLeaseUntil.Int64 >= nowUnix {
 		if !leaseOwner.Valid || leaseOwner.String != owner {
 			return fmt.Errorf("%w: execution %s already has an active claim", ErrConflict, executionID)
@@ -3295,7 +3321,7 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 			"last_observed_at = ?",
 			"event_sequence = event_sequence + 1",
 		)
-		args = append(args, ExecutionStatusAccepted, time.Now().UnixNano())
+		args = append(args, ExecutionStatusAccepted, now.UnixNano())
 	}
 
 	setParts = append(setParts, "updated_at = CURRENT_TIMESTAMP")

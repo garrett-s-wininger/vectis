@@ -2021,6 +2021,44 @@ func TestRunsRepository_TryClaimExecutionExpiresPastStartDeadline(t *testing.T) 
 	assertDispatchExpired(t, db, runID, dispatch.ExecutionID, dispatch.SegmentID)
 }
 
+func TestRunsRepository_MirrorExecutionClaimExpiresPastStartDeadline(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-mirror", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-execution-deadline-mirror"
+	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-mirror","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	deadline := time.Now().Add(-time.Second).UnixNano()
+	created, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{dal.DefaultCellID}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: deadline,
+	})
+
+	if err != nil {
+		t.Fatalf("create run with deadline: %v", err)
+	}
+
+	runID := created[0].RunID
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	err = repos.Runs().MirrorExecutionClaim(ctx, dispatch.ExecutionID, "worker-orchestrator", "claim-token", time.Now().Add(time.Minute))
+	if !dal.IsConflict(err) || !dal.IsDispatchExpired(err) {
+		t.Fatalf("mirror expired execution claim: got %v, want dispatch-expired conflict", err)
+	}
+
+	assertDispatchExpired(t, db, runID, dispatch.ExecutionID, dispatch.SegmentID)
+}
+
 func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

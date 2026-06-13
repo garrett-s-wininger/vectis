@@ -8,8 +8,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("conflict")
+	ErrNotFound        = errors.New("not found")
+	ErrConflict        = errors.New("conflict")
+	ErrDispatchExpired = errors.New("dispatch expired")
 )
 
 func IsNotFound(err error) bool {
@@ -18,6 +19,10 @@ func IsNotFound(err error) bool {
 
 func IsConflict(err error) bool {
 	return errors.Is(err, ErrConflict)
+}
+
+func IsDispatchExpired(err error) bool {
+	return errors.Is(err, ErrDispatchExpired)
 }
 
 func IsInvalidNamespaceName(err error) bool {

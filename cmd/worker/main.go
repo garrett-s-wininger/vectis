@@ -33,6 +33,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
 	"vectis/internal/multidial"
@@ -987,6 +988,13 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 	if executionClaimErr != nil {
 		span.SetStatus(otelcodes.Error, "claim execution")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+
+		if dal.IsDispatchExpired(executionClaimErr) {
+			w.logger.Warn("Execution %s expired before claim; leaving durable dispatch-expired result", executionEnvelope.ExecutionID)
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+			return observability.WorkerOutcomeFailed
+		}
+
 		if err := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); err != nil {
 			w.logger.Error("Failed to mark run %s orphaned after execution claim failure: %v", runID, err)
 			span.RecordError(err)
@@ -1301,7 +1309,11 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 			Metadata: cloneMetadataForWorker(source.Metadata),
 		}
 
-		dispatch := executionDispatchRecordFromTaskExecution(j, source, child)
+		dispatch, err := w.prepareContinuationDispatch(ctx, j, source, child)
+		if err != nil {
+			return enqueued > 0, err
+		}
+
 		if _, err := cell.AttachExecutionEnvelope(req, dispatch, w.now().UnixNano()); err != nil {
 			return enqueued > 0, fmt.Errorf("attach child execution envelope %s: %w", child.ExecutionID, err)
 		}
@@ -1396,6 +1408,36 @@ func cloneMetadataForWorker(in map[string]string) map[string]string {
 	}
 
 	return out
+}
+
+func (w *worker) prepareContinuationDispatch(ctx context.Context, j *api.Job, source *cell.ExecutionEnvelope, child dal.TaskExecutionRecord) (dal.ExecutionDispatchRecord, error) {
+	if w.store != nil {
+		activated, _, err := w.store.ActivatePlannedTaskExecution(w.runCtx, child.TaskID)
+		if err != nil {
+			w.noteDBError(err)
+			trace.SpanFromContext(ctx).RecordError(err)
+			return dal.ExecutionDispatchRecord{}, fmt.Errorf("activate child task execution %s: %w", child.ExecutionID, err)
+		}
+		w.noteDBRecovered()
+		if activated.ExecutionID != "" {
+			child = activated
+		}
+	}
+
+	dispatch := executionDispatchRecordFromTaskExecution(j, source, child)
+	deadline := dispatchmeta.DeadlineUnixNano(w.now(), config.DispatchStartTTL())
+	if w.store != nil && dispatch.ExecutionID != "" {
+		stored, err := w.store.EnsureExecutionStartDeadline(w.runCtx, dispatch.ExecutionID, deadline)
+		if err != nil {
+			w.noteDBError(err)
+			trace.SpanFromContext(ctx).RecordError(err)
+			return dal.ExecutionDispatchRecord{}, fmt.Errorf("ensure child dispatch deadline %s: %w", dispatch.ExecutionID, err)
+		}
+		w.noteDBRecovered()
+		deadline = stored
+	}
+	dispatch.StartDeadlineUnixNano = deadline
+	return dispatch, nil
 }
 
 func executionDispatchRecordFromTaskExecution(j *api.Job, source *cell.ExecutionEnvelope, rec dal.TaskExecutionRecord) dal.ExecutionDispatchRecord {
@@ -2129,6 +2171,11 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, env *cell.ExecutionEn
 		lastErr = err
 		w.noteDBError(err)
 		trace.SpanFromContext(ctx).RecordError(err)
+
+		if dal.IsDispatchExpired(err) {
+			return err
+		}
+
 		if attempt == finalizeMaxAttempts {
 			break
 		}

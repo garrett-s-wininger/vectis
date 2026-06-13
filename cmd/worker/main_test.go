@@ -15,6 +15,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
@@ -1548,6 +1549,39 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 		t.Fatalf("queued continuation requests: got %d, want 1", len(reqs))
 	}
 
+	env, ok, err := cell.ExecutionEnvelopeFromRequest(reqs[0])
+	if err != nil {
+		t.Fatalf("queued child envelope: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("queued continuation missing execution envelope")
+	}
+
+	if env.ExecutionID == "" || env.TaskID == "" || env.TaskKey != "child" {
+		t.Fatalf("queued child envelope mismatch: got %+v", env)
+	}
+
+	deadline, ok := dispatchmeta.StartDeadlineFromMetadata(reqs[0].GetMetadata())
+	if !ok {
+		t.Fatalf("queued child metadata missing %s", dispatchmeta.StartDeadlineUnixNanoKey)
+	}
+
+	var executionStatus string
+	var storedDeadline sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT status, start_deadline_unix_nano FROM segment_executions WHERE execution_id = ?`, env.ExecutionID).
+		Scan(&executionStatus, &storedDeadline); err != nil {
+		t.Fatalf("query child execution deadline: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusPending {
+		t.Fatalf("child execution status: got %q, want %q", executionStatus, dal.ExecutionStatusPending)
+	}
+
+	if !storedDeadline.Valid || storedDeadline.Int64 != deadline {
+		t.Fatalf("child execution deadline: stored=%v queued=%d", storedDeadline, deadline)
+	}
+
 }
 
 func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *testing.T) {
@@ -2364,6 +2398,96 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 
 	if executionStatus != dal.ExecutionStatusAccepted || !leaseOwner.Valid || leaseOwner.String != "other-worker" {
 		t.Fatalf("execution state: status=%q owner=%v", executionStatus, leaseOwner)
+	}
+}
+
+func TestWorkerRunTaskExecution_MirroredExpiredDispatchDoesNotOrphan(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-expired-mirror", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-expired-mirror"
+	def := `{"id":"job-worker-expired-mirror","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo should-not-run"}}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	created, err := runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{"local"}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: time.Now().Add(-time.Second).UnixNano(),
+	})
+
+	if err != nil {
+		t.Fatalf("create expired run: %v", err)
+	}
+
+	runID := created[0].RunID
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	queue := mocks.NewMockQueueClient()
+	logClient := mocks.NewMockLogClient()
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-expired-mirror",
+		cellID:        "local",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     logClient,
+		core:          testWorkerCore(job.NewExecutor()),
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+	}
+
+	deliveryID := "delivery-expired-mirror"
+	rootID := "root"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &action,
+			With: map[string]string{"command": "echo should-not-run"},
+		},
+	}
+
+	req := &api.JobRequest{Job: j}
+	env, err := cell.AttachExecutionEnvelope(req, dispatch, 1)
+	if err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	var runStatus string
+	var failureCode string
+	if err := db.QueryRowContext(ctx, `SELECT status, failure_code FROM job_runs WHERE run_id = ?`, runID).
+		Scan(&runStatus, &failureCode); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusFailed || failureCode != dal.FailureCodeDispatchExpired {
+		t.Fatalf("run status changed incorrectly: status=%q failure_code=%q", runStatus, failureCode)
+	}
+
+	if logClient.GetStreamCount() != 0 {
+		t.Fatalf("expected job execution not to start after expired dispatch, got %d log streams", logClient.GetStreamCount())
 	}
 }
 
