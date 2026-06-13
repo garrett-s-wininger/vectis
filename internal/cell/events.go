@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"vectis/internal/dal"
 )
@@ -13,21 +14,26 @@ import (
 var ErrInvalidCatalogEvent = errors.New("invalid catalog event")
 
 const (
-	CatalogEventTypeRunStatus       = "run.status"
-	CatalogEventTypeExecutionStatus = "execution.status"
-	CatalogEventTypeArtifactRecord  = "artifact.record"
+	CatalogEventTypeRunStatus         = "run.status"
+	CatalogEventTypeExecutionStatus   = "execution.status"
+	CatalogEventTypeArtifactRecord    = "artifact.record"
+	CatalogEventTypeExecutionSecurity = "execution.security"
 )
 
 type CatalogEvent struct {
-	SourceCellID    string
-	RunStatus       *dal.RunStatusUpdate
-	ExecutionStatus *dal.ExecutionStatusUpdate
-	Artifact        *dal.ArtifactCreate
+	SourceCellID      string
+	RunStatus         *dal.RunStatusUpdate
+	ExecutionStatus   *dal.ExecutionStatusUpdate
+	Artifact          *dal.ArtifactCreate
+	ExecutionSecurity *dal.RecordExecutionSecurityEventParams
 }
 
 type CatalogEventConsumer struct {
-	updater   dal.RunCatalogUpdater
-	artifacts dal.ArtifactsRepository
+	updater        dal.RunCatalogUpdater
+	artifacts      dal.ArtifactsRepository
+	securityEvents interface {
+		RecordExecutionSecurityEvent(ctx context.Context, event dal.RecordExecutionSecurityEventParams) error
+	}
 }
 
 type CatalogEventPublisher struct {
@@ -48,6 +54,11 @@ type CatalogInboxProcessResult struct {
 
 func NewCatalogEventConsumer(updater dal.RunCatalogUpdater, artifacts ...dal.ArtifactsRepository) CatalogEventConsumer {
 	consumer := CatalogEventConsumer{updater: updater}
+	if securityEvents, ok := updater.(interface {
+		RecordExecutionSecurityEvent(ctx context.Context, event dal.RecordExecutionSecurityEventParams) error
+	}); ok {
+		consumer.securityEvents = securityEvents
+	}
 	if len(artifacts) > 0 {
 		consumer.artifacts = artifacts[0]
 	}
@@ -118,6 +129,31 @@ func (p CatalogEventPublisher) RecordArtifact(ctx context.Context, create dal.Ar
 	}
 
 	return p.record(ctx, CatalogArtifactEventKey(create.RunID, create.Name), CatalogEventTypeArtifactRecord, payload)
+}
+
+func (p CatalogEventPublisher) RecordExecutionSecurity(ctx context.Context, event dal.RecordExecutionSecurityEventParams) error {
+	if p.events == nil {
+		return nil
+	}
+
+	if event.CreatedAt <= 0 {
+		event.CreatedAt = time.Now().Unix()
+	}
+
+	if strings.TrimSpace(event.EventKey) == "" {
+		event.EventKey = dal.ExecutionSecurityEventKey(event)
+	}
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal execution security catalog event: %w", err)
+	}
+
+	if strings.TrimSpace(event.RunID) == "" || strings.TrimSpace(event.EventType) == "" || strings.TrimSpace(event.Outcome) == "" {
+		return fmt.Errorf("%w: run_id, event_type, and outcome are required", ErrInvalidCatalogEvent)
+	}
+
+	return p.record(ctx, event.EventKey, CatalogEventTypeExecutionSecurity, payload)
 }
 
 func (p CatalogEventPublisher) record(ctx context.Context, eventKey, eventType string, payload []byte) error {
@@ -202,6 +238,17 @@ func CatalogEventFromRecord(rec dal.CatalogEventRecord) (CatalogEvent, error) {
 		}
 
 		event.Artifact = &create
+	case CatalogEventTypeExecutionSecurity:
+		var securityEvent dal.RecordExecutionSecurityEventParams
+		if err := json.Unmarshal(rec.Payload, &securityEvent); err != nil {
+			return CatalogEvent{}, fmt.Errorf("%w: decode execution security payload: %v", ErrInvalidCatalogEvent, err)
+		}
+
+		if strings.TrimSpace(securityEvent.EventKey) == "" {
+			securityEvent.EventKey = rec.EventKey
+		}
+
+		event.ExecutionSecurity = &securityEvent
 	default:
 		return CatalogEvent{}, fmt.Errorf("%w: unsupported event type %q", ErrInvalidCatalogEvent, rec.EventType)
 	}
@@ -240,12 +287,20 @@ func (c CatalogEventConsumer) Apply(ctx context.Context, event CatalogEvent) err
 		return c.updater.ApplyExecutionStatusUpdate(ctx, *event.ExecutionStatus)
 	}
 
-	if c.artifacts == nil {
-		return errors.New("artifact catalog updater is required")
+	if event.Artifact != nil {
+		if c.artifacts == nil {
+			return errors.New("artifact catalog updater is required")
+		}
+
+		_, err := c.artifacts.Record(ctx, *event.Artifact)
+		return err
 	}
 
-	_, err := c.artifacts.Record(ctx, *event.Artifact)
-	return err
+	if c.securityEvents == nil {
+		return errors.New("execution security catalog updater is required")
+	}
+
+	return c.securityEvents.RecordExecutionSecurityEvent(ctx, *event.ExecutionSecurity)
 }
 
 func (e CatalogEvent) Validate() error {
@@ -264,6 +319,13 @@ func (e CatalogEvent) Validate() error {
 
 	if e.Artifact != nil {
 		updateCount++
+	}
+
+	if e.ExecutionSecurity != nil {
+		updateCount++
+		if strings.TrimSpace(e.ExecutionSecurity.RunID) == "" || strings.TrimSpace(e.ExecutionSecurity.EventType) == "" || strings.TrimSpace(e.ExecutionSecurity.Outcome) == "" {
+			return fmt.Errorf("%w: execution security run_id, event_type, and outcome are required", ErrInvalidCatalogEvent)
+		}
 	}
 
 	if updateCount != 1 {

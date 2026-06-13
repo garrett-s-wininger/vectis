@@ -2180,6 +2180,17 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	latestFailedSecurityEvent, err := s.runs.LatestRunSecurityEvent(ctx, runID, true)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
 	type dispatchEventRow struct {
 		ID        int64   `json:"id"`
 		Source    string  `json:"source"`
@@ -2195,30 +2206,46 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		Incomplete     int `json:"incomplete"`
 	}
 
+	type executionSecurityEventRow struct {
+		ID            int64   `json:"id"`
+		RunID         string  `json:"run_id"`
+		TaskID        string  `json:"task_id,omitempty"`
+		TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+		ExecutionID   string  `json:"execution_id,omitempty"`
+		EventType     string  `json:"event_type"`
+		Outcome       string  `json:"outcome"`
+		Reason        string  `json:"reason,omitempty"`
+		Provider      *string `json:"provider,omitempty"`
+		SecretCount   *int    `json:"secret_count,omitempty"`
+		FileCount     *int    `json:"file_count,omitempty"`
+		CreatedAt     int64   `json:"created_at"`
+	}
+
 	type runRow struct {
-		RunID                string             `json:"run_id"`
-		RunIndex             int                `json:"run_index"`
-		Status               string             `json:"status"`
-		OrphanReason         *string            `json:"orphan_reason,omitempty"`
-		FailureCode          *string            `json:"failure_code,omitempty"`
-		CreatedAt            *string            `json:"created_at,omitempty"`
-		StartedAt            *string            `json:"started_at,omitempty"`
-		FinishedAt           *string            `json:"finished_at,omitempty"`
-		FailureReason        *string            `json:"failure_reason,omitempty"`
-		DefinitionVersion    int                `json:"definition_version"`
-		DefinitionHash       string             `json:"definition_hash,omitempty"`
-		OwningCell           string             `json:"owning_cell"`
-		ReplayOfRunID        *string            `json:"replay_of_run_id,omitempty"`
-		TriggerInvocationID  *string            `json:"trigger_invocation_id,omitempty"`
-		TriggerID            *int64             `json:"trigger_id,omitempty"`
-		TriggerType          *string            `json:"trigger_type,omitempty"`
-		TriggerPayloadHash   *string            `json:"trigger_payload_hash,omitempty"`
-		RequestedCells       []string           `json:"requested_cells,omitempty"`
-		ExecutionPayloadHash string             `json:"execution_payload_hash,omitempty"`
-		NextAction           *string            `json:"next_action,omitempty"`
-		DispatchSummary      []dispatchSummary  `json:"dispatch_summary,omitempty"`
-		DispatchEvents       []dispatchEventRow `json:"dispatch_events"`
-		TaskCompletion       *taskCompletionRow `json:"task_completion,omitempty"`
+		RunID                     string                     `json:"run_id"`
+		RunIndex                  int                        `json:"run_index"`
+		Status                    string                     `json:"status"`
+		OrphanReason              *string                    `json:"orphan_reason,omitempty"`
+		FailureCode               *string                    `json:"failure_code,omitempty"`
+		CreatedAt                 *string                    `json:"created_at,omitempty"`
+		StartedAt                 *string                    `json:"started_at,omitempty"`
+		FinishedAt                *string                    `json:"finished_at,omitempty"`
+		FailureReason             *string                    `json:"failure_reason,omitempty"`
+		DefinitionVersion         int                        `json:"definition_version"`
+		DefinitionHash            string                     `json:"definition_hash,omitempty"`
+		OwningCell                string                     `json:"owning_cell"`
+		ReplayOfRunID             *string                    `json:"replay_of_run_id,omitempty"`
+		TriggerInvocationID       *string                    `json:"trigger_invocation_id,omitempty"`
+		TriggerID                 *int64                     `json:"trigger_id,omitempty"`
+		TriggerType               *string                    `json:"trigger_type,omitempty"`
+		TriggerPayloadHash        *string                    `json:"trigger_payload_hash,omitempty"`
+		RequestedCells            []string                   `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash      string                     `json:"execution_payload_hash,omitempty"`
+		NextAction                *string                    `json:"next_action,omitempty"`
+		DispatchSummary           []dispatchSummary          `json:"dispatch_summary,omitempty"`
+		DispatchEvents            []dispatchEventRow         `json:"dispatch_events"`
+		TaskCompletion            *taskCompletionRow         `json:"task_completion,omitempty"`
+		LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
 	}
 
 	resp := runRow{
@@ -2241,9 +2268,26 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash:   rec.TriggerPayloadHash,
 		RequestedCells:       rec.RequestedCells,
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
-		NextAction:           runNextAction(rec.Status, taskCompletionSummary, pendingTaskContinuation),
+		NextAction:           runNextAction(rec.Status, taskCompletionSummary, pendingTaskContinuation, latestFailedSecurityEvent != nil),
 		DispatchSummary:      buildDispatchSummary(dispatchEvents),
 		DispatchEvents:       []dispatchEventRow{},
+	}
+
+	if latestFailedSecurityEvent != nil {
+		resp.LatestFailedSecurityEvent = &executionSecurityEventRow{
+			ID:            latestFailedSecurityEvent.ID,
+			RunID:         latestFailedSecurityEvent.RunID,
+			TaskID:        latestFailedSecurityEvent.TaskID,
+			TaskAttemptID: latestFailedSecurityEvent.TaskAttemptID,
+			ExecutionID:   latestFailedSecurityEvent.ExecutionID,
+			EventType:     latestFailedSecurityEvent.EventType,
+			Outcome:       latestFailedSecurityEvent.Outcome,
+			Reason:        latestFailedSecurityEvent.Reason,
+			Provider:      latestFailedSecurityEvent.Provider,
+			SecretCount:   latestFailedSecurityEvent.SecretCount,
+			FileCount:     latestFailedSecurityEvent.FileCount,
+			CreatedAt:     latestFailedSecurityEvent.CreatedAt,
+		}
 	}
 
 	if taskCompletionSummary.Total > 0 {
@@ -2280,6 +2324,7 @@ const (
 	runNextActionTaskCompletionPending         = "task_completion_pending"
 	runNextActionTaskContinuationPending       = "task_continuation_pending"
 	runNextActionTaskFinalizationRepairPending = "task_finalization_repair_pending"
+	runNextActionSecurityGateFailed            = "security_gate_failed"
 )
 
 type dispatchSummary struct {
@@ -2337,7 +2382,12 @@ func buildDispatchSummary(events []dal.DispatchEvent) []dispatchSummary {
 	return summary
 }
 
-func runNextAction(status string, taskCompletion dal.RunTaskCompletion, pendingTaskContinuation bool) *string {
+func runNextAction(status string, taskCompletion dal.RunTaskCompletion, pendingTaskContinuation bool, securityGateFailed bool) *string {
+	if status == dal.RunStatusFailed && securityGateFailed {
+		action := runNextActionSecurityGateFailed
+		return &action
+	}
+
 	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 && (taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {
 		action := runNextActionTaskFinalizationRepairPending
 		return &action

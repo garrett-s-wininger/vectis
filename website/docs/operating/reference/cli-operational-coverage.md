@@ -10,7 +10,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | --- | --- | --- |
 | Actions | Inspect configured action descriptors and resolve friendly names to digests for pinning. | `vectis-cli actions list`, `actions resolve`, `--ignore-policy` |
 | Jobs | Manage stored jobs and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `trigger --cell`, `run`, `run --cell` |
-| Runs | Inspect, cancel, retry, download artifacts, or manually repair run state. | `vectis-cli runs list`, `runs list --cell`, `show`, `tasks`, `artifacts list`, `artifacts download`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
+| Runs | Inspect, cancel, retry, download artifacts, identify failed worker-controlled SVID/secret gates, or manually repair run state. | `vectis-cli runs list`, `runs list --cell`, `show`, `tasks`, `artifacts list`, `artifacts download`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
 | Cells | Inspect execution cell readiness, routing, queued pressure, orchestrator-driven task progress, and catalog fan-in counts. | `vectis-cli cells status` |
 | Logs | Stream logs for one run or follow future runs for a job. | `vectis-cli logs run`, `logs job` |
 | Auth sessions | Log in and out for API-backed CLI use. | `vectis-cli auth login`, `logout` |
@@ -32,8 +32,8 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Get machine-readable health evidence | `vectis-cli health check --json` |
 | Discover an action digest to pin | `vectis-cli actions resolve <uses>` |
 | Inspect multi-cell readiness, routing, task progress, and fan-in state | `vectis-cli cells status` |
-| Inspect a stuck run | `vectis-cli runs show <run-id>` |
-| Inspect task and attempt state for a run | `vectis-cli runs tasks <run-id>` |
+| Inspect a stuck or failed run | `vectis-cli runs show <run-id>` |
+| Inspect task, attempt, and redacted security-gate state for a run | `vectis-cli runs tasks <run-id>` |
 | Download a run artifact | `vectis-cli runs artifacts download <run-id> <artifact-name> --output <path>` |
 | Cancel a running run | `vectis-cli runs cancel <run-id>` |
 | Retry a failed or repaired run | `vectis-cli runs retry <run-id>` |
@@ -47,6 +47,7 @@ Most operational commands use stable, line-oriented text:
 
 - List commands print one record per line.
 - Get commands print `key=value` lines.
+- `runs show` prints `next_action=security_gate_failed`, a redacted `latest_failed_security_event`, and retry guidance when a failed run is explained by the newest worker-controlled SVID or secret-resolution gate.
 - Create/delete/update commands print a short success line.
 - `health check` prints a grouped human report using stable check IDs from the [Health Check Catalog](./health-check-catalog.md).
 - `health check --json` emits the full check model as a JSON array.

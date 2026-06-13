@@ -2510,6 +2510,77 @@ func TestAPIServer_GetRun_IncludesTaskContinuationNextAction(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetRun_IncludesSecurityGateNextAction(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	ctx := context.Background()
+
+	insertStoredJobForTest(t, db, "job-security-gate-detail", `{"id":"job-security-gate-detail","root":{"uses":"builtins/shell"}}`)
+	runID, _, err := repos.Runs().CreateRun(ctx, "job-security-gate-detail", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if err := repos.Runs().RecordExecutionSecurityEvent(ctx, dal.RecordExecutionSecurityEventParams{
+		RunID:         runID,
+		TaskID:        dispatch.TaskID,
+		TaskAttemptID: dispatch.TaskAttemptID,
+		ExecutionID:   dispatch.ExecutionID,
+		EventType:     dal.ExecutionSecurityEventSecretResolution,
+		Outcome:       "denied",
+		Reason:        "authorization_denied",
+		Provider:      "encryptedfs",
+		CreatedAt:     123,
+	}); err != nil {
+		t.Fatalf("record security event: %v", err)
+	}
+
+	if err := repos.Runs().MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "resolve execution secrets: denied"); err != nil {
+		t.Fatalf("mark run failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+	server.GetRun(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var got struct {
+		RunID                     string  `json:"run_id"`
+		Status                    string  `json:"status"`
+		NextAction                *string `json:"next_action"`
+		LatestFailedSecurityEvent *struct {
+			EventType string  `json:"event_type"`
+			Outcome   string  `json:"outcome"`
+			Reason    string  `json:"reason"`
+			Provider  *string `json:"provider"`
+		} `json:"latest_failed_security_event"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode run detail: %v", err)
+	}
+
+	if got.RunID != runID || got.Status != dal.RunStatusFailed {
+		t.Fatalf("unexpected run detail: %+v", got)
+	}
+
+	if got.NextAction == nil || *got.NextAction != "security_gate_failed" {
+		t.Fatalf("next_action: got %+v, want security_gate_failed", got.NextAction)
+	}
+
+	if got.LatestFailedSecurityEvent == nil || got.LatestFailedSecurityEvent.EventType != dal.ExecutionSecurityEventSecretResolution || got.LatestFailedSecurityEvent.Outcome != "denied" || got.LatestFailedSecurityEvent.Provider == nil || *got.LatestFailedSecurityEvent.Provider != "encryptedfs" {
+		t.Fatalf("latest_failed_security_event: %+v", got.LatestFailedSecurityEvent)
+	}
+}
+
 func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 

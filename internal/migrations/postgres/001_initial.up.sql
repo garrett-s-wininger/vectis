@@ -182,6 +182,7 @@ CREATE INDEX idx_segment_executions_start_deadline ON segment_executions(start_d
 
 CREATE TABLE execution_security_events (
     id BIGSERIAL PRIMARY KEY,
+    event_key TEXT UNIQUE,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
     task_id TEXT REFERENCES run_tasks(task_id) ON DELETE SET NULL,
     task_attempt_id TEXT REFERENCES task_attempts(attempt_id) ON DELETE SET NULL,

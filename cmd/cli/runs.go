@@ -15,21 +15,22 @@ import (
 )
 
 type runDetail struct {
-	RunID           string            `json:"run_id"`
-	RunIndex        int               `json:"run_index"`
-	Status          string            `json:"status"`
-	NextAction      string            `json:"next_action,omitempty"`
-	OwningCell      string            `json:"owning_cell,omitempty"`
-	OrphanReason    *string           `json:"orphan_reason,omitempty"`
-	FailureCode     *string           `json:"failure_code,omitempty"`
-	CreatedAt       *string           `json:"created_at,omitempty"`
-	StartedAt       *string           `json:"started_at,omitempty"`
-	FinishedAt      *string           `json:"finished_at,omitempty"`
-	FailureReason   *string           `json:"failure_reason,omitempty"`
-	DispatchSummary []dispatchSummary `json:"dispatch_summary,omitempty"`
-	DispatchEvents  []dispatchEvent   `json:"dispatch_events,omitempty"`
-	TaskCompletion  *taskCompletion   `json:"task_completion,omitempty"`
-	TaskDispatch    *taskDispatch     `json:"task_dispatch,omitempty"`
+	RunID                     string                     `json:"run_id"`
+	RunIndex                  int                        `json:"run_index"`
+	Status                    string                     `json:"status"`
+	NextAction                string                     `json:"next_action,omitempty"`
+	OwningCell                string                     `json:"owning_cell,omitempty"`
+	OrphanReason              *string                    `json:"orphan_reason,omitempty"`
+	FailureCode               *string                    `json:"failure_code,omitempty"`
+	CreatedAt                 *string                    `json:"created_at,omitempty"`
+	StartedAt                 *string                    `json:"started_at,omitempty"`
+	FinishedAt                *string                    `json:"finished_at,omitempty"`
+	FailureReason             *string                    `json:"failure_reason,omitempty"`
+	DispatchSummary           []dispatchSummary          `json:"dispatch_summary,omitempty"`
+	DispatchEvents            []dispatchEvent            `json:"dispatch_events,omitempty"`
+	TaskCompletion            *taskCompletion            `json:"task_completion,omitempty"`
+	TaskDispatch              *taskDispatch              `json:"task_dispatch,omitempty"`
+	LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
 	RunAuditFields
 }
 
@@ -288,6 +289,7 @@ func getRun(runID string, w io.Writer) error {
 
 	writeRunAuditFields(w, run.RunAuditFields)
 	writeTaskCompletion(w, run.TaskCompletion)
+	writeLatestFailedSecurityEvent(w, run.LatestFailedSecurityEvent)
 
 	if run.CreatedAt != nil {
 		fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
@@ -382,6 +384,15 @@ func writeTaskCompletion(w io.Writer, tc *taskCompletion) {
 
 	fmt.Fprintf(w, "task_completion: total=%d succeeded=%d terminal_failed=%d incomplete=%d\n",
 		tc.Total, tc.Succeeded, tc.TerminalFailed, tc.Incomplete)
+}
+
+func writeLatestFailedSecurityEvent(w io.Writer, event *executionSecurityEventRow) {
+	if event == nil {
+		return
+	}
+
+	fmt.Fprintf(w, "latest_failed_security_event=%s\n", formatExecutionSecurityEvents([]executionSecurityEventRow{*event}))
+	fmt.Fprintln(w, "retry_guidance=fix_security_gate_before_retry_or_replay")
 }
 
 func writeTaskDispatch(w io.Writer, td *taskDispatch) {

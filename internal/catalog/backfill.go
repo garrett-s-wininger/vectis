@@ -11,12 +11,13 @@ import (
 )
 
 type BackfillResult struct {
-	RunEvents       int
-	ExecutionEvents int
+	RunEvents               int
+	ExecutionEvents         int
+	ExecutionSecurityEvents int
 }
 
 func (r BackfillResult) Total() int {
-	return r.RunEvents + r.ExecutionEvents
+	return r.RunEvents + r.ExecutionEvents + r.ExecutionSecurityEvents
 }
 
 type BackfillProcessor struct {
@@ -86,5 +87,48 @@ func (p *BackfillProcessor) RepairMissing(ctx context.Context, limit int) (Backf
 		}
 	}
 
+	if remaining <= 0 {
+		return result, nil
+	}
+
+	securityEvents, err := p.state.ListMissingExecutionSecurityCatalogEvents(ctx, p.sourceCellID, remaining)
+	if err != nil {
+		return result, fmt.Errorf("list missing execution security catalog events: %w", err)
+	}
+
+	for _, event := range securityEvents {
+		if err := p.publisher.RecordExecutionSecurity(ctx, executionSecurityEventRecordParams(event)); err != nil {
+			return result, fmt.Errorf("record execution security catalog event for %s: %w", event.ExecutionID, err)
+		}
+
+		result.ExecutionSecurityEvents++
+		remaining--
+		if remaining <= 0 {
+			break
+		}
+	}
+
 	return result, nil
+}
+
+func executionSecurityEventRecordParams(event dal.ExecutionSecurityEvent) dal.RecordExecutionSecurityEventParams {
+	provider := ""
+	if event.Provider != nil {
+		provider = *event.Provider
+	}
+
+	return dal.RecordExecutionSecurityEventParams{
+		EventKey:      event.EventKey,
+		RunID:         event.RunID,
+		TaskID:        event.TaskID,
+		TaskAttemptID: event.TaskAttemptID,
+		ExecutionID:   event.ExecutionID,
+		EventType:     event.EventType,
+		Outcome:       event.Outcome,
+		Reason:        event.Reason,
+		Provider:      provider,
+		SecretCount:   event.SecretCount,
+		FileCount:     event.FileCount,
+		CreatedAt:     event.CreatedAt,
+	}
 }

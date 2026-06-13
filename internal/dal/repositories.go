@@ -317,31 +317,34 @@ type DispatchEvent struct {
 }
 
 type ExecutionSecurityEvent struct {
-	ID            int64
-	RunID         string
-	TaskID        string
-	TaskAttemptID string
-	ExecutionID   string
-	EventType     string
-	Outcome       string
-	Reason        string
-	Provider      *string
-	SecretCount   *int
-	FileCount     *int
-	CreatedAt     int64
+	ID            int64   `json:"id"`
+	EventKey      string  `json:"event_key,omitempty"`
+	RunID         string  `json:"run_id"`
+	TaskID        string  `json:"task_id,omitempty"`
+	TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+	ExecutionID   string  `json:"execution_id,omitempty"`
+	EventType     string  `json:"event_type"`
+	Outcome       string  `json:"outcome"`
+	Reason        string  `json:"reason,omitempty"`
+	Provider      *string `json:"provider,omitempty"`
+	SecretCount   *int    `json:"secret_count,omitempty"`
+	FileCount     *int    `json:"file_count,omitempty"`
+	CreatedAt     int64   `json:"created_at"`
 }
 
 type RecordExecutionSecurityEventParams struct {
-	RunID         string
-	TaskID        string
-	TaskAttemptID string
-	ExecutionID   string
-	EventType     string
-	Outcome       string
-	Reason        string
-	Provider      string
-	SecretCount   *int
-	FileCount     *int
+	EventKey      string `json:"event_key,omitempty"`
+	RunID         string `json:"run_id"`
+	TaskID        string `json:"task_id,omitempty"`
+	TaskAttemptID string `json:"task_attempt_id,omitempty"`
+	ExecutionID   string `json:"execution_id,omitempty"`
+	EventType     string `json:"event_type"`
+	Outcome       string `json:"outcome"`
+	Reason        string `json:"reason,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	SecretCount   *int   `json:"secret_count,omitempty"`
+	FileCount     *int   `json:"file_count,omitempty"`
+	CreatedAt     int64  `json:"created_at,omitempty"`
 }
 
 type ArtifactCreate struct {
@@ -511,6 +514,7 @@ type TriggerInvocationsRepository interface {
 type CatalogStatusBackfillRepository interface {
 	ListMissingRunStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]RunStatusUpdate, error)
 	ListMissingExecutionStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionStatusUpdate, error)
+	ListMissingExecutionSecurityCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionSecurityEvent, error)
 }
 
 type CronSchedule struct {
@@ -601,6 +605,7 @@ type RunsRepository interface {
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
 	RecordExecutionSecurityEvent(ctx context.Context, event RecordExecutionSecurityEventParams) error
+	LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*ExecutionSecurityEvent, error)
 	EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error)

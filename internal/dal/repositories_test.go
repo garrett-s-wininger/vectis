@@ -1106,8 +1106,25 @@ func TestRunsRepository_ListRunTasks_ReturnsRootTaskAndAttempt(t *testing.T) {
 		Provider:      "encryptedfs",
 		SecretCount:   &secretCount,
 		FileCount:     &fileCount,
+		CreatedAt:     123,
 	}); err != nil {
 		t.Fatalf("record execution security event: %v", err)
+	}
+
+	if err := repos.Runs().RecordExecutionSecurityEvent(ctx, dal.RecordExecutionSecurityEventParams{
+		RunID:         runID,
+		TaskID:        attempt.TaskID,
+		TaskAttemptID: attempt.AttemptID,
+		ExecutionID:   attempt.ExecutionID,
+		EventType:     dal.ExecutionSecurityEventSecretResolution,
+		Outcome:       "success",
+		Reason:        "ok",
+		Provider:      "encryptedfs",
+		SecretCount:   &secretCount,
+		FileCount:     &fileCount,
+		CreatedAt:     123,
+	}); err != nil {
+		t.Fatalf("record duplicate execution security event: %v", err)
 	}
 
 	tasks, _, err = repos.Runs().ListRunTasks(ctx, runID, 0, 50)

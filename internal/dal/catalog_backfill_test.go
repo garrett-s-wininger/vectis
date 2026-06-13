@@ -84,3 +84,58 @@ func TestCatalogStatusBackfillRepository_ListMissingExecutionEvents(t *testing.T
 		t.Fatalf("expected no missing execution events, got %+v", missing)
 	}
 }
+
+func TestCatalogStatusBackfillRepository_ListMissingExecutionSecurityEvents(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "pdx-b")
+
+	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-security", `{"id":"job-backfill-security","root":{"uses":"builtins/shell"}}`, nil, "pdx-b")
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	event := dal.RecordExecutionSecurityEventParams{
+		RunID:         runID,
+		TaskID:        dispatch.TaskID,
+		TaskAttemptID: dispatch.TaskAttemptID,
+		ExecutionID:   dispatch.ExecutionID,
+		EventType:     dal.ExecutionSecurityEventSecretResolution,
+		Outcome:       "denied",
+		Reason:        "authorization_denied",
+		Provider:      "encryptedfs",
+		CreatedAt:     123,
+	}
+
+	event.EventKey = dal.ExecutionSecurityEventKey(event)
+	if err := repos.Runs().RecordExecutionSecurityEvent(ctx, event); err != nil {
+		t.Fatalf("record security event: %v", err)
+	}
+
+	missing, err := repos.CatalogStatusBackfill().ListMissingExecutionSecurityCatalogEvents(ctx, "pdx-b", 10)
+	if err != nil {
+		t.Fatalf("ListMissingExecutionSecurityCatalogEvents: %v", err)
+	}
+
+	if len(missing) != 1 || missing[0].EventKey != event.EventKey || missing[0].ExecutionID != dispatch.ExecutionID {
+		t.Fatalf("missing security events: %+v", missing)
+	}
+
+	if _, _, err := repos.CatalogEvents().Record(ctx, "pdx-b", event.EventKey, cell.CatalogEventTypeExecutionSecurity, []byte(`{"event_key":"`+event.EventKey+`","run_id":"`+runID+`","event_type":"secret_resolution","outcome":"denied"}`)); err != nil {
+		t.Fatalf("record catalog event: %v", err)
+	}
+
+	missing, err = repos.CatalogStatusBackfill().ListMissingExecutionSecurityCatalogEvents(ctx, "pdx-b", 10)
+	if err != nil {
+		t.Fatalf("ListMissingExecutionSecurityCatalogEvents after record: %v", err)
+	}
+
+	if len(missing) != 0 {
+		t.Fatalf("expected no missing security events, got %+v", missing)
+	}
+}

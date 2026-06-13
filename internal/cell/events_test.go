@@ -192,13 +192,24 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 		t.Fatalf("RecordArtifact: %v", err)
 	}
 
+	if err := publisher.RecordExecutionSecurity(ctx, dal.RecordExecutionSecurityEventParams{
+		RunID:       "run-1",
+		ExecutionID: "execution-1",
+		EventType:   dal.ExecutionSecurityEventSVIDCheck,
+		Outcome:     "failed",
+		Reason:      "mismatch",
+		CreatedAt:   123,
+	}); err != nil {
+		t.Fatalf("RecordExecutionSecurity: %v", err)
+	}
+
 	records, err := repos.CatalogEvents().ListPending(ctx, 10)
 	if err != nil {
 		t.Fatalf("ListPending: %v", err)
 	}
 
-	if len(records) != 3 {
-		t.Fatalf("pending records: got %d, want 3", len(records))
+	if len(records) != 4 {
+		t.Fatalf("pending records: got %d, want 4", len(records))
 	}
 
 	if records[0].SourceCell != "iad-a" || records[0].EventKey != "run:run-1:running" || records[0].EventType != CatalogEventTypeRunStatus {
@@ -211,6 +222,10 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 
 	if records[2].SourceCell != "iad-a" || records[2].EventKey != "artifact:run-1:coverage" || records[2].EventType != CatalogEventTypeArtifactRecord {
 		t.Fatalf("unexpected artifact event: %+v", records[2])
+	}
+
+	if records[3].SourceCell != "iad-a" || !strings.HasPrefix(records[3].EventKey, "security:run-1:") || records[3].EventType != CatalogEventTypeExecutionSecurity {
+		t.Fatalf("unexpected security event: %+v", records[3])
 	}
 }
 
@@ -259,13 +274,40 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 		t.Fatalf("record run event: %v", err)
 	}
 
+	securityPayload, err := json.Marshal(dal.RecordExecutionSecurityEventParams{
+		EventKey:      "security-event-1",
+		RunID:         runID,
+		TaskID:        dispatch.TaskID,
+		TaskAttemptID: dispatch.TaskAttemptID,
+		ExecutionID:   dispatch.ExecutionID,
+		EventType:     dal.ExecutionSecurityEventSecretResolution,
+		Outcome:       "denied",
+		Reason:        "authorization_denied",
+		Provider:      "encryptedfs",
+		CreatedAt:     123,
+	})
+
+	if err != nil {
+		t.Fatalf("marshal security payload: %v", err)
+	}
+
+	if _, _, err := repos.CatalogEvents().Record(
+		ctx,
+		"iad-a",
+		"security-event-1",
+		CatalogEventTypeExecutionSecurity,
+		securityPayload,
+	); err != nil {
+		t.Fatalf("record security event: %v", err)
+	}
+
 	processor := NewCatalogInboxProcessor(repos.CatalogEvents(), repos.Runs())
 	result, err := processor.ProcessPending(ctx, 10)
 	if err != nil {
 		t.Fatalf("ProcessPending: %v", err)
 	}
 
-	if result.Read != 2 || result.Applied != 2 || result.Failed != 0 {
+	if result.Read != 3 || result.Applied != 3 || result.Failed != 0 {
 		t.Fatalf("unexpected process result: %+v", result)
 	}
 
@@ -276,6 +318,15 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 
 	if len(pending) != 0 {
 		t.Fatalf("expected no pending events, got %+v", pending)
+	}
+
+	latest, err := repos.Runs().LatestRunSecurityEvent(ctx, runID, true)
+	if err != nil {
+		t.Fatalf("LatestRunSecurityEvent: %v", err)
+	}
+
+	if latest == nil || latest.EventType != dal.ExecutionSecurityEventSecretResolution || latest.Outcome != "denied" {
+		t.Fatalf("latest security event: %+v", latest)
 	}
 
 	var executionStatus string

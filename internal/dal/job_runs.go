@@ -1536,7 +1536,7 @@ func (r *SQLRunsRepository) attachExecutionSecurityEvents(ctx context.Context, r
 	}
 
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT id, run_id, task_id, task_attempt_id, execution_id, event_type, outcome, reason, provider, secret_count, file_count, created_at
+		SELECT id, event_key, run_id, task_id, task_attempt_id, execution_id, event_type, outcome, reason, provider, secret_count, file_count, created_at
 		FROM execution_security_events
 		WHERE run_id = ?
 		ORDER BY created_at ASC, id ASC

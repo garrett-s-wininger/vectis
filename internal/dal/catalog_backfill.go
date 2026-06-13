@@ -116,6 +116,48 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionStatusCatalogEv
 	return out, nil
 }
 
+func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionSecurityCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionSecurityEvent, error) {
+	sourceCell = normalizeCellID(sourceCell)
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT ese.id, ese.event_key, ese.run_id, ese.task_id, ese.task_attempt_id, ese.execution_id, ese.event_type, ese.outcome, ese.reason, ese.provider, ese.secret_count, ese.file_count, ese.created_at
+		FROM execution_security_events ese
+		INNER JOIN job_runs jr ON jr.run_id = ese.run_id
+		LEFT JOIN cell_catalog_events cce
+			ON cce.source_cell = ?
+			AND cce.event_key = ese.event_key
+		WHERE jr.owning_cell = ?
+			AND ese.event_key IS NOT NULL
+			AND ese.event_key <> ''
+			AND cce.id IS NULL
+		ORDER BY ese.id ASC
+		LIMIT ?
+	`), sourceCell, sourceCell, limit)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []ExecutionSecurityEvent
+	for rows.Next() {
+		rec, err := scanExecutionSecurityEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		value = strings.TrimSpace(value)

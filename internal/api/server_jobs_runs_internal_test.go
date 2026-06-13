@@ -8,15 +8,22 @@ import (
 
 func TestRunNextAction(t *testing.T) {
 	tests := []struct {
-		name           string
-		status         string
-		taskCompletion dal.RunTaskCompletion
-		continuation   bool
-		want           *string
+		name               string
+		status             string
+		taskCompletion     dal.RunTaskCompletion
+		continuation       bool
+		securityGateFailed bool
+		want               *string
 	}{
 		{
 			name:   "non queued",
 			status: dal.RunStatusRunning,
+		},
+		{
+			name:               "failed security gate",
+			status:             dal.RunStatusFailed,
+			securityGateFailed: true,
+			want:               stringPtr(runNextActionSecurityGateFailed),
 		},
 		{
 			name:   "orphaned task finalization repair succeeded",
@@ -71,7 +78,7 @@ func TestRunNextAction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := runNextAction(tt.status, tt.taskCompletion, tt.continuation)
+			got := runNextAction(tt.status, tt.taskCompletion, tt.continuation, tt.securityGateFailed)
 			if got == nil && tt.want == nil {
 				return
 			}

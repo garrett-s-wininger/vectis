@@ -272,6 +272,7 @@ type MockRunsRepository struct {
 
 	ListByJobResults       []dal.RunRecord
 	TaskRecords            []dal.TaskRecord
+	LatestSecurityEvent    *dal.ExecutionSecurityEvent
 	TaskExecution          dal.TaskExecutionRecord
 	TaskCreated            bool
 	TaskActivated          bool
@@ -755,6 +756,15 @@ func (m *MockRunsRepository) RecordExecutionSecurityEvent(ctx context.Context, e
 	m.mu.Unlock()
 
 	return nil
+}
+
+func (m *MockRunsRepository) LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*dal.ExecutionSecurityEvent, error) {
+	if m.LatestSecurityEvent == nil {
+		return nil, nil
+	}
+
+	rec := *m.LatestSecurityEvent
+	return &rec, nil
 }
 
 func (m *MockRunsRepository) SnapshotExecutionSecurityEvents() []dal.RecordExecutionSecurityEventParams {

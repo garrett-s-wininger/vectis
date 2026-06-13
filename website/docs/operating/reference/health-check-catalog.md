@@ -62,7 +62,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `cron.schedules` | warning | `GET /api/v1/cron/status` | No enabled cron schedules are due for dispatch or held by active claims. | Check `vectis-cron` process health, database access, and queue or cell-ingress handoff. |
 | `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap, no pending task continuations are waiting for redispatch, and no orphaned task finalization repairs are pending. | [Reconciler Repair](../reliability/repair-runbooks.md#reconciler-repair). |
 | `cells.ingress` | warning | `GET /api/v1/cells/status` | Required cell ingress routes answer readiness checks. | Check cell ingress processes, route map, and network path. |
-| `catalog.inbox` | warning | `GET /api/v1/catalog/status` | No catalog events are failed, and pending cell catalog events are at or below the built-in threshold of 100. | Check `vectis-catalog` process health, logs, and database write latency. |
+| `catalog.inbox` | warning | `GET /api/v1/catalog/status` | No catalog events are failed, and pending cell catalog events are at or below the built-in threshold of 100. Cell catalog events include run status, execution status, artifact manifests, and redacted worker-controlled SVID/secret-resolution security events. | Check `vectis-catalog` process health, logs, and database write latency. |
 | `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | [Log Service Repair](../reliability/repair-runbooks.md#log-service-repair). |
 | `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
 | `tls.files` | warning | Local `VECTIS_GRPC_TLS_*` and `VECTIS_METRICS_TLS_*` paths | TLS is disabled, or configured cert/key/CA files are readable, parseable, not expired or within 14 days of expiry, and certificate/key pairs match. | Check TLS env vars, mounted files, certificate expiry, and key pairing. |
@@ -79,7 +79,7 @@ When `reconciler.stuck.runs` warns in a multi-cell deployment, `evidence` includ
 
 When `cells.ingress` warns, `evidence` includes each observed cell and ingress state, for example `iad-a:ready,pdx-b:missing_route`. The endpoint reports cell IDs, a per-cell `ready` summary, ingress/dispatch/catalog checks, queued run counts, stuck queued-run counts, pending task continuation/finalization repair counts, and catalog inbox counts; it does not return private ingress URLs.
 
-When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes source-cell inbox pressure for cells with pending or failed events, for example `sources=iad-a:p=2/f=1,pdx-b:p=101/f=0`.
+When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes source-cell inbox pressure for cells with pending or failed events, for example `sources=iad-a:p=2/f=1,pdx-b:p=101/f=0`. Failed catalog security events can delay the global view of a worker-controlled SVID or secret-resolution denial, so use `vectis-cli runs show <run-id>` and `vectis-cli runs tasks <run-id>` against the owning cell when the global catalog looks stale.
 
 ## How To Respond
 

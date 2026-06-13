@@ -1695,6 +1695,14 @@ func (w *worker) recordExecutionSecurityEvent(ctx context.Context, env *cell.Exe
 	event.TaskID = env.TaskID
 	event.TaskAttemptID = env.TaskAttemptID
 	event.ExecutionID = env.ExecutionID
+	if event.CreatedAt <= 0 {
+		event.CreatedAt = time.Now().Unix()
+	}
+
+	if strings.TrimSpace(event.EventKey) == "" {
+		event.EventKey = dal.ExecutionSecurityEventKey(event)
+	}
+
 	if err := w.store.RecordExecutionSecurityEvent(ctx, event); err != nil {
 		w.noteDBError(err)
 		if w.logger != nil {
@@ -1705,6 +1713,9 @@ func (w *worker) recordExecutionSecurityEvent(ctx context.Context, env *cell.Exe
 	}
 
 	w.noteDBRecovered()
+	if err := w.catalog.RecordExecutionSecurity(ctx, event); err != nil && w.logger != nil {
+		w.logger.Warn("Record execution security catalog event %s for execution %s failed: %v", event.EventType, env.ExecutionID, err)
+	}
 }
 
 func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEnvelope) {

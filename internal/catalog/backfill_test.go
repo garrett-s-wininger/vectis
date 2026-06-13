@@ -32,6 +32,19 @@ func TestBackfillProcessorRecordsMissingRunAndExecutionEvents(t *testing.T) {
 		t.Fatalf("mark execution started: %v", err)
 	}
 
+	if err := repos.Runs().RecordExecutionSecurityEvent(ctx, dal.RecordExecutionSecurityEventParams{
+		RunID:         runID,
+		TaskID:        dispatch.TaskID,
+		TaskAttemptID: dispatch.TaskAttemptID,
+		ExecutionID:   dispatch.ExecutionID,
+		EventType:     dal.ExecutionSecurityEventSVIDCheck,
+		Outcome:       "failed",
+		Reason:        "mismatch",
+		CreatedAt:     123,
+	}); err != nil {
+		t.Fatalf("record execution security event: %v", err)
+	}
+
 	processor := NewBackfillProcessor(
 		"iad-a",
 		repos.CatalogStatusBackfill(),
@@ -43,7 +56,7 @@ func TestBackfillProcessorRecordsMissingRunAndExecutionEvents(t *testing.T) {
 		t.Fatalf("RepairMissing: %v", err)
 	}
 
-	if result.RunEvents != 1 || result.ExecutionEvents != 1 {
+	if result.RunEvents != 1 || result.ExecutionEvents != 1 || result.ExecutionSecurityEvents != 1 {
 		t.Fatalf("unexpected backfill result: %+v", result)
 	}
 
@@ -52,13 +65,23 @@ func TestBackfillProcessorRecordsMissingRunAndExecutionEvents(t *testing.T) {
 		t.Fatalf("list pending catalog events: %v", err)
 	}
 
-	if len(pending) != 2 {
-		t.Fatalf("pending events: got %d, want 2 (%+v)", len(pending), pending)
+	if len(pending) != 3 {
+		t.Fatalf("pending events: got %d, want 3 (%+v)", len(pending), pending)
 	}
 
 	wantKeys := map[string]bool{
 		cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning):                            true,
 		cell.CatalogExecutionStatusEventKey(dispatch.ExecutionID, dal.ExecutionStatusRunning): true,
+		dal.ExecutionSecurityEventKey(dal.RecordExecutionSecurityEventParams{
+			RunID:         runID,
+			TaskID:        dispatch.TaskID,
+			TaskAttemptID: dispatch.TaskAttemptID,
+			ExecutionID:   dispatch.ExecutionID,
+			EventType:     dal.ExecutionSecurityEventSVIDCheck,
+			Outcome:       "failed",
+			Reason:        "mismatch",
+			CreatedAt:     123,
+		}): true,
 	}
 
 	for _, event := range pending {

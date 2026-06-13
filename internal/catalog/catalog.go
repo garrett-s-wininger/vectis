@@ -81,7 +81,7 @@ func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInbox
 		}
 
 		if result.Total() > 0 && s.logger != nil {
-			s.logger.Info("catalog: backfilled %d missing events (%d run, %d execution)", result.Total(), result.RunEvents, result.ExecutionEvents)
+			s.logger.Info("catalog: backfilled %d missing events (%d run, %d execution, %d security)", result.Total(), result.RunEvents, result.ExecutionEvents, result.ExecutionSecurityEvents)
 		}
 	}
 
