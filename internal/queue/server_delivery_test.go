@@ -10,6 +10,9 @@ import (
 	"vectis/internal/cell"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/queueid"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // deliveryWait sleeps long enough for a lease with the given TTL to expire.
@@ -135,6 +138,42 @@ func TestQueueDelivery_TryDequeueSkipsUnsupportedIsolation(t *testing.T) {
 
 	if vmCapable == nil || vmCapable.GetJob().GetId() != vmJobID {
 		t.Fatalf("expected VM-capable worker to receive skipped job %s, got %#v", vmJobID, vmCapable)
+	}
+}
+
+func TestQueueDelivery_TryDequeueRejectsInvalidSupportedIsolation(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	jobID := "job-vm"
+	vmDefault := action.IsolationVM
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+		Id:               &jobID,
+		DefaultIsolation: &vmDefault,
+		Root:             queueTestNode("root-vm", "builtins/shell"),
+	}}); err != nil {
+		t.Fatalf("enqueue vm job: %v", err)
+	}
+
+	got, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{"container"}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("TryDequeue error = %v, want InvalidArgument", err)
+	}
+
+	if got != nil {
+		t.Fatalf("invalid dequeue request returned job: %#v", got)
+	}
+
+	vmCapable, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationVM}})
+	if err != nil {
+		t.Fatalf("valid trydequeue after invalid request: %v", err)
+	}
+
+	if vmCapable == nil || vmCapable.GetJob().GetId() != jobID {
+		t.Fatalf("expected job to remain pending after invalid request, got %#v", vmCapable)
 	}
 }
 

@@ -164,12 +164,45 @@ func NormalizeIsolation(isolation string) string {
 }
 
 func IsSupportedIsolation(isolation string) bool {
+	isolation = NormalizeIsolation(isolation)
+	return isolation == "" || IsSupportedIsolationLevel(isolation)
+}
+
+func IsSupportedIsolationLevel(isolation string) bool {
 	switch NormalizeIsolation(isolation) {
-	case "", IsolationHost, IsolationVM:
+	case IsolationHost, IsolationVM:
 		return true
 	default:
 		return false
 	}
+}
+
+func NormalizeSupportedIsolationLevels(levels []string) ([]string, error) {
+	if len(levels) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(levels))
+	normalized := make([]string, 0, len(levels))
+	for i, raw := range levels {
+		level := NormalizeIsolation(raw)
+		if level == "" {
+			return nil, fmt.Errorf("supported isolation entry %d must not be empty", i)
+		}
+
+		if !IsSupportedIsolationLevel(level) {
+			return nil, fmt.Errorf("unsupported isolation %q", raw)
+		}
+
+		if _, ok := seen[level]; ok {
+			continue
+		}
+
+		seen[level] = struct{}{}
+		normalized = append(normalized, level)
+	}
+
+	return normalized, nil
 }
 
 func (s *ExecutionState) ApplyNodeIsolation(node *api.Node) (func(), error) {

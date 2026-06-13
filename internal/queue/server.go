@@ -22,8 +22,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
 
 type QueueOptions struct {
@@ -227,7 +229,11 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	supportedMask, filtered := supportedIsolationRequestMask(req)
+	supportedMask, filtered, err := supportedIsolationRequestMask(req)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid dequeue supported isolation: %v", err)
+	}
+
 	for {
 		now := time.Now().UTC()
 		if err := s.requeueExpiredLocked(now); err != nil {
@@ -511,27 +517,27 @@ func (s *queueServer) copyInflightLocked() map[string]inflightDelivery {
 	return out
 }
 
-func supportedIsolationRequestMask(req *api.DequeueRequest) (uint64, bool) {
+func supportedIsolationRequestMask(req *api.DequeueRequest) (uint64, bool, error) {
 	if req == nil {
-		return 0, false
+		return 0, false, nil
 	}
 
 	levels := req.GetSupportedIsolation()
 	if len(levels) == 0 {
-		return 0, false
+		return 0, false, nil
+	}
+
+	levels, err := action.NormalizeSupportedIsolationLevels(levels)
+	if err != nil {
+		return 0, false, err
 	}
 
 	var mask uint64
 	for _, level := range levels {
-		level = action.NormalizeIsolation(level)
-		if level == "" || !action.IsSupportedIsolation(level) {
-			continue
-		}
-
 		mask |= isolationRequirementMask(level)
 	}
 
-	return mask, mask != 0
+	return mask, true, nil
 }
 
 func jobRequestIsolationRequirementMask(req *api.JobRequest) uint64 {

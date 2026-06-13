@@ -46,6 +46,14 @@ func ValidateCoreDescription(desc CoreDescription, requiredCapabilities []string
 		return fmt.Errorf("worker core protocol version %q is not supported; want %q", protocolVersion, ProtocolVersion)
 	}
 
+	supportedIsolation, err := action.NormalizeSupportedIsolationLevels(desc.SupportedIsolation)
+	if err != nil {
+		return fmt.Errorf("worker core supported isolation: %w", err)
+	}
+	if len(supportedIsolation) == 0 {
+		return fmt.Errorf("worker core supported isolation is required")
+	}
+
 	missing := make([]string, 0, len(requiredCapabilities))
 	for _, required := range requiredCapabilities {
 		required = strings.TrimSpace(required)

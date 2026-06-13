@@ -257,7 +257,9 @@ type queuePoolDequeueScenario struct {
 func runQueuePoolDequeueScenario(b *testing.B, opts queuePoolDequeueScenario) {
 	pool, services := newLocalBenchmarkQueuePool(b, opts.shards)
 	defer closeLocalBenchmarkQueuePool(b, pool, services)
-	pool.setDequeueSupportedIsolation(opts.supportedIsolation)
+	if err := pool.setDequeueSupportedIsolation(opts.supportedIsolation); err != nil {
+		b.Fatalf("set supported isolation: %v", err)
+	}
 
 	ctx := context.Background()
 	if opts.workers < 1 {

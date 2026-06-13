@@ -11,6 +11,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
 	"vectis/internal/backoff"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
@@ -144,7 +145,9 @@ func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolO
 		endpoints: make(map[string]*queuePoolEndpoint),
 	}
 
-	p.setDequeueSupportedIsolation(opts.DequeueSupportedIsolation)
+	if err := p.setDequeueSupportedIsolation(opts.DequeueSupportedIsolation); err != nil {
+		return nil, err
+	}
 	p.dial = p.dialEndpoint
 
 	if opts.PinnedAddress == "" {
@@ -706,41 +709,31 @@ func (e *queuePoolEndpoint) close() {
 	}
 }
 
-func normalizeDequeueSupportedIsolation(levels []string) []string {
-	if len(levels) == 0 {
-		return nil
+func normalizeDequeueSupportedIsolation(levels []string) ([]string, error) {
+	normalized, err := action.NormalizeSupportedIsolationLevels(levels)
+	if err != nil {
+		return nil, fmt.Errorf("dequeue supported isolation: %w", err)
 	}
 
-	seen := make(map[string]struct{}, len(levels))
-	out := make([]string, 0, len(levels))
-	for _, level := range levels {
-		level = strings.ToLower(strings.TrimSpace(level))
-		if level == "" {
-			continue
-		}
-
-		if _, ok := seen[level]; ok {
-			continue
-		}
-
-		seen[level] = struct{}{}
-		out = append(out, level)
-	}
-
-	return out
+	return normalized, nil
 }
 
-func (p *queuePool) setDequeueSupportedIsolation(levels []string) {
-	normalized := normalizeDequeueSupportedIsolation(levels)
+func (p *queuePool) setDequeueSupportedIsolation(levels []string) error {
+	normalized, err := normalizeDequeueSupportedIsolation(levels)
+	if err != nil {
+		return err
+	}
+
 	p.opts.DequeueSupportedIsolation = normalized
 	if len(normalized) == 0 {
 		p.dequeueRequest = &api.DequeueRequest{}
-		return
+		return nil
 	}
 
 	p.dequeueRequest = &api.DequeueRequest{
 		SupportedIsolation: append([]string(nil), normalized...),
 	}
+	return nil
 }
 
 var _ interfaces.QueueService = (*ManagingQueuePoolService)(nil)

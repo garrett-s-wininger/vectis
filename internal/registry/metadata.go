@@ -208,7 +208,7 @@ func validateIsolationMetadataValue(key, value string) error {
 		return fmt.Errorf("%s metadata must be normalized", key)
 	}
 
-	if !action.IsSupportedIsolation(value) || value == "" {
+	if !action.IsSupportedIsolationLevel(value) {
 		return fmt.Errorf("%s metadata has unsupported isolation %q", key, value)
 	}
 
@@ -220,25 +220,22 @@ func parseSupportedIsolationMetadata(value string) (map[string]struct{}, error) 
 		return nil, fmt.Errorf("%s metadata must not be empty", MetadataWorkerSupportedIsolation)
 	}
 
-	seen := make(map[string]struct{})
-	for _, raw := range strings.Split(value, ",") {
-		level := strings.TrimSpace(raw)
-		if level == "" {
-			return nil, fmt.Errorf("%s metadata must not contain empty entries", MetadataWorkerSupportedIsolation)
-		}
+	rawLevels := strings.Split(value, ",")
+	levels, err := action.NormalizeSupportedIsolationLevels(rawLevels)
+	if err != nil {
+		return nil, fmt.Errorf("%s metadata: %w", MetadataWorkerSupportedIsolation, err)
+	}
 
-		if level != raw {
-			return nil, fmt.Errorf("%s metadata must be normalized", MetadataWorkerSupportedIsolation)
-		}
+	if len(levels) != len(rawLevels) {
+		return nil, fmt.Errorf("%s metadata must not contain duplicate isolation", MetadataWorkerSupportedIsolation)
+	}
 
-		if err := validateIsolationMetadataValue(MetadataWorkerSupportedIsolation, level); err != nil {
-			return nil, err
-		}
+	if strings.Join(levels, ",") != value {
+		return nil, fmt.Errorf("%s metadata must be normalized", MetadataWorkerSupportedIsolation)
+	}
 
-		if _, ok := seen[level]; ok {
-			return nil, fmt.Errorf("%s metadata must not contain duplicate isolation %q", MetadataWorkerSupportedIsolation, level)
-		}
-
+	seen := make(map[string]struct{}, len(levels))
+	for _, level := range levels {
 		seen[level] = struct{}{}
 	}
 

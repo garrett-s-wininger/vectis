@@ -274,6 +274,9 @@ func TestRemoteCoreDescribe(t *testing.T) {
 func TestValidateCoreDescription(t *testing.T) {
 	valid := CoreDescription{
 		ProtocolVersion: ProtocolVersion,
+		SupportedIsolation: []string{
+			action.IsolationHost,
+		},
 		Capabilities: []CoreCapability{
 			{Name: workersdk.CapabilityExecute, Version: "v1"},
 			{Name: workersdk.CapabilityCancelTask, Version: "v1"},
@@ -297,6 +300,18 @@ func TestValidateCoreDescription(t *testing.T) {
 	err := ValidateCoreDescription(missingCapability, RequiredWorkerCoreCapabilities())
 	if err == nil || !strings.Contains(err.Error(), workersdk.CapabilityShellLogCallback) || !strings.Contains(err.Error(), workersdk.CapabilityShellArtifactPush) {
 		t.Fatalf("ValidateCoreDescription missing capability error = %v", err)
+	}
+
+	missingIsolation := valid
+	missingIsolation.SupportedIsolation = nil
+	if err := ValidateCoreDescription(missingIsolation, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "supported isolation") {
+		t.Fatalf("ValidateCoreDescription missing isolation error = %v", err)
+	}
+
+	badIsolation := valid
+	badIsolation.SupportedIsolation = []string{action.IsolationHost, "container"}
+	if err := ValidateCoreDescription(badIsolation, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "unsupported isolation") {
+		t.Fatalf("ValidateCoreDescription bad isolation error = %v", err)
 	}
 }
 

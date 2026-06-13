@@ -186,7 +186,9 @@ func TestQueuePoolTryDequeueSendsSupportedIsolation(t *testing.T) {
 	}
 
 	p := newFakeQueuePool(map[string]*fakeQueueServiceClient{"a": a})
-	p.setDequeueSupportedIsolation([]string{" host ", "vm", "host"})
+	if err := p.setDequeueSupportedIsolation([]string{" host ", "vm", "host"}); err != nil {
+		t.Fatalf("set supported isolation: %v", err)
+	}
 
 	got, err := p.tryDequeue(context.Background())
 	if err != nil {
@@ -203,6 +205,13 @@ func TestQueuePoolTryDequeueSendsSupportedIsolation(t *testing.T) {
 
 	if got := a.tryDequeueRequests[0].GetSupportedIsolation(); strings.Join(got, ",") != "host,vm" {
 		t.Fatalf("supported isolation request = %v, want host,vm", got)
+	}
+}
+
+func TestQueuePoolRejectsInvalidSupportedIsolation(t *testing.T) {
+	p := newFakeQueuePool(map[string]*fakeQueueServiceClient{"a": {}})
+	if err := p.setDequeueSupportedIsolation([]string{"container"}); err == nil {
+		t.Fatal("expected invalid supported isolation error")
 	}
 }
 
@@ -295,7 +304,7 @@ func newFakeQueuePool(clients map[string]*fakeQueueServiceClient) *queuePool {
 		logger:    mocks.NopLogger{},
 		endpoints: make(map[string]*queuePoolEndpoint, len(clients)),
 	}
-	p.setDequeueSupportedIsolation(nil)
+	_ = p.setDequeueSupportedIsolation(nil)
 
 	ids := make([]string, 0, len(clients))
 	for id := range clients {
