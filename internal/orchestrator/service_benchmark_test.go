@@ -22,6 +22,12 @@ type benchmarkFanoutDispatch struct {
 	root  string
 }
 
+type benchmarkClaimedDispatch struct {
+	runID       string
+	executionID string
+	claimToken  string
+}
+
 func BenchmarkService_ClaimCompleteLeaf(b *testing.B) {
 	benchmarkServiceClaimCompleteLeaf(b, runtime.GOMAXPROCS(0), runtime.GOMAXPROCS(0))
 }
@@ -38,6 +44,14 @@ func BenchmarkService_LoadClaimCompleteFanoutWidth(b *testing.B) {
 	for _, width := range []int{1, 10, 100, 1000, 5000} {
 		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
 			benchmarkServiceLoadClaimCompleteFanoutWidth(b, width)
+		})
+	}
+}
+
+func BenchmarkService_CompleteTerminalSnapshot(b *testing.B) {
+	for _, totalTasks := range []int{1000, 5000, 10000, 25000} {
+		b.Run(fmt.Sprintf("total_tasks_%05d", totalTasks), func(b *testing.B) {
+			benchmarkServiceCompleteTerminalSnapshot(b, totalTasks)
 		})
 	}
 }
@@ -184,6 +198,128 @@ func benchmarkServiceLoadClaimCompleteFanoutWidth(b *testing.B, width int) {
 	}
 
 	b.ReportMetric(float64(shardCount), "orchestrator_shards")
+}
+
+func benchmarkServiceCompleteTerminalSnapshot(b *testing.B, totalTasks int) {
+	if totalTasks < 2 {
+		b.Fatal("totalTasks must include root plus at least one child")
+	}
+
+	ctx := context.Background()
+	shardCount := runtime.GOMAXPROCS(0)
+	svc := orchestrator.New(shardCount)
+	b.Cleanup(svc.Close)
+
+	childCount := totalTasks - 1
+	tasks := benchmarkFanoutTasks(childCount)
+	leaseUntil := time.Now().Add(time.Hour)
+	dispatches := make([]benchmarkClaimedDispatch, 0, b.N)
+
+	for i := 0; i < b.N; i++ {
+		workerID := fmt.Sprintf("bench-worker-%d", i)
+		runID := fmt.Sprintf("bench-terminal-snapshot-%d-%d", totalTasks, i)
+		loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+			RunID: runID,
+			Tasks: tasks,
+		})
+
+		if err != nil {
+			b.Fatalf("load run %s: %v", runID, err)
+		}
+
+		rootClaim, err := svc.ClaimExecution(ctx, runID, loaded.Root.ExecutionID, workerID, leaseUntil)
+		if err != nil {
+			b.Fatalf("claim root %s: %v", runID, err)
+		}
+
+		if !rootClaim.Claimed {
+			b.Fatalf("root execution %s was not claimed", loaded.Root.ExecutionID)
+		}
+
+		rootResult, err := svc.CompleteExecutionByClaim(ctx, runID, loaded.Root.ExecutionID, workerID, rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+		if err != nil {
+			b.Fatalf("complete root %s: %v", runID, err)
+		}
+
+		if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || len(rootResult.Children) != childCount {
+			b.Fatalf("root result for total %d: outcome=%q children=%d", totalTasks, rootResult.Outcome, len(rootResult.Children))
+		}
+
+		for childIndex := 0; childIndex < childCount-1; childIndex++ {
+			child := rootResult.Children[childIndex]
+			childClaim, err := svc.ClaimExecution(ctx, runID, child.ExecutionID, workerID, leaseUntil)
+			if err != nil {
+				b.Fatalf("claim child %s: %v", child.ExecutionID, err)
+			}
+
+			if !childClaim.Claimed {
+				b.Fatalf("child execution %s was not claimed", child.ExecutionID)
+			}
+
+			result, err := svc.CompleteExecutionByClaim(ctx, runID, child.ExecutionID, workerID, childClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+			if err != nil {
+				b.Fatalf("complete child %s: %v", child.ExecutionID, err)
+			}
+
+			if isBenchmarkTerminalOutcome(result.Outcome) {
+				b.Fatalf("pre-terminal child %s outcome=%q", child.ExecutionID, result.Outcome)
+			}
+		}
+
+		last := rootResult.Children[childCount-1]
+		lastClaim, err := svc.ClaimExecution(ctx, runID, last.ExecutionID, workerID, leaseUntil)
+		if err != nil {
+			b.Fatalf("claim terminal child %s: %v", last.ExecutionID, err)
+		}
+
+		if !lastClaim.Claimed {
+			b.Fatalf("terminal child execution %s was not claimed", last.ExecutionID)
+		}
+
+		dispatches = append(dispatches, benchmarkClaimedDispatch{
+			runID:       runID,
+			executionID: last.ExecutionID,
+			claimToken:  lastClaim.ClaimToken,
+		})
+	}
+
+	b.ReportAllocs()
+	b.ReportMetric(float64(totalTasks), "snapshot_items")
+	b.ResetTimer()
+	start := time.Now()
+
+	for i, dispatch := range dispatches {
+		workerID := fmt.Sprintf("bench-worker-%d", i)
+		result, err := svc.CompleteExecutionByClaim(ctx, dispatch.runID, dispatch.executionID, workerID, dispatch.claimToken, dal.ExecutionStatusSucceeded, "", "")
+		if err != nil {
+			b.Fatalf("complete terminal child %s: %v", dispatch.executionID, err)
+		}
+
+		if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded || len(result.Executions) != totalTasks {
+			b.Fatalf("terminal result for total %d: outcome=%q snapshots=%d", totalTasks, result.Outcome, len(result.Executions))
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	if elapsed > 0 {
+		totalItems := float64(totalTasks * b.N)
+		b.ReportMetric(totalItems/elapsed.Seconds(), "snapshot_items/s")
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "terminal_completions/s")
+	}
+
+	b.ReportMetric(float64(shardCount), "orchestrator_shards")
+}
+
+func isBenchmarkTerminalOutcome(outcome dal.ExecutionFinalizationOutcome) bool {
+	switch outcome {
+	case dal.ExecutionFinalizationOutcomeRunSucceeded,
+		dal.ExecutionFinalizationOutcomeRunFailed,
+		dal.ExecutionFinalizationOutcomeRunCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 func benchmarkFanoutTasks(width int) []orchestrator.TaskSpec {
