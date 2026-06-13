@@ -771,6 +771,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 
 		createdRuns = append(createdRuns, CreatedRun{
 			RunID:        runID,
+			JobID:        jobID,
 			RunIndex:     runIndexOut,
 			TargetCellID: targetCellID,
 		})
@@ -1004,7 +1005,41 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 		return CreatedRun{}, err
 	}
 
-	return CreatedRun{RunID: runID, RunIndex: idx, TargetCellID: targetCellID}, nil
+	return CreatedRun{RunID: runID, JobID: jobID, RunIndex: idx, TargetCellID: targetCellID}, nil
+}
+
+func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error) {
+	invocationID = strings.TrimSpace(invocationID)
+	if invocationID == "" {
+		return nil, nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT run_id, job_id, run_index, owning_cell
+		FROM job_runs
+		WHERE trigger_invocation_id = ?
+		ORDER BY run_index ASC, id ASC
+	`), invocationID)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []CreatedRun
+	for rows.Next() {
+		var rec CreatedRun
+		if err := rows.Scan(&rec.RunID, &rec.JobID, &rec.RunIndex, &rec.TargetCellID); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
 }
 
 func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (string, string, error) {

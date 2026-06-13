@@ -35,7 +35,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const defaultForceFailReason = "manually failed via API"
+const (
+	defaultForceFailReason               = "manually failed via API"
+	idempotencyResourceTriggerInvocation = "trigger_invocation"
+)
 
 func newRunAuditMetadata(triggerInvocationID string) dal.RunAuditMetadata {
 	return dal.RunAuditMetadata{
@@ -145,6 +148,53 @@ func triggerJobResponse(jobID string, createdRuns []dal.CreatedRun) triggerJobRe
 	}
 
 	return resp
+}
+
+func (s *APIServer) recoverRunCreationIdempotency(
+	w http.ResponseWriter,
+	ctx context.Context,
+	scope string,
+	key string,
+	record dal.IdempotencyRecord,
+	buildResponse func([]dal.CreatedRun) (any, bool),
+) bool {
+	if record.ResourceType != idempotencyResourceTriggerInvocation || record.ResourceID == "" {
+		return false
+	}
+
+	createdRuns, err := s.runs.ListCreatedByTriggerInvocation(ctx, record.ResourceID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return true
+		}
+
+		s.logger.Error("Database error recovering idempotency response: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return true
+	}
+
+	if len(createdRuns) == 0 {
+		return false
+	}
+
+	response, ok := buildResponse(createdRuns)
+	if !ok {
+		return false
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		s.logger.Error("Failed to encode recovered idempotency response: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return true
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, scope, key, buf.Bytes())
+
+	return true
 }
 
 func cloneJobForRun(job *api.Job, runID string) *api.Job {
@@ -1046,7 +1096,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	idempotencyHash := hashIdempotencyRequest(idempotencyHashParts...)
-	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
 		return
 	}
@@ -1055,6 +1105,17 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			return triggerJobResponse(jobID, createdRuns), true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
 		return
 	}
 
@@ -1069,6 +1130,20 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error recording trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching trigger idempotency resource: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
@@ -1337,7 +1412,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("replay:"+sourceRunID, p)
 	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", string(bytes.TrimSpace(body)))
-	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
 		return
 	}
@@ -1346,6 +1421,27 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			if len(createdRuns) != 1 {
+				return nil, false
+			}
+
+			return replayRunResponseBody{
+				JobID:         jobID,
+				RunID:         createdRuns[0].RunID,
+				RunIndex:      createdRuns[0].RunIndex,
+				CellID:        createdRuns[0].TargetCellID,
+				ReplayOfRunID: sourceRunID,
+			}, true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
 		return
 	}
 
@@ -1378,6 +1474,20 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error recording replay trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching replay idempotency resource: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
@@ -1635,7 +1745,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("run:"+ns.Path, p)
 	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/jobs/run", string(body))
-	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
 		return
 	}
@@ -1644,6 +1754,24 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			if len(createdRuns) != 1 || createdRuns[0].JobID == "" {
+				return nil, false
+			}
+
+			return map[string]string{
+				"id":     createdRuns[0].JobID,
+				"run_id": createdRuns[0].RunID,
+			}, true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
 		return
 	}
 
@@ -1658,6 +1786,20 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.logger.Error("Database error recording trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching ephemeral idempotency resource: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}

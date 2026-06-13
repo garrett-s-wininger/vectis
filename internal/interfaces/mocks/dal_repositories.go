@@ -587,12 +587,17 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 
 		created = append(created, dal.CreatedRun{
 			RunID:        runID,
+			JobID:        jobID,
 			RunIndex:     runIndexStart + i,
 			TargetCellID: targetCellID,
 		})
 	}
 
 	return created, nil
+}
+
+func (m *MockRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]dal.CreatedRun, error) {
+	return nil, nil
 }
 
 func (m *MockRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit dal.RunAuditMetadata) (dal.CreatedRun, error) {

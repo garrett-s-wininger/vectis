@@ -123,6 +123,54 @@ func waitForNDispatchEvents(t *testing.T, db *sql.DB, runID string, n int) {
 	t.Fatalf("timed out waiting for %d dispatch events for run %s", n, runID)
 }
 
+func clearIdempotencyResponseForAPITest(t *testing.T, db *sql.DB, scope, key string) (resourceType, resourceID string) {
+	t.Helper()
+
+	var response sql.NullString
+	if err := db.QueryRow(`
+		SELECT response_json, resource_type, resource_id
+		FROM idempotency_keys
+		WHERE scope = ? AND key = ?
+	`, scope, key).Scan(&response, &resourceType, &resourceID); err != nil {
+		t.Fatalf("query idempotency key: %v", err)
+	}
+
+	if !response.Valid {
+		t.Fatal("expected idempotency response to be cached before simulating crash")
+	}
+
+	if resourceType == "" || resourceID == "" {
+		t.Fatalf("expected idempotency resource pointer, got type=%q id=%q", resourceType, resourceID)
+	}
+
+	if _, err := db.Exec(`
+		UPDATE idempotency_keys
+		SET response_json = NULL
+		WHERE scope = ? AND key = ?
+	`, scope, key); err != nil {
+		t.Fatalf("clear idempotency response: %v", err)
+	}
+
+	return resourceType, resourceID
+}
+
+func assertIdempotencyResponseCachedForAPITest(t *testing.T, db *sql.DB, scope, key string) {
+	t.Helper()
+
+	var response sql.NullString
+	if err := db.QueryRow(`
+		SELECT response_json
+		FROM idempotency_keys
+		WHERE scope = ? AND key = ?
+	`, scope, key).Scan(&response); err != nil {
+		t.Fatalf("query idempotency response: %v", err)
+	}
+
+	if !response.Valid || response.String == "" {
+		t.Fatal("expected idempotency response to be cached")
+	}
+}
+
 func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
 	t.Helper()
 
@@ -1707,6 +1755,92 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	}
 }
 
+func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	jobID := "job-replay-idempotent-crash"
+	key := "replay-key-crash"
+	definitionJSON := `{"id": "job-replay-idempotent-crash", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo replay"}}}`
+	insertStoredJobForTest(t, db, jobID, definitionJSON)
+
+	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
+	triggerReq.SetPathValue("id", jobID)
+	triggerRec := httptest.NewRecorder()
+	server.TriggerJob(triggerRec, triggerReq)
+	if triggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger source: expected status %d, got %d: %s", http.StatusAccepted, triggerRec.Code, triggerRec.Body.String())
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+	sourceRunID := queueService.GetJobs()[0].GetRunId()
+	if sourceRunID == "" {
+		t.Fatal("expected source run id")
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	if err := repos.Runs().MarkRunFailed(context.Background(), sourceRunID, dal.FailureCodeExecution, "source failed"); err != nil {
+		t.Fatalf("mark source failed: %v", err)
+	}
+
+	scope := "replay:" + sourceRunID + ":anonymous"
+	replayReq := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", nil)
+	replayReq.SetPathValue("id", sourceRunID)
+	replayReq.Header.Set("Idempotency-Key", key)
+	replayRec := httptest.NewRecorder()
+	server.ReplayRun(replayRec, replayReq)
+	if replayRec.Code != http.StatusAccepted {
+		t.Fatalf("first replay: expected status %d, got %d: %s", http.StatusAccepted, replayRec.Code, replayRec.Body.String())
+	}
+
+	var firstResp struct {
+		JobID         string `json:"job_id"`
+		RunID         string `json:"run_id"`
+		RunIndex      int    `json:"run_index"`
+		CellID        string `json:"cell_id,omitempty"`
+		ReplayOfRunID string `json:"replay_of_run_id"`
+	}
+
+	if err := json.Unmarshal(replayRec.Body.Bytes(), &firstResp); err != nil {
+		t.Fatalf("decode first replay response: %v", err)
+	}
+
+	if firstResp.JobID != jobID || firstResp.RunID == "" || firstResp.RunID == sourceRunID || firstResp.ReplayOfRunID != sourceRunID {
+		t.Fatalf("unexpected first replay response: %+v", firstResp)
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 2)
+	resourceType, _ := clearIdempotencyResponseForAPITest(t, db, scope, key)
+	if resourceType != "trigger_invocation" {
+		t.Fatalf("idempotency resource type: got %q, want trigger_invocation", resourceType)
+	}
+
+	replayReq2 := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", nil)
+	replayReq2.SetPathValue("id", sourceRunID)
+	replayReq2.Header.Set("Idempotency-Key", key)
+	replayRec2 := httptest.NewRecorder()
+	server.ReplayRun(replayRec2, replayReq2)
+	if replayRec2.Code != http.StatusAccepted {
+		t.Fatalf("recovered replay: expected status %d, got %d: %s", http.StatusAccepted, replayRec2.Code, replayRec2.Body.String())
+	}
+
+	if replayRec.Body.String() != replayRec2.Body.String() {
+		t.Fatalf("expected recovered response %q, got %q", replayRec.Body.String(), replayRec2.Body.String())
+	}
+
+	assertIdempotencyResponseCachedForAPITest(t, db, scope, key)
+	if got := len(queueService.GetJobs()); got != 2 {
+		t.Fatalf("expected recovered replay not to enqueue another job, got %d queued jobs", got)
+	}
+
+	var replayCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs WHERE replay_of_run_id = ?", sourceRunID).Scan(&replayCount); err != nil {
+		t.Fatalf("count replay runs: %v", err)
+	}
+
+	if replayCount != 1 {
+		t.Fatalf("expected one replay run after recovery, got %d", replayCount)
+	}
+}
+
 func TestAPIServer_ReplayRun_RejectsActiveSourceRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-replay-active"
@@ -1771,6 +1905,54 @@ func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 
 	if runCount != 1 {
 		t.Fatalf("expected one run row after replay, got %d", runCount)
+	}
+}
+
+func TestAPIServer_TriggerJob_IdempotencyCrashRecoveryReplaysInvocationRuns(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	jobID := "job-idempotent-crash"
+	key := "trigger-key-crash"
+	scope := "trigger:" + jobID + ":anonymous"
+	jobDef := `{"id": "job-idempotent-crash", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	insertStoredJobForTest(t, db, jobID, jobDef)
+
+	body := []byte(`{"cell_ids":["iad-a","pdx-b"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, bytes.NewReader(body))
+	req.SetPathValue("id", jobID)
+	req.Header.Set("Idempotency-Key", key)
+	rec := httptest.NewRecorder()
+	server.TriggerJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("first trigger: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	resourceType, _ := clearIdempotencyResponseForAPITest(t, db, scope, key)
+	if resourceType != "trigger_invocation" {
+		t.Fatalf("idempotency resource type: got %q, want trigger_invocation", resourceType)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, bytes.NewReader(body))
+	req2.SetPathValue("id", jobID)
+	req2.Header.Set("Idempotency-Key", key)
+	rec2 := httptest.NewRecorder()
+	server.TriggerJob(rec2, req2)
+	if rec2.Code != http.StatusAccepted {
+		t.Fatalf("recovered trigger: expected %d, got %d: %s", http.StatusAccepted, rec2.Code, rec2.Body.String())
+	}
+
+	if rec.Body.String() != rec2.Body.String() {
+		t.Fatalf("expected recovered response %q, got %q", rec.Body.String(), rec2.Body.String())
+	}
+
+	assertIdempotencyResponseCachedForAPITest(t, db, scope, key)
+
+	var runCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+		t.Fatalf("count runs: %v", err)
+	}
+
+	if runCount != 2 {
+		t.Fatalf("expected original two run rows after recovery, got %d", runCount)
 	}
 }
 
@@ -2627,6 +2809,85 @@ func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
 
 	if runCount != 1 {
 		t.Fatalf("expected one run row after replay, got %d", runCount)
+	}
+}
+
+func TestAPIServer_RunJob_IdempotencyCrashRecoveryReplaysGeneratedJob(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	key := "run-key-crash"
+	scope := "run:/:anonymous"
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo hello"},
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", key)
+	rec := httptest.NewRecorder()
+	server.RunJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("first run: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var firstResp struct {
+		ID    string `json:"id"`
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &firstResp); err != nil {
+		t.Fatalf("decode first response: %v", err)
+	}
+
+	if firstResp.ID == "" || firstResp.RunID == "" {
+		t.Fatalf("first response missing generated ids: %+v", firstResp)
+	}
+
+	resourceType, _ := clearIdempotencyResponseForAPITest(t, db, scope, key)
+	if resourceType != "trigger_invocation" {
+		t.Fatalf("idempotency resource type: got %q, want trigger_invocation", resourceType)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", key)
+	rec2 := httptest.NewRecorder()
+	server.RunJob(rec2, req2)
+	if rec2.Code != http.StatusAccepted {
+		t.Fatalf("recovered run: expected %d, got %d: %s", http.StatusAccepted, rec2.Code, rec2.Body.String())
+	}
+
+	if rec.Body.String() != rec2.Body.String() {
+		t.Fatalf("expected recovered response %q, got %q", rec.Body.String(), rec2.Body.String())
+	}
+
+	assertIdempotencyResponseCachedForAPITest(t, db, scope, key)
+	waitForNEnqueuedJobs(t, queueService, 1)
+	if got := len(queueService.GetJobs()); got != 1 {
+		t.Fatalf("expected one enqueued job after recovered replay, got %d", got)
+	}
+
+	var runCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs").Scan(&runCount); err != nil {
+		t.Fatalf("count runs: %v", err)
+	}
+
+	if runCount != 1 {
+		t.Fatalf("expected original run row after recovery, got %d", runCount)
+	}
+
+	var persistedJobID string
+	if err := db.QueryRow("SELECT job_id FROM job_runs WHERE run_id = ?", firstResp.RunID).Scan(&persistedJobID); err != nil {
+		t.Fatalf("query recovered run job id: %v", err)
+	}
+
+	if persistedJobID != firstResp.ID {
+		t.Fatalf("persisted job id: got %q, want recovered id %q", persistedJobID, firstResp.ID)
 	}
 }
 

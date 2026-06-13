@@ -203,6 +203,21 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 		t.Fatalf("created runs: got %d, want 2", len(created))
 	}
 
+	byInvocation, err := repos.Runs().ListCreatedByTriggerInvocation(ctx, rec.InvocationID)
+	if err != nil {
+		t.Fatalf("list runs by trigger invocation: %v", err)
+	}
+
+	if len(byInvocation) != 2 {
+		t.Fatalf("runs by trigger invocation: got %d, want 2", len(byInvocation))
+	}
+
+	for i, run := range byInvocation {
+		if run.RunID != created[i].RunID || run.JobID != jobID || run.RunIndex != created[i].RunIndex || run.TargetCellID != created[i].TargetCellID {
+			t.Fatalf("run by invocation %d: got %+v, want run=%+v job=%s", i, run, created[i], jobID)
+		}
+	}
+
 	for _, run := range created {
 		var invocationID, payloadHash string
 		if err := db.QueryRowContext(ctx, "SELECT trigger_invocation_id, execution_payload_hash FROM job_runs WHERE run_id = ?", run.RunID).Scan(&invocationID, &payloadHash); err != nil {
@@ -4503,6 +4518,21 @@ func TestIdempotencyRepository_ReserveCompleteAndReplay(t *testing.T) {
 		t.Fatalf("expected no response on new record, got %q", *rec.ResponseJSON)
 	}
 
+	if err := idempotency.AttachResource(ctx, "scope-a", "key-a", "trigger_invocation", "invocation-a"); err != nil {
+		t.Fatalf("attach resource: %v", err)
+	}
+
+	rec, created, err = idempotency.Reserve(ctx, "scope-a", "key-a", "hash-a")
+	if err != nil {
+		t.Fatalf("reserve with resource: %v", err)
+	}
+	if created {
+		t.Fatal("expected resource reserve to read existing record")
+	}
+	if rec.ResourceType != "trigger_invocation" || rec.ResourceID != "invocation-a" {
+		t.Fatalf("expected attached resource, got type=%q id=%q", rec.ResourceType, rec.ResourceID)
+	}
+
 	if err := idempotency.Complete(ctx, "scope-a", "key-a", `{"run_id":"run-a"}`); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
@@ -4518,6 +4548,9 @@ func TestIdempotencyRepository_ReserveCompleteAndReplay(t *testing.T) {
 
 	if rec.ResponseJSON == nil || *rec.ResponseJSON != `{"run_id":"run-a"}` {
 		t.Fatalf("expected stored response, got %+v", rec.ResponseJSON)
+	}
+	if rec.ResourceType != "trigger_invocation" || rec.ResourceID != "invocation-a" {
+		t.Fatalf("expected resource to survive completion, got type=%q id=%q", rec.ResourceType, rec.ResourceID)
 	}
 
 	rec, created, err = idempotency.Reserve(ctx, "scope-a", "key-a", "hash-b")

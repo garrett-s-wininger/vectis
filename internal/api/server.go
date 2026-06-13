@@ -219,32 +219,45 @@ func principalIdempotencyScope(prefix string, p *authn.Principal) string {
 }
 
 func (s *APIServer) reserveIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, ok bool) {
+	record, reserved, _, ok = s.reserveIdempotencyState(w, ctx, scope, key, requestHash, false)
+	return record, reserved, ok
+}
+
+func (s *APIServer) reserveRecoverableIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
+	return s.reserveIdempotencyState(w, ctx, scope, key, requestHash, true)
+}
+
+func (s *APIServer) reserveIdempotencyState(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string, allowInProgress bool) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
 	if key == "" || s.idempotency == nil {
-		return dal.IdempotencyRecord{}, false, true
+		return dal.IdempotencyRecord{}, false, false, true
 	}
 
 	record, created, err := s.idempotency.Reserve(ctx, scope, key, requestHash)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
-			return dal.IdempotencyRecord{}, false, false
+			return dal.IdempotencyRecord{}, false, false, false
 		}
 
 		s.logger.Error("Database error reserving idempotency key: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return dal.IdempotencyRecord{}, false, false
+		return dal.IdempotencyRecord{}, false, false, false
 	}
 
 	if !created && record.RequestHash != requestHash {
 		writeAPIError(w, http.StatusConflict, "idempotency_key_reused", "idempotency key reused for different request", nil)
-		return dal.IdempotencyRecord{}, false, false
+		return dal.IdempotencyRecord{}, false, false, false
 	}
 
 	if !created && record.ResponseJSON == nil {
+		if allowInProgress {
+			return record, false, true, true
+		}
+
 		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
-		return dal.IdempotencyRecord{}, false, false
+		return dal.IdempotencyRecord{}, false, false, false
 	}
 
-	return record, created, true
+	return record, created, false, true
 }
 
 func (s *APIServer) completeIdempotency(ctx context.Context, scope, key string, response []byte) {
@@ -265,6 +278,14 @@ func (s *APIServer) releaseIdempotency(ctx context.Context, scope, key string) {
 	if err := s.idempotency.Release(ctx, scope, key); err != nil {
 		s.logger.Error("Failed to release idempotency key: %v", err)
 	}
+}
+
+func (s *APIServer) attachIdempotencyResource(ctx context.Context, scope, key, resourceType, resourceID string) error {
+	if key == "" || s.idempotency == nil || resourceID == "" {
+		return nil
+	}
+
+	return s.idempotency.AttachResource(ctx, scope, key, resourceType, resourceID)
 }
 
 func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, eventType, targetCell string, message *string) {

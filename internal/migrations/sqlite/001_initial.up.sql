@@ -314,10 +314,14 @@ CREATE TABLE idempotency_keys (
     key TEXT NOT NULL,
     request_hash TEXT NOT NULL,
     response_json TEXT,
+    resource_type TEXT NOT NULL DEFAULT '',
+    resource_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(scope, key)
 );
+
+CREATE INDEX idx_idempotency_keys_resource ON idempotency_keys(resource_type, resource_id);
 
 CREATE TABLE job_definitions (
     global_id TEXT UNIQUE,

@@ -215,6 +215,7 @@ type RunCountByCell struct {
 
 type CreatedRun struct {
 	RunID        string
+	JobID        string
 	RunIndex     int
 	TargetCellID string
 }
@@ -305,6 +306,8 @@ type IdempotencyRecord struct {
 	Key          string
 	RequestHash  string
 	ResponseJSON *string
+	ResourceType string
+	ResourceID   string
 }
 
 type DispatchEvent struct {
@@ -480,6 +483,7 @@ type TriggerInvocationRecord struct {
 
 type IdempotencyRepository interface {
 	Reserve(ctx context.Context, scope, key, requestHash string) (record IdempotencyRecord, created bool, err error)
+	AttachResource(ctx context.Context, scope, key, resourceType, resourceID string) error
 	Complete(ctx context.Context, scope, key, responseJSON string) error
 	Release(ctx context.Context, scope, key string) error
 }
@@ -599,6 +603,7 @@ type RunsRepository interface {
 	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
 	CreateScheduledRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error)
 	CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error)
+	ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error)
 	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
 	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)

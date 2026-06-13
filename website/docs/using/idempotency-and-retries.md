@@ -97,6 +97,7 @@ This means two users can safely use the same key without colliding. It also mean
 | --- | --- |
 | First request with a new key succeeds. | `202` with the created run response. |
 | Retry with the same key and same request after success. | `202` with the recorded response. |
+| Retry after the API committed the run but crashed before caching the response. | `202` with the recovered original run response. |
 | Retry while the first request is still in progress. | `409 idempotency_in_progress`. Retry later with the same key. |
 | Reuse the same key for a different request. | `409 idempotency_key_reused`. Stop and create a new key for the new operation. |
 | Send `Idempotency-Key` to a route that does not document support for it, or send an invalid key. | `400 invalid_request_header`. Remove the header or generate a valid key. |
@@ -131,7 +132,7 @@ Clients should wait at least that long before retrying. Keep the same idempotenc
 
 ## Cleanup And Retention
 
-Idempotency records are stored in SQL so retries survive API restarts. Operators can prune old records with retention cleanup:
+Idempotency records are stored in SQL so retries survive API restarts and can recover a committed run response after an API crash. Operators can prune old records with retention cleanup:
 
 ```sh
 ./bin/vectis-cli retention cleanup --dry-run
