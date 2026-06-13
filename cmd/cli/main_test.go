@@ -4535,9 +4535,16 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 			"declared_repositories":   1,
 			"declared_schedules":      1,
 			"repositories": map[string]any{
-				"total":    1,
-				"enabled":  1,
-				"disabled": 0,
+				"total":          1,
+				"enabled":        1,
+				"disabled":       0,
+				"declared":       1,
+				"stale_enabled":  0,
+				"stale_disabled": 0,
+				"sync_succeeded": 1,
+				"sync_failed":    0,
+				"sync_running":   0,
+				"sync_never":     0,
 			},
 			"schedules": map[string]any{
 				"total":            1,
@@ -4607,13 +4614,7 @@ func TestDoctor_success(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"flush_failures": 0})
 		case "/api/v1/catalog/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"pending": 0, "applied": 4, "failed": 0, "total": 4})
-		case "/api/v1/source/status", "/api/v1/namespaces":
-			writeHealthyDoctorSourceResponse(w, r)
-		case "/api/v1/source-repositories":
-			if got := r.URL.Query().Get("namespace"); got != "/" {
-				t.Errorf("source repository namespace query=%q, want /", got)
-			}
-
+		case "/api/v1/source/status":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			t.Errorf("unexpected path=%s", r.URL.Path)
@@ -4683,10 +4684,14 @@ func TestDoctor_success(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cron/status", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status", "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cron/status", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status", "/api/v1/source/status"} {
 		if seen[path] != 1 {
 			t.Fatalf("expected one request to %s, got %d", path, seen[path])
 		}
+	}
+
+	if seen["/api/v1/namespaces"] != 0 || seen["/api/v1/source-repositories"] != 0 {
+		t.Fatalf("expected healthy source repositories to use aggregate source status, got namespaces=%d repositories=%d", seen["/api/v1/namespaces"], seen["/api/v1/source-repositories"])
 	}
 
 	if seen["/api/v1/source-repositories/vectis/schedules"] != 0 {
@@ -5235,6 +5240,52 @@ func TestDoctor_sourceRepositoriesWarnForStaleEnabledRepository(t *testing.T) {
 		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
 			t.Fatalf("expected source repository declaration check to contain %q, got %#v", want, check)
 		}
+	}
+}
+
+func TestDoctor_sourceRepositoryChecksUseStatusCounts(t *testing.T) {
+	status := doctorSourceStatus{}
+	status.Repositories.Total = 2
+	status.Repositories.Enabled = 1
+	status.Repositories.Disabled = 1
+	status.Repositories.Declared = 2
+	status.Repositories.SyncSucceeded = 1
+	status.Repositories.SyncNever = 1
+
+	syncCheck := doctorSourceRepositorySyncFromStatus(status, "")
+	if syncCheck.Status != doctorOK {
+		t.Fatalf("expected status-backed repository sync check to pass, got %#v", syncCheck)
+	}
+
+	declarationCheck := doctorSourceRepositoryDeclarationsFromStatus(status, "")
+	if declarationCheck.Status != doctorOK {
+		t.Fatalf("expected status-backed repository declaration check to pass, got %#v", declarationCheck)
+	}
+
+	combined := syncCheck.Summary + " " + syncCheck.Evidence + " " + declarationCheck.Summary + " " + declarationCheck.Evidence
+	for _, want := range []string{"source repository sync ok: 1 enabled", "succeeded=1", "source repositories aligned: 2 repositories", "stale_enabled=0"} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("expected status-backed repository checks to contain %q, got sync=%#v declaration=%#v", want, syncCheck, declarationCheck)
+		}
+	}
+
+	if doctorSourceStatusNeedsRepositorySyncDetails(status, "") {
+		t.Fatal("did not expect repository sync details for clean status counts")
+	}
+
+	if doctorSourceStatusNeedsRepositoryDeclarationDetails(status, "") {
+		t.Fatal("did not expect repository declaration details for clean status counts")
+	}
+
+	status.Repositories.SyncRunning = 1
+	if !doctorSourceStatusNeedsRepositorySyncDetails(status, "") {
+		t.Fatal("expected repository sync details when running repositories need timeout checks")
+	}
+
+	status.Repositories.SyncRunning = 0
+	status.Repositories.StaleEnabled = 1
+	if !doctorSourceStatusNeedsRepositoryDeclarationDetails(status, "") {
+		t.Fatal("expected repository declaration details when stale enabled repositories need IDs")
 	}
 }
 

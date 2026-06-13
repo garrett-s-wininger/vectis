@@ -913,16 +913,34 @@ func formatDoctorCatalogInboxEvidence(status doctorCatalogStatus) string {
 
 func doctorSourceControlChecks() []doctorCheck {
 	status, statusLoadError := doctorLoadSourceStatus()
-	repositories, repositoryLoadError := doctorLoadSourceRepositories()
+	loadRepositorySyncDetails := doctorSourceStatusNeedsRepositorySyncDetails(status, statusLoadError)
+	loadRepositoryDeclarationDetails := doctorSourceStatusNeedsRepositoryDeclarationDetails(status, statusLoadError)
+	loadScheduleDetails := doctorSourceStatusNeedsScheduleDetails(status, statusLoadError)
+	loadRepositoryDetails := loadRepositorySyncDetails || loadRepositoryDeclarationDetails || loadScheduleDetails
+
+	var repositories []sourceRepositorySummary
+	repositoryLoadError := ""
+	if loadRepositoryDetails {
+		repositories, repositoryLoadError = doctorLoadSourceRepositories()
+	}
+
 	var schedules []sourceScheduleSummary
 	scheduleLoadError := ""
-	loadScheduleDetails := doctorSourceStatusNeedsScheduleDetails(status, statusLoadError)
 	if loadScheduleDetails {
 		if repositoryLoadError != "" {
 			scheduleLoadError = "source repository inventory unavailable: " + repositoryLoadError
 		} else {
 			schedules, scheduleLoadError = doctorLoadSourceSchedules(repositories)
 		}
+	}
+
+	repositorySyncCheck := doctorSourceRepositorySyncFromStatus(status, statusLoadError)
+	repositoryDeclarationCheck := doctorSourceRepositoryDeclarationsFromStatus(status, statusLoadError)
+	if loadRepositorySyncDetails {
+		repositorySyncCheck = doctorSourceRepositorySync(repositories, repositoryLoadError)
+	}
+	if loadRepositoryDeclarationDetails {
+		repositoryDeclarationCheck = doctorSourceRepositoryDeclarations(repositories, repositoryLoadError)
 	}
 
 	scheduleDeclarationCheck := doctorSourceScheduleDeclarationsFromStatus(status, statusLoadError)
@@ -934,11 +952,27 @@ func doctorSourceControlChecks() []doctorCheck {
 
 	return []doctorCheck{
 		doctorSourceMode(status, statusLoadError),
-		doctorSourceRepositorySync(repositories, repositoryLoadError),
-		doctorSourceRepositoryDeclarations(repositories, repositoryLoadError),
+		repositorySyncCheck,
+		repositoryDeclarationCheck,
 		scheduleDeclarationCheck,
 		scheduleOverrideCheck,
 	}
+}
+
+func doctorSourceStatusNeedsRepositorySyncDetails(status doctorSourceStatus, statusLoadError string) bool {
+	if statusLoadError != "" {
+		return true
+	}
+
+	return status.Repositories.SyncFailed > 0 || status.Repositories.SyncRunning > 0
+}
+
+func doctorSourceStatusNeedsRepositoryDeclarationDetails(status doctorSourceStatus, statusLoadError string) bool {
+	if statusLoadError != "" {
+		return true
+	}
+
+	return status.Repositories.StaleEnabled > 0
 }
 
 func doctorSourceStatusNeedsScheduleDetails(status doctorSourceStatus, statusLoadError string) bool {
@@ -961,9 +995,16 @@ type doctorSourceStatus struct {
 }
 
 type doctorSourceRepositoryCounts struct {
-	Total    int `json:"total"`
-	Enabled  int `json:"enabled"`
-	Disabled int `json:"disabled"`
+	Total         int `json:"total"`
+	Enabled       int `json:"enabled"`
+	Disabled      int `json:"disabled"`
+	Declared      int `json:"declared"`
+	StaleEnabled  int `json:"stale_enabled"`
+	StaleDisabled int `json:"stale_disabled"`
+	SyncSucceeded int `json:"sync_succeeded"`
+	SyncFailed    int `json:"sync_failed"`
+	SyncRunning   int `json:"sync_running"`
+	SyncNever     int `json:"sync_never"`
 }
 
 type doctorSourceScheduleCounts struct {
@@ -1240,6 +1281,40 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repository sync ok: %d enabled", enabled), Evidence: evidence, DocLink: doc}
 }
 
+func doctorSourceRepositorySyncFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
+	const id = "source.repositories.sync"
+	title := "Source repository sync healthy"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if statusLoadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+	}
+
+	if status.Repositories.Total == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+	}
+
+	evidence := formatDoctorSourceRepositorySyncEvidence(
+		status.Repositories.Total,
+		status.Repositories.Enabled,
+		status.Repositories.Disabled,
+		status.Repositories.SyncSucceeded,
+		status.Repositories.SyncFailed,
+		status.Repositories.SyncRunning,
+		status.Repositories.SyncNever,
+		0,
+		nil,
+		nil,
+		nil,
+	)
+
+	if status.Repositories.Enabled == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("no enabled source repositories (%d disabled)", status.Repositories.Disabled), Evidence: evidence, DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repository sync ok: %d enabled", status.Repositories.Enabled), Evidence: evidence, DocLink: doc}
+}
+
 func formatDoctorSourceRepositorySyncEvidence(total, enabled, disabled, succeeded, failed, running, never, unknown int, failedRepositories, staleRunningRepositories, unknownStatusRepositories []string) string {
 	parts := []string{
 		fmt.Sprintf("repositories=%d", total),
@@ -1311,6 +1386,27 @@ func doctorSourceRepositoryDeclarations(repositories []sourceRepositorySummary, 
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repositories aligned: %d repositories", len(repositories)), Evidence: evidence, DocLink: doc}
+}
+
+func doctorSourceRepositoryDeclarationsFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
+	const id = "source.repositories.declared"
+	title := "Source repositories declared"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if statusLoadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+	}
+
+	if status.Repositories.Total == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source repositories configured", DocLink: doc}
+	}
+
+	evidence := formatDoctorSourceRepositoryDeclarationEvidence(status.Repositories.Total, status.Repositories.Enabled, status.Repositories.Disabled, status.Repositories.Declared, status.Repositories.StaleEnabled, status.Repositories.StaleDisabled, nil, nil)
+	if status.Repositories.StaleEnabled > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source repositories", status.Repositories.StaleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source repositories or restore their source repository declarations", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repositories aligned: %d repositories", status.Repositories.Total), Evidence: evidence, DocLink: doc}
 }
 
 func formatDoctorSourceRepositoryDeclarationEvidence(total, enabled, disabled, declared, staleEnabled, staleDisabled int, staleEnabledIDs, staleDisabledIDs []string) string {
