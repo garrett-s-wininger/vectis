@@ -141,6 +141,15 @@ test-race:
 test-quick:
 	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/... ./sdk/... ./examples/... ./tools/...
 
+.PHONY: test-chaos
+test-chaos:
+	go test -count=1 ./internal/queue -run 'Chaos'
+	go test -count=1 ./internal/reconciler -run 'QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable'
+
+.PHONY: test-property
+test-property:
+	go test -count=1 ./internal/queue -run 'Property'
+
 .PHONY: website-a11y
 website-a11y:
 	cd website && \

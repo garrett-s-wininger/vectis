@@ -63,6 +63,8 @@ Use the smallest test command that gives useful feedback:
 
 ```bash
 make test-quick        # fast unit feedback
+make test-chaos        # targeted injected-failure checks
+make test-property     # generated invariant checks
 make test              # all default Go tests
 make test-integration  # integration tests with the integration build tag
 make test-race         # race detector

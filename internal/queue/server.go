@@ -12,6 +12,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/cell"
+	"vectis/internal/chaos"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
@@ -33,6 +34,7 @@ type QueueOptions struct {
 	WALRetainTail      int
 	MaxRequeueAttempts int
 	InstanceID         string
+	Faults             chaos.Hook
 }
 
 type queueServer struct {
@@ -58,6 +60,7 @@ type queueServer struct {
 	log                       interfaces.Logger
 	persistence               *persistenceStore
 	metrics                   *observability.QueueMetrics
+	faults                    chaos.Hook
 }
 
 type deadLetterItem struct {
@@ -75,6 +78,17 @@ const (
 	isolationRequirementHost uint64 = 1 << iota
 	isolationRequirementVM
 	isolationRequirementUnsupported
+)
+
+const (
+	ChaosPointEnqueuePersist     chaos.Point = "queue.enqueue.persist"
+	ChaosPointDeliverPersist     chaos.Point = "queue.deliver.persist"
+	ChaosPointAckPersist         chaos.Point = "queue.ack.persist"
+	ChaosPointExpiredRequeue     chaos.Point = "queue.expired.requeue.persist"
+	ChaosPointExpiredDrop        chaos.Point = "queue.expired.drop.persist"
+	ChaosPointDeadLetter         chaos.Point = "queue.deadletter.persist"
+	ChaosPointDeadLetterRequeue  chaos.Point = "queue.deadletter.requeue.persist"
+	ChaosPointPendingExpiredDrop chaos.Point = "queue.pending.expired.drop.persist"
 )
 
 func NewQueueService(logger interfaces.Logger) api.QueueServiceServer {
@@ -132,6 +146,7 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 		notify:                    make(chan struct{}, 1),
 		log:                       logger,
 		metrics:                   metrics,
+		faults:                    opts.Faults,
 	}
 
 	store, state, err := newPersistenceStore(opts.PersistenceDir, opts.SnapshotEvery, opts.WALSegmentMax, opts.WALRetainTail, logger)
@@ -176,6 +191,10 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 	}
 
 	if s.persistence != nil {
+		if err := s.beforeFault(ctx, ChaosPointEnqueuePersist); err != nil {
+			return nil, err
+		}
+
 		if err := s.persistence.appendEnqueue(req, s.snapshotAfterEnqueueLocked(req)); err != nil {
 			return nil, fmt.Errorf("persist enqueue: %w", err)
 		}
@@ -261,6 +280,10 @@ func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int
 	attemptCount := s.jobAttempts[job.GetId()]
 
 	if s.persistence != nil {
+		if err := s.beforeFault(ctx, ChaosPointDeliverPersist); err != nil {
+			return nil, err
+		}
+
 		if err := s.persistence.appendDeliver(deliveryID, jobReq, leaseUntil, attemptCount, s.snapshotAfterDeliverLocked(deliveryID, offset, jobReq, leaseUntil, attemptCount)); err != nil {
 			return nil, fmt.Errorf("persist %s delivery: %w", persistOp, err)
 		}
@@ -299,18 +322,33 @@ func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty,
 		return &api.Empty{}, nil
 	}
 
-	if item, ok := s.inflight[deliveryID]; ok {
-		delete(s.jobAttempts, item.JobRequest.GetJob().GetId())
-	}
+	item := s.inflight[deliveryID]
 
 	if s.persistence != nil {
+		if err := s.beforeFault(ctx, ChaosPointAckPersist); err != nil {
+			return nil, err
+		}
+
 		if err := s.persistence.appendAck(deliveryID, s.snapshotAfterAckLocked(deliveryID)); err != nil {
 			return nil, fmt.Errorf("persist ack: %w", err)
 		}
 	}
 
+	delete(s.jobAttempts, item.JobRequest.GetJob().GetId())
 	delete(s.inflight, deliveryID)
 	return &api.Empty{}, nil
+}
+
+func (s *queueServer) beforeFault(ctx context.Context, point chaos.Point) error {
+	if s.faults == nil {
+		return nil
+	}
+
+	if err := s.faults.Before(ctx, point); err != nil {
+		return fmt.Errorf("%s: %w", point, err)
+	}
+
+	return nil
 }
 
 func (s *queueServer) newDeliveryID() string {
@@ -327,6 +365,9 @@ func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
 
 		jobID := jobReq.GetJob().GetId()
 		if s.persistence != nil {
+			if err := s.beforeFault(context.Background(), ChaosPointPendingExpiredDrop); err != nil {
+				return err
+			}
 			if err := s.persistence.appendDropExpired("", jobReq, s.snapshotAfterPendingHeadDropLocked(jobReq)); err != nil {
 				return fmt.Errorf("persist expired pending drop for job %s: %w", jobID, err)
 			}
@@ -442,9 +483,13 @@ func (s *queueServer) snapshotAfterDeliverLocked(deliveryID string, deliveredOff
 
 func (s *queueServer) snapshotAfterAckLocked(deliveryID string) snapshotState {
 	inflight := s.copyInflightLocked()
-	delete(inflight, deliveryID)
+	jobAttempts := s.copyJobAttemptsLocked()
+	if item, ok := inflight[deliveryID]; ok && item.JobRequest != nil && item.JobRequest.GetJob() != nil {
+		delete(jobAttempts, item.JobRequest.GetJob().GetId())
+	}
 
-	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
+	delete(inflight, deliveryID)
+	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: jobAttempts}
 }
 
 func (s *queueServer) snapshotAfterPendingHeadDropLocked(jobReq *api.JobRequest) snapshotState {
@@ -642,13 +687,19 @@ func (s *queueServer) copyJobAttemptsLocked() map[string]int {
 	return out
 }
 
-func (s *queueServer) snapshotAfterExpiredRequeueLocked(deliveryID string, item inflightDelivery) snapshotState {
+func (s *queueServer) snapshotAfterExpiredRequeueLocked(deliveryID string, item inflightDelivery, attemptCount int) snapshotState {
 	pending := s.pendingJobsLocked()
 	pending = append(pending, item.JobRequest)
 
 	inflight := s.copyInflightLocked()
 	delete(inflight, deliveryID)
-	return snapshotState{pending: pending, inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
+	jobAttempts := s.copyJobAttemptsLocked()
+
+	if item.JobRequest != nil && item.JobRequest.GetJob() != nil {
+		jobAttempts[item.JobRequest.GetJob().GetId()] = attemptCount
+	}
+
+	return snapshotState{pending: pending, inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: jobAttempts}
 }
 
 func (s *queueServer) snapshotAfterExpiredDropLocked(deliveryID string, item inflightDelivery) snapshotState {
@@ -663,12 +714,22 @@ func (s *queueServer) snapshotAfterExpiredDropLocked(deliveryID string, item inf
 	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: jobAttempts}
 }
 
-func (s *queueServer) snapshotAfterDLQLocked(deliveryID string, item inflightDelivery) snapshotState {
+func (s *queueServer) snapshotAfterDLQLocked(deliveryID string, item inflightDelivery, attemptCount int) snapshotState {
 	pending := s.pendingJobsLocked()
 
 	inflight := s.copyInflightLocked()
 	delete(inflight, deliveryID)
-	return snapshotState{pending: pending, inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: s.copyJobAttemptsLocked()}
+	deadLetter := s.copyDeadLetterLocked()
+	deadLetter = append(deadLetter, deadLetterItem{
+		deliveryID:   deliveryID,
+		jobRequest:   item.JobRequest,
+		attemptCount: attemptCount,
+	})
+	jobAttempts := s.copyJobAttemptsLocked()
+	if item.JobRequest != nil && item.JobRequest.GetJob() != nil {
+		delete(jobAttempts, item.JobRequest.GetJob().GetId())
+	}
+	return snapshotState{pending: pending, inflight: inflight, deadLetter: deadLetter, jobAttempts: jobAttempts}
 }
 
 func (s *queueServer) snapshotAfterDLQRequeueLocked(deliveryID string, item deadLetterItem) snapshotState {
@@ -682,7 +743,11 @@ func (s *queueServer) snapshotAfterDLQRequeueLocked(deliveryID string, item dead
 		}
 	}
 
-	return snapshotState{pending: pending, inflight: s.copyInflightLocked(), deadLetter: deadLetter, jobAttempts: s.copyJobAttemptsLocked()}
+	jobAttempts := s.copyJobAttemptsLocked()
+	if item.jobRequest != nil && item.jobRequest.GetJob() != nil {
+		delete(jobAttempts, item.jobRequest.GetJob().GetId())
+	}
+	return snapshotState{pending: pending, inflight: s.copyInflightLocked(), deadLetter: deadLetter, jobAttempts: jobAttempts}
 }
 
 func (s *queueServer) requeueExpiredLocked(now time.Time) error {
@@ -694,6 +759,10 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 		jobID := item.JobRequest.GetJob().GetId()
 		if dispatchmeta.IsExpired(item.JobRequest, now) {
 			if s.persistence != nil {
+				if err := s.beforeFault(context.Background(), ChaosPointExpiredDrop); err != nil {
+					return err
+				}
+
 				if err := s.persistence.appendDropExpired(deliveryID, item.JobRequest, s.snapshotAfterExpiredDropLocked(deliveryID, item)); err != nil {
 					return fmt.Errorf("persist expired delivery drop %s: %w", deliveryID, err)
 				}
@@ -710,10 +779,19 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 			continue
 		}
 
-		s.jobAttempts[jobID]++
-		attemptCount := s.jobAttempts[jobID]
+		attemptCount := s.jobAttempts[jobID] + 1
 
 		if attemptCount > s.maxRequeueAttempts {
+			if s.persistence != nil {
+				if err := s.beforeFault(context.Background(), ChaosPointDeadLetter); err != nil {
+					return err
+				}
+
+				if err := s.persistence.appendDLQ(deliveryID, item.JobRequest, attemptCount, s.snapshotAfterDLQLocked(deliveryID, item, attemptCount)); err != nil {
+					return fmt.Errorf("persist dlq move %s: %w", deliveryID, err)
+				}
+			}
+
 			// Move to dead letter queue.
 			s.deadLetter = append(s.deadLetter, deadLetterItem{
 				deliveryID:   deliveryID,
@@ -729,21 +807,20 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 				s.metrics.RecordDLQMoved(context.Background())
 			}
 
-			if s.persistence != nil {
-				if err := s.persistence.appendDLQ(deliveryID, item.JobRequest, attemptCount, s.snapshotAfterDLQLocked(deliveryID, item)); err != nil {
-					return fmt.Errorf("persist dlq move %s: %w", deliveryID, err)
-				}
-			}
-
 			continue
 		}
 
 		if s.persistence != nil {
-			if err := s.persistence.appendRequeueExpired(deliveryID, item.JobRequest, s.snapshotAfterExpiredRequeueLocked(deliveryID, item)); err != nil {
+			if err := s.beforeFault(context.Background(), ChaosPointExpiredRequeue); err != nil {
+				return err
+			}
+
+			if err := s.persistence.appendRequeueExpired(deliveryID, item.JobRequest, s.snapshotAfterExpiredRequeueLocked(deliveryID, item, attemptCount)); err != nil {
 				return fmt.Errorf("persist expired requeue %s: %w", deliveryID, err)
 			}
 		}
 
+		s.jobAttempts[jobID] = attemptCount
 		s.appendPendingLocked(item.JobRequest)
 		delete(s.inflight, deliveryID)
 		s.log.Warn("Re-queued expired delivery %s for job %s (attempt %d)", deliveryID, jobID, attemptCount)
@@ -924,6 +1001,9 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 	for i, item := range s.deadLetter {
 		if item.deliveryID == deliveryID {
 			if s.persistence != nil {
+				if err := s.beforeFault(ctx, ChaosPointDeadLetterRequeue); err != nil {
+					return nil, err
+				}
 				if err := s.persistence.appendDLQRequeue(deliveryID, item.jobRequest, s.snapshotAfterDLQRequeueLocked(deliveryID, item)); err != nil {
 					return nil, fmt.Errorf("persist dlq requeue %s: %w", deliveryID, err)
 				}
