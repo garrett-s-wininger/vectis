@@ -61,6 +61,14 @@ Useful e2e controls:
 | `VECTIS_E2E_PODMAN_RESET=true` | Allow the Podman e2e to remove and recreate the fixed `vectis` pod/volumes. |
 | `VECTIS_E2E_KEEP_PODMAN=true` | Leave the Podman stack up after the test for debugging. |
 | `VECTIS_E2E_ALLOW_IMAGE_PULL=true` | Skip local image preflight and let Podman pull missing `IfNotPresent` images. |
+| `VECTIS_E2E_DEPLOY_LINUX_PROVIDER` | Linux deploy VM provider; defaults to `auto` (currently Lima). |
+| `VECTIS_E2E_DEPLOY_LINUX_PROVIDER_PATH` | Override the VM provider command path, such as `limactl`. |
+| `VECTIS_E2E_DEPLOY_LINUX_INSTANCE` | Override the Linux deploy smoke VM instance name. |
+| `VECTIS_E2E_DEPLOY_LINUX_TEMPLATE` | Override the VM template used when creating the Linux deploy smoke instance. |
+| `VECTIS_E2E_DEPLOY_LINUX_PROFILE` | Linux deploy smoke profile: `units` by default, or `local`. |
+| `VECTIS_E2E_DEPLOY_LINUX_BINARY_DIR` | Directory of Linux `vectis-*` binaries required by `VECTIS_E2E_DEPLOY_LINUX_PROFILE=local`. |
+| `VECTIS_E2E_DEPLOY_LINUX_TIMEOUT` | Timeout for the Linux deploy VM smoke; defaults to `10m`. |
+| `VECTIS_E2E_KEEP_DEPLOY_LINUX=true` | Leave Linux deploy smoke artifacts and the VM running after the test for debugging. |
 
 ## Mocks
 

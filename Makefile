@@ -129,6 +129,10 @@ test-lima:
 test-e2e:
 	go test -tags=e2e ./tests/e2e/...
 
+.PHONY: test-e2e-deploy-linux
+test-e2e-deploy-linux:
+	go test -tags=e2e ./tests/e2e/deploy/linux -count=1 -v
+
 .PHONY: test-postgres-integration
 test-postgres-integration:
 	go test -tags=integration ./tests/integration/postgres
@@ -161,27 +165,6 @@ DEPLOY_LINUX_OUT ?= artifacts/deploy/linux
 .PHONY: deploy-artifacts-render
 deploy-artifacts-render:
 	go run ./cmd/cli deploy linux render --output $(DEPLOY_LINUX_OUT)
-
-DEPLOY_LINUX_PROVIDER ?= auto
-DEPLOY_LINUX_PROVIDER_PATH ?=
-DEPLOY_LINUX_INSTANCE ?=
-DEPLOY_LINUX_TEMPLATE ?=
-
-.PHONY: deploy-linux-verify
-deploy-linux-verify:
-	go run ./cmd/cli deploy linux verify --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)" --template "$(DEPLOY_LINUX_TEMPLATE)"
-
-.PHONY: deploy-linux-clean
-deploy-linux-clean:
-	go run ./cmd/cli deploy linux clean --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)"
-
-.PHONY: deploy-linux-down
-deploy-linux-down:
-	go run ./cmd/cli deploy linux down --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)"
-
-.PHONY: deploy-linux-delete
-deploy-linux-delete:
-	go run ./cmd/cli deploy linux delete --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)"
 
 .PHONY: website-a11y
 website-a11y:

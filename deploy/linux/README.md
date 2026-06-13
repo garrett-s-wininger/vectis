@@ -14,7 +14,6 @@ heavier cross-platform lane.
 | `services.toml` | Linux service inventory, systemd defaults, and env examples |
 | `artifacts.go` | Renderer for systemd units, env examples, sysusers, and tmpfiles |
 | `vm_smoke.go` | provider-neutral Linux systemd smoke flow over `internal/platform` VMs |
-| `lima.go` | Lima defaults and current macOS-to-Linux command wrappers |
 | `cmd/render` | small renderer entrypoint retained for package/build integrations |
 
 Rendering also produces `install/manifest.json` and `install/manifest.tsv`.
@@ -73,14 +72,14 @@ make deploy-artifacts-render DEPLOY_LINUX_OUT=artifacts/deploy/linux
 
 When a supported backend is available, macOS developers can run the rendered
 artifacts through real Linux systemd without leaving the workstation. The
-platform layer selects the backend automatically; Lima is the first provider:
+platform layer selects the backend automatically; Lima is the first provider.
+This is an e2e test harness, not a user-facing deploy command:
 
 ```sh
-go run ./cmd/cli deploy linux verify
-make deploy-linux-verify
+make test-e2e-deploy-linux
 ```
 
-This creates or starts a Lima instance named `vectis-deploy-smoke` from the
+The e2e harness creates or starts a Lima instance named `vectis-deploy-smoke` from the
 `ubuntu-lts` template, renders the Linux artifacts into a temporary local
 directory, copies them into the guest, installs them under `/etc/systemd/system`,
 `/etc/vectis`, `/usr/lib/sysusers.d`, and `/usr/lib/tmpfiles.d`, creates
@@ -88,28 +87,35 @@ temporary Vectis stub binaries, and runs `systemd-analyze verify`,
 `systemd-sysusers`, `systemd-tmpfiles`, and `systemctl daemon-reload`. The file
 installation step is driven by the rendered `install/manifest.tsv`.
 
-On success, the verify command removes the smoke artifacts from the guest and
-deletes the temporary local render directory. For debugging, pass
-`--keep-artifacts` and optionally `--artifacts <dir>`.
+On success, the e2e harness removes the smoke artifacts from the guest and
+deletes the temporary local render directory.
 
-The Lima lane verifies that the generated files are accepted by a real Linux
-systemd host. It does not yet prove a full Vectis process stack with real
-binaries and Postgres. That is the next smoke profile.
+The default `units` profile verifies that the generated files are accepted by a
+real Linux systemd host without needing Linux-built Vectis binaries.
 
-Pass `--provider lima` when you want to force a specific backend. Host
-operations run through `internal/platform` so additional backends can reuse the
-same render/install/verify/cleanup flow.
-
-Useful cleanup commands for interrupted runs or `--keep-artifacts` sessions:
+The `local` profile starts `vectis-local.service` with real Linux binaries and a
+smoke-owned local configuration: simple profile, docs disabled, plaintext
+internal gRPC, HTTP API, and SQLite under the guest's Vectis data directory.
+Provide a directory containing Linux `vectis-*` binaries:
 
 ```sh
-go run ./cmd/cli deploy linux clean
-go run ./cmd/cli deploy linux down
-go run ./cmd/cli deploy linux delete
-make deploy-linux-clean
-make deploy-linux-down
-make deploy-linux-delete
+VECTIS_E2E_DEPLOY_LINUX_PROFILE=local VECTIS_E2E_DEPLOY_LINUX_BINARY_DIR=/path/to/linux/bin make test-e2e-deploy-linux
 ```
+
+The harness installs marker-bearing wrappers under `/usr/bin` and stores the
+real binaries under `/opt/vectis-smoke/bin`, so cleanup can remove smoke files
+without claiming ownership of existing host binaries. The local profile requires
+the binaries that `vectis-local` supervises; generated standalone units that are
+not part of the local runtime may still use smoke stubs for
+`systemd-analyze verify`. The guest must have `curl` available for the API
+liveness check.
+
+The e2e target stops the deploy VM after the test unless
+`VECTIS_E2E_KEEP_DEPLOY_LINUX=true` is set.
+
+Set `VECTIS_E2E_DEPLOY_LINUX_PROVIDER=lima` when you want to force a specific
+backend. Host operations run through `internal/platform` so additional backends
+can reuse the same render/install/verify/cleanup flow.
 
 ## Manual Install Sketch
 
