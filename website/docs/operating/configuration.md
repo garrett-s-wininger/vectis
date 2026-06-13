@@ -476,7 +476,7 @@ Queue persistence is configured with `VECTIS_QUEUE_PERSISTENCE_DIR` or `vectis-q
 
 Treat database files, queue persistence, log storage, deployment secrets, and TLS material as part of the backup set when they hold production data. See [Backup And Restore](./reliability/backup-restore.md).
 
-`vectis-cli local reset --dry-run` shows which local Vectis config, data, cache, token, TLS, and deployment-secret paths would be removed. `vectis-cli local reset --yes` removes those local paths; it does not stop running services or remove container volumes.
+`vectis-cli local reset --dry-run` shows which local Vectis config, data, cache, token, TLS, deployment-secret, and configured local durable paths would be removed. `vectis-cli local reset --yes` removes those local paths, including non-default `VECTIS_QUEUE_PERSISTENCE_DIR`, `VECTIS_LOG_STORAGE_DIR`, `VECTIS_LOG_FORWARDER_SPOOL_DIR`, and `VECTIS_ARTIFACT_STORAGE_DIR` values when they are set; it does not stop running services or remove container volumes.
 
 ## Default Ports
 

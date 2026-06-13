@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"vectis/internal/utils"
 )
 
@@ -33,6 +34,15 @@ func resetTargets() ([]string, error) {
 
 	add(filepath.Join(cacheDir, "vectis"))
 
+	for _, env := range []string{
+		"VECTIS_QUEUE_PERSISTENCE_DIR",
+		"VECTIS_LOG_STORAGE_DIR",
+		"VECTIS_LOG_FORWARDER_SPOOL_DIR",
+		"VECTIS_ARTIFACT_STORAGE_DIR",
+	} {
+		add(os.Getenv(env))
+	}
+
 	if deployConfigDir := os.Getenv(envDeployConfigDir); deployConfigDir != "" {
 		add(filepath.Join(deployConfigDir, "podman"))
 	}
@@ -40,12 +50,37 @@ func resetTargets() ([]string, error) {
 	sort.Strings(targets)
 	unique := targets[:0]
 	for _, target := range targets {
-		if len(unique) == 0 || unique[len(unique)-1] != target {
-			unique = append(unique, target)
+		if len(unique) > 0 && unique[len(unique)-1] == target {
+			continue
 		}
+
+		if coveredByResetTarget(unique, target) {
+			continue
+		}
+
+		unique = append(unique, target)
 	}
 
 	return unique, nil
+}
+
+func coveredByResetTarget(targets []string, candidate string) bool {
+	for _, target := range targets {
+		if candidate == target {
+			return true
+		}
+
+		rel, err := filepath.Rel(target, candidate)
+		if err != nil {
+			continue
+		}
+
+		if rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func runReset(cmd *cobra.Command, args []string) {

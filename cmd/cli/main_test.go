@@ -495,11 +495,20 @@ func TestResetTargets(t *testing.T) {
 	dataDir := filepath.Join(tmpDir, "data")
 	cacheDir := filepath.Join(tmpDir, "cache")
 	deployDir := filepath.Join(tmpDir, "deploy")
+	queueDir := filepath.Join(tmpDir, "custom", "queue")
+	logDir := filepath.Join(tmpDir, "custom", "log")
+	spoolDir := filepath.Join(tmpDir, "custom", "log-forwarder", "spool")
+	artifactDir := filepath.Join(tmpDir, "custom", "artifact")
+
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
 	t.Setenv("XDG_DATA_HOME", dataDir)
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
 	t.Setenv(envDeployConfigDir, deployDir)
+	t.Setenv("VECTIS_QUEUE_PERSISTENCE_DIR", queueDir)
+	t.Setenv("VECTIS_LOG_STORAGE_DIR", logDir)
+	t.Setenv("VECTIS_LOG_FORWARDER_SPOOL_DIR", spoolDir)
+	t.Setenv("VECTIS_ARTIFACT_STORAGE_DIR", artifactDir)
 
 	configDir, err := os.UserConfigDir()
 	if err != nil {
@@ -517,15 +526,45 @@ func TestResetTargets(t *testing.T) {
 	}
 
 	want := []string{
+		artifactDir,
 		filepath.Join(cacheHome, "vectis"),
 		filepath.Join(configDir, "vectis"),
 		filepath.Join(dataDir, "vectis"),
 		filepath.Join(deployDir, "podman"),
+		logDir,
+		queueDir,
+		spoolDir,
 	}
 	sort.Strings(want)
 
 	if strings.Join(targets, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("targets mismatch\ngot:\n%s\nwant:\n%s", strings.Join(targets, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestResetTargetsSkipsCoveredAndDisabledStoragePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmpDir, "cache"))
+	t.Setenv("VECTIS_QUEUE_PERSISTENCE_DIR", "")
+	t.Setenv("VECTIS_LOG_FORWARDER_SPOOL_DIR", filepath.Join(dataDir, "vectis", "log-forwarder", "spool"))
+
+	targets, err := resetTargets()
+	if err != nil {
+		t.Fatalf("reset targets: %v", err)
+	}
+
+	covered := filepath.Join(dataDir, "vectis", "log-forwarder", "spool")
+	for _, target := range targets {
+		if target == covered {
+			t.Fatalf("covered spool target %q should be omitted when %q is already reset; targets=%v", covered, filepath.Join(dataDir, "vectis"), targets)
+		}
+		if target == "" {
+			t.Fatalf("empty queue persistence env should not add an empty target; targets=%v", targets)
+		}
 	}
 }
 

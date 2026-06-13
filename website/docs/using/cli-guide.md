@@ -382,7 +382,7 @@ Apply local cleanup:
 ./bin/vectis-cli local reset --yes
 ```
 
-This removes local Vectis config, data, cache, CLI tokens, and generated deployment state. It does not stop running services or delete remote/container volumes.
+This removes local Vectis config, data, cache, CLI tokens, generated deployment state, and configured local durable paths such as log-forwarder spools. It does not stop running services or delete remote/container volumes.
 
 ## Operator Commands
 
