@@ -66,8 +66,8 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `source.mode` | warning | `GET /api/v1/source/status` | Stored job APIs are enabled, or source-only mode has source repository persistence and at least one enabled source repository. | Declare or enable a source repository, or re-enable stored job APIs. |
 | `source.repositories.sync` | warning | `GET /api/v1/namespaces`, then `GET /api/v1/source-repositories?namespace=...` | Enabled source repositories have no failed syncs, no stale running sync reservations, and no unknown sync status. | Run `vectis-cli sources status <repository-id>` or retry `vectis-cli sources sync <repository-id>`. |
 | `source.repositories.declared` | warning | `GET /api/v1/namespaces`, then `GET /api/v1/source-repositories?namespace=...` | No enabled source repository is missing from current source repository configuration. | Disable stale source repositories or restore their source repository declarations. |
-| `source.schedules.declared` | warning | `GET /api/v1/source-repositories/{id}/schedules` for visible source repositories | No enabled source-backed cron schedule is missing from current source schedule configuration. | Disable stale source schedules or restore their source schedule declarations. |
-| `source.schedules.overrides` | warning | `GET /api/v1/source-repositories/{id}/schedules` for visible source repositories | No source-backed cron schedule has an active hotfix override. | Clear source schedule overrides after hotfixes land back in source. |
+| `source.schedules.declared` | warning | `GET /api/v1/source/status`, then `GET /api/v1/source-repositories/{id}/schedules` only when stale enabled schedules need IDs | No enabled source-backed cron schedule is missing from current source schedule configuration. | Disable stale source schedules or restore their source schedule declarations. |
+| `source.schedules.overrides` | warning | `GET /api/v1/source/status`, then `GET /api/v1/source-repositories/{id}/schedules` only when active overrides need IDs | No source-backed cron schedule has an active hotfix override. | Clear source schedule overrides after hotfixes land back in source. |
 | `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | [Log Service Repair](../reliability/repair-runbooks.md#log-service-repair). |
 | `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
 | `tls.files` | warning | Local `VECTIS_GRPC_TLS_*` and `VECTIS_METRICS_TLS_*` paths | TLS is disabled, or configured cert/key/CA files are readable, parseable, not expired or within 14 days of expiry, and certificate/key pairs match. | Check TLS env vars, mounted files, certificate expiry, and key pairing. |
@@ -92,9 +92,9 @@ When `source.mode` warns, `evidence` includes source-mode booleans and aggregate
 
 When `source.repositories.declared` warns, `evidence` includes stale enabled and disabled repository IDs, for example `stale_enabled_ids=vectis stale_disabled_ids=old-mirror`.
 
-When `source.schedules.declared` warns, `evidence` includes stale enabled and disabled schedule IDs, for example `stale_enabled_ids=nightly-build stale_disabled_ids=old-hourly`.
+When `source.schedules.declared` warns, `evidence` includes stale enabled and disabled schedule IDs after the detailed schedule fetch, for example `stale_enabled_ids=nightly-build stale_disabled_ids=old-hourly`.
 
-When `source.schedules.overrides` warns, `evidence` includes the schedule IDs with active overrides, for example `override_ids=nightly-build,release-smoke`.
+When `source.schedules.overrides` warns, `evidence` includes the schedule IDs with active overrides after the detailed schedule fetch, for example `override_ids=nightly-build,release-smoke`.
 
 ## How To Respond
 

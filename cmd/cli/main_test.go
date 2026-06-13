@@ -4540,9 +4540,13 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 				"disabled": 0,
 			},
 			"schedules": map[string]any{
-				"total":    1,
-				"enabled":  1,
-				"disabled": 0,
+				"total":            1,
+				"enabled":          1,
+				"disabled":         0,
+				"declared":         1,
+				"stale_enabled":    0,
+				"stale_disabled":   0,
+				"active_overrides": 0,
 			},
 		})
 	case "/api/v1/namespaces":
@@ -4610,8 +4614,6 @@ func TestDoctor_success(t *testing.T) {
 				t.Errorf("source repository namespace query=%q, want /", got)
 			}
 
-			writeHealthyDoctorSourceResponse(w, r)
-		case "/api/v1/source-repositories/vectis/schedules":
 			writeHealthyDoctorSourceResponse(w, r)
 		default:
 			t.Errorf("unexpected path=%s", r.URL.Path)
@@ -4681,10 +4683,14 @@ func TestDoctor_success(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cron/status", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status", "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories", "/api/v1/source-repositories/vectis/schedules"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cron/status", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status", "/api/v1/source/status", "/api/v1/namespaces", "/api/v1/source-repositories"} {
 		if seen[path] != 1 {
 			t.Fatalf("expected one request to %s, got %d", path, seen[path])
 		}
+	}
+
+	if seen["/api/v1/source-repositories/vectis/schedules"] != 0 {
+		t.Fatalf("expected healthy source schedules to use aggregate source status, got %d schedule requests", seen["/api/v1/source-repositories/vectis/schedules"])
 	}
 }
 
@@ -5335,6 +5341,40 @@ func TestDoctor_sourceSchedulesWarnForStaleEnabledScheduleAndOverrides(t *testin
 		if !strings.Contains(overrideCheck.Summary+" "+overrideCheck.Evidence, want) {
 			t.Fatalf("expected source schedule override check to contain %q, got %#v", want, overrideCheck)
 		}
+	}
+}
+
+func TestDoctor_sourceScheduleChecksUseStatusCounts(t *testing.T) {
+	status := doctorSourceStatus{}
+	status.Schedules.Total = 2
+	status.Schedules.Enabled = 1
+	status.Schedules.Disabled = 1
+	status.Schedules.Declared = 2
+
+	declarationCheck := doctorSourceScheduleDeclarationsFromStatus(status, "")
+	if declarationCheck.Status != doctorOK {
+		t.Fatalf("expected status-backed schedule declaration check to pass, got %#v", declarationCheck)
+	}
+
+	overrideCheck := doctorSourceScheduleOverridesFromStatus(status, "")
+	if overrideCheck.Status != doctorOK {
+		t.Fatalf("expected status-backed schedule override check to pass, got %#v", overrideCheck)
+	}
+
+	combined := declarationCheck.Summary + " " + declarationCheck.Evidence + " " + overrideCheck.Summary + " " + overrideCheck.Evidence
+	for _, want := range []string{"source schedules aligned: 2 schedules", "schedules=2", "stale_enabled=0", "no active source schedule overrides", "overrides=0"} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("expected status-backed schedule checks to contain %q, got declaration=%#v override=%#v", want, declarationCheck, overrideCheck)
+		}
+	}
+
+	if doctorSourceStatusNeedsScheduleDetails(status, "") {
+		t.Fatal("did not expect schedule details for clean status counts")
+	}
+
+	status.Schedules.ActiveOverrides = 1
+	if !doctorSourceStatusNeedsScheduleDetails(status, "") {
+		t.Fatal("expected schedule details when active overrides need IDs")
 	}
 }
 

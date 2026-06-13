@@ -916,19 +916,37 @@ func doctorSourceControlChecks() []doctorCheck {
 	repositories, repositoryLoadError := doctorLoadSourceRepositories()
 	var schedules []sourceScheduleSummary
 	scheduleLoadError := ""
-	if repositoryLoadError != "" {
-		scheduleLoadError = "source repository inventory unavailable: " + repositoryLoadError
-	} else {
-		schedules, scheduleLoadError = doctorLoadSourceSchedules(repositories)
+	loadScheduleDetails := doctorSourceStatusNeedsScheduleDetails(status, statusLoadError)
+	if loadScheduleDetails {
+		if repositoryLoadError != "" {
+			scheduleLoadError = "source repository inventory unavailable: " + repositoryLoadError
+		} else {
+			schedules, scheduleLoadError = doctorLoadSourceSchedules(repositories)
+		}
+	}
+
+	scheduleDeclarationCheck := doctorSourceScheduleDeclarationsFromStatus(status, statusLoadError)
+	scheduleOverrideCheck := doctorSourceScheduleOverridesFromStatus(status, statusLoadError)
+	if loadScheduleDetails {
+		scheduleDeclarationCheck = doctorSourceScheduleDeclarations(schedules, scheduleLoadError)
+		scheduleOverrideCheck = doctorSourceScheduleOverrides(schedules, scheduleLoadError)
 	}
 
 	return []doctorCheck{
 		doctorSourceMode(status, statusLoadError),
 		doctorSourceRepositorySync(repositories, repositoryLoadError),
 		doctorSourceRepositoryDeclarations(repositories, repositoryLoadError),
-		doctorSourceScheduleDeclarations(schedules, scheduleLoadError),
-		doctorSourceScheduleOverrides(schedules, scheduleLoadError),
+		scheduleDeclarationCheck,
+		scheduleOverrideCheck,
 	}
+}
+
+func doctorSourceStatusNeedsScheduleDetails(status doctorSourceStatus, statusLoadError string) bool {
+	if statusLoadError != "" {
+		return true
+	}
+
+	return status.Schedules.StaleEnabled > 0 || status.Schedules.ActiveOverrides > 0
 }
 
 type doctorSourceStatus struct {
@@ -949,9 +967,13 @@ type doctorSourceRepositoryCounts struct {
 }
 
 type doctorSourceScheduleCounts struct {
-	Total    int `json:"total"`
-	Enabled  int `json:"enabled"`
-	Disabled int `json:"disabled"`
+	Total           int `json:"total"`
+	Enabled         int `json:"enabled"`
+	Disabled        int `json:"disabled"`
+	Declared        int `json:"declared"`
+	StaleEnabled    int `json:"stale_enabled"`
+	StaleDisabled   int `json:"stale_disabled"`
+	ActiveOverrides int `json:"active_overrides"`
 }
 
 func doctorLoadSourceStatus() (doctorSourceStatus, string) {
@@ -1361,6 +1383,27 @@ func doctorSourceScheduleDeclarations(schedules []sourceScheduleSummary, loadErr
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source schedules aligned: %d schedules", len(schedules)), Evidence: evidence, DocLink: doc}
 }
 
+func doctorSourceScheduleDeclarationsFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
+	const id = "source.schedules.declared"
+	title := "Source schedules declared"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if statusLoadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+	}
+
+	if status.Schedules.Total == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+	}
+
+	evidence := formatDoctorSourceScheduleDeclarationEvidence(status.Schedules.Total, status.Schedules.Enabled, status.Schedules.Disabled, status.Schedules.Declared, status.Schedules.StaleEnabled, status.Schedules.StaleDisabled, nil, nil)
+	if status.Schedules.StaleEnabled > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d enabled stale source schedules", status.Schedules.StaleEnabled), Evidence: evidence, SuggestedAction: "Disable stale source schedules or restore their source schedule declarations", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source schedules aligned: %d schedules", status.Schedules.Total), Evidence: evidence, DocLink: doc}
+}
+
 func formatDoctorSourceScheduleDeclarationEvidence(total, enabled, disabled, declared, staleEnabled, staleDisabled int, staleEnabledIDs, staleDisabledIDs []string) string {
 	parts := []string{
 		fmt.Sprintf("schedules=%d", total),
@@ -1406,7 +1449,7 @@ func doctorSourceScheduleOverrides(schedules []sourceScheduleSummary, loadError 
 		}
 	}
 
-	evidence := formatDoctorSourceScheduleOverrideEvidence(len(schedules), overrideIDs)
+	evidence := formatDoctorSourceScheduleOverrideEvidence(len(schedules), len(overrideIDs), overrideIDs)
 	if len(overrideIDs) > 0 {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d active source schedule overrides", len(overrideIDs)), Evidence: evidence, SuggestedAction: "Clear source schedule overrides after hotfixes land back in source", DocLink: doc}
 	}
@@ -1414,10 +1457,31 @@ func doctorSourceScheduleOverrides(schedules []sourceScheduleSummary, loadError 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no active source schedule overrides", Evidence: evidence, DocLink: doc}
 }
 
-func formatDoctorSourceScheduleOverrideEvidence(total int, overrideIDs []string) string {
+func doctorSourceScheduleOverridesFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
+	const id = "source.schedules.overrides"
+	title := "Source schedule overrides clear"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	if statusLoadError != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
+	}
+
+	if status.Schedules.Total == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no source schedules configured", DocLink: doc}
+	}
+
+	evidence := formatDoctorSourceScheduleOverrideEvidence(status.Schedules.Total, status.Schedules.ActiveOverrides, nil)
+	if status.Schedules.ActiveOverrides > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d active source schedule overrides", status.Schedules.ActiveOverrides), Evidence: evidence, SuggestedAction: "Clear source schedule overrides after hotfixes land back in source", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no active source schedule overrides", Evidence: evidence, DocLink: doc}
+}
+
+func formatDoctorSourceScheduleOverrideEvidence(total, overrideCount int, overrideIDs []string) string {
 	parts := []string{
 		fmt.Sprintf("schedules=%d", total),
-		fmt.Sprintf("overrides=%d", len(overrideIDs)),
+		fmt.Sprintf("overrides=%d", overrideCount),
 	}
 
 	if len(overrideIDs) > 0 {
