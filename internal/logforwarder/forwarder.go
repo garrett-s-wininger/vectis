@@ -287,21 +287,26 @@ func (f *Forwarder) sendChunkGroup(ctx context.Context, runID, logShardID string
 		return fmt.Errorf("create stream: %w", err)
 	}
 
-	defer func() {
-		if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
-			_ = s.CloseAndRecv()
-		} else {
-			_ = stream.CloseSend()
-		}
-	}()
-
 	for _, chunk := range chunks {
 		if err := stream.Send(chunk); err != nil {
+			_ = closeLogStream(stream)
 			return fmt.Errorf("send chunk: %w", err)
 		}
 	}
 
+	if err := closeLogStream(stream); err != nil {
+		return fmt.Errorf("close log stream: %w", err)
+	}
+
 	return nil
+}
+
+func closeLogStream(stream interfaces.LogStream) error {
+	if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
+		return s.CloseAndRecv()
+	}
+
+	return stream.CloseSend()
 }
 
 func (f *Forwarder) openLogStream(ctx context.Context, runID, logShardID string) (interfaces.LogStream, error) {

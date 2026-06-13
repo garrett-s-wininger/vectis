@@ -144,11 +144,13 @@ test-quick:
 .PHONY: test-chaos
 test-chaos:
 	go test -count=1 ./internal/queue -run 'Chaos'
+	go test -count=1 ./internal/logforwarder -run 'Chaos'
 	go test -count=1 ./internal/reconciler -run 'QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable'
 
 .PHONY: test-property
 test-property:
 	go test -count=1 ./internal/queue -run 'Property'
+	go test -count=1 ./internal/logforwarder -run 'Property'
 
 .PHONY: website-a11y
 website-a11y:
