@@ -383,7 +383,11 @@ func goBenchmarkRunDir(args runArgs, started time.Time) (string, error) {
 		runName = fmt.Sprintf("%s-%s", started.Format("20060102T150405Z"), args.suite.name)
 	}
 
-	runDir := filepath.Join(args.artifactDir, sanitizePathPart(runName))
+	runDir, err := filepath.Abs(filepath.Join(args.artifactDir, sanitizePathPart(runName)))
+	if err != nil {
+		return "", err
+	}
+
 	return runDir, os.MkdirAll(runDir, 0o755)
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,6 +47,7 @@ const (
 	envMacroDatabaseDSN          = "VECTIS_PERF_DATABASE_DSN"
 	envMacroDatabaseMaxOpenConns = "VECTIS_PERF_DATABASE_MAX_OPEN_CONNS"
 	envMacroDatabaseMaxIdleConns = "VECTIS_PERF_DATABASE_MAX_IDLE_CONNS"
+	envMacroFanoutWidths         = "VECTIS_PERF_FANOUT_WIDTHS"
 	envMacroPGStatStatements     = "VECTIS_PERF_PG_STAT_STATEMENTS"
 	envMacroPGStatStatementsOut  = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
 
@@ -296,6 +298,37 @@ func macroBenchmarkWorkers(b *testing.B) int {
 	return macroBenchmarkEnvInt(b, "VECTIS_PERF_WORKERS", defaultMacroWorkers)
 }
 
+func macroBenchmarkFanoutWidths(b *testing.B) []int {
+	b.Helper()
+
+	raw := os.Getenv(envMacroFanoutWidths)
+	if strings.TrimSpace(raw) == "" {
+		return []int{1, 10, 100}
+	}
+
+	parts := strings.Split(raw, ",")
+	widths := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		width, err := strconv.Atoi(part)
+		if err != nil || width <= 0 {
+			b.Fatalf("%s must be a comma-separated list of positive integers, got %q", envMacroFanoutWidths, raw)
+		}
+
+		widths = append(widths, width)
+	}
+
+	if len(widths) == 0 {
+		b.Fatalf("%s must include at least one positive integer, got %q", envMacroFanoutWidths, raw)
+	}
+
+	return widths
+}
+
 type macroDatabaseConfig struct {
 	driver       string
 	dsn          string
@@ -450,6 +483,14 @@ func emitMacroPGStatLine(b *testing.B, format string, args ...any) {
 	if path == "" {
 		b.Log(line)
 		return
+	}
+
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			b.Logf("prepare pg_stat_statements output %s: %v", path, err)
+			b.Log(line)
+			return
+		}
 	}
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -629,6 +670,30 @@ func BenchmarkMacro_DB_CreateAttachTouchQueuedRun(b *testing.B) {
 	benchmarkMacroDBCreateAttachTouchQueuedRunWithEnv(b, newMacroBenchEnv)
 }
 
+func BenchmarkMacro_DB_EnsurePlannedFanoutTasks(b *testing.B) {
+	for _, width := range macroBenchmarkFanoutWidths(b) {
+		b.Run(fmt.Sprintf("children_%03d", width), func(b *testing.B) {
+			benchmarkMacroDBEnsurePlannedFanoutTasksWithEnv(b, width, newMacroBenchEnv)
+		})
+	}
+}
+
+func BenchmarkMacro_DB_MarkExecutionStarted(b *testing.B) {
+	benchmarkMacroDBMarkExecutionStartedWithEnv(b, newMacroBenchEnv)
+}
+
+func BenchmarkMacro_DB_CompleteExecutionAndFinalizeRoot(b *testing.B) {
+	benchmarkMacroDBCompleteExecutionAndFinalizeRootWithEnv(b, newMacroBenchEnv)
+}
+
+func BenchmarkMacro_DB_CompleteExecutionAndActivateFanout(b *testing.B) {
+	for _, width := range macroBenchmarkFanoutWidths(b) {
+		b.Run(fmt.Sprintf("children_%03d", width), func(b *testing.B) {
+			benchmarkMacroDBCompleteExecutionAndActivateFanoutWithEnv(b, width, newMacroBenchEnv)
+		})
+	}
+}
+
 func BenchmarkMacro_OrchestratorDB_CreateAttachLoadTouchQueuedRun(b *testing.B) {
 	benchmarkMacroDBCreateAttachTouchQueuedRunWithEnv(b, newMacroInProcessOrchestratorBenchEnv)
 }
@@ -665,6 +730,169 @@ func benchmarkMacroDBCreateAttachTouchQueuedRunWithEnv(b *testing.B, newEnv macr
 	}
 
 	b.ReportMetric(float64(b.N), "total_runs")
+}
+
+func benchmarkMacroDBEnsurePlannedFanoutTasksWithEnv(b *testing.B, width int, newEnv macroBenchEnvFactory) {
+	if width <= 0 {
+		b.Fatal("fanout width must be positive")
+	}
+
+	ctx := context.Background()
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newEnv(b, []macroJobSpec{macroJob})
+	runIDs := make([]string, b.N)
+	for i := 0; i < b.N; i++ {
+		runIDs[i] = createMacroDBBenchmarkRun(b, ctx, env, macroJob.id, i+1)
+	}
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	createdTasks := 0
+	for i := 0; i < b.N; i++ {
+		for child := 0; child < width; child++ {
+			if _, created, err := ensureMacroBenchmarkPlannedChild(ctx, env.runs, runIDs[i], child); err != nil {
+				b.Fatalf("ensure planned child %d for run %s: %v", child, runIDs[i], err)
+			} else if created {
+				createdTasks++
+			}
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "runs/s")
+		b.ReportMetric(float64(createdTasks)/elapsed.Seconds(), "planned_tasks/s")
+	}
+
+	b.ReportMetric(float64(width), "fanout_width")
+	b.ReportMetric(float64(createdTasks), "planned_tasks")
+}
+
+func benchmarkMacroDBMarkExecutionStartedWithEnv(b *testing.B, newEnv macroBenchEnvFactory) {
+	ctx := context.Background()
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newEnv(b, []macroJobSpec{macroJob})
+	claimed := make([]macroDBClaimedExecution, b.N)
+	for i := 0; i < b.N; i++ {
+		claimed[i] = prepareMacroDBClaimedRootExecution(b, ctx, env, macroJob.id, i+1)
+	}
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		if err := env.runs.MarkExecutionStarted(ctx, claimed[i].executionID); err != nil {
+			b.Fatalf("mark execution started %s: %v", claimed[i].executionID, err)
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "started_executions/s")
+	}
+
+	b.ReportMetric(float64(b.N), "total_executions")
+}
+
+func benchmarkMacroDBCompleteExecutionAndFinalizeRootWithEnv(b *testing.B, newEnv macroBenchEnvFactory) {
+	ctx := context.Background()
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newEnv(b, []macroJobSpec{macroJob})
+	claimed := make([]macroDBClaimedExecution, b.N)
+	for i := 0; i < b.N; i++ {
+		claimed[i] = prepareMacroDBClaimedRootExecution(b, ctx, env, macroJob.id, i+1)
+	}
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		result, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, claimed[i].executionID, claimed[i].owner, claimed[i].claimToken, dal.ExecutionStatusSucceeded, "", "")
+		if err != nil {
+			b.Fatalf("complete root execution %s: %v", claimed[i].executionID, err)
+		}
+
+		if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+			b.Fatalf("complete root execution %s outcome %q", claimed[i].executionID, result.Outcome)
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "finalized_runs/s")
+	}
+	b.ReportMetric(float64(b.N), "total_runs")
+}
+
+func benchmarkMacroDBCompleteExecutionAndActivateFanoutWithEnv(b *testing.B, width int, newEnv macroBenchEnvFactory) {
+	if width <= 0 {
+		b.Fatal("fanout width must be positive")
+	}
+
+	ctx := context.Background()
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newEnv(b, []macroJobSpec{macroJob})
+	claimed := make([]macroDBClaimedExecution, b.N)
+	for i := 0; i < b.N; i++ {
+		claimed[i] = prepareMacroDBClaimedRootExecution(b, ctx, env, macroJob.id, i+1)
+		for child := 0; child < width; child++ {
+			if _, _, err := ensureMacroBenchmarkPlannedChild(ctx, env.runs, claimed[i].runID, child); err != nil {
+				b.Fatalf("ensure planned child %d for run %s: %v", child, claimed[i].runID, err)
+			}
+		}
+	}
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	activatedTasks := 0
+	for i := 0; i < b.N; i++ {
+		result, err := env.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, claimed[i].executionID, claimed[i].owner, claimed[i].claimToken, dal.ExecutionStatusSucceeded, "", "")
+		if err != nil {
+			b.Fatalf("complete fanout root execution %s: %v", claimed[i].executionID, err)
+		}
+		if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != width || len(result.Children) != width {
+			b.Fatalf("fanout root result: outcome=%q activated=%d children=%d width=%d", result.Outcome, result.Activated, len(result.Children), width)
+		}
+		activatedTasks += result.Activated
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "parent_finalizations/s")
+		b.ReportMetric(float64(activatedTasks)/elapsed.Seconds(), "activated_tasks/s")
+	}
+	b.ReportMetric(float64(width), "fanout_width")
+	b.ReportMetric(float64(activatedTasks), "activated_tasks")
 }
 
 func BenchmarkMacro_WorkerClaimAck(b *testing.B) {
@@ -1202,6 +1430,63 @@ func preseedMacroQueuedRunMeasured(
 
 	dbTimings.touchDispatched = time.Since(touchStarted).Nanoseconds()
 	return dbTimings
+}
+
+type macroDBClaimedExecution struct {
+	runID       string
+	executionID string
+	owner       string
+	claimToken  string
+}
+
+func createMacroDBBenchmarkRun(b *testing.B, ctx context.Context, env macroBenchEnv, jobID string, runIndex int) string {
+	b.Helper()
+
+	runID, _, err := env.runs.CreateRun(ctx, jobID, &runIndex, 1)
+	if err != nil {
+		b.Fatalf("create DB benchmark run %d: %v", runIndex, err)
+	}
+
+	return runID
+}
+
+func prepareMacroDBClaimedRootExecution(b *testing.B, ctx context.Context, env macroBenchEnv, jobID string, runIndex int) macroDBClaimedExecution {
+	b.Helper()
+
+	runID := createMacroDBBenchmarkRun(b, ctx, env, jobID, runIndex)
+	dispatch, err := env.runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		b.Fatalf("get pending execution for run %s: %v", runID, err)
+	}
+
+	owner := "macro-db-worker"
+	claim, err := env.runs.TryClaimExecution(ctx, dispatch.ExecutionID, owner, time.Now().Add(dal.DefaultLeaseTTL))
+	if err != nil {
+		b.Fatalf("claim execution %s: %v", dispatch.ExecutionID, err)
+	}
+
+	if !claim.Claimed {
+		b.Fatalf("execution %s was not claimed", dispatch.ExecutionID)
+	}
+
+	return macroDBClaimedExecution{
+		runID:       runID,
+		executionID: dispatch.ExecutionID,
+		owner:       owner,
+		claimToken:  claim.ClaimToken,
+	}
+}
+
+func ensureMacroBenchmarkPlannedChild(ctx context.Context, runs dal.RunsRepository, runID string, child int) (dal.TaskExecutionRecord, bool, error) {
+	taskKey := fmt.Sprintf("child-%05d", child)
+	return runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: runID + ":" + dal.RootTaskKey,
+		TaskKey:      taskKey,
+		Name:         taskKey,
+		SpecHash:     "sha256:macro-fanout-benchmark",
+		TargetCellID: dal.DefaultCellID,
+	})
 }
 
 func macroJobRequest(job macroJobSpec, runID string) *apipb.JobRequest {
