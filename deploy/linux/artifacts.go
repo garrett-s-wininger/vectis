@@ -3,6 +3,7 @@ package linux
 import (
 	"bytes"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -31,6 +32,15 @@ type RenderResult struct {
 	ManifestPath string `json:"manifest_path"`
 	OutputDir    string `json:"output_dir"`
 	Files        int    `json:"files"`
+}
+
+type InstallEntry struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	Mode        string `json:"mode"`
+	Owner       string `json:"owner"`
+	Group       string `json:"group"`
+	Kind        string `json:"kind"`
 }
 
 type Manifest struct {
@@ -186,7 +196,50 @@ func (m Manifest) RenderFiles() (map[string]string, error) {
 			renderEnvExample(fmt.Sprintf("Service-specific settings for %s.", unit.UnitName()), unit.EnvExample)
 	}
 
+	installPlan, err := m.InstallPlan()
+	if err != nil {
+		return nil, err
+	}
+
+	manifestJSON, err := renderInstallManifestJSON(installPlan)
+	if err != nil {
+		return nil, err
+	}
+
+	files[path.Join("install", "manifest.json")] = manifestJSON
+	files[path.Join("install", "manifest.tsv")] = renderInstallManifestTSV(installPlan)
+
 	return files, nil
+}
+
+func (m Manifest) InstallPlan() ([]InstallEntry, error) {
+	if err := m.validate(); err != nil {
+		return nil, err
+	}
+
+	entries := []InstallEntry{
+		installEntry("systemd/"+m.Target.Name, "/etc/systemd/system/"+m.Target.Name, "0644", "root", "root", "systemd"),
+		installEntry("env/vectis.env.example", "/etc/vectis/vectis.env", "0640", "root", m.Defaults.Group, "env"),
+		installEntry("sysusers.d/vectis.conf", "/usr/lib/sysusers.d/vectis.conf", "0644", "root", "root", "sysusers"),
+		installEntry("tmpfiles.d/vectis.conf", "/usr/lib/tmpfiles.d/vectis.conf", "0644", "root", "root", "tmpfiles"),
+	}
+
+	for _, unit := range m.Units {
+		unitName := unit.UnitName()
+		envName := strings.TrimSuffix(unitName, ".service") + ".env"
+		entries = append(entries,
+			installEntry("systemd/"+unitName, "/etc/systemd/system/"+unitName, "0644", "root", "root", "systemd"),
+			installEntry("env/"+envName+".example", "/etc/vectis/"+envName, "0640", "root", m.Defaults.Group, "env"),
+		)
+	}
+
+	for _, entry := range entries {
+		if err := entry.validate(); err != nil {
+			return nil, err
+		}
+	}
+
+	return entries, nil
 }
 
 func WriteFiles(root string, files map[string]string) error {
@@ -203,6 +256,54 @@ func WriteFiles(root string, files map[string]string) error {
 	}
 
 	return nil
+}
+
+func installEntry(source, destination, mode, owner, group, kind string) InstallEntry {
+	return InstallEntry{
+		Source:      source,
+		Destination: destination,
+		Mode:        mode,
+		Owner:       owner,
+		Group:       group,
+		Kind:        kind,
+	}
+}
+
+func (e InstallEntry) validate() error {
+	if e.Source == "" {
+		return fmt.Errorf("install entry source is required")
+	}
+
+	if e.Destination == "" {
+		return fmt.Errorf("install entry destination is required")
+	}
+
+	for _, value := range []string{e.Source, e.Destination, e.Mode, e.Owner, e.Group, e.Kind} {
+		if strings.ContainsAny(value, "\t\r\n") {
+			return fmt.Errorf("install entry contains unsupported control character: %q", value)
+		}
+	}
+
+	return nil
+}
+
+func renderInstallManifestJSON(entries []InstallEntry) (string, error) {
+	b, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	return string(append(b, '\n')), nil
+}
+
+func renderInstallManifestTSV(entries []InstallEntry) string {
+	var b strings.Builder
+	b.WriteString("# source\tdestination\tmode\towner\tgroup\tkind\n")
+	for _, entry := range entries {
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n", entry.Source, entry.Destination, entry.Mode, entry.Owner, entry.Group, entry.Kind)
+	}
+
+	return b.String()
 }
 
 func (u Unit) UnitName() string {

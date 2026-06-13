@@ -17,6 +17,11 @@ heavier cross-platform lane.
 | `lima.go` | Lima defaults and current macOS-to-Linux command wrappers |
 | `cmd/render` | small renderer entrypoint retained for package/build integrations |
 
+Rendering also produces `install/manifest.json` and `install/manifest.tsv`.
+Those files are the install contract for package scripts, config management, and
+the VM smoke harness: source artifact, destination path, mode, owner, group, and
+artifact kind.
+
 The standalone units are Postgres-first. Set `VECTIS_DATABASE_DRIVER=pgx` and a
 real PostgreSQL DSN after copying the rendered `env/vectis.env.example` to
 `/etc/vectis/vectis.env`.
@@ -79,7 +84,8 @@ This creates or starts a Lima instance named `vectis-deploy-smoke` from the
 directory, copies them into the guest, installs them under `/etc/systemd/system`,
 `/etc/vectis`, `/usr/lib/sysusers.d`, and `/usr/lib/tmpfiles.d`, creates
 temporary Vectis stub binaries, and runs `systemd-analyze verify`,
-`systemd-sysusers`, `systemd-tmpfiles`, and `systemctl daemon-reload`.
+`systemd-sysusers`, `systemd-tmpfiles`, and `systemctl daemon-reload`. The file
+installation step is driven by the rendered `install/manifest.tsv`.
 
 On success, the verify command removes the smoke artifacts from the guest and
 deletes the temporary local render directory. For debugging, pass

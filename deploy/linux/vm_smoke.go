@@ -5,12 +5,21 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"vectis/internal/platform"
 )
 
-const vmSmokeRemoteArtifactDir = "/tmp/vectis-linux-artifacts"
+const (
+	vmSmokeRemoteArtifactDir = "/tmp/vectis-linux-artifacts"
+	vmSmokeMarker            = "vectis linux smoke stub"
+	vmSmokeMarkerSource      = "smoke/.vectis-linux-smoke"
+	vmSmokeMarkerDestination = "/etc/vectis/.vectis-linux-smoke"
+	vmSmokeBinDir            = "smoke/bin"
+)
 
 type VMSmokeOptions struct {
 	Manager       platform.VirtualMachineManager
@@ -80,6 +89,15 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 		return VMSmokeResult{}, err
 	}
 
+	installPlan, stubBinaries, err := vmSmokeInstallPlan(opts.ManifestPath)
+	if err != nil {
+		return VMSmokeResult{}, err
+	}
+
+	if err := writeVMSmokeLocalFiles(opts.ArtifactDir, stubBinaries); err != nil {
+		return VMSmokeResult{}, err
+	}
+
 	vmSmokeLogf(opts.Stdout, "copying rendered artifacts into %s:%s", opts.Instance, vmSmokeRemoteArtifactDir)
 	if err := manager.Shell(ctx, opts.Instance, nil, "sudo", "rm", "-rf", vmSmokeRemoteArtifactDir); err != nil {
 		return VMSmokeResult{}, err
@@ -89,16 +107,30 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 		return VMSmokeResult{}, err
 	}
 
-	if err := manager.Shell(ctx, opts.Instance, strings.NewReader(vmSmokeGuestVerifyScript), "sudo", "sh", "-s", "--", vmSmokeRemoteArtifactDir); err != nil {
+	guestCleaned := false
+	cleanGuest := func() error {
+		if opts.KeepArtifacts || guestCleaned {
+			return nil
+		}
+
+		if err := runVMSmokeGuestClean(ctx, opts, installPlan, stubBinaries); err != nil {
+			return err
+		}
+
+		guestCleaned = true
+		return nil
+	}
+
+	if err := installAndVerifyVMSmokeGuest(ctx, opts, installPlan, stubBinaries); err != nil {
+		if cleanupErr := cleanGuest(); cleanupErr != nil {
+			return VMSmokeResult{}, fmt.Errorf("verify Linux systemd artifacts: %w; cleanup failed: %v", err, cleanupErr)
+		}
+
 		return VMSmokeResult{}, err
 	}
 
-	guestCleaned := false
-	if !opts.KeepArtifacts {
-		if err := runVMSmokeGuestClean(ctx, opts); err != nil {
-			return VMSmokeResult{}, err
-		}
-		guestCleaned = true
+	if err := cleanGuest(); err != nil {
+		return VMSmokeResult{}, err
 	}
 
 	return VMSmokeResult{
@@ -135,7 +167,12 @@ func RunVMSmokeClean(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, e
 		return VMSmokeResult{Status: "missing", Provider: manager.Provider(), Instance: opts.Instance}, nil
 	}
 
-	if err := runVMSmokeGuestClean(ctx, opts); err != nil {
+	installPlan, stubBinaries, err := vmSmokeInstallPlan(opts.ManifestPath)
+	if err != nil {
+		return VMSmokeResult{}, err
+	}
+
+	if err := runVMSmokeGuestClean(ctx, opts, installPlan, stubBinaries); err != nil {
 		return VMSmokeResult{}, err
 	}
 
@@ -248,8 +285,258 @@ func defaultVMSmokeTemplate(provider string) string {
 	}
 }
 
-func runVMSmokeGuestClean(ctx context.Context, opts VMSmokeOptions) error {
-	return opts.Manager.Shell(ctx, opts.Instance, strings.NewReader(vmSmokeGuestCleanScript), "sudo", "sh", "-s")
+func vmSmokeInstallPlan(manifestPath string) ([]InstallEntry, []string, error) {
+	manifest, err := LoadManifest(manifestPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	installPlan, err := manifest.InstallPlan()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return installPlan, vmSmokeStubBinaries(manifest), nil
+}
+
+func vmSmokeStubBinaries(manifest Manifest) []string {
+	seen := map[string]struct{}{}
+	var binaries []string
+	for _, unit := range manifest.Units {
+		execStart := unit.ExecStart
+		if execStart == "" {
+			execStart = "/usr/bin/vectis-" + unit.ID
+		}
+
+		fields := strings.Fields(execStart)
+		if len(fields) == 0 {
+			continue
+		}
+
+		binary := path.Base(fields[0])
+		if !strings.HasPrefix(binary, "vectis-") {
+			continue
+		}
+
+		if _, ok := seen[binary]; ok {
+			continue
+		}
+
+		seen[binary] = struct{}{}
+		binaries = append(binaries, binary)
+	}
+
+	sort.Strings(binaries)
+	return binaries
+}
+
+func writeVMSmokeLocalFiles(root string, stubBinaries []string) error {
+	markerPath := filepath.Join(root, filepath.FromSlash(vmSmokeMarkerSource))
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(markerPath, []byte("vectis linux smoke artifacts\n"), 0o640); err != nil {
+		return err
+	}
+
+	binDir := filepath.Join(root, filepath.FromSlash(vmSmokeBinDir))
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return err
+	}
+
+	for _, binary := range stubBinaries {
+		stubPath := filepath.Join(binDir, binary)
+		content := fmt.Sprintf("#!/bin/sh\necho %q >&2\nexit 0\n", vmSmokeMarker+": $0 $*")
+		if err := os.WriteFile(stubPath, []byte(content), 0o755); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func installAndVerifyVMSmokeGuest(ctx context.Context, opts VMSmokeOptions, installPlan []InstallEntry, stubBinaries []string) error {
+	if err := runVMSmokeGuest(ctx, opts, "sudo", "install", "-d", "-m", "0755", "/usr/lib/sysusers.d", "/usr/lib/tmpfiles.d", "/usr/bin"); err != nil {
+		return err
+	}
+
+	for _, kind := range []string{"sysusers", "tmpfiles"} {
+		entry, ok := findInstallEntryByKind(installPlan, kind)
+		if !ok {
+			return fmt.Errorf("install manifest missing %s entry", kind)
+		}
+
+		if err := installVMSmokeGuestEntry(ctx, opts, entry); err != nil {
+			return err
+		}
+	}
+
+	if err := runVMSmokeGuest(ctx, opts, "sudo", "systemd-sysusers", "/usr/lib/sysusers.d/vectis.conf"); err != nil {
+		return err
+	}
+
+	if err := runVMSmokeGuest(ctx, opts, "sudo", "systemd-tmpfiles", "--create", "/usr/lib/tmpfiles.d/vectis.conf"); err != nil {
+		return err
+	}
+
+	if err := installVMSmokeGuestFile(ctx, opts, vmSmokeMarkerSource, vmSmokeMarkerDestination, "0640", "root", "vectis"); err != nil {
+		return err
+	}
+
+	for _, binary := range stubBinaries {
+		if err := installVMSmokeStub(ctx, opts, binary); err != nil {
+			return err
+		}
+	}
+
+	for _, entry := range installPlan {
+		if entry.Kind == "sysusers" || entry.Kind == "tmpfiles" {
+			continue
+		}
+
+		if err := installVMSmokeGuestEntry(ctx, opts, entry); err != nil {
+			return err
+		}
+	}
+
+	if err := runVMSmokeGuest(ctx, opts, "sudo", "systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+
+	systemdUnits := installDestinationsByKind(installPlan, "systemd")
+	if err := runVMSmokeGuest(ctx, opts, append([]string{"sudo", "systemd-analyze", "verify"}, systemdUnits...)...); err != nil {
+		return err
+	}
+
+	if err := runVMSmokeGuest(ctx, opts, "sudo", "systemctl", "start", "vectis-db-migrate.service"); err != nil {
+		return err
+	}
+
+	vmSmokePrintln(opts.Stdout, "Linux systemd artifact verification passed")
+	return nil
+}
+
+func installVMSmokeGuestEntry(ctx context.Context, opts VMSmokeOptions, entry InstallEntry) error {
+	return installVMSmokeGuestFile(ctx, opts, entry.Source, entry.Destination, entry.Mode, entry.Owner, entry.Group)
+}
+
+func installVMSmokeGuestFile(ctx context.Context, opts VMSmokeOptions, source, destination, mode, owner, group string) error {
+	return runVMSmokeGuest(ctx, opts,
+		"sudo", "install", "-D",
+		"-m", mode,
+		"-o", owner,
+		"-g", group,
+		path.Join(vmSmokeRemoteArtifactDir, source),
+		destination,
+	)
+}
+
+func installVMSmokeStub(ctx context.Context, opts VMSmokeOptions, binary string) error {
+	destination := "/usr/bin/" + binary
+	exists, err := vmSmokeGuestPathExists(ctx, opts, destination)
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		if err := runVMSmokeGuest(ctx, opts, "sudo", "grep", "-q", vmSmokeMarker, destination); err != nil {
+			return fmt.Errorf("refusing to overwrite non-smoke binary %s", destination)
+		}
+	}
+
+	return installVMSmokeGuestFile(ctx, opts, path.Join(vmSmokeBinDir, binary), destination, "0755", "root", "root")
+}
+
+func runVMSmokeGuestClean(ctx context.Context, opts VMSmokeOptions, installPlan []InstallEntry, stubBinaries []string) error {
+	exists, err := vmSmokeGuestPathExists(ctx, opts, vmSmokeMarkerDestination)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		vmSmokeLogf(opts.Stdout, "no Vectis smoke marker found in guest; leaving system files unchanged")
+		return nil
+	}
+
+	_ = runVMSmokeGuest(ctx, opts, "sudo", "systemctl", "stop", "vectis.target", "vectis-local.service")
+
+	var destinations []string
+	for _, entry := range installPlan {
+		destinations = append(destinations, entry.Destination)
+	}
+	destinations = append(destinations, vmSmokeMarkerDestination)
+	sort.Strings(destinations)
+
+	if err := runVMSmokeGuest(ctx, opts, append([]string{"sudo", "rm", "-f"}, destinations...)...); err != nil {
+		return err
+	}
+
+	for _, binary := range stubBinaries {
+		if err := removeVMSmokeStub(ctx, opts, binary); err != nil {
+			return err
+		}
+	}
+
+	if err := runVMSmokeGuest(ctx, opts, "sudo", "systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+
+	vmSmokePrintln(opts.Stdout, "Removed Vectis smoke artifacts from guest")
+	return nil
+}
+
+func removeVMSmokeStub(ctx context.Context, opts VMSmokeOptions, binary string) error {
+	destination := "/usr/bin/" + binary
+	exists, err := vmSmokeGuestPathExists(ctx, opts, destination)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return nil
+	}
+
+	if err := runVMSmokeGuest(ctx, opts, "sudo", "grep", "-q", vmSmokeMarker, destination); err != nil {
+		return nil
+	}
+
+	return runVMSmokeGuest(ctx, opts, "sudo", "rm", "-f", destination)
+}
+
+func findInstallEntryByKind(entries []InstallEntry, kind string) (InstallEntry, bool) {
+	for _, entry := range entries {
+		if entry.Kind == kind {
+			return entry, true
+		}
+	}
+
+	return InstallEntry{}, false
+}
+
+func installDestinationsByKind(entries []InstallEntry, kind string) []string {
+	var out []string
+	for _, entry := range entries {
+		if entry.Kind == kind {
+			out = append(out, entry.Destination)
+		}
+	}
+
+	sort.Strings(out)
+	return out
+}
+
+func vmSmokeGuestPathExists(ctx context.Context, opts VMSmokeOptions, guestPath string) (bool, error) {
+	err := runVMSmokeGuest(ctx, opts, "sudo", "test", "-e", guestPath)
+	if err != nil {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func runVMSmokeGuest(ctx context.Context, opts VMSmokeOptions, args ...string) error {
+	return opts.Manager.Shell(ctx, opts.Instance, nil, args...)
 }
 
 func vmSmokeLogf(w io.Writer, format string, args ...any) {
@@ -260,94 +547,10 @@ func vmSmokeLogf(w io.Writer, format string, args ...any) {
 	fmt.Fprintf(w, "deploy-vm: "+format+"\n", args...)
 }
 
-const vmSmokeGuestVerifyScript = `set -eu
+func vmSmokePrintln(w io.Writer, message string) {
+	if w == nil {
+		return
+	}
 
-artifact_dir="$1"
-marker="vectis linux smoke stub"
-
-need() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    printf '%s\n' "missing required command in guest: $1" >&2
-    exit 1
-  fi
+	fmt.Fprintln(w, message)
 }
-
-need systemctl
-need systemd-analyze
-need systemd-sysusers
-need systemd-tmpfiles
-
-install -d -m 0755 /etc/systemd/system
-install -d -m 0750 /etc/vectis
-install -d -m 0755 /usr/lib/sysusers.d
-install -d -m 0755 /usr/lib/tmpfiles.d
-install -d -m 0755 /usr/bin
-
-printf '%s\n' "vectis linux smoke artifacts" > /etc/vectis/.vectis-linux-smoke
-chmod 0640 /etc/vectis/.vectis-linux-smoke
-
-install -m 0644 "$artifact_dir"/systemd/* /etc/systemd/system/
-install -m 0644 "$artifact_dir"/sysusers.d/vectis.conf /usr/lib/sysusers.d/vectis.conf
-install -m 0644 "$artifact_dir"/tmpfiles.d/vectis.conf /usr/lib/tmpfiles.d/vectis.conf
-
-for example in "$artifact_dir"/env/*.example; do
-  name="$(basename "$example" .example)"
-  install -m 0640 "$example" "/etc/vectis/$name"
-done
-
-for bin in api catalog cell-ingress cli cron docs local log log-forwarder queue reconciler registry worker; do
-  path="/usr/bin/vectis-$bin"
-  if [ -e "$path" ] && ! grep -q "$marker" "$path" 2>/dev/null; then
-    printf '%s\n' "leaving existing $path in place"
-    continue
-  fi
-
-  {
-    printf '%s\n' '#!/bin/sh'
-    printf '%s\n' "echo \"$marker: \$0 \$*\" >&2"
-    printf '%s\n' 'exit 0'
-  } > "$path"
-  chmod 0755 "$path"
-done
-
-systemd-sysusers /usr/lib/sysusers.d/vectis.conf
-systemd-tmpfiles --create /usr/lib/tmpfiles.d/vectis.conf
-systemctl daemon-reload
-systemd-analyze verify /etc/systemd/system/vectis*.service /etc/systemd/system/vectis.target
-systemctl cat vectis.target vectis-local.service >/dev/null
-systemctl start vectis-db-migrate.service
-systemctl reset-failed vectis-db-migrate.service >/dev/null 2>&1 || true
-
-printf '%s\n' "Linux systemd artifact verification passed"
-`
-
-const vmSmokeGuestCleanScript = `set -eu
-
-marker="vectis linux smoke stub"
-marker_file="/etc/vectis/.vectis-linux-smoke"
-
-if [ ! -f "$marker_file" ]; then
-  printf '%s\n' "No Vectis smoke marker found in guest; leaving system files unchanged"
-  exit 0
-fi
-
-systemctl stop vectis.target vectis-local.service >/dev/null 2>&1 || true
-
-rm -f /etc/systemd/system/vectis*.service
-rm -f /etc/systemd/system/vectis.target
-rm -f /usr/lib/sysusers.d/vectis.conf
-rm -f /usr/lib/tmpfiles.d/vectis.conf
-rm -f /etc/vectis/vectis*.env
-
-for path in /usr/bin/vectis-*; do
-  [ -e "$path" ] || continue
-  if grep -q "$marker" "$path" 2>/dev/null; then
-    rm -f "$path"
-  fi
-done
-
-systemctl daemon-reload
-systemctl reset-failed >/dev/null 2>&1 || true
-rm -f "$marker_file"
-printf '%s\n' "Removed Vectis smoke artifacts from guest"
-`

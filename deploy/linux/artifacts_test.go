@@ -2,6 +2,7 @@ package linux
 
 import (
 	"bufio"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -51,7 +52,7 @@ func TestLinuxArtifactsRenderFromTOML(t *testing.T) {
 
 	got := sortedKeys(files)
 	want := append(systemdPaths(t, manifest), envPaths(t, manifest)...)
-	want = append(want, "sysusers.d/vectis.conf", "tmpfiles.d/vectis.conf")
+	want = append(want, "sysusers.d/vectis.conf", "tmpfiles.d/vectis.conf", "install/manifest.json", "install/manifest.tsv")
 	sort.Strings(want)
 
 	if !reflect.DeepEqual(got, want) {
@@ -197,6 +198,55 @@ func TestEnvExamples(t *testing.T) {
 			}
 			parseEnvExample(t, path, content)
 		}
+	}
+}
+
+func TestInstallManifestContract(t *testing.T) {
+	files := renderTestFiles(t)
+
+	var entries []InstallEntry
+	if err := json.Unmarshal([]byte(files["install/manifest.json"]), &entries); err != nil {
+		t.Fatalf("install manifest JSON is invalid: %v", err)
+	}
+
+	if len(entries) == 0 {
+		t.Fatalf("install manifest did not include entries")
+	}
+
+	covered := map[string]InstallEntry{}
+	for _, entry := range entries {
+		if entry.Source == "" || entry.Destination == "" || entry.Mode == "" || entry.Owner == "" || entry.Group == "" || entry.Kind == "" {
+			t.Fatalf("install entry has empty field: %+v", entry)
+		}
+
+		if _, ok := files[entry.Source]; !ok {
+			t.Fatalf("install manifest source %s was not rendered", entry.Source)
+		}
+
+		if strings.HasPrefix(entry.Source, "install/") {
+			t.Fatalf("install manifest should not install itself: %+v", entry)
+		}
+
+		covered[entry.Source] = entry
+	}
+
+	for path := range files {
+		if strings.HasPrefix(path, "install/") {
+			continue
+		}
+
+		if _, ok := covered[path]; !ok {
+			t.Fatalf("rendered artifact %s missing from install manifest", path)
+		}
+	}
+
+	requireInstallDestination(t, covered, "systemd/"+targetUnit, "/etc/systemd/system/"+targetUnit, "0644", "root", "root")
+	requireInstallDestination(t, covered, "env/vectis.env.example", "/etc/vectis/vectis.env", "0640", "root", "vectis")
+	requireInstallDestination(t, covered, "sysusers.d/vectis.conf", "/usr/lib/sysusers.d/vectis.conf", "0644", "root", "root")
+	requireInstallDestination(t, covered, "tmpfiles.d/vectis.conf", "/usr/lib/tmpfiles.d/vectis.conf", "0644", "root", "root")
+
+	if !strings.Contains(files["install/manifest.tsv"], "env/vectis.env.example\t/etc/vectis/vectis.env\t0640\troot\tvectis\tenv") {
+		t.Fatalf("install TSV missing common env entry:\n%s", files["install/manifest.tsv"])
 	}
 }
 
@@ -398,6 +448,18 @@ func requireNoInlineEnvironment(t *testing.T, unit parsedUnit, service string) {
 	t.Helper()
 	if values(unit, "Service", "Environment") != nil {
 		t.Fatalf("%s must not embed config values with Environment=; use EnvironmentFile=", service)
+	}
+}
+
+func requireInstallDestination(t *testing.T, entries map[string]InstallEntry, source, destination, mode, owner, group string) {
+	t.Helper()
+	entry, ok := entries[source]
+	if !ok {
+		t.Fatalf("missing install entry for %s", source)
+	}
+
+	if entry.Destination != destination || entry.Mode != mode || entry.Owner != owner || entry.Group != group {
+		t.Fatalf("install entry for %s = %+v, want destination=%s mode=%s owner=%s group=%s", source, entry, destination, mode, owner, group)
 	}
 }
 
