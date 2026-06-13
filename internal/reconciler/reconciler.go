@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -469,30 +470,11 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	job.Id = &jobID
 	job.RunId = &runID
 
-	req := &api.JobRequest{Job: &job}
-	dispatch, err := s.runs.GetPendingExecution(ctx, runID)
-	if err != nil {
-		span.RecordError(err)
-		s.logger.Error("reconciler: failed to load pending execution for run %s: %v", runID, err)
-	} else {
-		deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()))
-		if err != nil {
-			span.RecordError(err)
-			return fmt.Errorf("ensure execution start deadline: %w", err)
-		}
-
-		dispatch.StartDeadlineUnixNano = deadline
-		if _, err := cell.AttachExecutionEnvelopeWithActions(req, dispatch, s.clock.Now().UnixNano(), s.actionResolver); err != nil {
-			span.RecordError(err)
-			s.logger.Error("reconciler: failed to attach execution envelope for run %s: %v", runID, err)
-		}
-	}
-
 	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventAttempt, nil)
-	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, qr.DefinitionHash)
+	reqs, pendingCount, err := s.dispatchRequestsForQueuedRun(ctx, runID, &job, qr.DefinitionHash)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "record execution payload")
+		span.SetStatus(codes.Error, "build dispatch requests")
 		msg := err.Error()
 		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
 		if s.metrics != nil {
@@ -501,7 +483,11 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 
 		return err
 	}
-	req = dispatchReq
+
+	span.SetAttributes(
+		attribute.Int("vectis.reconciler.pending_executions", pendingCount),
+		attribute.Int("vectis.reconciler.dispatch.requests", len(reqs)),
+	)
 
 	ingress, err := s.executionIngress()
 	if err != nil {
@@ -517,31 +503,36 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		return fmt.Errorf("cell ingress endpoints: %w", err)
 	}
 
-	submission, err := cell.NewExecutionSubmission(req)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "execution submission")
-		msg := err.Error()
+	enqueued := 0
+	for _, req := range reqs {
+		submission, err := cell.NewExecutionSubmission(req)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "execution submission")
+			msg := err.Error()
 
-		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
-		if s.metrics != nil {
-			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+			s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+			if s.metrics != nil {
+				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+			}
+
+			return fmt.Errorf("execution submission: %w", err)
 		}
 
-		return fmt.Errorf("execution submission: %w", err)
-	}
+		if err := ingress.SubmitExecution(ctx, submission); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "enqueue")
+			msg := err.Error()
 
-	if err := ingress.SubmitExecution(ctx, submission); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "enqueue")
-		msg := err.Error()
+			s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+			if s.metrics != nil {
+				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+			}
 
-		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
-		if s.metrics != nil {
-			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
+			return fmt.Errorf("enqueue: %w", err)
 		}
 
-		return fmt.Errorf("enqueue: %w", err)
+		enqueued++
 	}
 
 	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
@@ -556,14 +547,119 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		return fmt.Errorf("touch dispatched: %w", err)
 	}
 	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventSuccess, nil)
+	span.SetAttributes(attribute.Int("vectis.reconciler.enqueued_executions", enqueued))
 
 	span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSuccess))
 	if s.metrics != nil {
 		s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeSuccess)
 	}
 
-	s.logger.Info("reconciler: re-enqueued run %s (job %s, %s)", runID, jobID, decision.ReasonCode)
+	s.logger.Info("reconciler: re-enqueued run %s (job %s, %s, executions=%d)", runID, jobID, decision.ReasonCode, enqueued)
 	return nil
+}
+
+func (s *Service) dispatchRequestsForQueuedRun(ctx context.Context, runID string, job *api.Job, definitionHash string) ([]*api.JobRequest, int, error) {
+	baseReq := &api.JobRequest{Job: cloneJobForReconciler(job)}
+	dispatches, err := s.runs.ListPendingExecutions(ctx, runID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list pending executions: %w", err)
+	}
+
+	if len(dispatches) == 0 {
+		req, err := s.recordExecutionPayload(ctx, runID, baseReq, definitionHash)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return []*api.JobRequest{req}, 0, nil
+	}
+
+	seedReq := cloneJobRequestForReconciler(baseReq)
+	if err := s.attachDispatchEnvelope(ctx, seedReq, dispatches[0]); err != nil {
+		return nil, 0, err
+	}
+
+	recordedReq, err := s.recordExecutionPayload(ctx, runID, seedReq, definitionHash)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	reqs := make([]*api.JobRequest, 0, len(dispatches))
+	for _, dispatch := range dispatches {
+		if requestEnvelopeMatchesDispatch(recordedReq, dispatch) {
+			reqs = append(reqs, cloneJobRequestForReconciler(recordedReq))
+			continue
+		}
+
+		req := cloneJobRequestForReconciler(recordedReq)
+		if err := s.attachDispatchEnvelope(ctx, req, dispatch); err != nil {
+			return nil, 0, err
+		}
+
+		reqs = append(reqs, req)
+	}
+
+	return reqs, len(dispatches), nil
+}
+
+func (s *Service) attachDispatchEnvelope(ctx context.Context, req *api.JobRequest, dispatch dal.ExecutionDispatchRecord) error {
+	deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()))
+	if err != nil {
+		return fmt.Errorf("ensure execution start deadline: %w", err)
+	}
+
+	dispatch.StartDeadlineUnixNano = deadline
+	if _, err := cell.AttachExecutionEnvelopeWithActions(req, dispatch, s.clock.Now().UnixNano(), s.actionResolver); err != nil {
+		return fmt.Errorf("attach execution envelope: %w", err)
+	}
+
+	return nil
+}
+
+func requestEnvelopeMatchesDispatch(req *api.JobRequest, dispatch dal.ExecutionDispatchRecord) bool {
+	env, ok, err := cell.ExecutionEnvelopeFromRequest(req)
+	if err != nil || !ok {
+		return false
+	}
+
+	return env.ExecutionID == dispatch.ExecutionID && env.TaskID == dispatch.TaskID && env.TaskAttemptID == dispatch.TaskAttemptID
+}
+
+func cloneJobRequestForReconciler(req *api.JobRequest) *api.JobRequest {
+	if req == nil {
+		return &api.JobRequest{}
+	}
+
+	if cloned, ok := proto.Clone(req).(*api.JobRequest); ok {
+		return cloned
+	}
+
+	return &api.JobRequest{Job: req.GetJob(), Metadata: cloneMetadataForReconciler(req.GetMetadata())}
+}
+
+func cloneJobForReconciler(job *api.Job) *api.Job {
+	if job == nil {
+		return nil
+	}
+
+	if cloned, ok := proto.Clone(job).(*api.Job); ok {
+		return cloned
+	}
+
+	return job
+}
+
+func cloneMetadataForReconciler(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+
+	return out
 }
 
 func (s *Service) executionIngress() (cell.ExecutionIngress, error) {

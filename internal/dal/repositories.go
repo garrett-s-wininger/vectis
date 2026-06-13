@@ -572,6 +572,7 @@ type RunsRepository interface {
 	CountOrphanedTaskFinalizationCandidatesByCell(ctx context.Context) ([]RunCountByCell, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
+	ListPendingExecutions(ctx context.Context, runID string) ([]ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)
 	EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error)
 	GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (ExecutionDispatchRecord, error)

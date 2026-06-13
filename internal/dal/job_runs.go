@@ -2491,7 +2491,20 @@ func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, 
 }
 
 func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error) {
-	rec, err := scanExecutionDispatchRecord(r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+	executions, err := r.ListPendingExecutions(ctx, runID)
+	if err != nil {
+		return ExecutionDispatchRecord{}, err
+	}
+
+	if len(executions) == 0 {
+		return ExecutionDispatchRecord{}, fmt.Errorf("%w: pending execution for run %s", ErrNotFound, runID)
+	}
+
+	return executions[0], nil
+}
+
+func (r *SQLRunsRepository) ListPendingExecutions(ctx context.Context, runID string) ([]ExecutionDispatchRecord, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
 			jr.run_id,
 			jr.job_id,
@@ -2525,18 +2538,28 @@ func (r *SQLRunsRepository) GetPendingExecution(ctx context.Context, runID strin
 			AND rt.status = ?
 			AND ta.status = ?
 		ORDER BY rs.id ASC, se.attempt ASC, se.id ASC
-		LIMIT 1
-	`), runID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending))
+	`), runID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return ExecutionDispatchRecord{}, fmt.Errorf("%w: pending execution for run %s", ErrNotFound, runID)
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []ExecutionDispatchRecord
+	for rows.Next() {
+		rec, err := scanExecutionDispatchRecord(rows)
+		if err != nil {
+			return nil, normalizeSQLError(err)
 		}
 
-		return ExecutionDispatchRecord{}, normalizeSQLError(err)
+		out = append(out, rec)
 	}
 
-	return rec, nil
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
 }
 
 func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error) {

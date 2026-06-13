@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
+	api "vectis/api/gen/go"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 	"vectis/internal/testutil/runfixture"
+
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
@@ -73,6 +76,123 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 	if !last.Valid || last.Int64 == 0 {
 		t.Errorf("expected last_dispatched_at set, got %v", last)
+	}
+}
+
+func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	jobID := "job-task-continuation-repair"
+	jobDef := `{"id":"job-task-continuation-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child-a","uses":"builtins/shell","with":{"command":"echo a"}},{"id":"child-b","uses":"builtins/shell","with":{"command":"echo b"}}]}}`
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
+		t.Fatalf("insert stored job: %v", err)
+	}
+
+	runs := repos.Runs()
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root execution: %v", err)
+	}
+
+	rootID := "root"
+	childAID := "child-a"
+	childBID := "child-b"
+	parallelAction := "builtins/parallel"
+	shellAction := "builtins/shell"
+	job := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &parallelAction,
+			Steps: []*api.Node{
+				{Id: &childAID, Uses: &shellAction, With: map[string]string{"command": "echo a"}},
+				{Id: &childBID, Uses: &shellAction, With: map[string]string{"command": "echo b"}},
+			},
+		},
+	}
+
+	rootReq := &api.JobRequest{Job: job}
+	if _, err := cell.AttachExecutionEnvelope(rootReq, rootDispatch, 1); err != nil {
+		t.Fatalf("attach root envelope: %v", err)
+	}
+
+	rootPayloadJSON, err := protojson.Marshal(rootReq)
+	if err != nil {
+		t.Fatalf("marshal root payload: %v", err)
+	}
+
+	if _, _, err := runs.RecordExecutionPayload(ctx, runID, string(rootPayloadJSON), dal.DefinitionHash(jobDef)); err != nil {
+		t.Fatalf("record root payload: %v", err)
+	}
+
+	if _, _, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      childAID,
+		Name:         childAID,
+		SpecHash:     "sha256:child-a",
+		TargetCellID: "local",
+	}); err != nil {
+		t.Fatalf("ensure child-a: %v", err)
+	}
+
+	if _, _, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: rootDispatch.TaskID,
+		TaskKey:      childBID,
+		Name:         childBID,
+		SpecHash:     "sha256:child-b",
+		TargetCellID: "local",
+	}); err != nil {
+		t.Fatalf("ensure child-b: %v", err)
+	}
+
+	result := runfixture.FinalizeExecutionByClaim(t, ctx, repos, rootDispatch.ExecutionID, dal.ExecutionStatusSucceeded)
+	if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || len(result.Children) != 2 {
+		t.Fatalf("root finalization should activate two children: %+v", result)
+	}
+
+	q := mocks.NewMockQueueService()
+	svc := NewService(interfaces.NewLogger("test"), db, q, interfaces.SystemClock{})
+	svc.SetMinDispatchGap(1 * time.Millisecond)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	reqs := q.GetJobRequests()
+	if len(reqs) != 2 {
+		t.Fatalf("want 2 enqueued continuation requests, got %d", len(reqs))
+	}
+
+	got := map[string]bool{}
+	for _, req := range reqs {
+		env, ok, err := cell.ExecutionEnvelopeFromRequest(req)
+		if err != nil {
+			t.Fatalf("decode continuation envelope: %v", err)
+		}
+
+		if !ok {
+			t.Fatal("continuation request missing execution envelope")
+		}
+
+		if env.TaskKey == dal.RootTaskKey {
+			t.Fatalf("reconciler replayed root envelope instead of child continuation: %+v", env)
+		}
+
+		got[env.TaskKey] = true
+	}
+
+	if !got[childAID] || !got[childBID] {
+		t.Fatalf("continuation task keys: got %+v, want child-a and child-b", got)
 	}
 }
 
