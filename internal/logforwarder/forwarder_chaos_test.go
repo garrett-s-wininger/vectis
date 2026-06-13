@@ -67,6 +67,34 @@ func (s *closeAckLogStream) CloseAndRecv() error {
 	return s.client.closeErr
 }
 
+type replayErrLogClient struct {
+	sendErr func(*api.LogChunk) error
+}
+
+func (c *replayErrLogClient) StreamLogs(context.Context) (interfaces.LogStream, error) {
+	return &replayErrLogStream{client: c}, nil
+}
+
+func (c *replayErrLogClient) Close() error {
+	return nil
+}
+
+type replayErrLogStream struct {
+	client *replayErrLogClient
+}
+
+func (s *replayErrLogStream) Send(chunk *api.LogChunk) error {
+	if s.client.sendErr != nil {
+		return s.client.sendErr(chunk)
+	}
+
+	return nil
+}
+
+func (s *replayErrLogStream) CloseSend() error {
+	return nil
+}
+
 func TestForwarderChaos_SpoolRetainedWhenStreamCloseAckFails(t *testing.T) {
 	spoolDir := t.TempDir()
 	client := &closeAckLogClient{closeErr: errors.New("log service rejected stream")}
@@ -109,7 +137,71 @@ func TestForwarderChaos_SpoolRetainedWhenStreamCloseAckFails(t *testing.T) {
 	}
 }
 
+func TestForwarderChaos_UnrecoverableSpoolQuarantined(t *testing.T) {
+	tests := []struct {
+		name    string
+		chunks  []*api.LogChunk
+		sendErr func(*api.LogChunk) error
+	}{
+		{
+			name: "missing run id",
+			chunks: []*api.LogChunk{
+				{Sequence: proto.Int64(1), Data: []byte("orphan")},
+			},
+			sendErr: func(chunk *api.LogChunk) error {
+				if chunk.GetRunId() == "" {
+					return errors.New("run id is required")
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "stale run assignment",
+			chunks: []*api.LogChunk{
+				{RunId: proto.String("stale-run"), Sequence: proto.Int64(1), Data: []byte("stale")},
+			},
+			sendErr: func(*api.LogChunk) error {
+				return errors.New("not found: run stale-run")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spoolDir := t.TempDir()
+			client := &replayErrLogClient{sendErr: tt.sendErr}
+			fwd := NewForwarder(nil, interfaces.NewLogger("test"), spoolDir, 10, 10000)
+			fwd.SetLogClient(client)
+
+			if err := fwd.spoolBatch(tt.chunks); err != nil {
+				t.Fatalf("spool batch: %v", err)
+			}
+
+			if err := fwd.scanSpool(context.Background()); err != nil {
+				t.Fatalf("scan spool: %v", err)
+			}
+
+			if got := countSpoolFiles(t, spoolDir); got != 0 {
+				t.Fatalf("retryable spool file count = %d, want 0", got)
+			}
+
+			if got := countQuarantineFiles(t, spoolDir); got != 1 {
+				t.Fatalf("quarantine file count = %d, want 1", got)
+			}
+		})
+	}
+}
+
 func countSpoolFiles(t *testing.T, dir string) int {
+	return countFilesWithExt(t, dir, spoolExt)
+}
+
+func countQuarantineFiles(t *testing.T, dir string) int {
+	return countFilesWithExt(t, dir, ".quarantine")
+}
+
+func countFilesWithExt(t *testing.T, dir, ext string) int {
 	t.Helper()
 
 	entries, err := os.ReadDir(dir)
@@ -123,7 +215,7 @@ func countSpoolFiles(t *testing.T, dir string) int {
 			continue
 		}
 
-		if filepath.Ext(entry.Name()) == spoolExt {
+		if filepath.Ext(entry.Name()) == ext {
 			count++
 		}
 	}

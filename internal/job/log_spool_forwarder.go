@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"vectis/internal/interfaces"
+	"vectis/internal/logspool"
 )
 
 // LogSpoolForwarder periodically scans the pending spool directory and retries
@@ -121,6 +122,13 @@ func (f *LogSpoolForwarder) scanAndForward() error {
 		if err := f.forwardFile(path); err != nil {
 			if f.logger != nil {
 				f.logger.Warn("Failed to forward pending spool %s: %v", name, err)
+			}
+
+			if logspool.IsPermanentReplayError(err) {
+				quarantinePath := path + ".quarantine"
+				if renameErr := os.Rename(path, quarantinePath); renameErr == nil && f.logger != nil {
+					f.logger.Warn("Quarantined unrecoverable pending spool %s", name)
+				}
 			}
 
 			continue

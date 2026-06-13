@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/logclient"
+	"vectis/internal/logspool"
 )
 
 const (
@@ -452,11 +452,11 @@ func (f *Forwarder) scanSpool(ctx context.Context) error {
 				f.logger.Warn("Failed to forward spool %s: %v", name, err)
 			}
 
-			// Quarantine permanently corrupted files so they are not retried forever.
-			if isPermanentSpoolError(err) {
+			// Quarantine permanently unrecoverable files so they are not retried forever.
+			if logspool.IsPermanentReplayError(err) {
 				quarantinePath := path + ".quarantine"
 				if renameErr := os.Rename(path, quarantinePath); renameErr == nil && f.logger != nil {
-					f.logger.Warn("Quarantined corrupted spool file %s", name)
+					f.logger.Warn("Quarantined unrecoverable spool file %s", name)
 				}
 			}
 
@@ -471,25 +471,6 @@ func (f *Forwarder) scanSpool(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func isPermanentSpoolError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	s := err.Error()
-	return containsAny(s, []string{"crc mismatch", "unmarshal chunk", "unsupported spool version", "invalid spool magic", "spool batch count", "read magic"})
-}
-
-func containsAny(s string, subs []string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func (f *Forwarder) forwardSpoolFile(parentCtx context.Context, path string) error {
