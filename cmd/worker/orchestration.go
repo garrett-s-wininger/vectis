@@ -152,7 +152,11 @@ func taskExecutionSnapshotsToProto(in []orchestrator.TaskExecutionSnapshot) []*a
 		if execution == nil {
 			continue
 		}
+
 		execution.Status = stringPtr(snapshot.Status)
+		execution.AcceptedAtUnixNano = int64Ptr(snapshot.AcceptedAtUnixNano)
+		execution.StartedAtUnixNano = int64Ptr(snapshot.StartedAtUnixNano)
+		execution.FinishedAtUnixNano = int64Ptr(snapshot.FinishedAtUnixNano)
 		out = append(out, execution)
 	}
 
@@ -205,7 +209,10 @@ func taskExecutionSnapshotsFromProto(in []*api.OrchestratorTaskExecution) []dal.
 				CellID:        record.GetCellId(),
 				Attempt:       int(record.GetAttempt()),
 			},
-			Status: record.GetStatus(),
+			Status:             record.GetStatus(),
+			AcceptedAtUnixNano: record.GetAcceptedAtUnixNano(),
+			StartedAtUnixNano:  record.GetStartedAtUnixNano(),
+			FinishedAtUnixNano: record.GetFinishedAtUnixNano(),
 		})
 	}
 

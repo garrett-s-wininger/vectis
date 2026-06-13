@@ -208,6 +208,9 @@ func taskExecutionSnapshotsToProto(in []dal.TaskExecutionSnapshot) []*api.Orches
 		}
 
 		execution.Status = stringPtr(snapshot.Status)
+		execution.AcceptedAtUnixNano = int64Ptr(snapshot.AcceptedAtUnixNano)
+		execution.StartedAtUnixNano = int64Ptr(snapshot.StartedAtUnixNano)
+		execution.FinishedAtUnixNano = int64Ptr(snapshot.FinishedAtUnixNano)
 		out = append(out, execution)
 	}
 
@@ -222,8 +225,11 @@ func taskExecutionSnapshotsFromProto(in []*api.OrchestratorTaskExecution) []Task
 		}
 
 		out = append(out, TaskExecutionSnapshot{
-			Record: taskExecutionFromProto(execution),
-			Status: execution.GetStatus(),
+			Record:             taskExecutionFromProto(execution),
+			Status:             execution.GetStatus(),
+			AcceptedAtUnixNano: execution.GetAcceptedAtUnixNano(),
+			StartedAtUnixNano:  execution.GetStartedAtUnixNano(),
+			FinishedAtUnixNano: execution.GetFinishedAtUnixNano(),
 		})
 	}
 
@@ -249,6 +255,10 @@ func boolPtr(v bool) *bool {
 }
 
 func int32Ptr(v int32) *int32 {
+	return &v
+}
+
+func int64Ptr(v int64) *int64 {
 	return &v
 }
 

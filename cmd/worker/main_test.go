@@ -2139,13 +2139,25 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 		t.Fatalf("expected child task marker in chunks=%v", chunks)
 	}
 
-	var childRows int
-	var childStatus string
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(status), '') FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).Scan(&childRows, &childStatus); err != nil {
-		t.Fatalf("query child task row: %v", err)
+	tasks, _, err := runs.ListRunTasks(ctx, runID, 0, 10)
+	if err != nil {
+		t.Fatalf("list child task durable state: %v", err)
 	}
-	if childRows != 1 || childStatus != dal.TaskStatusSucceeded {
-		t.Fatalf("child task durable state after terminal snapshot: rows=%d status=%q, want 1/%q", childRows, childStatus, dal.TaskStatusSucceeded)
+
+	var childTask *dal.TaskRecord
+	for i := range tasks {
+		if tasks[i].TaskKey == childID {
+			childTask = &tasks[i]
+			break
+		}
+	}
+
+	if childTask == nil || childTask.Status != dal.TaskStatusSucceeded {
+		t.Fatalf("child task durable state after terminal snapshot: got %+v in tasks=%+v, want %q", childTask, tasks, dal.TaskStatusSucceeded)
+	}
+
+	if len(childTask.Attempts) != 1 || childTask.Attempts[0].ExecutionStatus != dal.ExecutionStatusSucceeded {
+		t.Fatalf("child task attempt durable state after terminal snapshot: %+v", childTask.Attempts)
 	}
 
 	var runStatus string

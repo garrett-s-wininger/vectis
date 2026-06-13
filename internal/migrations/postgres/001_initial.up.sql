@@ -199,6 +199,35 @@ CREATE INDEX idx_execution_security_events_run_id ON execution_security_events(r
 CREATE INDEX idx_execution_security_events_attempt ON execution_security_events(task_attempt_id, id);
 CREATE INDEX idx_execution_security_events_execution ON execution_security_events(execution_id, id);
 
+CREATE TABLE run_task_final_facts (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    task_id TEXT UNIQUE NOT NULL,
+    parent_task_id TEXT,
+    task_key TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    spec_hash TEXT NOT NULL DEFAULT '',
+    task_attempt_id TEXT NOT NULL,
+    execution_id TEXT UNIQUE NOT NULL,
+    execution_status TEXT NOT NULL,
+    cell_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    accepted_at_unix_nano BIGINT,
+    started_at_unix_nano BIGINT,
+    finished_at_unix_nano BIGINT,
+    last_observed_at BIGINT,
+    event_sequence BIGINT NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(run_id, task_key)
+);
+
+CREATE INDEX idx_run_task_final_facts_run_id_id ON run_task_final_facts(run_id, id);
+CREATE INDEX idx_run_task_final_facts_task ON run_task_final_facts(run_id, task_id, id);
+CREATE INDEX idx_run_task_final_facts_attempt ON run_task_final_facts(run_id, task_attempt_id, id);
+CREATE INDEX idx_run_task_final_facts_execution ON run_task_final_facts(run_id, execution_id, id);
+
 CREATE TABLE run_artifacts (
     id BIGSERIAL PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,

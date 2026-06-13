@@ -95,6 +95,9 @@ type taskState struct {
 	leaseOwner    string
 	claimToken    string
 	leaseUntil    time.Time
+	acceptedAt    time.Time
+	startedAt     time.Time
+	finishedAt    time.Time
 }
 
 func New(shardCount int, opts ...Option) *Service {
@@ -237,6 +240,15 @@ func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner 
 			token := uuid.NewString()
 			transitionedToAccepted := task.status == dal.ExecutionStatusPending
 			task.status = dal.ExecutionStatusRunning
+
+			if task.acceptedAt.IsZero() {
+				task.acceptedAt = now
+			}
+
+			if task.startedAt.IsZero() {
+				task.startedAt = now
+			}
+
 			task.leaseOwner = owner
 			task.claimToken = token
 			task.leaseUntil = leaseUntil
@@ -336,6 +348,10 @@ func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, execution
 		}
 
 		task.status = status
+		if task.finishedAt.IsZero() {
+			task.finishedAt = now
+		}
+
 		task.leaseOwner = ""
 		task.claimToken = ""
 		task.leaseUntil = time.Time{}
@@ -576,11 +592,30 @@ func (r *runState) applySnapshots(snapshots []TaskExecutionSnapshot, now time.Ti
 			}
 		}
 
+		applySnapshotTiming(task, snapshot)
 		r.applySnapshotRecord(task, snapshot.Record)
 	}
 
 	r.recomputeSummary()
 	return nil
+}
+
+func applySnapshotTiming(task *taskState, snapshot TaskExecutionSnapshot) {
+	if task == nil {
+		return
+	}
+
+	if acceptedAt := snapshotUnixNanoTime(snapshot.AcceptedAtUnixNano); !acceptedAt.IsZero() {
+		task.acceptedAt = acceptedAt
+	}
+
+	if startedAt := snapshotUnixNanoTime(snapshot.StartedAtUnixNano); !startedAt.IsZero() {
+		task.startedAt = startedAt
+	}
+
+	if finishedAt := snapshotUnixNanoTime(snapshot.FinishedAtUnixNano); !finishedAt.IsZero() {
+		task.finishedAt = finishedAt
+	}
 }
 
 func (r *runState) taskForSnapshot(snapshot TaskExecutionSnapshot) (*taskState, error) {
@@ -761,12 +796,31 @@ func (r *runState) executionSnapshots() []dal.TaskExecutionSnapshot {
 	for _, taskKey := range r.order {
 		task := r.tasks[taskKey]
 		out = append(out, dal.TaskExecutionSnapshot{
-			Record: task.record,
-			Status: task.status,
+			Record:             task.record,
+			Status:             task.status,
+			AcceptedAtUnixNano: timeUnixNano(task.acceptedAt),
+			StartedAtUnixNano:  timeUnixNano(task.startedAt),
+			FinishedAtUnixNano: timeUnixNano(task.finishedAt),
 		})
 	}
 
 	return out
+}
+
+func timeUnixNano(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+
+	return t.UnixNano()
+}
+
+func snapshotUnixNanoTime(v int64) time.Time {
+	if v <= 0 {
+		return time.Time{}
+	}
+
+	return time.Unix(0, v)
 }
 
 func normalizeSnapshotStatus(status string) string {

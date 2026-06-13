@@ -272,8 +272,13 @@ type TaskExecutionRecord struct {
 }
 
 type TaskExecutionSnapshot struct {
-	Record TaskExecutionRecord
-	Status string
+	Record               TaskExecutionRecord
+	Status               string
+	AcceptedAtUnixNano   int64
+	StartedAtUnixNano    int64
+	FinishedAtUnixNano   int64
+	LastObservedUnixNano int64
+	EventSequence        int64
 }
 
 type QueuedRun struct {

@@ -2457,9 +2457,56 @@ func orchestratorSnapshotFromTaskRecord(task dal.TaskRecord) (orchestrator.TaskE
 	}
 
 	return orchestrator.TaskExecutionSnapshot{
-		Record: record,
-		Status: status,
+		Record:             record,
+		Status:             status,
+		AcceptedAtUnixNano: taskAttemptTimeUnixNano(attemptTimePtr(task.Attempts, "accepted")),
+		StartedAtUnixNano:  taskAttemptTimeUnixNano(attemptTimePtr(task.Attempts, "started")),
+		FinishedAtUnixNano: taskAttemptTimeUnixNano(attemptTimePtr(task.Attempts, "finished")),
 	}, true
+}
+
+func attemptTimePtr(attempts []dal.TaskAttemptRecord, field string) *string {
+	attempt, ok := latestTaskAttempt(attempts)
+	if !ok {
+		return nil
+	}
+
+	switch field {
+	case "accepted":
+		return attempt.AcceptedAt
+	case "started":
+		return attempt.StartedAt
+	case "finished":
+		return attempt.FinishedAt
+	default:
+		return nil
+	}
+}
+
+func taskAttemptTimeUnixNano(value *string) int64 {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return 0
+	}
+
+	raw := strings.TrimSpace(*value)
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999Z07:00",
+		"2006-01-02 15:04:05.999999999-07",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05-07",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed.UnixNano()
+		}
+	}
+
+	return 0
 }
 
 func latestTaskAttempt(attempts []dal.TaskAttemptRecord) (dal.TaskAttemptRecord, bool) {

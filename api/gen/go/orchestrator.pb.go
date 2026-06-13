@@ -98,21 +98,24 @@ func (x *OrchestratorTaskSpec) GetChildTaskKeys() []string {
 }
 
 type OrchestratorTaskExecution struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	TaskId        *string                `protobuf:"bytes,2,opt,name=task_id,json=taskId" json:"task_id,omitempty"`
-	ParentTaskId  *string                `protobuf:"bytes,3,opt,name=parent_task_id,json=parentTaskId" json:"parent_task_id,omitempty"`
-	TaskKey       *string                `protobuf:"bytes,4,opt,name=task_key,json=taskKey" json:"task_key,omitempty"`
-	Name          *string                `protobuf:"bytes,5,opt,name=name" json:"name,omitempty"`
-	TaskAttemptId *string                `protobuf:"bytes,6,opt,name=task_attempt_id,json=taskAttemptId" json:"task_attempt_id,omitempty"`
-	SegmentId     *string                `protobuf:"bytes,7,opt,name=segment_id,json=segmentId" json:"segment_id,omitempty"`
-	SegmentName   *string                `protobuf:"bytes,8,opt,name=segment_name,json=segmentName" json:"segment_name,omitempty"`
-	ExecutionId   *string                `protobuf:"bytes,9,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
-	CellId        *string                `protobuf:"bytes,10,opt,name=cell_id,json=cellId" json:"cell_id,omitempty"`
-	Attempt       *int32                 `protobuf:"varint,11,opt,name=attempt" json:"attempt,omitempty"`
-	Status        *string                `protobuf:"bytes,12,opt,name=status" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RunId              *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	TaskId             *string                `protobuf:"bytes,2,opt,name=task_id,json=taskId" json:"task_id,omitempty"`
+	ParentTaskId       *string                `protobuf:"bytes,3,opt,name=parent_task_id,json=parentTaskId" json:"parent_task_id,omitempty"`
+	TaskKey            *string                `protobuf:"bytes,4,opt,name=task_key,json=taskKey" json:"task_key,omitempty"`
+	Name               *string                `protobuf:"bytes,5,opt,name=name" json:"name,omitempty"`
+	TaskAttemptId      *string                `protobuf:"bytes,6,opt,name=task_attempt_id,json=taskAttemptId" json:"task_attempt_id,omitempty"`
+	SegmentId          *string                `protobuf:"bytes,7,opt,name=segment_id,json=segmentId" json:"segment_id,omitempty"`
+	SegmentName        *string                `protobuf:"bytes,8,opt,name=segment_name,json=segmentName" json:"segment_name,omitempty"`
+	ExecutionId        *string                `protobuf:"bytes,9,opt,name=execution_id,json=executionId" json:"execution_id,omitempty"`
+	CellId             *string                `protobuf:"bytes,10,opt,name=cell_id,json=cellId" json:"cell_id,omitempty"`
+	Attempt            *int32                 `protobuf:"varint,11,opt,name=attempt" json:"attempt,omitempty"`
+	Status             *string                `protobuf:"bytes,12,opt,name=status" json:"status,omitempty"`
+	AcceptedAtUnixNano *int64                 `protobuf:"varint,13,opt,name=accepted_at_unix_nano,json=acceptedAtUnixNano" json:"accepted_at_unix_nano,omitempty"`
+	StartedAtUnixNano  *int64                 `protobuf:"varint,14,opt,name=started_at_unix_nano,json=startedAtUnixNano" json:"started_at_unix_nano,omitempty"`
+	FinishedAtUnixNano *int64                 `protobuf:"varint,15,opt,name=finished_at_unix_nano,json=finishedAtUnixNano" json:"finished_at_unix_nano,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *OrchestratorTaskExecution) Reset() {
@@ -227,6 +230,27 @@ func (x *OrchestratorTaskExecution) GetStatus() string {
 		return *x.Status
 	}
 	return ""
+}
+
+func (x *OrchestratorTaskExecution) GetAcceptedAtUnixNano() int64 {
+	if x != nil && x.AcceptedAtUnixNano != nil {
+		return *x.AcceptedAtUnixNano
+	}
+	return 0
+}
+
+func (x *OrchestratorTaskExecution) GetStartedAtUnixNano() int64 {
+	if x != nil && x.StartedAtUnixNano != nil {
+		return *x.StartedAtUnixNano
+	}
+	return 0
+}
+
+func (x *OrchestratorTaskExecution) GetFinishedAtUnixNano() int64 {
+	if x != nil && x.FinishedAtUnixNano != nil {
+		return *x.FinishedAtUnixNano
+	}
+	return 0
 }
 
 type OrchestratorRunTaskCompletion struct {
@@ -995,7 +1019,7 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x0fparent_task_key\x18\x02 \x01(\tR\rparentTaskKey\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x17\n" +
 	"\acell_id\x18\x04 \x01(\tR\x06cellId\x12&\n" +
-	"\x0fchild_task_keys\x18\x05 \x03(\tR\rchildTaskKeys\"\xf8\x02\n" +
+	"\x0fchild_task_keys\x18\x05 \x03(\tR\rchildTaskKeys\"\x8f\x04\n" +
 	"\x19OrchestratorTaskExecution\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12$\n" +
@@ -1010,7 +1034,10 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\acell_id\x18\n" +
 	" \x01(\tR\x06cellId\x12\x18\n" +
 	"\aattempt\x18\v \x01(\x05R\aattempt\x12\x16\n" +
-	"\x06status\x18\f \x01(\tR\x06status\"\xb3\x01\n" +
+	"\x06status\x18\f \x01(\tR\x06status\x121\n" +
+	"\x15accepted_at_unix_nano\x18\r \x01(\x03R\x12acceptedAtUnixNano\x12/\n" +
+	"\x14started_at_unix_nano\x18\x0e \x01(\x03R\x11startedAtUnixNano\x121\n" +
+	"\x15finished_at_unix_nano\x18\x0f \x01(\x03R\x12finishedAtUnixNano\"\xb3\x01\n" +
 	"\x1dOrchestratorRunTaskCompletion\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1c\n" +

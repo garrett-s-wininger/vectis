@@ -21,7 +21,7 @@ type SQLRunsRepository struct {
 	cellID string
 }
 
-const terminalSnapshotBatchRows = 2000
+const terminalSnapshotBatchRows = 1000
 
 func (r *SQLRunsRepository) currentCellID() string {
 	return normalizeCellID(r.cellID)
@@ -122,15 +122,16 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, 
 		return err
 	}
 
-	if err := insertTerminalSnapshotRowsTx(ctx, tx, rows); err != nil {
+	if err := insertTerminalSnapshotFinalFactsTx(ctx, tx, rows); err != nil {
 		return err
 	}
 
-	if err := verifyTerminalSnapshotExecutionsTx(ctx, tx, rows); err != nil {
+	rootRows := terminalSnapshotRootRows(rows)
+	if err := verifyTerminalSnapshotExecutionsTx(ctx, tx, rootRows); err != nil {
 		return err
 	}
 
-	for _, batch := range terminalSnapshotStatusBatches(rows) {
+	for _, batch := range terminalSnapshotStatusBatches(rootRows) {
 		if err := applyTerminalSnapshotStatusBatchTx(ctx, tx, batch); err != nil {
 			return err
 		}
@@ -144,18 +145,23 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, 
 }
 
 type terminalSnapshotRow struct {
-	runID         string
-	taskID        string
-	parentTaskID  string
-	taskKey       string
-	name          string
-	taskAttemptID string
-	segmentID     string
-	executionID   string
-	cellID        string
-	status        string
-	attempt       int
-	root          bool
+	runID          string
+	taskID         string
+	parentTaskID   string
+	taskKey        string
+	name           string
+	taskAttemptID  string
+	segmentID      string
+	executionID    string
+	cellID         string
+	status         string
+	attempt        int
+	acceptedAt     int64
+	startedAt      int64
+	finishedAt     int64
+	lastObservedAt int64
+	eventSequence  int64
+	root           bool
 }
 
 type terminalSnapshotStatusBatch struct {
@@ -238,22 +244,38 @@ func terminalSnapshotRows(runID, owningCell string, snapshots []TaskExecutionSna
 		}
 
 		rows = append(rows, terminalSnapshotRow{
-			runID:         runID,
-			taskID:        taskID,
-			parentTaskID:  parentTaskID,
-			taskKey:       taskKey,
-			name:          name,
-			taskAttemptID: terminalSnapshotTaskAttemptID(root, rec.TaskAttemptID, taskID, attempt),
-			segmentID:     terminalSnapshotSegmentID(root, rec.SegmentID, taskID),
-			executionID:   executionID,
-			cellID:        normalizeTargetCellID(rec.CellID, owningCell),
-			status:        strings.TrimSpace(snapshot.Status),
-			attempt:       attempt,
-			root:          root,
+			runID:          runID,
+			taskID:         taskID,
+			parentTaskID:   parentTaskID,
+			taskKey:        taskKey,
+			name:           name,
+			taskAttemptID:  terminalSnapshotTaskAttemptID(root, rec.TaskAttemptID, taskID, attempt),
+			segmentID:      terminalSnapshotSegmentID(root, rec.SegmentID, taskID),
+			executionID:    executionID,
+			cellID:         normalizeTargetCellID(rec.CellID, owningCell),
+			status:         strings.TrimSpace(snapshot.Status),
+			attempt:        attempt,
+			acceptedAt:     snapshot.AcceptedAtUnixNano,
+			startedAt:      snapshot.StartedAtUnixNano,
+			finishedAt:     snapshot.FinishedAtUnixNano,
+			lastObservedAt: snapshot.LastObservedUnixNano,
+			eventSequence:  snapshot.EventSequence,
+			root:           root,
 		})
 	}
 
 	return rows, nil
+}
+
+func terminalSnapshotRootRows(rows []terminalSnapshotRow) []terminalSnapshotRow {
+	out := make([]terminalSnapshotRow, 0, 1)
+	for _, row := range rows {
+		if row.root {
+			out = append(out, row)
+		}
+	}
+
+	return out
 }
 
 func terminalSnapshotTaskAttemptID(root bool, snapshotAttemptID, taskID string, attempt int) string {
@@ -292,6 +314,121 @@ func insertTerminalSnapshotRowsTx(ctx context.Context, tx *sql.Tx, rows []termin
 	}
 
 	return nil
+}
+
+func insertTerminalSnapshotFinalFactsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
+	values := make([][]any, 0, len(rows))
+	observedAt := time.Now().UnixNano()
+	for _, row := range rows {
+		status := strings.TrimSpace(row.status)
+		if !isKnownExecutionStatus(status) {
+			return fmt.Errorf("%w: unsupported execution status %s", ErrConflict, status)
+		}
+
+		acceptedAt, startedAt, finishedAt, lastObservedAt := terminalSnapshotFactTimes(row, observedAt)
+		eventSequence := row.eventSequence
+		if eventSequence <= 0 {
+			eventSequence = 1
+		}
+
+		values = append(values, []any{
+			row.runID,
+			row.taskID,
+			nullableString(row.parentTaskID),
+			row.taskKey,
+			row.name,
+			status,
+			"",
+			row.taskAttemptID,
+			row.executionID,
+			status,
+			row.cellID,
+			row.attempt,
+			nullableInt64(acceptedAt),
+			nullableInt64(startedAt),
+			nullableInt64(finishedAt),
+			nullableInt64(lastObservedAt),
+			eventSequence,
+		})
+	}
+
+	return execBatchedValuesTx(ctx, tx, `
+		INSERT INTO run_task_final_facts (
+			run_id,
+			task_id,
+			parent_task_id,
+			task_key,
+			name,
+			status,
+			spec_hash,
+			task_attempt_id,
+			execution_id,
+			execution_status,
+			cell_id,
+			attempt,
+			accepted_at_unix_nano,
+			started_at_unix_nano,
+			finished_at_unix_nano,
+			last_observed_at,
+			event_sequence
+		)
+		VALUES `, values, `
+		ON CONFLICT(task_id) DO UPDATE SET
+			run_id = excluded.run_id,
+			parent_task_id = excluded.parent_task_id,
+			task_key = excluded.task_key,
+			name = excluded.name,
+			status = excluded.status,
+			spec_hash = excluded.spec_hash,
+			task_attempt_id = excluded.task_attempt_id,
+			execution_id = excluded.execution_id,
+			execution_status = excluded.execution_status,
+			cell_id = excluded.cell_id,
+			attempt = excluded.attempt,
+			accepted_at_unix_nano = COALESCE(excluded.accepted_at_unix_nano, run_task_final_facts.accepted_at_unix_nano),
+			started_at_unix_nano = COALESCE(excluded.started_at_unix_nano, run_task_final_facts.started_at_unix_nano),
+			finished_at_unix_nano = COALESCE(excluded.finished_at_unix_nano, run_task_final_facts.finished_at_unix_nano),
+			last_observed_at = COALESCE(excluded.last_observed_at, run_task_final_facts.last_observed_at),
+			event_sequence = excluded.event_sequence,
+			updated_at = CURRENT_TIMESTAMP
+	`)
+}
+
+func terminalSnapshotFactTimes(row terminalSnapshotRow, observedAt int64) (int64, int64, int64, int64) {
+	acceptedAt := row.acceptedAt
+	startedAt := row.startedAt
+	finishedAt := row.finishedAt
+
+	switch row.status {
+	case ExecutionStatusAccepted:
+		if acceptedAt <= 0 {
+			acceptedAt = observedAt
+		}
+	case ExecutionStatusRunning:
+		if acceptedAt <= 0 {
+			acceptedAt = observedAt
+		}
+		if startedAt <= 0 {
+			startedAt = acceptedAt
+		}
+	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
+		if acceptedAt <= 0 {
+			acceptedAt = observedAt
+		}
+		if startedAt <= 0 {
+			startedAt = acceptedAt
+		}
+		if finishedAt <= 0 {
+			finishedAt = observedAt
+		}
+	}
+
+	lastObservedAt := row.lastObservedAt
+	if lastObservedAt <= 0 && row.status != ExecutionStatusPlanned {
+		lastObservedAt = observedAt
+	}
+
+	return acceptedAt, startedAt, finishedAt, lastObservedAt
 }
 
 func insertTerminalSnapshotTasksTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
@@ -2262,6 +2399,15 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 		limit = 100
 	}
 
+	hasFacts, err := r.hasRunTaskFinalFacts(ctx, runID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if hasFacts {
+		return r.listRunTaskFinalFacts(ctx, runID, cursor, limit)
+	}
+
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		WITH page_tasks AS (
 			SELECT
@@ -2495,6 +2641,140 @@ func (r *SQLRunsRepository) attachExecutionSecurityEvents(ctx context.Context, r
 	return nil
 }
 
+func (r *SQLRunsRepository) hasRunTaskFinalFacts(ctx context.Context, runID string) (bool, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT id
+		FROM run_task_final_facts
+		WHERE run_id = ?
+		ORDER BY id ASC
+		LIMIT 1
+	`), runID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, normalizeSQLError(err)
+	}
+
+	return true, nil
+}
+
+func (r *SQLRunsRepository) listRunTaskFinalFacts(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			id,
+			task_id,
+			run_id,
+			parent_task_id,
+			task_key,
+			name,
+			status,
+			spec_hash,
+			CAST(created_at AS TEXT),
+			CAST(updated_at AS TEXT),
+			task_attempt_id,
+			execution_id,
+			execution_status,
+			cell_id,
+			attempt,
+			accepted_at_unix_nano,
+			started_at_unix_nano,
+			finished_at_unix_nano,
+			last_observed_at,
+			event_sequence,
+			CAST(created_at AS TEXT),
+			CAST(updated_at AS TEXT)
+		FROM run_task_final_facts
+		WHERE run_id = ?
+			AND (? <= 0 OR id > ?)
+		ORDER BY id ASC
+		LIMIT ?
+	`), runID, cursor, cursor, limit+1)
+	if err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	out := make([]TaskRecord, 0, limit)
+	for rows.Next() {
+		var rec TaskRecord
+		var parentTaskID, createdAt, updatedAt, attemptCreatedAt, attemptUpdatedAt sql.NullString
+		var attemptID, executionID, executionStatus, cellID string
+		var attempt sql.NullInt64
+		var acceptedAt, startedAt, finishedAt, lastObservedAt, eventSequence sql.NullInt64
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.TaskID,
+			&rec.RunID,
+			&parentTaskID,
+			&rec.TaskKey,
+			&rec.Name,
+			&rec.Status,
+			&rec.SpecHash,
+			&createdAt,
+			&updatedAt,
+			&attemptID,
+			&executionID,
+			&executionStatus,
+			&cellID,
+			&attempt,
+			&acceptedAt,
+			&startedAt,
+			&finishedAt,
+			&lastObservedAt,
+			&eventSequence,
+			&attemptCreatedAt,
+			&attemptUpdatedAt,
+		); err != nil {
+			return nil, 0, normalizeSQLError(err)
+		}
+
+		rec.ParentTaskID = nullStringPtr(parentTaskID)
+		rec.CreatedAt = nullStringPtr(createdAt)
+		rec.UpdatedAt = nullStringPtr(updatedAt)
+
+		attemptRec := TaskAttemptRecord{
+			AttemptID:       attemptID,
+			TaskID:          rec.TaskID,
+			RunID:           rec.RunID,
+			ExecutionID:     executionID,
+			ExecutionStatus: executionStatus,
+			CellID:          cellID,
+			Status:          rec.Status,
+			AcceptedAt:      unixNanoStringPtr(acceptedAt),
+			StartedAt:       unixNanoStringPtr(startedAt),
+			FinishedAt:      unixNanoStringPtr(finishedAt),
+			LastObservedAt:  nullInt64Ptr(lastObservedAt),
+			CreatedAt:       nullStringPtr(attemptCreatedAt),
+			UpdatedAt:       nullStringPtr(attemptUpdatedAt),
+		}
+
+		if attempt.Valid {
+			attemptRec.Attempt = int(attempt.Int64)
+		}
+
+		if eventSequence.Valid {
+			attemptRec.EventSequence = eventSequence.Int64
+		}
+
+		rec.Attempts = []TaskAttemptRecord{attemptRec}
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, normalizeSQLError(err)
+	}
+
+	var nextCursor int64
+	if len(out) > limit {
+		nextCursor = out[limit-1].ID
+		out = out[:limit]
+	}
+
+	return out, nextCursor, nil
+}
+
 func (r *SQLRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {
 	return r.ensureTaskExecution(ctx, create, TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned)
 }
@@ -2620,6 +2900,15 @@ func getRunTaskCompletionTx(ctx context.Context, tx *sql.Tx, runID string) (RunT
 }
 
 func getRunTaskCompletion(ctx context.Context, q runTaskCompletionQueryer, runID string) (RunTaskCompletion, error) {
+	hasFacts, err := queryHasRunTaskFinalFacts(ctx, q, runID)
+	if err != nil {
+		return RunTaskCompletion{}, err
+	}
+
+	if hasFacts {
+		return getRunTaskFinalFactsCompletion(ctx, q, runID)
+	}
+
 	var summary RunTaskCompletion
 	summary.RunID = runID
 	if err := q.QueryRowContext(ctx, rebindQueryForPgx(`
@@ -2630,6 +2919,48 @@ func getRunTaskCompletion(ctx context.Context, q runTaskCompletionQueryer, runID
 			COALESCE(SUM(CASE WHEN rt.status NOT IN (?, ?, ?, ?) THEN 1 ELSE 0 END), 0)
 		FROM job_runs jr
 		LEFT JOIN run_tasks rt ON rt.run_id = jr.run_id
+		WHERE jr.run_id = ?
+		GROUP BY jr.run_id
+	`),
+		TaskStatusSucceeded,
+		TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		TaskStatusSucceeded, TaskStatusFailed, TaskStatusCancelled, TaskStatusAborted,
+		runID,
+	).Scan(&summary.Total, &summary.Succeeded, &summary.TerminalFailed, &summary.Incomplete); err != nil {
+		if err == sql.ErrNoRows {
+			return RunTaskCompletion{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return RunTaskCompletion{}, normalizeSQLError(err)
+	}
+
+	return summary, nil
+}
+
+func queryHasRunTaskFinalFacts(ctx context.Context, q runTaskCompletionQueryer, runID string) (bool, error) {
+	var count int
+	if err := q.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COUNT(*)
+		FROM run_task_final_facts
+		WHERE run_id = ?
+	`), runID).Scan(&count); err != nil {
+		return false, normalizeSQLError(err)
+	}
+
+	return count > 0, nil
+}
+
+func getRunTaskFinalFactsCompletion(ctx context.Context, q runTaskCompletionQueryer, runID string) (RunTaskCompletion, error) {
+	var summary RunTaskCompletion
+	summary.RunID = runID
+	if err := q.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			COUNT(f.task_id),
+			COALESCE(SUM(CASE WHEN f.status = ? THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN f.status IN (?, ?, ?) THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN f.status NOT IN (?, ?, ?, ?) THEN 1 ELSE 0 END), 0)
+		FROM job_runs jr
+		LEFT JOIN run_task_final_facts f ON f.run_id = jr.run_id
 		WHERE jr.run_id = ?
 		GROUP BY jr.run_id
 	`),
@@ -3521,6 +3852,15 @@ func nullInt64Ptr(value sql.NullInt64) *int64 {
 	}
 
 	v := value.Int64
+	return &v
+}
+
+func unixNanoStringPtr(value sql.NullInt64) *string {
+	if !value.Valid || value.Int64 <= 0 {
+		return nil
+	}
+
+	v := time.Unix(0, value.Int64).UTC().Format(time.RFC3339Nano)
 	return &v
 }
 
@@ -4804,6 +5144,22 @@ func transitionTaskAttemptTx(
 
 func statusIn(status string, statuses []string) bool {
 	return slices.Contains(statuses, status)
+}
+
+func isKnownExecutionStatus(status string) bool {
+	switch status {
+	case ExecutionStatusPlanned,
+		ExecutionStatusPending,
+		ExecutionStatusAccepted,
+		ExecutionStatusRunning,
+		ExecutionStatusSucceeded,
+		ExecutionStatusFailed,
+		ExecutionStatusCancelled,
+		ExecutionStatusAborted:
+		return true
+	default:
+		return false
+	}
 }
 
 func isTerminalExecutionStatus(status string) bool {

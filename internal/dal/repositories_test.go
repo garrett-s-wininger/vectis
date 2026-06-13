@@ -2880,6 +2880,10 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 	childTaskID := runID + ":child"
 	childAttemptID := childTaskID + ":attempt:1"
 	childExecutionID := childAttemptID + ":execution"
+	acceptedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC).UnixNano()
+	startedAt := time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC).UnixNano()
+	finishedAt := time.Date(2026, 1, 2, 3, 4, 7, 0, time.UTC).UnixNano()
+
 	err = repos.Runs().ApplyTerminalExecutionSnapshot(ctx, dal.TerminalExecutionSnapshotUpdate{
 		RunID:   runID,
 		Outcome: dal.ExecutionFinalizationOutcomeRunSucceeded,
@@ -2897,7 +2901,10 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 					CellID:        root.CellID,
 					Attempt:       root.Attempt,
 				},
-				Status: dal.ExecutionStatusSucceeded,
+				Status:             dal.ExecutionStatusSucceeded,
+				AcceptedAtUnixNano: acceptedAt,
+				StartedAtUnixNano:  startedAt,
+				FinishedAtUnixNano: finishedAt,
 			},
 			{
 				Record: dal.TaskExecutionRecord{
@@ -2913,7 +2920,10 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 					CellID:        "local",
 					Attempt:       1,
 				},
-				Status: dal.ExecutionStatusSucceeded,
+				Status:             dal.ExecutionStatusSucceeded,
+				AcceptedAtUnixNano: acceptedAt,
+				StartedAtUnixNano:  startedAt,
+				FinishedAtUnixNano: finishedAt,
 			},
 		},
 	})
@@ -2923,9 +2933,46 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 	}
 
 	assertExecutionAndSegmentStatus(t, db, root.ExecutionID, root.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
-	assertExecutionAndSegmentStatus(t, db, childExecutionID, childTaskID+":segment", dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
 	assertTaskAndAttemptStatus(t, db, root.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
-	assertTaskAndAttemptStatus(t, db, childTaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
+
+	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
+	if err != nil {
+		t.Fatalf("list final task facts: %v", err)
+	}
+
+	var child *dal.TaskRecord
+	for i := range tasks {
+		if tasks[i].TaskID == childTaskID {
+			child = &tasks[i]
+			break
+		}
+	}
+
+	if child == nil {
+		t.Fatalf("child task missing from final facts: %+v", tasks)
+	}
+
+	if child.Status != dal.TaskStatusSucceeded || len(child.Attempts) != 1 {
+		t.Fatalf("unexpected child fact: %+v", child)
+	}
+
+	childAttempt := child.Attempts[0]
+	if childAttempt.AttemptID != childAttemptID || childAttempt.ExecutionID != childExecutionID || childAttempt.ExecutionStatus != dal.ExecutionStatusSucceeded {
+		t.Fatalf("unexpected child attempt fact: %+v", childAttempt)
+	}
+
+	if childAttempt.StartedAt == nil || *childAttempt.StartedAt != time.Unix(0, startedAt).UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("started_at fact: got %v", childAttempt.StartedAt)
+	}
+
+	summary, err := repos.Runs().GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		t.Fatalf("get final task completion: %v", err)
+	}
+
+	if summary.Total != 2 || summary.Succeeded != 2 || summary.Incomplete != 0 || summary.TerminalFailed != 0 {
+		t.Fatalf("unexpected completion from final facts: %+v", summary)
+	}
 
 	run, err := repos.Runs().GetRun(ctx, runID)
 	if err != nil {

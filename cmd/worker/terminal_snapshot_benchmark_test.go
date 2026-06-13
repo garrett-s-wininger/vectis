@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,16 @@ func BenchmarkWorker_PersistTerminalExecutionSnapshot(b *testing.B) {
 	}
 }
 
+func BenchmarkWorker_PersistTerminalExecutionSnapshot_ConcurrentShallowRuns(b *testing.B) {
+	for _, totalTasks := range []int{10, 25, 50} {
+		for _, concurrency := range []int{1, 8, 32} {
+			b.Run(fmt.Sprintf("total_tasks_%05d/concurrency_%03d", totalTasks, concurrency), func(b *testing.B) {
+				benchmarkWorkerPersistTerminalExecutionSnapshotConcurrent(b, totalTasks, concurrency)
+			})
+		}
+	}
+}
+
 func benchmarkWorkerPersistTerminalExecutionSnapshot(b *testing.B, totalTasks int) {
 	b.Helper()
 	if totalTasks <= 0 {
@@ -35,13 +46,7 @@ func benchmarkWorkerPersistTerminalExecutionSnapshot(b *testing.B, totalTasks in
 	ctx := context.Background()
 	db := newTerminalSnapshotBenchmarkDB(b)
 	runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
-	worker := &worker{
-		runCtx:        ctx,
-		logger:        interfaces.NewLogger("worker-terminal-snapshot-bench"),
-		workerID:      "worker-terminal-snapshot-bench",
-		store:         runs,
-		choreographer: terminalSnapshotBenchmarkChoreographer{},
-	}
+	worker := newTerminalSnapshotBenchmarkWorker(ctx, runs, "worker-terminal-snapshot-bench")
 
 	fixtures := make([]dal.ExecutionFinalizationResult, 0, b.N)
 	for i := 0; i < b.N; i++ {
@@ -66,6 +71,93 @@ func benchmarkWorkerPersistTerminalExecutionSnapshot(b *testing.B, totalTasks in
 		totalItems := float64(totalTasks * b.N)
 		b.ReportMetric(totalItems/elapsed.Seconds(), "snapshot_items/s")
 		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "terminal_snapshots/s")
+	}
+}
+
+func benchmarkWorkerPersistTerminalExecutionSnapshotConcurrent(b *testing.B, totalTasks, concurrency int) {
+	b.Helper()
+	if totalTasks <= 0 {
+		b.Fatal("totalTasks must be positive")
+	}
+
+	if concurrency <= 0 {
+		b.Fatal("concurrency must be positive")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	db := newTerminalSnapshotBenchmarkDB(b)
+	runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+
+	fixtures := make([]dal.ExecutionFinalizationResult, 0, b.N)
+	for i := 0; i < b.N; i++ {
+		fixtures = append(fixtures, terminalSnapshotBenchmarkFixture(b, ctx, runs, totalTasks, i))
+	}
+
+	b.ReportAllocs()
+	b.ReportMetric(float64(totalTasks), "snapshot_items")
+	b.ReportMetric(float64(max(0, totalTasks-1)), "materialized_children")
+	b.ReportMetric(float64(concurrency), "concurrent_workers")
+	b.ResetTimer()
+	start := time.Now()
+
+	workCh := make(chan dal.ExecutionFinalizationResult)
+	errCh := make(chan error, concurrency)
+	var wg sync.WaitGroup
+	for workerIndex := 0; workerIndex < concurrency; workerIndex++ {
+		wg.Add(1)
+		go func(workerIndex int) {
+			defer wg.Done()
+			worker := newTerminalSnapshotBenchmarkWorker(ctx, runs, fmt.Sprintf("worker-terminal-snapshot-bench-%d", workerIndex))
+			for fixture := range workCh {
+				if err := worker.persistTerminalExecutionSnapshot(ctx, fixture, "", ""); err != nil {
+					select {
+					case errCh <- fmt.Errorf("persist terminal snapshot for run %s: %w", fixture.RunID, err):
+					default:
+					}
+					cancel()
+					return
+				}
+			}
+		}(workerIndex)
+	}
+
+sendLoop:
+	for _, fixture := range fixtures {
+		select {
+		case workCh <- fixture:
+		case <-ctx.Done():
+			break sendLoop
+		}
+	}
+
+	close(workCh)
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	select {
+	case err := <-errCh:
+		b.Fatal(err)
+	default:
+	}
+
+	if elapsed > 0 {
+		totalItems := float64(totalTasks * b.N)
+		b.ReportMetric(totalItems/elapsed.Seconds(), "snapshot_items/s")
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "terminal_snapshots/s")
+	}
+}
+
+func newTerminalSnapshotBenchmarkWorker(ctx context.Context, runs dal.RunsRepository, workerID string) *worker {
+	return &worker{
+		runCtx:        ctx,
+		logger:        interfaces.NewLogger(workerID),
+		workerID:      workerID,
+		store:         runs,
+		choreographer: terminalSnapshotBenchmarkChoreographer{},
 	}
 }
 
