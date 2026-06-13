@@ -2675,6 +2675,49 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_ActivatesChildren
 	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
 }
 
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_RejectsDuplicateAfterActivatingChildren(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "continued-duplicate")
+
+	child, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        setup.RunID,
+		ParentTaskID: setup.Dispatch.TaskID,
+		TaskKey:      "child",
+		SpecHash:     "sha256:child",
+	})
+
+	if err != nil {
+		t.Fatalf("ensure child: %v", err)
+	}
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim continued: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeContinued || result.Activated != 1 || len(result.Children) != 1 {
+		t.Fatalf("continued result mismatch: %+v", result)
+	}
+
+	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(err) {
+		t.Fatalf("expected duplicate completion conflict, got %v", err)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+
+	if !found || status != dal.RunStatusQueued {
+		t.Fatalf("run should remain queued after duplicate finalization: found=%v status=%q", found, status)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+}
+
 func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_RejectsStaleClaim(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

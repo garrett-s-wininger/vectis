@@ -2038,6 +2038,19 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 		t.Fatal("expected materialized child execution")
 	}
 
+	rootClaim, err := runs.TryClaimExecution(ctx, rootDispatch.ExecutionID, "root-worker", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim root execution: %v", err)
+	}
+
+	if !rootClaim.Claimed || rootClaim.ClaimToken == "" {
+		t.Fatalf("expected root execution claim, got %+v", rootClaim)
+	}
+
+	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, rootDispatch.ExecutionID, "root-worker", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); err != nil {
+		t.Fatalf("complete root execution: %v", err)
+	}
+
 	rootReq := &api.JobRequest{Job: j}
 	rootEnv, err := cell.AttachExecutionEnvelope(rootReq, rootDispatch, 1)
 	if err != nil {

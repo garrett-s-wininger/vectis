@@ -1839,7 +1839,7 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.
 		return dal.ExecutionFinalizationResult{}, err
 	}
 
-	if err := validateMirroredFinalizationResult(result, durable); err != nil {
+	if err := dal.ValidateMirroredExecutionFinalization(result, durable); err != nil {
 		return dal.ExecutionFinalizationResult{}, err
 	}
 
@@ -1910,17 +1910,6 @@ func (w *worker) mirrorExecutionFinalizationWithRetry(ctx context.Context, env *
 	}
 
 	return dal.ExecutionFinalizationResult{}, lastErr
-}
-
-func validateMirroredFinalizationResult(hot, durable dal.ExecutionFinalizationResult) error {
-	if hot.ExecutionID != "" && durable.ExecutionID != hot.ExecutionID {
-		return fmt.Errorf("durable execution finalization mismatch: hot execution %s durable execution %s", hot.ExecutionID, durable.ExecutionID)
-	}
-	if hot.RunID != "" && durable.RunID != hot.RunID {
-		return fmt.Errorf("durable execution finalization mismatch: hot run %s durable run %s", hot.RunID, durable.RunID)
-	}
-
-	return nil
 }
 
 func (w *worker) recordRunCatalogEventForExecutionFinalization(result dal.ExecutionFinalizationResult, failureCode, reason string) {

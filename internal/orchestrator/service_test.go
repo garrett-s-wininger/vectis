@@ -378,6 +378,54 @@ func TestServiceCompleteExecutionActivatesChildrenInMemory(t *testing.T) {
 	}
 }
 
+func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *testing.T) {
+	ctx := context.Background()
+	clock := newManualClock()
+	svc := orchestrator.New(2, orchestrator.WithClock(clock))
+	t.Cleanup(svc.Close)
+
+	loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+		RunID: "run-duplicate-completion",
+		Tasks: []orchestrator.TaskSpec{{
+			TaskKey:       "build",
+			ParentTaskKey: dal.RootTaskKey,
+			Name:          "build",
+			CellID:        "iad-a",
+		}},
+	})
+
+	if err != nil {
+		t.Fatalf("load run: %v", err)
+	}
+
+	rootClaim, err := svc.ClaimExecution(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", clock.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim root: %v", err)
+	}
+
+	rootResult, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("complete root: %v", err)
+	}
+
+	if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || rootResult.Activated != 1 || len(rootResult.Children) != 1 {
+		t.Fatalf("root result: %+v", rootResult)
+	}
+
+	if _, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-root", rootClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !errors.Is(err, dal.ErrConflict) {
+		t.Fatalf("expected duplicate completion conflict, got %v", err)
+	}
+
+	pending, err := svc.ListPending(ctx, loaded.RunID, 10)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+
+	if len(pending) != 1 || pending[0].ExecutionID != rootResult.Children[0].ExecutionID {
+		t.Fatalf("pending children after duplicate completion = %+v, want only %+v", pending, rootResult.Children[0])
+	}
+}
+
 func orchestratorTestRecord(runID, taskKey, parentTaskKey, name, cellID string) dal.TaskExecutionRecord {
 	taskID := runID + ":" + taskKey
 	parentTaskID := ""
