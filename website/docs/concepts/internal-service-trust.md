@@ -99,7 +99,9 @@ Service identity authorization is configured with comma-separated exact SPIFFE I
 | `VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES` / `service_identity.queue_allowed_client_identities` | Queue gRPC |
 | `VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES` / `service_identity.log_allowed_client_identities` | Log gRPC |
 | `VECTIS_SERVICE_IDENTITY_ARTIFACT_ALLOWED_CLIENT_IDENTITIES` / `service_identity.artifact_allowed_client_identities` | Artifact gRPC |
+| `VECTIS_SERVICE_IDENTITY_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES` / `service_identity.orchestrator_allowed_client_identities` | Orchestrator gRPC |
 | `VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES` / `service_identity.worker_control_allowed_client_identities` | Worker-control gRPC |
+| `VECTIS_SERVICE_IDENTITY_SECRETS_ALLOWED_CLIENT_IDENTITIES` / `service_identity.secrets_allowed_client_identities` | Secrets gRPC |
 | `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` / `service_identity.cell_ingress_allowed_producer_identities` | Cell ingress `POST /cell/v1/executions` |
 
 Each entry must be a `spiffe://` URI with a trust domain and workload path, such as `spiffe://prod.example/vectis/api`. Matching is exact after URI normalization. If any allowlist above is non-empty, startup fails unless `VECTIS_GRPC_TLS_INSECURE=false` and the listener has `VECTIS_GRPC_TLS_CLIENT_CA_FILE` so peer certificates are verified. Clients must present `VECTIS_GRPC_TLS_CLIENT_CERT_FILE` / `VECTIS_GRPC_TLS_CLIENT_KEY_FILE` material that contains one of the listener's allowed URI SANs.

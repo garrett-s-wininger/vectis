@@ -462,6 +462,8 @@ func (m *Material) EnvVars() []string {
 		"VECTIS_SERVICE_IDENTITY_REGISTRY_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_ARTIFACT_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES=" + LocalServiceIdentity,
 	}
@@ -483,6 +485,8 @@ func (m *Material) ApplyParentViper(set func(key string, value any)) {
 	set("service_identity.registry_allowed_client_identities", []string{LocalServiceIdentity})
 	set("service_identity.queue_allowed_client_identities", []string{LocalServiceIdentity})
 	set("service_identity.log_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.artifact_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.orchestrator_allowed_client_identities", []string{LocalServiceIdentity})
 	set("service_identity.worker_control_allowed_client_identities", []string{LocalServiceIdentity})
 	set("service_identity.cell_ingress_allowed_producer_identities", []string{LocalServiceIdentity})
 }

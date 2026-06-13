@@ -364,6 +364,7 @@ type ServiceIdentityDefaults struct {
 	QueueAllowedClientIdentities         []string `toml:"queue_allowed_client_identities"`
 	LogAllowedClientIdentities           []string `toml:"log_allowed_client_identities"`
 	ArtifactAllowedClientIdentities      []string `toml:"artifact_allowed_client_identities"`
+	OrchestratorAllowedClientIdentities  []string `toml:"orchestrator_allowed_client_identities"`
 	WorkerControlAllowedClientIdentities []string `toml:"worker_control_allowed_client_identities"`
 	SecretsAllowedClientIdentities       []string `toml:"secrets_allowed_client_identities"`
 	CellIngressAllowedProducerIdentities []string `toml:"cell_ingress_allowed_producer_identities"`
@@ -792,6 +793,7 @@ func validateDefaults(d Defaults) {
 		"queue_allowed_client_identities":          d.ServiceID.QueueAllowedClientIdentities,
 		"log_allowed_client_identities":            d.ServiceID.LogAllowedClientIdentities,
 		"artifact_allowed_client_identities":       d.ServiceID.ArtifactAllowedClientIdentities,
+		"orchestrator_allowed_client_identities":   d.ServiceID.OrchestratorAllowedClientIdentities,
 		"worker_control_allowed_client_identities": d.ServiceID.WorkerControlAllowedClientIdentities,
 		"secrets_allowed_client_identities":        d.ServiceID.SecretsAllowedClientIdentities,
 		"cell_ingress_allowed_producer_identities": d.ServiceID.CellIngressAllowedProducerIdentities,

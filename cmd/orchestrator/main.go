@@ -57,7 +57,7 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to listen: %v", err)
 	}
 
-	srvOpts, err := config.GRPCServerOptions()
+	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleOrchestrator)
 	if err != nil {
 		logger.Fatal("grpc tls: %v", err)
 	}

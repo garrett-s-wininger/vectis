@@ -32,7 +32,7 @@ func TestEnsure_generatesMaterial(t *testing.T) {
 	}
 
 	ev := m.EnvVars()
-	if len(ev) != 13 {
+	if len(ev) != 15 {
 		t.Fatalf("env vars: %d", len(ev))
 	}
 
@@ -56,6 +56,8 @@ func TestEnsure_generatesMaterial(t *testing.T) {
 		"VECTIS_SERVICE_IDENTITY_REGISTRY_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_ARTIFACT_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
 		"VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES=" + LocalServiceIdentity,
 	} {
@@ -113,6 +115,10 @@ func TestMaterial_ApplyParentViper_setsTLSAndServerName(t *testing.T) {
 
 	if got := viper.GetStringSlice("service_identity.queue_allowed_client_identities"); !slices.Contains(got, LocalServiceIdentity) {
 		t.Fatalf("service identity queue allowlist = %v, want %q", got, LocalServiceIdentity)
+	}
+
+	if got := viper.GetStringSlice("service_identity.orchestrator_allowed_client_identities"); !slices.Contains(got, LocalServiceIdentity) {
+		t.Fatalf("service identity orchestrator allowlist = %v, want %q", got, LocalServiceIdentity)
 	}
 }
 

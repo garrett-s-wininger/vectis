@@ -204,7 +204,7 @@ func grpcServiceIdentityAllowlist(role ServiceIdentityRole) ([]string, error) {
 	switch role {
 	case ServiceIdentityRoleNone:
 		return nil, nil
-	case ServiceIdentityRoleRegistry, ServiceIdentityRoleQueue, ServiceIdentityRoleLog, ServiceIdentityRoleArtifact, ServiceIdentityRoleWorkerControl, ServiceIdentityRoleSecrets:
+	case ServiceIdentityRoleRegistry, ServiceIdentityRoleQueue, ServiceIdentityRoleLog, ServiceIdentityRoleArtifact, ServiceIdentityRoleOrchestrator, ServiceIdentityRoleWorkerControl, ServiceIdentityRoleSecrets:
 	default:
 		return nil, fmt.Errorf("service_identity: unknown gRPC service identity role %d", role)
 	}
@@ -222,6 +222,8 @@ func serviceIdentityAllowlistLabel(role ServiceIdentityRole) string {
 		return "service_identity.log_allowed_client_identities"
 	case ServiceIdentityRoleArtifact:
 		return "service_identity.artifact_allowed_client_identities"
+	case ServiceIdentityRoleOrchestrator:
+		return "service_identity.orchestrator_allowed_client_identities"
 	case ServiceIdentityRoleWorkerControl:
 		return "service_identity.worker_control_allowed_client_identities"
 	case ServiceIdentityRoleSecrets:

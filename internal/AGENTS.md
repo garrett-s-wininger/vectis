@@ -80,7 +80,7 @@ Secure browser sessions use only `__Host-` session/CSRF cookie names with `Secur
 
 - **Defaults:** [`defaults.toml`](config/defaults.toml) (`//go:embed` in `config/load.go`).
 - **Validators:** `Validate*` functions sit alongside the options struct they guard (e.g. `api_auth.go` has `ValidateAPIAuthConfig`, `grpc_tls.go` has `ValidateTLSOptions`). Validators return a descriptive error string — callers log them at startup and exit.
-- **Service identity:** gRPC servers should use `GRPCServerOptionsForRole`, not the compatibility `GRPCServerOptions`, so configured SPIFFE URI SAN allowlists are enforced for registry, queue, log, and worker-control listeners.
+- **Service identity:** gRPC servers should use `GRPCServerOptionsForRole`, not the compatibility `GRPCServerOptions`, so configured SPIFFE URI SAN allowlists are enforced for registry, queue, log, artifact, orchestrator, worker-control, and secrets listeners.
 - **Binaries wire flags** in `cmd/*/main.go` and read via helpers in `config/*.go` (e.g. `config.APIPort()`, `config.GRPCTLSEnabled()`).
 - **Env override:** use `BindEnv` helpers or `viper.SetEnvPrefix` + `AutomaticEnv()` per binary. Ad-hoc env vars (no prefix, e.g. `VECTIS_API_TOKEN`) are read via `os.Getenv` in the relevant package — see `api_auth.go`.
 

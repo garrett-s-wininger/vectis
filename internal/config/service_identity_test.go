@@ -59,6 +59,22 @@ func TestServiceIdentityAllowedClientIdentitiesArtifactFromViper(t *testing.T) {
 	}
 }
 
+func TestServiceIdentityAllowedClientIdentitiesOrchestratorFromViper(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("service_identity.orchestrator_allowed_client_identities", []string{
+		"spiffe://vectis.local/service/worker",
+	})
+
+	got := ServiceIdentityAllowedClientIdentities(ServiceIdentityRoleOrchestrator)
+	want := []string{"spiffe://vectis.local/service/worker"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ServiceIdentityAllowedClientIdentities orchestrator = %v, want %v", got, want)
+	}
+}
+
 func TestGRPCServerOptionsForRoleRejectsInvalidServiceIdentity(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
