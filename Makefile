@@ -162,24 +162,26 @@ DEPLOY_LINUX_OUT ?= artifacts/deploy/linux
 deploy-artifacts-render:
 	go run ./cmd/cli deploy linux render --output $(DEPLOY_LINUX_OUT)
 
-LIMA_INSTANCE ?= vectis-deploy-smoke
-LIMA_TEMPLATE ?= ubuntu-lts
+DEPLOY_LINUX_PROVIDER ?= auto
+DEPLOY_LINUX_PROVIDER_PATH ?=
+DEPLOY_LINUX_INSTANCE ?=
+DEPLOY_LINUX_TEMPLATE ?=
 
-.PHONY: deploy-linux-lima-verify
-deploy-linux-lima-verify:
-	go run ./cmd/cli deploy linux lima verify --instance $(LIMA_INSTANCE) --template $(LIMA_TEMPLATE)
+.PHONY: deploy-linux-verify
+deploy-linux-verify:
+	go run ./cmd/cli deploy linux verify --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)" --template "$(DEPLOY_LINUX_TEMPLATE)"
 
-.PHONY: deploy-linux-lima-clean
-deploy-linux-lima-clean:
-	go run ./cmd/cli deploy linux lima clean --instance $(LIMA_INSTANCE)
+.PHONY: deploy-linux-clean
+deploy-linux-clean:
+	go run ./cmd/cli deploy linux clean --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)"
 
-.PHONY: deploy-linux-lima-down
-deploy-linux-lima-down:
-	go run ./cmd/cli deploy linux lima down --instance $(LIMA_INSTANCE)
+.PHONY: deploy-linux-down
+deploy-linux-down:
+	go run ./cmd/cli deploy linux down --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)"
 
-.PHONY: deploy-linux-lima-delete
-deploy-linux-lima-delete:
-	go run ./cmd/cli deploy linux lima delete --instance $(LIMA_INSTANCE)
+.PHONY: deploy-linux-delete
+deploy-linux-delete:
+	go run ./cmd/cli deploy linux delete --provider $(DEPLOY_LINUX_PROVIDER) --provider-path "$(DEPLOY_LINUX_PROVIDER_PATH)" --instance "$(DEPLOY_LINUX_INSTANCE)"
 
 .PHONY: website-a11y
 website-a11y:

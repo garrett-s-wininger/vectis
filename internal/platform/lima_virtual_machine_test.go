@@ -25,6 +25,21 @@ func TestVirtualMachineManagerUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestVirtualMachineProviderAutoResolvesToDefault(t *testing.T) {
+	if got := ResolveVirtualMachineProvider(VirtualMachineProviderAuto); got != VirtualMachineProviderLima {
+		t.Fatalf("auto provider = %q, want %q", got, VirtualMachineProviderLima)
+	}
+
+	manager, err := NewVirtualMachineManager(VirtualMachineManagerConfig{Provider: VirtualMachineProviderAuto})
+	if err != nil {
+		t.Fatalf("new VM manager with auto provider: %v", err)
+	}
+
+	if got := manager.Provider(); got != VirtualMachineProviderLima {
+		t.Fatalf("manager provider = %q, want %q", got, VirtualMachineProviderLima)
+	}
+}
+
 func TestLimaVirtualMachineManagerProvider(t *testing.T) {
 	manager, err := NewVirtualMachineManager(VirtualMachineManagerConfig{Provider: VirtualMachineProviderLima})
 	if err != nil {

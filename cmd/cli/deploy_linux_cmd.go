@@ -8,18 +8,21 @@ import (
 
 	"github.com/spf13/cobra"
 	linuxdeploy "vectis/deploy/linux"
+	"vectis/internal/platform"
 )
 
 var (
-	linuxManifestPath      = linuxdeploy.DefaultManifestPath
-	linuxRenderOut         = linuxdeploy.DefaultArtifactDir
-	linuxLimaInstance      = linuxdeploy.DefaultLimaInstance
-	linuxLimaTemplate      = linuxdeploy.DefaultLimaTemplate
-	linuxLimaArtifactDir   string
-	linuxLimaKeepArtifacts bool
+	linuxManifestPath        = linuxdeploy.DefaultManifestPath
+	linuxRenderOut           = linuxdeploy.DefaultArtifactDir
+	linuxDeployProvider      = platform.VirtualMachineProviderAuto
+	linuxDeployProviderPath  string
+	linuxDeployInstance      string
+	linuxDeployTemplate      string
+	linuxDeployArtifactDir   string
+	linuxDeployKeepArtifacts bool
 )
 
-type linuxLimaCommandResult struct {
+type linuxDeployCommandResult struct {
 	Status        string `json:"status"`
 	Provider      string `json:"provider,omitempty"`
 	Instance      string `json:"instance"`
@@ -48,45 +51,44 @@ func runDeployLinuxRender(cmd *cobra.Command, args []string) {
 	fmt.Printf("Rendered Linux artifacts: %s (%d files)\n", result.OutputDir, result.Files)
 }
 
-func runDeployLinuxLimaVerify(cmd *cobra.Command, args []string) {
-	result, stdout, stderr, err := runLinuxLima(cmd, linuxdeploy.RunLimaVerify)
+func runDeployLinuxVerify(cmd *cobra.Command, args []string) {
+	result, stdout, stderr, err := runLinuxDeploy(cmd, "", linuxdeploy.RunVMSmokeVerify)
 	runCLIError(err)
-	text := fmt.Sprintf("Verified Linux systemd artifacts in Lima instance %s.", result.Instance)
-	if result.GuestCleaned {
-		text += " Guest smoke artifacts were cleaned."
-	}
-	if result.LocalCleaned {
-		text += " Local rendered artifacts were removed."
-	}
-	writeLinuxLimaResult(result, stdout, stderr, text)
+	writeLinuxDeployResult(result, stdout, stderr, linuxDeployVerifyText(result))
 }
 
-func runDeployLinuxLimaClean(cmd *cobra.Command, args []string) {
-	result, stdout, stderr, err := runLinuxLima(cmd, linuxdeploy.RunLimaClean)
+func runDeployLinuxClean(cmd *cobra.Command, args []string) {
+	result, stdout, stderr, err := runLinuxDeploy(cmd, "", linuxdeploy.RunVMSmokeClean)
 	runCLIError(err)
-	writeLinuxLimaResult(result, stdout, stderr, fmt.Sprintf("Cleaned Linux systemd artifacts from Lima instance %s.", result.Instance))
+	writeLinuxDeployResult(result, stdout, stderr, fmt.Sprintf("Cleaned Linux systemd artifacts from %s instance %s.", linuxDeployProviderDisplay(result.Provider), result.Instance))
 }
 
-func runDeployLinuxLimaDown(cmd *cobra.Command, args []string) {
-	result, stdout, stderr, err := runLinuxLima(cmd, linuxdeploy.RunLimaDown)
+func runDeployLinuxDown(cmd *cobra.Command, args []string) {
+	result, stdout, stderr, err := runLinuxDeploy(cmd, "", linuxdeploy.RunVMSmokeDown)
 	runCLIError(err)
-	writeLinuxLimaResult(result, stdout, stderr, fmt.Sprintf("Stopped Lima instance %s.", result.Instance))
+	writeLinuxDeployResult(result, stdout, stderr, fmt.Sprintf("Stopped %s instance %s.", linuxDeployProviderDisplay(result.Provider), result.Instance))
 }
 
-func runDeployLinuxLimaDelete(cmd *cobra.Command, args []string) {
-	result, stdout, stderr, err := runLinuxLima(cmd, linuxdeploy.RunLimaDelete)
+func runDeployLinuxDelete(cmd *cobra.Command, args []string) {
+	result, stdout, stderr, err := runLinuxDeploy(cmd, "", linuxdeploy.RunVMSmokeDelete)
 	runCLIError(err)
-	writeLinuxLimaResult(result, stdout, stderr, fmt.Sprintf("Deleted Lima instance %s.", result.Instance))
+	writeLinuxDeployResult(result, stdout, stderr, fmt.Sprintf("Deleted %s instance %s.", linuxDeployProviderDisplay(result.Provider), result.Instance))
 }
 
-func runLinuxLima(cmd *cobra.Command, run func(ctx context.Context, opts linuxdeploy.LimaOptions) (linuxdeploy.LimaResult, error)) (linuxdeploy.LimaResult, string, string, error) {
+func runLinuxDeploy(cmd *cobra.Command, provider string, run func(ctx context.Context, opts linuxdeploy.VMSmokeOptions) (linuxdeploy.VMSmokeResult, error)) (linuxdeploy.VMSmokeResult, string, string, error) {
 	var stdout, stderr bytes.Buffer
-	opts := linuxdeploy.LimaOptions{
-		Instance:      linuxLimaInstance,
-		Template:      linuxLimaTemplate,
-		ArtifactDir:   linuxLimaArtifactDir,
+	if provider == "" {
+		provider = linuxDeployProvider
+	}
+
+	opts := linuxdeploy.VMSmokeOptions{
+		Provider:      provider,
+		ProviderPath:  linuxDeployProviderPath,
+		Instance:      linuxDeployInstance,
+		Template:      linuxDeployTemplate,
+		ArtifactDir:   linuxDeployArtifactDir,
 		ManifestPath:  linuxManifestPath,
-		KeepArtifacts: linuxLimaKeepArtifacts,
+		KeepArtifacts: linuxDeployKeepArtifacts,
 	}
 
 	if outputIsJSON() {
@@ -105,9 +107,30 @@ func runLinuxLima(cmd *cobra.Command, run func(ctx context.Context, opts linuxde
 	return result, "", "", err
 }
 
-func writeLinuxLimaResult(result linuxdeploy.LimaResult, stdout, stderr, text string) {
+func linuxDeployVerifyText(result linuxdeploy.VMSmokeResult) string {
+	text := fmt.Sprintf("Verified Linux systemd artifacts in %s instance %s.", linuxDeployProviderDisplay(result.Provider), result.Instance)
+	if result.GuestCleaned {
+		text += " Guest smoke artifacts were cleaned."
+	}
+	if result.LocalCleaned {
+		text += " Local rendered artifacts were removed."
+	}
+
+	return text
+}
+
+func linuxDeployProviderDisplay(provider string) string {
+	switch provider {
+	case platform.VirtualMachineProviderLima:
+		return "Lima"
+	default:
+		return provider
+	}
+}
+
+func writeLinuxDeployResult(result linuxdeploy.VMSmokeResult, stdout, stderr, text string) {
 	if outputIsJSON() {
-		runCLIError(writeJSON(os.Stdout, linuxLimaCommandResult{
+		runCLIError(writeJSON(os.Stdout, linuxDeployCommandResult{
 			Status:        result.Status,
 			Provider:      result.Provider,
 			Instance:      result.Instance,
@@ -126,6 +149,22 @@ func writeLinuxLimaResult(result linuxdeploy.LimaResult, stdout, stderr, text st
 	fmt.Println(text)
 }
 
+func configureDeployLinuxBackendFlags(cmd *cobra.Command, includeProvider bool) {
+	if includeProvider {
+		cmd.Flags().StringVar(&linuxDeployProvider, "provider", linuxDeployProvider, "Backend provider for Linux deploy smoke tests: auto or lima")
+	}
+
+	cmd.Flags().StringVar(&linuxDeployProviderPath, "provider-path", linuxDeployProviderPath, "Path to the backend provider command")
+	cmd.Flags().StringVar(&linuxDeployInstance, "instance", linuxDeployInstance, "Backend instance name for Linux deploy smoke tests")
+}
+
+func configureDeployLinuxVerifyFlags(cmd *cobra.Command, includeProvider bool) {
+	configureDeployLinuxBackendFlags(cmd, includeProvider)
+	cmd.Flags().StringVar(&linuxDeployTemplate, "template", linuxDeployTemplate, "Backend template used when creating the Linux deploy smoke instance")
+	cmd.Flags().StringVar(&linuxDeployArtifactDir, "artifacts", linuxDeployArtifactDir, "Optional directory where rendered Linux artifacts are written before copying into the backend; defaults to a temporary directory")
+	cmd.Flags().BoolVar(&linuxDeployKeepArtifacts, "keep-artifacts", false, "Leave rendered artifacts and installed smoke files in place after verification")
+}
+
 var deployLinuxCmd = &cobra.Command{
 	Use:   "linux",
 	Short: "Render and test Linux service artifacts",
@@ -139,36 +178,30 @@ var deployLinuxRenderCmd = &cobra.Command{
 	Run:   runDeployLinuxRender,
 }
 
-var deployLinuxLimaCmd = &cobra.Command{
-	Use:   "lima",
-	Short: "Run Linux artifact smoke tests in a Lima VM",
-	Run:   showCommandHelp,
-}
-
-var deployLinuxLimaVerifyCmd = &cobra.Command{
+var deployLinuxVerifyCmd = &cobra.Command{
 	Use:   "verify",
-	Short: "Verify Linux service artifacts on a real systemd host in Lima",
+	Short: "Verify Linux service artifacts on a real systemd host",
 	Args:  cobra.NoArgs,
-	Run:   runDeployLinuxLimaVerify,
+	Run:   runDeployLinuxVerify,
 }
 
-var deployLinuxLimaCleanCmd = &cobra.Command{
+var deployLinuxCleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Remove Vectis smoke artifacts from the Lima guest",
+	Short: "Remove Vectis Linux smoke artifacts from the selected backend",
 	Args:  cobra.NoArgs,
-	Run:   runDeployLinuxLimaClean,
+	Run:   runDeployLinuxClean,
 }
 
-var deployLinuxLimaDownCmd = &cobra.Command{
+var deployLinuxDownCmd = &cobra.Command{
 	Use:   "down",
-	Short: "Stop the Linux deploy Lima instance",
+	Short: "Stop the Linux deploy backend",
 	Args:  cobra.NoArgs,
-	Run:   runDeployLinuxLimaDown,
+	Run:   runDeployLinuxDown,
 }
 
-var deployLinuxLimaDeleteCmd = &cobra.Command{
+var deployLinuxDeleteCmd = &cobra.Command{
 	Use:   "delete",
-	Short: "Delete the Linux deploy Lima instance",
+	Short: "Delete the Linux deploy backend",
 	Args:  cobra.NoArgs,
-	Run:   runDeployLinuxLimaDelete,
+	Run:   runDeployLinuxDelete,
 }

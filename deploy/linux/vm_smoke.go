@@ -19,6 +19,8 @@ const (
 	vmSmokeMarkerSource      = "smoke/.vectis-linux-smoke"
 	vmSmokeMarkerDestination = "/etc/vectis/.vectis-linux-smoke"
 	vmSmokeBinDir            = "smoke/bin"
+	defaultLimaInstance      = "vectis-deploy-smoke"
+	defaultLimaTemplate      = "ubuntu-lts"
 )
 
 type VMSmokeOptions struct {
@@ -220,8 +222,8 @@ func normalizeVMSmokeOptions(opts VMSmokeOptions) (VMSmokeOptions, error) {
 		opts.Provider = opts.Manager.Provider()
 	}
 
-	if opts.Provider == "" {
-		opts.Provider = platform.VirtualMachineProviderLima
+	if opts.Manager == nil {
+		opts.Provider = platform.ResolveVirtualMachineProvider(opts.Provider)
 	}
 
 	if opts.Manager == nil {
@@ -270,7 +272,7 @@ func prepareVMSmokeArtifactDir(opts *VMSmokeOptions) (bool, error) {
 func defaultVMSmokeInstance(provider string) string {
 	switch provider {
 	case platform.VirtualMachineProviderLima:
-		return DefaultLimaInstance
+		return defaultLimaInstance
 	default:
 		return ""
 	}
@@ -279,7 +281,7 @@ func defaultVMSmokeInstance(provider string) string {
 func defaultVMSmokeTemplate(provider string) string {
 	switch provider {
 	case platform.VirtualMachineProviderLima:
-		return DefaultLimaTemplate
+		return defaultLimaTemplate
 	default:
 		return ""
 	}

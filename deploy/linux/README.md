@@ -71,12 +71,13 @@ make deploy-artifacts-render DEPLOY_LINUX_OUT=artifacts/deploy/linux
 
 ## Linux VM Validation On macOS
 
-When Lima is installed, macOS developers can run the rendered artifacts through
-real Linux systemd without leaving the workstation:
+When a supported backend is available, macOS developers can run the rendered
+artifacts through real Linux systemd without leaving the workstation. The
+platform layer selects the backend automatically; Lima is the first provider:
 
 ```sh
-go run ./cmd/cli deploy linux lima verify
-make deploy-linux-lima-verify
+go run ./cmd/cli deploy linux verify
+make deploy-linux-verify
 ```
 
 This creates or starts a Lima instance named `vectis-deploy-smoke` from the
@@ -95,19 +96,19 @@ The Lima lane verifies that the generated files are accepted by a real Linux
 systemd host. It does not yet prove a full Vectis process stack with real
 binaries and Postgres. That is the next smoke profile.
 
-The CLI still exposes this as `deploy linux lima ...`, but the host VM operations
-run through `internal/platform` so additional local VM backends can reuse the
+Pass `--provider lima` when you want to force a specific backend. Host
+operations run through `internal/platform` so additional backends can reuse the
 same render/install/verify/cleanup flow.
 
 Useful cleanup commands for interrupted runs or `--keep-artifacts` sessions:
 
 ```sh
-go run ./cmd/cli deploy linux lima clean
-go run ./cmd/cli deploy linux lima down
-go run ./cmd/cli deploy linux lima delete
-make deploy-linux-lima-clean
-make deploy-linux-lima-down
-make deploy-linux-lima-delete
+go run ./cmd/cli deploy linux clean
+go run ./cmd/cli deploy linux down
+go run ./cmd/cli deploy linux delete
+make deploy-linux-clean
+make deploy-linux-down
+make deploy-linux-delete
 ```
 
 ## Manual Install Sketch

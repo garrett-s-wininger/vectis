@@ -9,7 +9,10 @@ import (
 	"vectis/internal/interfaces"
 )
 
-const VirtualMachineProviderLima = "lima"
+const (
+	VirtualMachineProviderAuto = "auto"
+	VirtualMachineProviderLima = "lima"
+)
 
 // VirtualMachineCommand describes a process that should run inside a VM.
 type VirtualMachineCommand struct {
@@ -62,7 +65,7 @@ type VirtualMachineCommandExecutor struct {
 }
 
 func NewVirtualMachine(config VirtualMachineConfig) (VirtualMachine, error) {
-	switch provider := strings.ToLower(strings.TrimSpace(config.Provider)); provider {
+	switch provider := ResolveVirtualMachineProvider(config.Provider); provider {
 	case VirtualMachineProviderLima:
 		return newLimaVirtualMachine(limaVirtualMachineConfig{
 			instance:           config.Instance,
@@ -77,12 +80,25 @@ func NewVirtualMachine(config VirtualMachineConfig) (VirtualMachine, error) {
 }
 
 func NewVirtualMachineManager(config VirtualMachineManagerConfig) (VirtualMachineManager, error) {
-	switch provider := strings.ToLower(strings.TrimSpace(config.Provider)); provider {
+	switch provider := ResolveVirtualMachineProvider(config.Provider); provider {
 	case VirtualMachineProviderLima:
 		return newLimaVirtualMachineManager(config)
 	default:
 		return nil, fmt.Errorf("unknown virtual machine provider %q", config.Provider)
 	}
+}
+
+func DefaultVirtualMachineProvider() string {
+	return VirtualMachineProviderLima
+}
+
+func ResolveVirtualMachineProvider(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" || provider == VirtualMachineProviderAuto {
+		return DefaultVirtualMachineProvider()
+	}
+
+	return provider
 }
 
 func NewVirtualMachineCommandExecutor(config VirtualMachineConfig) (*VirtualMachineCommandExecutor, error) {
