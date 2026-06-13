@@ -57,7 +57,15 @@ func (r *SQLCatalogEventsRepository) Record(ctx context.Context, sourceCell, eve
 		return CatalogEventRecord{}, false, err
 	}
 
+	if !created && !catalogEventRecordMatches(rec, eventType, payload) {
+		return CatalogEventRecord{}, false, fmt.Errorf("%w: catalog event %s/%s already exists with different payload", ErrConflict, sourceCell, eventKey)
+	}
+
 	return rec, created, nil
+}
+
+func catalogEventRecordMatches(rec CatalogEventRecord, eventType string, payload []byte) bool {
+	return rec.EventType == eventType && bytes.Equal(rec.Payload, payload)
 }
 
 func (r *SQLCatalogEventsRepository) ListPending(ctx context.Context, limit int) ([]CatalogEventRecord, error) {

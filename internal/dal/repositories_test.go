@@ -3001,7 +3001,7 @@ func TestCatalogEventsRepository_RecordListAndMark(t *testing.T) {
 		t.Fatalf("unexpected first payload: %s", first.Payload)
 	}
 
-	duplicate, created, err := events.Record(ctx, "iad-a", "event-1", "run.status", []byte(`{"run_id":"run-1","status":"failed"}`))
+	duplicate, created, err := events.Record(ctx, "iad-a", "event-1", "run.status", []byte(`{"run_id":"run-1","status":"running"}`))
 	if err != nil {
 		t.Fatalf("record duplicate event: %v", err)
 	}
@@ -3012,6 +3012,14 @@ func TestCatalogEventsRepository_RecordListAndMark(t *testing.T) {
 
 	if duplicate.ID != first.ID || string(duplicate.Payload) != string(first.Payload) {
 		t.Fatalf("duplicate should return original event, got %+v want %+v", duplicate, first)
+	}
+
+	if _, _, err := events.Record(ctx, "iad-a", "event-1", "run.status", []byte(`{"run_id":"run-1","status":"failed"}`)); !dal.IsConflict(err) {
+		t.Fatalf("duplicate event with different payload should conflict, got %v", err)
+	}
+
+	if _, _, err := events.Record(ctx, "iad-a", "event-1", "execution.status", []byte(`{"execution_id":"execution-1","status":"accepted"}`)); !dal.IsConflict(err) {
+		t.Fatalf("duplicate event with different type should conflict, got %v", err)
 	}
 
 	second, created, err := events.Record(ctx, "iad-a", "event-2", "execution.status", []byte(`{"execution_id":"execution-1","status":"accepted"}`))

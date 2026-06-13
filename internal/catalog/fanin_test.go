@@ -202,6 +202,78 @@ func TestFanInProcessorMarksSourceAppliedWhenTargetAlreadyHasEvent(t *testing.T)
 	}
 }
 
+func TestFanInProcessorRejectsConflictingTargetEvent(t *testing.T) {
+	ctx := context.Background()
+	sourceDB := dbtest.NewTestDB(t)
+	targetDB := dbtest.NewTestDB(t)
+	sourceRepos := dal.NewSQLRepositories(sourceDB)
+	targetRepos := dal.NewSQLRepositories(targetDB)
+
+	if _, _, err := sourceRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"running"}`)); err != nil {
+		t.Fatalf("record source event: %v", err)
+	}
+
+	if _, _, err := targetRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, []byte(`{"run_id":"run-a","status":"failed"}`)); err != nil {
+		t.Fatalf("record conflicting target event: %v", err)
+	}
+
+	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
+		{CellID: "iad-a", Events: sourceRepos.CatalogEvents()},
+	})
+
+	if _, err := processor.IngestPending(ctx, 10); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting target event to fail fan-in with conflict, got %v", err)
+	}
+
+	sourcePending, err := sourceRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list source pending: %v", err)
+	}
+
+	if len(sourcePending) != 1 {
+		t.Fatalf("source event should remain pending after conflicting fan-in, got %+v", sourcePending)
+	}
+}
+
+func TestFanInProcessorDoesNotAckSourceWhenTargetEventFailed(t *testing.T) {
+	ctx := context.Background()
+	sourceDB := dbtest.NewTestDB(t)
+	targetDB := dbtest.NewTestDB(t)
+	sourceRepos := dal.NewSQLRepositories(sourceDB)
+	targetRepos := dal.NewSQLRepositories(targetDB)
+	payload := []byte(`{"run_id":"run-a","status":"running"}`)
+
+	if _, _, err := sourceRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
+		t.Fatalf("record source event: %v", err)
+	}
+
+	targetEvent, _, err := targetRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload)
+	if err != nil {
+		t.Fatalf("record target event: %v", err)
+	}
+
+	if err := targetRepos.CatalogEvents().MarkFailed(ctx, targetEvent.ID, "previous apply failure"); err != nil {
+		t.Fatalf("mark target failed: %v", err)
+	}
+
+	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
+		{CellID: "iad-a", Events: sourceRepos.CatalogEvents()},
+	})
+
+	if _, err := processor.IngestPending(ctx, 10); err == nil {
+		t.Fatal("expected failed target event to prevent source ack")
+	}
+
+	sourcePending, err := sourceRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list source pending: %v", err)
+	}
+
+	if len(sourcePending) != 1 {
+		t.Fatalf("source event should remain pending while target is failed, got %+v", sourcePending)
+	}
+}
+
 func TestFanInProcessorFault_RetryAfterSourceMarkAppliedFailure(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := dbtest.NewTestDB(t)

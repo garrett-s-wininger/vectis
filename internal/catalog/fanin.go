@@ -93,11 +93,16 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 		result.Read += len(records)
 		sourceResult.Read += len(records)
 		for _, rec := range records {
-			if _, created, err := p.target.Record(ctx, rec.SourceCell, rec.EventKey, rec.EventType, rec.Payload); err != nil {
+			target, created, err := p.target.Record(ctx, rec.SourceCell, rec.EventKey, rec.EventType, rec.Payload)
+			if err != nil {
 				return result, fmt.Errorf("copy catalog event %q from cell %q: %w", rec.EventKey, source.CellID, err)
 			} else if created {
 				result.Copied++
 				sourceResult.Copied++
+			}
+
+			if err := validateTargetCatalogEventForSourceAck(target); err != nil {
+				return result, fmt.Errorf("target catalog event %q from cell %q is not ackable: %w", rec.EventKey, source.CellID, err)
 			}
 
 			if err := source.Events.MarkApplied(ctx, rec.ID); err != nil {
@@ -116,4 +121,15 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 	}
 
 	return result, nil
+}
+
+func validateTargetCatalogEventForSourceAck(rec dal.CatalogEventRecord) error {
+	switch rec.Status {
+	case dal.CatalogEventStatusPending, dal.CatalogEventStatusApplied:
+		return nil
+	case dal.CatalogEventStatusFailed:
+		return fmt.Errorf("status %q", rec.Status)
+	default:
+		return fmt.Errorf("unknown status %q", rec.Status)
+	}
 }
