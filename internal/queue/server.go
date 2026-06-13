@@ -357,10 +357,11 @@ func (s *queueServer) newDeliveryID() string {
 }
 
 func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
-	for s.size > 0 {
-		jobReq := s.jobs[s.head]
+	for offset := 0; offset < s.size; {
+		jobReq := s.jobs[(s.head+offset)%len(s.jobs)]
 		if !dispatchmeta.IsExpired(jobReq, now) {
-			return nil
+			offset++
+			continue
 		}
 
 		jobID := jobReq.GetJob().GetId()
@@ -368,12 +369,12 @@ func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
 			if err := s.beforeFault(context.Background(), FaultPointPendingExpiredDrop); err != nil {
 				return err
 			}
-			if err := s.persistence.appendDropExpired("", jobReq, s.snapshotAfterPendingHeadDropLocked(jobReq)); err != nil {
+			if err := s.persistence.appendDropExpired("", jobReq, s.snapshotAfterPendingOffsetDropLocked(offset, jobReq)); err != nil {
 				return fmt.Errorf("persist expired pending drop for job %s: %w", jobID, err)
 			}
 		}
 
-		s.removePendingHeadLocked()
+		s.removePendingOffsetLocked(offset)
 		delete(s.jobAttempts, jobID)
 
 		s.log.Warn("Pending job %s expired after dispatch start deadline; dropped", jobID)
@@ -492,11 +493,15 @@ func (s *queueServer) snapshotAfterAckLocked(deliveryID string) snapshotState {
 	return snapshotState{pending: s.pendingJobsLocked(), inflight: inflight, deadLetter: s.copyDeadLetterLocked(), jobAttempts: jobAttempts}
 }
 
-func (s *queueServer) snapshotAfterPendingHeadDropLocked(jobReq *api.JobRequest) snapshotState {
+func (s *queueServer) snapshotAfterPendingOffsetDropLocked(dropOffset int, jobReq *api.JobRequest) snapshotState {
 	capHint := max(s.size-1, 0)
 
 	pending := make([]*api.JobRequest, 0, capHint)
-	for i := 1; i < s.size; i++ {
+	for i := 0; i < s.size; i++ {
+		if i == dropOffset {
+			continue
+		}
+
 		pending = append(pending, s.jobs[(s.head+i)%len(s.jobs)])
 	}
 

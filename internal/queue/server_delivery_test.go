@@ -304,6 +304,70 @@ func TestQueueDelivery_ExpiredPendingDeadlineDropsBeforeDelivery(t *testing.T) {
 	}
 }
 
+func TestQueueDelivery_ExpiredFilteredPendingDeadlineDropsBeforeDelivery(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	vmJobID := "job-vm-head"
+	vmDefault := action.IsolationVM
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+		Id:               &vmJobID,
+		DefaultIsolation: &vmDefault,
+		Root:             queueTestNode("root-vm", "builtins/shell"),
+	}}); err != nil {
+		t.Fatalf("enqueue vm job: %v", err)
+	}
+
+	expiredJobID := "job-expired-filtered"
+	expiredReq := &api.JobRequest{Job: &api.Job{
+		Id:   &expiredJobID,
+		Root: queueTestNode("root-expired", "builtins/shell"),
+	}}
+
+	dispatchmeta.StampStartDeadline(expiredReq, time.Now().Add(-time.Second).UnixNano())
+	if _, err := svc.Enqueue(ctx, expiredReq); err != nil {
+		t.Fatalf("enqueue expired filtered job: %v", err)
+	}
+
+	validHostJobID := "job-valid-host"
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+		Id:   &validHostJobID,
+		Root: queueTestNode("root-host", "builtins/shell"),
+	}}); err != nil {
+		t.Fatalf("enqueue valid host job: %v", err)
+	}
+
+	hostOnly, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}})
+	if err != nil {
+		t.Fatalf("host trydequeue filtered: %v", err)
+	}
+
+	if hostOnly == nil || hostOnly.GetJob().GetId() != validHostJobID {
+		t.Fatalf("expected expired filtered job to drop and valid host job to deliver, got %#v", hostOnly)
+	}
+
+	vmCapable, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}})
+	if err != nil {
+		t.Fatalf("vm trydequeue filtered: %v", err)
+	}
+
+	if vmCapable == nil || vmCapable.GetJob().GetId() != vmJobID {
+		t.Fatalf("expected vm job to remain queued for vm-capable worker, got %#v", vmCapable)
+	}
+
+	dlq, err := svc.ListDeadLetter(ctx, &api.Empty{})
+	if err != nil {
+		t.Fatalf("list dead letter: %v", err)
+	}
+
+	if len(dlq.Items) != 0 {
+		t.Fatalf("expired filtered dispatch deadline should not enter DLQ, got %+v", dlq.Items)
+	}
+}
+
 func TestQueueDelivery_ExpiredInflightDeadlineDropsInsteadOfRequeue(t *testing.T) {
 	ctx := context.Background()
 	ttl := 20 * time.Millisecond
