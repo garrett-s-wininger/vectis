@@ -24,6 +24,7 @@ const (
 	SecretsResolveReasonProviderDenied      = "provider_denied"
 	SecretsResolveReasonProviderNotFound    = "provider_not_found"
 	SecretsResolveReasonProviderError       = "provider_error"
+	SecretsResolveReasonInvalidBundle       = "invalid_bundle"
 )
 
 type SecretsMetrics struct {
@@ -77,6 +78,7 @@ func (m *SecretsMetrics) RecordResolve(ctx context.Context, outcome, reason, pro
 		attribute.String("reason", reason),
 		attribute.String("provider", provider),
 	)
+
 	m.resolveRequests.Add(ctx, 1, attrs)
 	m.resolveDuration.Record(ctx, duration.Seconds(), attrs)
 }

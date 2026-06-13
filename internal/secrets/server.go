@@ -36,6 +36,7 @@ const (
 	resolveReasonProviderDenied      = "provider_denied"
 	resolveReasonProviderNotFound    = "provider_not_found"
 	resolveReasonProviderError       = "provider_error"
+	resolveReasonInvalidBundle       = "invalid_bundle"
 )
 
 type Authorizer interface {
@@ -137,6 +138,17 @@ func (s *Server) ResolveSecrets(ctx context.Context, req *api.ResolveSecretsRequ
 		})
 
 		return nil, status.Error(codeForProviderError(err), "secret resolution failed")
+	}
+
+	if err := ValidateResolvedBundle(domainReq, bundle); err != nil {
+		s.observeResolve(ctx, domainReq, resolveObservation{
+			outcome:  resolveOutcomeFailed,
+			reason:   resolveReasonInvalidBundle,
+			provider: provider,
+			duration: time.Since(start),
+		})
+
+		return nil, status.Error(codes.Internal, "secret resolution failed")
 	}
 
 	resp := &api.ResolveSecretsResponse{

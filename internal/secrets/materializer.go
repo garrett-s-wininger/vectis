@@ -80,19 +80,9 @@ func CleanupMaterialized(workspace string) error {
 }
 
 func secretTargetPath(root, rawPath string) (string, error) {
-	rawPath = strings.TrimSpace(rawPath)
-	if rawPath == "" {
-		return "", fmt.Errorf("secrets: file path is required")
-	}
-
-	if filepath.IsAbs(rawPath) || strings.HasPrefix(rawPath, "/") || strings.Contains(rawPath, `\`) {
-		return "", fmt.Errorf("secrets: file path %q must be relative and slash-separated", rawPath)
-	}
-
-	for _, part := range strings.Split(rawPath, "/") {
-		if part == "" || part == "." || part == ".." {
-			return "", fmt.Errorf("secrets: file path %q must not contain empty, current-directory, or parent-directory segments", rawPath)
-		}
+	rawPath, err := canonicalFileDeliveryPath(rawPath)
+	if err != nil {
+		return "", fmt.Errorf("secrets: %w", err)
 	}
 
 	target := filepath.Join(root, filepath.FromSlash(rawPath))

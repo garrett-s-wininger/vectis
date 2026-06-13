@@ -20,8 +20,9 @@ func strp(s string) *string { return &s }
 func secretDeliveryTypep(t api.SecretDeliveryType) *api.SecretDeliveryType { return &t }
 
 type fakeProvider struct {
-	req ResolveRequest
-	err error
+	req    ResolveRequest
+	bundle *Bundle
+	err    error
 }
 
 func (p *fakeProvider) ValidateRef(context.Context, Reference) error { return nil }
@@ -32,6 +33,10 @@ func (p *fakeProvider) Resolve(_ context.Context, req ResolveRequest) (Bundle, e
 	p.req = req
 	if p.err != nil {
 		return Bundle{}, p.err
+	}
+
+	if p.bundle != nil {
+		return *p.bundle, nil
 	}
 
 	return Bundle{Files: []FileMaterial{{
@@ -164,6 +169,46 @@ func TestServerResolveSecretsRecordsSuccessMetricsAndSanitizedLog(t *testing.T) 
 		if strings.Contains(gotLog, leak) {
 			t.Fatalf("log contains sensitive value %q:\n%s", leak, gotLog)
 		}
+	}
+}
+
+func TestServerResolveSecretsRejectsInvalidProviderBundle(t *testing.T) {
+	t.Parallel()
+
+	metrics := &recordingResolveMetrics{}
+	bundle := Bundle{Files: []FileMaterial{{
+		ID:   "deploy-token",
+		Path: "deploy/token",
+		Data: []byte("not-requested"),
+		Mode: DefaultFileMode,
+	}}}
+	server := NewServer(&fakeProvider{bundle: &bundle}, &fakeAuthorizer{}, WithMetrics(metrics))
+
+	_, err := server.ResolveSecrets(context.Background(), &api.ResolveSecretsRequest{
+		RunId:               strp("run-1"),
+		ExecutionId:         strp("execution-1"),
+		ExecutionClaimToken: strp("claim-1"),
+		Secrets: []*api.SecretReference{{
+			Id:  strp("npm-token"),
+			Ref: strp("encryptedfs://team/npm-token"),
+			Delivery: &api.SecretDelivery{
+				Type: secretDeliveryTypep(api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE),
+				Path: strp("npm/token"),
+			},
+		}},
+	})
+
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("ResolveSecrets code = %v, want %v", status.Code(err), codes.Internal)
+	}
+
+	if len(metrics.records) != 1 {
+		t.Fatalf("metrics records = %+v, want one", metrics.records)
+	}
+
+	record := metrics.records[0]
+	if record.outcome != resolveOutcomeFailed || record.reason != resolveReasonInvalidBundle || record.provider != "fake" {
+		t.Fatalf("metric record = %+v", record)
 	}
 }
 
