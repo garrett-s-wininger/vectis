@@ -11,6 +11,8 @@ import (
 	"vectis/internal/testutil/grpctest"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func setupTestRegistry(t *testing.T) (string, *grpc.Server) {
@@ -155,6 +157,30 @@ func TestRegistryService_RegisterLogsNewUpdatedAndRenewed(t *testing.T) {
 	}
 }
 
+func TestRegistryServiceRejectsInvalidMetadata(t *testing.T) {
+	svc := NewRegistryServiceWithOptions(mocks.NopLogger{}, ServiceOptions{})
+	ctx := context.Background()
+	component := api.Component_COMPONENT_QUEUE
+	addr := "queue-invalid:50051"
+
+	_, err := svc.Register(ctx, &api.Registration{
+		Component: &component,
+		Address:   &addr,
+		Metadata: map[string]string{
+			MetadataCellID:    DefaultCellID,
+			MetadataQueueRole: "banana",
+		},
+	})
+
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected invalid argument, got %v", err)
+	}
+
+	if got := svc.reg.listEntries(api.Component_COMPONENT_QUEUE, nil, time.Now()); len(got) != 0 {
+		t.Fatalf("invalid registration was stored: %+v", got)
+	}
+}
+
 func TestRegistry_ListRegistrationsFiltersByMetadata(t *testing.T) {
 	addr, _ := setupTestRegistry(t)
 
@@ -209,7 +235,7 @@ func TestServiceMetadataForCell(t *testing.T) {
 		t.Fatalf("queue metadata: got %+v", queue)
 	}
 
-	worker := WorkerExecutionMetadataForCell("sjc-c", "lima", "vm", []string{"host", "vm", "host", " "})
+	worker := WorkerExecutionMetadataForCell("sjc-c", "lima", "VM", []string{"HOST", "vm", "host", " "})
 	if worker[MetadataCellID] != "sjc-c" ||
 		worker[MetadataWorkerExecutionBackend] != "lima" ||
 		worker[MetadataWorkerDefaultIsolation] != "vm" ||
@@ -219,6 +245,118 @@ func TestServiceMetadataForCell(t *testing.T) {
 
 	if got := DefaultServiceMetadataForCell(" ")[MetadataCellID]; got != DefaultCellID {
 		t.Fatalf("blank cell should fall back to %q, got %q", DefaultCellID, got)
+	}
+}
+
+func TestValidateComponentMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		component api.Component
+		metadata  map[string]string
+		wantErr   bool
+	}{
+		{
+			name:      "queue ingress",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata:  QueueIngressMetadataForCell("iad-a"),
+		},
+		{
+			name:      "queue custom metadata allowed",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata: map[string]string{
+				MetadataCellID:    DefaultCellID,
+				MetadataQueueRole: QueueRolePool,
+				"trait.os":        "linux",
+			},
+		},
+		{
+			name:      "queue bad role",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata: map[string]string{
+				MetadataCellID:    DefaultCellID,
+				MetadataQueueRole: "other",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "wrong owner",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata: map[string]string{
+				MetadataArtifactWriteState: ArtifactWriteStateWritable,
+			},
+			wantErr: true,
+		},
+		{
+			name:      "log write state",
+			component: api.Component_COMPONENT_LOG,
+			metadata: map[string]string{
+				MetadataCellID:        DefaultCellID,
+				MetadataLogWriteState: LogWriteStateReadOnly,
+			},
+		},
+		{
+			name:      "log bad write state",
+			component: api.Component_COMPONENT_LOG,
+			metadata: map[string]string{
+				MetadataLogWriteState: "draining",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "artifact write state",
+			component: api.Component_COMPONENT_ARTIFACT,
+			metadata: map[string]string{
+				MetadataCellID:             DefaultCellID,
+				MetadataArtifactWriteState: ArtifactWriteStateWritable,
+			},
+		},
+		{
+			name:      "worker execution metadata",
+			component: api.Component_COMPONENT_WORKER,
+			metadata:  WorkerExecutionMetadataForCell("iad-a", "lima", "vm", []string{"host", "vm"}),
+		},
+		{
+			name:      "worker default outside supported",
+			component: api.Component_COMPONENT_WORKER,
+			metadata: map[string]string{
+				MetadataWorkerDefaultIsolation:   "vm",
+				MetadataWorkerSupportedIsolation: "host",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "worker unsupported isolation",
+			component: api.Component_COMPONENT_WORKER,
+			metadata: map[string]string{
+				MetadataWorkerSupportedIsolation: "host,container",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "worker unnormalized supported isolation",
+			component: api.Component_COMPONENT_WORKER,
+			metadata: map[string]string{
+				MetadataWorkerSupportedIsolation: "host, vm",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "blank cell id",
+			component: api.Component_COMPONENT_LOG,
+			metadata: map[string]string{
+				MetadataCellID: " ",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateComponentMetadata(tt.component, tt.metadata)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateComponentMetadata() error = %v, wantErr=%v", err, tt.wantErr)
+			}
+		})
 	}
 }
 

@@ -9,6 +9,9 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type ServiceOptions struct {
@@ -93,6 +96,9 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 
 	comp := *req.Component
 	instanceID := req.GetInstanceId()
+	if err := ValidateComponentMetadata(comp, req.GetMetadata()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid registry metadata: %v", err)
+	}
 
 	_, change := s.reg.registerWithChange(comp, instanceID, *req.Address, req.GetMetadata(), time.Now())
 	s.logRegistrationChange(change, comp, instanceID, *req.Address)
