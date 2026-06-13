@@ -907,6 +907,38 @@ func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID stri
 		rec.RunID = runID
 	}
 
+	if rec.RunIndex == 0 {
+		rec.RunIndex = 1
+	}
+
+	if rec.TaskKey == "" {
+		rec.TaskKey = dal.RootTaskKey
+	}
+
+	if rec.SegmentID == "" {
+		rec.SegmentID = rec.RunID + ":" + rec.TaskKey + ":segment"
+	}
+
+	if rec.ExecutionID == "" {
+		rec.ExecutionID = rec.RunID + ":" + rec.TaskKey + ":attempt:1:execution"
+	}
+
+	if rec.CellID == "" {
+		rec.CellID = dal.DefaultCellID
+	}
+
+	if rec.Attempt == 0 {
+		rec.Attempt = 1
+	}
+
+	if rec.DefinitionVersion == 0 {
+		rec.DefinitionVersion = 1
+	}
+
+	if rec.DefinitionHash == "" {
+		rec.DefinitionHash = "test-definition-hash"
+	}
+
 	return rec, nil
 }
 

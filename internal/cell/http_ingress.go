@@ -59,8 +59,8 @@ func NewHTTPExecutionIngressWithOptions(endpoint string, client HTTPDoer, logger
 }
 
 func (i HTTPExecutionIngress) SubmitExecution(ctx context.Context, submission ExecutionSubmission) error {
-	if submission.Request == nil {
-		return fmt.Errorf("job request is required")
+	if err := submission.Validate(); err != nil {
+		return err
 	}
 
 	endpoint, err := cellIngressExecutionURL(i.endpoint)

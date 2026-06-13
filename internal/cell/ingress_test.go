@@ -32,19 +32,11 @@ func TestNewExecutionSubmissionTargetsEnvelopeCell(t *testing.T) {
 	}
 }
 
-func TestNewExecutionSubmissionDefaultsTargetCell(t *testing.T) {
+func TestNewExecutionSubmissionRequiresEnvelope(t *testing.T) {
 	req := &api.JobRequest{Job: validExecutionEnvelope().Job}
-	submission, err := NewExecutionSubmission(req)
-	if err != nil {
-		t.Fatalf("NewExecutionSubmission: %v", err)
-	}
 
-	if submission.TargetCellID() != dal.DefaultCellID {
-		t.Fatalf("target cell id: got %q, want %q", submission.TargetCellID(), dal.DefaultCellID)
-	}
-
-	if submission.Envelope != nil {
-		t.Fatalf("expected no envelope, got %+v", submission.Envelope)
+	if _, err := NewExecutionSubmission(req); !errors.Is(err, ErrMissingExecutionEnvelope) {
+		t.Fatalf("NewExecutionSubmission missing envelope: got %v, want ErrMissingExecutionEnvelope", err)
 	}
 }
 
@@ -103,13 +95,29 @@ func TestStaticExecutionRouterReturnsMissingRoute(t *testing.T) {
 	}
 }
 
+func TestStaticExecutionRouterRejectsMissingEnvelopeSubmission(t *testing.T) {
+	ingress := &recordingIngress{}
+	router := NewStaticExecutionRouter(map[string]ExecutionIngress{
+		dal.DefaultCellID: ingress,
+	})
+
+	submission := ExecutionSubmission{Request: &api.JobRequest{Job: validExecutionEnvelope().Job}}
+	if err := router.SubmitExecution(context.Background(), submission); !errors.Is(err, ErrMissingExecutionEnvelope) {
+		t.Fatalf("SubmitExecution missing envelope: got %v, want ErrMissingExecutionEnvelope", err)
+	}
+
+	if len(ingress.submissions) != 0 {
+		t.Fatalf("expected no routed submissions, got %d", len(ingress.submissions))
+	}
+}
+
 func TestStaticExecutionRouterDefaultsBlankRouteToLocal(t *testing.T) {
 	ingress := &recordingIngress{}
 	router := NewStaticExecutionRouter(map[string]ExecutionIngress{
 		"": ingress,
 	})
 
-	submission, err := NewExecutionSubmission(&api.JobRequest{Job: validExecutionEnvelope().Job})
+	submission, err := NewExecutionSubmission(validJobRequestForCell(t, dal.DefaultCellID))
 	if err != nil {
 		t.Fatalf("NewExecutionSubmission: %v", err)
 	}

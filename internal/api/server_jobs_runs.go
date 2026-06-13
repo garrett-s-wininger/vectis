@@ -1235,7 +1235,15 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	}
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "attach execution envelope")
+		span.End()
+
 		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
+		msg := err.Error()
+
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeFailedEnqueue)
+		return
 	}
 
 	if err := s.materializeJobTasks(ctx, runID, job, targetCellID); err != nil {
@@ -1891,7 +1899,15 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "attach execution envelope")
+		span.End()
+
 		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
+		msg := err.Error()
+
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeFailedEnqueue)
+		return
 	}
 
 	if err := s.materializeJobTasks(ctx, runID, job, targetCellID); err != nil {

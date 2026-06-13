@@ -24,7 +24,10 @@ type ExecutionIngress interface {
 	SubmitExecution(ctx context.Context, submission ExecutionSubmission) error
 }
 
-var ErrCellNotRoutable = errors.New("cell not routable")
+var (
+	ErrCellNotRoutable          = errors.New("cell not routable")
+	ErrMissingExecutionEnvelope = errors.New("missing execution envelope")
+)
 
 type QueueExecutionIngress struct {
 	queue  interfaces.QueueService
@@ -40,15 +43,37 @@ func NewExecutionSubmission(req *api.JobRequest) (ExecutionSubmission, error) {
 		return ExecutionSubmission{}, errors.New("job request is required")
 	}
 
-	env, _, err := ExecutionEnvelopeFromRequest(req)
+	env, ok, err := ExecutionEnvelopeFromRequest(req)
 	if err != nil {
 		return ExecutionSubmission{}, err
 	}
 
-	return ExecutionSubmission{
+	if !ok {
+		return ExecutionSubmission{}, ErrMissingExecutionEnvelope
+	}
+
+	submission := ExecutionSubmission{
 		Request:  req,
 		Envelope: env,
-	}, nil
+	}
+
+	if err := submission.Validate(); err != nil {
+		return ExecutionSubmission{}, err
+	}
+
+	return submission, nil
+}
+
+func (s ExecutionSubmission) Validate() error {
+	if s.Request == nil {
+		return errors.New("job request is required")
+	}
+
+	if s.Envelope == nil {
+		return ErrMissingExecutionEnvelope
+	}
+
+	return nil
 }
 
 func (s ExecutionSubmission) TargetCellID() string {
@@ -74,8 +99,8 @@ func NewStaticExecutionRouter(routes map[string]ExecutionIngress) StaticExecutio
 }
 
 func (r StaticExecutionRouter) SubmitExecution(ctx context.Context, submission ExecutionSubmission) error {
-	if submission.Request == nil {
-		return errors.New("job request is required")
+	if err := submission.Validate(); err != nil {
+		return err
 	}
 
 	targetCellID := normalizeRouteCellID(submission.TargetCellID())
@@ -110,8 +135,8 @@ func SubmitToLocalQueue(ctx context.Context, localCellID string, queue interface
 }
 
 func (i QueueExecutionIngress) SubmitExecution(ctx context.Context, submission ExecutionSubmission) error {
-	if submission.Request == nil {
-		return errors.New("job request is required")
+	if err := submission.Validate(); err != nil {
+		return err
 	}
 
 	trace.SpanFromContext(ctx).SetAttributes(attribute.String("vectis.cell.ingress", "queue"))

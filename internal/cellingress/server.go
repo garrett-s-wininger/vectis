@@ -201,12 +201,12 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 
 	submission, err := cell.NewExecutionSubmission(&jobReq)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_execution_envelope", err.Error())
-		return
-	}
+		if errors.Is(err, cell.ErrMissingExecutionEnvelope) {
+			writeError(w, http.StatusBadRequest, "missing_execution_envelope", "execution envelope metadata is required")
+			return
+		}
 
-	if submission.Envelope == nil {
-		writeError(w, http.StatusBadRequest, "missing_execution_envelope", "execution envelope metadata is required")
+		writeError(w, http.StatusBadRequest, "invalid_execution_envelope", err.Error())
 		return
 	}
 
