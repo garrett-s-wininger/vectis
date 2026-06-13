@@ -1,12 +1,19 @@
 package logserver
 
 import (
+	"context"
+	"io"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/registry"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func completedLogEntry(ts time.Time, seq int64) LogEntry {
@@ -41,6 +48,98 @@ func (s logMetadataStore) List(string) ([]LogEntry, error) {
 
 func (s logMetadataStore) NewRunWritable() bool {
 	return s.writable
+}
+
+type recordingRunLogStore struct {
+	entries map[string][]LogEntry
+}
+
+func (s *recordingRunLogStore) Append(runID string, entry LogEntry) error {
+	if s.entries == nil {
+		s.entries = make(map[string][]LogEntry)
+	}
+
+	s.entries[runID] = append(s.entries[runID], entry)
+	return nil
+}
+
+func (s *recordingRunLogStore) List(runID string) ([]LogEntry, error) {
+	return append([]LogEntry(nil), s.entries[runID]...), nil
+}
+
+type fakeStreamLogsServer struct {
+	ctx    context.Context
+	chunks []*api.LogChunk
+	closed bool
+}
+
+func (s *fakeStreamLogsServer) Recv() (*api.LogChunk, error) {
+	if len(s.chunks) == 0 {
+		return nil, io.EOF
+	}
+
+	chunk := s.chunks[0]
+	s.chunks = s.chunks[1:]
+	return chunk, nil
+}
+
+func (s *fakeStreamLogsServer) SendAndClose(*api.Empty) error {
+	s.closed = true
+	return nil
+}
+
+func (s *fakeStreamLogsServer) SetHeader(metadata.MD) error {
+	return nil
+}
+
+func (s *fakeStreamLogsServer) SendHeader(metadata.MD) error {
+	return nil
+}
+
+func (s *fakeStreamLogsServer) SetTrailer(metadata.MD) {}
+
+func (s *fakeStreamLogsServer) Context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+
+	return context.Background()
+}
+
+func (s *fakeStreamLogsServer) SendMsg(any) error {
+	return nil
+}
+
+func (s *fakeStreamLogsServer) RecvMsg(any) error {
+	return nil
+}
+
+func TestStreamLogsRejectsMixedRunStream(t *testing.T) {
+	store := &recordingRunLogStore{}
+	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
+	stream := &fakeStreamLogsServer{
+		chunks: []*api.LogChunk{
+			{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("one")},
+			{RunId: proto.String("run-2"), Sequence: proto.Int64(1), Data: []byte("two")},
+		},
+	}
+
+	err := s.StreamLogs(stream)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("StreamLogs error = %v, want InvalidArgument", err)
+	}
+
+	if got := len(store.entries["run-1"]); got != 1 {
+		t.Fatalf("stored run-1 entries = %d, want 1", got)
+	}
+
+	if got := len(store.entries["run-2"]); got != 0 {
+		t.Fatalf("stored run-2 entries = %d, want 0", got)
+	}
+
+	if stream.closed {
+		t.Fatal("mixed-run stream should return an error, not SendAndClose")
+	}
 }
 
 func TestServer_EvictsOldestTerminalBufferOverLimit(t *testing.T) {

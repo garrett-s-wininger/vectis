@@ -24,6 +24,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
+	"vectis/internal/logroute"
 	"vectis/internal/observability"
 	"vectis/internal/registry"
 )
@@ -299,6 +300,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 	syntheticCompletion := boolMetadata(ctx, interfaces.LogSyntheticCompletionMetadata)
 	var lastBuffer *JobBuffer
 	var lastRunID string
+	var route logroute.StreamRoute
 
 	for {
 		chunk, err := stream.Recv()
@@ -334,6 +336,11 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			return err
 		}
 
+		streamRoute, err := route.Bind(chunk)
+		if err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+
 		if s.metrics != nil {
 			s.metrics.RecordGRPCChunk(ctx)
 		}
@@ -351,7 +358,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			Completed: chunk.GetCompleted(),
 		}
 
-		if err := s.store.Append(chunk.GetRunId(), entry); err != nil {
+		if err := s.store.Append(streamRoute.RunID, entry); err != nil {
 			if s.metrics != nil {
 				s.metrics.RecordAppendFailure(ctx)
 			}
@@ -363,23 +370,23 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			return err
 		}
 
-		lastRunID = chunk.GetRunId()
+		lastRunID = streamRoute.RunID
 		lastBuffer = s.getOrCreateBuffer(lastRunID)
 
 		if !lastBuffer.Add(entry) {
 			if s.metrics != nil {
 				s.metrics.RecordMemoryBufferDrop(ctx)
 			}
-			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", chunk.GetRunId(), entry.Sequence)
+			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", streamRoute.RunID, entry.Sequence)
 		}
 
-		lastBuffer.Broadcast(chunk.GetRunId(), entry)
+		lastBuffer.Broadcast(streamRoute.RunID, entry)
 
 		if lastBuffer.IsTerminal() {
 			s.evictTerminalBuffers()
 		}
 
-		s.logger.Debug("Received log from run %s (seq %d)", chunk.GetRunId(), chunk.GetSequence())
+		s.logger.Debug("Received log from run %s (seq %d)", streamRoute.RunID, chunk.GetSequence())
 	}
 }
 

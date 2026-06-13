@@ -15,6 +15,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/logclient"
+	"vectis/internal/logroute"
 	"vectis/internal/logspool"
 )
 
@@ -336,10 +337,12 @@ func groupChunksByRoute(chunks []*api.LogChunk) []chunkGroup {
 	byRun := make(map[chunkGroupKey]int)
 	groups := make([]chunkGroup, 0)
 	for _, chunk := range chunks {
+		route := logroute.FromChunk(chunk)
 		key := chunkGroupKey{
-			runID:      chunk.GetRunId(),
-			logShardID: chunk.GetLogShardId(),
+			runID:      route.RunID,
+			logShardID: route.LogShardID,
 		}
+
 		idx, ok := byRun[key]
 		if !ok {
 			idx = len(groups)
