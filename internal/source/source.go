@@ -53,6 +53,7 @@ type ListTreeOptions struct {
 	Path      string
 	Recursive bool
 	Limit     int
+	Cursor    string
 }
 
 type TreeListing struct {
@@ -61,6 +62,7 @@ type TreeListing struct {
 	Path         string
 	Recursive    bool
 	Truncated    bool
+	NextCursor   string
 	Entries      []TreeEntry
 }
 
@@ -74,9 +76,10 @@ type TreeEntry struct {
 }
 
 type ListDefinitionFilesOptions struct {
-	Ref   string
-	Path  string
-	Limit int
+	Ref    string
+	Path   string
+	Limit  int
+	Cursor string
 }
 
 type DefinitionFileListing struct {
@@ -84,6 +87,7 @@ type DefinitionFileListing struct {
 	Revision     Revision
 	Path         string
 	Truncated    bool
+	NextCursor   string
 	Files        []DefinitionFile
 }
 

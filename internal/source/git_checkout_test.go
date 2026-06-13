@@ -326,8 +326,27 @@ func TestGitCheckoutListTree(t *testing.T) {
 		t.Fatalf("ListTree recursive limit: %v", err)
 	}
 
-	if !listing.Recursive || !listing.Truncated || len(listing.Entries) != 2 {
+	if !listing.Recursive || !listing.Truncated || listing.NextCursor == "" || len(listing.Entries) != 2 {
 		t.Fatalf("recursive limited listing mismatch: %+v", listing)
+	}
+
+	cursor := listing.NextCursor
+	listing, err = checkout.ListTree(context.Background(), ListTreeOptions{
+		Ref:       "HEAD",
+		Recursive: true,
+		Limit:     10,
+		Cursor:    cursor,
+	})
+	if err != nil {
+		t.Fatalf("ListTree recursive cursor: %v", err)
+	}
+	if listing.Truncated || len(listing.Entries) == 0 {
+		t.Fatalf("cursor listing mismatch: %+v", listing)
+	}
+	for _, entry := range listing.Entries {
+		if entry.Path <= cursor {
+			t.Fatalf("cursor listing returned %q at or before cursor %q: %+v", entry.Path, cursor, listing)
+		}
 	}
 
 	if _, err := checkout.ListTree(context.Background(), ListTreeOptions{Ref: "HEAD", Path: "../secret"}); !errors.Is(err, ErrInvalidReference) {
@@ -389,12 +408,29 @@ func TestGitCheckoutListDefinitionFiles(t *testing.T) {
 	if len(listing.Files) != 1 || listing.Files[0].Path != ".vectis/jobs/build.json" {
 		t.Fatalf("limited definition files mismatch: %+v", listing)
 	}
-	if !listing.Truncated {
+	if !listing.Truncated || listing.NextCursor != ".vectis/jobs/build.json" {
 		t.Fatalf("expected limited definition listing to be truncated: %+v", listing)
+	}
+
+	listing, err = checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{
+		Ref:    "HEAD",
+		Path:   ".vectis/jobs",
+		Limit:  10,
+		Cursor: ".vectis/jobs/build.json",
+	})
+	if err != nil {
+		t.Fatalf("ListDefinitionFiles cursor: %v", err)
+	}
+	if listing.Truncated || len(listing.Files) != 1 || listing.Files[0].Path != ".vectis/jobs/nested/deploy.json" {
+		t.Fatalf("cursor definition files mismatch: %+v", listing)
 	}
 
 	if _, err := checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{Ref: "HEAD", Path: "../secret"}); !errors.Is(err, ErrInvalidReference) {
 		t.Fatalf("expected invalid definition path, got %v", err)
+	}
+
+	if _, err := checkout.ListDefinitionFiles(context.Background(), ListDefinitionFilesOptions{Ref: "HEAD", Cursor: "../secret"}); !errors.Is(err, ErrInvalidReference) {
+		t.Fatalf("expected invalid definition cursor, got %v", err)
 	}
 }
 

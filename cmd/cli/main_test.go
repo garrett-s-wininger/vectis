@@ -526,15 +526,19 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	oldRef := sourceJobsRef
 	oldPath := sourceJobsPath
 	oldLimit := sourceJobsLimit
+	oldCursor := sourceJobsCursor
 	oldQuiet := sourceJobsQuiet
 	sourceJobsRef = "main"
 	sourceJobsPath = ".vectis/jobs"
 	sourceJobsLimit = 5
+	sourceJobsCursor = ".vectis/jobs/previous.json"
 	sourceJobsQuiet = false
+
 	t.Cleanup(func() {
 		sourceJobsRef = oldRef
 		sourceJobsPath = oldPath
 		sourceJobsLimit = oldLimit
+		sourceJobsCursor = oldCursor
 		sourceJobsQuiet = oldQuiet
 	})
 
@@ -548,7 +552,7 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "5" {
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "5" || q.Get("cursor") != ".vectis/jobs/previous.json" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -559,6 +563,7 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 			"path":            ".vectis/jobs",
 			"limit":           5,
 			"truncated":       true,
+			"next_cursor":     ".vectis/jobs/build.json",
 			"jobs": []map[string]any{
 				{
 					"job_id":   "build",
@@ -583,7 +588,7 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "Results truncated at limit=5"} {
+	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "Continue with --cursor .vectis/jobs/build.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -1517,17 +1522,20 @@ func TestListSourceTree_sendsQueryAndPrintsEntries(t *testing.T) {
 	oldRef := sourceTreeRef
 	oldPath := sourceTreePath
 	oldLimit := sourceTreeLimit
+	oldCursor := sourceTreeCursor
 	oldRecursive := sourceTreeRecursive
 	oldQuiet := sourceTreeQuiet
 	sourceTreeRef = "main"
 	sourceTreePath = ".vectis"
 	sourceTreeLimit = 10
+	sourceTreeCursor = ".vectis/previous"
 	sourceTreeRecursive = true
 	sourceTreeQuiet = false
 	t.Cleanup(func() {
 		sourceTreeRef = oldRef
 		sourceTreePath = oldPath
 		sourceTreeLimit = oldLimit
+		sourceTreeCursor = oldCursor
 		sourceTreeRecursive = oldRecursive
 		sourceTreeQuiet = oldQuiet
 	})
@@ -1542,7 +1550,7 @@ func TestListSourceTree_sendsQueryAndPrintsEntries(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("ref") != "main" || q.Get("path") != ".vectis" || q.Get("limit") != "10" || q.Get("recursive") != "true" {
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis" || q.Get("limit") != "10" || q.Get("cursor") != ".vectis/previous" || q.Get("recursive") != "true" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -1577,15 +1585,19 @@ func TestListSourceDefinitions_sendsQueryAndPrintsDefinitions(t *testing.T) {
 	oldRef := sourceDefinitionsRef
 	oldPath := sourceDefinitionsPath
 	oldLimit := sourceDefinitionsLimit
+	oldCursor := sourceDefinitionsCursor
 	oldQuiet := sourceDefinitionsQuiet
 	sourceDefinitionsRef = "main"
 	sourceDefinitionsPath = ".vectis/jobs"
 	sourceDefinitionsLimit = 7
+	sourceDefinitionsCursor = ".vectis/jobs/previous.json"
 	sourceDefinitionsQuiet = false
+
 	t.Cleanup(func() {
 		sourceDefinitionsRef = oldRef
 		sourceDefinitionsPath = oldPath
 		sourceDefinitionsLimit = oldLimit
+		sourceDefinitionsCursor = oldCursor
 		sourceDefinitionsQuiet = oldQuiet
 	})
 
@@ -1599,7 +1611,7 @@ func TestListSourceDefinitions_sendsQueryAndPrintsDefinitions(t *testing.T) {
 		}
 
 		q := r.URL.Query()
-		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "7" {
+		if q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "7" || q.Get("cursor") != ".vectis/jobs/previous.json" {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
@@ -1693,17 +1705,20 @@ func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
 	oldRef := sourceImportRef
 	oldPath := sourceImportPath
 	oldLimit := sourceImportLimit
+	oldCursor := sourceImportCursor
 	oldDryRun := sourceImportDryRun
 	oldUpdateExisting := sourceImportUpdateExisting
 	sourceImportRef = "main"
 	sourceImportPath = ".vectis/jobs"
 	sourceImportLimit = 5
+	sourceImportCursor = ".vectis/jobs/previous.json"
 	sourceImportDryRun = true
 	sourceImportUpdateExisting = true
 	t.Cleanup(func() {
 		sourceImportRef = oldRef
 		sourceImportPath = oldPath
 		sourceImportLimit = oldLimit
+		sourceImportCursor = oldCursor
 		sourceImportDryRun = oldDryRun
 		sourceImportUpdateExisting = oldUpdateExisting
 	})
@@ -1728,6 +1743,7 @@ func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
 		if body.Ref != "main" ||
 			body.Path != ".vectis/jobs" ||
 			body.Limit != 5 ||
+			body.Cursor != ".vectis/jobs/previous.json" ||
 			!body.DryRun ||
 			!body.UpdateExisting {
 			t.Errorf("import body mismatch: %+v", body)
@@ -1740,6 +1756,7 @@ func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
 			"path":            ".vectis/jobs",
 			"limit":           5,
 			"truncated":       true,
+			"next_cursor":     ".vectis/jobs/build.json",
 			"dry_run":         true,
 			"update_existing": true,
 			"summary":         map[string]any{"total": 1, "would_create": 1},
@@ -1767,7 +1784,7 @@ func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "limit=5", "truncated=true", "dry_run=true", "update_existing=true", "would_create=1", "JOB ID", "build", "would_create", ".vectis/jobs/build.json"} {
+	for _, want := range []string{"repository_id=vectis", "limit=5", "truncated=true", "next_cursor=.vectis/jobs/build.json", "dry_run=true", "update_existing=true", "would_create=1", "JOB ID", "build", "would_create", ".vectis/jobs/build.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}

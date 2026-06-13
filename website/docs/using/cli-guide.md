@@ -296,7 +296,7 @@ Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 ./bin/vectis-cli sources jobs vectis-local --ref main
 ```
 
-Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. When branch, tree, definition, job, or import output reaches its limit, non-JSON output prints a truncation notice; use a narrower path/ref or raise `--limit` to continue exploring.
+Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. When branch, tree, definition, job, or import output reaches its limit, non-JSON output prints a truncation notice; tree, definition, job, and import commands also print a `--cursor` value when another request can continue from the last returned path.
 
 For hybrid or migration deployments that still use stored jobs, preview and import source definitions:
 

@@ -121,21 +121,25 @@ var (
 	sourceTreeRef               string
 	sourceTreePath              string
 	sourceTreeLimit             int
+	sourceTreeCursor            string
 	sourceTreeRecursive         bool
 	sourceTreeQuiet             bool
 	sourceDefinitionsRef        string
 	sourceDefinitionsPath       string
 	sourceDefinitionsLimit      int
+	sourceDefinitionsCursor     string
 	sourceDefinitionsQuiet      bool
 	sourceResolveRef            string
 	sourceImportRef             string
 	sourceImportPath            string
 	sourceImportLimit           int
+	sourceImportCursor          string
 	sourceImportDryRun          bool
 	sourceImportUpdateExisting  bool
 	sourceJobsRef               string
 	sourceJobsPath              string
 	sourceJobsLimit             int
+	sourceJobsCursor            string
 	sourceJobsQuiet             bool
 	sourceShowRef               string
 	sourceShowPath              string

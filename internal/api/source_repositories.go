@@ -141,6 +141,7 @@ type sourceRepositoryTreeResponse struct {
 	Recursive      bool                                `json:"recursive"`
 	Limit          int                                 `json:"limit"`
 	Truncated      bool                                `json:"truncated"`
+	NextCursor     string                              `json:"next_cursor,omitempty"`
 	Entries        []sourceRepositoryTreeEntryResponse `json:"entries"`
 }
 
@@ -158,6 +159,7 @@ type sourceRepositoryDefinitionsResponse struct {
 	Path           string                                   `json:"path"`
 	Limit          int                                      `json:"limit"`
 	Truncated      bool                                     `json:"truncated"`
+	NextCursor     string                                   `json:"next_cursor,omitempty"`
 	Definitions    []sourceRepositoryDefinitionFileResponse `json:"definitions"`
 }
 
@@ -185,6 +187,7 @@ type sourceRepositoryJobsResponse struct {
 	Path           string                               `json:"path"`
 	Limit          int                                  `json:"limit"`
 	Truncated      bool                                 `json:"truncated"`
+	NextCursor     string                               `json:"next_cursor,omitempty"`
 	Jobs           []sourceRepositoryJobResponse        `json:"jobs"`
 	Invalid        []invalidSourceRepositoryJobResponse `json:"invalid,omitempty"`
 }
@@ -261,6 +264,7 @@ type sourceDefinitionsImportRequest struct {
 	Ref            string `json:"ref"`
 	Path           string `json:"path"`
 	Limit          int    `json:"limit"`
+	Cursor         string `json:"cursor"`
 	DryRun         bool   `json:"dry_run"`
 	UpdateExisting bool   `json:"update_existing"`
 }
@@ -314,6 +318,7 @@ type importedSourceDefinitionsResponse struct {
 	Path           string                             `json:"path"`
 	Limit          int                                `json:"limit"`
 	Truncated      bool                               `json:"truncated"`
+	NextCursor     string                             `json:"next_cursor,omitempty"`
 	DryRun         bool                               `json:"dry_run"`
 	UpdateExisting bool                               `json:"update_existing"`
 	Summary        importedSourceDefinitionsSummary   `json:"summary"`
@@ -1184,6 +1189,7 @@ func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Requ
 		Path:      r.URL.Query().Get("path"),
 		Recursive: recursive,
 		Limit:     limit,
+		Cursor:    r.URL.Query().Get("cursor"),
 	})
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -1210,6 +1216,7 @@ func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Requ
 		Recursive:      listing.Recursive,
 		Limit:          limit,
 		Truncated:      listing.Truncated,
+		NextCursor:     listing.NextCursor,
 		Entries:        respEntries,
 	})
 }
@@ -1243,9 +1250,10 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 	limit := sourceRepositoryTreeListLimit(r)
 	checkout := newGitCheckoutForSourceRepository(rec)
 	listing, err := checkout.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
-		Ref:   ref,
-		Path:  r.URL.Query().Get("path"),
-		Limit: limit,
+		Ref:    ref,
+		Path:   r.URL.Query().Get("path"),
+		Limit:  limit,
+		Cursor: r.URL.Query().Get("cursor"),
 	})
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -1269,6 +1277,7 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 		Path:           listing.Path,
 		Limit:          limit,
 		Truncated:      listing.Truncated,
+		NextCursor:     listing.NextCursor,
 		Definitions:    respFiles,
 	})
 }
@@ -1302,9 +1311,10 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 	limit := sourceRepositoryTreeListLimit(r)
 	checkout := newGitCheckoutForSourceRepository(rec)
 	listing, err := checkout.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
-		Ref:   ref,
-		Path:  r.URL.Query().Get("path"),
-		Limit: limit,
+		Ref:    ref,
+		Path:   r.URL.Query().Get("path"),
+		Limit:  limit,
+		Cursor: r.URL.Query().Get("cursor"),
 	})
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -1363,6 +1373,7 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 		Path:           listing.Path,
 		Limit:          limit,
 		Truncated:      listing.Truncated,
+		NextCursor:     listing.NextCursor,
 		Jobs:           jobs,
 		Invalid:        invalid,
 	})
@@ -1582,6 +1593,7 @@ func (s *APIServer) ImportSourceRepositoryDefinitions(w http.ResponseWriter, r *
 
 	req.Ref = strings.TrimSpace(req.Ref)
 	req.Path = strings.TrimSpace(req.Path)
+	req.Cursor = strings.TrimSpace(req.Cursor)
 
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
@@ -1612,9 +1624,10 @@ func (s *APIServer) ImportSourceRepositoryDefinitions(w http.ResponseWriter, r *
 	limit := sourceRepositoryImportDefinitionsLimit(req.Limit)
 	checkout := newGitCheckoutForSourceRepository(rec)
 	listing, err := checkout.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
-		Ref:   ref,
-		Path:  req.Path,
-		Limit: limit,
+		Ref:    ref,
+		Path:   req.Path,
+		Limit:  limit,
+		Cursor: req.Cursor,
 	})
 
 	if err != nil {
@@ -1653,6 +1666,7 @@ func (s *APIServer) ImportSourceRepositoryDefinitions(w http.ResponseWriter, r *
 		Path:           listing.Path,
 		Limit:          limit,
 		Truncated:      listing.Truncated,
+		NextCursor:     listing.NextCursor,
 		DryRun:         req.DryRun,
 		UpdateExisting: req.UpdateExisting,
 		Summary:        summary,

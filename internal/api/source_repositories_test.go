@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1367,17 +1368,42 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	var treeResp struct {
-		Limit     int  `json:"limit"`
-		Truncated bool `json:"truncated"`
-		Entries   []struct {
+		Limit      int    `json:"limit"`
+		Truncated  bool   `json:"truncated"`
+		NextCursor string `json:"next_cursor"`
+		Entries    []struct {
 			Path string `json:"path"`
 		} `json:"entries"`
 	}
 	if err := json.NewDecoder(treeRec.Body).Decode(&treeResp); err != nil {
 		t.Fatalf("decode limited source tree: %v", err)
 	}
-	if treeResp.Limit != 1 || !treeResp.Truncated || len(treeResp.Entries) != 1 {
+	if treeResp.Limit != 1 || !treeResp.Truncated || treeResp.NextCursor == "" || len(treeResp.Entries) != 1 {
 		t.Fatalf("limited source tree response mismatch: %+v", treeResp)
+	}
+
+	treeNextRec := httptest.NewRecorder()
+	treeNextReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/tree?path=.vectis/jobs&recursive=true&limit=10&cursor="+url.QueryEscape(treeResp.NextCursor), nil)
+	handler.ServeHTTP(treeNextRec, treeNextReq)
+	if treeNextRec.Code != http.StatusOK {
+		t.Fatalf("list source tree after cursor: status=%d body=%s", treeNextRec.Code, treeNextRec.Body.String())
+	}
+
+	var treeNextResp struct {
+		Entries []struct {
+			Path string `json:"path"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(treeNextRec.Body).Decode(&treeNextResp); err != nil {
+		t.Fatalf("decode source tree after cursor: %v", err)
+	}
+	if len(treeNextResp.Entries) == 0 {
+		t.Fatalf("expected source tree entries after cursor")
+	}
+	for _, entry := range treeNextResp.Entries {
+		if entry.Path <= treeResp.NextCursor {
+			t.Fatalf("source tree after cursor returned %q at or before %q", entry.Path, treeResp.NextCursor)
+		}
 	}
 
 	definitionsRec := httptest.NewRecorder()
@@ -1388,8 +1414,9 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	}
 
 	var definitionsResp struct {
-		Limit       int  `json:"limit"`
-		Truncated   bool `json:"truncated"`
+		Limit       int    `json:"limit"`
+		Truncated   bool   `json:"truncated"`
+		NextCursor  string `json:"next_cursor"`
 		Definitions []struct {
 			Path string `json:"path"`
 		} `json:"definitions"`
@@ -1397,7 +1424,7 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	if err := json.NewDecoder(definitionsRec.Body).Decode(&definitionsResp); err != nil {
 		t.Fatalf("decode limited source definitions: %v", err)
 	}
-	if definitionsResp.Limit != 1 || !definitionsResp.Truncated || len(definitionsResp.Definitions) != 1 {
+	if definitionsResp.Limit != 1 || !definitionsResp.Truncated || definitionsResp.NextCursor == "" || len(definitionsResp.Definitions) != 1 {
 		t.Fatalf("limited source definitions response mismatch: %+v", definitionsResp)
 	}
 
@@ -1411,6 +1438,7 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	limitedJobsResp := decodeSourceRepositoryJobsResponse(t, limitedJobsRec)
 	if limitedJobsResp.Limit != 1 ||
 		!limitedJobsResp.Truncated ||
+		limitedJobsResp.NextCursor == "" ||
 		len(limitedJobsResp.Jobs)+len(limitedJobsResp.Invalid) != 1 {
 		t.Fatalf("limited source jobs response mismatch: %+v", limitedJobsResp)
 	}
@@ -1427,6 +1455,7 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	importResp := decodeSourceDefinitionsImportResponse(t, importRec)
 	if importResp.Limit != 1 ||
 		!importResp.Truncated ||
+		importResp.NextCursor == "" ||
 		!importResp.DryRun ||
 		importResp.Summary.Total != 1 ||
 		len(importResp.Results) != 1 {
@@ -2910,6 +2939,7 @@ func decodeSourceDefinitionsImportResponse(t *testing.T, rec *httptest.ResponseR
 	Path           string `json:"path"`
 	Limit          int    `json:"limit"`
 	Truncated      bool   `json:"truncated"`
+	NextCursor     string `json:"next_cursor"`
 	DryRun         bool   `json:"dry_run"`
 	UpdateExisting bool   `json:"update_existing"`
 	Summary        struct {
@@ -2946,6 +2976,7 @@ func decodeSourceDefinitionsImportResponse(t *testing.T, rec *httptest.ResponseR
 		Path           string `json:"path"`
 		Limit          int    `json:"limit"`
 		Truncated      bool   `json:"truncated"`
+		NextCursor     string `json:"next_cursor"`
 		DryRun         bool   `json:"dry_run"`
 		UpdateExisting bool   `json:"update_existing"`
 		Summary        struct {
@@ -3052,6 +3083,7 @@ func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseReco
 	Path           string `json:"path"`
 	Limit          int    `json:"limit"`
 	Truncated      bool   `json:"truncated"`
+	NextCursor     string `json:"next_cursor"`
 	Jobs           []struct {
 		JobID   string `json:"job_id"`
 		Path    string `json:"path"`
@@ -3081,6 +3113,7 @@ func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseReco
 		Path           string `json:"path"`
 		Limit          int    `json:"limit"`
 		Truncated      bool   `json:"truncated"`
+		NextCursor     string `json:"next_cursor"`
 		Jobs           []struct {
 			JobID   string `json:"job_id"`
 			Path    string `json:"path"`

@@ -142,6 +142,7 @@ type sourceRepositoryTreeResult struct {
 	Recursive      bool                        `json:"recursive"`
 	Limit          int                         `json:"limit"`
 	Truncated      bool                        `json:"truncated"`
+	NextCursor     string                      `json:"next_cursor,omitempty"`
 	Entries        []sourceRepositoryTreeEntry `json:"entries"`
 }
 
@@ -159,6 +160,7 @@ type sourceRepositoryDefinitionsResult struct {
 	Path           string                           `json:"path"`
 	Limit          int                              `json:"limit"`
 	Truncated      bool                             `json:"truncated"`
+	NextCursor     string                           `json:"next_cursor,omitempty"`
 	Definitions    []sourceRepositoryDefinitionFile `json:"definitions"`
 }
 
@@ -178,6 +180,7 @@ type sourceDefinitionsImportRequest struct {
 	Ref            string `json:"ref,omitempty"`
 	Path           string `json:"path,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
+	Cursor         string `json:"cursor,omitempty"`
 	DryRun         bool   `json:"dry_run,omitempty"`
 	UpdateExisting bool   `json:"update_existing,omitempty"`
 }
@@ -209,6 +212,7 @@ type importedSourceDefinitionsResult struct {
 	Path           string                           `json:"path"`
 	Limit          int                              `json:"limit"`
 	Truncated      bool                             `json:"truncated"`
+	NextCursor     string                           `json:"next_cursor,omitempty"`
 	DryRun         bool                             `json:"dry_run"`
 	UpdateExisting bool                             `json:"update_existing"`
 	Summary        importedSourceDefinitionsSummary `json:"summary"`
@@ -231,6 +235,7 @@ type sourceRepositoryJobsResult struct {
 	Path           string                       `json:"path"`
 	Limit          int                          `json:"limit"`
 	Truncated      bool                         `json:"truncated"`
+	NextCursor     string                       `json:"next_cursor,omitempty"`
 	Jobs           []sourceRepositoryJobSummary `json:"jobs"`
 }
 
@@ -1282,7 +1287,7 @@ func writeSourceBranchesResult(out io.Writer, result sourceRepositoryBranchesRes
 		return err
 	}
 
-	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
+	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit, "")
 }
 
 func listSourceTree(cmd *cobra.Command, args []string) {
@@ -1300,6 +1305,9 @@ func listSourceTreeWithOutput(out io.Writer, repositoryID string) error {
 	}
 	if sourceTreeLimit > 0 {
 		params.Set("limit", strconv.Itoa(sourceTreeLimit))
+	}
+	if v := strings.TrimSpace(sourceTreeCursor); v != "" {
+		params.Set("cursor", v)
 	}
 	if sourceTreeRecursive {
 		params.Set("recursive", "true")
@@ -1364,7 +1372,7 @@ func writeSourceTreeResult(out io.Writer, result sourceRepositoryTreeResult) err
 		return err
 	}
 
-	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
+	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit, result.NextCursor)
 }
 
 func listSourceDefinitions(cmd *cobra.Command, args []string) {
@@ -1382,6 +1390,9 @@ func listSourceDefinitionsWithOutput(out io.Writer, repositoryID string) error {
 	}
 	if sourceDefinitionsLimit > 0 {
 		params.Set("limit", strconv.Itoa(sourceDefinitionsLimit))
+	}
+	if v := strings.TrimSpace(sourceDefinitionsCursor); v != "" {
+		params.Set("cursor", v)
 	}
 	path = appendQueryParams(path, params)
 
@@ -1442,7 +1453,7 @@ func writeSourceDefinitionsResult(out io.Writer, result sourceRepositoryDefiniti
 		return err
 	}
 
-	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
+	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit, result.NextCursor)
 }
 
 func resolveSourceDefinition(cmd *cobra.Command, args []string) {
@@ -1504,6 +1515,7 @@ func importSourceDefinitionsWithOutput(out io.Writer, repositoryID string) error
 		Ref:            strings.TrimSpace(sourceImportRef),
 		Path:           strings.TrimSpace(sourceImportPath),
 		Limit:          sourceImportLimit,
+		Cursor:         strings.TrimSpace(sourceImportCursor),
 		DryRun:         sourceImportDryRun,
 		UpdateExisting: sourceImportUpdateExisting,
 	})
@@ -1554,6 +1566,9 @@ func writeSourceDefinitionsImportResult(out io.Writer, result importedSourceDefi
 	fmt.Fprintf(out, "path=%s\n", emptyAsDash(result.Path))
 	fmt.Fprintf(out, "limit=%d\n", result.Limit)
 	fmt.Fprintf(out, "truncated=%t\n", result.Truncated)
+	if result.NextCursor != "" {
+		fmt.Fprintf(out, "next_cursor=%s\n", result.NextCursor)
+	}
 	fmt.Fprintf(out, "dry_run=%t\n", result.DryRun)
 	fmt.Fprintf(out, "update_existing=%t\n", result.UpdateExisting)
 	fmt.Fprintf(out, "summary total=%d created=%d updated=%d unchanged=%d would_create=%d would_update=%d conflicted=%d invalid=%d\n",
@@ -1605,6 +1620,9 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 	if sourceJobsLimit > 0 {
 		params.Set("limit", strconv.Itoa(sourceJobsLimit))
 	}
+	if v := strings.TrimSpace(sourceJobsCursor); v != "" {
+		params.Set("cursor", v)
+	}
 	if encoded := params.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
@@ -1653,7 +1671,7 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 			return err
 		}
 
-		return writeSourceTruncatedNotice(out, result.Truncated, result.Limit)
+		return writeSourceTruncatedNotice(out, result.Truncated, result.Limit, result.NextCursor)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
 	default:
@@ -1661,9 +1679,14 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 	}
 }
 
-func writeSourceTruncatedNotice(out io.Writer, truncated bool, limit int) error {
+func writeSourceTruncatedNotice(out io.Writer, truncated bool, limit int, nextCursor string) error {
 	if !truncated {
 		return nil
+	}
+
+	if nextCursor != "" {
+		_, err := fmt.Fprintf(out, "Results truncated at limit=%d. Continue with --cursor %s.\n", limit, nextCursor)
+		return err
 	}
 
 	_, err := fmt.Fprintf(out, "Results truncated at limit=%d; narrow the path/ref or increase --limit.\n", limit)
@@ -2231,6 +2254,7 @@ func configureSourcesTreeFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceTreeRef, "ref", "", "Git ref to inspect (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceTreePath, "path", "", "Tree path to list")
 	cmd.Flags().IntVar(&sourceTreeLimit, "limit", 0, "Max tree entries to return")
+	cmd.Flags().StringVar(&sourceTreeCursor, "cursor", "", "Continue after a previous tree entry path")
 	cmd.Flags().BoolVarP(&sourceTreeRecursive, "recursive", "r", false, "List tree entries recursively")
 	cmd.Flags().BoolVarP(&sourceTreeQuiet, "quiet", "q", false, "Print only paths")
 }
@@ -2239,6 +2263,7 @@ func configureSourcesDefinitionsFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceDefinitionsRef, "ref", "", "Git ref to inspect (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceDefinitionsPath, "path", "", "Definition directory path (default: .vectis/jobs)")
 	cmd.Flags().IntVar(&sourceDefinitionsLimit, "limit", 0, "Max definition files to return")
+	cmd.Flags().StringVar(&sourceDefinitionsCursor, "cursor", "", "Continue after a previous definition file path")
 	cmd.Flags().BoolVarP(&sourceDefinitionsQuiet, "quiet", "q", false, "Print only definition paths")
 }
 
@@ -2251,6 +2276,7 @@ func configureSourcesImportFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceImportRef, "ref", "", "Git ref to import (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceImportPath, "path", "", "Definition directory path (default: .vectis/jobs)")
 	cmd.Flags().IntVar(&sourceImportLimit, "limit", 0, "Max definition files to import")
+	cmd.Flags().StringVar(&sourceImportCursor, "cursor", "", "Continue import after a previous definition file path")
 	cmd.Flags().BoolVar(&sourceImportDryRun, "dry-run", false, "Preview import results without writing stored jobs")
 	cmd.Flags().BoolVar(&sourceImportUpdateExisting, "update-existing", false, "Update existing stored jobs when source definitions changed")
 }
@@ -2259,6 +2285,7 @@ func configureSourcesJobsFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceJobsRef, "ref", "", "Git ref to inspect (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceJobsPath, "path", "", "Definition directory path (default: .vectis/jobs)")
 	cmd.Flags().IntVar(&sourceJobsLimit, "limit", 0, "Max source jobs to return")
+	cmd.Flags().StringVar(&sourceJobsCursor, "cursor", "", "Continue after a previous definition file path")
 	cmd.Flags().BoolVarP(&sourceJobsQuiet, "quiet", "q", false, "Print only job IDs")
 }
 
