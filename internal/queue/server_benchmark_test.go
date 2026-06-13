@@ -541,6 +541,148 @@ func BenchmarkQueue_ConcurrentEnqueueDequeue(b *testing.B) {
 	}
 }
 
+func TestQueue_BurstEnqueueWakesBlockedCompatibleWorkers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := NewQueueService(mocks.NopLogger{})
+	queue := svc.(*queueServer)
+
+	const workers = 16
+	results := make(chan error, workers)
+	for range workers {
+		go func() {
+			got, err := svc.Dequeue(ctx, &api.DequeueRequest{})
+			if err != nil {
+				results <- err
+				return
+			}
+
+			if got == nil {
+				results <- fmt.Errorf("expected dequeued job")
+				return
+			}
+
+			results <- nil
+		}()
+	}
+
+	waitForQueueWaiters(t, queue, workers)
+	for i := range workers {
+		jobID := fmt.Sprintf("burst-test-job-%d", i)
+		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+			t.Fatalf("enqueue burst job %d: %v", i, err)
+		}
+	}
+
+	deadline := time.After(2 * time.Second)
+	for i := 0; i < workers; i++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d blocked workers to receive burst jobs; got %d", workers, i)
+		}
+	}
+}
+
+func BenchmarkQueue_BlockedWorkerBurstDispatch(b *testing.B) {
+	for _, workers := range []int{100, 1000, 5000, 10000} {
+		b.Run(fmt.Sprintf("blocked_workers_%05d", workers), func(b *testing.B) {
+			runBlockedWorkerBurstDispatchBenchmark(b, workers)
+		})
+	}
+}
+
+func runBlockedWorkerBurstDispatchBenchmark(b *testing.B, workers int) {
+	if workers <= 0 {
+		b.Fatal("workers must be positive")
+	}
+
+	var measured time.Duration
+	b.ReportAllocs()
+	for iteration := 0; iteration < b.N; iteration++ {
+		b.StopTimer()
+		ctx, cancel := context.WithCancel(context.Background())
+		svc := NewQueueService(mocks.NopLogger{})
+		queue := svc.(*queueServer)
+		results := make(chan error, workers)
+
+		for range workers {
+			go func() {
+				got, err := svc.Dequeue(ctx, &api.DequeueRequest{})
+				if err != nil {
+					results <- err
+					return
+				}
+
+				if got == nil {
+					results <- fmt.Errorf("expected dequeued job")
+					return
+				}
+
+				results <- nil
+			}()
+		}
+
+		waitForQueueWaiters(b, queue, workers)
+
+		b.StartTimer()
+		start := time.Now()
+		for jobIndex := 0; jobIndex < workers; jobIndex++ {
+			jobID := fmt.Sprintf("burst-job-%d-%d", iteration, jobIndex)
+			if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+				b.Fatalf("enqueue burst job %d: %v", jobIndex, err)
+			}
+		}
+
+		deadline := time.After(10 * time.Second)
+		for delivered := 0; delivered < workers; delivered++ {
+			select {
+			case err := <-results:
+				if err != nil {
+					b.Fatal(err)
+				}
+			case <-deadline:
+				b.Fatalf("timed out waiting for %d blocked workers to receive burst jobs; got %d", workers, delivered)
+			}
+		}
+
+		measured += time.Since(start)
+		b.StopTimer()
+		cancel()
+	}
+
+	if measured > 0 {
+		totalDeliveries := float64(workers * b.N)
+		b.ReportMetric(totalDeliveries/measured.Seconds(), "deliveries/s")
+	}
+
+	b.ReportMetric(float64(workers), "blocked_workers")
+}
+
+func waitForQueueWaiters(tb testing.TB, queue *queueServer, want int) {
+	tb.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		queue.mu.Lock()
+		got := len(queue.waiters)
+		queue.mu.Unlock()
+		if got >= want {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			tb.Fatalf("timed out waiting for %d blocked queue waiters; got %d", want, got)
+		}
+
+		runtime.Gosched()
+	}
+}
+
 type sustainedLoadConfig struct {
 	name          string
 	producers     int

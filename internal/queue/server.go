@@ -58,11 +58,17 @@ type queueServer struct {
 	deliveryPrefix            string
 	deliverySeq               uint64
 	mu                        sync.Mutex
-	notify                    chan struct{}
+	waiters                   []queueWaiter
 	log                       interfaces.Logger
 	persistence               *persistenceStore
 	metrics                   *observability.QueueMetrics
 	faults                    faultinject.Hook
+}
+
+type queueWaiter struct {
+	notify        chan struct{}
+	supportedMask uint64
+	filtered      bool
 }
 
 type deadLetterItem struct {
@@ -145,7 +151,6 @@ func newQueueServer(logger interfaces.Logger, opts QueueOptions, metrics *observ
 		maxRequeueAttempts:        maxAttempts,
 		instanceID:                opts.InstanceID,
 		deliveryPrefix:            uuid.NewString(),
-		notify:                    make(chan struct{}, 1),
 		log:                       logger,
 		metrics:                   metrics,
 		faults:                    opts.Faults,
@@ -207,16 +212,13 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 		}
 	}
 
-	s.appendPendingLocked(queuedReq)
+	requirementMask := s.appendPendingLocked(queuedReq)
 	s.log.Info("Enqueued job: %s", queuedReq.GetJob().GetId())
 	if s.metrics != nil {
 		s.metrics.RecordEnqueued(ctx)
 	}
 
-	select {
-	case s.notify <- struct{}{}:
-	default:
-	}
+	s.notifyEligibleWaiterLocked(requirementMask)
 
 	return &api.Empty{}, nil
 }
@@ -276,11 +278,19 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 			return nil, nil
 		}
 
+		waiter := queueWaiter{
+			notify:        make(chan struct{}),
+			supportedMask: supportedMask,
+			filtered:      filtered,
+		}
+
+		s.waiters = append(s.waiters, waiter)
 		s.mu.Unlock()
 		select {
-		case <-s.notify:
+		case <-waiter.notify:
 		case <-ctx.Done():
 			s.mu.Lock()
+			s.removeWaiterLocked(waiter.notify)
 			return nil, ctx.Err()
 		}
 		s.mu.Lock()
@@ -841,17 +851,15 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 		}
 
 		s.jobAttempts[jobID] = attemptCount
-		s.appendPendingLocked(item.JobRequest)
+		requirementMask := s.appendPendingLocked(item.JobRequest)
 		delete(s.inflight, deliveryID)
+
 		s.log.Warn("Re-queued expired delivery %s for job %s (attempt %d)", deliveryID, jobID, attemptCount)
 		if s.metrics != nil {
 			s.metrics.RecordExpiredRequeued(context.Background())
 		}
 
-		select {
-		case s.notify <- struct{}{}:
-		default:
-		}
+		s.notifyEligibleWaiterLocked(requirementMask)
 	}
 
 	return nil
@@ -875,16 +883,12 @@ func (s *queueServer) loadPending(jobs []*api.JobRequest) {
 	s.pendingRequirementBySeq = make(map[uint64]uint64, len(jobs))
 	s.pendingRequirementBuckets = make(map[uint64][]uint64)
 	for _, jobReq := range jobs {
-		s.appendPendingLocked(jobReq)
-	}
-
-	select {
-	case s.notify <- struct{}{}:
-	default:
+		requirementMask := s.appendPendingLocked(jobReq)
+		s.notifyEligibleWaiterLocked(requirementMask)
 	}
 }
 
-func (s *queueServer) appendPendingLocked(req *api.JobRequest) {
+func (s *queueServer) appendPendingLocked(req *api.JobRequest) uint64 {
 	if s.size == len(s.jobs) {
 		s.grow()
 	}
@@ -901,6 +905,31 @@ func (s *queueServer) appendPendingLocked(req *api.JobRequest) {
 	s.pendingRequirementBySeq[seq] = requirementMask
 	s.pendingRequirementBuckets[requirementMask] = append(s.pendingRequirementBuckets[requirementMask], seq)
 	s.size++
+
+	return requirementMask
+}
+
+func (s *queueServer) notifyEligibleWaiterLocked(requirementMask uint64) {
+	for i, waiter := range s.waiters {
+		if waiter.filtered && requirementMask&^waiter.supportedMask != 0 {
+			continue
+		}
+
+		s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
+		close(waiter.notify)
+		return
+	}
+}
+
+func (s *queueServer) removeWaiterLocked(notify <-chan struct{}) {
+	for i, waiter := range s.waiters {
+		if waiter.notify != notify {
+			continue
+		}
+
+		s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
+		return
+	}
 }
 
 func (s *queueServer) removePendingHeadLocked() {
@@ -1033,7 +1062,7 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 				}
 			}
 
-			s.appendPendingLocked(item.jobRequest)
+			requirementMask := s.appendPendingLocked(item.jobRequest)
 			s.deadLetter = append(s.deadLetter[:i], s.deadLetter[i+1:]...)
 
 			delete(s.jobAttempts, item.jobRequest.GetJob().GetId())
@@ -1043,10 +1072,7 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 				s.metrics.RecordDLQRequeued(ctx)
 			}
 
-			select {
-			case s.notify <- struct{}{}:
-			default:
-			}
+			s.notifyEligibleWaiterLocked(requirementMask)
 
 			return &api.Empty{}, nil
 		}
