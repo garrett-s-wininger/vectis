@@ -594,6 +594,108 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	}
 }
 
+func TestCronServiceChaos_CompleteClaimFailureRetriesSameScheduledRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	logger := mocks.NewMockLogger()
+	queueService := mocks.NewMockQueueService()
+	clock := mocks.NewMockClock()
+	now := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	clock.SetNow(now)
+
+	completeErr := errors.New("schedule store unavailable")
+	schedules := &failOnceCompleteClaimSchedulesRepository{
+		SchedulesRepository: repos.Schedules(),
+		err:                 completeErr,
+	}
+
+	service := cron.NewCronServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), schedules)
+	service.SetQueueClient(queueService)
+	service.SetClock(clock)
+	service.SetClaimTTL(time.Minute)
+
+	jobDef := `{"id": "scheduled-complete-chaos", "root": {"uses": "builtins/shell"}}`
+	insertCronTestJob(t, db, "scheduled-complete-chaos", jobDef)
+	scheduleID := insertCronTestSchedule(t, db, "scheduled-complete-chaos", "* * * * *", now)
+
+	if err := service.ProcessSchedules(context.Background()); err != nil {
+		t.Fatalf("process schedules with injected complete failure: %v", err)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected first trigger to enqueue one job, got %d", len(jobs))
+	}
+
+	runID := jobs[0].GetRunId()
+	if runID == "" {
+		t.Fatal("expected first enqueued job to have run_id")
+	}
+
+	if ready, err := service.GetReadySchedules(context.Background()); err != nil {
+		t.Fatalf("get ready during active failed claim: %v", err)
+	} else if len(ready) != 0 {
+		t.Fatalf("schedule should stay hidden until failed claim expires, got %+v", ready)
+	}
+
+	clock.SetNow(now.Add(2 * time.Minute))
+	if err := service.ProcessSchedules(context.Background()); err != nil {
+		t.Fatalf("process schedules after failed claim expiry: %v", err)
+	}
+
+	jobs = queueService.GetJobs()
+	if len(jobs) != 2 {
+		t.Fatalf("expected retry to enqueue the same scheduled run again, got %d jobs", len(jobs))
+	}
+
+	if jobs[1].GetRunId() != runID {
+		t.Fatalf("expected retry to reuse run_id %q, got %q", runID, jobs[1].GetRunId())
+	}
+
+	var runCount int
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-complete-chaos").Scan(&runCount); err != nil {
+		t.Fatalf("count job runs: %v", err)
+	}
+
+	if runCount != 1 {
+		t.Fatalf("expected one job_runs row after retry, got %d", runCount)
+	}
+
+	var fireCount int
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+		t.Fatalf("count schedule fires: %v", err)
+	}
+
+	if fireCount != 1 {
+		t.Fatalf("expected one cron_schedule_fires row after retry, got %d", fireCount)
+	}
+
+	nextRunStr := queryCronTestNextRun(t, db, "scheduled-complete-chaos")
+	nextRun, err := time.Parse(time.RFC3339, nextRunStr)
+	if err != nil {
+		t.Fatalf("parse next run: %v", err)
+	}
+
+	if !nextRun.After(now) {
+		t.Fatalf("expected schedule to advance after retry, got %v", nextRun)
+	}
+}
+
+type failOnceCompleteClaimSchedulesRepository struct {
+	dal.SchedulesRepository
+	err    error
+	failed bool
+}
+
+func (r *failOnceCompleteClaimSchedulesRepository) CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error) {
+	if !r.failed {
+		r.failed = true
+		return false, r.err
+	}
+
+	return r.SchedulesRepository.CompleteClaim(ctx, scheduleID, claimToken, nextRun)
+}
+
 func TestCronService_WaitTimeToNextMinute_AtSecondZero(t *testing.T) {
 	logger := mocks.NewMockLogger()
 	clock := mocks.NewMockClock()

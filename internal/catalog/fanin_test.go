@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"vectis/internal/cell"
@@ -199,6 +200,78 @@ func TestFanInProcessorMarksSourceAppliedWhenTargetAlreadyHasEvent(t *testing.T)
 	}
 }
 
+func TestFanInProcessorChaos_RetryAfterSourceMarkAppliedFailure(t *testing.T) {
+	ctx := context.Background()
+	sourceDB := dbtest.NewTestDB(t)
+	targetDB := dbtest.NewTestDB(t)
+	sourceRepos := dal.NewSQLRepositories(sourceDB)
+	targetRepos := dal.NewSQLRepositories(targetDB)
+	payload := []byte(`{"run_id":"run-a","status":"running"}`)
+
+	if _, _, err := sourceRepos.CatalogEvents().Record(ctx, "iad-a", "run:run-a:running", cell.CatalogEventTypeRunStatus, payload); err != nil {
+		t.Fatalf("record source event: %v", err)
+	}
+
+	markErr := errors.New("source database unavailable")
+	sourceEvents := &failOnceMarkAppliedEventsRepository{
+		CatalogEventsRepository: sourceRepos.CatalogEvents(),
+		err:                     markErr,
+	}
+
+	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
+		{CellID: "iad-a", Events: sourceEvents},
+	})
+
+	if _, err := processor.IngestPending(ctx, 10); !errors.Is(err, markErr) {
+		t.Fatalf("first IngestPending error = %v, want %v", err, markErr)
+	}
+
+	sourcePending, err := sourceRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list source pending after injected failure: %v", err)
+	}
+
+	if len(sourcePending) != 1 {
+		t.Fatalf("source event should remain pending after failed mark-applied, got %+v", sourcePending)
+	}
+
+	targetPending, err := targetRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list target pending after injected failure: %v", err)
+	}
+
+	if len(targetPending) != 1 {
+		t.Fatalf("target event should have been copied before failure, got %+v", targetPending)
+	}
+
+	result, err := processor.IngestPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("retry IngestPending: %v", err)
+	}
+
+	if result.Read != 1 || result.Copied != 0 {
+		t.Fatalf("retry result = %+v, want duplicate read with no new copy", result)
+	}
+
+	sourcePending, err = sourceRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list source pending after retry: %v", err)
+	}
+
+	if len(sourcePending) != 0 {
+		t.Fatalf("source duplicate event was not marked applied after retry: %+v", sourcePending)
+	}
+
+	targetPending, err = targetRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list target pending after retry: %v", err)
+	}
+
+	if len(targetPending) != 1 {
+		t.Fatalf("target duplicate should not be copied twice, got %+v", targetPending)
+	}
+}
+
 func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := dbtest.NewTestDB(t)
@@ -241,4 +314,19 @@ func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 	if len(targetPending) != 1 || targetPending[0].EventKey != cell.CatalogRunStatusEventKey(runID, dal.RunStatusRunning) {
 		t.Fatalf("unexpected target event after backfill: %+v", targetPending)
 	}
+}
+
+type failOnceMarkAppliedEventsRepository struct {
+	dal.CatalogEventsRepository
+	err    error
+	failed bool
+}
+
+func (r *failOnceMarkAppliedEventsRepository) MarkApplied(ctx context.Context, id int64) error {
+	if !r.failed {
+		r.failed = true
+		return r.err
+	}
+
+	return r.CatalogEventsRepository.MarkApplied(ctx, id)
 }

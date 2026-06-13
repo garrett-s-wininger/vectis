@@ -209,6 +209,90 @@ func TestPublisher_UploadFailureDoesNotRecordManifest(t *testing.T) {
 	}
 }
 
+func TestPublisherChaos_ManifestFailureLeavesRetryableUploadedBlob(t *testing.T) {
+	store, err := NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	repos := dal.NewSQLRepositories(dbtest.NewTestDB(t))
+	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher-manifest-chaos")
+	manifests := &failOnceArtifactsRepository{
+		ArtifactsRepository: repos.Artifacts(),
+		recordErr:           errors.New("manifest db unavailable"),
+	}
+
+	publisher, err := NewPublisher(PublisherOptions{
+		Client:          newArtifactServiceClient(t, store, ServerOptions{}),
+		Manifests:       manifests,
+		ArtifactShardID: "artifact-1",
+	})
+
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+
+	content := []byte("manifest retry payload")
+	digest := sha256BytesHex(content)
+	first, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:          runID,
+		Name:           "report",
+		Reader:         bytes.NewReader(content),
+		ExpectedSHA256: digest,
+		ExpectedSize:   int64(len(content)),
+		RequireSize:    true,
+	})
+
+	if !errors.Is(err, manifests.recordErr) {
+		t.Fatalf("first publish error = %v, want %v", err, manifests.recordErr)
+	}
+
+	if first.Blob.Key != "" || first.Manifest.ID != 0 {
+		t.Fatalf("failed publish returned partial result: %+v", first)
+	}
+
+	uploaded, err := store.Stat(context.Background(), BlobKeySHA256(digest))
+	if err != nil {
+		t.Fatalf("blob should remain uploaded after manifest failure: %v", err)
+	}
+
+	if uploaded.Size != int64(len(content)) {
+		t.Fatalf("uploaded blob size = %d, want %d", uploaded.Size, len(content))
+	}
+
+	if _, err := repos.Artifacts().GetByRunAndName(context.Background(), runID, "report"); !dal.IsNotFound(err) {
+		t.Fatalf("expected no manifest after injected manifest failure, got %v", err)
+	}
+
+	retried, err := publisher.Publish(context.Background(), PublishRequest{
+		RunID:          runID,
+		Name:           "report",
+		Reader:         bytes.NewReader(content),
+		ExpectedSHA256: digest,
+		ExpectedSize:   int64(len(content)),
+		RequireSize:    true,
+	})
+
+	if err != nil {
+		t.Fatalf("retry publish after manifest recovery: %v", err)
+	}
+
+	assertBlobDescriptor(t, retried.Blob, digest, int64(len(content)))
+	if retried.Manifest.BlobKey != BlobKeySHA256(digest) {
+		t.Fatalf("retried manifest blob key = %q, want %q", retried.Manifest.BlobKey, BlobKeySHA256(digest))
+	}
+
+	fromRepo, err := repos.Artifacts().GetByRunAndName(context.Background(), runID, "report")
+	if err != nil {
+		t.Fatalf("get retried manifest: %v", err)
+	}
+
+	if fromRepo.ID != retried.Manifest.ID || fromRepo.BlobKey != retried.Manifest.BlobKey {
+		t.Fatalf("repo manifest = %+v, want %+v", fromRepo, retried.Manifest)
+	}
+}
+
 func TestPublisher_RunQuotaRejectsBeforeUpload(t *testing.T) {
 	store, err := NewLocalStore(t.TempDir())
 	if err != nil {
@@ -344,6 +428,21 @@ func TestPublisher_Validation(t *testing.T) {
 	if _, err := store.Stat(context.Background(), BlobKeySHA256(digest)); !errors.Is(err, ErrBlobNotFound) {
 		t.Fatalf("validation failure should not upload blob, got %v", err)
 	}
+}
+
+type failOnceArtifactsRepository struct {
+	dal.ArtifactsRepository
+	recordErr error
+	failed    bool
+}
+
+func (r *failOnceArtifactsRepository) Record(ctx context.Context, create dal.ArtifactCreate) (dal.ArtifactRecord, error) {
+	if !r.failed {
+		r.failed = true
+		return dal.ArtifactRecord{}, r.recordErr
+	}
+
+	return r.ArtifactsRepository.Record(ctx, create)
 }
 
 func assertBlobDescriptor(t *testing.T, desc BlobDescriptor, digest string, size int64) {
