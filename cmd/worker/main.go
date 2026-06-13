@@ -2680,13 +2680,18 @@ func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, e
 	}
 	defer cleanup()
 
-	bundle, err := resolver.Resolve(ctx, secrets.ResolveRequest{
+	req := secrets.ResolveRequest{
 		RunID:               env.RunID,
 		ExecutionID:         env.ExecutionID,
 		ExecutionClaimToken: executionClaimToken,
 		Workload:            workloadIdentity,
 		Secrets:             refs,
-	})
+	}
+	if err := secrets.ValidateResolveIdentityBinding(&req); err != nil {
+		return nil, fmt.Errorf("validate secret resolve identity: %w", err)
+	}
+
+	bundle, err := resolver.Resolve(ctx, req)
 
 	if err != nil {
 		outcome, reason := workerSecretResolveOutcomeReason(err)

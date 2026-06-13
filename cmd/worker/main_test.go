@@ -282,6 +282,39 @@ func TestWorkerResolveExecutionSecretsRequiresResolverForDeclaredSecrets(t *test
 	}
 }
 
+func TestWorkerResolveExecutionSecretsRejectsMismatchedWorkloadIdentity(t *testing.T) {
+	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
+	resolver := &recordingSecretsResolver{}
+	w := &worker{secretResolver: resolver}
+
+	_, err := w.resolveExecutionSecrets(context.Background(), &api.Job{
+		Secrets: []*api.SecretReference{{
+			Id:  workerStrp("npm-token"),
+			Ref: workerStrp("encryptedfs://team/npm-token"),
+			Delivery: &api.SecretDelivery{
+				Type: &fileType,
+				Path: workerStrp("npm/token"),
+			},
+		}},
+	}, &cell.ExecutionEnvelope{
+		RunID:       "run-1",
+		TaskKey:     "root",
+		ExecutionID: "execution-1",
+	}, "claim-1", &workloadidentity.Identity{
+		SPIFFEID:    "spiffe://vectis.internal/cell/local/job/job-1/run/other-run/execution/execution-1",
+		RunID:       "other-run",
+		ExecutionID: "execution-1",
+	})
+
+	if !errors.Is(err, secrets.ErrInvalidResolveIdentity) {
+		t.Fatalf("resolveExecutionSecrets error = %v, want ErrInvalidResolveIdentity", err)
+	}
+
+	if resolver.req.RunID != "" {
+		t.Fatalf("resolver was called with request %+v", resolver.req)
+	}
+}
+
 func assertTaskFinalizeOutcome(t *testing.T, recorder *tracetest.SpanRecorder, want taskfinalize.Outcome) {
 	t.Helper()
 

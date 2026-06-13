@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"vectis/internal/workloadidentity"
 )
 
 type fakeClaimValidator struct {
@@ -108,6 +110,54 @@ func TestClaimAuthorizerRejectsMismatchedExpectedWorkload(t *testing.T) {
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
 		PeerSPIFFEID:        "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/other",
+	}
+
+	err := authorizer.AuthorizeResolve(context.Background(), &req)
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("AuthorizeResolve error = %v, want ErrDenied", err)
+	}
+}
+
+func TestClaimAuthorizerRejectsMismatchedExecutionScopeBinding(t *testing.T) {
+	t.Parallel()
+
+	spiffeID := "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/execution-1"
+	authorizer := NewClaimAuthorizer(&fakeClaimValidator{}, WithExecutionScopeResolver(&fakeExecutionScopeResolver{
+		scope: ExecutionScope{
+			SPIFFEID:    spiffeID,
+			RunID:       "other-run",
+			ExecutionID: "execution-1",
+		},
+	}))
+
+	req := ResolveRequest{
+		RunID:               "run-1",
+		ExecutionID:         "execution-1",
+		ExecutionClaimToken: "claim-1",
+		PeerSPIFFEID:        spiffeID,
+	}
+
+	err := authorizer.AuthorizeResolve(context.Background(), &req)
+	if !errors.Is(err, ErrDenied) {
+		t.Fatalf("AuthorizeResolve error = %v, want ErrDenied", err)
+	}
+}
+
+func TestClaimAuthorizerRejectsMismatchedRequestWorkload(t *testing.T) {
+	t.Parallel()
+
+	spiffeID := "spiffe://vectis.internal/cell/local/job/job-1/run/run-1/execution/execution-1"
+	authorizer := NewClaimAuthorizer(&fakeClaimValidator{})
+	req := ResolveRequest{
+		RunID:               "run-1",
+		ExecutionID:         "execution-1",
+		ExecutionClaimToken: "claim-1",
+		PeerSPIFFEID:        spiffeID,
+		Workload: &workloadidentity.Identity{
+			SPIFFEID:    spiffeID,
+			RunID:       "other-run",
+			ExecutionID: "execution-1",
+		},
 	}
 
 	err := authorizer.AuthorizeResolve(context.Background(), &req)

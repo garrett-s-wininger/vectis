@@ -53,6 +53,7 @@ func (r *Runner) RunOne(ctx context.Context) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
 	if err := r.validate(); err != nil {
 		return Result{}, err
 	}
@@ -66,6 +67,7 @@ func (r *Runner) RunOne(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("execution envelope: %w", err)
 	}
+
 	if !ok {
 		return Result{}, fmt.Errorf("execution envelope is missing")
 	}
@@ -78,6 +80,7 @@ func (r *Runner) RunOne(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("claim execution: %w", err)
 	}
+
 	if !claim.Claimed {
 		return Result{}, fmt.Errorf("execution %s was not claimed", env.ExecutionID)
 	}
@@ -253,13 +256,18 @@ func (r *Runner) resolveSecrets(ctx context.Context, runJob *api.Job, env *cell.
 		defer cleanup()
 	}
 
-	bundle, err := resolver.Resolve(ctx, secrets.ResolveRequest{
+	req := secrets.ResolveRequest{
 		RunID:               env.RunID,
 		ExecutionID:         env.ExecutionID,
 		ExecutionClaimToken: claimToken,
 		Workload:            workload,
 		Secrets:             refs,
-	})
+	}
+	if err := secrets.ValidateResolveIdentityBinding(&req); err != nil {
+		return nil, fmt.Errorf("validate secret resolve identity: %w", err)
+	}
+
+	bundle, err := resolver.Resolve(ctx, req)
 	if err != nil {
 		return nil, err
 	}
