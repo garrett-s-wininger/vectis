@@ -83,6 +83,7 @@ func doctor(w io.Writer) error {
 		doctorAuditDrops(),
 		doctorDBPool(),
 		doctorQueueBacklog(),
+		doctorCronSchedules(),
 		doctorStuckRuns(),
 		doctorCellIngressRoutes(),
 		doctorCatalogInbox(),
@@ -158,6 +159,9 @@ var doctorTextGroups = []doctorTextGroup{
 	{Name: "Queue", Items: []doctorTextItem{
 		{ID: "queue.backlog.ratio", Label: "Backlog"},
 		{ID: "queue.persistence.filesystem", Label: "Persistence filesystem"},
+	}},
+	{Name: "Cron", Items: []doctorTextItem{
+		{ID: "cron.schedules", Label: "Schedules"},
 	}},
 	{Name: "Reconciler", Items: []doctorTextItem{
 		{ID: "reconciler.active", Label: "Recovery activity"},
@@ -547,6 +551,67 @@ func formatDoctorQueueBacklogEvidence(queued int64, cells []doctorQueueBacklogCe
 
 	if len(cellParts) > 0 {
 		parts = append(parts, "cells="+strings.Join(cellParts, ","))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func doctorCronSchedules() doctorCheck {
+	const id = "cron.schedules"
+	title := "Cron schedules current"
+	req, err := newAPIRequest(http.MethodGet, "/api/v1/cron/status", nil)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorFail, Severity: severityWarning, Summary: err.Error(), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("request failed: %v", err), SuggestedAction: "Check API server reachability", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unexpected status: %s", resp.Status), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	var result doctorCronStatus
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("failed to parse response: %v", err), SuggestedAction: "Check API server", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	evidence := formatDoctorCronEvidence(result)
+	if result.DueCount > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d cron schedules are due for dispatch", result.DueCount), Evidence: evidence, SuggestedAction: "Check vectis-cron process health, database access, and queue/cell ingress handoff", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	if result.ClaimedCount > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("%d cron schedules are held by active claims", result.ClaimedCount), Evidence: evidence, SuggestedAction: "Check vectis-cron logs for slow or stuck schedule handoff", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	if result.ScheduleCount == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no enabled cron schedules", Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("cron schedules current: %d enabled", result.ScheduleCount), Evidence: evidence, DocLink: "website/docs/operating/reference/health-check-catalog.md"}
+}
+
+type doctorCronStatus struct {
+	ScheduleCount int64  `json:"schedule_count"`
+	DueCount      int64  `json:"due_count"`
+	ClaimedCount  int64  `json:"claimed_count"`
+	OldestDueUnix *int64 `json:"oldest_due_unix"`
+	Active        bool   `json:"active"`
+}
+
+func formatDoctorCronEvidence(status doctorCronStatus) string {
+	parts := []string{
+		fmt.Sprintf("schedules=%d", status.ScheduleCount),
+		fmt.Sprintf("due=%d", status.DueCount),
+		fmt.Sprintf("claimed=%d", status.ClaimedCount),
+	}
+
+	if status.OldestDueUnix != nil {
+		parts = append(parts, fmt.Sprintf("oldest_due=%s", time.Unix(*status.OldestDueUnix, 0).UTC().Format(time.RFC3339)))
 	}
 
 	return strings.Join(parts, " ")

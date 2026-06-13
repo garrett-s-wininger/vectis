@@ -2,11 +2,15 @@ package api
 
 import (
 	"net/http"
+	"time"
 )
 
 type cronStatusResponse struct {
-	ScheduleCount int64 `json:"schedule_count"`
-	Active        bool  `json:"active"`
+	ScheduleCount int64  `json:"schedule_count"`
+	DueCount      int64  `json:"due_count"`
+	ClaimedCount  int64  `json:"claimed_count"`
+	OldestDueUnix *int64 `json:"oldest_due_unix,omitempty"`
+	Active        bool   `json:"active"`
 }
 
 func (s *APIServer) GetCronStatus(w http.ResponseWriter, r *http.Request) {
@@ -18,19 +22,28 @@ func (s *APIServer) GetCronStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
-	n, err := s.schedules.CountCronSchedules(ctx)
+	summary, err := s.schedules.CronScheduleSummary(ctx, time.Now().UTC())
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
 
-		s.logger.Error("cron schedule count failed: %v", err)
+		s.logger.Error("cron schedule status failed: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
 
+	var oldestDueUnix *int64
+	if summary.OldestDueAt != nil {
+		v := summary.OldestDueAt.UTC().Unix()
+		oldestDueUnix = &v
+	}
+
 	writeJSON(w, http.StatusOK, cronStatusResponse{
-		ScheduleCount: n,
-		Active:        n > 0,
+		ScheduleCount: summary.ScheduleCount,
+		DueCount:      summary.DueCount,
+		ClaimedCount:  summary.ClaimedCount,
+		OldestDueUnix: oldestDueUnix,
+		Active:        summary.ScheduleCount > 0,
 	})
 }

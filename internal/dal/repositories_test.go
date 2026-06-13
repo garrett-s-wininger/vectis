@@ -4580,6 +4580,52 @@ func TestSchedulesRepository_GetReadyClaimAndComplete(t *testing.T) {
 	}
 }
 
+func TestSchedulesRepository_CronScheduleSummary(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	jobs := repos.Jobs()
+	schedules := repos.Schedules()
+	ctx := context.Background()
+
+	if err := jobs.Create(ctx, "cron-summary-job", `{"id":"cron-summary-job"}`, 1); err != nil {
+		t.Fatalf("create stored job: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	activeClaimDue := now.Add(-10 * time.Minute)
+	activeClaimID := insertCronTriggerSpec(t, ctx, db, "cron-summary-job", "* * * * *", activeClaimDue)
+	expiredClaimID := insertCronTriggerSpec(t, ctx, db, "cron-summary-job", "*/2 * * * *", now.Add(-5*time.Minute))
+	insertCronTriggerSpec(t, ctx, db, "cron-summary-job", "*/3 * * * *", now.Add(-3*time.Minute))
+	insertCronTriggerSpec(t, ctx, db, "cron-summary-job", "*/5 * * * *", now.Add(5*time.Minute))
+	disabledID := insertCronTriggerSpec(t, ctx, db, "cron-summary-job", "*/7 * * * *", now.Add(-20*time.Minute))
+
+	claimCronTriggerSpec(t, ctx, db, activeClaimID, "active-claim", now.Add(5*time.Minute))
+	claimCronTriggerSpec(t, ctx, db, expiredClaimID, "expired-claim", now.Add(-time.Minute))
+	if _, err := db.ExecContext(ctx, "UPDATE job_triggers SET enabled = false WHERE id = (SELECT trigger_id FROM cron_trigger_specs WHERE id = ?)", disabledID); err != nil {
+		t.Fatalf("disable cron trigger: %v", err)
+	}
+
+	summary, err := schedules.CronScheduleSummary(ctx, now)
+	if err != nil {
+		t.Fatalf("cron schedule summary: %v", err)
+	}
+
+	if summary.ScheduleCount != 4 || summary.DueCount != 2 || summary.ClaimedCount != 1 {
+		t.Fatalf("unexpected cron schedule summary: %+v", summary)
+	}
+	if summary.OldestDueAt == nil || !summary.OldestDueAt.Equal(activeClaimDue) {
+		t.Fatalf("oldest due: got %+v, want %s", summary.OldestDueAt, activeClaimDue.Format(time.RFC3339))
+	}
+}
+
+func claimCronTriggerSpec(t *testing.T, ctx context.Context, db *sql.DB, specID int64, claimToken string, claimedUntil time.Time) {
+	t.Helper()
+
+	if _, err := db.ExecContext(ctx, "UPDATE cron_trigger_specs SET claim_token = ?, claimed_until = ? WHERE id = ?", claimToken, claimedUntil.Format(time.RFC3339), specID); err != nil {
+		t.Fatalf("claim cron trigger spec: %v", err)
+	}
+}
+
 func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

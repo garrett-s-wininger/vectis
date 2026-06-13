@@ -22,7 +22,7 @@ Human output is grouped by subsystem:
 ```text
 Vectis health check
 
-Overall: WARN  15 passed, 2 warnings, 0 failed
+Overall: WARN  18 passed, 2 warnings, 0 failed
 
 Core
   OK    API liveness                   API liveness probe passed
@@ -59,6 +59,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `audit.drops.recent` | warning | `GET /api/v1/audit/drops` | Audit dropped-event counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
 | `db.connection.pool` | warning | `GET /api/v1/db/pool-stats` | The pool is not fully in use while waits have been recorded. | [Database Pool Pressure](../reliability/repair-runbooks.md#database-pool-pressure). |
 | `queue.backlog.ratio` | warning | `GET /api/v1/queue/backlog` | Queued run count is at or below the built-in threshold of 100. | [Queued Runs Or Backlog](../reliability/repair-runbooks.md#queued-runs-or-backlog). |
+| `cron.schedules` | warning | `GET /api/v1/cron/status` | No enabled cron schedules are due for dispatch or held by active claims. | Check `vectis-cron` process health, database access, and queue or cell-ingress handoff. |
 | `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap, no pending task continuations are waiting for redispatch, and no orphaned task finalization repairs are pending. | [Reconciler Repair](../reliability/repair-runbooks.md#reconciler-repair). |
 | `cells.ingress` | warning | `GET /api/v1/cells/status` | Required cell ingress routes answer readiness checks. | Check cell ingress processes, route map, and network path. |
 | `catalog.inbox` | warning | `GET /api/v1/catalog/status` | No catalog events are failed, and pending cell catalog events are at or below the built-in threshold of 100. | Check `vectis-catalog` process health, logs, and database write latency. |
@@ -71,6 +72,8 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `artifact.storage.filesystem` | warning | Local `VECTIS_ARTIFACT_STORAGE_DIR` or default data path | Durable artifact storage directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move artifact storage to a larger writable volume. |
 
 When `queue.backlog.ratio` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `queued=101 cells=iad-a:75,pdx-b:26`.
+
+When `cron.schedules` warns, `evidence` includes enabled schedule count, due count, active claim count, and the oldest due timestamp when available, for example `schedules=3 due=2 claimed=1 oldest_due=2026-06-13T12:30:00Z`.
 
 When `reconciler.stuck.runs` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `stuck=3 cells=iad-a:2,pdx-b:1`. Pending child task continuations use `task_continuation_pending` and `task_continuation_cells`, for example `stuck=1 task_continuation_pending=2 task_continuation_cells=pdx-b:2`. Orphaned task runs whose stored task summary can already reduce to a terminal state use `task_finalization_pending` and `task_finalization_cells`, for example `stuck=0 task_finalization_pending=1 task_finalization_cells=pdx-b:1`.
 

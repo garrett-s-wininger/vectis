@@ -489,6 +489,13 @@ type CronSchedule struct {
 	NextRunAt time.Time
 }
 
+type CronScheduleSummary struct {
+	ScheduleCount int64
+	DueCount      int64
+	ClaimedCount  int64
+	OldestDueAt   *time.Time
+}
+
 type RunForCancel struct {
 	RunID             string
 	Status            string
@@ -599,6 +606,7 @@ type SchedulesRepository interface {
 	CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error)
 	ReleaseClaim(ctx context.Context, scheduleID int64, claimToken string) error
 	CountCronSchedules(ctx context.Context) (int64, error)
+	CronScheduleSummary(ctx context.Context, at time.Time) (CronScheduleSummary, error)
 }
 
 type ServiceLeasesRepository interface {

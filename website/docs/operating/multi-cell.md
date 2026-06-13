@@ -214,7 +214,7 @@ Before enabling multi-cell routing outside local development:
 | Cell ingress mTLS is configured for all producers and cells | API, cron, reconciler, and cell ingress agree on the CA and client/server certificate material used for execution submissions. |
 | Cell ingress can reach its local queue | Ingress durably accepts before local queue handoff, then repairs missed local queue handoff. |
 | `vectis-catalog` can read every cell DB | Global run status depends on fan-in from cell-local event inboxes. |
-| `vectis-cli doctor` is clean | The doctor checks catalog backlog, stuck dispatch and task repair backlog, queue backlog, and core API reachability. |
+| `vectis-cli doctor` is clean | The doctor checks catalog backlog, stuck dispatch and task repair backlog, cron schedule backlog, queue backlog, and core API reachability. |
 | Cell ingress endpoints are private | Cell ingress is an internal execution submission surface. |
 
 ## Fan-In Metrics

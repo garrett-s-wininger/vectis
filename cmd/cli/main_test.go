@@ -2646,6 +2646,8 @@ func TestDoctor_success(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -2670,7 +2672,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  19 passed, 0 warnings, 0 failed",
+		"Overall: PASS  20 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -2682,6 +2684,9 @@ func TestDoctor_success(t *testing.T) {
 		"Queue",
 		"OK    Backlog",
 		"OK    Persistence filesystem",
+		"Cron",
+		"OK    Schedules",
+		"no enabled cron schedules",
 		"Reconciler",
 		"OK    Recovery activity",
 		"reconciler recovery activity recorded",
@@ -2708,7 +2713,7 @@ func TestDoctor_success(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status"} {
+	for _, path := range []string{"/health/live", "/health/ready", "/api/v1/setup/status", "/api/v1/schema/status", "/api/v1/reconciler/heartbeat", "/api/v1/audit/drops", "/api/v1/db/pool-stats", "/api/v1/queue/backlog", "/api/v1/reconciler/stuck-runs", "/api/v1/cron/status", "/api/v1/cells/status", "/api/v1/log/reachable", "/api/v1/audit/flush-failures", "/api/v1/catalog/status"} {
 		if seen[path] != 1 {
 			t.Fatalf("expected one request to %s, got %d", path, seen[path])
 		}
@@ -2734,6 +2739,8 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -2759,7 +2766,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  17 passed, 2 warnings, 0 failed",
+		"Overall: WARN  18 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -2790,6 +2797,8 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -2815,7 +2824,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  19 passed, 0 warnings, 0 failed",
+		"Overall: PASS  20 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -2846,6 +2855,8 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -2868,7 +2879,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  18 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  19 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -2894,6 +2905,8 @@ func TestDoctor_jsonOutput(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -2921,12 +2934,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 19 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 20 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 19 {
-		t.Fatalf("expected 19 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 20 {
+		t.Fatalf("expected 20 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -2969,6 +2982,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -3001,8 +3016,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 19 {
-		t.Fatalf("expected 19 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 20 {
+		t.Fatalf("expected 20 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -3122,6 +3137,8 @@ func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -3176,6 +3193,31 @@ func TestDoctor_queueBacklogEvidenceIncludesCells(t *testing.T) {
 	}
 
 	for _, want := range []string{"queued=101", "iad-a:75", "pdx-b:26"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctor_cronSchedulesWarnsForDueSchedules(t *testing.T) {
+	oldest := time.Date(2026, 6, 13, 12, 30, 0, 0, time.UTC).Unix()
+	check := doctorCheckCronStatusResponse(t, map[string]any{
+		"schedule_count":  3,
+		"due_count":       2,
+		"claimed_count":   1,
+		"oldest_due_unix": oldest,
+		"active":          true,
+	})
+
+	if check.Status != doctorWarn {
+		t.Fatalf("expected due cron schedules to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "2 cron schedules are due for dispatch") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+
+	for _, want := range []string{"schedules=3", "due=2", "claimed=1", "oldest_due=2026-06-13T12:30:00Z"} {
 		if !strings.Contains(check.Evidence, want) {
 			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
 		}
@@ -3360,6 +3402,21 @@ func doctorCheckQueueBacklogResponse(t *testing.T, body map[string]any) doctorCh
 	})
 
 	return doctorQueueBacklog()
+}
+
+func doctorCheckCronStatusResponse(t *testing.T, body map[string]any) doctorCheck {
+	t.Helper()
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/cron/status" {
+			t.Errorf("unexpected path=%s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(body)
+	})
+
+	return doctorCronSchedules()
 }
 
 func doctorCheckCellsStatusResponse(t *testing.T, body map[string]any) doctorCheck {

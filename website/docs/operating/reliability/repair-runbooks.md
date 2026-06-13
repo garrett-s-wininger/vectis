@@ -21,6 +21,7 @@ That command shows run status and dispatch events without direct database access
 | Symptom or check | Recipe |
 | --- | --- |
 | `queue.backlog.ratio`, queue backlog alert, queued run not starting | [Queued Runs Or Backlog](#queued-runs-or-backlog) |
+| `cron.schedules`, scheduled run not starting | [Queued Runs Or Backlog](#queued-runs-or-backlog) |
 | `reconciler.stuck.runs`, reconciler alert | [Reconciler Repair](#reconciler-repair) |
 | `log.reachable`, log append/drop alert, log streaming failure | [Log Service Repair](#log-service-repair) |
 | `audit.drops.recent`, `audit.flush.failures`, audit alert | [Audit Durability Repair](#audit-durability-repair) |
@@ -90,16 +91,17 @@ Use this when `VectisSecretsResolveFailures` fires or when `vectis_secrets_resol
 
 ## Queued Runs Or Backlog
 
-Use this when `health check` warns on `queue.backlog.ratio`, queued runs are not draining, or `VectisQueueBacklogGrowing` fires.
+Use this when `health check` warns on `queue.backlog.ratio` or `cron.schedules`, scheduled or queued runs are not draining, or `VectisQueueBacklogGrowing` fires.
 
-1. Run `vectis-cli health check --strict` and note failures for `api.ready`, `queue.backlog.ratio`, and `reconciler.stuck.runs`.
+1. Run `vectis-cli health check --strict` and note failures for `api.ready`, `queue.backlog.ratio`, `cron.schedules`, and `reconciler.stuck.runs`.
 2. For a specific run, run `vectis-cli runs show <run-id>` and inspect `status`, `next_action`, and `dispatch_events`.
 3. If there is no dispatch event, follow [Queued With No Dispatch](./dispatch-visibility.md#runbook-queued-with-no-dispatch).
 4. If dispatch failed, follow [Dispatch Failure](./dispatch-visibility.md#runbook-dispatch-failure).
-5. Confirm workers are running and receiving jobs with worker process health and `vectis_worker_jobs_received_total`.
-6. Check queue gRPC health and queue metrics: pending jobs, in-flight deliveries, and DLQ size.
-7. If queue persistence was disabled or lost after restart, keep `vectis-reconciler` running and wait at least one reconciler interval before manual retry.
-8. Use `vectis-cli runs retry <run-id>` only after automatic redispatch is not progressing and the run is not already running or succeeded.
+5. For scheduled work, check `vectis-cron` process health, database access, and queue or cell-ingress handoff logs.
+6. Confirm workers are running and receiving jobs with worker process health and `vectis_worker_jobs_received_total`.
+7. Check queue gRPC health and queue metrics: pending jobs, in-flight deliveries, and DLQ size.
+8. If queue persistence was disabled or lost after restart, keep `vectis-reconciler` running and wait at least one reconciler interval before manual retry.
+9. Use `vectis-cli runs retry <run-id>` only after automatic redispatch is not progressing and the run is not already running or succeeded.
 
 ## Reconciler Repair
 

@@ -53,7 +53,7 @@ That command shows status and dispatch events without requiring direct database 
 | API state | Liveness, readiness, versioned operational endpoints. |
 | Auth setup | Setup status and local CLI token visibility when API auth is enabled. |
 | Schema | Database schema status through the API. |
-| Queue and reconciler | Queue backlog, stuck queued runs, reconciler recovery visibility. |
+| Queue, cron, and reconciler | Queue backlog, due cron schedules, stuck queued runs, reconciler recovery visibility. |
 | Logs | API-to-log-service gRPC reachability. |
 | Audit | Dropped audit events and flush failures. |
 | Database pool | API-visible `database/sql` pool pressure. |
@@ -68,7 +68,7 @@ Use these as starter operating signals, not contractual product SLOs. Production
 | Area | Signal | Starter objective |
 | --- | --- | --- |
 | Trigger acceptance | API request success and low 5xx rate on trigger/run routes. | Dependency failures should be visible quickly. |
-| Queue handoff | Queue pending/in-flight gauges and reconciler reenqueue outcomes. | Queued work should drain within one reconciler interval under normal load. |
+| Queue handoff | Queue pending/in-flight gauges, cron due schedule count, and reconciler reenqueue outcomes. | Queued work should drain within one reconciler interval under normal load. |
 | Worker execution | `vectis_worker_jobs_received_total`, `vectis_worker_job_duration_seconds`, and `vectis_worker_spiffe_svid_checks_total` when SPIFFE execution SVID acquisition is enabled. | Workers should keep receiving jobs; terminal outcomes should match workload expectations, and SPIFFE SVID acquisition failures should be investigated. |
 | Secret resolution | `vectis_secrets_resolve_requests_total` and `vectis_secrets_resolve_duration_seconds` by `outcome`, `reason`, and `provider`. | Failed resolves should match known policy/config changes and be investigated when unexpected. |
 | Log availability | `vectis_log_storage_append_failures_total`, `vectis_log_shard_route_failures_total`, log drops, and gRPC chunk rate. | Log append and shard routing failures should be zero. |

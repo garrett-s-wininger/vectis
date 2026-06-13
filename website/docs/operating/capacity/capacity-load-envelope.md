@@ -39,7 +39,7 @@ Watch these when you increase workload, worker count, client concurrency, or log
 | Reconciler | Re-enqueue failures or repeated repair for the same runs | Dispatch handoff, queue reachability, registry, TLS, or database state needs repair. |
 | Cron | Schedule-to-run latency, repeated handoff attempts for the same run, or missed schedule behavior | Cron load, queue reachability, or schedule ownership needs validation. |
 
-`vectis-cli health check --strict` gives a quick operator view of API readiness, queue backlog, stuck queued runs, log reachability, DB pool pressure, audit durability, TLS files, and local filesystem pressure. Pair it with Prometheus and host/database telemetry for capacity decisions.
+`vectis-cli health check --strict` gives a quick operator view of API readiness, queue backlog, cron schedule backlog, stuck queued runs, log reachability, DB pool pressure, audit durability, TLS files, and local filesystem pressure. Pair it with Prometheus and host/database telemetry for capacity decisions.
 
 ## Common Scaling Decisions
 

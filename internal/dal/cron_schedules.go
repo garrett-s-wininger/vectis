@@ -27,6 +27,36 @@ func (r *SQLSchedulesRepository) CountCronSchedules(ctx context.Context) (int64,
 	return count, nil
 }
 
+func (r *SQLSchedulesRepository) CronScheduleSummary(ctx context.Context, at time.Time) (CronScheduleSummary, error) {
+	atText := at.UTC().Format(time.RFC3339)
+	var summary CronScheduleSummary
+	var oldestDue sql.NullString
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN cts.next_run_at <= ? AND (cts.claimed_until IS NULL OR cts.claimed_until <= ?) THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN cts.next_run_at <= ? AND cts.claimed_until > ? THEN 1 ELSE 0 END), 0),
+			MIN(CASE WHEN cts.next_run_at <= ? THEN cts.next_run_at ELSE NULL END)
+		FROM cron_trigger_specs cts
+		JOIN job_triggers jt ON jt.id = cts.trigger_id
+		WHERE jt.enabled
+	`), atText, atText, atText, atText, atText).Scan(&summary.ScheduleCount, &summary.DueCount, &summary.ClaimedCount, &oldestDue)
+
+	if err != nil {
+		return CronScheduleSummary{}, normalizeSQLError(err)
+	}
+
+	if oldestDue.Valid && oldestDue.String != "" {
+		parsed, err := time.Parse(time.RFC3339, oldestDue.String)
+		if err != nil {
+			return CronScheduleSummary{}, fmt.Errorf("parse oldest due cron schedule %q: %w", oldestDue.String, err)
+		}
+		summary.OldestDueAt = &parsed
+	}
+
+	return summary, nil
+}
+
 func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]CronSchedule, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT cts.id, cts.trigger_id, jt.job_id, cts.cron_spec, cts.next_run_at

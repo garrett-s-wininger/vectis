@@ -1217,14 +1217,16 @@ type ReleaseClaimCall struct {
 type MockSchedulesRepository struct {
 	Ready []dal.CronSchedule
 
-	GetReadyErr              error
-	ClaimDueErr              error
-	ClaimDueOK               bool
-	CompleteClaimErr         error
-	CompleteClaimOK          bool
-	ReleaseClaimErr          error
-	CountCronSchedulesErr    error
-	CountCronSchedulesResult int64
+	GetReadyErr               error
+	ClaimDueErr               error
+	ClaimDueOK                bool
+	CompleteClaimErr          error
+	CompleteClaimOK           bool
+	ReleaseClaimErr           error
+	CountCronSchedulesErr     error
+	CountCronSchedulesResult  int64
+	CronScheduleSummaryErr    error
+	CronScheduleSummaryResult dal.CronScheduleSummary
 
 	GetReadyCalled     int
 	ClaimDueCalls      []ClaimDueCall
@@ -1276,6 +1278,10 @@ func (m *MockSchedulesRepository) CompleteClaim(ctx context.Context, scheduleID 
 
 func (m *MockSchedulesRepository) CountCronSchedules(ctx context.Context) (int64, error) {
 	return m.CountCronSchedulesResult, m.CountCronSchedulesErr
+}
+
+func (m *MockSchedulesRepository) CronScheduleSummary(ctx context.Context, at time.Time) (dal.CronScheduleSummary, error) {
+	return m.CronScheduleSummaryResult, m.CronScheduleSummaryErr
 }
 
 func (m *MockSchedulesRepository) ReleaseClaim(ctx context.Context, scheduleID int64, claimToken string) error {

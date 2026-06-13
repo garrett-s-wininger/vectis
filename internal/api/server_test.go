@@ -896,6 +896,80 @@ func TestAPIServer_GetCatalogStatus(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetCronStatusIncludesDueAndClaimedSchedules(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-cron-status", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-cron-status"
+	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-cron-status","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	oldestDue := now.Add(-10 * time.Minute)
+	insertCronStatusTestSchedule(t, ctx, db, jobID, "* * * * *", oldestDue, "cron-a", now.Add(5*time.Minute))
+	insertCronStatusTestSchedule(t, ctx, db, jobID, "*/2 * * * *", now.Add(-5*time.Minute), "", time.Time{})
+	insertCronStatusTestSchedule(t, ctx, db, jobID, "*/5 * * * *", now.Add(5*time.Minute), "", time.Time{})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cron/status", http.NoBody)
+	server.GetCronStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		ScheduleCount int64  `json:"schedule_count"`
+		DueCount      int64  `json:"due_count"`
+		ClaimedCount  int64  `json:"claimed_count"`
+		OldestDueUnix *int64 `json:"oldest_due_unix"`
+		Active        bool   `json:"active"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.ScheduleCount != 3 || resp.DueCount != 1 || resp.ClaimedCount != 1 || !resp.Active {
+		t.Fatalf("unexpected cron status: %+v", resp)
+	}
+
+	if resp.OldestDueUnix == nil || *resp.OldestDueUnix != oldestDue.Unix() {
+		t.Fatalf("oldest due: got %+v, want %d", resp.OldestDueUnix, oldestDue.Unix())
+	}
+}
+
+func insertCronStatusTestSchedule(t *testing.T, ctx context.Context, db *sql.DB, jobID, cronSpec string, nextRunAt time.Time, claimToken string, claimedUntil time.Time) {
+	t.Helper()
+
+	result, err := db.ExecContext(ctx, "INSERT INTO job_triggers (job_id, trigger_type) VALUES (?, ?)", jobID, "cron")
+	if err != nil {
+		t.Fatalf("insert cron trigger: %v", err)
+	}
+	triggerID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("cron trigger id: %v", err)
+	}
+
+	if claimToken == "" {
+		if _, err := db.ExecContext(ctx, "INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)", triggerID, cronSpec, nextRunAt.Format(time.RFC3339)); err != nil {
+			t.Fatalf("insert cron trigger spec: %v", err)
+		}
+		return
+	}
+
+	if _, err := db.ExecContext(ctx, "INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at, claim_token, claimed_until) VALUES (?, ?, ?, ?, ?)", triggerID, cronSpec, nextRunAt.Format(time.RFC3339), claimToken, claimedUntil.Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert claimed cron trigger spec: %v", err)
+	}
+}
+
 func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 
