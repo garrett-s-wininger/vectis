@@ -13,7 +13,8 @@ heavier cross-platform lane.
 | --- | --- |
 | `services.toml` | Linux service inventory, systemd defaults, and env examples |
 | `artifacts.go` | Renderer for systemd units, env examples, sysusers, and tmpfiles |
-| `lima.go` | macOS-to-Linux systemd smoke orchestration through Lima |
+| `vm_smoke.go` | provider-neutral Linux systemd smoke flow over `internal/platform` VMs |
+| `lima.go` | Lima defaults and current macOS-to-Linux command wrappers |
 | `cmd/render` | small renderer entrypoint retained for package/build integrations |
 
 The standalone units are Postgres-first. Set `VECTIS_DATABASE_DRIVER=pgx` and a
@@ -87,6 +88,10 @@ deletes the temporary local render directory. For debugging, pass
 The Lima lane verifies that the generated files are accepted by a real Linux
 systemd host. It does not yet prove a full Vectis process stack with real
 binaries and Postgres. That is the next smoke profile.
+
+The CLI still exposes this as `deploy linux lima ...`, but the host VM operations
+run through `internal/platform` so additional local VM backends can reuse the
+same render/install/verify/cleanup flow.
 
 Useful cleanup commands for interrupted runs or `--keep-artifacts` sessions:
 

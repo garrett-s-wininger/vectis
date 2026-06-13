@@ -19,6 +19,23 @@ func TestVirtualMachineCommandExecutorUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestVirtualMachineManagerUnknownProvider(t *testing.T) {
+	if _, err := NewVirtualMachineManager(VirtualMachineManagerConfig{Provider: "not-real"}); err == nil {
+		t.Fatal("expected unknown provider error")
+	}
+}
+
+func TestLimaVirtualMachineManagerProvider(t *testing.T) {
+	manager, err := NewVirtualMachineManager(VirtualMachineManagerConfig{Provider: VirtualMachineProviderLima})
+	if err != nil {
+		t.Fatalf("new VM manager: %v", err)
+	}
+
+	if got := manager.Provider(); got != VirtualMachineProviderLima {
+		t.Fatalf("provider = %q, want %q", got, VirtualMachineProviderLima)
+	}
+}
+
 func TestLimaVirtualMachineCommandArgs(t *testing.T) {
 	vm, err := newLimaVirtualMachine(limaVirtualMachineConfig{
 		instance:    "vectis-worker",

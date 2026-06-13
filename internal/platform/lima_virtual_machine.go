@@ -2,7 +2,9 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -35,6 +37,25 @@ type limaVirtualMachine struct {
 	preserveEnv        bool
 }
 
+type limaVirtualMachineManager struct {
+	limactlPath string
+	stdout      io.Writer
+	stderr      io.Writer
+}
+
+func newLimaVirtualMachineManager(config VirtualMachineManagerConfig) (*limaVirtualMachineManager, error) {
+	limactlPath := strings.TrimSpace(config.ProviderPath)
+	if limactlPath == "" {
+		limactlPath = defaultLimaPath
+	}
+
+	return &limaVirtualMachineManager{
+		limactlPath: limactlPath,
+		stdout:      config.Stdout,
+		stderr:      config.Stderr,
+	}, nil
+}
+
 func newLimaVirtualMachine(options limaVirtualMachineConfig) (*limaVirtualMachine, error) {
 	instance := strings.TrimSpace(options.instance)
 	if instance == "" {
@@ -53,6 +74,69 @@ func newLimaVirtualMachine(options limaVirtualMachineConfig) (*limaVirtualMachin
 		start:              options.start,
 		preserveEnv:        options.preserveEnv,
 	}, nil
+}
+
+func (m *limaVirtualMachineManager) Provider() string {
+	return VirtualMachineProviderLima
+}
+
+func (m *limaVirtualMachineManager) CheckAvailable() error {
+	if _, err := exec.LookPath(m.limactlPath); err != nil {
+		return fmt.Errorf("limactl is not installed; install Lima, then rerun this command")
+	}
+
+	return nil
+}
+
+func (m *limaVirtualMachineManager) InstanceExists(ctx context.Context, instance string) (bool, error) {
+	cmd := exec.CommandContext(ctx, m.limactlPath, "list", instance) //#nosec G204
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("limactl list %s: %w", instance, err)
+	}
+
+	return true, nil
+}
+
+func (m *limaVirtualMachineManager) Create(ctx context.Context, instance, template string) error {
+	return m.run(ctx, nil, "create", "--name="+instance, "template:"+template)
+}
+
+func (m *limaVirtualMachineManager) Start(ctx context.Context, instance string) error {
+	return m.run(ctx, nil, "start", instance)
+}
+
+func (m *limaVirtualMachineManager) Stop(ctx context.Context, instance string) error {
+	return m.run(ctx, nil, "stop", instance)
+}
+
+func (m *limaVirtualMachineManager) Delete(ctx context.Context, instance string) error {
+	return m.run(ctx, nil, "delete", "--force", instance)
+}
+
+func (m *limaVirtualMachineManager) CopyDir(ctx context.Context, localDir, instance, remoteDir string) error {
+	return m.run(ctx, nil, "copy", "-r", localDir, instance+":"+remoteDir)
+}
+
+func (m *limaVirtualMachineManager) Shell(ctx context.Context, instance string, stdin io.Reader, args ...string) error {
+	return m.run(ctx, stdin, append([]string{"shell", instance}, args...)...)
+}
+
+func (m *limaVirtualMachineManager) run(ctx context.Context, stdin io.Reader, args ...string) error {
+	cmd := exec.CommandContext(ctx, m.limactlPath, args...) //#nosec G204
+	cmd.Stdin = stdin
+	cmd.Stdout = m.stdout
+	cmd.Stderr = m.stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("limactl %s failed: %w", strings.Join(args, " "), err)
+	}
+
+	return nil
 }
 
 func (e *limaVirtualMachine) StartCommand(ctx context.Context, command VirtualMachineCommand) (interfaces.Process, error) {

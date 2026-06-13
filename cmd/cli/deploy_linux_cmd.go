@@ -21,6 +21,7 @@ var (
 
 type linuxLimaCommandResult struct {
 	Status        string `json:"status"`
+	Provider      string `json:"provider,omitempty"`
 	Instance      string `json:"instance"`
 	Template      string `json:"template,omitempty"`
 	ArtifactDir   string `json:"artifact_dir,omitempty"`
@@ -108,6 +109,7 @@ func writeLinuxLimaResult(result linuxdeploy.LimaResult, stdout, stderr, text st
 	if outputIsJSON() {
 		runCLIError(writeJSON(os.Stdout, linuxLimaCommandResult{
 			Status:        result.Status,
+			Provider:      result.Provider,
 			Instance:      result.Instance,
 			Template:      result.Template,
 			ArtifactDir:   result.ArtifactDir,

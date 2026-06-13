@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"vectis/internal/interfaces"
@@ -23,6 +24,19 @@ type VirtualMachine interface {
 	StartCommand(ctx context.Context, command VirtualMachineCommand) (interfaces.Process, error)
 }
 
+// VirtualMachineManager owns provider-specific VM lifecycle and file movement.
+type VirtualMachineManager interface {
+	Provider() string
+	CheckAvailable() error
+	InstanceExists(ctx context.Context, instance string) (bool, error)
+	Create(ctx context.Context, instance, template string) error
+	Start(ctx context.Context, instance string) error
+	Stop(ctx context.Context, instance string) error
+	Delete(ctx context.Context, instance string) error
+	CopyDir(ctx context.Context, localDir, instance, remoteDir string) error
+	Shell(ctx context.Context, instance string, stdin io.Reader, args ...string) error
+}
+
 // VirtualMachineConfig selects a VM provider and carries common provider
 // settings. Provider implementation details stay behind NewVirtualMachine.
 type VirtualMachineConfig struct {
@@ -32,6 +46,13 @@ type VirtualMachineConfig struct {
 	GuestWorkspaceRoot string
 	Start              bool
 	PreserveEnv        bool
+}
+
+type VirtualMachineManagerConfig struct {
+	Provider     string
+	ProviderPath string
+	Stdout       io.Writer
+	Stderr       io.Writer
 }
 
 // VirtualMachineCommandExecutor adapts a VM provider to the process executor
@@ -50,6 +71,15 @@ func NewVirtualMachine(config VirtualMachineConfig) (VirtualMachine, error) {
 			start:              config.Start,
 			preserveEnv:        config.PreserveEnv,
 		})
+	default:
+		return nil, fmt.Errorf("unknown virtual machine provider %q", config.Provider)
+	}
+}
+
+func NewVirtualMachineManager(config VirtualMachineManagerConfig) (VirtualMachineManager, error) {
+	switch provider := strings.ToLower(strings.TrimSpace(config.Provider)); provider {
+	case VirtualMachineProviderLima:
+		return newLimaVirtualMachineManager(config)
 	default:
 		return nil, fmt.Errorf("unknown virtual machine provider %q", config.Provider)
 	}

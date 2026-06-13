@@ -258,9 +258,9 @@ func TestRenderToDirUsesEmbeddedDefaultManifest(t *testing.T) {
 	}
 }
 
-func TestPrepareLimaArtifactDirUsesTemporaryDirectory(t *testing.T) {
-	opts := LimaOptions{}
-	cleanup, err := prepareLimaArtifactDir(&opts)
+func TestPrepareVMSmokeArtifactDirUsesTemporaryDirectory(t *testing.T) {
+	opts := VMSmokeOptions{}
+	cleanup, err := prepareVMSmokeArtifactDir(&opts)
 	if err != nil {
 		t.Fatal(err)
 	}
