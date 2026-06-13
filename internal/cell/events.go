@@ -15,16 +15,19 @@ var ErrInvalidCatalogEvent = errors.New("invalid catalog event")
 const (
 	CatalogEventTypeRunStatus       = "run.status"
 	CatalogEventTypeExecutionStatus = "execution.status"
+	CatalogEventTypeArtifactRecord  = "artifact.record"
 )
 
 type CatalogEvent struct {
 	SourceCellID    string
 	RunStatus       *dal.RunStatusUpdate
 	ExecutionStatus *dal.ExecutionStatusUpdate
+	Artifact        *dal.ArtifactCreate
 }
 
 type CatalogEventConsumer struct {
-	updater dal.RunCatalogUpdater
+	updater   dal.RunCatalogUpdater
+	artifacts dal.ArtifactsRepository
 }
 
 type CatalogEventPublisher struct {
@@ -43,8 +46,13 @@ type CatalogInboxProcessResult struct {
 	Failed  int
 }
 
-func NewCatalogEventConsumer(updater dal.RunCatalogUpdater) CatalogEventConsumer {
-	return CatalogEventConsumer{updater: updater}
+func NewCatalogEventConsumer(updater dal.RunCatalogUpdater, artifacts ...dal.ArtifactsRepository) CatalogEventConsumer {
+	consumer := CatalogEventConsumer{updater: updater}
+	if len(artifacts) > 0 {
+		consumer.artifacts = artifacts[0]
+	}
+
+	return consumer
 }
 
 func NewCatalogEventPublisher(sourceCellID string, events dal.CatalogEventsRepository) CatalogEventPublisher {
@@ -54,10 +62,10 @@ func NewCatalogEventPublisher(sourceCellID string, events dal.CatalogEventsRepos
 	}
 }
 
-func NewCatalogInboxProcessor(events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater) CatalogInboxProcessor {
+func NewCatalogInboxProcessor(events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater, artifacts ...dal.ArtifactsRepository) CatalogInboxProcessor {
 	return CatalogInboxProcessor{
 		events:   events,
-		consumer: NewCatalogEventConsumer(updater),
+		consumer: NewCatalogEventConsumer(updater, artifacts...),
 	}
 }
 
@@ -95,6 +103,23 @@ func (p CatalogEventPublisher) RecordExecutionStatus(ctx context.Context, update
 	return p.record(ctx, CatalogExecutionStatusEventKey(update.ExecutionID, update.Status), CatalogEventTypeExecutionStatus, payload)
 }
 
+func (p CatalogEventPublisher) RecordArtifact(ctx context.Context, create dal.ArtifactCreate) error {
+	if p.events == nil {
+		return nil
+	}
+
+	payload, err := json.Marshal(create)
+	if err != nil {
+		return fmt.Errorf("marshal artifact catalog event: %w", err)
+	}
+
+	if strings.TrimSpace(create.RunID) == "" || strings.TrimSpace(create.Name) == "" {
+		return fmt.Errorf("%w: run_id and artifact name are required", ErrInvalidCatalogEvent)
+	}
+
+	return p.record(ctx, CatalogArtifactEventKey(create.RunID, create.Name), CatalogEventTypeArtifactRecord, payload)
+}
+
 func (p CatalogEventPublisher) record(ctx context.Context, eventKey, eventType string, payload []byte) error {
 	sourceCellID := strings.TrimSpace(p.sourceCellID)
 	if sourceCellID == "" {
@@ -111,6 +136,10 @@ func CatalogRunStatusEventKey(runID, status string) string {
 
 func CatalogExecutionStatusEventKey(executionID, status string) string {
 	return "execution:" + strings.TrimSpace(executionID) + ":" + strings.TrimSpace(status)
+}
+
+func CatalogArtifactEventKey(runID, name string) string {
+	return "artifact:" + strings.TrimSpace(runID) + ":" + strings.TrimSpace(name)
 }
 
 func (p CatalogInboxProcessor) ProcessPending(ctx context.Context, limit int) (CatalogInboxProcessResult, error) {
@@ -166,6 +195,13 @@ func CatalogEventFromRecord(rec dal.CatalogEventRecord) (CatalogEvent, error) {
 		}
 
 		event.ExecutionStatus = &update
+	case CatalogEventTypeArtifactRecord:
+		var create dal.ArtifactCreate
+		if err := json.Unmarshal(rec.Payload, &create); err != nil {
+			return CatalogEvent{}, fmt.Errorf("%w: decode artifact payload: %v", ErrInvalidCatalogEvent, err)
+		}
+
+		event.Artifact = &create
 	default:
 		return CatalogEvent{}, fmt.Errorf("%w: unsupported event type %q", ErrInvalidCatalogEvent, rec.EventType)
 	}
@@ -200,7 +236,16 @@ func (c CatalogEventConsumer) Apply(ctx context.Context, event CatalogEvent) err
 		return c.updater.ApplyRunStatusUpdate(ctx, *event.RunStatus)
 	}
 
-	return c.updater.ApplyExecutionStatusUpdate(ctx, *event.ExecutionStatus)
+	if event.ExecutionStatus != nil {
+		return c.updater.ApplyExecutionStatusUpdate(ctx, *event.ExecutionStatus)
+	}
+
+	if c.artifacts == nil {
+		return errors.New("artifact catalog updater is required")
+	}
+
+	_, err := c.artifacts.Record(ctx, *event.Artifact)
+	return err
 }
 
 func (e CatalogEvent) Validate() error {
@@ -217,8 +262,12 @@ func (e CatalogEvent) Validate() error {
 		updateCount++
 	}
 
+	if e.Artifact != nil {
+		updateCount++
+	}
+
 	if updateCount != 1 {
-		return fmt.Errorf("%w: exactly one status update is required", ErrInvalidCatalogEvent)
+		return fmt.Errorf("%w: exactly one catalog update is required", ErrInvalidCatalogEvent)
 	}
 
 	return nil

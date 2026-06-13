@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"vectis/internal/action"
 	"vectis/internal/artifact"
@@ -17,6 +18,7 @@ import (
 type workerArtifactPublisher struct {
 	logger    interfaces.Logger
 	manifests dal.ArtifactsRepository
+	catalog   cell.CatalogEventPublisher
 	metrics   backoff.RetryMetrics
 
 	runID         string
@@ -40,6 +42,7 @@ func (w *worker) newArtifactPublisher(env *cell.ExecutionEnvelope) *workerArtifa
 	return &workerArtifactPublisher{
 		logger:        w.logger,
 		manifests:     w.artifactManifests,
+		catalog:       w.catalog,
 		metrics:       w.retryMetrics,
 		runID:         env.RunID,
 		taskID:        env.TaskID,
@@ -86,6 +89,10 @@ func (p *workerArtifactPublisher) PublishArtifact(ctx context.Context, req actio
 		return action.ArtifactPublishResult{}, err
 	}
 
+	if err := p.recordArtifactCatalogEvent(ctx, artifactCreateFromRecord(published.Manifest)); err != nil {
+		return action.ArtifactPublishResult{}, fmt.Errorf("record artifact catalog event: %w", err)
+	}
+
 	return action.ArtifactPublishResult{
 		Name:            published.Manifest.Name,
 		Path:            published.Manifest.Path,
@@ -96,6 +103,43 @@ func (p *workerArtifactPublisher) PublishArtifact(ctx context.Context, req actio
 		SizeBytes:       published.Manifest.SizeBytes,
 		ArtifactShardID: published.Manifest.ArtifactShardID,
 	}, nil
+}
+
+func (p *workerArtifactPublisher) recordArtifactCatalogEvent(ctx context.Context, create dal.ArtifactCreate) error {
+	retryer := backoff.NewRetryer(backoff.RetryConfig{
+		MaxTries:  finalizeMaxAttempts,
+		BaseDelay: finalizeBackoffBase,
+		Metrics:   p.metrics,
+		Component: "worker_artifact_catalog_event",
+	})
+
+	return retryer.Do(ctx, func() error {
+		return p.catalog.RecordArtifact(ctx, create)
+	}, func(attempt int, nextDelay time.Duration, err error) {
+		if p.logger != nil {
+			p.logger.Warn("Record artifact catalog event %s/%s failed (attempt %d/%d): %v; retrying in %v",
+				create.RunID, create.Name, attempt, finalizeMaxAttempts, err, nextDelay)
+		}
+	})
+}
+
+func artifactCreateFromRecord(rec dal.ArtifactRecord) dal.ArtifactCreate {
+	return dal.ArtifactCreate{
+		RunID:           rec.RunID,
+		TaskID:          stringPtrValue(rec.TaskID),
+		TaskAttemptID:   stringPtrValue(rec.TaskAttemptID),
+		ExecutionID:     stringPtrValue(rec.ExecutionID),
+		CellID:          rec.CellID,
+		Name:            rec.Name,
+		Path:            rec.Path,
+		ContentType:     rec.ContentType,
+		BlobKey:         rec.BlobKey,
+		BlobAlgorithm:   rec.BlobAlgorithm,
+		BlobDigest:      rec.BlobDigest,
+		SizeBytes:       rec.SizeBytes,
+		ArtifactShardID: rec.ArtifactShardID,
+		MetadataJSON:    rec.MetadataJSON,
+	}
 }
 
 func (p *workerArtifactPublisher) ensurePublisher(ctx context.Context) (*artifact.RoutedPublisher, error) {

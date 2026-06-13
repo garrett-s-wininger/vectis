@@ -55,7 +55,7 @@ func runCatalog(cmd *cobra.Command, args []string) {
 	defer db.Close()
 
 	repos := dal.NewSQLRepositories(db)
-	svc := catalog.NewService(logger, repos.CatalogEvents(), repos.Runs())
+	svc := catalog.NewService(logger, repos.CatalogEvents(), repos.Runs(), repos.Artifacts())
 	svc.SetBackfill(catalog.NewBackfillProcessor(
 		config.CellID(),
 		repos.CatalogStatusBackfill(),

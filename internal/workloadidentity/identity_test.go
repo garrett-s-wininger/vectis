@@ -48,6 +48,23 @@ func TestSPIFFEIDCustomTemplate(t *testing.T) {
 	}
 }
 
+func TestSPIFFEIDEncodesUnsafePathSegmentCharacters(t *testing.T) {
+	exec := validExecution()
+	exec.NamespacePath = "/teams/build queue"
+	exec.JobID = "job:deploy"
+	exec.ExecutionID = "run-1:fanout-control:attempt:1:execution"
+
+	got, err := SPIFFEID("prod.example", "", exec)
+	if err != nil {
+		t.Fatalf("SPIFFEID: %v", err)
+	}
+
+	want := "spiffe://prod.example/cell/iad-a/namespace/teams/build_x20_queue/job/job_x3A_deploy/run/run-1/execution/run-1_x3A_fanout-control_x3A_attempt_x3A_1_x3A_execution"
+	if got != want {
+		t.Fatalf("SPIFFEID = %q, want %q", got, want)
+	}
+}
+
 func TestSPIFFEIDRejectsMissingRequiredField(t *testing.T) {
 	exec := validExecution()
 	exec.ExecutionID = ""

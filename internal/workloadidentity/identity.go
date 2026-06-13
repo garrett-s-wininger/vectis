@@ -234,7 +234,7 @@ func namespacePathValue(namespacePath string) (string, error) {
 			return "", fmt.Errorf("workload identity: namespace path %q contains an empty segment", namespacePath)
 		}
 
-		out = append(out, url.PathEscape(part))
+		out = append(out, pathSegment("namespace", part))
 	}
 
 	return strings.Join(out, "/"), nil
@@ -246,7 +246,34 @@ func pathSegment(name, value string) string {
 		return ""
 	}
 
-	return url.PathEscape(value)
+	var out strings.Builder
+	for _, b := range []byte(value) {
+		if isSPIFFEPathSegmentByte(b) {
+			out.WriteByte(b)
+			continue
+		}
+
+		out.WriteString("_x")
+		out.WriteString(strings.ToUpper(fmt.Sprintf("%02x", b)))
+		out.WriteByte('_')
+	}
+
+	return out.String()
+}
+
+func isSPIFFEPathSegmentByte(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z':
+		return true
+	case b >= 'A' && b <= 'Z':
+		return true
+	case b >= '0' && b <= '9':
+		return true
+	case b == '.', b == '-', b == '_':
+		return true
+	default:
+		return false
+	}
 }
 
 func positiveIntSegment(name string, value int) string {

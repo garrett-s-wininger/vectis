@@ -35,6 +35,7 @@ LDFLAGS += -X vectis/internal/version.Commit=$(COMMIT)
 LDFLAGS += -X vectis/internal/version.BuildDate=$(BUILD_DATE)
 
 API := $(shell find api -name '*.go' 2>/dev/null)
+CMD := $(shell find cmd -name '*.go' 2>/dev/null)
 BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
 NON_DOC_BINARIES := $(filter-out $(OUT_DIR)/vectis-docs,$(BINARIES))
 INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
@@ -55,10 +56,10 @@ all: build
 $(OUT_DIR):
 	mkdir -p ${@}
 
-$(OUT_DIR)/vectis-docs: cmd/docs/main.go $(API) $(INTERNAL) $(DOCS_ASSETS_TARGET) | $(OUT_DIR)
+$(OUT_DIR)/vectis-docs: $(CMD) $(API) $(INTERNAL) $(DOCS_ASSETS_TARGET) | $(OUT_DIR)
 	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -ldflags '${LDFLAGS}' -o ${@} ./cmd/docs
 
-$(NON_DOC_BINARIES): $(OUT_DIR)/vectis-%: cmd/%/main.go $(API) $(INTERNAL) | $(OUT_DIR)
+$(NON_DOC_BINARIES): $(OUT_DIR)/vectis-%: $(CMD) $(API) $(INTERNAL) | $(OUT_DIR)
 	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -ldflags '${LDFLAGS}' -o ${@} ./cmd/${*}
 
 .PHONY: build

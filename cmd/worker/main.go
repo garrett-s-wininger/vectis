@@ -1915,6 +1915,13 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 		return "", false, false, nil
 	}
 
+	if err := w.mirrorExecutionClaim(ctx, executionEnvelope, claim.ClaimToken, leaseUntil); err != nil {
+		w.logger.Warn("MirrorExecutionClaim %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
+		span.RecordError(err)
+		span.AddEvent("execution.claim.mirror_error", trace.WithAttributes(attribute.String("error", err.Error())))
+		return "", false, false, err
+	}
+
 	span.AddEvent("execution.claim.success")
 	if claim.TransitionedToAccepted {
 		w.recordExecutionCatalogEvent(ctx, executionEnvelope, dal.ExecutionStatusAccepted)
@@ -1947,12 +1954,72 @@ func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.J
 		return false, fmt.Errorf("%w: execution %s was not claimable after orchestrator recovery", dal.ErrConflict, env.ExecutionID)
 	}
 
+	if err := w.mirrorExecutionClaim(ctx, env, claim.ClaimToken, leaseUntil); err != nil {
+		return false, fmt.Errorf("mirror recovered execution claim: %w", err)
+	}
+
 	executionClaim.set(claim.ClaimToken)
 	w.setCurrentRun(env.RunID, claim.ClaimToken)
 	trace.SpanFromContext(ctx).AddEvent("orchestrator.execution.claim_recovered", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 	w.metrics.RecordOrchestratorRecovery(ctx, stage)
 
 	return true, nil
+}
+
+func (w *worker) mirrorExecutionClaim(ctx context.Context, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
+	if w.store == nil || env == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(claimToken) == "" {
+		return fmt.Errorf("%w: execution claim token is required", dal.ErrConflict)
+	}
+
+	clock := w.clock
+	if clock == nil {
+		clock = interfaces.SystemClock{}
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
+		err := w.store.MirrorExecutionClaim(w.runCtx, env.ExecutionID, w.workerID, claimToken, leaseUntil)
+		if err == nil {
+			w.noteDBRecovered()
+			return nil
+		}
+
+		lastErr = err
+		w.noteDBError(err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		if attempt == finalizeMaxAttempts {
+			break
+		}
+
+		delay := backoff.ExponentialDelay(finalizeBackoffBase, attempt-1, finalizeBackoffMax)
+		w.logger.Warn("MirrorExecutionClaim %s failed (attempt %d/%d): %v; retrying in %v",
+			env.ExecutionID, attempt, finalizeMaxAttempts, err, delay)
+
+		if sleepErr := clock.Sleep(w.runCtx, delay); sleepErr != nil {
+			return sleepErr
+		}
+	}
+
+	return lastErr
+}
+
+func (w *worker) renewMirroredExecutionClaim(ctx context.Context, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
+	if w.store == nil || env == nil || strings.TrimSpace(claimToken) == "" {
+		return nil
+	}
+
+	if err := w.store.RenewExecutionLease(w.runCtx, env.ExecutionID, w.workerID, claimToken, leaseUntil); err != nil {
+		w.noteDBError(err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return err
+	}
+
+	w.noteDBRecovered()
+	return nil
 }
 
 func (w *worker) orchestratorRecoverySnapshots(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope) ([]orchestrator.TaskExecutionSnapshot, error) {
@@ -2477,6 +2544,12 @@ func (w *worker) leaseRenewalLoop(
 						}
 					}
 					w.logger.Warn("Execution %s: lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
+					continue
+				}
+
+				if err := w.renewMirroredExecutionClaim(execCtx, executionEnvelope, claimToken, next); err != nil {
+					renewFailed = true
+					w.logger.Warn("Execution %s: mirrored lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 					continue
 				}
 			}

@@ -41,8 +41,8 @@ type Service struct {
 	metrics   Metrics
 }
 
-func NewService(logger interfaces.Logger, events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater) *Service {
-	return NewServiceWithProcessor(logger, cell.NewCatalogInboxProcessor(events, updater))
+func NewService(logger interfaces.Logger, events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater, artifacts ...dal.ArtifactsRepository) *Service {
+	return NewServiceWithProcessor(logger, cell.NewCatalogInboxProcessor(events, updater, artifacts...))
 }
 
 func NewServiceWithProcessor(logger interfaces.Logger, processor InboxProcessor) *Service {

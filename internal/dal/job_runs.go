@@ -57,11 +57,11 @@ func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upda
 
 	switch update.Status {
 	case ExecutionStatusAccepted:
-		return r.markExecutionAccepted(ctx, executionID)
+		return r.applyCatalogExecutionAccepted(ctx, executionID)
 	case ExecutionStatusRunning:
-		return r.MarkExecutionStarted(ctx, executionID)
+		return r.applyCatalogExecutionStarted(ctx, executionID)
 	case ExecutionStatusSucceeded, ExecutionStatusFailed, ExecutionStatusCancelled, ExecutionStatusAborted:
-		return r.markExecutionTerminal(ctx, executionID, update.Status)
+		return r.applyCatalogExecutionTerminal(ctx, executionID, update.Status)
 	default:
 		return fmt.Errorf("%w: unsupported execution status %s", ErrConflict, update.Status)
 	}
@@ -3011,6 +3011,139 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	}, nil
 }
 
+func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+	executionID = strings.TrimSpace(executionID)
+	owner = strings.TrimSpace(owner)
+	claimToken = strings.TrimSpace(claimToken)
+	if executionID == "" || owner == "" || claimToken == "" {
+		return fmt.Errorf("%w: execution_id, owner, and claim_token are required", ErrConflict)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var runID string
+	var segmentID string
+	var taskID string
+	var taskAttemptID string
+	var attempt int
+	var currentStatus string
+	var runStatus string
+	var leaseOwner sql.NullString
+	var currentLeaseUntil sql.NullInt64
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT se.run_id, se.segment_id, se.task_id, se.task_attempt_id, se.attempt, se.status, se.lease_owner, se.lease_until, jr.status
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		WHERE se.execution_id = ?
+	`), executionID).Scan(&runID, &segmentID, &taskID, &taskAttemptID, &attempt, &currentStatus, &leaseOwner, &currentLeaseUntil, &runStatus); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if !statusIn(currentStatus, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
+		return fmt.Errorf("%w: execution %s status %s cannot mirror an active claim", ErrConflict, executionID, currentStatus)
+	}
+
+	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning, RunStatusOrphaned}) {
+		return fmt.Errorf("%w: run %s status %s cannot mirror an active execution claim", ErrConflict, runID, runStatus)
+	}
+
+	nowUnix := time.Now().UTC().Unix()
+	if currentLeaseUntil.Valid && currentLeaseUntil.Int64 >= nowUnix {
+		if !leaseOwner.Valid || leaseOwner.String != owner {
+			return fmt.Errorf("%w: execution %s already has an active claim", ErrConflict, executionID)
+		}
+	}
+
+	transitionedToAccepted := statusIn(currentStatus, []string{ExecutionStatusPlanned, ExecutionStatusPending})
+	setParts := []string{"lease_owner = ?", "lease_until = ?", "claim_token = ?"}
+	args := []any{owner, leaseUntil.UTC().Unix(), claimToken}
+	if transitionedToAccepted {
+		setParts = append(setParts,
+			"status = ?",
+			"accepted_at = COALESCE(accepted_at, CURRENT_TIMESTAMP)",
+			"last_observed_at = ?",
+			"event_sequence = event_sequence + 1",
+		)
+		args = append(args, ExecutionStatusAccepted, time.Now().UnixNano())
+	}
+
+	setParts = append(setParts, "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, executionID, currentStatus, nowUnix, owner)
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE segment_executions
+		SET `+strings.Join(setParts, ", ")+`
+		WHERE execution_id = ?
+			AND status = ?
+			AND (
+				lease_until IS NULL
+				OR lease_until < ?
+				OR lease_owner = ?
+			)
+	`), args...)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("%w: execution %s claim could not be mirrored", ErrConflict, executionID)
+	}
+
+	if transitionedToAccepted {
+		if _, err := tx.ExecContext(ctx,
+			rebindQueryForPgx("UPDATE run_segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE segment_id = ?"),
+			SegmentStatusAccepted,
+			segmentID,
+		); err != nil {
+			return normalizeSQLError(err)
+		}
+
+		if err := transitionTaskAttemptTx(ctx, tx, taskID, taskAttemptID, attempt, TaskStatusAccepted, TaskStatusAccepted, true, false, false); err != nil {
+			return err
+		}
+	}
+
+	runRes, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE job_runs
+		SET lease_owner = ?,
+			lease_until = ?,
+			cancel_token = ?,
+			cancel_requested_at = CASE WHEN status = ? THEN cancel_requested_at ELSE NULL END,
+			cancel_reason = CASE WHEN status = ? THEN cancel_reason ELSE NULL END,
+			attempt = CASE WHEN status = ? THEN attempt + 1 ELSE attempt END,
+			orphan_reason = '',
+			failure_code = '',
+			status = ?,
+			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
+		WHERE run_id = ?
+			AND status IN (?, ?, ?)
+	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	runUpdated, err := runRes.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if runUpdated != 1 {
+		return fmt.Errorf("%w: run %s cannot be promoted for mirrored execution claim", ErrConflict, runID)
+	}
+
+	return tx.Commit()
+}
+
 func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
 	executionID = strings.TrimSpace(executionID)
 	owner = strings.TrimSpace(owner)
@@ -3297,8 +3430,16 @@ func (r *SQLRunsRepository) markExecutionAccepted(ctx context.Context, execution
 	return r.transitionExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPending}, true, false, false)
 }
 
+func (r *SQLRunsRepository) applyCatalogExecutionAccepted(ctx context.Context, executionID string) error {
+	return r.transitionExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPlanned, ExecutionStatusPending}, true, false, false)
+}
+
 func (r *SQLRunsRepository) MarkExecutionStarted(ctx context.Context, executionID string) error {
 	return r.transitionExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
+}
+
+func (r *SQLRunsRepository) applyCatalogExecutionStarted(ctx context.Context, executionID string) error {
+	return r.transitionExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
 }
 
 func (r *SQLRunsRepository) markExecutionTerminal(ctx context.Context, executionID, status string) error {
@@ -3307,6 +3448,14 @@ func (r *SQLRunsRepository) markExecutionTerminal(ctx context.Context, execution
 	}
 
 	return r.transitionExecution(ctx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
+}
+
+func (r *SQLRunsRepository) applyCatalogExecutionTerminal(ctx context.Context, executionID, status string) error {
+	if !isTerminalExecutionStatus(status) {
+		return fmt.Errorf("%w: unsupported terminal execution status %s", ErrConflict, status)
+	}
+
+	return r.transitionExecution(ctx, executionID, status, status, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, true, true)
 }
 
 func (r *SQLRunsRepository) transitionExecution(

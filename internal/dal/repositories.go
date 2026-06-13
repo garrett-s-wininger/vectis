@@ -575,6 +575,7 @@ type RunsRepository interface {
 	EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error)
 	GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (ExecutionDispatchRecord, error)
 	TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (ExecutionClaimResult, error)
+	MirrorExecutionClaim(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
 	RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error
 	ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error
 	CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (ExecutionFinalizationResult, error)

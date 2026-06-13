@@ -1,0 +1,137 @@
+{
+  "id": "e2e-canonical-smoke",
+  "secrets": [
+    {
+      "id": "smoke-token",
+      "ref": "encryptedfs://team/smoke-token",
+      "delivery": {
+        "type": "file",
+        "path": "smoke/token"
+      },
+      "task_keys": [
+        "secret-lane"
+      ]
+    }
+  ],
+  "root": {
+    "id": "root-control",
+    "uses": "builtins/sequence",
+    "with": {
+      "execution": "local"
+    },
+    "ports": {
+      "steps": {
+        "nodes": [
+          {
+            "id": "setup-control",
+            "uses": "builtins/shell",
+            "with": {
+              "command": "echo canonical-control-start; sleep 1"
+            }
+          },
+          {
+            "id": "fanout-control",
+            "uses": "builtins/parallel",
+            "with": {
+              "execution": "distributed"
+            },
+            "ports": {
+              "branches": {
+                "nodes": [
+                  {
+                    "id": "secret-lane",
+                    "uses": "builtins/shell",
+                    "with": {
+                      "command": "test -n \"$VECTIS_SECRETS_DIR\"; test \"$(cksum < \"$VECTIS_SECRETS_DIR/smoke/token\")\" = \"2931055294 13\"; echo canonical-secret-ok"
+                    }
+                  },
+                  {
+                    "id": "artifact-lane",
+                    "uses": "builtins/sequence",
+                    "with": {
+                      "execution": "local"
+                    },
+                    "ports": {
+                      "steps": {
+                        "nodes": [
+                          {
+                            "id": "artifact-write",
+                            "uses": "builtins/shell",
+                            "with": {
+                              "command": "mkdir -p reports; printf 'canonical-artifact-ok\\n' > reports/e2e-smoke.txt; echo canonical-artifact-written"
+                            }
+                          },
+                          {
+                            "id": "artifact-upload",
+                            "uses": "builtins/upload-artifact",
+                            "with": {
+                              "name": "e2e-smoke-report",
+                              "path": "reports/e2e-smoke.txt",
+                              "content_type": "text/plain",
+                              "metadata_json": "{\"suite\":\"canonical-e2e\"}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "id": "registry-retry-lane",
+                    "uses": "builtins/sequence",
+                    "with": {
+                      "execution": "local"
+                    },
+                    "ports": {
+                      "steps": {
+                        "nodes": [
+                          {
+                            "id": "registry-retry",
+                            "uses": "builtins/retry",
+                            "with": {
+                              "attempts": "2",
+                              "execution": "local"
+                            },
+                            "ports": {
+                              "body": {
+                                "nodes": [
+                                  {
+                                    "id": "registry-flaky-action",
+                                    "uses": "examples/flaky-once@v1",
+                                    "with": {
+                                      "succeed_on": "2"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          {
+                            "id": "registry-retry-upload",
+                            "uses": "builtins/upload-artifact",
+                            "with": {
+                              "name": "e2e-registry-retry",
+                              "path": "reports/registry-retry.txt",
+                              "content_type": "text/plain",
+                              "metadata_json": "{\"suite\":\"canonical-e2e\",\"lane\":\"registry-retry\"}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "id": "fanout-shell-lane",
+                    "uses": "builtins/shell",
+                    "with": {
+                      "command": "echo canonical-fanout-ok"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

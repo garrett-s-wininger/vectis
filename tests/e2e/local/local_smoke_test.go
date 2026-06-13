@@ -26,9 +26,21 @@ import (
 )
 
 var localSmokePorts = []int{
-	8080, 8081, 8082, 8083, 8085, 8086, 8087,
-	9081, 9082, 9083, 9084, 9085, 9086, 9087, 9089, 9090,
+	8080, 8081, 8082, 8083, 8085, 8086, 8087, 8090,
+	9081, 9082, 9083, 9084, 9085, 9086, 9087, 9089, 9090, 9091,
 }
+
+const (
+	canonicalJobID            = "e2e-canonical-smoke"
+	smokeSecretRef            = "encryptedfs://team/smoke-token"
+	smokeSecretPlaintext      = "spiffe-secret"
+	smokeArtifactName         = "e2e-smoke-report"
+	smokeArtifactPath         = "reports/e2e-smoke.txt"
+	smokeArtifactContent      = "canonical-artifact-ok\n"
+	smokeRetryArtifactName    = "e2e-registry-retry"
+	smokeRetryArtifactPath    = "reports/registry-retry.txt"
+	smokeRetryArtifactContent = "canonical-registry-retry-attempt=2\ncanonical-registry-retry-succeeded\n"
+)
 
 type commandResult struct {
 	stdout string
@@ -60,6 +72,26 @@ type taskCompletion struct {
 
 type runTasksResult struct {
 	Data []runTaskRow `json:"data"`
+}
+
+type runArtifactsResult struct {
+	Data []runArtifactRow `json:"data"`
+}
+
+type runArtifactRow struct {
+	Name            string          `json:"name"`
+	Path            string          `json:"path"`
+	ContentType     string          `json:"content_type,omitempty"`
+	BlobDigest      string          `json:"blob_digest"`
+	SizeBytes       int64           `json:"size_bytes"`
+	ArtifactShardID string          `json:"artifact_shard_id"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+}
+
+type secretEncryptedFSPutResult struct {
+	Status string `json:"status"`
+	Ref    string `json:"ref"`
+	Bytes  int    `json:"bytes"`
 }
 
 type runTaskRow struct {
@@ -102,17 +134,25 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 	requireExecutable(t, local, "vectis-local")
 	requireLocalPortsAvailable(t, localSmokePorts)
 
+	dataHome := t.TempDir()
 	env := commandEnv(map[string]string{
-		"XDG_DATA_HOME":                   t.TempDir(),
-		"XDG_RUNTIME_DIR":                 shortTempDir(t, "vectis-e2e-runtime-*"),
-		"VECTIS_API_TOKEN":                "",
-		"VECTIS_LOCAL_GRPC_INSECURE":      "true",
-		"VECTIS_LOCAL_HTTP_TLS":           "off",
-		"VECTIS_LOCAL_DOCS_ENABLED":       "false",
-		database.EnvDatabaseDSN:           "",
-		database.EnvGlobalDatabaseDSN:     "",
-		database.EnvCellDatabaseDSN:       "",
-		"VECTIS_WORKER_EXECUTION_BACKEND": "host",
+		"XDG_DATA_HOME":   dataHome,
+		"XDG_RUNTIME_DIR": shortTempDir(t, "vectis-e2e-runtime-*"),
+		"VECTIS_ACTION_REGISTRY_ALLOWED_NAMESPACES":  "",
+		"VECTIS_ACTION_REGISTRY_ALLOWED_SOURCES":     "",
+		"VECTIS_ACTION_REGISTRY_LOCAL_ROOTS":         filepath.Join(root, "examples", "actions"),
+		"VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS": "false",
+		"VECTIS_API_SERVER_HOST":                     "localhost",
+		"VECTIS_API_SERVER_PORT":                     "8080",
+		"VECTIS_API_TOKEN":                           "",
+		"VECTIS_GRPC_TLS_INSECURE":                   "false",
+		"VECTIS_LOCAL_GRPC_INSECURE":                 "false",
+		"VECTIS_LOCAL_HTTP_TLS":                      "off",
+		"VECTIS_LOCAL_DOCS_ENABLED":                  "false",
+		database.EnvDatabaseDSN:                      "",
+		database.EnvGlobalDatabaseDSN:                "",
+		database.EnvCellDatabaseDSN:                  "",
+		"VECTIS_WORKER_EXECUTION_BACKEND":            "host",
 	})
 
 	proc := startVectisLocal(t, root, env, local)
@@ -122,14 +162,16 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 
 	waitForAPIReady(t, proc, "http://localhost:8080/health/ready", 2*time.Minute)
 
-	jobID := "local-e2e-smoke-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	createStoredSmokeJob(t, root, env, cli, jobID)
-	run := triggerStoredSmokeJob(t, root, env, cli, jobID)
-	statuses, final := waitForRunTerminal(t, root, env, cli, run.RunID, 2*time.Minute)
+	seedLocalSmokeSecret(t, root, env, cli, dataHome)
+	createStoredExampleJob(t, root, env, cli, filepath.Join(root, "examples", "e2e-canonical.json"), canonicalJobID)
+	run := triggerStoredSmokeJob(t, root, env, cli, canonicalJobID)
+	statuses, final := waitForRunTerminal(t, root, env, cli, run.RunID, 3*time.Minute)
 
 	if final.Status != "succeeded" {
 		t.Fatalf("run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s", run.RunID, final.Status, statuses, proc.stderr.String())
 	}
+
+	final = waitForRunTaskCompletionSucceeded(t, root, env, cli, run.RunID, 30*time.Second)
 
 	if !containsStatus(statuses, "running") {
 		t.Fatalf("run %s never reported running; observed statuses=%v", run.RunID, statuses)
@@ -149,7 +191,12 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 	}
 
 	assertRunTasksSucceeded(t, root, env, cli, run.RunID)
-	assertRunLogsContain(t, root, env, cli, run.RunID, "local-smoke-start", "local-smoke-finish")
+	assertRunLogsContain(t, root, env, cli, run.RunID,
+		"Starting task execution: e2e-canonical-smoke task ",
+		"Run "+run.RunID+" finished successfully.",
+	)
+	assertRunArtifact(t, root, env, cli, run.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
+	assertRunArtifact(t, root, env, cli, run.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
@@ -250,7 +297,7 @@ func requireLocalPortsAvailable(t *testing.T, ports []int) {
 func startVectisLocal(t *testing.T, root string, env []string, local string) *localProcess {
 	t.Helper()
 
-	cmd := exec.Command(local, "--grpc-insecure", "--http-tls", "off", "--docs=false") // #nosec G204 -- e2e harness controls the binary path.
+	cmd := exec.Command(local, "--http-tls", "off", "--docs=false") // #nosec G204 -- e2e harness controls the binary path.
 	cmd.Dir = root
 	cmd.Env = env
 
@@ -343,14 +390,56 @@ func (p *localProcess) exitErr() error {
 	return p.err
 }
 
-func createStoredSmokeJob(t *testing.T, root string, env []string, cli, jobID string) {
+func seedLocalSmokeSecret(t *testing.T, root string, env []string, cli, dataHome string) {
 	t.Helper()
 
-	body := smokeJobDefinition(jobID)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := runCommand(ctx, root, env, strings.NewReader(body), cli, "--format", "json", "jobs", "create", "-")
+	result, err := runCommand(ctx, root, env, strings.NewReader(smokeSecretPlaintext),
+		cli, "--format", "json", "secrets", "encryptedfs", "put", smokeSecretRef,
+		"--root", localManagedSecretsDir(dataHome, "local"),
+		"--key-file", localManagedSecretsKeyFile(dataHome, "local"),
+		"--force")
+	if err != nil {
+		t.Fatalf("seed local smoke secret: %v", err)
+	}
+
+	var out secretEncryptedFSPutResult
+	if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
+		t.Fatalf("parse secrets encryptedfs put output: %v\nstdout:\n%s\nstderr:\n%s", err, result.stdout, result.stderr)
+	}
+
+	if out.Status != "ok" || out.Ref != smokeSecretRef || out.Bytes != len(smokeSecretPlaintext) {
+		t.Fatalf("unexpected secrets encryptedfs put output: %+v", out)
+	}
+}
+
+func localManagedSecretsDir(dataHome, cellID string) string {
+	return filepath.Join(dataHome, "vectis", "cells", safePathPart(cellID), "secrets")
+}
+
+func localManagedSecretsKeyFile(dataHome, cellID string) string {
+	return filepath.Join(dataHome, "vectis", "cells", safePathPart(cellID), "secrets.key")
+}
+
+func safePathPart(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "local"
+	}
+
+	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_")
+	return replacer.Replace(s)
+}
+
+func createStoredExampleJob(t *testing.T, root string, env []string, cli, path, jobID string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := runCommand(ctx, root, env, nil, cli, "--format", "json", "jobs", "create", path)
 	if err != nil {
 		t.Fatalf("create smoke job: %v", err)
 	}
@@ -396,24 +485,16 @@ func waitForRunTerminal(t *testing.T, root string, env []string, cli, runID stri
 	var last runShowResult
 	var lastErr error
 	for time.Now().Before(deadline) {
-		showCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		result, err := runCommand(showCtx, root, env, nil, cli, "--format", "json", "runs", "show", runID)
-		cancel()
-
+		out, err := showRun(t, root, env, cli, runID)
 		if err == nil {
-			var out runShowResult
-			if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
-				lastErr = fmt.Errorf("parse runs show output: %w", err)
-			} else {
-				last = out
-				status := strings.TrimSpace(strings.ToLower(out.Status))
-				if status != "" && (len(statuses) == 0 || statuses[len(statuses)-1] != status) {
-					statuses = append(statuses, status)
-				}
+			last = out
+			status := strings.TrimSpace(strings.ToLower(out.Status))
+			if status != "" && (len(statuses) == 0 || statuses[len(statuses)-1] != status) {
+				statuses = append(statuses, status)
+			}
 
-				if runStatusTerminal(status) {
-					return statuses, out
-				}
+			if runStatusTerminal(status) {
+				return statuses, out
 			}
 		} else {
 			lastErr = err
@@ -426,77 +507,232 @@ func waitForRunTerminal(t *testing.T, root string, env []string, cli, runID stri
 	return nil, runShowResult{}
 }
 
+func waitForRunTaskCompletionSucceeded(t *testing.T, root string, env []string, cli, runID string, timeout time.Duration) runShowResult {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last runShowResult
+	var lastErr error
+	for time.Now().Before(deadline) {
+		out, err := showRun(t, root, env, cli, runID)
+		if err == nil {
+			last = out
+			if taskCompletionSucceeded(out.TaskCompletion) {
+				return out
+			}
+		} else {
+			lastErr = err
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	t.Fatalf("run %s task completion did not converge within %s; last=%+v err=%v", runID, timeout, last, lastErr)
+	return runShowResult{}
+}
+
+func showRun(t *testing.T, root string, env []string, cli, runID string) (runShowResult, error) {
+	t.Helper()
+
+	showCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := runCommand(showCtx, root, env, nil, cli, "--format", "json", "runs", "show", runID)
+	if err != nil {
+		return runShowResult{}, err
+	}
+
+	var out runShowResult
+	if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
+		return runShowResult{}, fmt.Errorf("parse runs show output: %w", err)
+	}
+
+	return out, nil
+}
+
+func taskCompletionSucceeded(completion *taskCompletion) bool {
+	return completion != nil &&
+		completion.Total > 0 &&
+		completion.Succeeded == completion.Total &&
+		completion.TerminalFailed == 0 &&
+		completion.Incomplete == 0
+}
+
 func assertRunTasksSucceeded(t *testing.T, root string, env []string, cli, runID string) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	deadline := time.Now().Add(30 * time.Second)
+	var last runTasksResult
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		result, err := runCommand(ctx, root, env, nil, cli, "--format", "json", "runs", "tasks", runID)
+		cancel()
 
-	result, err := runCommand(ctx, root, env, nil, cli, "--format", "json", "runs", "tasks", runID)
-	if err != nil {
-		t.Fatalf("list run tasks: %v", err)
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		var out runTasksResult
+		if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
+			lastErr = fmt.Errorf("parse runs tasks output: %w", err)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		last = out
+		if runTasksSucceeded(out) {
+			return
+		}
+
+		time.Sleep(200 * time.Millisecond)
 	}
 
-	var out runTasksResult
-	if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
-		t.Fatalf("parse runs tasks output: %v\nstdout:\n%s\nstderr:\n%s", err, result.stdout, result.stderr)
-	}
+	t.Fatalf("run %s tasks did not converge to succeeded within 30s; last=%+v err=%v", runID, last, lastErr)
+}
 
+func runTasksSucceeded(out runTasksResult) bool {
 	if len(out.Data) == 0 {
-		t.Fatalf("run %s returned no tasks", runID)
+		return false
 	}
 
 	for _, task := range out.Data {
 		if task.Status != "succeeded" {
-			t.Fatalf("task %s status = %q, want succeeded", task.TaskID, task.Status)
+			return false
 		}
 
 		if len(task.Attempts) == 0 {
-			t.Fatalf("task %s returned no attempts", task.TaskID)
+			return false
 		}
 
 		for _, attempt := range task.Attempts {
 			if attempt.Status != "succeeded" {
-				t.Fatalf("task %s attempt %s status = %q, want succeeded", task.TaskID, attempt.AttemptID, attempt.Status)
+				return false
 			}
 
 			if attempt.ExecutionStatus != "" && attempt.ExecutionStatus != "succeeded" {
-				t.Fatalf("task %s attempt %s execution_status = %q, want succeeded", task.TaskID, attempt.AttemptID, attempt.ExecutionStatus)
+				return false
 			}
 		}
 	}
+
+	return true
 }
 
 func assertRunLogsContain(t *testing.T, root string, env []string, cli, runID string, needles ...string) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	deadline := time.Now().Add(30 * time.Second)
+	var last commandResult
+	var lastErr error
+	var missing []string
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		result, err := runCommand(ctx, root, env, nil, cli, "logs", "run", runID)
+		cancel()
 
-	result, err := runCommand(ctx, root, env, nil, cli, "logs", "run", runID)
-	if err != nil && !strings.Contains(err.Error(), " timed out:") {
-		t.Fatalf("stream run logs: %v", err)
+		last = result
+		if err != nil && !strings.Contains(err.Error(), " timed out:") {
+			lastErr = err
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		missing = missingLogNeedles(result.stdout, needles)
+		if len(missing) == 0 {
+			return
+		}
+
+		time.Sleep(500 * time.Millisecond)
 	}
 
+	t.Fatalf("logs for run %s missing %v err=%v\nstdout:\n%s\nstderr:\n%s", runID, missing, lastErr, last.stdout, last.stderr)
+}
+
+func missingLogNeedles(logs string, needles []string) []string {
+	missing := make([]string, 0)
 	for _, needle := range needles {
-		if !strings.Contains(result.stdout, needle) {
-			t.Fatalf("logs for run %s missing %q\nstdout:\n%s\nstderr:\n%s", runID, needle, result.stdout, result.stderr)
+		if !strings.Contains(logs, needle) {
+			missing = append(missing, needle)
 		}
 	}
+
+	return missing
 }
 
-func smokeJobDefinition(jobID string) string {
-	return fmt.Sprintf(`{
-  "id": %q,
-  "root": {
-    "id": "root",
-    "uses": "builtins/shell",
-    "with": {
-      "command": "echo local-smoke-start; sleep 2; echo local-smoke-finish"
-    }
-  }
+func assertRunArtifact(t *testing.T, root string, env []string, cli, runID, artifactName, artifactPath, artifactContent string) {
+	t.Helper()
+
+	artifact := waitForRunArtifact(t, root, env, cli, runID, artifactName, 30*time.Second)
+
+	if artifact == nil {
+		t.Fatalf("run %s artifacts missing %q", runID, artifactName)
+	}
+
+	if artifact.Path != artifactPath || artifact.ContentType != "text/plain" ||
+		artifact.SizeBytes != int64(len(artifactContent)) ||
+		strings.TrimSpace(artifact.BlobDigest) == "" ||
+		strings.TrimSpace(artifact.ArtifactShardID) == "" {
+		t.Fatalf("unexpected artifact manifest: %+v", *artifact)
+	}
+
+	downloadPath := filepath.Join(t.TempDir(), filepath.Base(artifactPath))
+	downloadCtx, downloadCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer downloadCancel()
+
+	if _, err := runCommand(downloadCtx, root, env, nil, cli, "--format", "json", "runs", "artifacts", "download", runID, artifactName, "--output", downloadPath); err != nil {
+		t.Fatalf("download run artifact: %v", err)
+	}
+
+	data, err := os.ReadFile(downloadPath)
+	if err != nil {
+		t.Fatalf("read downloaded artifact: %v", err)
+	}
+
+	if string(data) != artifactContent {
+		t.Fatalf("downloaded artifact %s content = %q, want %q", artifactName, string(data), artifactContent)
+	}
 }
-`, jobID)
+
+func waitForRunArtifact(t *testing.T, root string, env []string, cli, runID, artifactName string, timeout time.Duration) *runArtifactRow {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last runArtifactsResult
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		result, err := runCommand(ctx, root, env, nil, cli, "--format", "json", "runs", "artifacts", "list", runID)
+		cancel()
+
+		if err != nil {
+			lastErr = err
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		var out runArtifactsResult
+		if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
+			lastErr = fmt.Errorf("parse runs artifacts list output: %w", err)
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		last = out
+		for i := range out.Data {
+			if out.Data[i].Name == artifactName {
+				artifact := out.Data[i]
+				return &artifact
+			}
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	t.Fatalf("run %s artifact %q did not appear within %s; last=%+v err=%v", runID, artifactName, timeout, last, lastErr)
+	return nil
 }
 
 func runStatusTerminal(status string) bool {

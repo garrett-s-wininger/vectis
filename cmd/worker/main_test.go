@@ -1211,8 +1211,8 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("query run status: %v", err)
 	}
 
-	if runStatus != dal.RunStatusQueued {
-		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusQueued)
+	if runStatus != dal.RunStatusRunning {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusRunning)
 	}
 
 	reqs := queue.GetJobRequests()
@@ -1315,8 +1315,8 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 		t.Fatalf("query run status: %v", err)
 	}
 
-	if runStatus != dal.RunStatusQueued {
-		t.Fatalf("run status after waiting reduction: got %q, want %q", runStatus, dal.RunStatusQueued)
+	if runStatus != dal.RunStatusRunning {
+		t.Fatalf("run status after waiting reduction: got %q, want %q", runStatus, dal.RunStatusRunning)
 	}
 
 	reqs := queue.GetJobRequests()

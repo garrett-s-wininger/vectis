@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
+	"vectis/internal/action/builtins"
 	"vectis/internal/job"
 	"vectis/internal/job/validation"
 )
@@ -69,6 +71,16 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 		t.Fatal("no example jobs found")
 	}
 
+	source, err := actionregistry.NewLocalManifestSource("../../examples/actions")
+	if err != nil {
+		t.Fatalf("local action manifest source: %v", err)
+	}
+
+	resolver, err := job.NewActionResolver(actionregistry.NewCompositeResolver(builtins.NewRegistry(), source), nil)
+	if err != nil {
+		t.Fatalf("action resolver: %v", err)
+	}
+
 	for _, path := range examples {
 		path := path
 		t.Run(filepath.Base(path), func(t *testing.T) {
@@ -79,7 +91,7 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 				t.Fatalf("DecodeDefinitionJSON: %v", err)
 			}
 
-			if err := validation.ValidateJob(&decoded, validation.Options{RequireJobID: true}); err != nil {
+			if err := validation.ValidateJob(&decoded, validation.Options{RequireJobID: true, Resolver: resolver}); err != nil {
 				t.Fatalf("ValidateJob: %v", err)
 			}
 		})

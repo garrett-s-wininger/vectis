@@ -1363,6 +1363,80 @@ func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *
 	}
 }
 
+func TestRunsRepository_MirrorExecutionClaimAcceptsPlannedChildClaim(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-mirror-child-claim", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-mirror-child-claim"
+	def := `{"id":"job-mirror-child-claim","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	child, created, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: runID + ":" + dal.RootTaskKey,
+		TaskKey:      "child",
+		Name:         "child task",
+		SpecHash:     "sha256:child",
+		TargetCellID: "iad-a",
+	})
+	if err != nil {
+		t.Fatalf("ensure planned child: %v", err)
+	}
+	if !created {
+		t.Fatal("expected planned child to be created")
+	}
+
+	leaseUntil := time.Now().Add(time.Minute)
+	const token = "orchestrator-child-token"
+	if err := repos.Runs().MirrorExecutionClaim(ctx, child.ExecutionID, "worker-orchestrator", token, leaseUntil); err != nil {
+		t.Fatalf("mirror planned child claim: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, child.ExecutionID, child.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertTaskAndAttemptStatus(t, db, child.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+	assertExecutionClaim(t, db, child.ExecutionID, "worker-orchestrator", leaseUntil.Unix(), token)
+	assertRunExecutionOwner(t, db, runID, dal.RunStatusRunning, "worker-orchestrator", leaseUntil.Unix())
+
+	if err := repos.Runs().ValidateActiveExecutionClaim(ctx, runID, child.ExecutionID, token); err != nil {
+		t.Fatalf("validate mirrored active claim: %v", err)
+	}
+
+	recoveredUntil := time.Now().Add(2 * time.Minute)
+	const recoveredToken = "orchestrator-recovered-token"
+	if err := repos.Runs().MirrorExecutionClaim(ctx, child.ExecutionID, "worker-orchestrator", recoveredToken, recoveredUntil); err != nil {
+		t.Fatalf("mirror recovered child claim: %v", err)
+	}
+
+	assertExecutionClaim(t, db, child.ExecutionID, "worker-orchestrator", recoveredUntil.Unix(), recoveredToken)
+	if err := repos.Runs().ValidateActiveExecutionClaim(ctx, runID, child.ExecutionID, token); !dal.IsConflict(err) {
+		t.Fatalf("expected stale mirrored claim token to fail validation, got %v", err)
+	}
+
+	if err := repos.Runs().MirrorExecutionClaim(ctx, child.ExecutionID, "worker-other", "other-token", time.Now().Add(3*time.Minute)); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting active mirrored claim, got %v", err)
+	}
+
+	if err := repos.Runs().MarkExecutionStarted(ctx, child.ExecutionID); err != nil {
+		t.Fatalf("mark mirrored child started: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, child.ExecutionID, child.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 2)
+	assertTaskAndAttemptStatus(t, db, child.TaskID, 1, dal.TaskStatusRunning, dal.TaskStatusRunning, 2)
+}
+
 func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
@@ -2701,6 +2775,86 @@ func TestRunCatalogUpdater_AppliesRunAndExecutionStatusUpdates(t *testing.T) {
 	if run.FailureReason == nil || *run.FailureReason != "cell reported failure" {
 		t.Fatalf("failure reason: got %+v", run.FailureReason)
 	}
+}
+
+func TestRunCatalogUpdater_AppliesExecutionUpdatesFromPlannedRows(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-catalog-planned-updates", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-catalog-planned-updates"
+	def := `{"id":"job-catalog-planned-updates","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	accepted, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: runID + ":" + dal.RootTaskKey,
+		TaskKey:      "accepted-child",
+		SpecHash:     "sha256:accepted-child",
+	})
+	if err != nil {
+		t.Fatalf("ensure accepted child: %v", err)
+	}
+
+	running, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: runID + ":" + dal.RootTaskKey,
+		TaskKey:      "running-child",
+		SpecHash:     "sha256:running-child",
+	})
+	if err != nil {
+		t.Fatalf("ensure running child: %v", err)
+	}
+
+	succeeded, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: runID + ":" + dal.RootTaskKey,
+		TaskKey:      "succeeded-child",
+		SpecHash:     "sha256:succeeded-child",
+	})
+	if err != nil {
+		t.Fatalf("ensure succeeded child: %v", err)
+	}
+
+	var updater dal.RunCatalogUpdater = repos.Runs()
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: accepted.ExecutionID,
+		Status:      dal.ExecutionStatusAccepted,
+	}); err != nil {
+		t.Fatalf("apply planned accepted update: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, accepted.ExecutionID, accepted.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
+	assertTaskAndAttemptStatus(t, db, accepted.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: running.ExecutionID,
+		Status:      dal.ExecutionStatusRunning,
+	}); err != nil {
+		t.Fatalf("apply planned running update: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, running.ExecutionID, running.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 1)
+	assertTaskAndAttemptStatus(t, db, running.TaskID, 1, dal.TaskStatusRunning, dal.TaskStatusRunning, 1)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: succeeded.ExecutionID,
+		Status:      dal.ExecutionStatusSucceeded,
+	}); err != nil {
+		t.Fatalf("apply planned succeeded update: %v", err)
+	}
+	assertExecutionAndSegmentStatus(t, db, succeeded.ExecutionID, succeeded.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 1)
+	assertTaskAndAttemptStatus(t, db, succeeded.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
 }
 
 func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {

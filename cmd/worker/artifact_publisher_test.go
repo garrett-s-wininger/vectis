@@ -15,6 +15,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/artifact"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	jobexec "vectis/internal/job"
@@ -70,6 +71,7 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 	w := &worker{
 		logger:            mocks.NewMockLogger(),
 		artifactManifests: repos.Artifacts(),
+		catalog:           cell.NewCatalogEventPublisher("iad-a", repos.CatalogEvents()),
 	}
 
 	publisher := w.newArtifactPublisher(env)
@@ -120,6 +122,21 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 
 	if _, _, err := store.Open(ctx, rec.BlobKey); err != nil {
 		t.Fatalf("expected blob in artifact store: %v", err)
+	}
+
+	events, err := repos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list catalog events: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("catalog events: got %d, want 1 (%+v)", len(events), events)
+	}
+
+	if events[0].SourceCell != "iad-a" ||
+		events[0].EventKey != cell.CatalogArtifactEventKey(runID, "coverage") ||
+		events[0].EventType != cell.CatalogEventTypeArtifactRecord {
+		t.Fatalf("catalog event = %+v, want artifact record event", events[0])
 	}
 }
 

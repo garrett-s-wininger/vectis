@@ -218,6 +218,7 @@ type MockRunsRepository struct {
 	TaskCompletionErr          error
 	QueuedListErr              error
 	TryClaimExecutionErr       error
+	MirrorExecutionClaimErr    error
 	RenewExecutionLeaseErr     error
 	RequestCancelErr           error
 	CancelRequestedErr         error
@@ -301,6 +302,9 @@ type MockRunsRepository struct {
 	LastActivatedParentID string
 	LastExecutionClaimID  string
 	LastExecutionOwner    string
+	LastMirroredExecID    string
+	LastMirroredToken     string
+	LastMirroredLease     time.Time
 	LastExecutionRenewID  string
 	LastEnsuredExecution  string
 	LastEnsuredDeadline   int64
@@ -947,6 +951,21 @@ func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID,
 		ClaimToken:             token,
 		TransitionedToAccepted: !m.TryClaimExecutionAlreadyAccepted,
 	}, nil
+}
+
+func (m *MockRunsRepository) MirrorExecutionClaim(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+	if m.MirrorExecutionClaimErr != nil {
+		return m.MirrorExecutionClaimErr
+	}
+
+	m.mu.Lock()
+	m.LastMirroredExecID = executionID
+	m.LastExecutionOwner = owner
+	m.LastMirroredToken = claimToken
+	m.LastMirroredLease = leaseUntil
+	m.mu.Unlock()
+
+	return nil
 }
 
 func (m *MockRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {

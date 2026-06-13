@@ -3,6 +3,7 @@ package cell
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -176,13 +177,28 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 		t.Fatalf("RecordExecutionStatus: %v", err)
 	}
 
+	if err := publisher.RecordArtifact(ctx, dal.ArtifactCreate{
+		RunID:           "run-1",
+		CellID:          "iad-a",
+		Name:            "coverage",
+		Path:            "coverage.txt",
+		ContentType:     "text/plain",
+		BlobKey:         "blob-key",
+		BlobAlgorithm:   "sha256",
+		BlobDigest:      "abc123",
+		SizeBytes:       42,
+		ArtifactShardID: "artifact-shard",
+	}); err != nil {
+		t.Fatalf("RecordArtifact: %v", err)
+	}
+
 	records, err := repos.CatalogEvents().ListPending(ctx, 10)
 	if err != nil {
 		t.Fatalf("ListPending: %v", err)
 	}
 
-	if len(records) != 2 {
-		t.Fatalf("pending records: got %d, want 2", len(records))
+	if len(records) != 3 {
+		t.Fatalf("pending records: got %d, want 3", len(records))
 	}
 
 	if records[0].SourceCell != "iad-a" || records[0].EventKey != "run:run-1:running" || records[0].EventType != CatalogEventTypeRunStatus {
@@ -191,6 +207,10 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 
 	if records[1].SourceCell != "iad-a" || records[1].EventKey != "execution:execution-1:accepted" || records[1].EventType != CatalogEventTypeExecutionStatus {
 		t.Fatalf("unexpected execution event: %+v", records[1])
+	}
+
+	if records[2].SourceCell != "iad-a" || records[2].EventKey != "artifact:run-1:coverage" || records[2].EventType != CatalogEventTypeArtifactRecord {
+		t.Fatalf("unexpected artifact event: %+v", records[2])
 	}
 }
 
@@ -274,6 +294,68 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 
 	if runStatus != dal.RunStatusRunning {
 		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusRunning)
+	}
+}
+
+func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-catalog-artifact", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-catalog-artifact"
+	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-catalog-artifact","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	create := dal.ArtifactCreate{
+		RunID:           runID,
+		CellID:          "iad-a",
+		Name:            "coverage",
+		Path:            "coverage.txt",
+		ContentType:     "text/plain",
+		BlobKey:         "blob-key",
+		BlobAlgorithm:   "sha256",
+		BlobDigest:      "abc123",
+		SizeBytes:       42,
+		ArtifactShardID: "artifact-shard",
+	}
+
+	payload, err := json.Marshal(create)
+	if err != nil {
+		t.Fatalf("marshal artifact event: %v", err)
+	}
+
+	if _, _, err := repos.CatalogEvents().Record(ctx, "iad-a", CatalogArtifactEventKey(runID, create.Name), CatalogEventTypeArtifactRecord, payload); err != nil {
+		t.Fatalf("record artifact event: %v", err)
+	}
+
+	processor := NewCatalogInboxProcessor(repos.CatalogEvents(), repos.Runs(), repos.Artifacts())
+	result, err := processor.ProcessPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ProcessPending: %v", err)
+	}
+
+	if result.Read != 1 || result.Applied != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+
+	rec, err := repos.Artifacts().GetByRunAndName(ctx, runID, create.Name)
+	if err != nil {
+		t.Fatalf("get artifact manifest: %v", err)
+	}
+
+	if rec.Path != create.Path || rec.BlobKey != create.BlobKey || rec.ArtifactShardID != create.ArtifactShardID {
+		t.Fatalf("artifact manifest mismatch: %+v", rec)
 	}
 }
 

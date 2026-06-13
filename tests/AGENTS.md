@@ -32,7 +32,7 @@ Uses [`../internal/testutil/grpctest/`](../internal/testutil/grpctest/) for gRPC
 
 E2E packages need `//go:build e2e` at the top of every file and live under [`e2e/`](e2e/). They exercise live binaries or full local stacks and are intentionally outside the normal integration lane.
 
-The local e2e lane expects the host `bin/vectis-local` and `bin/vectis-cli` binaries to already exist. It starts `vectis-local --grpc-insecure --http-tls=off --docs=false`, creates a stored smoke job, triggers it, waits for the run to report `running` and then `succeeded`, and verifies task completion plus run logs. Stop any existing local Vectis stack first; the smoke uses the default local service ports.
+The local e2e lane expects the host `bin/vectis-local` and `bin/vectis-cli` binaries to already exist. It starts `vectis-local --http-tls=off --docs=false` with internal gRPC TLS/SPIFFE enabled, seeds the local encryptedfs secret store, creates and triggers [`../examples/e2e-canonical.json`](../examples/e2e-canonical.json), waits for the run to report `running` and then `succeeded`, and verifies task completion, run logs, action-registry retry behavior, secret delivery, artifact manifests, and artifact download. Stop any existing local Vectis stack first; the smoke uses the default local service ports.
 
 The Podman e2e lane expects the host `bin/vectis-cli` binary and local Podman images to already exist. A typical prep loop is:
 
