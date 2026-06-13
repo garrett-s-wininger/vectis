@@ -163,6 +163,34 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 	}
 }
 
+func TestExecuteTaskRequestProtoRejectsMismatchedWorkloadIdentity(t *testing.T) {
+	jobID := "job-remote-core"
+	runID := "run-remote-core"
+	job := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root:  &api.Node{},
+	}
+
+	_, err := ExecuteTaskRequestProto(ExecuteTaskRequest{
+		Job:     job,
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID: "execution-1",
+			WorkloadIdentity: &workloadidentity.Identity{
+				SPIFFEID:    "spiffe://vectis.local/cell/local/job/job-remote-core/run/other-run/execution/execution-1",
+				JobID:       jobID,
+				RunID:       "other-run",
+				ExecutionID: "execution-1",
+			},
+		}),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "run_id") {
+		t.Fatalf("ExecuteTaskRequestProto error = %v, want run_id identity mismatch", err)
+	}
+}
+
 func TestRemoteCoreExecuteTaskRequiresCallbackEndpoint(t *testing.T) {
 	core := NewRemoteCore(fakeWorkerCoreClient{})
 	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{

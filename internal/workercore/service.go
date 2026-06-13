@@ -130,6 +130,11 @@ func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorker
 		return ExecuteTaskRequest{}, func() {}, fmt.Errorf("shell endpoint is required for callback-enabled task sessions")
 	}
 
+	workloadIdentity := workloadIdentityFromProto(session.GetWorkloadIdentity())
+	if err := ValidateTaskSessionIdentity(req.GetJob(), sessionID, workloadIdentity); err != nil {
+		return ExecuteTaskRequest{}, func() {}, err
+	}
+
 	var cleanupFuncs []func()
 	var logClient interfaces.LogClient
 	if session.GetLogsEnabled() {
@@ -149,7 +154,7 @@ func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorker
 		Logger:            s.logger,
 		LogClient:         logClient,
 		ArtifactPublisher: artifactPublisherForSession(session),
-		WorkloadIdentity:  workloadIdentityFromProto(session.GetWorkloadIdentity()),
+		WorkloadIdentity:  workloadIdentity,
 		ActionLocks:       actionLocks,
 		ActionResolver:    actionResolver,
 		SecretFiles:       secretFilesFromProto(session.GetSecretFiles()),

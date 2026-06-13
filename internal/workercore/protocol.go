@@ -179,6 +179,10 @@ func ExecuteTaskRequestProto(req ExecuteTaskRequest) (*api.ExecuteWorkerCoreTask
 		return nil, err
 	}
 
+	if err := ValidateTaskSessionIdentity(req.Job, session.GetSessionId(), req.Session.WorkloadIdentity()); err != nil {
+		return nil, err
+	}
+
 	return &api.ExecuteWorkerCoreTaskRequest{
 		Job:     req.Job,
 		TaskKey: proto.String(req.TaskKey),

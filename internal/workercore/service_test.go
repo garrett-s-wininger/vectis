@@ -16,6 +16,8 @@ import (
 	workersdk "vectis/sdk/workercore"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -149,6 +151,51 @@ func TestServiceCancelTaskForwardsToCore(t *testing.T) {
 
 	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" || core.cancel.Reason != "durable request" {
 		t.Fatalf("cancel request = %#v", core.cancel)
+	}
+}
+
+func TestServiceExecuteTaskRejectsMismatchedWorkloadIdentity(t *testing.T) {
+	jobID := "job-worker-core"
+	runID := "run-worker-core"
+	coreCalled := false
+	service := NewService(fakeCoreFunc(func(context.Context, ExecuteTaskRequest) error {
+		coreCalled = true
+		return nil
+	}), ServiceOptions{Logger: mocks.NewMockLogger()})
+
+	_, err := service.ExecuteTask(context.Background(), &api.ExecuteWorkerCoreTaskRequest{
+		Job: &api.Job{
+			Id:    proto.String(jobID),
+			RunId: proto.String(runID),
+			Root:  &api.Node{},
+		},
+		TaskKey: proto.String(dal.RootTaskKey),
+		Session: &api.WorkerCoreTaskSession{
+			SessionId: proto.String("execution-1"),
+			WorkloadIdentity: &api.WorkerCoreWorkloadIdentity{
+				SpiffeId:    proto.String("spiffe://vectis.local/cell/local/job/job-worker-core/run/other-run/execution/execution-1"),
+				JobId:       proto.String(jobID),
+				RunId:       proto.String("other-run"),
+				ExecutionId: proto.String("execution-1"),
+			},
+		},
+	})
+
+	if err == nil {
+		t.Fatal("ExecuteTask accepted mismatched workload identity")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.InvalidArgument {
+		t.Fatalf("ExecuteTask error = %v, want InvalidArgument", err)
+	}
+
+	if !strings.Contains(st.Message(), "run_id") {
+		t.Fatalf("ExecuteTask error message = %q, want run_id mismatch", st.Message())
+	}
+
+	if coreCalled {
+		t.Fatal("core was called for mismatched workload identity")
 	}
 }
 
