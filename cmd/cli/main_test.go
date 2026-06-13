@@ -4534,6 +4534,16 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 			"schedules_configured":    true,
 			"declared_repositories":   1,
 			"declared_schedules":      1,
+			"repositories": map[string]any{
+				"total":    1,
+				"enabled":  1,
+				"disabled": 0,
+			},
+			"schedules": map[string]any{
+				"total":    1,
+				"enabled":  1,
+				"disabled": 0,
+			},
 		})
 	case "/api/v1/namespaces":
 		_ = json.NewEncoder(w).Encode([]map[string]any{
@@ -5188,15 +5198,15 @@ func TestDoctor_sourceModeWarnsWhenSourceOnlyHasNoEnabledRepositories(t *testing
 		DeclaredRepositories:   1,
 		DeclaredSchedules:      1,
 	}
+	status.Repositories.Total = 1
+	status.Repositories.Disabled = 1
 
-	check := doctorSourceMode(status, "", []sourceRepositorySummary{
-		{RepositoryID: "disabled-repo", Enabled: false},
-	}, "")
+	check := doctorSourceMode(status, "")
 	if check.Status != doctorWarn {
 		t.Fatalf("expected source-only warning, got %#v", check)
 	}
 
-	for _, want := range []string{"source-only mode has no enabled source repositories", "stored_jobs_enabled=false", "enabled_repositories=0"} {
+	for _, want := range []string{"source-only mode has no enabled source repositories", "stored_jobs_enabled=false", "repositories=1", "enabled_repositories=0", "disabled_repositories=1"} {
 		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
 			t.Fatalf("expected source mode check to contain %q, got %#v", want, check)
 		}

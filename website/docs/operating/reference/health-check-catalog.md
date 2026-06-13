@@ -63,7 +63,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap, no pending task continuations are waiting for redispatch, and no orphaned task finalization repairs are pending. | [Reconciler Repair](../reliability/repair-runbooks.md#reconciler-repair). |
 | `cells.ingress` | warning | `GET /api/v1/cells/status` | Required cell ingress routes answer readiness checks. | Check cell ingress processes, route map, and network path. |
 | `catalog.inbox` | warning | `GET /api/v1/catalog/status` | No catalog events are failed, and pending cell catalog events are at or below the built-in threshold of 100. Cell catalog events include run status, execution status, artifact manifests, and redacted worker-controlled SVID/secret-resolution security events. | Check `vectis-catalog` process health, logs, and database write latency. |
-| `source.mode` | warning | `GET /api/v1/source/status`, plus source repository inventory when stored jobs are disabled | Stored job APIs are enabled, or source-only mode has source repository persistence and at least one enabled source repository. | Declare or enable a source repository, or re-enable stored job APIs. |
+| `source.mode` | warning | `GET /api/v1/source/status` | Stored job APIs are enabled, or source-only mode has source repository persistence and at least one enabled source repository. | Declare or enable a source repository, or re-enable stored job APIs. |
 | `source.repositories.sync` | warning | `GET /api/v1/namespaces`, then `GET /api/v1/source-repositories?namespace=...` | Enabled source repositories have no failed syncs, no stale running sync reservations, and no unknown sync status. | Run `vectis-cli sources status <repository-id>` or retry `vectis-cli sources sync <repository-id>`. |
 | `source.repositories.declared` | warning | `GET /api/v1/namespaces`, then `GET /api/v1/source-repositories?namespace=...` | No enabled source repository is missing from current source repository configuration. | Disable stale source repositories or restore their source repository declarations. |
 | `source.schedules.declared` | warning | `GET /api/v1/source-repositories/{id}/schedules` for visible source repositories | No enabled source-backed cron schedule is missing from current source schedule configuration. | Disable stale source schedules or restore their source schedule declarations. |
@@ -88,7 +88,7 @@ When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes sourc
 
 When `source.repositories.sync` warns, `evidence` includes repository counts and affected repository IDs, for example `repositories=3 enabled=3 failed=1 running=1 failed_repositories=vectis stale_running_repositories=infra`.
 
-When `source.mode` warns, `evidence` includes source-mode booleans and repository counts, for example `stored_jobs_enabled=false repositories_configured=true source_jobs_configured=true declared_repositories=1 repositories=1 enabled_repositories=0`.
+When `source.mode` warns, `evidence` includes source-mode booleans and aggregate counts from source status, for example `stored_jobs_enabled=false repositories_configured=true source_jobs_configured=true declared_repositories=1 repositories=1 enabled_repositories=0`.
 
 When `source.repositories.declared` warns, `evidence` includes stale enabled and disabled repository IDs, for example `stale_enabled_ids=vectis stale_disabled_ids=old-mirror`.
 

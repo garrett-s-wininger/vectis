@@ -923,7 +923,7 @@ func doctorSourceControlChecks() []doctorCheck {
 	}
 
 	return []doctorCheck{
-		doctorSourceMode(status, statusLoadError, repositories, repositoryLoadError),
+		doctorSourceMode(status, statusLoadError),
 		doctorSourceRepositorySync(repositories, repositoryLoadError),
 		doctorSourceRepositoryDeclarations(repositories, repositoryLoadError),
 		doctorSourceScheduleDeclarations(schedules, scheduleLoadError),
@@ -932,12 +932,26 @@ func doctorSourceControlChecks() []doctorCheck {
 }
 
 type doctorSourceStatus struct {
-	StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
-	RepositoriesConfigured bool `json:"repositories_configured"`
-	SourceJobsConfigured   bool `json:"source_jobs_configured"`
-	SchedulesConfigured    bool `json:"schedules_configured"`
-	DeclaredRepositories   int  `json:"declared_repositories"`
-	DeclaredSchedules      int  `json:"declared_schedules"`
+	StoredJobsEnabled      bool                         `json:"stored_jobs_enabled"`
+	RepositoriesConfigured bool                         `json:"repositories_configured"`
+	SourceJobsConfigured   bool                         `json:"source_jobs_configured"`
+	SchedulesConfigured    bool                         `json:"schedules_configured"`
+	DeclaredRepositories   int                          `json:"declared_repositories"`
+	DeclaredSchedules      int                          `json:"declared_schedules"`
+	Repositories           doctorSourceRepositoryCounts `json:"repositories"`
+	Schedules              doctorSourceScheduleCounts   `json:"schedules"`
+}
+
+type doctorSourceRepositoryCounts struct {
+	Total    int `json:"total"`
+	Enabled  int `json:"enabled"`
+	Disabled int `json:"disabled"`
+}
+
+type doctorSourceScheduleCounts struct {
+	Total    int `json:"total"`
+	Enabled  int `json:"enabled"`
+	Disabled int `json:"disabled"`
 }
 
 func doctorLoadSourceStatus() (doctorSourceStatus, string) {
@@ -1086,7 +1100,7 @@ func doctorLoadSourceSchedulesPath(path string) ([]sourceScheduleSummary, string
 	return result.Schedules, ""
 }
 
-func doctorSourceMode(status doctorSourceStatus, statusLoadError string, repositories []sourceRepositorySummary, repositoryLoadError string) doctorCheck {
+func doctorSourceMode(status doctorSourceStatus, statusLoadError string) doctorCheck {
 	const id = "source.mode"
 	title := "Source mode healthy"
 	doc := "website/docs/operating/reference/health-check-catalog.md"
@@ -1095,7 +1109,7 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string, reposit
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: statusLoadError, SuggestedAction: "Check source status API reachability", DocLink: doc}
 	}
 
-	evidence := formatDoctorSourceModeEvidence(status, repositories)
+	evidence := formatDoctorSourceModeEvidence(status)
 	if status.StoredJobsEnabled {
 		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "stored job APIs enabled", Evidence: evidence, DocLink: doc}
 	}
@@ -1104,11 +1118,7 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string, reposit
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only mode is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring or re-enable stored job APIs", DocLink: doc}
 	}
 
-	if repositoryLoadError != "" {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only repository inventory unavailable: " + repositoryLoadError, Evidence: evidence, SuggestedAction: "Check source repository API reachability or re-enable stored job APIs", DocLink: doc}
-	}
-
-	enabled := doctorEnabledSourceRepositoryCount(repositories)
+	enabled := status.Repositories.Enabled
 	if enabled == 0 {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only mode has no enabled source repositories", Evidence: evidence, SuggestedAction: "Declare or enable a source repository, or re-enable stored job APIs", DocLink: doc}
 	}
@@ -1116,18 +1126,7 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string, reposit
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source-only mode ready: %d enabled source repositories", enabled), Evidence: evidence, DocLink: doc}
 }
 
-func doctorEnabledSourceRepositoryCount(repositories []sourceRepositorySummary) int {
-	enabled := 0
-	for _, repo := range repositories {
-		if repo.Enabled {
-			enabled++
-		}
-	}
-
-	return enabled
-}
-
-func formatDoctorSourceModeEvidence(status doctorSourceStatus, repositories []sourceRepositorySummary) string {
+func formatDoctorSourceModeEvidence(status doctorSourceStatus) string {
 	return strings.Join([]string{
 		fmt.Sprintf("stored_jobs_enabled=%t", status.StoredJobsEnabled),
 		fmt.Sprintf("repositories_configured=%t", status.RepositoriesConfigured),
@@ -1135,8 +1134,12 @@ func formatDoctorSourceModeEvidence(status doctorSourceStatus, repositories []so
 		fmt.Sprintf("schedules_configured=%t", status.SchedulesConfigured),
 		fmt.Sprintf("declared_repositories=%d", status.DeclaredRepositories),
 		fmt.Sprintf("declared_schedules=%d", status.DeclaredSchedules),
-		fmt.Sprintf("repositories=%d", len(repositories)),
-		fmt.Sprintf("enabled_repositories=%d", doctorEnabledSourceRepositoryCount(repositories)),
+		fmt.Sprintf("repositories=%d", status.Repositories.Total),
+		fmt.Sprintf("enabled_repositories=%d", status.Repositories.Enabled),
+		fmt.Sprintf("disabled_repositories=%d", status.Repositories.Disabled),
+		fmt.Sprintf("schedules=%d", status.Schedules.Total),
+		fmt.Sprintf("enabled_schedules=%d", status.Schedules.Enabled),
+		fmt.Sprintf("disabled_schedules=%d", status.Schedules.Disabled),
 	}, " ")
 }
 
