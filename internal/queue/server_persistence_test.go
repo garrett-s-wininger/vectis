@@ -81,6 +81,78 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	}
 }
 
+func TestQueuePersistence_RestoreInflightDeliveryCarriesDeliveryID(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		snapshotEvery int
+	}{
+		{name: "wal", snapshotEvery: 1024},
+		{name: "snapshot", snapshotEvery: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ctx := context.Background()
+
+			svc, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
+				PersistenceDir: dir,
+				SnapshotEvery:  tc.snapshotEvery,
+			}, nil)
+
+			if err != nil {
+				t.Fatalf("create persisted queue: %v", err)
+			}
+
+			jobID := "job-inflight-delivery-id"
+			if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+				t.Fatalf("enqueue: %v", err)
+			}
+
+			delivered, err := svc.Dequeue(ctx, &api.DequeueRequest{})
+			if err != nil {
+				t.Fatalf("dequeue: %v", err)
+			}
+
+			deliveryID := delivered.GetJob().GetDeliveryId()
+			if deliveryID == "" {
+				t.Fatal("expected delivered job to carry delivery ID")
+			}
+
+			closeQueueService(t, svc)
+			restarted, err := NewQueueServiceWithOptions(mocks.NopLogger{}, QueueOptions{
+				PersistenceDir: dir,
+				SnapshotEvery:  tc.snapshotEvery,
+			}, nil)
+
+			if err != nil {
+				t.Fatalf("restart queue: %v", err)
+			}
+			defer closeQueueService(t, restarted)
+
+			qs, ok := restarted.(*queueServer)
+			if !ok {
+				t.Fatalf("expected *queueServer, got %T", restarted)
+			}
+
+			qs.mu.Lock()
+			item, ok := qs.inflight[deliveryID]
+			pending := qs.size
+			qs.mu.Unlock()
+
+			if !ok {
+				t.Fatalf("expected delivery %s to restore as in-flight", deliveryID)
+			}
+
+			if pending != 0 {
+				t.Fatalf("expected no pending jobs after restore, got %d", pending)
+			}
+
+			if got := item.JobRequest.GetJob().GetDeliveryId(); got != deliveryID {
+				t.Fatalf("restored in-flight job delivery_id = %q, want %q", got, deliveryID)
+			}
+		})
+	}
+}
+
 func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()

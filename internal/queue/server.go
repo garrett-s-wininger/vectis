@@ -190,31 +190,22 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 		return nil, err
 	}
 
+	queuedReq := cloneJobRequestForEnqueue(ctx, req, now)
 	if s.persistence != nil {
 		if err := s.beforeFault(ctx, FaultPointEnqueuePersist); err != nil {
 			return nil, err
 		}
 
-		if err := s.persistence.appendEnqueue(req, s.snapshotAfterEnqueueLocked(req)); err != nil {
+		if err := s.persistence.appendEnqueue(queuedReq, s.snapshotAfterEnqueueLocked(queuedReq)); err != nil {
 			return nil, fmt.Errorf("persist enqueue: %w", err)
 		}
 	}
 
-	s.appendPendingLocked(req)
-	s.log.Info("Enqueued job: %s", req.GetJob().GetId())
+	s.appendPendingLocked(queuedReq)
+	s.log.Info("Enqueued job: %s", queuedReq.GetJob().GetId())
 	if s.metrics != nil {
 		s.metrics.RecordEnqueued(ctx)
 	}
-
-	// Mark when enqueue has been accepted so queue wait starts after enqueue.
-	if req.Metadata == nil {
-		req.Metadata = map[string]string{}
-	}
-	req.Metadata[observability.JobEnqueueAcceptedUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
-
-	// Reinject trace context from the queue server span so dequeue handoff can
-	// be parented after enqueue in the same waterfall.
-	observability.InjectJobTraceContext(ctx, req)
 
 	select {
 	case s.notify <- struct{}{}:
@@ -273,9 +264,10 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 }
 
 func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int, persistOp string) (*api.JobRequest, error) {
-	jobReq := s.jobs[(s.head+offset)%len(s.jobs)]
-	job := jobReq.GetJob()
+	pendingReq := s.jobs[(s.head+offset)%len(s.jobs)]
 	deliveryID := s.newDeliveryID()
+	jobReq := cloneJobRequestWithDeliveryID(pendingReq, deliveryID)
+	job := jobReq.GetJob()
 	leaseUntil := time.Now().UTC().Add(s.deliveryTTL)
 	attemptCount := s.jobAttempts[job.GetId()]
 
@@ -292,7 +284,6 @@ func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int
 	s.removePendingOffsetLocked(offset)
 	s.inflight[deliveryID] = inflightDelivery{JobRequest: jobReq, LeaseUntil: leaseUntil, AttemptCount: attemptCount}
 
-	job.DeliveryId = &deliveryID
 	s.annotateDequeueHandoff(jobReq, job.GetId(), job.GetRunId(), deliveryID, attemptCount, s.size, s.deliveryTTL)
 	if persistOp == "trydequeue" {
 		s.log.Info("TryDequeue returned job: %s (delivery %s)", job.GetId(), deliveryID)

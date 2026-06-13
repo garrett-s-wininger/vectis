@@ -702,6 +702,7 @@ func decodeInflight(rows []inflightSnapshot) (map[string]inflightDelivery, error
 			return nil, err
 		}
 
+		ensureJobRequestDeliveryID(&req, row.DeliveryID)
 		out[row.DeliveryID] = inflightDelivery{
 			JobRequest:   &req,
 			LeaseUntil:   time.Unix(row.LeaseUntilUTC, 0).UTC(),
@@ -773,7 +774,6 @@ func applyRecord(state *queueState, rec walRecord) error {
 			found := false
 			for i, pending := range state.jobs {
 				if sameJobRequestIdentity(pending, &delivered) {
-					req = pending
 					state.jobs = append(state.jobs[:i], state.jobs[i+1:]...)
 					found = true
 					break
@@ -783,10 +783,13 @@ func applyRecord(state *queueState, rec walRecord) error {
 			if !found {
 				return fmt.Errorf("replay deliver %s references a job not present in pending queue", rec.DeliveryID)
 			}
+
+			req = &delivered
 		} else {
 			state.jobs = state.jobs[1:]
 		}
 
+		ensureJobRequestDeliveryID(req, rec.DeliveryID)
 		state.inflight[rec.DeliveryID] = inflightDelivery{
 			JobRequest:   req,
 			LeaseUntil:   time.Unix(rec.LeaseUntilUTC, 0).UTC(),
