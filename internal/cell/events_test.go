@@ -433,7 +433,7 @@ func TestCatalogInboxProcessor_ProcessPendingMarksInvalidPayloadFailed(t *testin
 	assertCatalogEventFailed(t, db, rec.ID, "decode run status payload")
 }
 
-func TestCatalogInboxProcessor_ProcessPendingMarksUpdaterErrorFailed(t *testing.T) {
+func TestCatalogInboxProcessor_ProcessPendingLeavesUpdaterErrorRetryable(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
@@ -456,11 +456,22 @@ func TestCatalogInboxProcessor_ProcessPendingMarksUpdaterErrorFailed(t *testing.
 		t.Fatalf("ProcessPending: %v", err)
 	}
 
-	if result.Read != 1 || result.Applied != 0 || result.Failed != 1 {
+	if result.Read != 1 || result.Applied != 0 || result.Failed != 0 || result.Retryable != 1 {
 		t.Fatalf("unexpected process result: %+v", result)
 	}
 
-	assertCatalogEventFailed(t, db, rec.ID, "forced update failure")
+	assertCatalogEventPending(t, db, rec.ID, 1, "forced update failure")
+
+	result, err = processor.ProcessPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ProcessPending retry: %v", err)
+	}
+
+	if result.Read != 1 || result.Applied != 1 || result.Failed != 0 || result.Retryable != 0 {
+		t.Fatalf("unexpected retry process result: %+v", result)
+	}
+
+	assertCatalogEventApplied(t, db, rec.ID, 2)
 }
 
 func assertCatalogEventFailed(t *testing.T, db *sql.DB, eventID int64, wantError string) {
@@ -483,5 +494,56 @@ func assertCatalogEventFailed(t *testing.T, db *sql.DB, eventID int64, wantError
 
 	if !lastError.Valid || !strings.Contains(lastError.String, wantError) {
 		t.Fatalf("last_error: got %+v, want substring %q", lastError, wantError)
+	}
+}
+
+func assertCatalogEventPending(t *testing.T, db *sql.DB, eventID int64, wantAttempts int, wantError string) {
+	t.Helper()
+
+	var status string
+	var attempts int
+	var lastError sql.NullString
+	if err := db.QueryRow("SELECT status, attempts, last_error FROM cell_catalog_events WHERE id = ?", eventID).Scan(&status, &attempts, &lastError); err != nil {
+		t.Fatalf("query catalog event: %v", err)
+	}
+
+	if status != dal.CatalogEventStatusPending {
+		t.Fatalf("status: got %q, want %q", status, dal.CatalogEventStatusPending)
+	}
+
+	if attempts != wantAttempts {
+		t.Fatalf("attempts: got %d, want %d", attempts, wantAttempts)
+	}
+
+	if !lastError.Valid || !strings.Contains(lastError.String, wantError) {
+		t.Fatalf("last_error: got %+v, want substring %q", lastError, wantError)
+	}
+}
+
+func assertCatalogEventApplied(t *testing.T, db *sql.DB, eventID int64, wantAttempts int) {
+	t.Helper()
+
+	var status string
+	var attempts int
+	var lastError sql.NullString
+	var appliedAt sql.NullInt64
+	if err := db.QueryRow("SELECT status, attempts, last_error, applied_at FROM cell_catalog_events WHERE id = ?", eventID).Scan(&status, &attempts, &lastError, &appliedAt); err != nil {
+		t.Fatalf("query catalog event: %v", err)
+	}
+
+	if status != dal.CatalogEventStatusApplied {
+		t.Fatalf("status: got %q, want %q", status, dal.CatalogEventStatusApplied)
+	}
+
+	if attempts != wantAttempts {
+		t.Fatalf("attempts: got %d, want %d", attempts, wantAttempts)
+	}
+
+	if lastError.Valid {
+		t.Fatalf("last_error should be cleared after apply, got %+v", lastError)
+	}
+
+	if !appliedAt.Valid {
+		t.Fatal("applied_at should be set after apply")
 	}
 }

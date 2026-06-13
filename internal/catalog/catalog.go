@@ -114,7 +114,7 @@ func (s *Service) Process(ctx context.Context, batchSize int) (cell.CatalogInbox
 	}
 
 	if result.Read > 0 && s.logger != nil {
-		s.logger.Info("catalog: processed %d events (%d applied, %d failed)", result.Read, result.Applied, result.Failed)
+		s.logger.Info("catalog: processed %d events (%d applied, %d retryable, %d failed)", result.Read, result.Applied, result.Retryable, result.Failed)
 	}
 
 	return result, nil

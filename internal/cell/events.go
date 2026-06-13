@@ -47,9 +47,10 @@ type CatalogInboxProcessor struct {
 }
 
 type CatalogInboxProcessResult struct {
-	Read    int
-	Applied int
-	Failed  int
+	Read      int
+	Applied   int
+	Failed    int
+	Retryable int
 }
 
 func NewCatalogEventConsumer(updater dal.RunCatalogUpdater, artifacts ...dal.ArtifactsRepository) CatalogEventConsumer {
@@ -196,9 +197,16 @@ func (p CatalogInboxProcessor) ProcessPending(ctx context.Context, limit int) (C
 		}
 
 		if err != nil {
-			result.Failed++
-			if markErr := p.events.MarkFailed(ctx, rec.ID, err.Error()); markErr != nil {
-				return result, fmt.Errorf("mark catalog event %d failed: %w", rec.ID, markErr)
+			if catalogEventErrorIsTerminal(err) {
+				result.Failed++
+				if markErr := p.events.MarkFailed(ctx, rec.ID, err.Error()); markErr != nil {
+					return result, fmt.Errorf("mark catalog event %d failed: %w", rec.ID, markErr)
+				}
+			} else {
+				result.Retryable++
+				if markErr := p.events.MarkRetryable(ctx, rec.ID, err.Error()); markErr != nil {
+					return result, fmt.Errorf("mark catalog event %d retryable: %w", rec.ID, markErr)
+				}
 			}
 
 			continue
@@ -212,6 +220,10 @@ func (p CatalogInboxProcessor) ProcessPending(ctx context.Context, limit int) (C
 	}
 
 	return result, nil
+}
+
+func catalogEventErrorIsTerminal(err error) bool {
+	return errors.Is(err, ErrInvalidCatalogEvent) || dal.IsConflict(err)
 }
 
 func CatalogEventFromRecord(rec dal.CatalogEventRecord) (CatalogEvent, error) {

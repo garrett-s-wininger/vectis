@@ -28,7 +28,7 @@ func TestCatalogCounters_AppearOnScrape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cm.RecordProcessResult(ctx, cell.CatalogInboxProcessResult{Read: 3, Applied: 2, Failed: 1})
+	cm.RecordProcessResult(ctx, cell.CatalogInboxProcessResult{Read: 4, Applied: 2, Retryable: 1, Failed: 1})
 	cm.RecordProcessError(ctx)
 	cm.RecordFanInSourceResult(ctx, catalog.FanInSourceResult{CellID: "iad-a", Backfilled: 1, Read: 2, Copied: 1})
 
@@ -49,6 +49,7 @@ func TestCatalogCounters_AppearOnScrape(t *testing.T) {
 		"vectis_catalog_events_read_total",
 		"vectis_catalog_events_applied_total",
 		"vectis_catalog_events_failed_total",
+		"vectis_catalog_events_retryable_total",
 		"vectis_catalog_process_errors_total",
 		"vectis_catalog_fanin_events_read_total",
 		"vectis_catalog_fanin_events_copied_total",

@@ -507,6 +507,7 @@ type CatalogEventsRepository interface {
 	ListPending(ctx context.Context, limit int) ([]CatalogEventRecord, error)
 	MarkApplied(ctx context.Context, id int64) error
 	MarkFailed(ctx context.Context, id int64, message string) error
+	MarkRetryable(ctx context.Context, id int64, message string) error
 	Summary(ctx context.Context) (CatalogEventSummary, error)
 	SummaryBySource(ctx context.Context) ([]CatalogEventSourceSummary, error)
 }

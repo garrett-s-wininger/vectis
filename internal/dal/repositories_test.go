@@ -3036,6 +3036,19 @@ func TestCatalogEventsRepository_RecordListAndMark(t *testing.T) {
 		t.Fatalf("mark applied: %v", err)
 	}
 
+	if err := events.MarkRetryable(ctx, second.ID, "apply temporarily unavailable"); err != nil {
+		t.Fatalf("mark retryable: %v", err)
+	}
+
+	pending, err = events.ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list pending after retryable mark: %v", err)
+	}
+
+	if len(pending) != 1 || pending[0].ID != second.ID || pending[0].Attempts != 1 || pending[0].LastError == nil || *pending[0].LastError != "apply temporarily unavailable" {
+		t.Fatalf("expected retryable event to remain pending with last_error, got %+v", pending)
+	}
+
 	if err := events.MarkFailed(ctx, second.ID, "apply failed"); err != nil {
 		t.Fatalf("mark failed: %v", err)
 	}
@@ -3069,7 +3082,7 @@ func TestCatalogEventsRepository_RecordListAndMark(t *testing.T) {
 		t.Fatalf("query failed event: %v", err)
 	}
 
-	if secondStatus != dal.CatalogEventStatusFailed || secondAttempts != 1 || !secondError.Valid || secondError.String != "apply failed" {
+	if secondStatus != dal.CatalogEventStatusFailed || secondAttempts != 2 || !secondError.Valid || secondError.String != "apply failed" {
 		t.Fatalf("unexpected failed event state: status=%q attempts=%d error=%+v", secondStatus, secondAttempts, secondError)
 	}
 

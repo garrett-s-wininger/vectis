@@ -16,6 +16,7 @@ type CatalogMetrics struct {
 	read            metric.Int64Counter
 	applied         metric.Int64Counter
 	failed          metric.Int64Counter
+	retryable       metric.Int64Counter
 	processErrors   metric.Int64Counter
 	fanInRead       metric.Int64Counter
 	fanInCopied     metric.Int64Counter
@@ -44,6 +45,13 @@ func NewCatalogMetrics() (*CatalogMetrics, error) {
 		metric.WithUnit("{event}"))
 	if err != nil {
 		return nil, fmt.Errorf("vectis_catalog_events_failed_total: %w", err)
+	}
+
+	retryable, err := m.Int64Counter("vectis_catalog_events_retryable_total",
+		metric.WithDescription("Total cell catalog events left pending after a retryable apply failure"),
+		metric.WithUnit("{event}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_catalog_events_retryable_total: %w", err)
 	}
 
 	processErrors, err := m.Int64Counter("vectis_catalog_process_errors_total",
@@ -81,6 +89,7 @@ func NewCatalogMetrics() (*CatalogMetrics, error) {
 		read:            read,
 		applied:         applied,
 		failed:          failed,
+		retryable:       retryable,
 		processErrors:   processErrors,
 		fanInRead:       fanInRead,
 		fanInCopied:     fanInCopied,
@@ -103,6 +112,10 @@ func (cm *CatalogMetrics) RecordProcessResult(ctx context.Context, result cell.C
 
 	if result.Failed > 0 {
 		cm.failed.Add(ctx, int64(result.Failed))
+	}
+
+	if result.Retryable > 0 {
+		cm.retryable.Add(ctx, int64(result.Retryable))
 	}
 }
 

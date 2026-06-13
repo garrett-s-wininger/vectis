@@ -125,6 +125,21 @@ func (r *SQLCatalogEventsRepository) MarkFailed(ctx context.Context, id int64, m
 	return requireOneRow(res, "catalog event", id)
 }
 
+func (r *SQLCatalogEventsRepository) MarkRetryable(ctx context.Context, id int64, message string) error {
+	now := time.Now().UnixNano()
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE cell_catalog_events
+		SET status = ?, attempts = attempts + 1, last_error = ?, updated_at = ?
+		WHERE id = ?
+	`), CatalogEventStatusPending, message, now, id)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return requireOneRow(res, "catalog event", id)
+}
+
 func (r *SQLCatalogEventsRepository) Summary(ctx context.Context) (CatalogEventSummary, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT

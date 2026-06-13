@@ -401,6 +401,10 @@ func (r *recordingCatalogEventsRepository) MarkFailed(ctx context.Context, id in
 	return nil
 }
 
+func (r *recordingCatalogEventsRepository) MarkRetryable(ctx context.Context, id int64, message string) error {
+	return nil
+}
+
 func (r *recordingCatalogEventsRepository) Summary(ctx context.Context) (dal.CatalogEventSummary, error) {
 	return dal.CatalogEventSummary{}, nil
 }
