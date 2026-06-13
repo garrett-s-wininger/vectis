@@ -594,7 +594,7 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	}
 }
 
-func TestCronServiceChaos_CompleteClaimFailureRetriesSameScheduledRun(t *testing.T) {
+func TestCronServiceFault_CompleteClaimFailureRetriesSameScheduledRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	logger := mocks.NewMockLogger()
@@ -614,9 +614,9 @@ func TestCronServiceChaos_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 	service.SetClock(clock)
 	service.SetClaimTTL(time.Minute)
 
-	jobDef := `{"id": "scheduled-complete-chaos", "root": {"uses": "builtins/shell"}}`
-	insertCronTestJob(t, db, "scheduled-complete-chaos", jobDef)
-	scheduleID := insertCronTestSchedule(t, db, "scheduled-complete-chaos", "* * * * *", now)
+	jobDef := `{"id": "scheduled-complete-fault", "root": {"uses": "builtins/shell"}}`
+	insertCronTestJob(t, db, "scheduled-complete-fault", jobDef)
+	scheduleID := insertCronTestSchedule(t, db, "scheduled-complete-fault", "* * * * *", now)
 
 	if err := service.ProcessSchedules(context.Background()); err != nil {
 		t.Fatalf("process schedules with injected complete failure: %v", err)
@@ -653,7 +653,7 @@ func TestCronServiceChaos_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-complete-chaos").Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-complete-fault").Scan(&runCount); err != nil {
 		t.Fatalf("count job runs: %v", err)
 	}
 
@@ -670,7 +670,7 @@ func TestCronServiceChaos_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 		t.Fatalf("expected one cron_schedule_fires row after retry, got %d", fireCount)
 	}
 
-	nextRunStr := queryCronTestNextRun(t, db, "scheduled-complete-chaos")
+	nextRunStr := queryCronTestNextRun(t, db, "scheduled-complete-fault")
 	nextRun, err := time.Parse(time.RFC3339, nextRunStr)
 	if err != nil {
 		t.Fatalf("parse next run: %v", err)
@@ -681,7 +681,7 @@ func TestCronServiceChaos_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 	}
 }
 
-func TestCronServiceChaos_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *testing.T) {
+func TestCronServiceRestoreSkew_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *testing.T) {
 	service, _, queueService, db := setupTestCronService(t)
 	ctx := context.Background()
 	clock := mocks.NewMockClock()

@@ -60,7 +60,7 @@ func (s *pendingSendErrLogStream) CloseSend() error {
 	return nil
 }
 
-func TestLogSpoolForwarderChaos_StaleRunSpoolQuarantined(t *testing.T) {
+func TestLogSpoolForwarderFault_StaleRunSpoolQuarantined(t *testing.T) {
 	resetPendingLogSpools(t)
 
 	runID := "stale-run"
@@ -83,7 +83,7 @@ func TestLogSpoolForwarderChaos_StaleRunSpoolQuarantined(t *testing.T) {
 	assertPathExists(t, path+".quarantine")
 }
 
-func TestLogSpoolForwarderChaos_MissingRunIDSpoolQuarantined(t *testing.T) {
+func TestLogSpoolForwarderFault_MissingRunIDSpoolQuarantined(t *testing.T) {
 	resetPendingLogSpools(t)
 
 	path := writePendingLogSpool(t, "missing-run.spool", &api.LogChunk{
@@ -110,7 +110,7 @@ func TestLogSpoolForwarderChaos_MissingRunIDSpoolQuarantined(t *testing.T) {
 	assertPathExists(t, path+".quarantine")
 }
 
-func TestLogSpoolForwarderChaos_TransientSpoolFailureRetained(t *testing.T) {
+func TestLogSpoolForwarderFault_TransientSpoolFailureRetained(t *testing.T) {
 	resetPendingLogSpools(t)
 
 	runID := "retry-run"

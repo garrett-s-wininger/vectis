@@ -147,7 +147,7 @@ func TestSQLCleanerReferencedArtifactBlobKeys(t *testing.T) {
 	}
 }
 
-func TestRetentionChaos_SharedArtifactBlobSurvivesTerminalRunCleanup(t *testing.T) {
+func TestRetentionInvariant_SharedArtifactBlobSurvivesTerminalRunCleanup(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	now := fixedNow()

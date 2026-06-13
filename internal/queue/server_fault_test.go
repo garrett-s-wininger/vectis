@@ -7,14 +7,14 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/chaos"
+	"vectis/internal/faultinject"
 )
 
-func TestQueueChaos_EnqueuePersistenceFailureLeavesQueueEmptyAndRecovers(t *testing.T) {
+func TestQueueFault_EnqueuePersistenceFailureLeavesQueueEmptyAndRecovers(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	faults := chaos.NewScript()
-	faults.FailNext(ChaosPointEnqueuePersist, nil)
+	faults := faultinject.NewScript()
+	faults.FailNext(FaultPointEnqueuePersist, nil)
 
 	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir: dir,
@@ -26,10 +26,10 @@ func TestQueueChaos_EnqueuePersistenceFailureLeavesQueueEmptyAndRecovers(t *test
 		t.Fatalf("new queue: %v", err)
 	}
 
-	jobID := "job-enqueue-chaos"
+	jobID := "job-enqueue-fault"
 	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err == nil {
 		t.Fatal("expected injected enqueue persistence failure")
-	} else if !errors.Is(err, chaos.ErrInjected) {
+	} else if !errors.Is(err, faultinject.ErrInjected) {
 		t.Fatalf("expected injected enqueue failure, got %v", err)
 	}
 
@@ -68,11 +68,11 @@ func TestQueueChaos_EnqueuePersistenceFailureLeavesQueueEmptyAndRecovers(t *test
 	}
 }
 
-func TestQueueChaos_DeliverPersistenceFailureLeavesJobPending(t *testing.T) {
+func TestQueueFault_DeliverPersistenceFailureLeavesJobPending(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	faults := chaos.NewScript()
-	faults.FailNext(ChaosPointDeliverPersist, nil)
+	faults := faultinject.NewScript()
+	faults.FailNext(FaultPointDeliverPersist, nil)
 
 	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir: dir,
@@ -84,14 +84,14 @@ func TestQueueChaos_DeliverPersistenceFailureLeavesJobPending(t *testing.T) {
 	}
 	defer closeQueueService(t, svc)
 
-	jobID := "job-deliver-chaos"
+	jobID := "job-deliver-fault"
 	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	if _, err := svc.TryDequeue(ctx, &api.DequeueRequest{}); err == nil {
 		t.Fatal("expected injected delivery persistence failure")
-	} else if !errors.Is(err, chaos.ErrInjected) {
+	} else if !errors.Is(err, faultinject.ErrInjected) {
 		t.Fatalf("expected injected delivery failure, got %v", err)
 	}
 
@@ -110,11 +110,11 @@ func TestQueueChaos_DeliverPersistenceFailureLeavesJobPending(t *testing.T) {
 	}
 }
 
-func TestQueueChaos_AckPersistenceFailureKeepsDeliveryInflightAcrossRestart(t *testing.T) {
+func TestQueueFault_AckPersistenceFailureKeepsDeliveryInflightAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	faults := chaos.NewScript()
-	faults.FailNext(ChaosPointAckPersist, nil)
+	faults := faultinject.NewScript()
+	faults.FailNext(FaultPointAckPersist, nil)
 
 	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir: dir,
@@ -127,7 +127,7 @@ func TestQueueChaos_AckPersistenceFailureKeepsDeliveryInflightAcrossRestart(t *t
 		t.Fatalf("new queue: %v", err)
 	}
 
-	jobID := "job-ack-chaos"
+	jobID := "job-ack-fault"
 	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestQueueChaos_AckPersistenceFailureKeepsDeliveryInflightAcrossRestart(t *t
 
 	if _, err := svc.Ack(ctx, &api.AckRequest{DeliveryId: &deliveryID}); err == nil {
 		t.Fatal("expected injected ack persistence failure")
-	} else if !errors.Is(err, chaos.ErrInjected) {
+	} else if !errors.Is(err, faultinject.ErrInjected) {
 		t.Fatalf("expected injected ack failure, got %v", err)
 	}
 
@@ -189,12 +189,12 @@ func TestQueueChaos_AckPersistenceFailureKeepsDeliveryInflightAcrossRestart(t *t
 	}
 }
 
-func TestQueueChaos_ExpiredRequeueFailureDoesNotBurnAttempt(t *testing.T) {
+func TestQueueFault_ExpiredRequeueFailureDoesNotBurnAttempt(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	ttl := 20 * time.Millisecond
-	faults := chaos.NewScript()
-	faults.FailNext(ChaosPointExpiredRequeue, nil)
+	faults := faultinject.NewScript()
+	faults.FailNext(FaultPointExpiredRequeue, nil)
 
 	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir:     dir,
@@ -208,7 +208,7 @@ func TestQueueChaos_ExpiredRequeueFailureDoesNotBurnAttempt(t *testing.T) {
 	}
 	defer closeQueueService(t, svc)
 
-	jobID := "job-requeue-chaos"
+	jobID := "job-requeue-fault"
 	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestQueueChaos_ExpiredRequeueFailureDoesNotBurnAttempt(t *testing.T) {
 	deliveryWait(ttl)
 	if _, err := svc.TryDequeue(ctx, &api.DequeueRequest{}); err == nil {
 		t.Fatal("expected injected expired-requeue persistence failure")
-	} else if !errors.Is(err, chaos.ErrInjected) {
+	} else if !errors.Is(err, faultinject.ErrInjected) {
 		t.Fatalf("expected injected expired-requeue failure, got %v", err)
 	}
 
@@ -250,12 +250,12 @@ func TestQueueChaos_ExpiredRequeueFailureDoesNotBurnAttempt(t *testing.T) {
 	}
 }
 
-func TestQueueChaos_DeadLetterPersistenceFailureDoesNotMoveInMemory(t *testing.T) {
+func TestQueueFault_DeadLetterPersistenceFailureDoesNotMoveInMemory(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	ttl := 20 * time.Millisecond
-	faults := chaos.NewScript()
-	faults.FailNext(ChaosPointDeadLetter, nil)
+	faults := faultinject.NewScript()
+	faults.FailNext(FaultPointDeadLetter, nil)
 
 	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{
 		PersistenceDir:     dir,
@@ -269,7 +269,7 @@ func TestQueueChaos_DeadLetterPersistenceFailureDoesNotMoveInMemory(t *testing.T
 	}
 	defer closeQueueService(t, svc)
 
-	jobID := "job-dlq-chaos"
+	jobID := "job-dlq-fault"
 	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestQueueChaos_DeadLetterPersistenceFailureDoesNotMoveInMemory(t *testing.T
 
 	if _, err := svc.TryDequeue(ctx, &api.DequeueRequest{}); err == nil {
 		t.Fatal("expected injected dead-letter persistence failure")
-	} else if !errors.Is(err, chaos.ErrInjected) {
+	} else if !errors.Is(err, faultinject.ErrInjected) {
 		t.Fatalf("expected injected dead-letter failure, got %v", err)
 	}
 

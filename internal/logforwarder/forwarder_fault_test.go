@@ -95,7 +95,7 @@ func (s *replayErrLogStream) CloseSend() error {
 	return nil
 }
 
-func TestForwarderChaos_SpoolRetainedWhenStreamCloseAckFails(t *testing.T) {
+func TestForwarderFault_SpoolRetainedWhenStreamCloseAckFails(t *testing.T) {
 	spoolDir := t.TempDir()
 	client := &closeAckLogClient{closeErr: errors.New("log service rejected stream")}
 	fwd := NewForwarder(nil, interfaces.NewLogger("test"), spoolDir, 10, 10000)
@@ -105,6 +105,7 @@ func TestForwarderChaos_SpoolRetainedWhenStreamCloseAckFails(t *testing.T) {
 		{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("one")},
 		{RunId: proto.String("run-1"), Sequence: proto.Int64(2), Data: []byte("two")},
 	}
+
 	if err := fwd.spoolBatch(chunks); err != nil {
 		t.Fatalf("spool batch: %v", err)
 	}
@@ -137,7 +138,7 @@ func TestForwarderChaos_SpoolRetainedWhenStreamCloseAckFails(t *testing.T) {
 	}
 }
 
-func TestForwarderChaos_UnrecoverableSpoolQuarantined(t *testing.T) {
+func TestForwarderFault_UnrecoverableSpoolQuarantined(t *testing.T) {
 	tests := []struct {
 		name    string
 		chunks  []*api.LogChunk

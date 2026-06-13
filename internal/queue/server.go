@@ -12,8 +12,8 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/cell"
-	"vectis/internal/chaos"
 	"vectis/internal/dispatchmeta"
+	"vectis/internal/faultinject"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/queueid"
@@ -34,7 +34,7 @@ type QueueOptions struct {
 	WALRetainTail      int
 	MaxRequeueAttempts int
 	InstanceID         string
-	Faults             chaos.Hook
+	Faults             faultinject.Hook
 }
 
 type queueServer struct {
@@ -60,7 +60,7 @@ type queueServer struct {
 	log                       interfaces.Logger
 	persistence               *persistenceStore
 	metrics                   *observability.QueueMetrics
-	faults                    chaos.Hook
+	faults                    faultinject.Hook
 }
 
 type deadLetterItem struct {
@@ -81,14 +81,14 @@ const (
 )
 
 const (
-	ChaosPointEnqueuePersist     chaos.Point = "queue.enqueue.persist"
-	ChaosPointDeliverPersist     chaos.Point = "queue.deliver.persist"
-	ChaosPointAckPersist         chaos.Point = "queue.ack.persist"
-	ChaosPointExpiredRequeue     chaos.Point = "queue.expired.requeue.persist"
-	ChaosPointExpiredDrop        chaos.Point = "queue.expired.drop.persist"
-	ChaosPointDeadLetter         chaos.Point = "queue.deadletter.persist"
-	ChaosPointDeadLetterRequeue  chaos.Point = "queue.deadletter.requeue.persist"
-	ChaosPointPendingExpiredDrop chaos.Point = "queue.pending.expired.drop.persist"
+	FaultPointEnqueuePersist     faultinject.Point = "queue.enqueue.persist"
+	FaultPointDeliverPersist     faultinject.Point = "queue.deliver.persist"
+	FaultPointAckPersist         faultinject.Point = "queue.ack.persist"
+	FaultPointExpiredRequeue     faultinject.Point = "queue.expired.requeue.persist"
+	FaultPointExpiredDrop        faultinject.Point = "queue.expired.drop.persist"
+	FaultPointDeadLetter         faultinject.Point = "queue.deadletter.persist"
+	FaultPointDeadLetterRequeue  faultinject.Point = "queue.deadletter.requeue.persist"
+	FaultPointPendingExpiredDrop faultinject.Point = "queue.pending.expired.drop.persist"
 )
 
 func NewQueueService(logger interfaces.Logger) api.QueueServiceServer {
@@ -191,7 +191,7 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 	}
 
 	if s.persistence != nil {
-		if err := s.beforeFault(ctx, ChaosPointEnqueuePersist); err != nil {
+		if err := s.beforeFault(ctx, FaultPointEnqueuePersist); err != nil {
 			return nil, err
 		}
 
@@ -280,7 +280,7 @@ func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int
 	attemptCount := s.jobAttempts[job.GetId()]
 
 	if s.persistence != nil {
-		if err := s.beforeFault(ctx, ChaosPointDeliverPersist); err != nil {
+		if err := s.beforeFault(ctx, FaultPointDeliverPersist); err != nil {
 			return nil, err
 		}
 
@@ -325,7 +325,7 @@ func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty,
 	item := s.inflight[deliveryID]
 
 	if s.persistence != nil {
-		if err := s.beforeFault(ctx, ChaosPointAckPersist); err != nil {
+		if err := s.beforeFault(ctx, FaultPointAckPersist); err != nil {
 			return nil, err
 		}
 
@@ -339,7 +339,7 @@ func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty,
 	return &api.Empty{}, nil
 }
 
-func (s *queueServer) beforeFault(ctx context.Context, point chaos.Point) error {
+func (s *queueServer) beforeFault(ctx context.Context, point faultinject.Point) error {
 	if s.faults == nil {
 		return nil
 	}
@@ -365,7 +365,7 @@ func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
 
 		jobID := jobReq.GetJob().GetId()
 		if s.persistence != nil {
-			if err := s.beforeFault(context.Background(), ChaosPointPendingExpiredDrop); err != nil {
+			if err := s.beforeFault(context.Background(), FaultPointPendingExpiredDrop); err != nil {
 				return err
 			}
 			if err := s.persistence.appendDropExpired("", jobReq, s.snapshotAfterPendingHeadDropLocked(jobReq)); err != nil {
@@ -759,7 +759,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 		jobID := item.JobRequest.GetJob().GetId()
 		if dispatchmeta.IsExpired(item.JobRequest, now) {
 			if s.persistence != nil {
-				if err := s.beforeFault(context.Background(), ChaosPointExpiredDrop); err != nil {
+				if err := s.beforeFault(context.Background(), FaultPointExpiredDrop); err != nil {
 					return err
 				}
 
@@ -783,7 +783,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 
 		if attemptCount > s.maxRequeueAttempts {
 			if s.persistence != nil {
-				if err := s.beforeFault(context.Background(), ChaosPointDeadLetter); err != nil {
+				if err := s.beforeFault(context.Background(), FaultPointDeadLetter); err != nil {
 					return err
 				}
 
@@ -811,7 +811,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 		}
 
 		if s.persistence != nil {
-			if err := s.beforeFault(context.Background(), ChaosPointExpiredRequeue); err != nil {
+			if err := s.beforeFault(context.Background(), FaultPointExpiredRequeue); err != nil {
 				return err
 			}
 
@@ -1001,7 +1001,7 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 	for i, item := range s.deadLetter {
 		if item.deliveryID == deliveryID {
 			if s.persistence != nil {
-				if err := s.beforeFault(ctx, ChaosPointDeadLetterRequeue); err != nil {
+				if err := s.beforeFault(ctx, FaultPointDeadLetterRequeue); err != nil {
 					return nil, err
 				}
 				if err := s.persistence.appendDLQRequeue(deliveryID, item.jobRequest, s.snapshotAfterDLQRequeueLocked(deliveryID, item)); err != nil {

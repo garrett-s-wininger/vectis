@@ -202,7 +202,7 @@ func TestFanInProcessorMarksSourceAppliedWhenTargetAlreadyHasEvent(t *testing.T)
 	}
 }
 
-func TestFanInProcessorChaos_RetryAfterSourceMarkAppliedFailure(t *testing.T) {
+func TestFanInProcessorFault_RetryAfterSourceMarkAppliedFailure(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := dbtest.NewTestDB(t)
 	targetDB := dbtest.NewTestDB(t)

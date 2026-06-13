@@ -196,7 +196,7 @@ func TestService_Process_AfterQueueRecovery_ReenqueuesAndTouchesDispatched(t *te
 func TestService_Process_TouchDispatchedFailureRetriesFrozenPayload(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
-	jobID := "job-touch-dispatched-chaos"
+	jobID := "job-touch-dispatched-fault"
 	runID := seedStoredJobAndRun(t, db, jobID)
 
 	q := newFaultInjectQueue()

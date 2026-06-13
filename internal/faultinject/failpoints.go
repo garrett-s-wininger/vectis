@@ -1,4 +1,4 @@
-package chaos
+package faultinject
 
 import (
 	"context"
@@ -13,7 +13,7 @@ type Hook interface {
 	Before(context.Context, Point) error
 }
 
-var ErrInjected = errors.New("chaos fault injected")
+var ErrInjected = errors.New("fault injected")
 
 type Script struct {
 	mu       sync.Mutex

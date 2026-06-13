@@ -141,16 +141,16 @@ test-race:
 test-quick:
 	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/... ./sdk/... ./examples/... ./tools/...
 
-.PHONY: test-chaos
-test-chaos:
-	go test -count=1 ./internal/queue -run 'Chaos'
-	go test -count=1 ./internal/logforwarder -run 'Chaos'
-	go test -count=1 ./internal/reconciler -run 'QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable'
+.PHONY: test-fault
+test-fault:
+	go test -count=1 ./internal/faultinject
+	go test -count=1 ./internal/artifact ./internal/catalog ./internal/cron ./internal/job ./internal/logforwarder ./internal/queue ./internal/reconciler -run 'Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable'
 
 .PHONY: test-property
 test-property:
 	go test -count=1 ./internal/queue -run 'Property'
 	go test -count=1 ./internal/logforwarder -run 'Property'
+	go test -count=1 ./internal/catalog -run 'Property'
 
 .PHONY: website-a11y
 website-a11y:

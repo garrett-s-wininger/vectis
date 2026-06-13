@@ -209,7 +209,7 @@ func TestPublisher_UploadFailureDoesNotRecordManifest(t *testing.T) {
 	}
 }
 
-func TestPublisherChaos_ManifestFailureLeavesRetryableUploadedBlob(t *testing.T) {
+func TestPublisherFault_ManifestFailureLeavesRetryableUploadedBlob(t *testing.T) {
 	store, err := NewLocalStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new local store: %v", err)
@@ -217,7 +217,7 @@ func TestPublisherChaos_ManifestFailureLeavesRetryableUploadedBlob(t *testing.T)
 	defer store.Close()
 
 	repos := dal.NewSQLRepositories(dbtest.NewTestDB(t))
-	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher-manifest-chaos")
+	runID := createPublisherTestRun(t, context.Background(), repos, "job-publisher-manifest-fault")
 	manifests := &failOnceArtifactsRepository{
 		ArtifactsRepository: repos.Artifacts(),
 		recordErr:           errors.New("manifest db unavailable"),
