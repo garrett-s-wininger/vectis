@@ -10,7 +10,7 @@ Vectis currently relies on four layers for internal service trust:
 
 | Layer | What it provides | What it does not provide |
 | --- | --- | --- |
-| Network placement | Keeps queue, registry, orchestrator, log, artifact, worker-control, and metrics endpoints away from untrusted clients. | It does not identify a caller once the caller is on the trusted network. |
+| Network placement | Keeps queue, registry, orchestrator, log, artifact, secrets, cell ingress, worker-control, and metrics endpoints away from untrusted clients. | It does not identify a caller once the caller is on the trusted network. |
 | TLS or mTLS | Encrypts internal gRPC and cell-ingress traffic and can verify certificates when configured. | It proves the peer chains to a trusted CA; by itself it does not say which service role may call which listener. |
 | Service identity allowlists | Optionally maps exact SPIFFE URI SANs to internal gRPC listener roles and cell-ingress execution producers. | It is role-level authorization, not a full per-RPC policy language. Empty allowlists leave this layer disabled. |
 | Per-run cancel token | Lets the API prove it is cancelling the run that a worker currently owns. | It is not a general worker-control authentication system. Worker-control reachability still matters. |
@@ -32,12 +32,17 @@ When a service identity allowlist is configured, the listener requires verified 
 | --- | --- | --- | --- |
 | API | Queue | Dispatch runs. | Queue access can create work; keep queue reachable only from producers and workers. |
 | API | Log service | Read and stream run logs. | Logs may contain sensitive job output. |
-| API | Registry | Resolve queue, log, and worker addresses when discovery is used. | Registry controls where clients dial next. |
+| API | Artifact service | Read artifact blobs for authenticated run artifact downloads. | Artifact blobs may contain build outputs; prefer API/RBAC-mediated access over direct artifact reads. |
+| API | Registry | Resolve queue, log, artifact, and worker addresses when discovery is used. | Registry controls where clients dial next. |
 | API | Worker-control | Request cancellation of a currently running run. | Requires worker resolution and the run's cancel token; still keep worker-control private. |
+| Cell ingress | Queue | Accept producer execution submissions and hand them to the local cell queue. | Cell ingress is a producer path; protect it with mTLS and producer identity allowlists off-loopback. |
+| Cell ingress | Registry | Resolve queue when discovery is used. | Pin the queue address if you want to avoid this dependency. |
 | Worker | Queue | Dequeue, ack, and recover deliveries. | Queue access can consume and affect work delivery. |
 | Worker | Orchestrator | Load run graphs, claim and renew task executions, and complete task executions. | Orchestrator access controls hot task ownership and continuation decisions. |
 | Worker | Log service or local log-forwarder | Send job log chunks. | Log ingest is part of normal execution. |
-| Worker | Registry | Resolve queue/orchestrator/log and publish worker-control address when registration is enabled. | Worker registration enables remote cancel routing. |
+| Worker | Artifact service | Upload produced artifact blobs. | Artifact writes affect run outputs and storage pressure. |
+| Worker | Secrets service | Resolve declared job secrets for the claimed execution. | Secrets RPCs require execution identity and claim authorization; keep secrets gRPC private. |
+| Worker | Registry | Resolve queue/orchestrator/log/artifact and publish worker-control address when registration is enabled. | Worker registration enables remote cancel routing. |
 | Orchestrator | Registry | Publish orchestrator address when registration is enabled. | Consumers trust this address for future dials. The service is a hot-path state boundary for workers. |
 | Cron | Queue | Enqueue scheduled runs. | Cron is a producer; protect it like other enqueue paths. |
 | Cron | Registry | Resolve queue when discovery is used. | Pin queue address if you want to avoid this dependency. |
@@ -46,7 +51,7 @@ When a service identity allowlist is configured, the listener requires verified 
 | Queue | Registry | Publish queue address when registration is enabled. | Consumers trust this address for future dials. |
 | Log service | Registry | Publish log address when registration is enabled. | Consumers trust this address for future dials. |
 | Artifact service | Registry | Publish artifact address when registration is enabled. | Consumers trust this address for future dials. |
-| Metrics scraper | API, queue, orchestrator, worker, log, artifact, log-forwarder, reconciler, catalog, and cell ingress metrics listeners | Observe service health and pressure. | API metrics follow API auth when enabled. Dedicated service metrics bind to localhost by default, are unauthenticated, and should be exposed only to trusted scrape networks. |
+| Metrics scraper | API, queue, orchestrator, worker, log, artifact, log-forwarder, secrets, reconciler, catalog, and cell ingress metrics listeners | Observe service health and pressure. | API metrics follow API auth when enabled. Dedicated service metrics bind to localhost by default, are unauthenticated, and should be exposed only to trusted scrape networks. |
 
 ## Ports To Keep Private
 
@@ -57,8 +62,10 @@ When a service identity allowlist is configured, the listener requires verified 
 | Registry gRPC | `8082` | Provides internal service addresses. |
 | Log gRPC | `8083` | Accepts job log chunks. |
 | Log HTTP/SSE | `8084` | Serves run logs. Prefer access through API/RBAC when possible. |
+| Cell ingress HTTP | `8085` | Accepts internal execution submissions for a cell; keep private and mTLS-protected off-loopback. |
 | Artifact gRPC | `8086` | Accepts content-addressed blob uploads and reads. |
 | Orchestrator gRPC | `8087` | Owns hot run state, task claim fencing, and continuation choreography for workers. |
+| Secrets gRPC | `8090` | Resolves job secrets for claimed executions. |
 | Worker-control gRPC | `9084` by default in static mode | Accepts run cancellation requests for the currently owned run. |
 | Queue metrics | `9081` | Exposes operational state and traffic shape. |
 | Worker metrics | `9082` | Exposes worker health, outcomes, and pressure. |
@@ -69,6 +76,7 @@ When a service identity allowlist is configured, the listener requires verified 
 | Log-forwarder metrics | `9088` | Exposes local spool backlog and forwarding pressure. |
 | Artifact metrics | `9089` | Exposes artifact service process and storage health. |
 | Orchestrator metrics | `9090` | Exposes orchestrator service health and throughput pressure. |
+| Secrets metrics | `9091` | Exposes secret resolution availability and outcome pressure. |
 
 Worker-control can also use an ephemeral port or a configured port range. When workers register with the registry, the published worker-control address is what the API uses for remote cancellation.
 
@@ -114,9 +122,10 @@ Use pinned addresses when you want to remove registry from a process startup pat
 
 | Goal | Approach |
 | --- | --- |
-| Worker should not need registry to find queue/orchestrator/log. | Pin queue, orchestrator, and log addresses in worker configuration. |
-| API, cron, or reconciler should not need registry to find queue. | Pin the queue address for those processes. |
-| Queue/log/artifact should not need registry at startup. | Disable registration for those services and configure consumers with fixed addresses. |
+| Worker should not need registry to find queue/orchestrator/log/artifact. | Pin queue, orchestrator, log, and artifact addresses in worker configuration. |
+| API, cron, reconciler, or cell ingress should not need registry to find queue. | Pin the queue address for those processes. |
+| API should not need registry to read artifacts. | Pin the artifact address in API configuration. |
+| Queue/log/artifact/orchestrator should not need registry at startup. | Disable registration for those services and configure consumers with fixed addresses. |
 | API should cancel running jobs through workers. | Ensure workers publish reachable worker-control addresses, usually through registry. |
 
 For outage behavior with and without registry, see [Failure Domains](./failure-domains.md#registry-down).
@@ -138,7 +147,7 @@ This protects against cancelling the wrong run, but the worker-control endpoint 
 
 Use this baseline for shared or production-like environments:
 
-1. Keep queue, registry, log gRPC, log HTTP, orchestrator, worker-control, and metrics listeners off public networks.
+1. Keep queue, registry, log gRPC, log HTTP, artifact gRPC, orchestrator, secrets gRPC, cell ingress, worker-control, and metrics listeners off public networks.
 2. Enable internal gRPC TLS or mTLS when services run across shared hosts, clusters, or networks.
 3. Pin addresses when you do not want registry to be a startup dependency.
 4. Allow only expected callers to reach each internal surface with network policy, firewall rules, or equivalent controls.

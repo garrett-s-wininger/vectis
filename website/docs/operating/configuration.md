@@ -311,7 +311,7 @@ Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstrap
 
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |
-| gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, `vectis-artifact`, `vectis-orchestrator`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log/artifact/orchestrator also need a CA when they register with the registry. |
+| gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, `vectis-artifact`, `vectis-orchestrator`, `vectis-secrets`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log/artifact/orchestrator also need a CA when they register with the registry; secrets also needs a client CA to verify execution SVID callers. |
 | gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log/artifact/orchestrator registration clients | CA bundle. Client cert/key only when servers require mTLS. |
 
 For trust boundaries and what mTLS does or does not authorize today, see [Internal Service Trust](../concepts/internal-service-trust.md).
@@ -326,7 +326,7 @@ For trust boundaries and what mTLS does or does not authorize today, see [Intern
 | `VECTIS_METRICS_TLS_CERT_FILE` / `VECTIS_METRICS_TLS_KEY_FILE` | Server certificate and key for metrics listeners. |
 | `VECTIS_METRICS_TLS_RELOAD_INTERVAL` | Positive duration to poll PEM files and reload them without restart. `0` disables polling. |
 
-The dedicated metrics listeners are queue, orchestrator, worker, log, artifact, log-forwarder, reconciler, catalog, and cell ingress. They bind to `localhost` by default; set each service's `--metrics-host` / `VECTIS_<SERVICE>_METRICS_HOST` only for trusted scrape networks, and configure `VECTIS_METRICS_ALLOWED_HOSTS` or `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` for the expected scraper Host header. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
+The dedicated metrics listeners are queue, orchestrator, worker, log, artifact, log-forwarder, secrets, reconciler, catalog, and cell ingress. They bind to `localhost` by default; set each service's `--metrics-host` / `VECTIS_<SERVICE>_METRICS_HOST` only for trusted scrape networks, and configure `VECTIS_METRICS_ALLOWED_HOSTS` or `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` for the expected scraper Host header. Keep dedicated metrics endpoints private; they are not authenticated. See [Security](../concepts/security.md).
 
 ## Discovery And Fixed Addresses {#service-discovery-vs-fixed-addresses}
 
@@ -350,7 +350,7 @@ For local routing tests, `vectis-local --cell pdx-b` starts an additional queue,
 | Log gRPC address | `DISCOVERY_LOG_ADDRESS` or `DISCOVERY_LOG_GRPC_RESOLVER_ADDRESS` | `WORKER_LOG_ADDRESS` |
 | Artifact gRPC address | `DISCOVERY_ARTIFACT_ADDRESS` or `DISCOVERY_ARTIFACT_GRPC_RESOLVER_ADDRESS` | `ARTIFACT_GRPC_RESOLVER_ADDRESS` |
 | Orchestrator address | `DISCOVERY_ORCHESTRATOR_ADDRESS` | `WORKER_ORCHESTRATOR_ADDRESS` |
-| Queue/log/artifact advertise address | `DISCOVERY_QUEUE_ADVERTISE_ADDRESS`, `DISCOVERY_LOG_GRPC_ADVERTISE_ADDRESS`, `DISCOVERY_ARTIFACT_GRPC_ADVERTISE_ADDRESS` | `QUEUE_ADVERTISE_ADDRESS`, `LOG_GRPC_ADVERTISE_ADDRESS`, `ARTIFACT_GRPC_ADVERTISE_ADDRESS` |
+| Queue/log/artifact/orchestrator advertise address | `DISCOVERY_QUEUE_ADVERTISE_ADDRESS`, `DISCOVERY_LOG_GRPC_ADVERTISE_ADDRESS`, `DISCOVERY_ARTIFACT_GRPC_ADVERTISE_ADDRESS` | `VECTIS_QUEUE_ADVERTISE_ADDRESS`, `VECTIS_LOG_GRPC_ADVERTISE_ADDRESS`, `VECTIS_ARTIFACT_GRPC_ADVERTISE_ADDRESS`, `VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS` |
 
 Replace the prefix with the service prefix. For example:
 

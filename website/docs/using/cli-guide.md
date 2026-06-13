@@ -50,7 +50,7 @@ To remove the locally saved token:
 ./bin/vectis-cli auth logout
 ```
 
-Logout invalidates the server-side session when the saved token is a login session, then removes the local token file. Durable API tokens are managed separately with `vectis-cli auth token delete`.
+Logout invalidates the server-side session when the saved token is a login session, then removes the local token file. Durable API tokens are managed separately with `vectis-cli auth tokens delete`.
 
 ## Check Health
 

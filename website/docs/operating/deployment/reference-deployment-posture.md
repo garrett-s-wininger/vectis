@@ -55,9 +55,9 @@ Before treating this topology as shared, staging-like, or production-like, decid
 | Network exposure | Restrict API, Postgres, metrics, gRPC, Grafana, Jaeger, OpenSearch, and Prometheus ports to trusted networks. |
 | Secrets | Move generated secrets and encryptedfs material into an operator-controlled secret store and define rotation. |
 | Database durability | Use a Postgres backup and restore process you have tested. |
-| Storage | Put queue persistence, log storage, artifact storage, and observability storage on volumes with known retention and backup behavior. |
+| Storage | Put queue persistence, log storage, artifact storage, encryptedfs secret storage, SPIFFE CA material, and observability storage on volumes with known retention and backup behavior. |
 | Telemetry | Replace or harden bundled observability before relying on it for production alerting. |
-| Capacity | Set resource requests/limits and size Postgres, queue, orchestrator, log, artifact, and worker capacity for expected load. |
+| Capacity | Set resource requests/limits and size Postgres, queue, orchestrator, log, artifact, secrets, cell ingress, worker-core, and worker capacity for expected load. |
 | Runbooks | Install alert rules and repair procedures in the telemetry system operators actually use. |
 
 For the broader security baseline, see [Security](../../concepts/security.md). For internal port boundaries, see [Internal Service Trust](../../concepts/internal-service-trust.md). For configuration details, see [Configuration](../configuration.md).

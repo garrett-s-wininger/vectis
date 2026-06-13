@@ -5,7 +5,7 @@
 | Target | Scope | Notes |
 |--------|-------|-------|
 | `test` | All packages | No timeout, no race |
-| `test-quick` | `internal/...` `cmd/...` `api/...` | `-count=1 -timeout=60s` — fast feedback |
+| `test-quick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1 -timeout=60s` — fast feedback |
 | `test-integration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
 | `test-e2e` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
 | `test-postgres-integration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |

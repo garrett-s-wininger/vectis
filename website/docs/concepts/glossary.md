@@ -6,7 +6,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Ack** — Short for acknowledge. After a worker accepts responsibility for a queued delivery, it tells the queue that the delivery is complete from the queue's point of view. Acking prevents the same queue delivery from being handed out again.
 
-**Action** — One executable unit inside a job node. Examples include `builtins/shell`, `builtins/checkout`, `builtins/sequence`, and `builtins/result`. A node chooses its action with `uses` and passes inputs with `with`.
+**Action** — One executable unit inside a job node. Examples include process actions like `builtins/shell`, `builtins/test`, `builtins/checkout`, and `builtins/upload-artifact`; control-flow actions like `builtins/sequence`, `builtins/parallel`, and `builtins/retry`; and the `builtins/result` summary action. A node chooses its action with `uses` and passes inputs with `with`.
 
 **API (`vectis-api`)** — The HTTP service clients talk to. It stores job definitions, creates runs, reports status, streams logs through SSE, and exposes health and metrics.
 
@@ -58,7 +58,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 ## P
 
-**Pinned address** — A queue, log, artifact, or registry address set explicitly in configuration. Pinned addresses let a component avoid relying on registry lookup for that dependency.
+**Pinned address** — A service address, such as queue, orchestrator, log, artifact, secrets, or registry, set explicitly in configuration. Pinned addresses let a component avoid dynamic lookup or environment-specific defaults for that dependency.
 
 **Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cell-ingress`, `vectis-cron`, `vectis-reconciler`, and `vectis-worker` for task continuations.
 

@@ -49,9 +49,9 @@ Capture this for every meaningful performance check:
 | --- | --- |
 | Date and owner | Who ran the check and when. |
 | Code and build | Git commit, release version, build flags, and container image tags. |
-| Deployment shape | API, queue, orchestrator, log, cron, reconciler, catalog, and worker counts. |
+| Deployment shape | API, cell ingress, queue, orchestrator, log, artifact, secrets, worker-core, worker, log-forwarder, cron, reconciler, and catalog counts. |
 | Database | Driver, DSN class, pool settings, host size, and storage class. |
-| Queue, logs, and artifacts | Queue persistence path, log storage medium, artifact storage path, spool location, and free space. |
+| Queue, logs, artifacts, and secrets | Queue persistence path, log storage medium, artifact storage path, job secret store path, spool location, and free space. |
 | Workload | Exact command, script, job definition, client count, trigger rate, and duration. |
 | Observability | Benchmark output, Prometheus snapshots, dashboard screenshots, and notable service logs. |
 | Result | Pass/fail decision, observed limit, and follow-up issues. |

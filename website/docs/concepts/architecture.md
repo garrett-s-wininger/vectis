@@ -116,7 +116,7 @@ flowchart TB
 | `vectis-secrets` | Cell-local secret broker. Authenticates execution callers with SPIFFE-bearing mTLS, validates active execution claims, enforces secret access policy, and resolves configured secret references for workers. |
 | `vectis-log` | Receives log chunks from workers and stores run logs. The API reads from it when clients stream logs. |
 | `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest while the API exposes run-scoped artifact listing, metadata, and downloads. |
-| `vectis-registry` | Internal service discovery for queue, orchestrator, log, and worker-control addresses when clients do not use pinned addresses. |
+| `vectis-registry` | Internal service discovery for queue, orchestrator, log, artifact, and worker-control addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
@@ -221,7 +221,7 @@ Jobs are trees of nodes. Each node has:
 - `steps`, child nodes
 - `isolation`, an optional `host` or `vm` execution request
 
-Built-in actions currently include `builtins/shell`, `builtins/checkout`, `builtins/sequence`, and `builtins/result`. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
+Built-in actions include process actions such as `builtins/shell`, `builtins/test`, `builtins/checkout`, and `builtins/upload-artifact`; control-flow actions such as `builtins/sequence`, `builtins/parallel`, `builtins/if`, `builtins/retry`, `builtins/timeout`, `builtins/finally`, and `builtins/fallback`; and the `builtins/result` summary action. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
 
 ## Worker Execution Environment
 
