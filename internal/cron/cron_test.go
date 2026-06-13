@@ -547,6 +547,91 @@ func TestCronService_ProcessSchedules_UsesSourceScheduleOverride(t *testing.T) {
 	}
 }
 
+func TestCronService_ProcessSchedulesRejectsInvalidSourceScheduleReference(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		jobID      string
+		ref        string
+		path       string
+		defaultRef string
+	}{
+		{
+			name:  "invalid schedule ref",
+			jobID: "build",
+			ref:   "HEAD~1",
+		},
+		{
+			name:  "invalid repository default ref",
+			jobID: "build",
+			ref:   "",
+			path:  "",
+			// This value cannot be persisted through the API/config path, but cron
+			// still needs to reject old or manually repaired rows at execution time.
+			defaultRef: "main..hotfix",
+		},
+		{
+			name:  "invalid schedule path",
+			jobID: "build",
+			path:  "../build.json",
+		},
+		{
+			name:  "invalid derived path",
+			jobID: "team/build",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, logger, queueService, db := setupTestCronService(t)
+			ctx := context.Background()
+			repos := dal.NewSQLRepositories(db)
+
+			defaultRef := tc.defaultRef
+			if defaultRef == "" {
+				defaultRef = "HEAD"
+			}
+
+			if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+				RepositoryID: "source-repo",
+				SourceKind:   dal.SourceKindLocalCheckout,
+				CheckoutPath: t.TempDir(),
+				DefaultRef:   defaultRef,
+				Enabled:      true,
+			}); err != nil {
+				t.Fatalf("create source repository: %v", err)
+			}
+
+			pastTime := time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC)
+			insertCronTestSourceSchedule(t, db, tc.jobID, "source-repo", tc.ref, tc.path, "* * * * *", pastTime)
+
+			if err := service.ProcessSchedules(ctx); err != nil {
+				t.Fatalf("process source schedule: %v", err)
+			}
+
+			jobs := queueService.GetJobs()
+			if len(jobs) != 0 {
+				t.Fatalf("expected no job to be enqueued for invalid source reference, got %d", len(jobs))
+			}
+
+			errorCalls := logger.GetErrorCalls()
+			foundInvalidReference := false
+			for _, msg := range errorCalls {
+				if strings.Contains(msg, "Failed to trigger job") && strings.Contains(msg, "invalid source reference") {
+					foundInvalidReference = true
+					break
+				}
+			}
+
+			if !foundInvalidReference {
+				t.Fatalf("expected invalid source reference error log, got: %v", errorCalls)
+			}
+
+			nextRunStr := queryCronTestNextRun(t, db, tc.jobID)
+			if nextRunStr != pastTime.Format(time.RFC3339) {
+				t.Fatalf("expected next_run_at to remain unchanged after invalid source reference, got %s", nextRunStr)
+			}
+		})
+	}
+}
+
 func TestCronService_ProcessSchedules_InvalidCronSpec(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 
