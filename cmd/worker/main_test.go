@@ -1211,8 +1211,8 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("query run status: %v", err)
 	}
 
-	if runStatus != dal.RunStatusRunning {
-		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusRunning)
+	if runStatus != dal.RunStatusQueued {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusQueued)
 	}
 
 	reqs := queue.GetJobRequests()
@@ -1237,6 +1237,110 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("queued child trace metadata: got %q, want trace-a", env.Metadata["traceparent"])
 	}
 
+}
+
+func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailure(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-task-fanout-repair", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-task-fanout-repair"
+	def := `{"id":"job-worker-task-fanout-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	queue := mocks.NewMockQueueClient()
+	queue.SetEnqueueError(errors.New("queue unavailable"))
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-task-fanout-repair",
+		cellID:        "local",
+		clock:         mocks.NewMockClock(),
+		renewInterval: time.Hour,
+		queue:         queue,
+		logClient:     mocks.NewMockLogClient(),
+		core:          testWorkerCore(job.NewExecutor()),
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+	}
+
+	deliveryID := "delivery-task-fanout-repair"
+	rootID := "root"
+	childID := "child"
+	rootAction := "builtins/parallel"
+	childAction := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &rootAction,
+			Steps: []*api.Node{{
+				Id:   &childID,
+				Uses: &childAction,
+				With: map[string]string{"command": "echo child"},
+			}},
+		},
+	}
+
+	req := &api.JobRequest{Job: j, Metadata: map[string]string{"traceparent": "trace-repair"}}
+	if _, err := cell.AttachExecutionEnvelope(req, rootDispatch, 1); err != nil {
+		t.Fatalf("attach root envelope: %v", err)
+	}
+
+	payloadJSON, err := protojson.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal root payload: %v", err)
+	}
+
+	if _, _, err := runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), dal.DefinitionHash(def)); err != nil {
+		t.Fatalf("record execution payload: %v", err)
+	}
+
+	w.handleJob(req)
+
+	if got := len(queue.GetJobRequests()); got != 0 {
+		t.Fatalf("queue should reject direct continuation request, got %d", got)
+	}
+
+	var runStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusQueued {
+		t.Fatalf("run status after failed direct fan-out: got %q, want %q", runStatus, dal.RunStatusQueued)
+	}
+
+	pending, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("pending continuation should remain recoverable: %v", err)
+	}
+
+	if pending.TaskKey != childID || pending.ExecutionID == "" {
+		t.Fatalf("pending continuation mismatch: %+v", pending)
+	}
 }
 
 func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T) {
@@ -1315,8 +1419,8 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 		t.Fatalf("query run status: %v", err)
 	}
 
-	if runStatus != dal.RunStatusRunning {
-		t.Fatalf("run status after waiting reduction: got %q, want %q", runStatus, dal.RunStatusRunning)
+	if runStatus != dal.RunStatusQueued {
+		t.Fatalf("run status after waiting reduction: got %q, want %q", runStatus, dal.RunStatusQueued)
 	}
 
 	reqs := queue.GetJobRequests()

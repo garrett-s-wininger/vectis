@@ -565,6 +565,7 @@ type RunsRepository interface {
 	EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
 	ActivatePlannedTaskExecution(ctx context.Context, taskID string) (TaskExecutionRecord, bool, error)
 	ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]TaskExecutionRecord, int, error)
+	MarkRunQueuedForContinuation(ctx context.Context, runID string) error
 	GetRunTaskCompletion(ctx context.Context, runID string) (RunTaskCompletion, error)
 	ListOrphanedTaskFinalizationCandidates(ctx context.Context, limit int) ([]RunTaskCompletion, error)
 	CountOrphanedTaskFinalizationCandidates(ctx context.Context) (int64, error)

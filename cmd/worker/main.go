@@ -1282,7 +1282,14 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 		return false, fmt.Errorf("queue client is required")
 	}
 
+	continuationPersisted, persistErr := w.persistTaskContinuation(ctx, source, result)
+	if persistErr != nil {
+		w.logger.Warn("Failed to persist task continuation for run %s: %v", source.RunID, persistErr)
+		trace.SpanFromContext(ctx).RecordError(persistErr)
+	}
+
 	enqueued := 0
+	failed := 0
 	for _, child := range result.Children {
 		if child.ExecutionID == "" {
 			continue
@@ -1299,7 +1306,13 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 		}
 
 		if err := w.queue.Enqueue(w.runCtx, req); err != nil {
-			return enqueued > 0, fmt.Errorf("enqueue child execution %s: %w", child.ExecutionID, err)
+			failed++
+			w.logger.Warn("Task continuation enqueue failed for run %s execution %s: %v", source.RunID, child.ExecutionID, err)
+			trace.SpanFromContext(ctx).RecordError(err)
+			if !continuationPersisted {
+				return enqueued > 0, fmt.Errorf("enqueue child execution %s: %w", child.ExecutionID, err)
+			}
+			continue
 		}
 
 		enqueued++
@@ -1307,15 +1320,68 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 
 	trace.SpanFromContext(ctx).AddEvent("task.dispatch.direct", trace.WithAttributes(
 		attribute.Int("vectis.task.dispatch.enqueued", enqueued),
+		attribute.Int("vectis.task.dispatch.failed", failed),
 		attribute.Int("vectis.task.children.dispatchable", len(result.Children)),
 		attribute.Bool("vectis.task.dispatch.known_pending", knownPending),
+		attribute.Bool("vectis.task.dispatch.persisted", continuationPersisted),
 	))
+
+	if enqueued == 0 && failed > 0 && continuationPersisted {
+		return true, nil
+	}
 
 	if enqueued == 0 && knownPending {
 		return false, fmt.Errorf("orchestrator returned continuation without dispatchable children")
 	}
 
 	return enqueued > 0, nil
+}
+
+func (w *worker) persistTaskContinuation(ctx context.Context, source *cell.ExecutionEnvelope, result dal.ExecutionFinalizationResult) (bool, error) {
+	if w.store == nil || source == nil || len(result.Children) == 0 {
+		return false, nil
+	}
+
+	runID := result.RunID
+	if runID == "" {
+		runID = source.RunID
+	}
+
+	if runID == "" {
+		return false, fmt.Errorf("run_id is required to persist task continuation")
+	}
+
+	mirrored := 0
+	activated := 0
+	for _, child := range result.Children {
+		if child.TaskID == "" {
+			continue
+		}
+
+		if _, didActivate, err := w.store.ActivatePlannedTaskExecution(w.runCtx, child.TaskID); err != nil {
+			w.noteDBError(err)
+			return false, fmt.Errorf("activate child task %s: %w", child.TaskID, err)
+		} else if didActivate {
+			activated++
+		}
+		mirrored++
+	}
+
+	if mirrored == 0 {
+		return false, nil
+	}
+
+	if err := w.store.MarkRunQueuedForContinuation(w.runCtx, runID); err != nil {
+		w.noteDBError(err)
+		return false, fmt.Errorf("mark run %s queued for continuation: %w", runID, err)
+	}
+
+	w.noteDBRecovered()
+	trace.SpanFromContext(ctx).AddEvent("task.dispatch.persisted", trace.WithAttributes(
+		attribute.Int("vectis.task.children.persisted", mirrored),
+		attribute.Int("vectis.task.children.activated", activated),
+	))
+	return true, nil
 }
 
 func cloneMetadataForWorker(in map[string]string) map[string]string {
@@ -1686,6 +1752,8 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.
 
 func (w *worker) recordRunCatalogEventForExecutionFinalization(result dal.ExecutionFinalizationResult, failureCode, reason string) {
 	switch result.Outcome {
+	case dal.ExecutionFinalizationOutcomeContinued:
+		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: result.RunID, Status: dal.RunStatusQueued})
 	case dal.ExecutionFinalizationOutcomeRunSucceeded:
 		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: result.RunID, Status: dal.RunStatusSucceeded})
 	case dal.ExecutionFinalizationOutcomeRunFailed:

@@ -1575,6 +1575,40 @@ func (r *SQLRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Conte
 	return records, activatedCount, nil
 }
 
+func (r *SQLRunsRepository) MarkRunQueuedForContinuation(ctx context.Context, runID string) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := markRunQueuedForContinuationTx(ctx, tx, runID); err != nil {
+		if !IsConflict(err) {
+			return err
+		}
+
+		var status string
+		if scanErr := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT status FROM job_runs WHERE run_id = ?"), runID).Scan(&status); scanErr != nil {
+			if scanErr == sql.ErrNoRows {
+				return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+			}
+
+			return normalizeSQLError(scanErr)
+		}
+
+		if status != RunStatusQueued {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *SQLRunsRepository) GetRunTaskCompletion(ctx context.Context, runID string) (RunTaskCompletion, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {

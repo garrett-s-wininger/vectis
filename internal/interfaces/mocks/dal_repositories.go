@@ -215,6 +215,7 @@ type MockRunsRepository struct {
 	ListRunTasksErr            error
 	EnsureTaskExecutionErr     error
 	ActivateTaskErr            error
+	MarkQueuedContinuationErr  error
 	TaskCompletionErr          error
 	QueuedListErr              error
 	TryClaimExecutionErr       error
@@ -300,6 +301,7 @@ type MockRunsRepository struct {
 	LastTaskExecution     dal.TaskExecutionCreate
 	LastActivatedTaskID   string
 	LastActivatedParentID string
+	LastQueuedRunID       string
 	LastExecutionClaimID  string
 	LastExecutionOwner    string
 	LastMirroredExecID    string
@@ -1035,6 +1037,14 @@ func (m *MockRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Cont
 	}
 
 	return append([]dal.TaskExecutionRecord(nil), m.TaskExecutions...), m.TaskActivatedN, nil
+}
+
+func (m *MockRunsRepository) MarkRunQueuedForContinuation(ctx context.Context, runID string) error {
+	m.mu.Lock()
+	m.LastQueuedRunID = runID
+	m.mu.Unlock()
+
+	return m.MarkQueuedContinuationErr
 }
 
 func (m *MockRunsRepository) MarkExecutionStarted(ctx context.Context, executionID string) error {
