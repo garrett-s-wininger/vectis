@@ -404,12 +404,13 @@ func TestCronService_ProcessSchedules_TriggersSourceRepositorySchedule(t *testin
 		t.Fatalf("source cron job mismatch: %+v", jobs[0])
 	}
 
-	var storedCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "build").Scan(&storedCount); err != nil {
-		t.Fatalf("count stored jobs: %v", err)
+	definitionJSON, err := repos.Jobs().GetDefinitionVersion(ctx, "build", 1)
+	if err != nil {
+		t.Fatalf("get source cron definition snapshot: %v", err)
 	}
-	if storedCount != 0 {
-		t.Fatalf("expected no stored job row for source cron schedule, got %d", storedCount)
+
+	if !strings.Contains(definitionJSON, "source-cron") {
+		t.Fatalf("source cron definition snapshot mismatch: %s", definitionJSON)
 	}
 
 	sourceRec, err := repos.Sources().GetDefinitionSource(ctx, "build", 1)

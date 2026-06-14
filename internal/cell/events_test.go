@@ -234,13 +234,13 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-catalog-inbox", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-catalog-inbox", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-catalog-inbox"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-catalog-inbox","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-inbox","root":{"uses":"builtins/shell"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -353,13 +353,13 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-catalog-artifact", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-catalog-artifact", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-catalog-artifact"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-catalog-artifact","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-artifact","root":{"uses":"builtins/shell"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

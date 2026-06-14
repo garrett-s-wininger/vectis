@@ -85,8 +85,8 @@ func seedStoredJobAndRun(t *testing.T, db *sql.DB, jobID string) string {
 	ctx := context.Background()
 	jobDef := `{"id":"` + jobID + `","root":{"uses":"builtins/shell","with":{"command":"echo ok"}}}`
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)

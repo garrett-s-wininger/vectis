@@ -796,14 +796,8 @@ type ServiceLeasesRepository interface {
 }
 
 type JobsRepository interface {
-	Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error
-	Delete(ctx context.Context, jobID string) error
-	List(ctx context.Context, cursor int64, limit int) ([]JobRecord, int64, error)
-	ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error)
-	GetDefinition(ctx context.Context, jobID string) (definitionJSON string, version int, err error)
+	CreateDefinitionSnapshot(ctx context.Context, jobID, definitionJSON string) error
 	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
-	GetNamespaceID(ctx context.Context, jobID string) (int64, error)
-	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
 }
 
 type SourcesRepository interface {
@@ -858,7 +852,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 	return &SQLRepositories{
 		db:            db,
 		cellID:        cellID,
-		jobs:          &SQLJobsRepository{db: db, cellID: cellID},
+		jobs:          &SQLJobsRepository{db: db},
 		runs:          &SQLRunsRepository{db: db, cellID: cellID},
 		schedules:     &SQLSchedulesRepository{db: db},
 		auth:          NewSQLAuthRepository(db),

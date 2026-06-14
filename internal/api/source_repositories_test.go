@@ -106,8 +106,8 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatalf("resolved definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 
-	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
-		t.Fatalf("resolve should not create stored job, got err=%v", err)
+	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "build", 1); !dal.IsNotFound(err) {
+		t.Fatalf("resolve should not create definition snapshot, got err=%v", err)
 	}
 
 	writeAPIJobDefinitionAndCommit(t, repoPath, "false", "second definition")
@@ -172,8 +172,10 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatal("expected trigger response run_id")
 	}
 
-	if _, err := repos.Jobs().GetNamespaceID(context.Background(), "build"); !dal.IsNotFound(err) {
-		t.Fatalf("direct source trigger should not create stored job row, got err=%v", err)
+	if sourceRec, err := repos.Sources().GetDefinitionSource(context.Background(), "build", 1); err != nil {
+		t.Fatalf("direct source trigger should record source provenance: %v", err)
+	} else if sourceRec.RepositoryID != "vectis-local" {
+		t.Fatalf("direct source trigger provenance repository: got %q", sourceRec.RepositoryID)
 	}
 
 	listRunsRec := httptest.NewRecorder()
@@ -367,8 +369,10 @@ func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
 		t.Fatalf("jobs facade trigger mismatch: %+v", triggerResp)
 	}
 
-	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
-		t.Fatalf("jobs facade source trigger should not create stored job, got %v", err)
+	if sourceRec, err := repos.Sources().GetDefinitionSource(context.Background(), "build", 1); err != nil {
+		t.Fatalf("jobs facade source trigger should record source provenance: %v", err)
+	} else if sourceRec.RepositoryID != "vectis-local" {
+		t.Fatalf("jobs facade source trigger provenance repository: got %q", sourceRec.RepositoryID)
 	}
 
 	runsReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/runs?repository_id=vectis-local", nil)
@@ -470,8 +474,8 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		t.Fatalf("create source job facade response mismatch: %+v parent=%s", createResp, parent)
 	}
 
-	if _, err := repos.Jobs().GetNamespaceID(context.Background(), "build"); !dal.IsNotFound(err) {
-		t.Fatalf("source create facade should not create stored job row, got err=%v", err)
+	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "build", 1); !dal.IsNotFound(err) {
+		t.Fatalf("source create facade should not create definition snapshot, got err=%v", err)
 	}
 
 	readCreateRec := httptest.NewRecorder()
@@ -1076,8 +1080,10 @@ func TestAPIServer_SourceBackedJobsDoNotRequireStoredRows(t *testing.T) {
 		t.Fatalf("source trigger response mismatch: %+v", triggerResp)
 	}
 
-	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
-		t.Fatalf("source trigger should not create stored job, got err=%v", err)
+	if sourceRec, err := repos.Sources().GetDefinitionSource(context.Background(), "build", 1); err != nil {
+		t.Fatalf("source trigger should record source provenance: %v", err)
+	} else if sourceRec.RepositoryID != "vectis-local" {
+		t.Fatalf("source trigger provenance repository: got %q", sourceRec.RepositoryID)
 	}
 
 	storedSSERec := httptest.NewRecorder()
@@ -1310,6 +1316,7 @@ func TestAPIServer_SourceRepositoryDeclarationState(t *testing.T) {
 		RepositoryID string `json:"repository_id"`
 		Declared     bool   `json:"declared"`
 	}
+
 	if err := json.NewDecoder(listRec.Body).Decode(&listResp); err != nil {
 		t.Fatalf("decode list source repositories: %v", err)
 	}
@@ -1318,6 +1325,7 @@ func TestAPIServer_SourceRepositoryDeclarationState(t *testing.T) {
 	for _, repo := range listResp {
 		declaredByID[repo.RepositoryID] = repo.Declared
 	}
+
 	if !declaredByID["declared-repo"] || declaredByID["stale-repo"] {
 		t.Fatalf("repository declared state mismatch: %+v", declaredByID)
 	}
@@ -1328,13 +1336,16 @@ func TestAPIServer_SourceRepositoryDeclarationState(t *testing.T) {
 	if statusRec.Code != http.StatusOK {
 		t.Fatalf("get source repository status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
 	}
+
 	var statusResp struct {
 		RepositoryID string `json:"repository_id"`
 		Declared     bool   `json:"declared"`
 	}
+
 	if err := json.NewDecoder(statusRec.Body).Decode(&statusResp); err != nil {
 		t.Fatalf("decode source repository status: %v", err)
 	}
+
 	if statusResp.RepositoryID != "declared-repo" || !statusResp.Declared {
 		t.Fatalf("status declared state mismatch: %+v", statusResp)
 	}
@@ -1370,7 +1381,7 @@ func TestAPIServer_DeleteSourceRepositoryConflictsWhenReferenced(t *testing.T) {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	if err := repos.Jobs().Create(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2330,8 +2341,8 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		t.Fatalf("managed checkout HEAD: got %q, want %q", head, writeResp.Source.ResolvedCommit)
 	}
 
-	if _, err := repos.Jobs().GetNamespaceID(context.Background(), "build"); !dal.IsNotFound(err) {
-		t.Fatalf("source definition authoring should not create stored job row, got err=%v", err)
+	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "build", 1); !dal.IsNotFound(err) {
+		t.Fatalf("source definition authoring should not create definition snapshot, got err=%v", err)
 	}
 
 	readRec := httptest.NewRecorder()
@@ -2439,8 +2450,10 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("source trigger response mismatch: %+v", triggerResp)
 	}
 
-	if _, err := repos.Jobs().GetNamespaceID(context.Background(), "build"); !dal.IsNotFound(err) {
-		t.Fatalf("source trigger should not create stored job row, got err=%v", err)
+	if sourceRec, err := repos.Sources().GetDefinitionSource(context.Background(), "build", 1); err != nil {
+		t.Fatalf("source trigger should record source provenance: %v", err)
+	} else if sourceRec.RepositoryID != "managed-repo" {
+		t.Fatalf("source trigger provenance repository: got %q", sourceRec.RepositoryID)
 	}
 
 	definitionJSON, err := repos.Jobs().GetDefinitionVersion(context.Background(), "build", 1)
@@ -2571,24 +2584,24 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("second source trigger response mismatch: %+v", secondTriggerResp)
 	}
 
-	if err := repos.Jobs().Create(context.Background(), "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"stored"}}}`, 1); err != nil {
-		t.Fatalf("Create stored job with same id: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(context.Background(), "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"unprovenanced"}}}`); err != nil {
+		t.Fatalf("Create unprovenanced job snapshot with same id: %v", err)
 	}
 
-	_, storedVersion, err := repos.Jobs().GetDefinition(context.Background(), "build")
+	var unprovenancedVersion int
+	if err := db.QueryRowContext(context.Background(), "SELECT MAX(version) FROM job_definitions WHERE job_id = ?", "build").Scan(&unprovenancedVersion); err != nil {
+		t.Fatalf("query unprovenanced definition version: %v", err)
+	}
+
+	unprovenancedRunID, _, err := repos.Runs().CreateRun(context.Background(), "build", nil, unprovenancedVersion)
 	if err != nil {
-		t.Fatalf("GetDefinition stored build: %v", err)
+		t.Fatalf("CreateRun unprovenanced build: %v", err)
 	}
 
-	storedRunID, _, err := repos.Runs().CreateRun(context.Background(), "build", nil, storedVersion)
-	if err != nil {
-		t.Fatalf("CreateRun stored build: %v", err)
-	}
-
-	storedLogsRec := httptest.NewRecorder()
-	storedLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs/"+storedRunID+"/logs", nil)
-	handler.ServeHTTP(storedLogsRec, storedLogsReq)
-	assertAPIError(t, storedLogsRec, http.StatusNotFound, "run_not_found")
+	unprovenancedLogsRec := httptest.NewRecorder()
+	unprovenancedLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/build/runs/"+unprovenancedRunID+"/logs", nil)
+	handler.ServeHTTP(unprovenancedLogsRec, unprovenancedLogsReq)
+	assertAPIError(t, unprovenancedLogsRec, http.StatusNotFound, "run_not_found")
 
 	wrongJobLogsRec := httptest.NewRecorder()
 	wrongJobLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/managed-repo/jobs/deploy/runs/"+triggerResp.RunID+"/logs", nil)

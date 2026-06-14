@@ -1793,7 +1793,7 @@ func seedStoredMacroJob(b *testing.B, jobs dal.JobsRepository, job storedMacroJo
 		b.Fatalf("marshal benchmark job: %v", err)
 	}
 
-	if err := jobs.Create(context.Background(), job.id, definition, 1); err != nil {
+	if err := jobs.CreateDefinitionSnapshot(context.Background(), job.id, definition); err != nil {
 		b.Fatalf("create benchmark job %s: %v", job.id, err)
 	}
 }

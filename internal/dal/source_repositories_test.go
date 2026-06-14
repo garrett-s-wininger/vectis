@@ -202,7 +202,7 @@ func TestSourcesRepository_DeleteRepositoryConflictsWhenReferenced(t *testing.T)
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	if err := repos.Jobs().Create(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -599,7 +599,7 @@ func TestSourcesRepository_RecordAndGetDefinitionSource(t *testing.T) {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	if err := repos.Jobs().Create(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -626,7 +626,7 @@ func TestSourcesRepository_RecordAndGetDefinitionSource(t *testing.T) {
 		t.Fatalf("definition source mismatch: got %+v want %+v", got, rec)
 	}
 
-	if _, err := repos.Jobs().UpdateDefinition(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`); err != nil {
 		t.Fatalf("update job: %v", err)
 	}
 

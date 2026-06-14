@@ -36,16 +36,11 @@ func setupTestServer(t *testing.T) (*api.APIServer, *mocks.MockLogger, *mocks.Mo
 	return server, logger, queueService, db
 }
 
-func insertStoredJobForTest(t *testing.T, db *sql.DB, jobID, definitionJSON string, namespaceIDs ...int64) {
+func insertDefinitionSnapshotForTest(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
 	t.Helper()
 
-	namespaceID := int64(1)
-	if len(namespaceIDs) > 0 {
-		namespaceID = namespaceIDs[0]
-	}
-
-	if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), jobID, definitionJSON, namespaceID); err != nil {
-		t.Fatalf("insert stored job %s: %v", jobID, err)
+	if err := dal.NewSQLRepositories(db).Jobs().CreateDefinitionSnapshot(context.Background(), jobID, definitionJSON); err != nil {
+		t.Fatalf("insert definition snapshot %s: %v", jobID, err)
 	}
 }
 
@@ -267,13 +262,13 @@ func TestAPIServer_CreateJob_RequiresRepositoryID(t *testing.T) {
 	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
 	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "test-job-1").Scan(&count)
+	err := db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ?", "test-job-1").Scan(&count)
 	if err != nil {
 		t.Fatalf("failed to query db: %v", err)
 	}
 
 	if count != 0 {
-		t.Errorf("expected no stored job in db, got %d", count)
+		t.Errorf("expected no definition snapshot in db, got %d", count)
 	}
 }
 
@@ -600,14 +595,14 @@ func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-stuck-task-finalization", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-stuck-task-finalization", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-stuck-task-finalization"
 	def := `{"id":"job-stuck-task-finalization","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1030,9 +1025,9 @@ func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM stored_jobs").Scan(&count)
+	db.QueryRow("SELECT COUNT(*) FROM job_definitions").Scan(&count)
 	if count != 0 {
-		t.Errorf("expected 0 jobs in db, got %d", count)
+		t.Errorf("expected 0 definition snapshots in db, got %d", count)
 	}
 }
 
@@ -1079,12 +1074,12 @@ func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
 	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "bad-job").Scan(&count); err != nil {
-		t.Fatalf("count jobs: %v", err)
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ?", "bad-job").Scan(&count); err != nil {
+		t.Fatalf("count definition snapshots: %v", err)
 	}
 
 	if count != 0 {
-		t.Fatalf("expected invalid job not to persist, got count %d", count)
+		t.Fatalf("expected invalid job not to persist a snapshot, got count %d", count)
 	}
 }
 
@@ -2025,7 +2020,7 @@ func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
 func TestAPIServer_UpdateJobDefinition_RequiresRepositoryID(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	initialDef := `{"id": "job-to-update", "root": {"uses": "builtins/shell", "with": {"command": "echo old"}}}`
-	insertStoredJobForTest(t, db, "job-to-update", initialDef)
+	insertDefinitionSnapshotForTest(t, db, "job-to-update", initialDef)
 
 	newDef := map[string]any{
 		"id": "job-to-update",
@@ -2048,12 +2043,18 @@ func TestAPIServer_UpdateJobDefinition_RequiresRepositoryID(t *testing.T) {
 
 	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
-	updatedDef, _, err := dal.NewSQLRepositories(db).Jobs().GetDefinition(context.Background(), "job-to-update")
+	repos := dal.NewSQLRepositories(db)
+	updatedDef, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-to-update", 1)
 	if err != nil {
 		t.Fatalf("get original definition: %v", err)
 	}
+
 	if updatedDef != initialDef {
-		t.Errorf("expected original stored definition to remain unchanged, got: %s", updatedDef)
+		t.Errorf("expected original definition snapshot to remain unchanged, got: %s", updatedDef)
+	}
+
+	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-to-update", 2); !dal.IsNotFound(err) {
+		t.Fatalf("expected no second definition snapshot, got err=%v", err)
 	}
 }
 
@@ -2115,7 +2116,7 @@ func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
 func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	initialDef := `{"id": "job-validation-update", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
-	insertStoredJobForTest(t, db, "job-validation-update", initialDef)
+	insertDefinitionSnapshotForTest(t, db, "job-validation-update", initialDef)
 
 	newDef := map[string]any{
 		"id": "job-validation-update",
@@ -2148,15 +2149,18 @@ func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.
 		t.Fatalf("expected unknown action validation field, got %q", rec.Body.String())
 	}
 
-	var gotDef string
-	var gotVersion int
-	gotDef, gotVersion, err := dal.NewSQLRepositories(db).Jobs().GetDefinition(context.Background(), "job-validation-update")
+	repos := dal.NewSQLRepositories(db)
+	gotDef, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-validation-update", 1)
 	if err != nil {
 		t.Fatalf("select job: %v", err)
 	}
 
-	if gotDef != initialDef || gotVersion != 1 {
-		t.Fatalf("expected original definition/version to remain, got version=%d def=%s", gotVersion, gotDef)
+	if gotDef != initialDef {
+		t.Fatalf("expected original definition snapshot to remain, got def=%s", gotDef)
+	}
+
+	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-validation-update", 2); !dal.IsNotFound(err) {
+		t.Fatalf("expected invalid update not to persist a second snapshot, got err=%v", err)
 	}
 }
 
@@ -2199,18 +2203,8 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 		t.Errorf("expected id to be a valid UUID, got %q: %v", resp.ID, err)
 	}
 
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", resp.ID).Scan(&count)
-	if err != nil {
-		t.Fatalf("failed to query db: %v", err)
-	}
-
-	if count != 0 {
-		t.Errorf("expected 0 rows in stored_jobs for ephemeral id %q, got %d", resp.ID, count)
-	}
-
 	var jdCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ? AND version = 1", resp.ID).Scan(&jdCount)
+	err := db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ? AND version = 1", resp.ID).Scan(&jdCount)
 	if err != nil {
 		t.Fatalf("failed to query job_definitions: %v", err)
 	}
@@ -2416,7 +2410,7 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	ctx := context.Background()
 
-	insertStoredJobForTest(t, db, "job-task-finalization-detail", `{"id":"job-task-finalization-detail","root":{"uses":"builtins/shell"}}`)
+	insertDefinitionSnapshotForTest(t, db, "job-task-finalization-detail", `{"id":"job-task-finalization-detail","root":{"uses":"builtins/shell"}}`)
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-finalization-detail", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
@@ -2826,9 +2820,9 @@ func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
 	}
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "client-provided-id").Scan(&count)
+	db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ?", "client-provided-id").Scan(&count)
 	if count != 0 {
-		t.Errorf("expected no stored job with client id, got %d", count)
+		t.Errorf("expected no definition snapshot with client id, got %d", count)
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
@@ -3007,7 +3001,7 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 func TestAPIServer_ForceFailRun_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-force-fail", `{"id":"job-force-fail"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-force-fail", `{"id":"job-force-fail"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-fail", nil, 1)
@@ -3061,7 +3055,7 @@ func TestAPIServer_ForceFailRun_NotFound(t *testing.T) {
 func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-repair-mark", `{"id":"job-repair-mark"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-repair-mark", `{"id":"job-repair-mark"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-repair-mark", nil, 1)
@@ -3104,7 +3098,7 @@ func TestAPIServer_RepairMarkRun_ResolvesOrphanedRun(t *testing.T) {
 func TestAPIServer_RepairMarkRun_RunningConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-repair-running", `{"id":"job-repair-running"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-repair-running", `{"id":"job-repair-running"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-repair-running", nil, 1)
@@ -3126,7 +3120,7 @@ func TestAPIServer_RepairMarkRun_RunningConflict(t *testing.T) {
 func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-force-requeue", `{"id":"job-force-requeue"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-force-requeue", `{"id":"job-force-requeue"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue", nil, 1)
@@ -3170,7 +3164,7 @@ func TestAPIServer_ForceRequeueRun_Success(t *testing.T) {
 func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-force-requeue-succeeded", `{"id":"job-force-requeue-succeeded"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-force-requeue-succeeded", `{"id":"job-force-requeue-succeeded"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-succeeded", nil, 1)
@@ -3194,7 +3188,7 @@ func TestAPIServer_ForceRequeueRun_SucceededConflict(t *testing.T) {
 func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-force-requeue-running", `{"id":"job-force-requeue-running"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-force-requeue-running", `{"id":"job-force-requeue-running"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-force-requeue-running", nil, 1)
@@ -3216,7 +3210,7 @@ func TestAPIServer_ForceRequeueRun_RunningConflict(t *testing.T) {
 func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-cancel-queued", `{"id":"job-cancel-queued"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-cancel-queued", `{"id":"job-cancel-queued"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-cancel-queued", nil, 1)
@@ -3236,7 +3230,7 @@ func TestAPIServer_CancelRun_NotExecutingConflict(t *testing.T) {
 func TestAPIServer_CancelRun_ResolverUsesRequestBoundContext(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	insertStoredJobForTest(t, db, "job-cancel-context", `{"id":"job-cancel-context"}`, 1)
+	insertDefinitionSnapshotForTest(t, db, "job-cancel-context", `{"id":"job-cancel-context"}`)
 	runs := dal.NewSQLRepositories(db).Runs()
 
 	runID, _, err := runs.CreateRun(ctx, "job-cancel-context", nil, 1)

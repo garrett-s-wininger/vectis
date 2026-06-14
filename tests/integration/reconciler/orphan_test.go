@@ -22,10 +22,10 @@ func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 
-	// Insert a stored job.
+	// Insert a definition snapshot.
 	jobID := "integration-reconciler-job"
 	defJSON := `{"id":"integration-reconciler-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hello"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, defJSON, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -96,10 +96,10 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 
-	// Insert a stored job.
+	// Insert a definition snapshot.
 	jobID := "integration-reconciler-orphan-job"
 	defJSON := `{"id":"integration-reconciler-orphan-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hello"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, defJSON, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

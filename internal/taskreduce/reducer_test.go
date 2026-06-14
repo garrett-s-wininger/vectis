@@ -83,14 +83,14 @@ func TestReducerReduceFailureDominatesIncompleteSibling(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "task-reduce-branch-failure", nil)
+	_, err := repos.Namespaces().Create(ctx, "task-reduce-branch-failure", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-task-reduce-branch-failure"
 	def := `{"id":"job-task-reduce-branch-failure","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

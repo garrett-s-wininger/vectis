@@ -247,7 +247,7 @@ func createArtifactTestRun(t *testing.T, ctx context.Context, repos *dal.SQLRepo
 	t.Helper()
 
 	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

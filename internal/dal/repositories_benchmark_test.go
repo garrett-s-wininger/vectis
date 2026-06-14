@@ -39,7 +39,7 @@ func seedBenchmarkJob(b *testing.B, ctx context.Context, repos *dal.SQLRepositor
 	b.Helper()
 
 	definition := fmt.Sprintf(benchJobDefinition, jobID)
-	if err := repos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		b.Fatalf("create benchmark job %s: %v", jobID, err)
 	}
 }

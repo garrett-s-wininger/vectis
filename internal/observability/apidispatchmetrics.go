@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	APIEnqueueRunKindStored    = "stored"
+	APIEnqueueRunKindReplay    = "replay"
 	APIEnqueueRunKindEphemeral = "ephemeral"
 	APIEnqueueRunKindSource    = "source"
 

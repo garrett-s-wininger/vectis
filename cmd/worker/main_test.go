@@ -939,14 +939,14 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 	repos := dal.NewSQLRepositories(db)
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-envelope", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-envelope", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-envelope"
 	def := `{"id":"job-worker-envelope","root":{"uses":"builtins/shell","with":{"command":"echo envelope"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1065,14 +1065,14 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 	repos := dal.NewSQLRepositories(db)
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-execution-reclaim-catalog", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-execution-reclaim-catalog", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-execution-reclaim-catalog"
 	def := `{"id":"job-worker-execution-reclaim-catalog","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo claim"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1152,14 +1152,14 @@ func TestWorkerRunClaimedJob_SPIFFEEnabledRejectsMissingSVIDBeforeAction(t *test
 	repos := dal.NewSQLRepositories(db)
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-spiffe-gate", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-spiffe-gate", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-spiffe-gate"
 	def := `{"id":"job-worker-spiffe-gate","root":{"uses":"builtins/shell","with":{"command":"echo spiffe"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1289,14 +1289,14 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-task-fanout", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-task-fanout", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-task-fanout"
 	def := `{"id":"job-worker-task-fanout","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1507,14 +1507,14 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-task-reduce-waiting", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-task-reduce-waiting", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-task-reduce-waiting"
 	def := `{"id":"job-worker-task-reduce-waiting","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1627,14 +1627,14 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-task-failure-order", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-task-failure-order", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-task-failure-order"
 	def := `{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1724,14 +1724,14 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-task-cancel-order", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-task-cancel-order", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-task-cancel-order"
 	def := `{"id":"job-worker-task-cancel-order","root":{"id":"root","uses":"builtins/shell","with":{"command":"exec sleep 5"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2346,14 +2346,14 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-execution-claim-required", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-execution-claim-required", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-execution-claim-required"
 	def := `{"id":"job-worker-execution-claim-required","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo should-not-run"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -4485,14 +4485,14 @@ func TestLeaseRenewalLoopRenewsSPIFFERegistration(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-spiffe-renew", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-spiffe-renew", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-spiffe-renew"
 	def := `{"id":"job-worker-spiffe-renew","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo renew"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

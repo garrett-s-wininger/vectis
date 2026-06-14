@@ -179,7 +179,7 @@ Reusable jobs are source-backed. Use the jobs commands with `--repository` to se
 ./bin/vectis-cli jobs delete build --repository vectis-local --branch main --message "Delete build job" --yes
 ```
 
-Pass `--path` when a source-backed job does not use the default `.vectis/jobs/<job-id>.json` layout. Create can use `--job-id` when the definition omits a top-level `id`. Create, edit, delete, and trigger work without creating a stored job row. Triggers create a durable run and source provenance, and can target one execution cell with `--cell`.
+Pass `--path` when a source-backed job does not use the default `.vectis/jobs/<job-id>.json` layout. Create can use `--job-id` when the definition omits a top-level `id`. Create, edit, delete, and trigger work against source. Triggers create a durable run and source provenance, and can target one execution cell with `--cell`.
 
 Inspect source-backed run history and follow future runs through the job-facing commands:
 
@@ -259,7 +259,7 @@ Delete an unused repository registration without touching checkout files:
 ./bin/vectis-cli sources delete vectis-local --yes
 ```
 
-Declared repositories, repositories with source schedules, and repositories with recorded source provenance cannot be deleted; remove the declaration or disable them instead so scheduled references, historical runs, and stored definition versions can still resolve their repository metadata.
+Declared repositories, repositories with source schedules, and repositories with recorded source provenance cannot be deleted; remove the declaration or disable them instead so scheduled references, historical runs, and captured definition snapshots can still resolve their repository metadata.
 
 Inspect source-control readiness, declaration counts, stale rows, sync summaries, and active schedule overrides:
 
@@ -303,7 +303,7 @@ For a managed repository with `authoring_mode=local_commit`, the recommended aut
 
 The explicit `sources write` command remains available for repository-scoped tooling.
 
-Trigger a source-defined job without creating a stored job row:
+Trigger a source-defined job:
 
 ```sh
 ./bin/vectis-cli jobs trigger build --repository vectis-local --ref main --follow

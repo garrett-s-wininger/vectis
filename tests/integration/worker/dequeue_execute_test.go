@@ -30,10 +30,10 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 
-	// Insert a stored job.
+	// Insert a definition snapshot.
 	jobID := "integration-worker-job"
 	defJSON := `{"id":"integration-worker-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hello-from-worker"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, defJSON, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestIntegrationWorker_ExecutesCustomActionFromEnvelopeLocks(t *testing.T) {
 
 	jobID := "integration-custom-action-job"
 	defJSON := `{"id":"integration-custom-action-job","root":{"id":"root","uses":"examples/greet@v1","with":{"name":"Vectis"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, defJSON, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

@@ -81,8 +81,8 @@ func TestIntegrationLocalSPIFFESecretsExample(t *testing.T) {
 	runs := repos.Runs()
 
 	definitionJSON, runJob := loadExampleJob(t, root)
-	if err := repos.Jobs().Create(ctx, runJob.GetId(), string(definitionJSON), 1); err != nil {
-		t.Fatalf("create stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, runJob.GetId(), string(definitionJSON)); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	runID, _, err := runs.CreateRun(ctx, runJob.GetId(), nil, 1)

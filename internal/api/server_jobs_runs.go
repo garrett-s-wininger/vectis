@@ -802,7 +802,7 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		return
 	}
 
-	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAttempt)
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeAttempt)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
 	if err != nil {
@@ -826,7 +826,7 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeFailedEnqueue)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedEnqueue)
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
@@ -841,11 +841,12 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeFailedTouchDispatch)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedTouchDispatch)
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
-	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeSuccess)
+
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeSuccess)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
@@ -853,8 +854,8 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	if runIndex > 0 {
 		tdSpan.SetAttributes(observability.RunIndexAttrs(runIndex)...)
 	}
-	tdSpan.End()
 
+	tdSpan.End()
 	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
 }
 
@@ -954,7 +955,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 
 	var job api.Job
 	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
+		writeAPIError(w, http.StatusInternalServerError, "invalid_run_definition", "invalid captured job definition", nil)
 		return
 	}
 
@@ -1098,7 +1099,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	})
 
 	s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
-	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAccepted)
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeAccepted)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -2036,7 +2037,7 @@ func (s *APIServer) GetRunDefinition(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	if !json.Valid([]byte(definitionJSON)) {
-		s.logger.Error("Stored definition for run %s is not valid JSON", runID)
+		s.logger.Error("Captured definition for run %s is not valid JSON", runID)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}

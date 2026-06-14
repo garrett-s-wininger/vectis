@@ -2068,7 +2068,7 @@ var sourcesResolveCmd = &cobra.Command{
 var sourcesJobsCmd = &cobra.Command{
 	Use:   "jobs [repository-id]",
 	Short: "List jobs discovered in a source repository",
-	Long:  `List triggerable source jobs derived from repository definition paths without importing them as stored jobs.`,
+	Long:  `List triggerable source jobs derived from repository definition paths without creating reusable job rows.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   listSourceJobs,
 }
@@ -2076,7 +2076,7 @@ var sourcesJobsCmd = &cobra.Command{
 var sourcesShowCmd = &cobra.Command{
 	Use:   "show [repository-id] [job-id]",
 	Short: "Show a source job definition",
-	Long:  `Resolve a source repository job definition at a ref and print the canonical JSON without importing it as a stored job.`,
+	Long:  `Resolve a source repository job definition at a ref and print the canonical JSON without creating a reusable job row.`,
 	Args:  cobra.ExactArgs(2),
 	Run:   showSourceJob,
 }
@@ -2084,7 +2084,7 @@ var sourcesShowCmd = &cobra.Command{
 var sourcesWriteCmd = &cobra.Command{
 	Use:   "write [repository-id] [job-id] [definition-file]",
 	Short: "Write a source job definition",
-	Long:  `Write a JSON job definition into a source repository checkout without creating a stored job row. Use "-" as definition-file to read from stdin.`,
+	Long:  `Write a JSON job definition into a source repository checkout without creating a reusable job row. Use "-" as definition-file to read from stdin.`,
 	Args:  cobra.ExactArgs(3),
 	Run:   writeSourceJob,
 }
@@ -2100,7 +2100,7 @@ var sourcesRunsCmd = &cobra.Command{
 var sourcesLogsCmd = &cobra.Command{
 	Use:   "logs [repository-id] [job-id] [run-id]",
 	Short: "Stream logs for a source job run",
-	Long:  `Stream logs for a source repository job run using source provenance to disambiguate runs from stored jobs with the same job ID. Omit run-id to stream the latest source run, or add --follow to wait for future source runs.`,
+	Long:  `Stream logs for a source repository job run using source provenance to disambiguate runs from non-source runs with the same job ID. Omit run-id to stream the latest source run, or add --follow to wait for future source runs.`,
 	Args:  cobra.RangeArgs(2, 3),
 	Run:   runSourceLogs,
 }
@@ -2108,7 +2108,7 @@ var sourcesLogsCmd = &cobra.Command{
 var sourcesTriggerCmd = &cobra.Command{
 	Use:   "trigger [repository-id] [job-id]",
 	Short: "Trigger a job directly from source",
-	Long:  `Trigger a source repository job without creating or requiring a stored job row.`,
+	Long:  `Trigger a source repository job without creating or requiring a reusable job row.`,
 	Args:  cobra.ExactArgs(2),
 	Run:   triggerSourceJob,
 }

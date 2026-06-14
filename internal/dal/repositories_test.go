@@ -48,7 +48,7 @@ func claimPendingRunExecution(t testing.TB, ctx context.Context, runs dal.RunsRe
 	return dispatch, claim
 }
 
-func TestJobsRepository_CRUDAndConflict(t *testing.T) {
+func TestJobsRepository_DefinitionSnapshotsAppendImmutableVersions(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	jobs := repos.Jobs()
@@ -58,47 +58,21 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 	def1 := `{"id":"job-a","root":{"uses":"builtins/shell"}}`
 	def2 := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
 
-	if err := jobs.Create(ctx, jobID, def1, 1); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := jobs.CreateDefinitionSnapshot(ctx, jobID, def1); err != nil {
+		t.Fatalf("create definition snapshot v1: %v", err)
 	}
 
-	if err := jobs.Create(ctx, jobID, def1, 1); !dal.IsConflict(err) {
-		t.Fatalf("expected conflict on duplicate create, got: %v", err)
+	if err := jobs.CreateDefinitionSnapshot(ctx, jobID, def2); err != nil {
+		t.Fatalf("create definition snapshot v2: %v", err)
 	}
 
-	gotDef, version, err := jobs.GetDefinition(ctx, jobID)
-	if err != nil {
-		t.Fatalf("get definition: %v", err)
+	var versionHash string
+	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = 2", jobID).Scan(&versionHash); err != nil {
+		t.Fatalf("scan version hash: %v", err)
 	}
 
-	if gotDef != def1 {
-		t.Fatalf("definition mismatch: got %q want %q", gotDef, def1)
-	}
-
-	if version != 1 {
-		t.Fatalf("expected initial version 1, got %d", version)
-	}
-
-	newVersion, err := jobs.UpdateDefinition(ctx, jobID, def2)
-	if err != nil {
-		t.Fatalf("update definition: %v", err)
-	}
-
-	if newVersion != 2 {
-		t.Fatalf("expected version 2 after update, got %d", newVersion)
-	}
-
-	gotDef, version, err = jobs.GetDefinition(ctx, jobID)
-	if err != nil {
-		t.Fatalf("get definition after update: %v", err)
-	}
-
-	if gotDef != def2 {
-		t.Fatalf("updated definition mismatch: got %q want %q", gotDef, def2)
-	}
-
-	if version != 2 {
-		t.Fatalf("expected version 2 in DB, got %d", version)
+	if want := dal.DefinitionHash(def2); versionHash != want {
+		t.Fatalf("definition hash mismatch: version=%q want=%q", versionHash, want)
 	}
 
 	gotV1, err := jobs.GetDefinitionVersion(ctx, jobID, 1)
@@ -119,54 +93,18 @@ func TestJobsRepository_CRUDAndConflict(t *testing.T) {
 		t.Fatalf("definition version 2 mismatch: got %q want %q", gotV2, def2)
 	}
 
-	var currentVersion int
-	var versionHash string
-	if err := db.QueryRowContext(ctx, "SELECT current_version FROM stored_jobs WHERE job_id = ?", jobID).Scan(&currentVersion); err != nil {
-		t.Fatalf("scan stored job current version: %v", err)
-	}
-
-	if err := db.QueryRowContext(ctx, "SELECT definition_hash FROM job_definitions WHERE job_id = ? AND version = 2", jobID).Scan(&versionHash); err != nil {
-		t.Fatalf("scan version hash: %v", err)
-	}
-
-	if currentVersion != 2 {
-		t.Fatalf("current version: got %d, want 2", currentVersion)
-	}
-
-	if want := dal.DefinitionHash(def2); versionHash != want {
-		t.Fatalf("definition hash mismatch: version=%q want=%q", versionHash, want)
-	}
-
-	list, _, err := jobs.List(ctx, 0, 100)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-
-	if len(list) != 1 {
-		t.Fatalf("expected 1 job in list, got %d", len(list))
-	}
-
-	if err := jobs.Delete(ctx, jobID); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-
-	_, _, err = jobs.GetDefinition(ctx, jobID)
-	if !dal.IsNotFound(err) {
-		t.Fatalf("expected not found after delete, got: %v", err)
-	}
-
 	def3 := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo recreated"}}}`
-	if err := jobs.Create(ctx, jobID, def3, 1); err != nil {
-		t.Fatalf("recreate job: %v", err)
+	if err := jobs.CreateDefinitionSnapshot(ctx, jobID, def3); err != nil {
+		t.Fatalf("create definition snapshot v3: %v", err)
 	}
 
-	_, version, err = jobs.GetDefinition(ctx, jobID)
+	gotV3, err := jobs.GetDefinitionVersion(ctx, jobID, 3)
 	if err != nil {
-		t.Fatalf("get recreated definition: %v", err)
+		t.Fatalf("get definition version 3: %v", err)
 	}
 
-	if version != 3 {
-		t.Fatalf("expected recreated job to continue immutable version history at 3, got %d", version)
+	if gotV3 != def3 {
+		t.Fatalf("definition version 3 mismatch: got %q want %q", gotV3, def3)
 	}
 }
 
@@ -177,7 +115,7 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 
 	jobID := "job-audit"
 	definitionJSON := `{"id":"job-audit","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, definitionJSON, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definitionJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -522,7 +460,7 @@ func TestCellExecutionAcceptances_AcceptsExistingPendingExecution(t *testing.T) 
 
 	jobID := "job-existing"
 	definitionJSON := `{"id":"job-existing","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, definitionJSON, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definitionJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -602,7 +540,7 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 
 	jobID := "job-cell-owned"
 	def := `{"id":"job-cell-owned","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -611,13 +549,9 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	var namespaceCell, jobCell, runCell, executionCell string
+	var namespaceCell, runCell, executionCell string
 	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM namespaces WHERE id = ?", ns.ID).Scan(&namespaceCell); err != nil {
 		t.Fatalf("query namespace cell: %v", err)
-	}
-
-	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM stored_jobs WHERE job_id = ?", jobID).Scan(&jobCell); err != nil {
-		t.Fatalf("query job cell: %v", err)
 	}
 
 	if err := db.QueryRowContext(ctx, "SELECT owning_cell FROM job_runs WHERE run_id = ?", runID).Scan(&runCell); err != nil {
@@ -717,7 +651,6 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 
 	for name, got := range map[string]string{
 		"namespace": namespaceCell,
-		"job":       jobCell,
 		"run":       runCell,
 		"execution": executionCell,
 	} {
@@ -732,29 +665,15 @@ func TestRunsRepository_CreateRunInCell_TargetsExecutionCell(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-target", nil)
-	if err != nil {
-		t.Fatalf("create namespace: %v", err)
-	}
-
 	jobID := "job-target-cell"
 	def := `{"id":"job-target-cell","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
 	if err != nil {
 		t.Fatalf("CreateRunInCell: %v", err)
-	}
-
-	var jobHomeCell string
-	if err := db.QueryRowContext(ctx, "SELECT home_cell FROM stored_jobs WHERE job_id = ?", jobID).Scan(&jobHomeCell); err != nil {
-		t.Fatalf("query job home cell: %v", err)
-	}
-
-	if jobHomeCell != "global-a" {
-		t.Fatalf("job home cell: got %q, want global-a", jobHomeCell)
 	}
 
 	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
@@ -799,15 +718,10 @@ func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-replay", nil)
-	if err != nil {
-		t.Fatalf("create namespace: %v", err)
-	}
-
 	jobID := "job-replay"
 	defV1 := `{"id":"job-replay","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
 	defV2 := `{"id":"job-replay","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, defV1, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defV1); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -820,7 +734,7 @@ func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
 		t.Fatalf("mark source failed: %v", err)
 	}
 
-	if _, err := repos.Jobs().UpdateDefinition(ctx, jobID, defV2); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defV2); err != nil {
 		t.Fatalf("update job definition: %v", err)
 	}
 
@@ -892,14 +806,14 @@ func TestRunsRepository_CountByStatusByCell(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-status-cells", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-status-cells", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-status-cells"
 	def := `{"id":"job-status-cells","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -942,14 +856,14 @@ func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-stuck-cells", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-stuck-cells", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-stuck-cells"
 	def := `{"id":"job-stuck-cells","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1001,14 +915,14 @@ func TestRunsRepository_CreateRunsInCells_FanoutTargetsExecutionCells(t *testing
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-fanout", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-fanout", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-fanout-cells"
 	def := `{"id":"job-fanout-cells","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1068,14 +982,14 @@ func TestRunsRepository_ListRunTasks_ReturnsRootTaskAndAttempt(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-tasks", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-tasks", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-root-task-list"
 	def := `{"id":"job-root-task-list","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1207,14 +1121,14 @@ func TestRunsRepository_EnsurePendingTaskExecutionCreatesLinkedRows(t *testing.T
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-task-create", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-task-create", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-task-create"
 	def := `{"id":"job-task-create","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1310,14 +1224,14 @@ func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-task-plan", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-task-plan", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-task-plan"
 	def := `{"id":"job-task-plan","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1447,14 +1361,14 @@ func TestRunsRepository_MirrorExecutionClaimAcceptsPlannedChildClaim(t *testing.
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-mirror-child-claim", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-mirror-child-claim", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-mirror-child-claim"
 	def := `{"id":"job-mirror-child-claim","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1521,14 +1435,14 @@ func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-task-child-activate", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-task-child-activate", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-task-child-activate"
 	def := `{"id":"job-task-child-activate","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1644,7 +1558,7 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_SequenceActivates
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-task-sequence-activate", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-task-sequence-activate", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
@@ -1656,7 +1570,7 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_SequenceActivates
 		t.Fatalf("marshal definition payload: %v", err)
 	}
 
-	if err := repos.Jobs().Create(ctx, jobID, string(definitionJSON), ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, string(definitionJSON)); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1721,14 +1635,14 @@ func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-task-completion", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-task-completion", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-task-completion"
 	def := `{"id":"job-task-completion","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1824,14 +1738,14 @@ func TestRunsRepository_GetPendingExecution_NotFound(t *testing.T) {
 		t.Fatalf("expected missing run to return ErrNotFound, got %v", err)
 	}
 
-	ns, err := repos.Namespaces().Create(ctx, "team-pending", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-pending", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-no-pending-execution"
 	def := `{"id":"job-no-pending-execution","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1854,14 +1768,14 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-transitions", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-transitions", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-transitions"
 	def := `{"id":"job-execution-transitions","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1901,14 +1815,14 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-execution-claims", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-execution-claims", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-claims"
 	def := `{"id":"job-execution-claims","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1995,13 +1909,13 @@ func TestRunsRepository_TryClaimExecutionExpiresPastStartDeadline(t *testing.T) 
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-claim", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-execution-deadline-claim", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-deadline-claim"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-claim","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-claim","root":{"uses":"builtins/shell"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2079,13 +1993,13 @@ func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-sweep", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-execution-deadline-sweep", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-deadline-sweep"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-sweep","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-sweep","root":{"uses":"builtins/shell"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2180,13 +2094,13 @@ func TestRunsRepository_RequeueRunForRetry_RestoresDispatchExpiredExecution(t *t
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-retry-dispatch-expired", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-retry-dispatch-expired", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-retry-dispatch-expired"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-retry-dispatch-expired","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-retry-dispatch-expired","root":{"uses":"builtins/shell"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2276,13 +2190,13 @@ func TestRunsRepository_EnsureExecutionStartDeadlineAdoptsMissingDeadline(t *tes
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-adopt", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-execution-deadline-adopt", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-deadline-adopt"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-adopt","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-adopt","root":{"uses":"builtins/shell"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2347,14 +2261,14 @@ func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
 		t.Fatalf("runs repository cannot load active execution dispatches")
 	}
 
-	ns, err := repos.Namespaces().Create(ctx, "team-validate-execution-claims", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-validate-execution-claims", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-validate-execution-claims"
 	def := `{"id":"job-validate-execution-claims","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2401,14 +2315,14 @@ func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T)
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-execution-reclaim", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-execution-reclaim", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-reclaim"
 	def := `{"id":"job-execution-reclaim","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2456,14 +2370,14 @@ type claimedExecutionFinalizationRun struct {
 func setupClaimedExecutionFinalizationRun(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, suffix string) claimedExecutionFinalizationRun {
 	t.Helper()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-execution-finalize-"+suffix, nil)
+	_, err := repos.Namespaces().Create(ctx, "team-execution-finalize-"+suffix, nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-finalize-" + suffix
 	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2798,14 +2712,14 @@ func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T)
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-linked-task", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-linked-task", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-linked-task"
 	def := `{"id":"job-linked-task","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2857,14 +2771,14 @@ func TestRunCatalogUpdater_AppliesRunAndExecutionStatusUpdates(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-catalog-updates", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-catalog-updates", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-catalog-updates"
 	def := `{"id":"job-catalog-updates","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2942,14 +2856,14 @@ func TestRunCatalogUpdater_AppliesExecutionUpdatesFromPlannedRows(t *testing.T) 
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-catalog-planned-updates", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-catalog-planned-updates", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-catalog-planned-updates"
 	def := `{"id":"job-catalog-planned-updates","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -4942,8 +4856,8 @@ func TestSchedulesRepository_GetReadyClaimAndComplete(t *testing.T) {
 	schedules := repos.Schedules()
 	ctx := context.Background()
 
-	if err := jobs.Create(ctx, "cron-job", `{"id":"cron-job"}`, 1); err != nil {
-		t.Fatalf("create stored job: %v", err)
+	if err := jobs.CreateDefinitionSnapshot(ctx, "cron-job", `{"id":"cron-job"}`); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
@@ -5240,7 +5154,7 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 		NextRunAt:  nextRun,
 		Enabled:    true,
 	}); err != nil {
-		t.Fatalf("create stored schedule: %v", err)
+		t.Fatalf("create source-only delete guard fixture: %v", err)
 	}
 
 	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "stale-source"); err != nil {
@@ -5261,11 +5175,11 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 	}
 
 	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "stored-only"); err != nil {
-		t.Fatalf("stored schedule should remain: %v", err)
+		t.Fatalf("source-only delete guard fixture should remain: %v", err)
 	}
 
 	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "stored-only"); !dal.IsNotFound(err) {
-		t.Fatalf("deleting stored schedule through source delete should be not found, got %v", err)
+		t.Fatalf("deleting source-only delete guard fixture through source delete should be not found, got %v", err)
 	}
 
 	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "missing"); !dal.IsNotFound(err) {
@@ -5280,8 +5194,8 @@ func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	schedules := repos.Schedules()
 	ctx := context.Background()
 
-	if err := jobs.Create(ctx, "cron-job", `{"id":"cron-job"}`, 1); err != nil {
-		t.Fatalf("create stored job: %v", err)
+	if err := jobs.CreateDefinitionSnapshot(ctx, "cron-job", `{"id":"cron-job"}`); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)

@@ -33,7 +33,7 @@ func setupCronIntegrationTest(t *testing.T) (*cron.CronService, *sql.DB, *mocks.
 
 func insertCronIntegrationJob(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
 	t.Helper()
-	if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), jobID, definitionJSON, 1); err != nil {
+	if err := dal.NewSQLRepositories(db).Jobs().CreateDefinitionSnapshot(context.Background(), jobID, definitionJSON); err != nil {
 		t.Fatalf("failed to insert job: %v", err)
 	}
 }

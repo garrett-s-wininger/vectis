@@ -24,8 +24,8 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 
 	jobDef := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Jobs().Create(ctx, "job-a", jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-a", jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
 	}
 
 	runs := repos.Runs()
@@ -203,8 +203,8 @@ func TestService_Process_RepairsOrphanedTaskRunSucceeded(t *testing.T) {
 	jobID := "job-task-finalize-repair-success"
 	jobDef := `{"id":"job-task-finalize-repair-success","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
@@ -261,8 +261,8 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 	jobID := "job-task-finalize-repair-failed"
 	jobDef := `{"id":"job-task-finalize-repair-failed","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
@@ -357,8 +357,8 @@ func TestService_Process_ReplaysFrozenPayloadOnRedispatch(t *testing.T) {
 
 	jobDef := `{"id":"job-frozen","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Jobs().Create(ctx, "job-frozen", jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-frozen", jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-frozen", nil, 1)
@@ -429,11 +429,11 @@ func TestService_Process_ReenqueuesCapturedDefinitionVersion(t *testing.T) {
 	jobID := "job-versioned"
 	defV1 := `{"id":"job-versioned","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
 	defV2 := `{"id":"job-versioned","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, defV1, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defV1); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
-	if _, err := repos.Jobs().UpdateDefinition(ctx, jobID, defV2); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defV2); err != nil {
 		t.Fatalf("update job: %v", err)
 	}
 
@@ -501,7 +501,7 @@ func TestService_Process_SkipsRecentDispatch(t *testing.T) {
 
 	jobDef := `{"id":"job-b","root":{"uses":"builtins/shell"}}`
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Jobs().Create(ctx, "job-b", jobDef, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-b", jobDef); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
@@ -573,8 +573,8 @@ func TestService_Process_DBUnavailable_SkipsUntilRecovered(t *testing.T) {
 
 	jobDef := `{"id":"job-db-down","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
 	repos := dal.NewSQLRepositories(db)
-	if err := repos.Jobs().Create(ctx, "job-db-down", jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-db-down", jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
 	}
 
 	if _, _, err := repos.Runs().CreateRun(ctx, "job-db-down", nil, 1); err != nil {
@@ -638,7 +638,7 @@ func TestService_Process_ServiceLeaseAllowsStandbyTakeover(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	jobID := "job-lease-takeover"
 	jobDef := `{"id":"job-lease-takeover","root":{"uses":"builtins/shell","with":{"command":"echo takeover"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

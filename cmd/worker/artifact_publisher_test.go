@@ -48,7 +48,7 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	jobID := "job-worker-artifact"
 	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -161,7 +161,7 @@ func TestWorkerArtifactPublisherAppliesUploadLimit(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	jobID := "job-worker-artifact-limit"
 	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestWorkerArtifactPublisherAppliesRunQuota(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	jobID := "job-worker-artifact-run-quota"
 	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -304,7 +304,7 @@ func TestWorkerUploadArtifactActionPublishesDownloadableBlob(t *testing.T) {
 	jobID := "job-worker-upload-artifact"
 	def := `{"id":"` + jobID + `","root":{"uses":"builtins/upload-artifact"}}`
 
-	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

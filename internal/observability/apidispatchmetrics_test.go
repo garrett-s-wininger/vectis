@@ -25,7 +25,7 @@ func TestAPIDispatchMetrics_RecordRunEnqueue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m.RecordRunEnqueue(ctx, APIEnqueueRunKindStored, APIEnqueueOutcomeAccepted)
+	m.RecordRunEnqueue(ctx, APIEnqueueRunKindReplay, APIEnqueueOutcomeAccepted)
 	m.RecordRunEnqueue(ctx, APIEnqueueRunKindEphemeral, APIEnqueueOutcomeFailedEnqueue)
 
 	rr := httptest.NewRecorder()
@@ -47,10 +47,10 @@ func TestAPIDispatchMetrics_RecordRunEnqueue(t *testing.T) {
 	}
 
 	if !metricFamilyHasLabels(family, map[string]string{
-		"run_kind": "stored",
+		"run_kind": "replay",
 		"outcome":  "accepted",
 	}) {
-		t.Fatalf("metric missing stored accepted labels: %v", family)
+		t.Fatalf("metric missing replay accepted labels: %v", family)
 	}
 
 	if !metricFamilyHasLabels(family, map[string]string{

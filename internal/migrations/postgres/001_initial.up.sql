@@ -11,17 +11,6 @@ CREATE TABLE namespaces (
 
 INSERT INTO namespaces (id, global_id, name, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', '/', false, 'local');
 
-CREATE TABLE stored_jobs (
-    id BIGSERIAL PRIMARY KEY,
-    global_id TEXT UNIQUE,
-    job_id TEXT UNIQUE NOT NULL,
-    namespace_id BIGINT NOT NULL DEFAULT 1 REFERENCES namespaces(id),
-    current_version INTEGER NOT NULL DEFAULT 1,
-    home_cell TEXT NOT NULL DEFAULT 'local',
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE job_triggers (
     id BIGSERIAL PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -471,7 +460,6 @@ CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
 CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
 CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
 
-CREATE INDEX idx_stored_jobs_namespace ON stored_jobs(namespace_id);
 CREATE INDEX idx_job_runs_status_dispatched ON job_runs(status, last_dispatched_at);
 CREATE INDEX idx_job_runs_lease_until ON job_runs(lease_until);
 CREATE INDEX idx_job_runs_status ON job_runs(status);

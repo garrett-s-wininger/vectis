@@ -45,7 +45,7 @@ func TestIntegrationMultiCell_RoutedExecutionCatalogFanInAndBackfill(t *testing.
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
 	cellRepos := dal.NewSQLRepositoriesWithCellID(cellDB, cellID)
 
-	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestIntegrationMultiCell_FanOutRunsAcrossCellsAndFanInIsIdempotent(t *testi
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
-	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 
@@ -226,7 +226,7 @@ func TestIntegrationMultiCell_ReplayRunRoutesToNamedCellWithSourceSnapshot(t *te
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
-	if err := globalRepos.Jobs().Create(ctx, jobID, definitionV1, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definitionV1); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 
@@ -252,7 +252,7 @@ func TestIntegrationMultiCell_ReplayRunRoutesToNamedCellWithSourceSnapshot(t *te
 	fanInAndProcess(t, ctx, globalRepos, []*integrationCell{c})
 	assertGlobalAPIRunStatus(t, api, jobID, sourceRunID, c.id, dal.RunStatusSucceeded)
 
-	if _, err := globalRepos.Jobs().UpdateDefinition(ctx, jobID, definitionV2); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definitionV2); err != nil {
 		t.Fatalf("update job definition: %v", err)
 	}
 
@@ -316,7 +316,7 @@ func TestIntegrationMultiCell_CellsStatusCombinesRoutesRunsAndCatalogSources(t *
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
-	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 
@@ -424,7 +424,7 @@ func TestIntegrationMultiCell_FailedExecutionPropagatesThroughCatalog(t *testing
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
-	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 
@@ -473,7 +473,7 @@ func TestIntegrationMultiCell_UnroutableCellRecordsDispatchFailure(t *testing.T)
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
-	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 
@@ -499,7 +499,7 @@ func TestIntegrationMultiCell_UnavailableCellIngressRecordsDispatchFailure(t *te
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
-	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 
@@ -534,7 +534,7 @@ func TestIntegrationMultiCell_ReconcilerRepairsFailedDispatchThroughCellIngress(
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
-	if err := globalRepos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	if err := globalRepos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create global job: %v", err)
 	}
 

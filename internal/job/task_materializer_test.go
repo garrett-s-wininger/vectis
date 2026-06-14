@@ -29,14 +29,14 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-task-materialize", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-task-materialize", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-task-materialize"
 	def := `{"id":"job-task-materialize","root":{"id":"root","uses":"builtins/sequence","steps":[{"id":"setup","uses":"builtins/shell","with":{"command":"echo setup"}},{"id":"build","uses":"builtins/parallel","steps":[{"id":"compile","uses":"builtins/shell","with":{"command":"echo compile"}},{"id":"test","uses":"builtins/shell","with":{"command":"echo test"}}]}]}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
