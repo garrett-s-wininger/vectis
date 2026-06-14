@@ -51,6 +51,7 @@ const sidebars = {
           items: [
             'operating/reliability/runbooks',
             'operating/reliability/production-monitoring',
+            'operating/reliability/production-drills',
             'operating/reliability/repair-runbooks',
             'operating/reliability/dispatch-visibility',
             'operating/reliability/backup-restore',

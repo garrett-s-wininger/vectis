@@ -46,6 +46,9 @@ For SQLite, stop Vectis or use a SQLite-safe backup process before copying the d
 Run this drill before declaring a production v1 deployment ready, before major
 schema upgrades, and on a regular operations cadence.
 
+For the shorter rehearsal checklist that ties restore proof to upgrade and
+rollback proof, see [Production Drills](./production-drills.md).
+
 | Phase | Evidence to collect |
 | --- | --- |
 | Scope | Deployment name, Vectis version, topology, service instance IDs, queue/log/artifact shard IDs, database DSNs without secrets, and durable storage paths. |
@@ -205,3 +208,4 @@ Record these after a drill or real recovery:
 | Secret handling during deploy and recovery | [Secrets And Redaction](../deployment/secrets-and-redaction.md) |
 | Production config and secrets | [Production Config And Secrets Contract](../deployment/production-config-contract.md) |
 | Production Linux deployment | [Production Linux Deployment](../deployment/production-linux.md) |
+| Production drills | [Production Drills](./production-drills.md) |

@@ -2,7 +2,7 @@
 
 This is the operator entry point for Vectis health checks, alerts, and first triage. Start here when the system is reachable but something looks wrong.
 
-For the production monitoring contract, see [Production Monitoring Contract](./production-monitoring.md). For step-by-step repair procedures, see [Repair Runbooks](./repair-runbooks.md). For check IDs and JSON output shape, see [Health Check Catalog](../reference/health-check-catalog.md).
+For the production monitoring contract, see [Production Monitoring Contract](./production-monitoring.md). For rehearsed upgrade, rollback, and restore procedures, see [Production Drills](./production-drills.md). For step-by-step repair procedures, see [Repair Runbooks](./repair-runbooks.md). For check IDs and JSON output shape, see [Health Check Catalog](../reference/health-check-catalog.md).
 
 ## First Response
 
@@ -127,6 +127,7 @@ These are current monitoring limits operators should cover with external telemet
 | Topic | Document |
 | --- | --- |
 | Production monitoring | [Production Monitoring Contract](./production-monitoring.md) |
+| Production drills | [Production Drills](./production-drills.md) |
 | Repair steps | [Repair Runbooks](./repair-runbooks.md) |
 | Health check catalog | [Health Check Catalog](../reference/health-check-catalog.md) |
 | Queue handoff triage | [Dispatch Visibility](./dispatch-visibility.md) |

@@ -124,7 +124,7 @@ a paired worker-core socket when worker core is used:
 VECTIS_WORKER_QUEUE_ADDRESS=queue.internal:8081
 VECTIS_WORKER_ORCHESTRATOR_ADDRESS=orchestrator.internal:8087
 VECTIS_WORKER_LOG_ADDRESS=log.internal:8083
-VECTIS_WORKER_ARTIFACT_ADDRESS=artifact.internal:8084
+VECTIS_WORKER_ARTIFACT_ADDRESS=artifact.internal:8086
 VECTIS_WORKER_CORE_SOCKET=/run/vectis/worker-core.sock
 ```
 
@@ -260,5 +260,6 @@ Before the deployment is handed to operators:
 | Secrets and redaction | [Secrets And Redaction](./secrets-and-redaction.md) |
 | Backup and restore | [Backup And Restore](../reliability/backup-restore.md) |
 | Production monitoring | [Production Monitoring Contract](../reliability/production-monitoring.md) |
+| Production drills | [Production Drills](../reliability/production-drills.md) |
 | Retention | [Retention And Storage Pressure](../reliability/retention.md) |
 | Runbooks and alerts | [Runbooks And Alerts](../reliability/runbooks.md) |
