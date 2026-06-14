@@ -24,7 +24,10 @@ artifact kind.
 The standalone units are Postgres-first. Set `VECTIS_DATABASE_DRIVER=pgx` and a
 real PostgreSQL DSN after copying the rendered `env/vectis.env.example` to
 `/etc/vectis/vectis.env`.
-The rendered artifact contract describes the standalone multi-service stack.
+The rendered artifact contract describes the standalone multi-service stack,
+including API, artifact, catalog, cell ingress, cron, docs, log, log-forwarder,
+orchestrator, queue, reconciler, registry, secrets, SPIFFE authority, worker,
+and worker-core units.
 The `vectis-local` DEB/RPM package is intentionally separate from this
 TOML-driven service inventory and does not install systemd units.
 

@@ -13,21 +13,15 @@ in [Production Config And Secrets Contract](./production-config-contract.md).
 
 ## Current Packaging Boundary
 
-The production package lane currently installs the standard standalone service
-set from `deploy/linux/services.toml`: common files, migration unit, registry,
-queue, log, log-forwarder, API, cell-ingress, worker, cron, catalog, reconciler,
-docs, and CLI packages.
+The production package lane installs the standard standalone service set from
+`deploy/linux/services.toml`: common files, migration unit, registry, queue,
+orchestrator, log, log-forwarder, artifact, API, cell-ingress, worker-core,
+worker, cron, catalog, reconciler, secrets, SPIFFE authority, docs, and CLI
+packages.
 
-Production Topology v1 also expects `vectis-orchestrator`,
-`vectis-artifact`, and, when used, `vectis-worker-core`, `vectis-secrets`, and
-`vectis-spiffe`. Until those binaries are covered by the Linux service package
-inventory, production-like Linux deployments must supervise them through the
-operator's platform or use the Podman reference deployment as a topology map
-while replacing its demo assumptions.
-
-Do not call a Linux package-only install production-complete until every
-required topology-v1 service has an operator-owned supervisor, durable storage,
-configuration, health check, and restart policy.
+Packages place files on disk. They do not decide host placement, write live
+secrets, enable units, start services, or replace operator-owned supervision and
+configuration policy.
 
 ## Before You Start
 

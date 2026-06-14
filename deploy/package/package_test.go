@@ -216,7 +216,7 @@ func TestLoadManifestIncludesVectisServicesMetapackage(t *testing.T) {
 		t.Fatalf("vectis-services should be metadata-only, got files: %+v", pkg.Files)
 	}
 
-	for _, depend := range []string{"vectis-common", "vectis-api", "vectis-worker"} {
+	for _, depend := range []string{"vectis-common", "vectis-api", "vectis-artifact", "vectis-orchestrator", "vectis-worker", "vectis-worker-core", "vectis-secrets", "vectis-spiffe"} {
 		if !containsString(pkg.Depends, depend) {
 			t.Fatalf("vectis-services dependencies missing %s: %v", depend, pkg.Depends)
 		}

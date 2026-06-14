@@ -72,6 +72,7 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 	requireRecordedCommand(t, manager, []string{
 		"sudo", "systemd-analyze", "verify",
 		"/etc/systemd/system/vectis-api.service",
+		"/etc/systemd/system/vectis-artifact.service",
 		"/etc/systemd/system/vectis-catalog.service",
 		"/etc/systemd/system/vectis-cell-ingress.service",
 		"/etc/systemd/system/vectis-cron.service",
@@ -79,9 +80,13 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		"/etc/systemd/system/vectis-docs.service",
 		"/etc/systemd/system/vectis-log-forwarder.service",
 		"/etc/systemd/system/vectis-log.service",
+		"/etc/systemd/system/vectis-orchestrator.service",
 		"/etc/systemd/system/vectis-queue.service",
 		"/etc/systemd/system/vectis-reconciler.service",
 		"/etc/systemd/system/vectis-registry.service",
+		"/etc/systemd/system/vectis-secrets.service",
+		"/etc/systemd/system/vectis-spiffe.service",
+		"/etc/systemd/system/vectis-worker-core.service",
 		"/etc/systemd/system/vectis-worker.service",
 		"/etc/systemd/system/vectis.target",
 	})

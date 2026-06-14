@@ -171,13 +171,43 @@ VECTIS_LOG_FORWARDER_SHUTDOWN_TIMEOUT = "10s"
 VECTIS_LOG_FORWARDER_METRICS_PORT = "9088"
 
 [[unit]]
+id = "artifact"
+description = "Vectis artifact service"
+target_member = true
+common_env = true
+wants = ["registry"]
+after = ["registry"]
+
+[unit.env_example]
+VECTIS_ARTIFACT_GRPC_PORT = "8086"
+VECTIS_ARTIFACT_METRICS_PORT = "9089"
+VECTIS_ARTIFACT_INSTANCE_ID = "artifact-1"
+VECTIS_ARTIFACT_STORAGE_DIR = "/var/lib/vectis/artifact/artifact-1"
+VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES = "1073741824"
+VECTIS_ARTIFACT_GRPC_REGISTER_WITH_REGISTRY = "true"
+
+[[unit]]
+id = "orchestrator"
+description = "Vectis orchestrator service"
+target_member = true
+common_env = true
+wants = ["registry"]
+after = ["registry"]
+
+[unit.env_example]
+VECTIS_ORCHESTRATOR_PORT = "8087"
+VECTIS_ORCHESTRATOR_METRICS_PORT = "9090"
+VECTIS_ORCHESTRATOR_SHARDS = "0"
+VECTIS_ORCHESTRATOR_REGISTER_WITH_REGISTRY = "true"
+
+[[unit]]
 id = "api"
 description = "Vectis API service"
 target_member = true
 common_env = true
 db_backed = true
-wants = ["registry", "queue", "log"]
-after = ["registry", "queue", "log"]
+wants = ["registry", "queue", "log", "artifact"]
+after = ["registry", "queue", "log", "artifact"]
 
 [unit.env_example]
 VECTIS_API_SERVER_HOST = "0.0.0.0"
@@ -204,14 +234,63 @@ description = "Vectis worker service"
 target_member = true
 common_env = true
 db_backed = true
-wants = ["registry", "queue", "log", "log-forwarder"]
-after = ["registry", "queue", "log", "log-forwarder"]
+wants = ["registry", "queue", "log", "log-forwarder", "artifact", "orchestrator", "worker-core"]
+after = ["registry", "queue", "log", "log-forwarder", "artifact", "orchestrator", "worker-core"]
 timeout_stop_sec = "120s"
 
 [unit.env_example]
 VECTIS_WORKER_METRICS_PORT = "9082"
 VECTIS_WORKER_CONTROL_MODE = "static"
 VECTIS_WORKER_CONTROL_PORT = "9084"
+VECTIS_WORKER_ARTIFACT_ADDRESS = "127.0.0.1:8086"
+VECTIS_WORKER_ORCHESTRATOR_ADDRESS = "127.0.0.1:8087"
+VECTIS_WORKER_CORE_SOCKET = "/run/vectis/worker-core.sock"
+VECTIS_WORKER_CORE_SHELL_SOCKET = "/run/vectis/worker-core-shell.sock"
+
+[[unit]]
+id = "worker-core"
+description = "Vectis worker core service"
+target_member = true
+common_env = true
+timeout_stop_sec = "120s"
+
+[unit.env_example]
+VECTIS_WORKER_CORE_SOCKET = "/run/vectis/worker-core.sock"
+VECTIS_WORKER_CORE_EXECUTION_BACKEND = "host"
+VECTIS_WORKER_CORE_WORKSPACE_ROOT = "/var/lib/vectis/workspaces"
+VECTIS_WORKER_CORE_LIMA_INSTANCE = ""
+VECTIS_WORKER_CORE_LIMA_GUEST_WORKSPACE_ROOT = ""
+VECTIS_WORKER_CORE_LIMA_START = "false"
+
+[[unit]]
+id = "secrets"
+description = "Vectis secrets service"
+target_member = true
+common_env = true
+db_backed = true
+
+[unit.env_example]
+VECTIS_SECRETS_PORT = "8090"
+VECTIS_SECRETS_METRICS_PORT = "9091"
+VECTIS_SECRETS_ENCRYPTEDFS_ROOT = "/var/lib/vectis/secrets/envelopes"
+VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE = "/etc/vectis/secrets/encryptedfs.key"
+VECTIS_SECRETS_POLICY_ALLOW = ""
+
+[[unit]]
+id = "spiffe"
+description = "Vectis SPIFFE authority"
+target_member = true
+common_env = true
+
+[unit.env_example]
+VECTIS_SPIFFE_TRUST_DOMAIN = "vectis.internal"
+VECTIS_SPIFFE_DATA_DIR = "/var/lib/vectis/spiffe"
+VECTIS_SPIFFE_RUNTIME_DIR = "/run/vectis/spiffe"
+VECTIS_SPIFFE_WORKLOAD_SOCKET = "/run/vectis/spiffe/workload.sock"
+VECTIS_SPIFFE_REGISTRATION_SOCKET = "/run/vectis/spiffe/registration.sock"
+VECTIS_SPIFFE_BUNDLE_FILE = "/var/lib/vectis/spiffe/bundle.pem"
+VECTIS_SPIFFE_SELECTOR = "unix:uid:1000"
+VECTIS_SPIFFE_X509_SVID_TTL = "5m"
 
 [[unit]]
 id = "cron"

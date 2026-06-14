@@ -116,6 +116,13 @@ service = "api"
 depends = ["vectis-common"]
 
 [[package]]
+id = "vectis-artifact"
+name = "vectis-artifact"
+summary = "Vectis artifact service"
+service = "artifact"
+depends = ["vectis-common"]
+
+[[package]]
 id = "vectis-catalog"
 name = "vectis-catalog"
 summary = "Vectis catalog service"
@@ -158,6 +165,13 @@ service = "log-forwarder"
 depends = ["vectis-common"]
 
 [[package]]
+id = "vectis-orchestrator"
+name = "vectis-orchestrator"
+summary = "Vectis orchestrator service"
+service = "orchestrator"
+depends = ["vectis-common"]
+
+[[package]]
 id = "vectis-queue"
 name = "vectis-queue"
 summary = "Vectis queue service"
@@ -179,10 +193,31 @@ service = "registry"
 depends = ["vectis-common"]
 
 [[package]]
+id = "vectis-secrets"
+name = "vectis-secrets"
+summary = "Vectis secrets service"
+service = "secrets"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-spiffe"
+name = "vectis-spiffe"
+summary = "Vectis SPIFFE authority"
+service = "spiffe"
+depends = ["vectis-common"]
+
+[[package]]
 id = "vectis-worker"
 name = "vectis-worker"
 summary = "Vectis worker service"
 service = "worker"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-worker-core"
+name = "vectis-worker-core"
+summary = "Vectis worker core service"
+service = "worker-core"
 depends = ["vectis-common"]
 
 [[package]]
@@ -197,14 +232,19 @@ meta = true
 depends = [
   "vectis-common",
   "vectis-api",
+  "vectis-artifact",
   "vectis-catalog",
   "vectis-cell-ingress",
   "vectis-cron",
   "vectis-docs",
   "vectis-log",
   "vectis-log-forwarder",
+  "vectis-orchestrator",
   "vectis-queue",
   "vectis-reconciler",
   "vectis-registry",
+  "vectis-secrets",
+  "vectis-spiffe",
   "vectis-worker",
+  "vectis-worker-core",
 ]

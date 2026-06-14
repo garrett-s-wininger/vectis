@@ -13,6 +13,10 @@ The first package split is:
 | `vectis-<service>` | one service binary, its systemd unit, and its env example |
 | `vectis-services` | metadata-only convenience package depending on the standard standalone service set |
 
+The standard standalone service set includes API, artifact, catalog, cell
+ingress, cron, docs, log, log-forwarder, orchestrator, queue, reconciler,
+registry, secrets, SPIFFE authority, worker, and worker-core packages.
+
 Build the production Linux package set with:
 
 ```sh

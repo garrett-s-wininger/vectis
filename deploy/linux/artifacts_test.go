@@ -21,16 +21,21 @@ const (
 
 var expectedStandaloneExecs = map[string]string{
 	"vectis-api.service":           "/usr/bin/vectis-api",
+	"vectis-artifact.service":      "/usr/bin/vectis-artifact",
 	"vectis-catalog.service":       "/usr/bin/vectis-catalog",
 	"vectis-cell-ingress.service":  "/usr/bin/vectis-cell-ingress",
 	"vectis-cron.service":          "/usr/bin/vectis-cron",
 	"vectis-docs.service":          "/usr/bin/vectis-docs",
 	"vectis-log.service":           "/usr/bin/vectis-log",
 	"vectis-log-forwarder.service": "/usr/bin/vectis-log-forwarder",
+	"vectis-orchestrator.service":  "/usr/bin/vectis-orchestrator",
 	"vectis-queue.service":         "/usr/bin/vectis-queue",
 	"vectis-reconciler.service":    "/usr/bin/vectis-reconciler",
 	"vectis-registry.service":      "/usr/bin/vectis-registry",
+	"vectis-secrets.service":       "/usr/bin/vectis-secrets",
+	"vectis-spiffe.service":        "/usr/bin/vectis-spiffe",
 	"vectis-worker.service":        "/usr/bin/vectis-worker",
+	"vectis-worker-core.service":   "/usr/bin/vectis-worker-core",
 }
 
 var expectedDBBackedServices = map[string]struct{}{
@@ -39,6 +44,7 @@ var expectedDBBackedServices = map[string]struct{}{
 	"vectis-cell-ingress.service": {},
 	"vectis-cron.service":         {},
 	"vectis-reconciler.service":   {},
+	"vectis-secrets.service":      {},
 	"vectis-worker.service":       {},
 }
 
