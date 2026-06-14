@@ -741,6 +741,10 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
 	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
 
 	server, _, queueService, db := setupTestServer(t)
 	repos := dal.NewSQLRepositories(db)
@@ -808,6 +812,66 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 		t.Fatalf("register source repository with stored jobs disabled: status=%d body=%s", registerRec.Code, registerRec.Body.String())
 	}
 
+	statusRec := httptest.NewRecorder()
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/source/status", nil)
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("source status with stored jobs disabled: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+
+	var statusResp struct {
+		StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
+		RepositoriesConfigured bool `json:"repositories_configured"`
+		SourceJobsConfigured   bool `json:"source_jobs_configured"`
+		Repositories           struct {
+			Total   int `json:"total"`
+			Enabled int `json:"enabled"`
+		} `json:"repositories"`
+	}
+	if err := json.NewDecoder(statusRec.Body).Decode(&statusResp); err != nil {
+		t.Fatalf("decode source status: %v", err)
+	}
+	if statusResp.StoredJobsEnabled ||
+		!statusResp.RepositoriesConfigured ||
+		!statusResp.SourceJobsConfigured ||
+		statusResp.Repositories.Total != 1 ||
+		statusResp.Repositories.Enabled != 1 {
+		t.Fatalf("source-only status mismatch: %+v", statusResp)
+	}
+
+	jobsRec := httptest.NewRecorder()
+	jobsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs", nil)
+	handler.ServeHTTP(jobsRec, jobsReq)
+	if jobsRec.Code != http.StatusOK {
+		t.Fatalf("list source repository jobs with stored jobs disabled: status=%d body=%s", jobsRec.Code, jobsRec.Body.String())
+	}
+
+	var jobsResp struct {
+		RepositoryID string `json:"repository_id"`
+		Jobs         []struct {
+			JobID  string `json:"job_id"`
+			Path   string `json:"path"`
+			Source struct {
+				RepositoryID   string `json:"repository_id"`
+				ResolvedCommit string `json:"resolved_commit"`
+				Path           string `json:"path"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source"`
+		} `json:"jobs"`
+	}
+	if err := json.NewDecoder(jobsRec.Body).Decode(&jobsResp); err != nil {
+		t.Fatalf("decode source jobs: %v", err)
+	}
+	if jobsResp.RepositoryID != "vectis-local" ||
+		len(jobsResp.Jobs) != 1 ||
+		jobsResp.Jobs[0].JobID != "build" ||
+		jobsResp.Jobs[0].Path != ".vectis/jobs/build.json" ||
+		jobsResp.Jobs[0].Source.RepositoryID != "vectis-local" ||
+		jobsResp.Jobs[0].Source.ResolvedCommit == "" ||
+		jobsResp.Jobs[0].Source.BlobSHA == "" {
+		t.Fatalf("source jobs response mismatch: %+v", jobsResp)
+	}
+
 	sourceTriggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/jobs/build/trigger", map[string]any{
 		"ref": "HEAD",
 	})
@@ -816,8 +880,70 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 		t.Fatalf("source trigger with stored jobs disabled: status=%d body=%s", sourceTriggerRec.Code, sourceTriggerRec.Body.String())
 	}
 
+	triggerResp := decodeSourceJobTriggerResponse(t, sourceTriggerRec)
+	if triggerResp.RunID == "" ||
+		triggerResp.JobID != "build" ||
+		triggerResp.RunIndex != 1 ||
+		triggerResp.DefinitionVersion != 1 ||
+		triggerResp.Source.RepositoryID != "vectis-local" ||
+		triggerResp.Source.ResolvedCommit == "" ||
+		triggerResp.Source.Path != ".vectis/jobs/build.json" ||
+		triggerResp.Source.BlobSHA == "" {
+		t.Fatalf("source trigger response mismatch: %+v", triggerResp)
+	}
+
 	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
 		t.Fatalf("source trigger should not create stored job, got err=%v", err)
+	}
+
+	storedSSERec := httptest.NewRecorder()
+	storedSSEReq := httptest.NewRequest(http.MethodGet, "/api/v1/sse/jobs/build/runs", nil)
+	handler.ServeHTTP(storedSSERec, storedSSEReq)
+	assertAPIError(t, storedSSERec, http.StatusConflict, "stored_jobs_disabled")
+
+	runLogsRec := httptest.NewRecorder()
+	runLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+triggerResp.RunID+"/logs", nil)
+	handler.ServeHTTP(runLogsRec, runLogsReq)
+	assertAPIError(t, runLogsRec, http.StatusServiceUnavailable, "log_service_unavailable")
+
+	sourceLogsRec := httptest.NewRecorder()
+	sourceLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/build/runs/"+triggerResp.RunID+"/logs", nil)
+	handler.ServeHTTP(sourceLogsRec, sourceLogsReq)
+	assertAPIError(t, sourceLogsRec, http.StatusServiceUnavailable, "log_service_unavailable")
+
+	runsRec := httptest.NewRecorder()
+	runsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/build/runs", nil)
+	handler.ServeHTTP(runsRec, runsReq)
+	if runsRec.Code != http.StatusOK {
+		t.Fatalf("list source repository runs with stored jobs disabled: status=%d body=%s", runsRec.Code, runsRec.Body.String())
+	}
+
+	var runsResp struct {
+		Data []struct {
+			RunID             string `json:"run_id"`
+			RunIndex          int    `json:"run_index"`
+			DefinitionVersion int    `json:"definition_version"`
+			Source            *struct {
+				RepositoryID   string `json:"repository_id"`
+				ResolvedCommit string `json:"resolved_commit"`
+				Path           string `json:"path"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source,omitempty"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(runsRec.Body).Decode(&runsResp); err != nil {
+		t.Fatalf("decode source runs: %v", err)
+	}
+	if len(runsResp.Data) != 1 ||
+		runsResp.Data[0].RunID != triggerResp.RunID ||
+		runsResp.Data[0].RunIndex != 1 ||
+		runsResp.Data[0].DefinitionVersion != 1 ||
+		runsResp.Data[0].Source == nil ||
+		runsResp.Data[0].Source.RepositoryID != "vectis-local" ||
+		runsResp.Data[0].Source.ResolvedCommit != triggerResp.Source.ResolvedCommit ||
+		runsResp.Data[0].Source.Path != ".vectis/jobs/build.json" ||
+		runsResp.Data[0].Source.BlobSHA != triggerResp.Source.BlobSHA {
+		t.Fatalf("source runs response mismatch: %+v", runsResp.Data)
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 2)
