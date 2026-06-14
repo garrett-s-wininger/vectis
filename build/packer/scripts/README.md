@@ -11,3 +11,7 @@ These helpers are sourced by the per-lane Packer `shell-local` entrypoints.
 Lane-specific scripts under `deploy-smoke/scripts`, `package-builder/scripts`,
 and `package-smoke/scripts` should stay focused on their profile-specific guest
 requirements.
+
+The current prepare lifecycle is Lima-specific because it is the first provider
+implemented for macOS. Future KVM or Hyper-V support should add provider
+lifecycles alongside `lima-common.sh` and keep these guest scripts reusable.

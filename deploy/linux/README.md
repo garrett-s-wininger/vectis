@@ -77,6 +77,7 @@ This is an e2e test harness, not a user-facing deploy command. Prepare the
 guest once with Packer, then run the e2e harness against that prepared VM:
 
 ```sh
+make vm-validate
 make vm-deploy-smoke-prepare
 make vm-deploy-smoke-check
 make test-e2e-deploy-linux
@@ -90,6 +91,15 @@ lane selection, so the marker/tooling checks live in one Go implementation.
 whether they are currently running without starting them. `make vm-doctor`
 starts stopped prepared VMs long enough to verify their marker files and guest
 tooling, then stops any VM it started.
+
+For the full prepared-VM lane across deploy and package smoke profiles, use:
+
+```sh
+make vm-validate
+make vm-prepare
+make vm-check
+make test-e2e-vm
+```
 
 By default, `make vm-deploy-smoke-prepare` prepares a Lima instance named
 `vectis-deploy-smoke` from the `ubuntu-lts` template, installs the systemd
@@ -124,6 +134,9 @@ backend. Host operations run through `internal/platform` so additional backends
 can reuse the same render/install/verify/cleanup flow. Use
 `PACKER_DEPLOY_SMOKE_INSTANCE` and `VECTIS_E2E_DEPLOY_LINUX_INSTANCE` together
 when you want to prepare and test a non-default instance name.
+The current Packer prepare scripts are Lima-backed. Linux KVM and Windows
+Hyper-V support should extend the prepare/provider layer while keeping the
+guest provisioning scripts shared.
 
 ## Manual Install Sketch
 

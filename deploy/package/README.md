@@ -70,6 +70,7 @@ make vm-doctor
 To prepare and check every VM-backed deploy/package lane in one pass, use:
 
 ```sh
+make vm-validate
 make vm-prepare
 make vm-check
 ```
@@ -94,6 +95,9 @@ make test-e2e-package-local
 For the full VM-backed deployment/package smoke lane, use:
 
 ```sh
+make vm-validate
+make vm-prepare
+make vm-check
 make test-e2e-vm
 ```
 

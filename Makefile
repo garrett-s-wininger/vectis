@@ -283,9 +283,14 @@ PACKAGE_SERVICES_RPM_TARGETS := $(addprefix package-services-rpm-,$(PACKAGE_ARCH
 
 .PHONY: vm-validate
 vm-validate:
+	$(MAKE) vm-scripts-test
 	$(MAKE) vm-deploy-smoke-validate
 	$(MAKE) vm-package-builder-validate
 	$(MAKE) vm-package-smoke-validate
+
+.PHONY: vm-scripts-test
+vm-scripts-test:
+	$(GO) test ./build/packer
 
 .PHONY: vm-prepare
 vm-prepare:

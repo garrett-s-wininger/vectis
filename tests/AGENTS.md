@@ -8,6 +8,7 @@
 | `test-quick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1 -timeout=60s` — fast feedback |
 | `test-integration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
 | `test-e2e` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
+| `vm-validate` | Prepared VM static validation | Runs Packer script regression tests and `packer validate`; does not boot guests |
 | `vm-status` | Prepared VM inventory | Read-only VM lane status; does not start stopped guests |
 | `vm-doctor` | Prepared VM health check | Starts stopped prepared guests long enough to verify markers and tooling, then stops any VM it started |
 | `vm-check` | Prepared VM health check | Umbrella target for `vm-doctor`; individual `vm-*-check` targets select one lane |
