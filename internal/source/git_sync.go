@@ -14,6 +14,7 @@ type ManagedGitCheckoutRequest struct {
 	CheckoutPath string
 	RemoteURL    string
 	DefaultRef   string
+	Credentials  GitCredentials
 }
 
 // SyncManagedGitCheckout materializes or refreshes a Vectis-owned Git checkout.
@@ -29,6 +30,13 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 		status.setError("missing_checkout_path", "checkout path is required")
 		return status
 	}
+
+	credentialEnv, credentialCleanup, err := managedGitCredentialEnvironment(req.Credentials)
+	if err != nil {
+		status.setError("git_credentials_invalid", err.Error())
+		return status
+	}
+	defer credentialCleanup()
 
 	info, err := os.Stat(checkoutPath)
 	switch {
@@ -47,19 +55,19 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 				return checkoutStatus
 			}
 
-			if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL); err != nil {
+			if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv); err != nil {
 				checkoutStatus.ErrorCode = ""
 				checkoutStatus.ErrorMessage = ""
 				checkoutStatus.setError("git_clone_failed", err.Error())
 				return checkoutStatus
 			}
-		} else if err := fetchManagedGitCheckout(ctx, checkoutPath); err != nil {
+		} else if err := fetchManagedGitCheckout(ctx, checkoutPath, credentialEnv); err != nil {
 			checkoutStatus.DefaultRef = defaultRef
 			checkoutStatus.setError("git_fetch_failed", err.Error())
 			return checkoutStatus
 		}
 	case os.IsNotExist(err):
-		if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL); err != nil {
+		if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv); err != nil {
 			status.setError("git_clone_failed", err.Error())
 			return status
 		}
@@ -82,7 +90,15 @@ func NewManagedGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitC
 	return NewGitCheckout(checkoutPath, append([]GitCheckoutOption{WithRemoteFallback("origin")}, opts...)...)
 }
 
-func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string) error {
+func managedGitCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {
+	if creds.IsZero() {
+		return nil, func() {}, nil
+	}
+
+	return gitCredentialEnvironment(creds)
+}
+
+func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string, env []string) error {
 	remoteURL, err := normalizeGitRemoteURL(remoteURL)
 	if err != nil {
 		return err
@@ -92,15 +108,15 @@ func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string
 		return fmt.Errorf("create checkout parent: %w", err)
 	}
 
-	if _, err := runGitCommand(ctx, "clone", "--filter=blob:none", "--no-checkout", "--", remoteURL, checkoutPath); err != nil {
+	if _, err := runGitCommandWithEnv(ctx, env, "clone", "--filter=blob:none", "--no-checkout", "--", remoteURL, checkoutPath); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func fetchManagedGitCheckout(ctx context.Context, checkoutPath string) error {
-	_, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "fetch", "--filter=blob:none", "--prune", "--tags", "origin")
+func fetchManagedGitCheckout(ctx context.Context, checkoutPath string, env []string) error {
+	_, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, "fetch", "--filter=blob:none", "--prune", "--tags", "origin")
 	return err
 }
 
@@ -232,7 +248,14 @@ func looksLikeFullObjectID(ref string) bool {
 }
 
 func runGitCommand(ctx context.Context, args ...string) ([]byte, error) {
+	return runGitCommandWithEnv(ctx, nil, args...)
+}
+
+func runGitCommandWithEnv(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

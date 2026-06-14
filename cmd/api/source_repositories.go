@@ -11,11 +11,13 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/secrets"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/utils"
 )
 
 type sourceRepositorySyncStatusFunc func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+type sourceRepositoryCredentialResolver func(context.Context, dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error)
 
 func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
 	decls, err := config.SourceRepositoryDeclarations()
@@ -73,6 +75,10 @@ func syncConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLReposit
 }
 
 func startConfiguredSourceRepositoryPeriodicSync(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) {
+	startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus)
+}
+
+func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc) {
 	interval := config.SourceSyncConfiguredRepositoriesInterval()
 	if interval <= 0 {
 		return
@@ -106,7 +112,7 @@ func startConfiguredSourceRepositoryPeriodicSync(ctx context.Context, repos *dal
 
 				return
 			case <-ticker.C:
-				if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus); err != nil && logger != nil {
+				if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, logger, statusFn); err != nil && logger != nil {
 					logger.Warn("Configured source repository periodic sync cycle completed with errors: %v", err)
 				}
 			}
@@ -546,15 +552,101 @@ func configuredSourceRepositorySyncRef(rec dal.SourceRepositoryRecord) string {
 }
 
 func configuredSourceRepositorySyncCheckoutStatus(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+	return configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(nil)(ctx, rec, syncRef)
+}
+
+func configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(resolver sourceRepositoryCredentialResolver) sourceRepositorySyncStatusFunc {
+	return func(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+		return configuredSourceRepositorySyncCheckoutStatusResolved(ctx, rec, syncRef, resolver)
+	}
+}
+
+func configuredSourceRepositorySyncCheckoutStatusResolved(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string, resolver sourceRepositoryCredentialResolver) sourcepkg.GitCheckoutStatus {
 	if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
+		credentials, err := configuredSourceRepositoryGitCredentials(ctx, rec, resolver)
+		if err != nil {
+			return sourcepkg.GitCheckoutStatus{
+				CheckoutPath: rec.CheckoutPath,
+				DefaultRef:   syncRef,
+				ErrorCode:    "git_credentials_unavailable",
+				ErrorMessage: err.Error(),
+			}
+		}
+
 		return sourcepkg.SyncManagedGitCheckout(ctx, sourcepkg.ManagedGitCheckoutRequest{
 			CheckoutPath: rec.CheckoutPath,
 			RemoteURL:    rec.CanonicalURL,
 			DefaultRef:   syncRef,
+			Credentials:  credentials,
 		})
 	}
 
 	return sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, syncRef)
+}
+
+func configuredSourceRepositoryGitCredentials(ctx context.Context, rec dal.SourceRepositoryRecord, resolver sourceRepositoryCredentialResolver) (sourcepkg.GitCredentials, error) {
+	if strings.TrimSpace(rec.CredentialRef) == "" {
+		return sourcepkg.GitCredentials{}, nil
+	}
+
+	if resolver == nil {
+		return sourcepkg.GitCredentials{}, fmt.Errorf("credential_ref is configured but source credential resolver is not configured")
+	}
+
+	return resolver(ctx, rec)
+}
+
+func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourceRepositoryCredentialResolver, error) {
+	root := strings.TrimSpace(config.SecretsEncryptedFSRoot())
+	keyFile := strings.TrimSpace(config.SecretsEncryptedFSKeyFile())
+	if root == "" && keyFile == "" {
+		return nil, nil
+	}
+
+	if root == "" || keyFile == "" {
+		return nil, fmt.Errorf("source repository credentials require both secrets.encryptedfs.root and secrets.encryptedfs.key_file")
+	}
+
+	provider, err := secrets.NewEncryptedFSProvider(root, secrets.WithEncryptedFSKeyFile(keyFile))
+	if err != nil {
+		return nil, fmt.Errorf("source repository credential provider: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("Configured encryptedfs source repository credential resolver")
+	}
+
+	return func(ctx context.Context, rec dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
+		ref := strings.TrimSpace(rec.CredentialRef)
+		if ref == "" {
+			return sourcepkg.GitCredentials{}, nil
+		}
+
+		bundle, err := provider.Resolve(ctx, secrets.ResolveRequest{
+			Scope: secrets.ExecutionScope{
+				JobID: "source-repository:" + strings.TrimSpace(rec.RepositoryID),
+			},
+			Secrets: []secrets.Reference{{
+				ID:  "git-credential",
+				Ref: ref,
+			}},
+		})
+
+		if err != nil {
+			return sourcepkg.GitCredentials{}, fmt.Errorf("resolve source repository credential %q: %w", rec.RepositoryID, err)
+		}
+
+		if len(bundle.Files) != 1 {
+			return sourcepkg.GitCredentials{}, fmt.Errorf("resolve source repository credential %q: expected 1 secret, got %d", rec.RepositoryID, len(bundle.Files))
+		}
+
+		credentials, err := sourcepkg.ParseGitCredentials(bundle.Files[0].Data)
+		if err != nil {
+			return sourcepkg.GitCredentials{}, fmt.Errorf("parse source repository credential %q: %w", rec.RepositoryID, err)
+		}
+
+		return credentials, nil
+	}, nil
 }
 
 func configuredSourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string {

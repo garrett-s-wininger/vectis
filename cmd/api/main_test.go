@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/secrets"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/testutil/dbtest"
 )
@@ -592,6 +594,72 @@ func TestSyncConfiguredSourceRepositories_SkipsDisabledRepositories(t *testing.T
 		got.LastSyncStartedAtUnix != 0 ||
 		got.LastSyncFinishedAtUnix != 0 {
 		t.Fatalf("disabled repository sync result mismatch: %+v", got)
+	}
+}
+
+func TestConfiguredSourceRepositoryGitCredentialsRequireResolver(t *testing.T) {
+	_, err := configuredSourceRepositoryGitCredentials(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		CredentialRef: "encryptedfs://git/private-repo",
+	}, nil)
+
+	if err == nil || !strings.Contains(err.Error(), "credential_ref") {
+		t.Fatalf("expected credential resolver error, got %v", err)
+	}
+
+	status := configuredSourceRepositorySyncCheckoutStatusResolved(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CheckoutPath:  "/work/private",
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		CredentialRef: "encryptedfs://git/private-repo",
+	}, "main", nil)
+
+	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
+		t.Fatalf("unexpected credential status: %+v", status)
+	}
+}
+
+func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", "")
+	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", "")
+
+	root := t.TempDir()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	keyFile := filepath.Join(t.TempDir(), "encryptedfs.key")
+	if err := os.WriteFile(keyFile, key, 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+
+	ref := "encryptedfs://git/private-repo"
+	if err := secrets.WriteEncryptedFSSecretFile(root, ref, []byte(`{"username":"oauth2","token":"ghp_private"}`), key); err != nil {
+		t.Fatalf("write encrypted source credential: %v", err)
+	}
+
+	viper.Set("secrets.encryptedfs.root", root)
+	viper.Set("secrets.encryptedfs.key_file", keyFile)
+	resolver, err := newConfiguredSourceRepositoryCredentialResolver(nil)
+	if err != nil {
+		t.Fatalf("new credential resolver: %v", err)
+	}
+
+	if resolver == nil {
+		t.Fatal("expected configured credential resolver")
+	}
+
+	creds, err := resolver(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CredentialRef: ref,
+	})
+
+	if err != nil {
+		t.Fatalf("resolve source credential: %v", err)
+	}
+
+	if creds.Username != "oauth2" || creds.Password != "ghp_private" {
+		t.Fatalf("credentials = %+v, want oauth token material", creds)
 	}
 }
 

@@ -2220,7 +2220,7 @@ func configureSourcesRegisterFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceRegisterAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
 	cmd.Flags().StringVar(&sourceRegisterCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
 	cmd.Flags().StringVar(&sourceRegisterDefaultRef, "default-ref", "", "Default git ref for source operations")
-	cmd.Flags().StringVar(&sourceRegisterCredentialRef, "credential-ref", "", "Credential reference for future source integrations")
+	cmd.Flags().StringVar(&sourceRegisterCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
 	cmd.Flags().BoolVar(&sourceRegisterDisabled, "disabled", false, "Register the repository disabled")
 }
 
@@ -2231,7 +2231,7 @@ func configureSourcesUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceUpdateAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
 	cmd.Flags().StringVar(&sourceUpdateCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
 	cmd.Flags().StringVar(&sourceUpdateDefaultRef, "default-ref", "", "Default git ref for source operations")
-	cmd.Flags().StringVar(&sourceUpdateCredentialRef, "credential-ref", "", "Credential reference for future source integrations")
+	cmd.Flags().StringVar(&sourceUpdateCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
 	cmd.Flags().BoolVar(&sourceUpdateEnable, "enable", false, "Enable the source repository")
 	cmd.Flags().BoolVar(&sourceUpdateDisable, "disable", false, "Disable the source repository")
 }
