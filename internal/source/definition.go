@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
 	jobvalidation "vectis/internal/job/validation"
 )
 
@@ -28,6 +29,17 @@ type DefinitionSource struct {
 	Commit       string
 	Path         string
 	BlobSHA      string
+}
+
+func NewJobDefinitionSourceRecord(jobID, repositoryID string, definition Definition) dal.JobDefinitionSourceRecord {
+	return dal.JobDefinitionSourceRecord{
+		JobID:          strings.TrimSpace(jobID),
+		RepositoryID:   strings.TrimSpace(repositoryID),
+		RequestedRef:   definition.Source.RequestedRef,
+		ResolvedCommit: definition.Source.Commit,
+		DefinitionPath: definition.Source.Path,
+		BlobSHA:        definition.Source.BlobSHA,
+	}
 }
 
 func LoadDefinition(ctx context.Context, repo Repository, req DefinitionRequest) (Definition, error) {

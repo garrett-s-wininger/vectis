@@ -1806,14 +1806,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	sourceRec := dal.JobDefinitionSourceRecord{
-		JobID:          jobID,
-		RepositoryID:   rec.RepositoryID,
-		RequestedRef:   loaded.Source.RequestedRef,
-		ResolvedCommit: loaded.Source.Commit,
-		DefinitionPath: loaded.Source.Path,
-		BlobSHA:        loaded.Source.BlobSHA,
-	}
+	sourceRec := sourcepkg.NewJobDefinitionSourceRecord(jobID, rec.RepositoryID, loaded)
 
 	runID, runIndex, definitionVersion, err := sourceRunStarter.CreateSourceDefinitionAndRunInCellWithAudit(ctx, jobID, loaded.DefinitionJSON, sourceRec, targetCellID, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
 	if err != nil {
@@ -3222,14 +3215,7 @@ func (s *APIServer) importSourceDefinitionFile(
 	result.DefinitionHash = definitionHash
 	result.Source.BlobSHA = loaded.Source.BlobSHA
 
-	sourceRec := dal.JobDefinitionSourceRecord{
-		JobID:          jobID,
-		RepositoryID:   rec.RepositoryID,
-		RequestedRef:   listing.RequestedRef,
-		ResolvedCommit: listing.Revision.Commit,
-		DefinitionPath: loaded.Source.Path,
-		BlobSHA:        loaded.Source.BlobSHA,
-	}
+	sourceRec := sourcepkg.NewJobDefinitionSourceRecord(jobID, rec.RepositoryID, loaded)
 
 	currentJSON, currentVersion, err := s.jobs.GetDefinition(ctx, jobID)
 	switch {

@@ -146,6 +146,26 @@ func TestLoadDefinitionRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestNewJobDefinitionSourceRecord(t *testing.T) {
+	rec := NewJobDefinitionSourceRecord(" build ", " vectis-local ", Definition{
+		Source: DefinitionSource{
+			RequestedRef: "main",
+			Commit:       "0123456789abcdef0123456789abcdef01234567",
+			Path:         ".vectis/jobs/build.json",
+			BlobSHA:      "abcdef0123456789abcdef0123456789abcdef01",
+		},
+	})
+
+	if rec.JobID != "build" ||
+		rec.RepositoryID != "vectis-local" ||
+		rec.RequestedRef != "main" ||
+		rec.ResolvedCommit != "0123456789abcdef0123456789abcdef01234567" ||
+		rec.DefinitionPath != ".vectis/jobs/build.json" ||
+		rec.BlobSHA != "abcdef0123456789abcdef0123456789abcdef01" {
+		t.Fatalf("source record mismatch: %+v", rec)
+	}
+}
+
 type fakeRepository struct {
 	revision Revision
 	file     File

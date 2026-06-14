@@ -457,14 +457,7 @@ func (s *CronService) loadSourceScheduleDefinition(ctx context.Context, jobID st
 		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
 	}
 
-	sourceRec := dal.JobDefinitionSourceRecord{
-		JobID:          jobID,
-		RepositoryID:   repoRec.RepositoryID,
-		RequestedRef:   loaded.Source.RequestedRef,
-		ResolvedCommit: loaded.Source.Commit,
-		DefinitionPath: loaded.Source.Path,
-		BlobSHA:        loaded.Source.BlobSHA,
-	}
+	sourceRec := sourcepkg.NewJobDefinitionSourceRecord(jobID, repoRec.RepositoryID, loaded)
 
 	return loaded, sourceRec, nil
 }

@@ -122,14 +122,7 @@ func (p DefinitionPersister) load(ctx context.Context, req PersistDefinitionRequ
 		return Definition{}, dal.SourceRepositoryRecord{}, dal.JobDefinitionSourceRecord{}, err
 	}
 
-	sourceRec := dal.JobDefinitionSourceRecord{
-		JobID:          req.JobID,
-		RepositoryID:   repoRec.RepositoryID,
-		RequestedRef:   loaded.Source.RequestedRef,
-		ResolvedCommit: loaded.Source.Commit,
-		DefinitionPath: loaded.Source.Path,
-		BlobSHA:        loaded.Source.BlobSHA,
-	}
+	sourceRec := NewJobDefinitionSourceRecord(req.JobID, repoRec.RepositoryID, loaded)
 
 	return loaded, repoRec, sourceRec, nil
 }
