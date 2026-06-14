@@ -74,6 +74,9 @@ make vm-prepare
 make vm-check
 ```
 
+`make vm-check` delegates to `vm-doctor`, while the individual
+`vm-*-check` targets call the same Go checker with a single lane selected.
+
 Then install-test it in the Linux VM lane with:
 
 ```sh

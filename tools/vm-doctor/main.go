@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ type options struct {
 	timeout              time.Duration
 	packerPath           string
 	prepVersion          string
+	lane                 string
 	deployLimaPath       string
 	deployInstance       string
 	builderLimaPath      string
@@ -137,6 +139,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&timeoutRaw, "timeout", timeoutRaw, "overall timeout")
 	flags.StringVar(&opts.packerPath, "packer", opts.packerPath, "packer executable")
 	flags.StringVar(&opts.prepVersion, "prep-version", opts.prepVersion, "expected prepared VM marker version")
+	flags.StringVar(&opts.lane, "lane", opts.lane, "VM lane to inspect, or all")
 	flags.StringVar(&opts.deployLimaPath, "deploy-lima-bin", opts.deployLimaPath, "limactl executable for deploy smoke VM")
 	flags.StringVar(&opts.deployInstance, "deploy-instance", opts.deployInstance, "deploy smoke VM instance")
 	flags.StringVar(&opts.builderLimaPath, "builder-lima-bin", opts.builderLimaPath, "limactl executable for package builder VM")
@@ -160,6 +163,11 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	opts.timeout = timeout
 	opts.mode = strings.ToLower(strings.TrimSpace(opts.mode))
 	opts.provider = platform.ResolveVirtualMachineProvider(opts.provider)
+	opts.lane = strings.ToLower(strings.TrimSpace(opts.lane))
+	if opts.lane == "" {
+		opts.lane = "all"
+	}
+
 	opts.prepVersion = strings.TrimSpace(opts.prepVersion)
 	if opts.prepVersion == "" {
 		opts.prepVersion = defaultPrepVersion
@@ -169,11 +177,16 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 }
 
 func runStatus(ctx context.Context, opts options, stdout io.Writer) error {
+	selected, err := selectedLanes(opts)
+	if err != nil {
+		return err
+	}
+
 	fmt.Fprintf(stdout, "VM status (provider=%s prep-version=%s)\n\n", opts.provider, opts.prepVersion)
-	printHostTools(stdout, opts)
+	printHostTools(stdout, opts, selected)
 	fmt.Fprintln(stdout)
 
-	for _, lane := range lanes(opts) {
+	for _, lane := range selected {
 		report := inspectLaneStatus(ctx, lane)
 		printLaneStatus(stdout, report)
 	}
@@ -182,13 +195,18 @@ func runStatus(ctx context.Context, opts options, stdout io.Writer) error {
 }
 
 func runDoctor(ctx context.Context, opts options, stdout io.Writer) error {
+	selected, err := selectedLanes(opts)
+	if err != nil {
+		return err
+	}
+
 	fmt.Fprintf(stdout, "VM doctor (provider=%s prep-version=%s)\n\n", opts.provider, opts.prepVersion)
-	hostIssues := printHostTools(stdout, opts)
+	hostIssues := printHostTools(stdout, opts, selected)
 	fmt.Fprintln(stdout)
 
 	var issueCount int
 	issueCount += hostIssues
-	for _, lane := range lanes(opts) {
+	for _, lane := range selected {
 		report := inspectLaneDoctor(ctx, lane)
 		issueCount += len(report.issues)
 		printLaneDoctor(stdout, report)
@@ -201,6 +219,27 @@ func runDoctor(ctx context.Context, opts options, stdout io.Writer) error {
 
 	fmt.Fprintln(stdout, "\nAll prepared VM lanes look healthy.")
 	return nil
+}
+
+func selectedLanes(opts options) ([]lane, error) {
+	all := lanes(opts)
+	if opts.lane == "" || opts.lane == "all" {
+		return all, nil
+	}
+
+	for _, candidate := range all {
+		if candidate.name == opts.lane {
+			return []lane{candidate}, nil
+		}
+	}
+
+	names := make([]string, 0, len(all))
+	for _, lane := range all {
+		names = append(names, lane.name)
+	}
+
+	sort.Strings(names)
+	return nil, fmt.Errorf("unknown VM lane %q; expected one of: all, %s", opts.lane, strings.Join(names, ", "))
 }
 
 func lanes(opts options) []lane {
@@ -273,31 +312,42 @@ func packageSmokeLane(opts options, name, instance, profile, prepareTarget, chec
 	}
 }
 
-func printHostTools(stdout io.Writer, opts options) int {
+func printHostTools(stdout io.Writer, opts options, selected []lane) int {
 	var issues int
 	tools := []struct {
-		name string
-		path string
+		name     string
+		path     string
+		required bool
 	}{
 		{name: "packer", path: opts.packerPath},
-		{name: "deploy limactl", path: opts.deployLimaPath},
-		{name: "builder limactl", path: opts.builderLimaPath},
-		{name: "smoke limactl", path: opts.smokeLimaPath},
+	}
+	for _, lane := range selected {
+		tools = append(tools, struct {
+			name     string
+			path     string
+			required bool
+		}{
+			name:     lane.name + " provider",
+			path:     lane.providerPath,
+			required: true,
+		})
 	}
 
 	fmt.Fprintln(stdout, "Host tools:")
 	seen := map[string]struct{}{}
 	for _, tool := range tools {
-		key := tool.name + "\x00" + tool.path
+		key := tool.path
 		if _, ok := seen[key]; ok {
 			continue
 		}
 
 		seen[key] = struct{}{}
 		if _, err := exec.LookPath(tool.path); err != nil {
-			issues++
-			fmt.Fprintf(stdout, "  [missing] %-16s %s\n", tool.name, tool.path)
+			if tool.required {
+				issues++
+			}
 
+			fmt.Fprintf(stdout, "  [missing] %-16s %s\n", tool.name, tool.path)
 			continue
 		}
 
@@ -333,7 +383,7 @@ func inspectLaneStatus(ctx context.Context, l lane) laneReport {
 		return report
 	}
 
-	status, err := limaInstanceStatus(ctx, l.providerPath, l.instance)
+	status, err := manager.InstanceStatus(ctx, l.instance)
 	if err != nil {
 		report.issues = append(report.issues, err.Error())
 	} else {
@@ -381,7 +431,7 @@ func inspectLaneDoctor(ctx context.Context, l lane) laneReport {
 		}
 	}
 
-	status, err := limaInstanceStatus(ctx, l.providerPath, l.instance)
+	status, err := manager.InstanceStatus(ctx, l.instance)
 	if err == nil {
 		report.status = status
 	}
@@ -468,46 +518,4 @@ func newManager(l lane, stdout, stderr io.Writer) (platform.VirtualMachineManage
 		Stdout:       stdout,
 		Stderr:       stderr,
 	})
-}
-
-func limaInstanceStatus(ctx context.Context, limactlPath, instance string) (string, error) {
-	if strings.TrimSpace(limactlPath) == "" {
-		limactlPath = "limactl"
-	}
-
-	cmd := exec.CommandContext(ctx, limactlPath, "list", instance, "--format", "{{.Name}}\t{{.Status}}") //#nosec G204
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("read Lima status for %s: %w: %s", instance, err, strings.TrimSpace(stderr.String()))
-	}
-
-	status, err := parseLimaStatus(stdout.String(), instance)
-	if err != nil {
-		return "", err
-	}
-
-	return status, nil
-}
-
-func parseLimaStatus(output, instance string) (string, error) {
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		fields := strings.Split(line, "\t")
-		if len(fields) != 2 {
-			continue
-		}
-
-		if fields[0] == instance {
-			status := strings.TrimSpace(fields[1])
-			if status == "" {
-				return "unknown", nil
-			}
-
-			return status, nil
-		}
-	}
-
-	return "", fmt.Errorf("Lima instance %q was not present in status output", instance)
 }

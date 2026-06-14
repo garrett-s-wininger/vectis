@@ -165,6 +165,10 @@ func (m *recordingVMManager) InstanceExists(context.Context, string) (bool, erro
 	return m.exists, nil
 }
 
+func (m *recordingVMManager) InstanceStatus(context.Context, string) (string, error) {
+	return "Stopped", nil
+}
+
 func (m *recordingVMManager) Create(context.Context, string, string) error {
 	m.created = true
 	m.exists = true

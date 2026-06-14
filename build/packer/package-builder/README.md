@@ -19,6 +19,9 @@ make vm-prepare
 make vm-check
 ```
 
+The check target uses `vm-doctor --lane package-builder` so status, marker, and
+guest tooling checks stay behind the shared VM provider path.
+
 The builder installs:
 
 - the exact Go toolchain version declared by the root `go.mod`

@@ -83,7 +83,8 @@ make test-e2e-deploy-linux
 ```
 
 `make vm-prepare` and `make vm-check` run this lane along with the package
-builder and package install smoke VMs.
+builder and package install smoke VMs. The check targets use `vm-doctor` with
+lane selection, so the marker/tooling checks live in one Go implementation.
 
 `make vm-status` reports whether the prepared deploy/package VMs exist and
 whether they are currently running without starting them. `make vm-doctor`

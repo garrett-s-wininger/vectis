@@ -233,6 +233,7 @@ package_local_inputs = --input vectis-local-wrapper=$(PACKAGE_LOCAL_WRAPPER) --i
 package_local_dispatch_env = --env 'PACKAGE_OUT=$(PACKAGE_OUT)' --env 'PACKAGE_BUILD_DIR=$(PACKAGE_BUILD_DIR)' --env 'PACKAGE_VERSION=$(PACKAGE_VERSION)' --env 'PACKAGE_RELEASE=$(PACKAGE_RELEASE)' --env 'PACKAGE_ARCH=$(2)' --env 'PACKAGE_LOCAL_ARCHES=$(2)' --env 'PACKAGE_LOCAL_APPS=$(PACKAGE_LOCAL_APPS)'
 package_local_dispatch = PACKER_VM_PREP_VERSION='$(PACKER_VM_PREP_VERSION)' $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
 vm_doctor_args = --provider '$(VM_PROVIDER)' --timeout '$(VM_DOCTOR_TIMEOUT)' --packer '$(PACKER)' --prep-version '$(PACKER_VM_PREP_VERSION)' --deploy-lima-bin '$(PACKER_DEPLOY_SMOKE_LIMA_BIN)' --deploy-instance '$(PACKER_DEPLOY_SMOKE_INSTANCE)' --builder-lima-bin '$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' --builder-instance '$(PACKER_PACKAGE_BUILDER_INSTANCE)' --builder-go-version '$(PACKER_PACKAGE_BUILDER_GO_VERSION)' --builder-cache-root '$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)' --builder-workspace-root '$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' --smoke-lima-bin '$(PACKER_PACKAGE_SMOKE_LIMA_BIN)' --deb-smoke-instance '$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE)' --rpm-smoke-instance '$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE)'
+vm_doctor = $(GO) run ./tools/vm-doctor $(vm_doctor_args)
 package_common_deb_path = $(PACKAGE_OUT)/vectis-common_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
 package_common_rpm_path = $(PACKAGE_OUT)/vectis-common-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(1)).rpm
 package_service_deb_path = $(PACKAGE_OUT)/vectis-$(2)_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
@@ -294,17 +295,15 @@ vm-prepare:
 
 .PHONY: vm-check
 vm-check:
-	$(MAKE) vm-deploy-smoke-check
-	$(MAKE) vm-package-builder-check
-	$(MAKE) vm-package-smoke-check
+	$(MAKE) vm-doctor
 
 .PHONY: vm-status
 vm-status:
-	$(GO) run ./tools/vm-doctor --mode status $(vm_doctor_args)
+	$(vm_doctor) --mode status
 
 .PHONY: vm-doctor
 vm-doctor:
-	$(GO) run ./tools/vm-doctor --mode doctor $(vm_doctor_args)
+	$(vm_doctor) --mode doctor
 
 .PHONY: vm-deploy-smoke-validate
 vm-deploy-smoke-validate:
@@ -316,13 +315,7 @@ vm-deploy-smoke-prepare:
 
 .PHONY: vm-deploy-smoke-check
 vm-deploy-smoke-check:
-	@status=0; \
-	$(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false start $(PACKER_DEPLOY_SMOKE_INSTANCE) || status=$$?; \
-	if [ $$status -eq 0 ]; then \
-		$(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_DEPLOY_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis-vm-prep/deploy-smoke-profile)" = "systemd"; test "$$(cat /etc/vectis-vm-prep/deploy-smoke-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; command -v systemctl >/dev/null; command -v systemd-analyze >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
-	fi; \
-	case "$(PACKER_DEPLOY_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_DEPLOY_SMOKE_INSTANCE) || status=$$?;; esac; \
-	exit $$status
+	$(vm_doctor) --mode doctor --lane deploy-smoke
 
 .PHONY: vm-package-builder-validate
 vm-package-builder-validate:
@@ -334,13 +327,7 @@ vm-package-builder-prepare:
 
 .PHONY: vm-package-builder-check
 vm-package-builder-check:
-	@status=0; \
-	$(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_BUILDER_INSTANCE) || status=$$?; \
-	if [ $$status -eq 0 ]; then \
-		$(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_BUILDER_INSTANCE) -- sh -lc 'set -eu; PATH=/usr/local/go/bin:$$PATH; test "$$(cat /etc/vectis-vm-prep/package-builder-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; test "$$(go env GOVERSION)" = "go$(PACKER_PACKAGE_BUILDER_GO_VERSION)"; command -v make >/dev/null; command -v cc >/dev/null; test -d "$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)"; test -d "$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)"' || status=$$?; \
-	fi; \
-	case "$(PACKER_PACKAGE_BUILDER_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_BUILDER_INSTANCE) || status=$$?;; esac; \
-	exit $$status
+	$(vm_doctor) --mode doctor --lane package-builder
 
 .PHONY: vm-package-smoke-validate
 vm-package-smoke-validate:
@@ -360,23 +347,11 @@ vm-package-smoke-prepare: vm-package-smoke-deb-prepare vm-package-smoke-rpm-prep
 
 .PHONY: vm-package-smoke-deb-check
 vm-package-smoke-deb-check:
-	@status=0; \
-	$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) || status=$$?; \
-	if [ $$status -eq 0 ]; then \
-		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis-vm-prep/package-smoke-profile)" = "deb"; test "$$(cat /etc/vectis-vm-prep/package-smoke-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; command -v dpkg >/dev/null; command -v dpkg-deb >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
-	fi; \
-	case "$(PACKER_PACKAGE_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) || status=$$?;; esac; \
-	exit $$status
+	$(vm_doctor) --mode doctor --lane package-smoke-deb
 
 .PHONY: vm-package-smoke-rpm-check
 vm-package-smoke-rpm-check:
-	@status=0; \
-	$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) || status=$$?; \
-	if [ $$status -eq 0 ]; then \
-		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis-vm-prep/package-smoke-profile)" = "rpm"; test "$$(cat /etc/vectis-vm-prep/package-smoke-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; command -v rpm >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
-	fi; \
-	case "$(PACKER_PACKAGE_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) || status=$$?;; esac; \
-	exit $$status
+	$(vm_doctor) --mode doctor --lane package-smoke-rpm
 
 .PHONY: vm-package-smoke-check
 vm-package-smoke-check: vm-package-smoke-deb-check vm-package-smoke-rpm-check

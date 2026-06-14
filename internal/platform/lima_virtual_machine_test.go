@@ -51,6 +51,24 @@ func TestLimaVirtualMachineManagerProvider(t *testing.T) {
 	}
 }
 
+func TestParseLimaStatus(t *testing.T) {
+	got, err := parseLimaStatus("vectis-deploy-smoke\tStopped\n", "vectis-deploy-smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != "Stopped" {
+		t.Fatalf("status = %q, want Stopped", got)
+	}
+}
+
+func TestParseLimaStatusRejectsMissingInstance(t *testing.T) {
+	_, err := parseLimaStatus("other\tRunning\n", "vectis-deploy-smoke")
+	if err == nil || !strings.Contains(err.Error(), "not present") {
+		t.Fatalf("expected missing instance error, got %v", err)
+	}
+}
+
 func TestLimaVirtualMachineCommandArgs(t *testing.T) {
 	vm, err := newLimaVirtualMachine(limaVirtualMachineConfig{
 		instance:    "vectis-worker",

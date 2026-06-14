@@ -187,6 +187,10 @@ func (m *recordingBuildVMManager) InstanceExists(context.Context, string) (bool,
 	return true, nil
 }
 
+func (m *recordingBuildVMManager) InstanceStatus(context.Context, string) (string, error) {
+	return "Stopped", nil
+}
+
 func (m *recordingBuildVMManager) Create(context.Context, string, string) error {
 	return nil
 }

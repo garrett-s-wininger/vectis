@@ -32,6 +32,7 @@ type VirtualMachineManager interface {
 	Provider() string
 	CheckAvailable() error
 	InstanceExists(ctx context.Context, instance string) (bool, error)
+	InstanceStatus(ctx context.Context, instance string) (string, error)
 	Create(ctx context.Context, instance, template string) error
 	Start(ctx context.Context, instance string) error
 	Stop(ctx context.Context, instance string) error

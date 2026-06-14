@@ -6,24 +6,6 @@ import (
 	"testing"
 )
 
-func TestParseLimaStatus(t *testing.T) {
-	got, err := parseLimaStatus("vectis-deploy-smoke\tStopped\n", "vectis-deploy-smoke")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got != "Stopped" {
-		t.Fatalf("status = %q, want Stopped", got)
-	}
-}
-
-func TestParseLimaStatusRejectsMissingInstance(t *testing.T) {
-	_, err := parseLimaStatus("other\tRunning\n", "vectis-deploy-smoke")
-	if err == nil || !strings.Contains(err.Error(), "not present") {
-		t.Fatalf("expected missing instance error, got %v", err)
-	}
-}
-
 func TestParseOptionsDefaults(t *testing.T) {
 	opts, err := parseOptions(nil, io.Discard)
 	if err != nil {
@@ -36,6 +18,10 @@ func TestParseOptionsDefaults(t *testing.T) {
 
 	if opts.prepVersion != defaultPrepVersion {
 		t.Fatalf("prep version = %q, want %q", opts.prepVersion, defaultPrepVersion)
+	}
+
+	if opts.lane != "all" {
+		t.Fatalf("lane = %q, want all", opts.lane)
 	}
 }
 
@@ -54,5 +40,33 @@ func TestLanesIncludeRepairTargets(t *testing.T) {
 		if lane.prepareTarget == "" || lane.checkTarget == "" {
 			t.Fatalf("lane %s missing repair/check target: %+v", lane.name, lane)
 		}
+	}
+}
+
+func TestSelectedLanesFiltersByName(t *testing.T) {
+	opts, err := parseOptions([]string{"--lane", "package-builder"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lanes, err := selectedLanes(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(lanes) != 1 || lanes[0].name != "package-builder" {
+		t.Fatalf("selected lanes = %+v, want package-builder only", lanes)
+	}
+}
+
+func TestSelectedLanesRejectsUnknownLane(t *testing.T) {
+	opts, err := parseOptions([]string{"--lane", "not-real"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = selectedLanes(opts)
+	if err == nil || !strings.Contains(err.Error(), "unknown VM lane") {
+		t.Fatalf("expected unknown lane error, got %v", err)
 	}
 }

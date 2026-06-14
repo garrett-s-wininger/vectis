@@ -102,6 +102,44 @@ func (m *limaVirtualMachineManager) InstanceExists(ctx context.Context, instance
 	return true, nil
 }
 
+func (m *limaVirtualMachineManager) InstanceStatus(ctx context.Context, instance string) (string, error) {
+	var stdout, stderr strings.Builder
+	cmd := exec.CommandContext(ctx, m.limactlPath, "list", instance, "--format", "{{.Name}}\t{{.Status}}") //#nosec G204
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("read Lima status for %s: %w: %s", instance, err, strings.TrimSpace(stderr.String()))
+	}
+
+	status, err := parseLimaStatus(stdout.String(), instance)
+	if err != nil {
+		return "", err
+	}
+
+	return status, nil
+}
+
+func parseLimaStatus(output, instance string) (string, error) {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) != 2 {
+			continue
+		}
+
+		if fields[0] == instance {
+			status := strings.TrimSpace(fields[1])
+			if status == "" {
+				return "unknown", nil
+			}
+
+			return status, nil
+		}
+	}
+
+	return "", fmt.Errorf("Lima instance %q was not present in status output", instance)
+}
+
 func (m *limaVirtualMachineManager) Create(ctx context.Context, instance, template string) error {
 	return m.run(ctx, nil, "create", "--name="+instance, "template:"+template)
 }

@@ -27,6 +27,10 @@ make vm-package-smoke-rpm-prepare
 make vm-package-smoke-rpm-check
 ```
 
+The check targets use `vm-doctor --lane package-smoke-deb` and
+`vm-doctor --lane package-smoke-rpm` so status, marker, and guest tooling checks
+stay behind the shared VM provider path.
+
 Defaults:
 
 | Profile | Instance | Template |

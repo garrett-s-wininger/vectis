@@ -18,6 +18,9 @@ make vm-prepare
 make vm-check
 ```
 
+The check target uses `vm-doctor --lane deploy-smoke` so status, marker, and
+guest tooling checks stay behind the shared VM provider path.
+
 Defaults:
 
 | Instance | Template |
