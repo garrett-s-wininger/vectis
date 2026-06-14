@@ -761,7 +761,7 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 		path   string
 		body   any
 	}{
-		{name: "list stored jobs", method: http.MethodGet, path: "/api/v1/jobs", body: map[string]any{}},
+		{name: "list stored jobs", method: http.MethodGet, path: "/api/v1/jobs"},
 		{name: "create stored job", method: http.MethodPost, path: "/api/v1/jobs", body: jobBody},
 		{name: "create stored job from source", method: http.MethodPost, path: "/api/v1/jobs/source/build", body: map[string]any{
 			"repository_id": "vectis-local",
@@ -770,7 +770,15 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 		{name: "import source definitions into stored jobs", method: http.MethodPost, path: "/api/v1/source-repositories/vectis-local/definitions/import", body: map[string]any{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doJSONRequest(t, handler, tc.method, tc.path, tc.body)
+			var rec *httptest.ResponseRecorder
+			if tc.body == nil {
+				req := httptest.NewRequest(tc.method, tc.path, nil)
+				rec = httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+			} else {
+				rec = doJSONRequest(t, handler, tc.method, tc.path, tc.body)
+			}
+
 			assertAPIError(t, rec, http.StatusConflict, "stored_jobs_disabled")
 		})
 	}
@@ -2556,7 +2564,7 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 		t.Errorf("expected run_index 1, got %d", ev.RunIndex)
 	}
 
-	if err := repos.Runs().MarkRunSucceeded(context.Background(), ev.RunID, ""); err != nil {
+	if err := repos.Runs().MarkRunSucceeded(context.Background(), ev.RunID); err != nil {
 		t.Fatalf("mark source run succeeded: %v", err)
 	}
 

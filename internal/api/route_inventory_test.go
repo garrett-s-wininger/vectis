@@ -162,10 +162,20 @@ func TestAPIRouteInventory(t *testing.T) {
 func TestAPIRouteInventory_bodyPolicies(t *testing.T) {
 	s := &APIServer{}
 	want := map[string]routeBodyPolicy{
-		"POST /api/v1/cells/{cell_id}/catalog-events":  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PATCH /api/v1/source-schedules/{schedule_id}":                  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/source-schedules/{schedule_id}/override":           routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/source-repositories":                              routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/source-repositories/{id}":                          routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/source-repositories/{id}/definitions/import":      routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/source-repositories/{id}/definitions/resolve":     routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition": routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger":   routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/cells/{cell_id}/catalog-events":                   routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 		"POST /api/v1/jobs":                            routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
 		"POST /api/v1/jobs/run":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
 		"PUT /api/v1/jobs/{id}":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/jobs/source/{id}":                routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/jobs/source/{id}":                 routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 		"POST /api/v1/jobs/trigger/{id}":               routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
 		"POST /api/v1/runs/{id}/replay":                routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
 		"POST /api/v1/runs/{id}/repair/mark-succeeded": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
@@ -215,8 +225,10 @@ func TestAPIRouteInventory_bodyPolicies(t *testing.T) {
 func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
 	s := &APIServer{}
 	handlerManaged := map[string]bool{
-		"GET /api/v1/sse/jobs/{id}/runs": true,
-		"GET /api/v1/runs/{id}/logs":     true,
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": true,
+		"GET /api/v1/sse/jobs/{id}/runs":                                        true,
+		"GET /api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs":           true,
+		"GET /api/v1/runs/{id}/logs":                                            true,
 	}
 	explicitNoStore := map[string]bool{
 		"GET /api/v1/setup/status":    true,
@@ -266,12 +278,14 @@ func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
 func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
 	s := &APIServer{MetricsHandler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
 	want := map[string]routeAcceptPolicy{
-		"GET /health/live":                                routeAcceptAnyPolicy(),
-		"GET /health/ready":                               routeAcceptAnyPolicy(),
-		"GET /metrics":                                    routeAcceptMetricsPolicy(),
-		"GET /api/v1/sse/jobs/{id}/runs":                  routeAcceptSSEPolicy(),
-		"GET /api/v1/runs/{id}/artifacts/{name}/download": routeAcceptAnyPolicy(),
-		"GET /api/v1/runs/{id}/logs":                      routeAcceptSSEPolicy(),
+		"GET /health/live":  routeAcceptAnyPolicy(),
+		"GET /health/ready": routeAcceptAnyPolicy(),
+		"GET /metrics":      routeAcceptMetricsPolicy(),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": routeAcceptSSEPolicy(),
+		"GET /api/v1/sse/jobs/{id}/runs":                                        routeAcceptSSEPolicy(),
+		"GET /api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs":           routeAcceptSSEPolicy(),
+		"GET /api/v1/runs/{id}/artifacts/{name}/download":                       routeAcceptAnyPolicy(),
+		"GET /api/v1/runs/{id}/logs":                                            routeAcceptSSEPolicy(),
 	}
 
 	seen := make(map[string]bool, len(want))
@@ -305,8 +319,19 @@ func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
 func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 	s := &APIServer{}
 	want := map[string]routeQueryPolicy{
+		"GET /api/v1/source-schedules":                                          routeQueryParams("namespace"),
+		"GET /api/v1/source-repositories":                                       routeQueryParams("namespace"),
+		"GET /api/v1/source-repositories/{id}/refs/branches":                    routeQueryParams("limit", "prefix"),
+		"GET /api/v1/source-repositories/{id}/tree":                             routeQueryParams("cursor", "limit", "path", "recursive", "ref"),
+		"GET /api/v1/source-repositories/{id}/definitions":                      routeQueryParams("cursor", "limit", "path", "ref"),
+		"GET /api/v1/source-repositories/{id}/jobs":                             routeQueryParams("cursor", "limit", "path", "ref"),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/definition":         routeQueryParams("path", "ref"),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs":               routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "since"),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": routeQueryParams("replay_limit", "since_sequence", "tail"),
 		"GET /api/v1/jobs":                                  routeQueryParams("cursor", "limit"),
 		"GET /api/v1/jobs/{id}":                             routeQueryParams("version"),
+		"GET /api/v1/jobs/{id}/source":                      routeQueryParams("version"),
+		"GET /api/v1/jobs/{id}/source/definition":           routeQueryParams("version"),
 		"GET /api/v1/jobs/{id}/runs":                        routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "since"),
 		"GET /api/v1/runs/{id}/tasks":                       routeQueryParams("cursor", "limit"),
 		"GET /api/v1/runs/{id}/artifacts":                   routeQueryParams("cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
@@ -346,6 +371,7 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 func TestAPIRouteInventory_headerPolicies(t *testing.T) {
 	s := &APIServer{}
 	wantIdempotency := map[string]bool{
+		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger": true,
 		"POST /api/v1/jobs/run":          true,
 		"POST /api/v1/jobs/trigger/{id}": true,
 		"POST /api/v1/runs/{id}/replay":  true,

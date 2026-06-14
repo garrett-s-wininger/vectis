@@ -1152,7 +1152,7 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx contex
 		return "", 0, 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID); err != nil {
+	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 		return "", 0, 0, err
 	}
 
