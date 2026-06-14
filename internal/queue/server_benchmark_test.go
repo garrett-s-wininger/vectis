@@ -50,7 +50,7 @@ func BenchmarkQueue_Enqueue(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+		if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 			b.Fatalf("enqueue failed: %v", err)
 		}
 	}
@@ -67,7 +67,7 @@ func BenchmarkQueue_Enqueue_DuplicateRunID(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+		if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 			b.Fatalf("enqueue failed: %v", err)
 		}
 	}
@@ -82,7 +82,7 @@ func BenchmarkQueue_EnqueueDequeue_RoundTrip(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+		if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 			b.Fatalf("enqueue failed: %v", err)
 		}
 
@@ -134,10 +134,10 @@ func BenchmarkQueue_TryDequeue_RoundTrip(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				tc.first.DeliveryId = nil
 				tc.next.DeliveryId = nil
-				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: tc.first}); err != nil {
+				if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, tc.first)); err != nil {
 					b.Fatalf("enqueue first: %v", err)
 				}
-				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: tc.next}); err != nil {
+				if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, tc.next)); err != nil {
 					b.Fatalf("enqueue next: %v", err)
 				}
 
@@ -176,7 +176,7 @@ func BenchmarkQueue_IsolationSkipDepth(b *testing.B) {
 			svc := NewQueueService(mocks.NopLogger{})
 			for i := 0; i < skipDepth; i++ {
 				job := benchmarkIsolationJob(fmt.Sprintf("skip-vm-%d", i), action.IsolationVM)
-				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+				if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 					b.Fatalf("enqueue ineligible job: %v", err)
 				}
 			}
@@ -188,7 +188,7 @@ func BenchmarkQueue_IsolationSkipDepth(b *testing.B) {
 
 			for i := 0; i < b.N; i++ {
 				hostJob.DeliveryId = nil
-				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: hostJob}); err != nil {
+				if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, hostJob)); err != nil {
 					b.Fatalf("enqueue eligible job: %v", err)
 				}
 
@@ -255,7 +255,7 @@ func runMixedIsolationDistributionBenchmark(b *testing.B, cfg mixedIsolationDist
 		}
 
 		job := benchmarkIsolationJob(fmt.Sprintf("mixed-%d", i), isolation)
-		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+		if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 			b.Fatalf("prefill enqueue: %v", err)
 		}
 	}
@@ -357,15 +357,20 @@ func BenchmarkQueue_IsolationLargeActionTreeMatching(b *testing.B) {
 	hostOnly := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}}
 
 	for _, nodes := range []int{32, 256, 1024} {
-		b.Run(fmt.Sprintf("whole_tree_vm_leaf_miss_nodes_%d", nodes), func(b *testing.B) {
-			root, _ := benchmarkNestedIsolationTree(nodes, action.IsolationVM)
+		b.Run(fmt.Sprintf("task_key_vm_leaf_miss_nodes_%d", nodes), func(b *testing.B) {
+			root, targetID := benchmarkNestedIsolationTree(nodes, action.IsolationVM)
 			jobID := fmt.Sprintf("large-tree-%d", nodes)
 			svc := NewQueueService(mocks.NopLogger{})
-			if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
-				Id:               &jobID,
-				DefaultIsolation: queueTestString(action.IsolationHost),
-				Root:             root,
-			}}); err != nil {
+			if _, err := svc.Enqueue(ctx, queueTestRequest(b, &api.JobRequest{
+				Job: &api.Job{
+					Id:               &jobID,
+					DefaultIsolation: queueTestString(action.IsolationHost),
+					Root:             root,
+				},
+				Metadata: map[string]string{
+					cell.ExecutionTaskKeyMetadataKey: targetID,
+				},
+			})); err != nil {
 				b.Fatalf("enqueue large tree job: %v", err)
 			}
 
@@ -388,7 +393,7 @@ func BenchmarkQueue_IsolationLargeActionTreeMatching(b *testing.B) {
 			root, targetID := benchmarkNestedIsolationTree(nodes, action.IsolationVM)
 			jobID := fmt.Sprintf("large-tree-task-%d", nodes)
 			svc := NewQueueService(mocks.NopLogger{})
-			if _, err := svc.Enqueue(ctx, &api.JobRequest{
+			if _, err := svc.Enqueue(ctx, queueTestRequest(b, &api.JobRequest{
 				Job: &api.Job{
 					Id:               &jobID,
 					DefaultIsolation: queueTestString(action.IsolationHost),
@@ -397,7 +402,7 @@ func BenchmarkQueue_IsolationLargeActionTreeMatching(b *testing.B) {
 				Metadata: map[string]string{
 					cell.ExecutionTaskKeyMetadataKey: targetID,
 				},
-			}); err != nil {
+			})); err != nil {
 				b.Fatalf("enqueue large tree task job: %v", err)
 			}
 
@@ -449,7 +454,7 @@ func BenchmarkQueue_FilteredBlockingDequeueLatency(b *testing.B) {
 			svc := NewQueueService(mocks.NopLogger{})
 			for i := 0; i < skipDepth; i++ {
 				job := benchmarkIsolationJob(fmt.Sprintf("blocking-vm-%d", i), action.IsolationVM)
-				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+				if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 					b.Fatalf("enqueue blocking ineligible job: %v", err)
 				}
 			}
@@ -477,7 +482,7 @@ func BenchmarkQueue_FilteredBlockingDequeueLatency(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				hostJob.DeliveryId = nil
 				start := time.Now()
-				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: hostJob}); err != nil {
+				if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, hostJob)); err != nil {
 					b.Fatalf("enqueue blocking eligible job: %v", err)
 				}
 
@@ -516,7 +521,7 @@ func BenchmarkQueue_ConcurrentEnqueueDequeue(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+			if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 				b.Fatalf("enqueue failed: %v", err)
 			}
 
@@ -611,7 +616,7 @@ func runSustainedLoadScenario(b *testing.B, cfg sustainedLoadConfig) {
 				default:
 				}
 
-				if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: job}); err != nil {
+				if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, job)); err != nil {
 					setErr(fmt.Errorf("producer enqueue: %w", err))
 					return
 				}

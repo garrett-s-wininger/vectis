@@ -222,8 +222,8 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 }
 
 func validateEnqueueHandoff(req *api.JobRequest) error {
-	if req == nil || req.GetMetadata()[cell.ExecutionEnvelopeMetadataKey] == "" {
-		return nil
+	if req == nil {
+		return fmt.Errorf("job request is required")
 	}
 
 	if _, ok, err := cell.ExecutionEnvelopeFromRequest(req); err != nil {

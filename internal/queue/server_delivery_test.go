@@ -9,7 +9,6 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
-	"vectis/internal/dispatchmeta"
 	"vectis/internal/queueid"
 
 	"google.golang.org/grpc/codes"
@@ -42,7 +41,7 @@ func TestQueueDelivery_AckPreventsRedelivery(t *testing.T) {
 	}
 
 	jobID := "job-ack"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -79,7 +78,7 @@ func TestQueueDelivery_IncludesInstanceID(t *testing.T) {
 	}
 
 	jobID := "job-instance-id"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -95,6 +94,27 @@ func TestQueueDelivery_IncludesInstanceID(t *testing.T) {
 
 	if instanceID != "queue-a" {
 		t.Fatalf("expected instance queue-a, got %q", instanceID)
+	}
+}
+
+func TestQueueDelivery_EnqueueRejectsMissingExecutionHandoff(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	jobID := "job-missing-handoff"
+	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("Enqueue error = %v, want InvalidArgument", err)
+	}
+
+	got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
+	if err != nil {
+		t.Fatalf("TryDequeue: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("missing handoff was enqueued: %#v", got)
 	}
 }
 
@@ -153,18 +173,18 @@ func TestQueueDelivery_TryDequeueSkipsUnsupportedIsolation(t *testing.T) {
 	vmJobID := "job-vm-first"
 	hostJobID := "job-host-second"
 	vmDefault := action.IsolationVM
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{
 		Id:               &vmJobID,
 		DefaultIsolation: &vmDefault,
 		Root:             queueTestNode("root-vm", "builtins/shell"),
-	}}); err != nil {
+	})); err != nil {
 		t.Fatalf("enqueue vm job: %v", err)
 	}
 
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{
 		Id:   &hostJobID,
 		Root: queueTestNode("root-host", "builtins/shell"),
-	}}); err != nil {
+	})); err != nil {
 		t.Fatalf("enqueue host job: %v", err)
 	}
 
@@ -196,11 +216,11 @@ func TestQueueDelivery_TryDequeueRejectsInvalidSupportedIsolation(t *testing.T) 
 
 	jobID := "job-vm"
 	vmDefault := action.IsolationVM
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{
 		Id:               &jobID,
 		DefaultIsolation: &vmDefault,
 		Root:             queueTestNode("root-vm", "builtins/shell"),
-	}}); err != nil {
+	})); err != nil {
 		t.Fatalf("enqueue vm job: %v", err)
 	}
 
@@ -239,7 +259,12 @@ func TestQueueDelivery_TryDequeueChecksInheritedNodeIsolation(t *testing.T) {
 		Isolation: &vmIsolation,
 	}}
 
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID, Root: root}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestRequest(t, &api.JobRequest{
+		Job: &api.Job{Id: &jobID, Root: root},
+		Metadata: map[string]string{
+			cell.ExecutionTaskKeyMetadataKey: "child",
+		},
+	})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -279,7 +304,7 @@ func TestQueueDelivery_TryDequeueUsesExecutionTaskKey(t *testing.T) {
 		Isolation: &hostIsolation,
 	}}
 
-	req := &api.JobRequest{
+	req := queueTestRequest(t, &api.JobRequest{
 		Job: &api.Job{
 			Id:               &jobID,
 			DefaultIsolation: &vmDefault,
@@ -288,7 +313,7 @@ func TestQueueDelivery_TryDequeueUsesExecutionTaskKey(t *testing.T) {
 		Metadata: map[string]string{
 			cell.ExecutionTaskKeyMetadataKey: "host-child",
 		},
-	}
+	})
 
 	if _, err := svc.Enqueue(ctx, req); err != nil {
 		t.Fatalf("enqueue: %v", err)
@@ -313,7 +338,7 @@ func TestQueueDelivery_UnackedLeaseExpiryRequeues(t *testing.T) {
 	}
 
 	jobID := "job-requeue"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -359,14 +384,13 @@ func TestQueueDelivery_ExpiredPendingDeadlineDropsBeforeDelivery(t *testing.T) {
 	}
 
 	expiredJobID := "job-expired-pending"
-	expiredReq := &api.JobRequest{Job: &api.Job{Id: &expiredJobID}}
-	dispatchmeta.StampStartDeadline(expiredReq, time.Now().Add(-time.Second).UnixNano())
+	expiredReq := queueTestJobRequestWithDeadline(t, &api.Job{Id: &expiredJobID}, time.Now().Add(-time.Second).UnixNano())
 	if _, err := svc.Enqueue(ctx, expiredReq); err != nil {
 		t.Fatalf("enqueue expired job: %v", err)
 	}
 
 	nextJobID := "job-after-expired"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &nextJobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &nextJobID})); err != nil {
 		t.Fatalf("enqueue next job: %v", err)
 	}
 
@@ -398,30 +422,28 @@ func TestQueueDelivery_ExpiredFilteredPendingDeadlineDropsBeforeDelivery(t *test
 
 	vmJobID := "job-vm-head"
 	vmDefault := action.IsolationVM
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{
 		Id:               &vmJobID,
 		DefaultIsolation: &vmDefault,
 		Root:             queueTestNode("root-vm", "builtins/shell"),
-	}}); err != nil {
+	})); err != nil {
 		t.Fatalf("enqueue vm job: %v", err)
 	}
 
 	expiredJobID := "job-expired-filtered"
-	expiredReq := &api.JobRequest{Job: &api.Job{
+	expiredReq := queueTestJobRequestWithDeadline(t, &api.Job{
 		Id:   &expiredJobID,
 		Root: queueTestNode("root-expired", "builtins/shell"),
-	}}
-
-	dispatchmeta.StampStartDeadline(expiredReq, time.Now().Add(-time.Second).UnixNano())
+	}, time.Now().Add(-time.Second).UnixNano())
 	if _, err := svc.Enqueue(ctx, expiredReq); err != nil {
 		t.Fatalf("enqueue expired filtered job: %v", err)
 	}
 
 	validHostJobID := "job-valid-host"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{
 		Id:   &validHostJobID,
 		Root: queueTestNode("root-host", "builtins/shell"),
-	}}); err != nil {
+	})); err != nil {
 		t.Fatalf("enqueue valid host job: %v", err)
 	}
 
@@ -462,8 +484,7 @@ func TestQueueDelivery_ExpiredInflightDeadlineDropsInsteadOfRequeue(t *testing.T
 	}
 
 	jobID := "job-expired-inflight"
-	req := &api.JobRequest{Job: &api.Job{Id: &jobID}}
-	dispatchmeta.StampStartDeadline(req, time.Now().Add(10*time.Millisecond).UnixNano())
+	req := queueTestJobRequestWithDeadline(t, &api.Job{Id: &jobID}, time.Now().Add(10*time.Millisecond).UnixNano())
 	if _, err := svc.Enqueue(ctx, req); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -509,7 +530,7 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 	}
 
 	jobID := "job-dlq"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -579,7 +600,7 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 		t.Fatalf("new queue: %v", err)
 	}
 
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
