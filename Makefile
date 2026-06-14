@@ -170,10 +170,12 @@ PACKAGE_OUT ?= artifacts/packages
 PACKAGE_BUILD_DIR ?= $(PACKAGE_OUT)/build
 PACKAGE_ARCH ?= $(shell go env GOARCH)
 PACKAGE_DEB_ARCH ?= $(if $(filter x86_64,$(PACKAGE_ARCH)),amd64,$(if $(filter aarch64,$(PACKAGE_ARCH)),arm64,$(if $(filter 386,$(PACKAGE_ARCH)),i386,$(PACKAGE_ARCH))))
+PACKAGE_RPM_ARCH ?= $(if $(filter amd64,$(PACKAGE_ARCH)),x86_64,$(if $(filter arm64,$(PACKAGE_ARCH)),aarch64,$(PACKAGE_ARCH)))
 PACKAGE_VERSION ?= 0.0.0+$(COMMIT)
 PACKAGE_RELEASE ?= 1
 PACKAGE_CLI_BIN := $(PACKAGE_BUILD_DIR)/linux-$(PACKAGE_ARCH)/vectis-cli
 PACKAGE_CLI_DEB := $(PACKAGE_OUT)/vectis-cli_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(PACKAGE_DEB_ARCH).deb
+PACKAGE_CLI_RPM := $(PACKAGE_OUT)/vectis-cli-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(PACKAGE_RPM_ARCH).rpm
 
 $(PACKAGE_CLI_BIN): cmd/cli/main.go $(API) $(INTERNAL)
 	mkdir -p $(dir ${@})
@@ -183,8 +185,12 @@ $(PACKAGE_CLI_BIN): cmd/cli/main.go $(API) $(INTERNAL)
 package-cli-deb: $(PACKAGE_CLI_BIN)
 	go run ./deploy/package/cmd/build --package vectis-cli --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch $(PACKAGE_ARCH) --input vectis-cli=$(PACKAGE_CLI_BIN)
 
+.PHONY: package-cli-rpm
+package-cli-rpm: $(PACKAGE_CLI_BIN)
+	go run ./deploy/package/cmd/build --package vectis-cli --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch $(PACKAGE_ARCH) --input vectis-cli=$(PACKAGE_CLI_BIN)
+
 .PHONY: package-cli
-package-cli: package-cli-deb
+package-cli: package-cli-deb package-cli-rpm
 
 .PHONY: test-package
 test-package:
@@ -193,6 +199,10 @@ test-package:
 .PHONY: test-e2e-package-cli-deb
 test-e2e-package-cli-deb: package-cli-deb
 	VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIDeb -count=1 -v
+
+.PHONY: test-e2e-package-cli-rpm
+test-e2e-package-cli-rpm: package-cli-rpm
+	VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIRPM -count=1 -v
 
 .PHONY: website-a11y
 website-a11y:

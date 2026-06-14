@@ -77,19 +77,37 @@ func TestBuildDebPackage(t *testing.T) {
 	}
 }
 
-func TestBuildRejectsRPMUntilLaneExists(t *testing.T) {
-	_, err := Build(BuildOptions{
+func TestBuildRPMPackage(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "vectis-cli")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho vectis\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Build(BuildOptions{
 		PackageID: "vectis-cli",
 		Format:    "rpm",
 		OutputDir: t.TempDir(),
-		Inputs:    map[string]string{"vectis-cli": "/tmp/vectis-cli"},
+		Version:   "v0.1.0-test",
+		Release:   "1",
+		Arch:      "arm64",
+		Inputs:    map[string]string{"vectis-cli": bin},
 	})
 
-	if err == nil {
-		t.Fatal("expected rpm build to fail until implemented")
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if !strings.Contains(err.Error(), "RPM VM lane") && !strings.Contains(err.Error(), "rpm") {
-		t.Fatalf("error = %v", err)
+	if result.Status != "packaged" || result.Format != "rpm" || result.Files != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+
+	if !strings.HasSuffix(result.Path, "vectis-cli-0.1.0_test-1.aarch64.rpm") {
+		t.Fatalf("package path = %q", result.Path)
+	}
+
+	if info, err := os.Stat(result.Path); err != nil {
+		t.Fatal(err)
+	} else if info.Size() == 0 {
+		t.Fatal("package is empty")
 	}
 }

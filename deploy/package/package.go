@@ -170,7 +170,7 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	case "deb":
 		path, err = buildDeb(pkg, opts.OutputDir)
 	case "rpm":
-		err = fmt.Errorf("rpm package output is not implemented yet; add an RPM VM lane before enabling this format")
+		path, err = buildRPM(pkg, opts.OutputDir)
 	default:
 		err = fmt.Errorf("unsupported package format %q", format)
 	}
