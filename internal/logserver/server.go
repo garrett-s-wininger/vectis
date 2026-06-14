@@ -606,6 +606,32 @@ func (s *Server) publishLogEntryGroups(ctx context.Context, groups []runLogEntry
 }
 
 func groupStreamLogEntries(entries []streamLogEntry) []runLogEntryGroup {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	firstRunID := entries[0].runID
+	sameRun := true
+	for _, item := range entries[1:] {
+		if item.runID != firstRunID {
+			sameRun = false
+			break
+		}
+	}
+
+	if sameRun {
+		group := runLogEntryGroup{
+			runID:   firstRunID,
+			entries: make([]LogEntry, len(entries)),
+		}
+
+		for i, item := range entries {
+			group.entries[i] = item.entry
+		}
+
+		return []runLogEntryGroup{group}
+	}
+
 	groupIndex := make(map[string]int)
 	groups := make([]runLogEntryGroup, 0)
 	for _, item := range entries {

@@ -25,7 +25,15 @@ const (
 
 	logEntryRecordLengthSize = 4
 	logEntryRecordHeaderSize = 32
+
+	maxPooledLogEntryRecordBufferSize = 4 << 20
 )
+
+var logEntryRecordBufferPool = sync.Pool{
+	New: func() any {
+		return &logEntryRecordBuffer{}
+	},
+}
 
 type RunLogStore interface {
 	Append(runID string, entry LogEntry) error
@@ -95,6 +103,10 @@ type cachedRunLogFile struct {
 	runID    string
 	file     *os.File
 	lastUsed uint64
+}
+
+type logEntryRecordBuffer struct {
+	buf []byte
 }
 
 type filesystemStats struct {
@@ -218,11 +230,15 @@ func (s *LocalRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
 		return fmt.Errorf("run id is required")
 	}
 
-	path := s.runPath(runID)
-	b, err := marshalLogEntryRecords(entries)
+	total, err := logEntryRecordsSize(entries)
 	if err != nil {
 		return err
 	}
+
+	records := borrowLogEntryRecordBuffer(total)
+	defer releaseLogEntryRecordBuffer(records)
+	b := appendLogEntryRecords(records.buf, entries)
+	path := s.runPath(runID)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -245,23 +261,56 @@ func (s *LocalRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
 }
 
 func marshalLogEntryRecords(entries []LogEntry) ([]byte, error) {
+	total, err := logEntryRecordsSize(entries)
+	if err != nil {
+		return nil, err
+	}
+
+	return appendLogEntryRecords(make([]byte, 0, total), entries), nil
+}
+
+func logEntryRecordsSize(entries []LogEntry) (int, error) {
 	var total int
 	maxInt := uint64(int(^uint(0) >> 1))
 	for _, entry := range entries {
 		bodyLen := uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data))
 		if bodyLen > uint64(^uint32(0)) {
-			return nil, fmt.Errorf("marshal log entry: data length %d exceeds binary record limit", len(entry.Data))
+			return 0, fmt.Errorf("marshal log entry: data length %d exceeds binary record limit", len(entry.Data))
 		}
 
 		recordLen := bodyLen + 2*logEntryRecordLengthSize
 		if uint64(total) > maxInt-recordLen {
-			return nil, fmt.Errorf("marshal log entry: batch exceeds addressable buffer size")
+			return 0, fmt.Errorf("marshal log entry: batch exceeds addressable buffer size")
 		}
 
 		total += int(recordLen)
 	}
 
-	buf := make([]byte, 0, total)
+	return total, nil
+}
+
+func borrowLogEntryRecordBuffer(total int) *logEntryRecordBuffer {
+	records := logEntryRecordBufferPool.Get().(*logEntryRecordBuffer)
+	if cap(records.buf) < total {
+		records.buf = make([]byte, 0, total)
+		return records
+	}
+
+	records.buf = records.buf[:0]
+	return records
+}
+
+func releaseLogEntryRecordBuffer(records *logEntryRecordBuffer) {
+	if cap(records.buf) > maxPooledLogEntryRecordBufferSize {
+		records.buf = nil
+	} else {
+		records.buf = records.buf[:0]
+	}
+
+	logEntryRecordBufferPool.Put(records)
+}
+
+func appendLogEntryRecords(buf []byte, entries []LogEntry) []byte {
 	for _, entry := range entries {
 		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)))
 		buf = binary.LittleEndian.AppendUint32(buf, bodyLen)
@@ -275,7 +324,7 @@ func marshalLogEntryRecords(entries []LogEntry) ([]byte, error) {
 		buf = binary.LittleEndian.AppendUint32(buf, bodyLen)
 	}
 
-	return buf, nil
+	return buf
 }
 
 func (s *LocalRunLogStore) appendFileLocked(runID, path string) (*os.File, error) {
