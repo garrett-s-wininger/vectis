@@ -209,12 +209,15 @@ When more than one cell is targeted, the command prints one run per cell. Use `r
 For source-backed jobs, use the same jobs commands with `--repository`:
 
 ```sh
+./bin/vectis-cli jobs create ./build.json --repository vectis-local --branch main --message "Add build job"
 ./bin/vectis-cli jobs list --repository vectis-local --ref main
 ./bin/vectis-cli jobs show build --repository vectis-local --ref main
+./bin/vectis-cli jobs edit build --repository vectis-local --branch main --message "Update build job"
 ./bin/vectis-cli jobs trigger build --repository vectis-local --ref main --follow
+./bin/vectis-cli jobs delete build --repository vectis-local --branch main --message "Delete build job" --yes
 ```
 
-Pass `--path` when a source-backed job does not use the default `.vectis/jobs/<job-id>.json` layout. Source-backed triggers create a durable run and source provenance without creating a stored job row. They can target one execution cell with `--cell`.
+Pass `--path` when a source-backed job does not use the default `.vectis/jobs/<job-id>.json` layout. Source-backed create can use `--job-id` when the definition omits a top-level `id`. Source-backed create, edit, delete, and trigger work without creating a stored job row. Triggers create a durable run and source provenance, and can target one execution cell with `--cell`.
 
 Inspect source-backed run history and follow future runs through the job-facing commands:
 
@@ -223,19 +226,21 @@ Inspect source-backed run history and follow future runs through the job-facing 
 ./bin/vectis-cli logs job build --repository vectis-local --follow
 ```
 
-Edit a stored job in `$EDITOR`:
+Edit a reusable job in `$EDITOR`:
 
 ```sh
 ./bin/vectis-cli jobs edit sequenced-job
+./bin/vectis-cli jobs edit build --repository vectis-local --branch main
 ```
 
-Delete a stored job:
+Delete a reusable job:
 
 ```sh
 ./bin/vectis-cli jobs delete sequenced-job --yes
+./bin/vectis-cli jobs delete build --repository vectis-local --branch main --yes
 ```
 
-Deleting a job removes the stored definition and prevents future triggers. It does not erase historical runs.
+Deleting a stored job removes the stored definition and prevents future triggers. Deleting a source-backed job commits removal of the source definition file. Neither path erases historical runs.
 
 ## Manage Source Repositories
 
@@ -329,12 +334,14 @@ Inspect a source-defined job definition at a specific ref through the explicit r
 
 Pass `--path` when a job does not use the default `.vectis/jobs/<job-id>.json` layout.
 
-For a managed repository with `authoring_mode=local_commit`, write a definition back into source without creating a stored job row:
+For a managed repository with `authoring_mode=local_commit`, the recommended authoring flow is the job-facing command set:
 
 ```sh
-./bin/vectis-cli sources write vectis-local build ./build.json --branch main --message "Update build job"
-./bin/vectis-cli sources write vectis-local build ./build.json --branch main --expected-head <commit>
+./bin/vectis-cli jobs create ./build.json --repository vectis-local --branch main --message "Add build job"
+./bin/vectis-cli jobs edit build --repository vectis-local --branch main --expected-head <commit>
 ```
+
+The explicit `sources write` command remains available for repository-scoped tooling.
 
 Trigger a source-defined job without creating a stored job row:
 

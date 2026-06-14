@@ -325,6 +325,8 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 		"GET /api/v1/jobs/{id}":                             routeQueryParams("path", "ref", "repository_id", "version"),
 		"GET /api/v1/jobs/{id}/runs":                        routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "repository_id", "since"),
 		"GET /api/v1/sse/jobs/{id}/runs":                    routeQueryParams("repository_id"),
+		"DELETE /api/v1/jobs/{id}":                          routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
+		"PUT /api/v1/jobs/{id}":                             routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
 		"GET /api/v1/runs/{id}/tasks":                       routeQueryParams("cursor", "limit"),
 		"GET /api/v1/runs/{id}/artifacts":                   routeQueryParams("cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
 		"GET /api/v1/runs/{id}/logs":                        routeQueryParams("replay_limit", "since_sequence", "tail"),

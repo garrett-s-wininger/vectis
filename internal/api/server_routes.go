@@ -342,6 +342,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Pattern:   "DELETE /api/v1/jobs/{id}",
 			Handler:   http.HandlerFunc(s.DeleteJob),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
+			Query:     routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
 			RateLimit: defaultLimits.General,
 		},
 		{
@@ -349,6 +350,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Handler:   http.HandlerFunc(s.UpdateJobDefinition),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
 			Body:      jobDefinitionBody,
+			Query:     routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
 			RateLimit: defaultLimits.General,
 		},
 		{

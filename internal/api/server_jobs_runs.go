@@ -688,12 +688,16 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 }
 
 func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
-	if !s.requireStoredJobs(w) {
+	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
+	if !ok {
 		return
 	}
 
-	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
-	if !ok {
+	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, "") {
+		return
+	}
+
+	if !s.requireStoredJobs(w) {
 		return
 	}
 
@@ -794,13 +798,18 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
-	if !s.requireStoredJobs(w) {
-		return
-	}
-
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
+		s.deleteSourceJobDefinitionFromJobsFacade(w, r, repositoryID, jobID)
+		return
+	}
+
+	if !s.requireStoredJobs(w) {
 		return
 	}
 
@@ -1618,10 +1627,6 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
-	if !s.requireStoredJobs(w) {
-		return
-	}
-
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
@@ -1630,6 +1635,14 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 
 	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
 	if !ok {
+		return
+	}
+
+	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, jobID) {
+		return
+	}
+
+	if !s.requireStoredJobs(w) {
 		return
 	}
 

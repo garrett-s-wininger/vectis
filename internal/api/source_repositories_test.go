@@ -407,6 +407,156 @@ func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
 	}
 }
 
+func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+	remotePath := initAPIGitRepo(t)
+	writeAPIFileAndCommit(t, remotePath, "README.md", "managed source\n", "readme")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id":  "managed-repo",
+		"source_kind":    dal.SourceKindLocalCheckout,
+		"checkout_mode":  dal.SourceCheckoutModeManaged,
+		"canonical_url":  remotePath,
+		"default_ref":    "HEAD",
+		"authoring_mode": dal.SourceAuthoringModeLocalCommit,
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register managed source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	registerResp := decodeSourceRepositoryResponse(t, registerRec)
+
+	syncRec := httptest.NewRecorder()
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	parent := apiGitOutput(t, registerResp.CheckoutPath, "rev-parse", "HEAD")
+	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs", map[string]any{
+		"repository_id": "managed-repo",
+		"job_id":        "build",
+		"expected_head": parent,
+		"message":       "create build through jobs facade",
+		"job": map[string]any{
+			"root": map[string]any{
+				"id":   "root",
+				"uses": "builtins/shell",
+				"with": map[string]any{"command": "created"},
+			},
+		},
+	})
+
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("create source job facade: status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	createResp := decodeSourceRepositoryJobDefinitionResponse(t, createRec)
+	if createResp.JobID != "build" ||
+		createResp.Source.RepositoryID != "managed-repo" ||
+		createResp.Source.ResolvedCommit == "" ||
+		createResp.Source.ResolvedCommit == parent ||
+		createResp.Source.Path != ".vectis/jobs/build.json" ||
+		createResp.Source.BlobSHA == "" {
+		t.Fatalf("create source job facade response mismatch: %+v parent=%s", createResp, parent)
+	}
+
+	if _, err := repos.Jobs().GetNamespaceID(context.Background(), "build"); !dal.IsNotFound(err) {
+		t.Fatalf("source create facade should not create stored job row, got err=%v", err)
+	}
+
+	readCreateRec := httptest.NewRecorder()
+	readCreateReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=managed-repo&ref="+createResp.Source.ResolvedCommit, nil)
+	handler.ServeHTTP(readCreateRec, readCreateReq)
+	if readCreateRec.Code != http.StatusOK {
+		t.Fatalf("read created source job facade: status=%d body=%s", readCreateRec.Code, readCreateRec.Body.String())
+	}
+
+	readCreateResp := decodeSourceRepositoryJobDefinitionResponse(t, readCreateRec)
+	var createdJob api.Job
+	if err := json.Unmarshal(readCreateResp.Definition, &createdJob); err != nil {
+		t.Fatalf("decode created job definition: %v", err)
+	}
+
+	if createdJob.GetRoot().GetWith()["command"] != "created" {
+		t.Fatalf("created job command mismatch: %+v", createdJob.GetRoot().GetWith())
+	}
+
+	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/jobs/build", map[string]any{
+		"repository_id": "managed-repo",
+		"expected_head": createResp.Source.ResolvedCommit,
+		"message":       "update build through jobs facade",
+		"job": map[string]any{
+			"root": map[string]any{
+				"id":   "root",
+				"uses": "builtins/shell",
+				"with": map[string]any{"command": "updated"},
+			},
+		},
+	})
+
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("update source job facade: status=%d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+
+	updateResp := decodeSourceRepositoryJobDefinitionResponse(t, updateRec)
+	if updateResp.JobID != "build" ||
+		updateResp.Source.RepositoryID != "managed-repo" ||
+		updateResp.Source.ResolvedCommit == "" ||
+		updateResp.Source.ResolvedCommit == createResp.Source.ResolvedCommit ||
+		updateResp.Source.Path != ".vectis/jobs/build.json" ||
+		updateResp.Source.BlobSHA == "" {
+		t.Fatalf("update source job facade response mismatch: %+v create=%+v", updateResp, createResp)
+	}
+
+	readUpdateRec := httptest.NewRecorder()
+	readUpdateReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=managed-repo&ref="+updateResp.Source.ResolvedCommit, nil)
+	handler.ServeHTTP(readUpdateRec, readUpdateReq)
+	if readUpdateRec.Code != http.StatusOK {
+		t.Fatalf("read updated source job facade: status=%d body=%s", readUpdateRec.Code, readUpdateRec.Body.String())
+	}
+
+	readUpdateResp := decodeSourceRepositoryJobDefinitionResponse(t, readUpdateRec)
+	var updatedJob api.Job
+	if err := json.Unmarshal(readUpdateResp.Definition, &updatedJob); err != nil {
+		t.Fatalf("decode updated job definition: %v", err)
+	}
+
+	if updatedJob.GetRoot().GetWith()["command"] != "updated" {
+		t.Fatalf("updated job command mismatch: %+v", updatedJob.GetRoot().GetWith())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/build?repository_id=managed-repo&expected_head="+updateResp.Source.ResolvedCommit+"&message=delete+build+through+jobs+facade", nil)
+	deleteRec := httptest.NewRecorder()
+	handler.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete source job facade: status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	deleteCommit := strings.TrimSpace(deleteRec.Header().Get("X-Vectis-Source-Commit"))
+	if deleteCommit == "" || deleteCommit == updateResp.Source.ResolvedCommit {
+		t.Fatalf("delete source commit header mismatch: %q update=%s", deleteCommit, updateResp.Source.ResolvedCommit)
+	}
+
+	readDeletedReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=managed-repo&ref="+deleteCommit, nil)
+	readDeletedRec := httptest.NewRecorder()
+	handler.ServeHTTP(readDeletedRec, readDeletedReq)
+	assertAPIError(t, readDeletedRec, http.StatusNotFound, "source_not_found")
+}
+
 func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly-build","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":true}]`)

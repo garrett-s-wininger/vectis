@@ -9,7 +9,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Area | Operator use | Commands |
 | --- | --- | --- |
 | Actions | Inspect configured action descriptors and resolve friendly names to digests for pinning. | `vectis-cli actions list`, `actions resolve`, `--ignore-policy` |
-| Jobs | Manage stored jobs, inspect/trigger source-backed jobs, and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `trigger --cell`, `trigger --repository`, `run`, `run --cell` |
+| Jobs | Manage stored and source-backed jobs, and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `create --repository`, `edit`, `edit --repository`, `delete`, `delete --repository`, `trigger`, `trigger --cell`, `trigger --repository`, `run`, `run --cell` |
 | Runs | Inspect, cancel, retry, download artifacts, identify failed worker-controlled SVID/secret gates, filter by repository or cell, or manually repair run state. | `vectis-cli runs list`, `runs list --repository`, `runs list --cell`, `show`, `tasks`, `artifacts list`, `artifacts download`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
 | Cells | Inspect execution cell readiness, routing, queued pressure, orchestrator-driven task progress, and catalog fan-in counts. | `vectis-cli cells status` |
 | Logs | Stream logs for one run or follow future runs for a job, including source-backed jobs. | `vectis-cli logs run`, `logs job`, `logs job --repository` |
@@ -45,6 +45,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | List stale source repositories | `vectis-cli sources list --stale` |
 | List stale source schedules | `vectis-cli sources schedules --stale` |
 | Trigger a source-defined job | `vectis-cli jobs trigger <job-id> --repository <repository-id>` |
+| Commit a source-defined job change | `vectis-cli jobs create <file> --repository <repository-id>` or `vectis-cli jobs edit <job-id> --repository <repository-id>` |
 | Preview retention cleanup | `vectis-cli retention cleanup --dry-run` |
 | Apply database migrations | `vectis-cli database migrate` |
 

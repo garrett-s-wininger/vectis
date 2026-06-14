@@ -3243,6 +3243,177 @@ func TestShowJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 	}
 }
 
+func TestCreateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body jobsSourceDefinitionWriteRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.RepositoryID != "vectis" ||
+			body.JobID != "build" ||
+			body.Ref != "main" ||
+			body.Branch != "feature/source-authoring" ||
+			body.Path != ".vectis/jobs/custom.json" ||
+			body.Message != "create build" ||
+			body.ExpectedHead != "0123456789abcdef" {
+			t.Errorf("source create body mismatch: %+v", body)
+		}
+
+		if !strings.Contains(string(body.Job), `"builtins/shell"`) {
+			t.Errorf("definition body=%s", string(body.Job))
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"definition_hash": "sha256:def",
+			"definition":      map[string]any{"root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "feature/source-authoring",
+				"resolved_commit": "fedcba9876543210fedcba9876543210fedcba98",
+				"path":            ".vectis/jobs/custom.json",
+				"blob_sha":        "abcdef0123456789abcdef0123456789abcdef01",
+			},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	configureJobCreateFlags(cmd)
+	for name, value := range map[string]string{
+		"ref":           "main",
+		"branch":        "feature/source-authoring",
+		"path":          ".vectis/jobs/custom.json",
+		"message":       "create build",
+		"expected-head": "0123456789abcdef",
+	} {
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`Job "build" stored in source.`, "commit=fedcba9876543210fedcba9876543210fedcba98", "path=.vectis/jobs/custom.json", "blob_sha=abcdef0123456789abcdef0123456789abcdef01"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body jobsSourceDefinitionWriteRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.RepositoryID != "vectis" || body.JobID != "build" || body.Message != "update build" || body.ExpectedHead != "fedcba9876543210" {
+			t.Errorf("source update body mismatch: %+v", body)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"definition_hash": "sha256:def2",
+			"definition":      map[string]any{"root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "abcdef0123456789abcdef0123456789abcdef01",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "fedcba9876543210fedcba9876543210fedcba98",
+			},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	configureJobEditFlags(cmd)
+	if err := cmd.Flags().Set("message", "update build"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("expected-head", "fedcba9876543210"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := buf.String(); !strings.Contains(out, `Job "build" updated in source.`) || !strings.Contains(out, "commit=abcdef0123456789abcdef0123456789abcdef01") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+}
+
+func TestDeleteSourceJobFromJobsFacade_sendsAuthoringQuery(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("repository_id") != "vectis" ||
+			q.Get("branch") != "feature/delete" ||
+			q.Get("path") != ".vectis/jobs/custom.json" ||
+			q.Get("message") != "delete build" ||
+			q.Get("expected_head") != "abcdef0123456789" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		w.Header().Set("X-Vectis-Source-Commit", "fedcba9876543210fedcba9876543210fedcba98")
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	cmd := &cobra.Command{}
+	configureJobDeleteFlags(cmd)
+	for name, value := range map[string]string{
+		"branch":        "feature/delete",
+		"path":          ".vectis/jobs/custom.json",
+		"message":       "delete build",
+		"expected-head": "abcdef0123456789",
+	} {
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := deleteSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`Job "build" deleted from source.`, "commit=fedcba9876543210fedcba9876543210fedcba98"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestListJobNames_rejectsUnexpectedShape(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{

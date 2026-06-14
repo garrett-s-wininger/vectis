@@ -10,6 +10,7 @@ import (
 
 type DefinitionAuthor interface {
 	WriteDefinition(ctx context.Context, req WriteDefinitionRequest) (WrittenDefinition, error)
+	DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) (WrittenDefinition, error)
 }
 
 type WriteDefinitionRequest struct {
@@ -19,6 +20,14 @@ type WriteDefinitionRequest struct {
 	DefinitionJSON string
 	Message        string
 	ExpectedHead   string
+}
+
+type DeleteDefinitionRequest struct {
+	Ref          string
+	Branch       string
+	Path         string
+	Message      string
+	ExpectedHead string
 }
 
 type WrittenDefinition struct {
@@ -121,6 +130,38 @@ func (a LocalCommitDefinitionAuthor) WriteDefinition(ctx context.Context, req Wr
 		Ref:          targetRef,
 		Path:         req.Path,
 		Content:      []byte(req.DefinitionJSON),
+		Message:      req.Message,
+		ExpectedHead: req.ExpectedHead,
+	})
+
+	if err != nil {
+		return WrittenDefinition{}, err
+	}
+
+	return WrittenDefinition(commit), nil
+}
+
+func (a LocalCommitDefinitionAuthor) DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) (WrittenDefinition, error) {
+	if a.Checkout == nil {
+		return WrittenDefinition{}, fmt.Errorf("%w: checkout is required", ErrInvalidReference)
+	}
+
+	targetRef := strings.TrimSpace(req.Branch)
+	if targetRef == "" {
+		targetRef = strings.TrimSpace(req.Ref)
+	}
+
+	if targetRef == "" {
+		targetRef = strings.TrimSpace(a.DefaultRef)
+	}
+
+	if targetRef == "" {
+		targetRef = "HEAD"
+	}
+
+	commit, err := a.Checkout.DeleteFile(ctx, DeleteFileOptions{
+		Ref:          targetRef,
+		Path:         req.Path,
 		Message:      req.Message,
 		ExpectedHead: req.ExpectedHead,
 	})

@@ -371,6 +371,106 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	}, nil
 }
 
+func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (FileCommit, error) {
+	if err := g.validateCheckout(); err != nil {
+		return FileCommit{}, err
+	}
+
+	requestedRef, branch, err := g.normalizeWriteRef(ctx, opts.Ref)
+	if err != nil {
+		return FileCommit{}, err
+	}
+
+	cleanPath, err := normalizeTreePath(opts.Path)
+	if err != nil {
+		return FileCommit{}, err
+	}
+
+	parent, err := g.resolveCommit(ctx, "refs/heads/"+branch)
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: branch %q", ErrNotFound, branch)
+	}
+
+	if expected := strings.TrimSpace(opts.ExpectedHead); expected != "" {
+		expectedCommit, err := normalizeCommit(expected)
+		if err != nil {
+			return FileCommit{}, err
+		}
+
+		if !strings.EqualFold(expectedCommit, parent) {
+			return FileCommit{}, fmt.Errorf("%w: branch %s moved from %s to %s", ErrConflict, branch, expectedCommit, parent)
+		}
+	}
+
+	existing, err := g.run(ctx, "ls-tree", "-z", parent, "--", cleanPath)
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: read tree for %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+
+	if len(bytes.Trim(existing, "\x00\n\r ")) == 0 {
+		return FileCommit{}, fmt.Errorf("%w: %s", ErrNotFound, cleanPath)
+	}
+
+	message := strings.TrimSpace(opts.Message)
+	if message == "" {
+		message = "Delete " + cleanPath
+	}
+
+	indexFile, err := tempGitIndexFile()
+	if err != nil {
+		return FileCommit{}, err
+	}
+	defer os.Remove(indexFile)
+
+	indexEnv := []string{"GIT_INDEX_FILE=" + indexFile}
+	if _, err := g.runWithEnv(ctx, indexEnv, "read-tree", parent); err != nil {
+		return FileCommit{}, fmt.Errorf("%w: prepare index for %s: %v", ErrInvalidReference, parent, err)
+	}
+
+	if _, err := g.runWithEnv(ctx, indexEnv, "update-index", "--force-remove", "--", cleanPath); err != nil {
+		return FileCommit{}, fmt.Errorf("%w: remove index entry for %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+
+	treeOut, err := g.runWithEnv(ctx, indexEnv, "write-tree")
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: write tree for %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+
+	treeSHA := strings.TrimSpace(string(treeOut))
+	if treeSHA == "" {
+		return FileCommit{}, fmt.Errorf("%w: write tree returned an empty commit id", ErrInvalidReference)
+	}
+
+	commitEnv := append([]string{}, indexEnv...)
+	commitEnv = append(commitEnv,
+		"GIT_AUTHOR_NAME=Vectis",
+		"GIT_AUTHOR_EMAIL=vectis@example.invalid",
+		"GIT_COMMITTER_NAME=Vectis",
+		"GIT_COMMITTER_EMAIL=vectis@example.invalid",
+	)
+
+	commitOut, err := g.runWithEnv(ctx, commitEnv, "commit-tree", treeSHA, "-p", parent, "-m", message)
+	if err != nil {
+		return FileCommit{}, fmt.Errorf("%w: commit %s: %v", ErrInvalidReference, cleanPath, err)
+	}
+
+	commitSHA := strings.TrimSpace(string(commitOut))
+	if commitSHA == "" {
+		return FileCommit{}, fmt.Errorf("%w: commit-tree returned an empty commit id", ErrInvalidReference)
+	}
+
+	if _, err := g.run(ctx, "update-ref", "refs/heads/"+branch, commitSHA, parent); err != nil {
+		return FileCommit{}, fmt.Errorf("%w: branch %s moved while deleting %s: %v", ErrConflict, branch, cleanPath, err)
+	}
+
+	return FileCommit{
+		RequestedRef: requestedRef,
+		Commit:       commitSHA,
+		ParentCommit: parent,
+		Path:         cleanPath,
+	}, nil
+}
+
 func (g *GitCheckout) ListBranches(ctx context.Context, opts ListBranchesOptions) (BranchListing, error) {
 	if err := g.validateCheckout(); err != nil {
 		return BranchListing{}, err

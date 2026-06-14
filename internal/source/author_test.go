@@ -163,4 +163,18 @@ func TestLocalCommitDefinitionAuthorUsesDefaultRef(t *testing.T) {
 	if written.RequestedRef != branch || written.Commit == "" || written.Path != ".vectis/jobs/build.json" || written.BlobSHA == "" {
 		t.Fatalf("written definition mismatch: %+v", written)
 	}
+
+	deleted, err := author.DeleteDefinition(context.Background(), DeleteDefinitionRequest{
+		Path:         ".vectis/jobs/build.json",
+		Message:      "delete build",
+		ExpectedHead: written.Commit,
+	})
+
+	if err != nil {
+		t.Fatalf("DeleteDefinition: %v", err)
+	}
+
+	if deleted.RequestedRef != branch || deleted.Commit == "" || deleted.Commit == written.Commit || deleted.ParentCommit != written.Commit || deleted.Path != ".vectis/jobs/build.json" || deleted.BlobSHA != "" {
+		t.Fatalf("deleted definition mismatch: %+v written=%+v", deleted, written)
+	}
 }

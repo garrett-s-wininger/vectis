@@ -205,6 +205,57 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutDeleteFileUpdatesBranchWithoutCheckout(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, ".vectis/jobs/build.json", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, "add build")
+	branch := gitOutput(t, repo, "branch", "--show-current")
+	parent := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	checkout := NewGitCheckout(repo)
+	deleted, err := checkout.DeleteFile(context.Background(), DeleteFileOptions{
+		Ref:          branch,
+		Path:         ".vectis/jobs/build.json",
+		Message:      "delete build definition",
+		ExpectedHead: parent,
+	})
+
+	if err != nil {
+		t.Fatalf("DeleteFile: %v", err)
+	}
+
+	if deleted.RequestedRef != branch || deleted.ParentCommit != parent || deleted.Commit == "" || deleted.Commit == parent || deleted.Path != ".vectis/jobs/build.json" || deleted.BlobSHA != "" {
+		t.Fatalf("delete response mismatch: %+v parent=%s", deleted, parent)
+	}
+
+	if got := gitOutput(t, repo, "rev-parse", "HEAD"); got != deleted.Commit {
+		t.Fatalf("branch head: got %q, want %q", got, deleted.Commit)
+	}
+
+	cmd := exec.Command("git", "-C", repo, "cat-file", "-e", deleted.Commit+":.vectis/jobs/build.json")
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("deleted definition still exists at %s", deleted.Commit)
+	}
+
+	_, err = checkout.DeleteFile(context.Background(), DeleteFileOptions{
+		Ref:  branch,
+		Path: ".vectis/jobs/build.json",
+	})
+
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing file not found, got %v", err)
+	}
+
+	_, err = checkout.DeleteFile(context.Background(), DeleteFileOptions{
+		Ref:          branch,
+		Path:         "README.md",
+		ExpectedHead: parent,
+	})
+
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected stale expected head conflict, got %v", err)
+	}
+}
+
 func TestGitCheckoutListBranches(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "main\n", "main")

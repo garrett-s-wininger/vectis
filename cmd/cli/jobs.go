@@ -43,6 +43,17 @@ type jobListOptions struct {
 	Quiet        bool
 }
 
+type jobsSourceDefinitionWriteRequest struct {
+	RepositoryID string          `json:"repository_id"`
+	JobID        string          `json:"job_id,omitempty"`
+	Ref          string          `json:"ref,omitempty"`
+	Branch       string          `json:"branch,omitempty"`
+	Path         string          `json:"path,omitempty"`
+	Message      string          `json:"message,omitempty"`
+	ExpectedHead string          `json:"expected_head,omitempty"`
+	Job          json.RawMessage `json:"job"`
+}
+
 func setIdempotencyHeader(req *http.Request, key string) {
 	if key = strings.TrimSpace(key); key != "" {
 		req.Header.Set("Idempotency-Key", key)
@@ -374,6 +385,40 @@ func fetchJobDefinitionBody(jobID string) ([]byte, int, error) {
 	return body, resp.StatusCode, nil
 }
 
+func fetchSourceJobDefinitionBodyFromJobsFacade(cmd *cobra.Command, repositoryID, jobID string) ([]byte, int, error) {
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	setTrimmedQueryParam(params, "ref", stringFlagValue(cmd, "ref"))
+	setTrimmedQueryParam(params, "path", stringFlagValue(cmd, "path"))
+
+	req, err := newAPIRequest(http.MethodGet, appendQueryParams("/api/v1/jobs/"+url.PathEscape(jobID), params), nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create source job definition request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch source job definition: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, resp.StatusCode, fmt.Errorf("failed to read source job definition: %w", readErr)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return body, resp.StatusCode, nil
+	}
+
+	var result sourceRepositoryJobDefinitionResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("failed to parse source job definition response: %w", err)
+	}
+
+	return result.Definition, resp.StatusCode, nil
+}
+
 func formatJobDefinitionBody(body []byte, pretty bool) []byte {
 	if !pretty {
 		out := body
@@ -421,7 +466,15 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 
 	jobID := args[0]
-	body, statusCode, err := fetchJobDefinitionBody(jobID)
+	repositoryID := stringFlagValue(cmd, "repository")
+	var body []byte
+	var statusCode int
+	var err error
+	if repositoryID != "" {
+		body, statusCode, err = fetchSourceJobDefinitionBodyFromJobsFacade(cmd, repositoryID, jobID)
+	} else {
+		body, statusCode, err = fetchJobDefinitionBody(jobID)
+	}
 	if err != nil {
 		runCLIError(err)
 	}
@@ -495,16 +548,24 @@ func editJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job must have a root node"))
 	}
 
-	if job.Id == nil || *job.Id != jobID {
+	if repositoryID == "" && (job.Id == nil || *job.Id != jobID) {
+		runCLIError(fmt.Errorf("job id mismatch (expected %q, got %v)", jobID, job.Id))
+	}
+	if repositoryID != "" && strings.TrimSpace(job.GetId()) != "" && strings.TrimSpace(job.GetId()) != jobID {
 		runCLIError(fmt.Errorf("job id mismatch (expected %q, got %v)", jobID, job.Id))
 	}
 
-	// NOTE(garrett): Always re-indent the stored job before updating.
+	// NOTE(garrett): Always re-indent the job before updating.
 	pretty, err = json.MarshalIndent(&job, "", "  ")
 	if err != nil {
 		runCLIError(fmt.Errorf("failed to normalize job JSON: %w", err))
 	}
 	pretty = append(pretty, '\n')
+
+	if repositoryID != "" {
+		runCLIError(updateSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID, pretty))
+		return
+	}
 
 	req, err := newAPIRequest(http.MethodPut, fmt.Sprintf("/api/v1/jobs/%s", jobID), bytes.NewReader(pretty))
 	if err != nil {
@@ -583,17 +644,9 @@ func createJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("path or - is required"))
 	}
 
-	source := args[0]
-	var body []byte
-	var err error
-	if source == "-" {
-		body, err = io.ReadAll(os.Stdin)
-	} else {
-		body, err = os.ReadFile(source)
-	}
-
+	body, err := readJobDefinitionSource(args[0], os.Stdin)
 	if err != nil {
-		runCLIError(fmt.Errorf("failed to read job definition: %w", err))
+		runCLIError(err)
 	}
 
 	var job api.Job
@@ -601,13 +654,39 @@ func createJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("invalid job JSON: %w", err))
 	}
 
+	actionResolver, err := actionconfig.Resolver()
+	if err != nil {
+		runCLIError(fmt.Errorf("invalid action registry config: %w", err))
+	}
+
+	repositoryID := stringFlagValue(cmd, "repository")
+	if repositoryID != "" {
+		if namespace := stringFlagValue(cmd, "namespace"); namespace != "" {
+			runCLIError(fmt.Errorf("--namespace cannot be used with --repository"))
+		}
+
+		if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{Resolver: actionResolver}); err != nil {
+			runCLIError(fmt.Errorf("invalid job definition: %w", err))
+		}
+
+		jobID := stringFlagValue(cmd, "job-id")
+		if jobID == "" {
+			jobID = strings.TrimSpace(job.GetId())
+		}
+		if jobID == "" {
+			runCLIError(fmt.Errorf("source job creation requires --job-id or an id field in the job definition"))
+		}
+
+		runCLIError(createSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID, body))
+		return
+	}
+
 	if job.Id == nil || *job.Id == "" {
 		runCLIError(fmt.Errorf("job definition must include an id field"))
 	}
 
-	actionResolver, err := actionconfig.Resolver()
-	if err != nil {
-		runCLIError(fmt.Errorf("invalid action registry config: %w", err))
+	if jobID := stringFlagValue(cmd, "job-id"); jobID != "" {
+		runCLIError(fmt.Errorf("--job-id requires --repository"))
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: actionResolver}); err != nil {
@@ -660,12 +739,134 @@ func createJob(cmd *cobra.Command, args []string) {
 	}
 }
 
+func createSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string, definition []byte) error {
+	payload, err := jobsSourceDefinitionWritePayload(cmd, repositoryID, jobID, definition)
+	if err != nil {
+		return err
+	}
+
+	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create source job request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryJobDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source job create response: %w", err)
+		}
+		return writeJobsSourceAuthoringResult(out, result, "stored")
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source job definition")
+	case http.StatusConflict:
+		return fmt.Errorf("source job definition write conflicted or source authoring is unavailable")
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("source job definition is too large")
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status creating source job: %s", resp.Status)
+	}
+}
+
+func updateSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string, definition []byte) error {
+	payload, err := jobsSourceDefinitionWritePayload(cmd, repositoryID, jobID, definition)
+	if err != nil {
+		return err
+	}
+
+	req, err := newAPIRequest(http.MethodPut, "/api/v1/jobs/"+url.PathEscape(jobID), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create source job update request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("failed to update source job: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryJobDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source job update response: %w", err)
+		}
+		return writeJobsSourceAuthoringResult(out, result, "updated")
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source job definition or id mismatch")
+	case http.StatusConflict:
+		return fmt.Errorf("source job definition write conflicted or source authoring is unavailable")
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q or job %q not found", repositoryID, jobID)
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("source job definition is too large")
+	case http.StatusUnsupportedMediaType:
+		return fmt.Errorf("content type must be application/json")
+	default:
+		return fmt.Errorf("unexpected status updating source job: %s", resp.Status)
+	}
+}
+
+func jobsSourceDefinitionWritePayload(cmd *cobra.Command, repositoryID, jobID string, definition []byte) ([]byte, error) {
+	payload, err := json.Marshal(jobsSourceDefinitionWriteRequest{
+		RepositoryID: strings.TrimSpace(repositoryID),
+		JobID:        strings.TrimSpace(jobID),
+		Ref:          stringFlagValue(cmd, "ref"),
+		Branch:       stringFlagValue(cmd, "branch"),
+		Path:         stringFlagValue(cmd, "path"),
+		Message:      stringFlagValue(cmd, "message"),
+		ExpectedHead: stringFlagValue(cmd, "expected-head"),
+		Job:          json.RawMessage(bytes.TrimSpace(definition)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode source job definition request: %w", err)
+	}
+
+	return payload, nil
+}
+
+func writeJobsSourceAuthoringResult(out io.Writer, result sourceRepositoryJobDefinitionResult, action string) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	fmt.Fprintf(out, "Job %q %s in source.\n", result.JobID, action)
+	fmt.Fprintf(out, "commit=%s\n", result.Source.ResolvedCommit)
+	fmt.Fprintf(out, "path=%s\n", result.Source.Path)
+	if strings.TrimSpace(result.Source.BlobSHA) != "" {
+		fmt.Fprintf(out, "blob_sha=%s\n", result.Source.BlobSHA)
+	}
+	fmt.Fprintf(out, "definition_hash=%s\n", result.DefinitionHash)
+	if strings.TrimSpace(result.Source.RequestedRef) != "" {
+		fmt.Fprintf(out, "requested_ref=%s\n", result.Source.RequestedRef)
+	}
+
+	return nil
+}
+
 func deleteJob(cmd *cobra.Command, args []string) {
 	jobID := args[0]
 
 	force, _ := cmd.Flags().GetBool("yes")
 	if !force {
 		runCLIError(fmt.Errorf("delete job %q requires --yes; this removes the definition and prevents future triggers", jobID))
+	}
+
+	if repositoryID := stringFlagValue(cmd, "repository"); repositoryID != "" {
+		runCLIError(deleteSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID))
+		return
 	}
 
 	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/jobs/%s", jobID), nil)
@@ -690,6 +891,50 @@ func deleteJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job %q not found", jobID))
 	default:
 		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
+	}
+}
+
+func deleteSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	setTrimmedQueryParam(params, "ref", stringFlagValue(cmd, "ref"))
+	setTrimmedQueryParam(params, "branch", stringFlagValue(cmd, "branch"))
+	setTrimmedQueryParam(params, "path", stringFlagValue(cmd, "path"))
+	setTrimmedQueryParam(params, "message", stringFlagValue(cmd, "message"))
+	setTrimmedQueryParam(params, "expected_head", stringFlagValue(cmd, "expected-head"))
+
+	req, err := newAPIRequest(http.MethodDelete, appendQueryParams("/api/v1/jobs/"+url.PathEscape(jobID), params), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create source job delete request: %w", err)
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		commit := strings.TrimSpace(resp.Header.Get("X-Vectis-Source-Commit"))
+		if outputIsJSON() {
+			return writeJSON(out, map[string]string{"status": "deleted", "job_id": jobID, "repository_id": repositoryID, "commit": commit})
+		}
+		if commit != "" {
+			_, err = fmt.Fprintf(out, "Job %q deleted from source.\ncommit=%s\n", jobID, commit)
+			return err
+		}
+
+		_, err = fmt.Fprintf(out, "Job %q deleted from source.\n", jobID)
+		return err
+	case http.StatusBadRequest:
+		return fmt.Errorf("invalid source job delete request")
+	case http.StatusConflict:
+		return fmt.Errorf("source job delete conflicted or source authoring is unavailable")
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q or job %q not found", repositoryID, jobID)
+	default:
+		return fmt.Errorf("unexpected status deleting source job: %s", resp.Status)
 	}
 }
 
@@ -803,10 +1048,11 @@ func listJobNames(w io.Writer, quiet bool, cursor string, limit int) error {
 var jobsCmd = &cobra.Command{
 	Use:   "jobs",
 	Short: "Create, inspect, trigger, and run jobs",
-	Long: `Create stored jobs, inspect and trigger source-backed jobs, and submit one-off job definitions.
+	Long: `Create, inspect, trigger, and run reusable jobs.
 
 Common flows:
   vectis-cli jobs create build.json
+  vectis-cli jobs create build.json --repository vectis --branch main
   vectis-cli jobs trigger build-main --follow
   vectis-cli jobs trigger build-main --repository vectis --ref main --follow
   vectis-cli jobs run scratch.json`,
@@ -836,8 +1082,8 @@ Use --cell to route the one-off run into a named execution cell.`,
 
 var editCmd = &cobra.Command{
 	Use:   "edit [job-id]",
-	Short: "Edit a stored job definition using $EDITOR",
-	Long:  `Fetch a stored job definition, open it in your $EDITOR, and update the job if you save and exit successfully.`,
+	Short: "Edit a job definition using $EDITOR",
+	Long:  `Fetch a stored job definition, or pass --repository to edit a source-backed definition, then update it if you save and exit successfully.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   editJob,
 }
@@ -852,16 +1098,16 @@ var getCmd = &cobra.Command{
 
 var createCmd = &cobra.Command{
 	Use:   "create [path|-]",
-	Short: "Store a job definition",
-	Long:  `Store a job definition for later trigger, edit, and delete. Path is a JSON file; use "-" to read from stdin.`,
+	Short: "Create a reusable job definition",
+	Long:  `Create a reusable job definition for later trigger, edit, and delete. Pass --repository to commit the definition through source authoring. Path is a JSON file; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   createJob,
 }
 
 var deleteCmd = &cobra.Command{
 	Use:   "delete [job-id]",
-	Short: "Delete a stored job",
-	Long:  `Delete a stored job definition. The job must exist. Pass --yes to skip confirmation.`,
+	Short: "Delete a reusable job definition",
+	Long:  `Delete a stored job definition, or pass --repository to commit a source definition deletion. The job must exist. Pass --yes to skip confirmation.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   deleteJob,
 }
@@ -898,10 +1144,32 @@ func configureJobShowFlags(cmd *cobra.Command) {
 
 func configureJobCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("namespace", "", "Namespace to store the job in (default: /)")
+	cmd.Flags().String("repository", "", "Source repository ID for source-backed job creation")
+	cmd.Flags().String("job-id", "", "Source job ID when the definition omits id")
+	cmd.Flags().String("ref", "", "Git ref to use as the write base (default: repository default_ref or HEAD)")
+	cmd.Flags().String("branch", "", "Local branch to update instead of --ref/default")
+	cmd.Flags().String("path", "", "Definition file path override")
+	cmd.Flags().String("message", "", "Commit message for local source authoring")
+	cmd.Flags().String("expected-head", "", "Require the target branch to still point at this commit")
+}
+
+func configureJobEditFlags(cmd *cobra.Command) {
+	cmd.Flags().String("repository", "", "Source repository ID for source-backed job editing")
+	cmd.Flags().String("ref", "", "Git ref to read and use as the write base (default: repository default_ref or HEAD)")
+	cmd.Flags().String("branch", "", "Local branch to update instead of --ref/default")
+	cmd.Flags().String("path", "", "Definition file path override")
+	cmd.Flags().String("message", "", "Commit message for local source authoring")
+	cmd.Flags().String("expected-head", "", "Require the target branch to still point at this commit")
 }
 
 func configureJobDeleteFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("yes", false, "Skip confirmation prompt")
+	cmd.Flags().String("repository", "", "Source repository ID for source-backed job deletion")
+	cmd.Flags().String("ref", "", "Git ref to use as the delete base (default: repository default_ref or HEAD)")
+	cmd.Flags().String("branch", "", "Local branch to update instead of --ref/default")
+	cmd.Flags().String("path", "", "Definition file path override")
+	cmd.Flags().String("message", "", "Commit message for local source authoring")
+	cmd.Flags().String("expected-head", "", "Require the target branch to still point at this commit")
 }
 
 func configureJobListFlags(cmd *cobra.Command) {

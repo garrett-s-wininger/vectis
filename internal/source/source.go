@@ -133,6 +133,13 @@ type CommitFileOptions struct {
 	ExpectedHead string
 }
 
+type DeleteFileOptions struct {
+	Ref          string
+	Path         string
+	Message      string
+	ExpectedHead string
+}
+
 type FileCommit struct {
 	RequestedRef string
 	Commit       string

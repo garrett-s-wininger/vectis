@@ -22,6 +22,10 @@ func (f definitionAuthorFunc) WriteDefinition(ctx context.Context, req sourcepkg
 	return f(ctx, req)
 }
 
+func (f definitionAuthorFunc) DeleteDefinition(context.Context, sourcepkg.DeleteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
+	return sourcepkg.WrittenDefinition{}, sourcepkg.ErrAuthoringUnavailable
+}
+
 func TestAPIServer_SourceDefinitionAuthoringHooks(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
