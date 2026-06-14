@@ -199,6 +199,91 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 	assertRunArtifact(t, root, env, cli, run.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
 }
 
+func TestE2ELocalSourceOnlyTriggerSmoke(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("vectis-local e2e process cleanup uses Unix signals")
+	}
+
+	root := repoRoot(t)
+	cli := e2eBinaryPath(t, root, "VECTIS_E2E_CLI", "vectis-cli")
+	local := e2eBinaryPath(t, root, "VECTIS_E2E_LOCAL", "vectis-local")
+
+	requireExecutable(t, cli, "vectis-cli")
+	requireExecutable(t, local, "vectis-local")
+	requireGit(t)
+	requireLocalPortsAvailable(t, localSmokePorts)
+
+	sourceRepo := createSourceOnlySmokeRepo(t, root)
+	dataHome := t.TempDir()
+	env := commandEnv(map[string]string{
+		"XDG_DATA_HOME":   dataHome,
+		"XDG_RUNTIME_DIR": shortTempDir(t, "vectis-e2e-runtime-*"),
+		"VECTIS_ACTION_REGISTRY_ALLOWED_NAMESPACES":             "",
+		"VECTIS_ACTION_REGISTRY_ALLOWED_SOURCES":                "",
+		"VECTIS_ACTION_REGISTRY_LOCAL_ROOTS":                    filepath.Join(root, "examples", "actions"),
+		"VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS":            "false",
+		"VECTIS_API_SERVER_HOST":                                "localhost",
+		"VECTIS_API_SERVER_PORT":                                "8080",
+		"VECTIS_API_TOKEN":                                      "",
+		"VECTIS_GRPC_TLS_INSECURE":                              "false",
+		"VECTIS_LOCAL_GRPC_INSECURE":                            "false",
+		"VECTIS_LOCAL_HTTP_TLS":                                 "off",
+		"VECTIS_LOCAL_DOCS_ENABLED":                             "false",
+		"VECTIS_LOCAL_SOURCE_ONLY":                              "",
+		"VECTIS_LOCAL_SOURCE_REPOSITORIES":                      "",
+		"VECTIS_SOURCE_REPOSITORIES":                            "",
+		"VECTIS_SOURCE_STORED_JOBS_ENABLED":                     "",
+		"VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP": "",
+		database.EnvDatabaseDSN:                                 "",
+		database.EnvGlobalDatabaseDSN:                           "",
+		database.EnvCellDatabaseDSN:                             "",
+		"VECTIS_WORKER_EXECUTION_BACKEND":                       "host",
+	})
+
+	proc := startVectisLocal(t, root, env, local, "--source-only", "--source-repository", "vectis-local="+sourceRepo)
+	if !truthyEnv("VECTIS_E2E_KEEP_LOCAL") {
+		t.Cleanup(func() { stopVectisLocal(t, proc) })
+	}
+
+	waitForAPIReady(t, proc, "http://localhost:8080/health/ready", 2*time.Minute)
+
+	seedLocalSmokeSecret(t, root, env, cli, dataHome)
+	run := triggerSourceSmokeJob(t, root, env, cli, "vectis-local", canonicalJobID)
+	statuses, final := waitForRunTerminal(t, root, env, cli, run.RunID, 3*time.Minute)
+
+	if final.Status != "succeeded" {
+		t.Fatalf("source run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s", run.RunID, final.Status, statuses, proc.stderr.String())
+	}
+
+	final = waitForRunTaskCompletionSucceeded(t, root, env, cli, run.RunID, 30*time.Second)
+
+	if !containsStatus(statuses, "running") {
+		t.Fatalf("source run %s never reported running; observed statuses=%v", run.RunID, statuses)
+	}
+
+	if !containsStatus(statuses, "succeeded") {
+		t.Fatalf("source run %s never reported succeeded; observed statuses=%v", run.RunID, statuses)
+	}
+
+	if final.TaskCompletion == nil {
+		t.Fatalf("source run %s final detail missing task_completion", run.RunID)
+	}
+
+	if final.TaskCompletion.Total == 0 || final.TaskCompletion.Succeeded != final.TaskCompletion.Total ||
+		final.TaskCompletion.TerminalFailed != 0 || final.TaskCompletion.Incomplete != 0 {
+		t.Fatalf("source run %s task completion = %+v, want all succeeded", run.RunID, *final.TaskCompletion)
+	}
+
+	assertRunTasksSucceeded(t, root, env, cli, run.RunID)
+	assertRunLogsContain(t, root, env, cli, run.RunID,
+		"Starting task execution: e2e-canonical-smoke task ",
+		"Run "+run.RunID+" finished successfully.",
+	)
+
+	assertRunArtifact(t, root, env, cli, run.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
+	assertRunArtifact(t, root, env, cli, run.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
+}
+
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -294,10 +379,55 @@ func requireLocalPortsAvailable(t *testing.T, ports []int) {
 	}
 }
 
-func startVectisLocal(t *testing.T, root string, env []string, local string) *localProcess {
+func requireGit(t *testing.T) {
 	t.Helper()
 
-	cmd := exec.Command(local, "--http-tls", "off", "--docs=false") // #nosec G204 -- e2e harness controls the binary path.
+	if _, err := exec.LookPath("git"); err != nil {
+		skipOrFatal(t, "git binary is not available; source-only e2e smoke requires git")
+	}
+}
+
+func createSourceOnlySmokeRepo(t *testing.T, root string) string {
+	t.Helper()
+
+	repo := filepath.Join(t.TempDir(), "source-repo")
+	definitionPath := filepath.Join(repo, ".vectis", "jobs", canonicalJobID+".json")
+	if err := os.MkdirAll(filepath.Dir(definitionPath), 0o755); err != nil {
+		t.Fatalf("create source definition dir: %v", err)
+	}
+
+	definition, err := os.ReadFile(filepath.Join(root, "examples", "e2e-canonical.json"))
+	if err != nil {
+		t.Fatalf("read canonical example definition: %v", err)
+	}
+
+	if err := os.WriteFile(definitionPath, definition, 0o644); err != nil {
+		t.Fatalf("write source definition: %v", err)
+	}
+
+	git := func(args ...string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := runCommand(ctx, repo, nil, nil, "git", args...); err != nil {
+			t.Fatalf("git %s: %v", strings.Join(args, " "), err)
+		}
+	}
+
+	git("init")
+	git("config", "user.email", "vectis-e2e@example.invalid")
+	git("config", "user.name", "Vectis E2E")
+	git("add", ".vectis/jobs/"+canonicalJobID+".json")
+	git("commit", "-m", "Add source-only smoke job")
+
+	return repo
+}
+
+func startVectisLocal(t *testing.T, root string, env []string, local string, extraArgs ...string) *localProcess {
+	t.Helper()
+
+	args := append([]string{"--http-tls", "off", "--docs=false"}, extraArgs...)
+	cmd := exec.Command(local, args...) // #nosec G204 -- e2e harness controls the binary path.
 	cmd.Dir = root
 	cmd.Env = env
 
@@ -472,6 +602,29 @@ func triggerStoredSmokeJob(t *testing.T, root string, env []string, cli, jobID s
 
 	if strings.TrimSpace(out.RunID) == "" {
 		t.Fatalf("jobs trigger output missing run_id: %s", result.stdout)
+	}
+
+	return out
+}
+
+func triggerSourceSmokeJob(t *testing.T, root string, env []string, cli, repositoryID, jobID string) jobRunResult {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := runCommand(ctx, root, env, nil, cli, "--format", "json", "sources", "trigger", repositoryID, jobID)
+	if err != nil {
+		t.Fatalf("trigger source smoke job: %v", err)
+	}
+
+	var out jobRunResult
+	if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
+		t.Fatalf("parse sources trigger output: %v\nstdout:\n%s\nstderr:\n%s", err, result.stdout, result.stderr)
+	}
+
+	if strings.TrimSpace(out.RunID) == "" {
+		t.Fatalf("sources trigger output missing run_id: %s", result.stdout)
 	}
 
 	return out
