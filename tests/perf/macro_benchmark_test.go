@@ -532,9 +532,35 @@ func compactMacroSQL(query string) string {
 }
 
 func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
+	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, noopMacroJob(), newMacroBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorAPIQueueWorker_TriggerToTerminal(b *testing.B) {
+	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, noopMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorGRPCAPIQueueWorker_TriggerToTerminal(b *testing.B) {
+	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv)
+}
+
+func BenchmarkMacro_ResultActionAPIQueueWorker_TriggerToTerminal(b *testing.B) {
+	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, resultMacroJob(), newMacroBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorResultActionAPIQueueWorker_TriggerToTerminal(b *testing.B) {
+	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, resultMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorGRPCResultActionAPIQueueWorker_TriggerToTerminal(b *testing.B) {
+	benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b, resultMacroJob(), newMacroGRPCOrchestratorBenchEnv)
+}
+
+func benchmarkMacroAPIQueueWorkerTriggerToTerminalWithJobAndEnv(b *testing.B, macroJob macroJobSpec, newEnv macroBenchEnvFactory) {
+	b.Helper()
+
 	ctx := context.Background()
-	macroJob := uniqueMacroJob(noopMacroJob())
-	env := newMacroBenchEnv(b, []macroJobSpec{macroJob})
+	macroJob = uniqueMacroJob(macroJob)
+	env := newEnv(b, []macroJobSpec{macroJob})
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
 
@@ -578,18 +604,38 @@ func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 }
 
 func BenchmarkMacro_ConcurrentNoop_TriggerToTerminal(b *testing.B) {
-	runMacroConcurrentNoopTriggerToTerminalBenchmark(b)
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, noopMacroJob(), newMacroBenchEnv)
 }
 
-func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
+func BenchmarkMacro_OrchestratorConcurrentNoop_TriggerToTerminal(b *testing.B) {
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, noopMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorGRPCConcurrentNoop_TriggerToTerminal(b *testing.B) {
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv)
+}
+
+func BenchmarkMacro_ResultActionConcurrent_TriggerToTerminal(b *testing.B) {
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, resultMacroJob(), newMacroBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorResultActionConcurrent_TriggerToTerminal(b *testing.B) {
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, resultMacroJob(), newMacroInProcessOrchestratorBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorGRPCResultActionConcurrent_TriggerToTerminal(b *testing.B) {
+	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, resultMacroJob(), newMacroGRPCOrchestratorBenchEnv)
+}
+
+func runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, macroJob macroJobSpec, newEnv macroBenchEnvFactory) {
 	b.Helper()
 
 	triggerClients := macroBenchmarkTriggerClients(b)
 	workerCount := macroBenchmarkWorkers(b)
 
 	ctx := context.Background()
-	macroJob := uniqueMacroJob(noopMacroJob())
-	env := newMacroBenchEnv(b, []macroJobSpec{macroJob})
+	macroJob = uniqueMacroJob(macroJob)
+	env := newEnv(b, []macroJobSpec{macroJob})
 	totalRuns := b.N
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
@@ -2305,7 +2351,14 @@ func startMacroWorkers(
 					return
 				}
 
+				dbTimings, err := loadDequeuedMacroRun(ctx, env, jobReq)
+				if err != nil {
+					sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{err: err})
+					return
+				}
+
 				timings, err := finishDequeuedMacroJob(ctx, env, jobReq, info, dequeuedAt, workerID, noopLogClient{})
+				timings.db.choreographyLoadRun = dbTimings.choreographyLoadRun
 				sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{timings: timings, err: err})
 
 				if err != nil {
@@ -2373,12 +2426,36 @@ func runMacroTriggerToTerminal(
 	}
 
 	jobReq, dequeuedAt := waitForDequeuedJob(b, ctx, env.queue)
+	dbTimings, err := loadDequeuedMacroRun(ctx, env, jobReq)
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	timings, err := finishDequeuedMacroJob(ctx, env, jobReq, info, dequeuedAt, "macro-worker", logSink)
 	if err != nil {
 		b.Fatal(err)
 	}
 
+	timings.db.choreographyLoadRun = dbTimings.choreographyLoadRun
 	return timings
+}
+
+func loadDequeuedMacroRun(ctx context.Context, env macroBenchEnv, jobReq *apipb.JobRequest) (macroDBTimings, error) {
+	started := time.Now()
+	if err := env.choreo.LoadRun(ctx, jobReq); err != nil {
+		runID := ""
+		if jobReq != nil && jobReq.GetJob() != nil {
+			runID = jobReq.GetJob().GetRunId()
+		}
+
+		return macroDBTimings{}, fmt.Errorf("load choreography for dequeued run %s: %w", runID, err)
+	}
+
+	if env.choreo.DBBacked() {
+		return macroDBTimings{}, nil
+	}
+
+	return macroDBTimings{choreographyLoadRun: time.Since(started).Nanoseconds()}, nil
 }
 
 func finishDequeuedMacroJob(
