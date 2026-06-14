@@ -76,6 +76,9 @@ The rendered `env/*.example` files are examples. Production configuration lives
 in operator-managed files such as `/etc/vectis/vectis.env` and service-specific
 env files.
 
+For a concrete systemd environment-file starting point, use the
+[Production Environment Template](./production-env-template.md).
+
 At minimum, set the common environment:
 
 ```sh
@@ -248,6 +251,7 @@ Before the deployment is handed to operators:
 | Topic | Document |
 | --- | --- |
 | Production topology | [Production Topology v1](./production-topology-v1.md) |
+| Environment-file template | [Production Environment Template](./production-env-template.md) |
 | Config and secrets contract | [Production Config And Secrets Contract](./production-config-contract.md) |
 | Reference deployment posture | [Reference Deployment Posture](./reference-deployment-posture.md) |
 | Scaling and restarts | [Scaling And Restarts](./scaling-and-restarts.md) |

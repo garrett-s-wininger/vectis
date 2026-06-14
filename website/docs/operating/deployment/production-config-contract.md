@@ -7,7 +7,8 @@ list of every Vectis setting.
 
 Use this page when writing `/etc/vectis/*.env`, Kubernetes Secrets, systemd
 drop-ins, Nomad variables, Ansible roles, or any other production configuration
-source.
+source. For a concrete systemd environment-file starting point, see the
+[Production Environment Template](./production-env-template.md).
 
 ## Ownership Model
 

@@ -37,6 +37,7 @@ const sidebars = {
           items: [
             'operating/deployment/production-topology-v1',
             'operating/deployment/production-linux',
+            'operating/deployment/production-env-template',
             'operating/deployment/production-config-contract',
             'operating/deployment/reference-deployment-posture',
             'operating/deployment/trusted-proxy-client-ip',
