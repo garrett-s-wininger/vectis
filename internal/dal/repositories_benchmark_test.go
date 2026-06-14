@@ -18,6 +18,13 @@ const benchJobDefinition = `{"id":"%s","root":{"uses":"builtins/shell","with":{"
 func newBenchmarkRepos(b *testing.B) *dal.SQLRepositories {
 	b.Helper()
 
+	_, repos := newBenchmarkDBAndRepos(b)
+	return repos
+}
+
+func newBenchmarkDBAndRepos(b *testing.B) (*sql.DB, *dal.SQLRepositories) {
+	b.Helper()
+
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		b.Fatalf("open benchmark db: %v", err)
@@ -32,7 +39,7 @@ func newBenchmarkRepos(b *testing.B) *dal.SQLRepositories {
 	}
 
 	b.Cleanup(func() { _ = db.Close() })
-	return dal.NewSQLRepositories(db)
+	return db, dal.NewSQLRepositories(db)
 }
 
 func seedBenchmarkJob(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string) {
@@ -525,4 +532,205 @@ func benchmarkRunReadTaskSegmentID(taskID string) string {
 
 func benchmarkRunReadTaskExecutionID(attemptID string) string {
 	return attemptID + ":execution"
+}
+
+func BenchmarkDAL_Reconciler_MarkExpiredRunningAsOrphaned(b *testing.B) {
+	for _, rows := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("rows_%d", rows), func(b *testing.B) {
+			ctx := context.Background()
+			db, repos := newBenchmarkDBAndRepos(b)
+			jobID := fmt.Sprintf("bench-reconciler-expired-running-%d", rows)
+			seedBenchmarkJob(b, ctx, repos, jobID)
+			seedBenchmarkRuns(b, ctx, repos.Runs(), jobID, rows)
+
+			cutoff := time.Now().Unix()
+			resetBenchmarkExpiredRunningRuns(b, ctx, db, jobID, cutoff-60)
+			runs := repos.Runs()
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				orphaned, err := runs.MarkExpiredRunningAsOrphaned(ctx, cutoff)
+				if err != nil {
+					b.Fatalf("mark expired running as orphaned: %v", err)
+				}
+
+				if len(orphaned) != rows {
+					b.Fatalf("orphaned=%d, want %d", len(orphaned), rows)
+				}
+
+				b.StopTimer()
+				resetBenchmarkExpiredRunningRuns(b, ctx, db, jobID, cutoff-60)
+				b.StartTimer()
+			}
+		})
+	}
+}
+
+func BenchmarkDAL_Reconciler_MarkExpiredQueuedExecutionsFailed(b *testing.B) {
+	for _, backlog := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("backlog_%d/limit_100", backlog), func(b *testing.B) {
+			ctx := context.Background()
+			db, repos := newBenchmarkDBAndRepos(b)
+			jobID := fmt.Sprintf("bench-reconciler-expired-dispatch-%d", backlog)
+			seedBenchmarkJob(b, ctx, repos, jobID)
+			seedBenchmarkRuns(b, ctx, repos.Runs(), jobID, backlog)
+
+			cutoff := time.Now().UnixNano()
+			resetBenchmarkExpiredQueuedExecutions(b, ctx, db, jobID, cutoff-1)
+			runs := repos.Runs()
+			wantExpired := min(backlog, 100)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				expired, err := runs.MarkExpiredQueuedExecutionsFailed(ctx, cutoff, 100)
+				if err != nil {
+					b.Fatalf("mark expired queued executions failed: %v", err)
+				}
+
+				if len(expired) != wantExpired {
+					b.Fatalf("expired=%d, want %d", len(expired), wantExpired)
+				}
+
+				b.StopTimer()
+				resetBenchmarkExpiredQueuedExecutions(b, ctx, db, jobID, cutoff-1)
+				b.StartTimer()
+			}
+		})
+	}
+}
+
+func BenchmarkDAL_Reconciler_ListOrphanedTaskFinalizationCandidates(b *testing.B) {
+	for _, rows := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("candidate_runs_%d/limit_100", rows), func(b *testing.B) {
+			ctx := context.Background()
+			db, repos := newBenchmarkDBAndRepos(b)
+			jobID := fmt.Sprintf("bench-reconciler-task-finalization-%d", rows)
+			seedBenchmarkJob(b, ctx, repos, jobID)
+			seedBenchmarkRuns(b, ctx, repos.Runs(), jobID, rows)
+			seedBenchmarkTaskFinalizationCandidates(b, ctx, db, jobID)
+
+			runs := repos.Runs()
+			wantCandidates := min(rows, 100)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				candidates, err := runs.ListOrphanedTaskFinalizationCandidates(ctx, 100)
+				if err != nil {
+					b.Fatalf("list orphaned task finalization candidates: %v", err)
+				}
+
+				if len(candidates) != wantCandidates {
+					b.Fatalf("candidates=%d, want %d", len(candidates), wantCandidates)
+				}
+			}
+		})
+	}
+}
+
+func seedBenchmarkRuns(b *testing.B, ctx context.Context, runs dal.RunsRepository, jobID string, count int) []string {
+	b.Helper()
+
+	runIDs := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		runIDs = append(runIDs, createBenchmarkRun(b, ctx, runs, jobID, i+1))
+	}
+
+	return runIDs
+}
+
+func resetBenchmarkExpiredRunningRuns(b *testing.B, ctx context.Context, db *sql.DB, jobID string, expiredLeaseUntil int64) {
+	b.Helper()
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = ?,
+			orphan_reason = '',
+			failure_code = '',
+			lease_owner = 'bench-worker',
+			lease_until = ?,
+			finished_at = NULL
+		WHERE job_id = ?
+	`, dal.RunStatusRunning, expiredLeaseUntil, jobID); err != nil {
+		b.Fatalf("reset expired running runs: %v", err)
+	}
+}
+
+func resetBenchmarkExpiredQueuedExecutions(b *testing.B, ctx context.Context, db *sql.DB, jobID string, expiredDeadlineUnixNano int64) {
+	b.Helper()
+
+	execBenchmarkSQL(b, ctx, db, `
+		UPDATE job_runs
+		SET status = ?,
+			orphan_reason = '',
+			failure_code = '',
+			failure_reason = NULL,
+			finished_at = NULL,
+			lease_owner = NULL,
+			lease_until = NULL
+		WHERE job_id = ?
+	`, dal.RunStatusQueued, jobID)
+
+	execBenchmarkSQL(b, ctx, db, `
+		UPDATE run_tasks
+		SET status = ?
+		WHERE run_id IN (SELECT run_id FROM job_runs WHERE job_id = ?)
+	`, dal.TaskStatusPending, jobID)
+
+	execBenchmarkSQL(b, ctx, db, `
+		UPDATE task_attempts
+		SET status = ?,
+			accepted_at = NULL,
+			started_at = NULL,
+			finished_at = NULL
+		WHERE run_id IN (SELECT run_id FROM job_runs WHERE job_id = ?)
+	`, dal.TaskStatusPending, jobID)
+
+	execBenchmarkSQL(b, ctx, db, `
+		UPDATE run_segments
+		SET status = ?
+		WHERE run_id IN (SELECT run_id FROM job_runs WHERE job_id = ?)
+	`, dal.SegmentStatusPending, jobID)
+
+	execBenchmarkSQL(b, ctx, db, `
+		UPDATE segment_executions
+		SET status = ?,
+			lease_owner = NULL,
+			lease_until = NULL,
+			accepted_at = NULL,
+			started_at = NULL,
+			finished_at = NULL,
+			start_deadline_unix_nano = ?
+		WHERE run_id IN (SELECT run_id FROM job_runs WHERE job_id = ?)
+	`, dal.ExecutionStatusPending, expiredDeadlineUnixNano, jobID)
+}
+
+func seedBenchmarkTaskFinalizationCandidates(b *testing.B, ctx context.Context, db *sql.DB, jobID string) {
+	b.Helper()
+
+	execBenchmarkSQL(b, ctx, db, `
+		UPDATE job_runs
+		SET status = ?,
+			orphan_reason = ?
+		WHERE job_id = ?
+	`, dal.RunStatusOrphaned, dal.OrphanReasonLeaseExpired, jobID)
+
+	execBenchmarkSQL(b, ctx, db, `
+		UPDATE run_tasks
+		SET status = ?
+		WHERE run_id IN (SELECT run_id FROM job_runs WHERE job_id = ?)
+	`, dal.TaskStatusSucceeded, jobID)
+}
+
+func execBenchmarkSQL(b *testing.B, ctx context.Context, db *sql.DB, query string, args ...any) {
+	b.Helper()
+
+	if _, err := db.ExecContext(ctx, query, args...); err != nil {
+		b.Fatalf("exec benchmark sql: %v", err)
+	}
 }
