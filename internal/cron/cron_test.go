@@ -17,6 +17,7 @@ import (
 	"vectis/internal/cron"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/testutil/dbtest"
 )
 
@@ -473,6 +474,68 @@ func TestCronService_ProcessSchedules_TriggersSourceRepositorySchedule(t *testin
 	}
 	if !nextRun.After(pastTime) {
 		t.Fatalf("expected source cron next_run_at to advance, got %v", nextRun)
+	}
+}
+
+func TestCronService_ProcessSchedules_UsesDefinitionResolverFactory(t *testing.T) {
+	service, _, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: filepath.Join(t.TempDir(), "not-a-git-checkout"),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	pastTime := time.Now().Add(-24 * time.Hour)
+	insertCronTestSourceSchedule(t, db, "build", "source-repo", "", ".vectis/jobs/custom.json", "* * * * *", pastTime)
+
+	var resolverRequest sourcepkg.DefinitionRequest
+	var factoryRepo dal.SourceRepositoryRecord
+	factoryCalls := 0
+	service.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		factoryCalls++
+		factoryRepo = rec
+		return &recordingCronDefinitionResolver{request: &resolverRequest}, nil
+	})
+
+	if err := service.ProcessSchedules(ctx); err != nil {
+		t.Fatalf("process source schedule with resolver factory: %v", err)
+	}
+
+	if factoryCalls != 1 || factoryRepo.RepositoryID != "source-repo" {
+		t.Fatalf("resolver factory calls=%d repo=%+v", factoryCalls, factoryRepo)
+	}
+
+	if resolverRequest.Ref != "main" || resolverRequest.Path != ".vectis/jobs/custom.json" {
+		t.Fatalf("resolver request mismatch: %+v", resolverRequest)
+	}
+
+	jobs := queueService.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 source job enqueued, got %d", len(jobs))
+	}
+
+	if jobs[0].GetId() != "build" || jobs[0].GetRoot().GetWith()["command"] != "factory-cron" {
+		t.Fatalf("source cron resolver job mismatch: %+v", jobs[0])
+	}
+
+	sourceRec, err := repos.Sources().GetDefinitionSource(ctx, "build", 1)
+	if err != nil {
+		t.Fatalf("get source cron resolver provenance: %v", err)
+	}
+
+	if sourceRec.RepositoryID != "source-repo" ||
+		sourceRec.RequestedRef != "main" ||
+		sourceRec.ResolvedCommit != "0123456789abcdef0123456789abcdef01234567" ||
+		sourceRec.DefinitionPath != ".vectis/jobs/custom.json" ||
+		sourceRec.BlobSHA != "abcdef0123456789abcdef0123456789abcdef01" {
+		t.Fatalf("source cron resolver provenance mismatch: %+v", sourceRec)
 	}
 }
 
@@ -1196,4 +1259,23 @@ func cronGitOutput(t *testing.T, repo string, args ...string) string {
 func cronGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 	_ = cronGitOutput(t, repo, args...)
+}
+
+type recordingCronDefinitionResolver struct {
+	request *sourcepkg.DefinitionRequest
+}
+
+func (r *recordingCronDefinitionResolver) ResolveDefinition(_ context.Context, req sourcepkg.DefinitionRequest) (sourcepkg.Definition, error) {
+	if r.request != nil {
+		*r.request = req
+	}
+
+	return sourcepkg.ParseDefinitionFile(sourcepkg.File{
+		Path:     req.Path,
+		Revision: sourcepkg.Revision{Commit: "0123456789abcdef0123456789abcdef01234567"},
+		BlobSHA:  "abcdef0123456789abcdef0123456789abcdef01",
+		Content: []byte(`{
+			"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "factory-cron"}}
+		}`),
+	}, req.Ref, req.Validation)
 }

@@ -63,24 +63,25 @@ func (s CronSchedule) effectiveSourcePath() string {
 }
 
 type CronService struct {
-	jobs           dal.JobsRepository
-	runs           dal.RunsRepository
-	schedules      dal.SchedulesRepository
-	sources        dal.SourcesRepository
-	dispatch       dal.DispatchEventsRepository
-	triggers       dal.TriggerInvocationsRepository
-	logger         interfaces.Logger
-	queueClient    interfaces.QueueService
-	queueClose     func()
-	ingress        cell.ExecutionIngress
-	parser         cron.Parser
-	clock          interfaces.Clock
-	retryMetrics   backoff.RetryMetrics
-	actionResolver actionregistry.Resolver
-	instanceID     string
-	claimTTL       time.Duration
-	claimSeq       atomic.Uint64
-	mu             sync.Mutex
+	jobs                  dal.JobsRepository
+	runs                  dal.RunsRepository
+	schedules             dal.SchedulesRepository
+	sources               dal.SourcesRepository
+	dispatch              dal.DispatchEventsRepository
+	triggers              dal.TriggerInvocationsRepository
+	logger                interfaces.Logger
+	queueClient           interfaces.QueueService
+	queueClose            func()
+	ingress               cell.ExecutionIngress
+	parser                cron.Parser
+	clock                 interfaces.Clock
+	retryMetrics          backoff.RetryMetrics
+	actionResolver        actionregistry.Resolver
+	newDefinitionResolver sourcepkg.DefinitionResolverFactory
+	instanceID            string
+	claimTTL              time.Duration
+	claimSeq              atomic.Uint64
+	mu                    sync.Mutex
 }
 
 func NewCronService(logger interfaces.Logger, db *sql.DB) *CronService {
@@ -145,6 +146,10 @@ func (s *CronService) SetTriggerInvocations(triggers dal.TriggerInvocationsRepos
 
 func (s *CronService) SetSources(sources dal.SourcesRepository) {
 	s.sources = sources
+}
+
+func (s *CronService) SetDefinitionResolverFactory(factory sourcepkg.DefinitionResolverFactory) {
+	s.newDefinitionResolver = factory
 }
 
 func (s *CronService) SetInstanceID(id string) {
@@ -439,12 +444,12 @@ func (s *CronService) loadSourceScheduleDefinition(ctx context.Context, jobID st
 		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
 	}
 
-	repo, err := sourcepkg.NewRepositoryFromRecord(repoRec)
+	resolver, err := s.definitionResolver(repoRec)
 	if err != nil {
 		return sourcepkg.Definition{}, dal.JobDefinitionSourceRecord{}, err
 	}
 
-	loaded, err := sourcepkg.LoadDefinition(ctx, repo, sourcepkg.DefinitionRequest{
+	loaded, err := resolver.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
 		Ref:  ref,
 		Path: definitionPath,
 	})
@@ -462,6 +467,14 @@ func (s *CronService) loadSourceScheduleDefinition(ctx context.Context, jobID st
 	}
 
 	return loaded, sourceRec, nil
+}
+
+func (s *CronService) definitionResolver(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+	if s.newDefinitionResolver != nil {
+		return s.newDefinitionResolver(rec)
+	}
+
+	return sourcepkg.NewDefinitionResolverFromRecord(rec)
 }
 
 func resolveSourceScheduleReference(jobID string, repoRec dal.SourceRepositoryRecord, schedule *CronSchedule) (string, string, error) {
