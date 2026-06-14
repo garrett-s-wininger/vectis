@@ -589,6 +589,14 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 					},
 				},
 			},
+			"invalid": []map[string]any{
+				{
+					"path":     ".vectis/jobs/bad name.json",
+					"name":     "bad name.json",
+					"blob_sha": "fedcba9876543210fedcba9876543210fedcba98",
+					"error":    "unsupported job_id segment",
+				},
+			},
 		})
 	})
 
@@ -598,7 +606,7 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "Continue with --cursor .vectis/jobs/build.json"} {
+	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "INVALID PATH", ".vectis/jobs/bad name.json", "fedcba987654", "unsupported job_id segment", "Continue with --cursor .vectis/jobs/build.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}

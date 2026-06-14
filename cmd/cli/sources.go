@@ -228,15 +228,24 @@ type sourceRepositoryJobSummary struct {
 	Source    sourceProvenance `json:"source"`
 }
 
+type invalidSourceRepositoryJobSummary struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	BlobSHA   string `json:"blob_sha"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+	Error     string `json:"error"`
+}
+
 type sourceRepositoryJobsResult struct {
-	RepositoryID   string                       `json:"repository_id"`
-	RequestedRef   string                       `json:"requested_ref"`
-	ResolvedCommit string                       `json:"resolved_commit"`
-	Path           string                       `json:"path"`
-	Limit          int                          `json:"limit"`
-	Truncated      bool                         `json:"truncated"`
-	NextCursor     string                       `json:"next_cursor,omitempty"`
-	Jobs           []sourceRepositoryJobSummary `json:"jobs"`
+	RepositoryID   string                              `json:"repository_id"`
+	RequestedRef   string                              `json:"requested_ref"`
+	ResolvedCommit string                              `json:"resolved_commit"`
+	Path           string                              `json:"path"`
+	Limit          int                                 `json:"limit"`
+	Truncated      bool                                `json:"truncated"`
+	NextCursor     string                              `json:"next_cursor,omitempty"`
+	Jobs           []sourceRepositoryJobSummary        `json:"jobs"`
+	Invalid        []invalidSourceRepositoryJobSummary `json:"invalid,omitempty"`
 }
 
 type sourceScheduleSummary struct {
@@ -1644,19 +1653,32 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return fmt.Errorf("failed to parse source jobs response: %w", err)
 		}
-		if outputIsJSON() {
-			return writeJSON(out, result)
+		return writeSourceJobsResult(out, result)
+	case http.StatusNotFound:
+		return fmt.Errorf("source repository %q not found", repositoryID)
+	default:
+		return fmt.Errorf("unexpected status listing source jobs: %s", resp.Status)
+	}
+}
+
+func writeSourceJobsResult(out io.Writer, result sourceRepositoryJobsResult) error {
+	if outputIsJSON() {
+		return writeJSON(out, result)
+	}
+
+	if sourceJobsQuiet {
+		for _, job := range result.Jobs {
+			fmt.Fprintln(out, job.JobID)
 		}
-		if len(result.Jobs) == 0 {
-			fmt.Fprintln(out, "No source jobs found")
-			return nil
-		}
-		if sourceJobsQuiet {
-			for _, job := range result.Jobs {
-				fmt.Fprintln(out, job.JobID)
-			}
-			return nil
-		}
+		return nil
+	}
+
+	if len(result.Jobs) == 0 && len(result.Invalid) == 0 {
+		fmt.Fprintln(out, "No source jobs found")
+		return nil
+	}
+
+	if len(result.Jobs) > 0 {
 		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "JOB ID\tPATH\tCOMMIT\tBLOB")
 		for _, job := range result.Jobs {
@@ -1670,13 +1692,27 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 		if err := tw.Flush(); err != nil {
 			return err
 		}
-
-		return writeSourceTruncatedNotice(out, result.Truncated, result.Limit, result.NextCursor)
-	case http.StatusNotFound:
-		return fmt.Errorf("source repository %q not found", repositoryID)
-	default:
-		return fmt.Errorf("unexpected status listing source jobs: %s", resp.Status)
 	}
+
+	if len(result.Invalid) > 0 {
+		if len(result.Jobs) > 0 {
+			fmt.Fprintln(out)
+		}
+		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "INVALID PATH\tBLOB\tERROR")
+		for _, invalid := range result.Invalid {
+			fmt.Fprintf(tw, "%s\t%s\t%s\n",
+				emptyAsDash(invalid.Path),
+				shortSHA(invalid.BlobSHA),
+				emptyAsDash(invalid.Error),
+			)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+	}
+
+	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit, result.NextCursor)
 }
 
 func writeSourceTruncatedNotice(out io.Writer, truncated bool, limit int, nextCursor string) error {
