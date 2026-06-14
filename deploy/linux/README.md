@@ -32,7 +32,7 @@ DEB/RPM packaging rather than this TOML-driven service inventory.
 
 Vectis owns the artifact contract: which units exist, which binaries they run,
 which env files they reference, baseline process hardening, system user/directory
-shape, target membership, and the migration one-shot ordering for DB-backed
+shape, target attachment, and the migration one-shot ordering for DB-backed
 services.
 
 systemd owns runtime lifecycle once the artifacts are installed: process start
@@ -58,7 +58,7 @@ make deploy-artifacts-test
 ```
 
 The test lane renders the manifest, parses every generated unit and env example,
-and validates service inventory, target membership, environment file wiring,
+and validates service inventory, target attachment, environment file wiring,
 migration ordering, and baseline hardening settings.
 
 Render the installable files with:
@@ -89,10 +89,11 @@ installation step is driven by the rendered `install/manifest.tsv`.
 
 The harness installs marker-bearing stubs under `/usr/bin`, so cleanup can
 remove smoke files without claiming ownership of existing host binaries. It
-starts `vectis.target`, letting individual units enforce their own
-`Wants`/`After`/`Requires` ordering while the target aggregates the standalone
-stack. On success, the e2e harness removes the smoke artifacts from the guest and
-deletes the temporary local render directory.
+enables the rendered standalone service units, and starts `vectis.target`,
+letting individual units enforce their own `Wants`/`After`/`Requires` ordering
+while the target aggregates the enabled standalone stack. On success, the e2e
+harness removes the smoke artifacts from the guest and deletes the temporary
+local render directory.
 
 The e2e target stops the deploy VM after the test unless
 `VECTIS_E2E_KEEP_DEPLOY_LINUX=true` is set.
@@ -112,4 +113,5 @@ Package scripts or config management should eventually own this, but the intende
 5. Copy rendered `env/*.example` to `/etc/vectis/*.env` and adjust secrets, DSNs, TLS,
    ports, and auth settings.
 6. Run `systemctl daemon-reload`.
-7. Start the standalone stack with `systemctl start vectis.target`.
+7. Enable the desired service units, such as `systemctl enable vectis-api.service`.
+8. Start the enabled standalone stack with `systemctl start vectis.target`.

@@ -163,16 +163,18 @@ func packagePathsFromEnv(t *testing.T, smoke packageSmokeCase) []string {
 
 	packagePaths := make([]string, 0, len(envKeys))
 	for _, envKey := range envKeys {
-		packagePath := strings.TrimSpace(os.Getenv(envKey))
-		if packagePath == "" {
+		rawPackagePaths := strings.TrimSpace(os.Getenv(envKey))
+		if rawPackagePaths == "" {
 			skipOrFatal(t, "%s is not set", envKey)
 		}
 
-		if _, err := os.Stat(packagePath); err != nil {
-			skipOrFatal(t, "%s %s is not readable: %v", envKey, packagePath, err)
-		}
+		for _, packagePath := range splitPackagePathEnv(rawPackagePaths) {
+			if _, err := os.Stat(packagePath); err != nil {
+				skipOrFatal(t, "%s %s is not readable: %v", envKey, packagePath, err)
+			}
 
-		packagePaths = append(packagePaths, packagePath)
+			packagePaths = append(packagePaths, packagePath)
+		}
 	}
 
 	if len(packagePaths) == 0 {
@@ -180,6 +182,20 @@ func packagePathsFromEnv(t *testing.T, smoke packageSmokeCase) []string {
 	}
 
 	return packagePaths
+}
+
+func splitPackagePathEnv(raw string) []string {
+	var out []string
+	for _, field := range strings.Fields(raw) {
+		for _, value := range filepath.SplitList(field) {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				out = append(out, value)
+			}
+		}
+	}
+
+	return out
 }
 
 func verifyCLIInstalled(ctx context.Context, t *testing.T, manager platform.VirtualMachineManager, instance string, stdout, stderr *bytes.Buffer) {

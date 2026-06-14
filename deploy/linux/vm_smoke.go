@@ -411,6 +411,13 @@ func installAndVerifyVMSmokeGuest(ctx context.Context, opts VMSmokeOptions, inst
 		return err
 	}
 
+	targetMemberUnits := vmSmokeTargetMemberUnits(installPlan)
+	if len(targetMemberUnits) > 0 {
+		if err := runVMSmokeGuest(ctx, opts, append([]string{"sudo", "systemctl", "enable"}, targetMemberUnits...)...); err != nil {
+			return err
+		}
+	}
+
 	if err := runVMSmokeGuest(ctx, opts, "sudo", "systemctl", "start", "vectis.target"); err != nil {
 		return err
 	}
@@ -466,6 +473,10 @@ func runVMSmokeGuestClean(ctx context.Context, opts VMSmokeOptions, installPlan 
 	}
 
 	_ = runVMSmokeGuest(ctx, opts, "sudo", "systemctl", "stop", "vectis.target")
+	targetMemberUnits := vmSmokeTargetMemberUnits(installPlan)
+	if len(targetMemberUnits) > 0 {
+		_ = runVMSmokeGuest(ctx, opts, append([]string{"sudo", "systemctl", "disable"}, targetMemberUnits...)...)
+	}
 
 	var destinations []string
 	for _, entry := range installPlan {
@@ -518,6 +529,25 @@ func findInstallEntryByKind(entries []InstallEntry, kind string) (InstallEntry, 
 	}
 
 	return InstallEntry{}, false
+}
+
+func vmSmokeTargetMemberUnits(entries []InstallEntry) []string {
+	var units []string
+	for _, entry := range entries {
+		if entry.Kind != "systemd" {
+			continue
+		}
+
+		name := path.Base(entry.Destination)
+		if name == "vectis-db-migrate.service" || !strings.HasSuffix(name, ".service") {
+			continue
+		}
+
+		units = append(units, name)
+	}
+
+	sort.Strings(units)
+	return units
 }
 
 func installDestinationsByKind(entries []InstallEntry, kind string) []string {

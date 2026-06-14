@@ -25,108 +25,27 @@ owner = "root"
 group = "root"
 
 [[package]]
-id = "vectis-services"
-name = "vectis-services"
-summary = "Standalone Vectis service stack"
+id = "vectis-common"
+name = "vectis-common"
+summary = "Common Linux service integration for Vectis"
 description = """
-Vectis services installs the long-running binaries and systemd artifacts for the
-standalone Vectis service stack. Host-specific configuration remains owned by
-operators and config management.
+Vectis common installs shared systemd, sysusers, tmpfiles, and environment
+examples used by the long-running Linux service packages.
 """
 depends = ["vectis-cli", "ca-certificates", "systemd"]
 
 [[package.file]]
-id = "vectis-api"
-source = "vectis-api"
-destination = "/usr/bin/vectis-api"
-mode = "0755"
+id = "systemd-target"
+source = "linux-artifacts/systemd/vectis.target"
+destination = "/usr/lib/systemd/system/vectis.target"
+mode = "0644"
 owner = "root"
 group = "root"
 
 [[package.file]]
-id = "vectis-catalog"
-source = "vectis-catalog"
-destination = "/usr/bin/vectis-catalog"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-cell-ingress"
-source = "vectis-cell-ingress"
-destination = "/usr/bin/vectis-cell-ingress"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-cron"
-source = "vectis-cron"
-destination = "/usr/bin/vectis-cron"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-docs"
-source = "vectis-docs"
-destination = "/usr/bin/vectis-docs"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-log"
-source = "vectis-log"
-destination = "/usr/bin/vectis-log"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-log-forwarder"
-source = "vectis-log-forwarder"
-destination = "/usr/bin/vectis-log-forwarder"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-queue"
-source = "vectis-queue"
-destination = "/usr/bin/vectis-queue"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-reconciler"
-source = "vectis-reconciler"
-destination = "/usr/bin/vectis-reconciler"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-registry"
-source = "vectis-registry"
-destination = "/usr/bin/vectis-registry"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "vectis-worker"
-source = "vectis-worker"
-destination = "/usr/bin/vectis-worker"
-mode = "0755"
-owner = "root"
-group = "root"
-
-[[package.file]]
-id = "systemd"
-source = "linux-artifacts/systemd"
-destination = "/usr/lib/systemd/system"
+id = "systemd-db-migrate"
+source = "linux-artifacts/systemd/vectis-db-migrate.service"
+destination = "/usr/lib/systemd/system/vectis-db-migrate.service"
 mode = "0644"
 owner = "root"
 group = "root"
@@ -148,9 +67,118 @@ owner = "root"
 group = "root"
 
 [[package.file]]
-id = "env-examples"
-source = "linux-artifacts/env"
-destination = "/usr/share/doc/vectis-services/examples"
+id = "common-env-example"
+source = "linux-artifacts/env/vectis.env.example"
+destination = "/usr/share/doc/vectis-common/examples/vectis.env.example"
 mode = "0644"
 owner = "root"
 group = "root"
+
+[[package.file]]
+id = "db-migrate-env-example"
+source = "linux-artifacts/env/vectis-db-migrate.env.example"
+destination = "/usr/share/doc/vectis-common/examples/vectis-db-migrate.env.example"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package]]
+id = "vectis-api"
+name = "vectis-api"
+summary = "Vectis API service"
+service = "api"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-catalog"
+name = "vectis-catalog"
+summary = "Vectis catalog service"
+service = "catalog"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-cell-ingress"
+name = "vectis-cell-ingress"
+summary = "Vectis cell ingress service"
+service = "cell-ingress"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-cron"
+name = "vectis-cron"
+summary = "Vectis cron service"
+service = "cron"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-docs"
+name = "vectis-docs"
+summary = "Vectis docs service"
+service = "docs"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-log"
+name = "vectis-log"
+summary = "Vectis log service"
+service = "log"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-log-forwarder"
+name = "vectis-log-forwarder"
+summary = "Vectis log forwarder service"
+service = "log-forwarder"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-queue"
+name = "vectis-queue"
+summary = "Vectis queue service"
+service = "queue"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-reconciler"
+name = "vectis-reconciler"
+summary = "Vectis reconciler service"
+service = "reconciler"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-registry"
+name = "vectis-registry"
+summary = "Vectis registry service"
+service = "registry"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-worker"
+name = "vectis-worker"
+summary = "Vectis worker service"
+service = "worker"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-services"
+name = "vectis-services"
+summary = "Standalone Vectis service stack metapackage"
+description = """
+Vectis services depends on the standard standalone Linux service package set.
+It does not install files directly, enable systemd units, or start services.
+"""
+meta = true
+depends = [
+  "vectis-common",
+  "vectis-api",
+  "vectis-catalog",
+  "vectis-cell-ingress",
+  "vectis-cron",
+  "vectis-docs",
+  "vectis-log",
+  "vectis-log-forwarder",
+  "vectis-queue",
+  "vectis-reconciler",
+  "vectis-registry",
+  "vectis-worker",
+]

@@ -17,7 +17,7 @@ func TestE2EPackageServicesDeb(t *testing.T) {
 		remoteDir:       "/tmp/vectis-services-package-deb",
 		parseCommand:    []string{"dpkg-deb", "--info"},
 		installCommand:  []string{"sudo", "dpkg", "-i"},
-		removeCommand:   []string{"sudo", "dpkg", "-r", "vectis-services", "vectis-cli"},
+		removeCommand:   append([]string{"sudo", "dpkg", "-r"}, servicePackageRemovalNames()...),
 		verifyInstalled: verifyServicesInstalled,
 		verifyRemoved:   verifyServicesRemoved,
 	})

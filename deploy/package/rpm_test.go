@@ -97,6 +97,46 @@ func TestRPMArchiveShape(t *testing.T) {
 	}
 }
 
+func TestRPMMetapackageOmitsFileMetadataTags(t *testing.T) {
+	path, err := buildRPM(resolvedPackage{
+		ID:          "vectis-services",
+		Name:        "vectis-services",
+		Summary:     "Standalone Vectis service stack metapackage",
+		Description: "Depends on the standard service package set.",
+		Maintainer:  "Garrett Wininger <garrett.s.wininger@outlook.com>",
+		Homepage:    "https://github.com/garrett-s-wininger/vectis",
+		Vendor:      "Vectis",
+		Section:     "devel",
+		Priority:    "optional",
+		Depends:     []string{"vectis-common", "vectis-api"},
+		Version:     "1.2.3",
+		Release:     "1",
+		Arch:        "arm64",
+	}, t.TempDir())
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mainEntries := rpmMainHeaderEntries(t, b)
+	assertRPMHeaderTagsAbsent(t, mainEntries, map[int]string{
+		rpmTagBaseNames:      "base names",
+		rpmTagDirNames:       "dir names",
+		rpmTagDirIndexes:     "dir indexes",
+		rpmTagFileSizes:      "file sizes",
+		rpmTagFileModes:      "file modes",
+		rpmTagFileDigests:    "file digests",
+		rpmTagFileUserName:   "file owners",
+		rpmTagFileGroupName:  "file groups",
+		rpmTagFileDigestAlgo: "file digest algorithm",
+	})
+}
+
 func assertRPMHeaderTagsAbsent(t *testing.T, entries []rpmHeaderIndex, tags map[int]string) {
 	t.Helper()
 
@@ -105,6 +145,14 @@ func assertRPMHeaderTagsAbsent(t *testing.T, entries []rpmHeaderIndex, tags map[
 			t.Fatalf("RPM header unexpectedly contains %s tag %d", name, entry.tag)
 		}
 	}
+}
+
+func rpmMainHeaderEntries(t *testing.T, b []byte) []rpmHeaderIndex {
+	t.Helper()
+
+	signatureSize := rpmHeaderTotalSize(t, b[96:], true)
+	mainOffset := 96 + signatureSize
+	return rpmHeaderEntries(t, b[mainOffset:])
 }
 
 func rpmHeaderTotalSize(t *testing.T, b []byte, padded bool) int {

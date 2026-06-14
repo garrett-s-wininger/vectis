@@ -313,11 +313,6 @@ func (u Unit) UnitName() string {
 func (m Manifest) renderTarget() string {
 	wants := []string{m.Defaults.NetworkUnit}
 	after := []string{m.Defaults.NetworkUnit}
-	for _, unit := range m.Units {
-		if unit.TargetMember {
-			wants = append(wants, unit.UnitName())
-		}
-	}
 
 	return renderSections([]section{
 		{

@@ -40,6 +40,8 @@ type Package struct {
 	Name        string        `toml:"name"`
 	Summary     string        `toml:"summary"`
 	Description string        `toml:"description"`
+	Meta        bool          `toml:"meta"`
+	Service     string        `toml:"service"`
 	Maintainer  string        `toml:"maintainer"`
 	Vendor      string        `toml:"vendor"`
 	Homepage    string        `toml:"homepage"`
@@ -214,8 +216,27 @@ func (m Manifest) validate() error {
 			return fmt.Errorf("package %q summary is required", pkg.ID)
 		}
 
-		if len(pkg.Files) == 0 {
-			return fmt.Errorf("package %q must include at least one file", pkg.ID)
+		service := strings.TrimSpace(pkg.Service)
+		if service != "" && strings.ContainsAny(service, "/\\\x00\r\n\t") {
+			return fmt.Errorf("package %q service contains an unsupported character: %q", pkg.ID, pkg.Service)
+		}
+
+		if pkg.Meta {
+			if service != "" {
+				return fmt.Errorf("package %q cannot be both meta and service-backed", pkg.ID)
+			}
+
+			if len(pkg.Files) > 0 {
+				return fmt.Errorf("package %q meta packages must not include files", pkg.ID)
+			}
+
+			if len(pkg.Depends) == 0 {
+				return fmt.Errorf("package %q meta packages must declare dependencies", pkg.ID)
+			}
+		}
+
+		if len(pkg.Files) == 0 && service == "" && !pkg.Meta {
+			return fmt.Errorf("package %q must include at least one file or service", pkg.ID)
 		}
 
 		for _, file := range pkg.Files {
@@ -268,7 +289,7 @@ func (m Manifest) resolve(opts BuildOptions) (resolvedPackage, error) {
 		Arch:        arch,
 	}
 
-	for _, file := range source.Files {
+	for _, file := range source.packageFiles() {
 		resolved, err := resolvePackageFiles(file, opts.Inputs)
 		if err != nil {
 			return resolvedPackage{}, fmt.Errorf("package %q: %w", source.ID, err)
@@ -278,6 +299,49 @@ func (m Manifest) resolve(opts BuildOptions) (resolvedPackage, error) {
 	}
 
 	return pkg, nil
+}
+
+func (p Package) packageFiles() []PackageFile {
+	files := generatedServicePackageFiles(p)
+	files = append(files, p.Files...)
+	return files
+}
+
+func generatedServicePackageFiles(pkg Package) []PackageFile {
+	service := strings.TrimSpace(pkg.Service)
+	if service == "" {
+		return nil
+	}
+
+	unitName := "vectis-" + service
+	docDestination := "/usr/share/doc/" + pkg.Name + "/examples/" + unitName + ".env.example"
+
+	return []PackageFile{
+		{
+			ID:          unitName,
+			Source:      unitName,
+			Destination: "/usr/bin/" + unitName,
+			Mode:        "0755",
+			Owner:       "root",
+			Group:       "root",
+		},
+		{
+			ID:          "systemd-" + service,
+			Source:      "linux-artifacts/systemd/" + unitName + ".service",
+			Destination: "/usr/lib/systemd/system/" + unitName + ".service",
+			Mode:        "0644",
+			Owner:       "root",
+			Group:       "root",
+		},
+		{
+			ID:          "env-example-" + service,
+			Source:      "linux-artifacts/env/" + unitName + ".env.example",
+			Destination: docDestination,
+			Mode:        "0644",
+			Owner:       "root",
+			Group:       "root",
+		},
+	}
 }
 
 func resolvePackageFile(file PackageFile, inputs map[string]string) (resolvedFile, error) {

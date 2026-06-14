@@ -65,17 +65,19 @@ func TestVectisTargetMembership(t *testing.T) {
 	requireSections(t, unit, targetUnit, "Unit", "Install")
 
 	wants := words(values(unit, "Unit", "Wants")...)
-	required := append(sortedKeys(expectedStandaloneExecs), networkUnit, migrationUnit)
-	sort.Strings(required)
-	sort.Strings(wants)
-
-	if !reflect.DeepEqual(wants, required) {
-		t.Fatalf("vectis.target Wants mismatch\ngot:  %v\nwant: %v", wants, required)
+	if !reflect.DeepEqual(wants, []string{networkUnit}) {
+		t.Fatalf("vectis.target Wants = %v, want only %s", wants, networkUnit)
 	}
 
 	after := words(values(unit, "Unit", "After")...)
 	if !reflect.DeepEqual(after, []string{networkUnit}) {
 		t.Fatalf("%s After = %v, want only %s", targetUnit, after, networkUnit)
+	}
+
+	for _, service := range append(sortedKeys(expectedStandaloneExecs), migrationUnit) {
+		if contains(wants, service) {
+			t.Fatalf("%s should attach through service WantedBy, not target Wants: %v", service, wants)
+		}
 	}
 }
 

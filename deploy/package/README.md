@@ -8,7 +8,9 @@ The first package split is:
 | Package | Contents |
 | --- | --- |
 | `vectis-cli` | `/usr/bin/vectis-cli`; no systemd units or service configuration |
-| `vectis-services` | standalone service-stack binaries, systemd units, sysusers/tmpfiles, and rendered env examples under `/usr/share/doc/vectis-services/examples` |
+| `vectis-common` | shared target, migration unit, sysusers/tmpfiles, and common env examples |
+| `vectis-<service>` | one service binary, its systemd unit, and its env example |
+| `vectis-services` | metadata-only convenience package depending on the standard standalone service set |
 
 Build all Linux packages with:
 
@@ -48,15 +50,16 @@ container build posture. SQLite remains available for local source builds unless
 the `nosqlite` tag is set.
 
 The TOML package manifest is shared across DEB and RPM so package metadata and
-file inventory are not duplicated across formats. The `vectis-services` package
-reuses rendered artifacts from `deploy/linux/services.toml`; packages install
-units into `/usr/lib/systemd/system`, while live `/etc/vectis/*.env`
-configuration remains operator/config-management owned.
+file inventory are not duplicated across formats. Service packages use
+`service = "api"` style declarations to expand the binary, unit, and env example
+from `deploy/linux/services.toml` artifacts. Packages install units into
+`/usr/lib/systemd/system`, while live `/etc/vectis/*.env` configuration remains
+operator/config-management owned.
 
 Packages intentionally do not include DEB maintainer scripts, RPM scriptlets, or
 `systemctl` calls. Installation only places files on disk; operators or
 configuration management should run
 `systemd-sysusers /usr/lib/sysusers.d/vectis.conf`,
 `systemd-tmpfiles --create /usr/lib/tmpfiles.d/vectis.conf`,
-`systemctl daemon-reload`, and then enable/start `vectis.target` when the host
-configuration is ready.
+`systemctl daemon-reload`, and then enable the desired `vectis-*.service` units
+before starting `vectis.target` when the host configuration is ready.

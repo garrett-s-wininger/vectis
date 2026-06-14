@@ -17,7 +17,7 @@ func TestE2EPackageServicesRPM(t *testing.T) {
 		remoteDir:       "/tmp/vectis-services-package-rpm",
 		parseCommand:    []string{"rpm", "-qp", "--nosignature"},
 		installCommand:  []string{"sudo", "rpm", "-Uvh", "--nosignature"},
-		removeCommand:   []string{"sudo", "rpm", "-e", "vectis-services", "vectis-cli"},
+		removeCommand:   append([]string{"sudo", "rpm", "-e"}, servicePackageRemovalNames()...),
 		verifyInstalled: verifyServicesInstalled,
 		verifyRemoved:   verifyServicesRemoved,
 	})

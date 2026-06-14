@@ -82,6 +82,7 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		"/etc/systemd/system/vectis.target",
 	})
 
+	requireRecordedCommand(t, manager, append([]string{"sudo", "systemctl", "enable"}, expectedSmokeTargetMemberUnits()...))
 	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "start", "vectis.target"})
 	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "is-active", "--quiet", "vectis.target"})
 }
@@ -100,12 +101,18 @@ func TestRunVMSmokeVerifyCleansGuestAfterFailure(t *testing.T) {
 	}
 
 	requireRecordedCommand(t, manager, failCommand)
+	requireRecordedCommand(t, manager, append([]string{"sudo", "systemctl", "disable"}, expectedSmokeTargetMemberUnits()...))
 	requireRecordedCommandContaining(t, manager,
 		[]string{"sudo", "rm", "-f"},
 		vmSmokeMarkerDestination,
 		"/etc/systemd/system/vectis-api.service",
 		"/etc/vectis/vectis.env",
 	)
+}
+
+func expectedSmokeTargetMemberUnits() []string {
+	units := sortedKeys(expectedStandaloneExecs)
+	return append([]string{}, units...)
 }
 
 type recordingVMManager struct {

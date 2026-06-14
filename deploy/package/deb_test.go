@@ -81,6 +81,38 @@ func TestDebArchiveContents(t *testing.T) {
 	}
 }
 
+func TestDebMetapackageHasControlOnly(t *testing.T) {
+	path, err := buildDeb(resolvedPackage{
+		ID:          "vectis-services",
+		Name:        "vectis-services",
+		Summary:     "Standalone Vectis service stack metapackage",
+		Description: "Depends on the standard service package set.",
+		Maintainer:  "Garrett Wininger <garrett.s.wininger@outlook.com>",
+		Homepage:    "https://github.com/garrett-s-wininger/vectis",
+		Vendor:      "Vectis",
+		Section:     "devel",
+		Priority:    "optional",
+		Depends:     []string{"vectis-common", "vectis-api"},
+		Version:     "1.2.3",
+		Release:     "1",
+		Arch:        "amd64",
+	}, t.TempDir())
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	members := readArMembers(t, path)
+	controlFiles := readGzipTar(t, members["control.tar.gz"])
+	if got, want := sortedMemberNames(controlFiles), []string{"./control"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("control archive files = %v, want %v", got, want)
+	}
+
+	if dataFiles := readGzipTar(t, members["data.tar.gz"]); len(dataFiles) != 0 {
+		t.Fatalf("metapackage data archive contained files: %v", sortedMemberNames(dataFiles))
+	}
+}
+
 func readArMembers(t *testing.T, path string) map[string][]byte {
 	t.Helper()
 
