@@ -8,13 +8,17 @@ Vectis keeps durable SQL state for runs, artifact manifests, dispatch visibility
 
 `vectis-cli retention cleanup` deletes retention-eligible records from the configured Vectis database. It can also delete matching local durable run log files when you pass `--log-storage-dir`, and unreferenced local artifact CAS blobs when you pass `--artifact-storage-dir`.
 
-Cleanup is intentionally manual today:
+Cleanup is intentionally explicit today:
 
 - `--dry-run` previews cutoffs and counts without changing the database.
 - `--yes` applies the same policy.
 - Running without either flag fails.
 
 The command prints `key=value` output so it can be captured in runbooks, incident notes, or automation logs.
+
+Production deployments should either schedule this command through the
+operator's scheduler or assign it to a recurring operations runbook. Vectis does
+not currently ship a built-in retention controller.
 
 ## Defaults
 
@@ -93,6 +97,157 @@ vectis-cli retention cleanup --yes --artifact-storage-dir "$XDG_DATA_HOME/vectis
 ```
 
 Use `--artifact-blob-age` to change the blob grace period. Apply-time blob pruning takes the artifact storage lock and fails if a `vectis-artifact` process is actively using the same directory, so run it during a maintenance window or after stopping that shard.
+
+## Production Scheduling
+
+Use two phases in production:
+
+1. A frequent dry run that records expected delete counts.
+2. A less frequent apply run after backup freshness and delete counts are acceptable.
+
+The scheduler must provide the same database environment as deployment
+migrations:
+
+```sh
+VECTIS_DATABASE_DRIVER=pgx
+VECTIS_DATABASE_DSN=postgres://vectis:<secret>@postgres.internal:5432/vectis?sslmode=require
+```
+
+For single-shard deployments, add local file pruning only when the scheduler
+runs on the host that owns those paths:
+
+```sh
+vectis-cli retention cleanup --dry-run \
+  --terminal-run-age 720h \
+  --idempotency-age 48h \
+  --audit-age 8760h \
+  --log-storage-dir /var/lib/vectis/log/log-1
+```
+
+For artifact blob pruning, schedule a maintenance window or stop the artifact
+shard first because cleanup must acquire the artifact storage lock:
+
+```sh
+vectis-cli retention cleanup --yes \
+  --terminal-run-age 720h \
+  --idempotency-age 48h \
+  --audit-age 8760h \
+  --artifact-storage-dir /var/lib/vectis/artifact/artifact-1
+```
+
+For multi-shard log or artifact deployments, either run shard-local cleanup on
+each shard owner or keep SQL cleanup separate from filesystem cleanup. Do not
+point one cleanup job at a storage directory owned by another active shard.
+
+### Example systemd Timer
+
+This example records a daily dry-run and applies cleanup weekly. Adjust windows,
+paths, and backup checks for the environment.
+
+`/etc/systemd/system/vectis-retention-dry-run.service`:
+
+```ini
+[Unit]
+Description=Preview Vectis retention cleanup
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/vectis/vectis.env
+ExecStart=/usr/bin/vectis-cli retention cleanup --dry-run --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h
+```
+
+`/etc/systemd/system/vectis-retention-dry-run.timer`:
+
+```ini
+[Unit]
+Description=Daily Vectis retention cleanup preview
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`/etc/systemd/system/vectis-retention-apply.service`:
+
+```ini
+[Unit]
+Description=Apply Vectis retention cleanup
+ConditionPathExists=/var/lib/vectis/ops/backup-fresh
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/vectis/vectis.env
+ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h
+```
+
+`/etc/systemd/system/vectis-retention-apply.timer`:
+
+```ini
+[Unit]
+Description=Weekly Vectis retention cleanup
+
+[Timer]
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+The `ConditionPathExists` guard is only an example. In production, wire the
+apply job to your backup platform's freshness signal or require an operator
+approval step before creating that marker.
+
+Enable timers with:
+
+```sh
+systemctl daemon-reload
+systemctl enable --now vectis-retention-dry-run.timer
+systemctl enable --now vectis-retention-apply.timer
+```
+
+### Example Kubernetes CronJobs
+
+For Kubernetes-style deployments, use two CronJobs: one dry-run job that always
+runs and one apply job gated by your backup platform or manual approval.
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vectis-retention-dry-run
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: retention
+              image: registry.example/vectis-cli:VERSION
+              envFrom:
+                - secretRef:
+                    name: vectis-database
+              command:
+                - /usr/bin/vectis-cli
+                - retention
+                - cleanup
+                - --dry-run
+                - --terminal-run-age
+                - 720h
+                - --idempotency-age
+                - 48h
+                - --audit-age
+                - 8760h
+```
+
+Only mount log or artifact storage into an apply CronJob when that job is the
+owner for the shard being pruned and the artifact service lock behavior is
+accounted for.
 
 ## Safety Guarantees
 
@@ -181,6 +336,8 @@ Avoid cleanup when:
 - A restore is in progress and the restored state has not passed the smoke test.
 - The dry-run counts are surprising.
 - The backup or retention policy is unclear.
+- Backup freshness cannot be proved.
+- Artifact blob cleanup would contend with an active artifact shard.
 
 For the step-by-step operator recipe, see [Retention Cleanup](./repair-runbooks.md#retention-cleanup).
 
@@ -190,5 +347,7 @@ For the step-by-step operator recipe, see [Retention Cleanup](./repair-runbooks.
 | --- | --- |
 | Retention cleanup runbook | [Repair Runbooks](./repair-runbooks.md#retention-cleanup) |
 | Backup expectations before deletion | [Backup And Restore](./backup-restore.md) |
+| Production config contract | [Production Config And Secrets Contract](../deployment/production-config-contract.md) |
+| Production monitoring | [Production Monitoring Contract](./production-monitoring.md) |
 | CLI command coverage | [CLI Operational Coverage](../reference/cli-operational-coverage.md) |
 | Idempotency behavior | [Idempotency And Retries](../../using/idempotency-and-retries.md) |

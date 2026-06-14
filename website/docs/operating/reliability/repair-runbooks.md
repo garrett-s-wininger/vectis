@@ -176,7 +176,7 @@ vectis-cli database migrate
 
 Use this when SQL storage pressure grows, old retained records alert, or a maintenance window calls for cleanup.
 
-1. Read [Retention](./retention.md) and confirm the retention window is acceptable for the environment.
+1. Read [Retention](./retention.md) and confirm the retention window, scheduling posture, and backup freshness expectations are acceptable for the environment.
 2. Preview cleanup:
 
 ```sh
@@ -185,7 +185,7 @@ vectis-cli retention cleanup --dry-run
 
 3. Include `--log-storage-dir` only when pruning local durable run log files for the same deployment.
 4. Include `--artifact-storage-dir` only when pruning local artifact CAS blobs for the same deployment. Apply-time artifact blob pruning requires the artifact storage directory lock, so stop that shard or use a maintenance window.
-5. Review delete counts, cutoffs, and backup status before applying.
+5. Review delete counts, cutoffs, backup freshness, and any incident/restore holds before applying.
 6. Apply during a maintenance window:
 
 ```sh

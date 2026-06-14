@@ -274,9 +274,11 @@ Backups must include:
 - live config, rendered manifests, dashboards, and alert rules.
 
 Retention must be an explicit operator policy. Either schedule
-`vectis-cli retention cleanup` or assign it to a recurring runbook. Keep audit
-retention aligned with security policy, and keep idempotency retention longer
-than realistic client retry windows.
+`vectis-cli retention cleanup` or assign it to a recurring runbook. Use
+[Retention And Storage Pressure](../reliability/retention.md#production-scheduling)
+for dry-run/apply scheduling patterns. Keep audit retention aligned with
+security policy, and keep idempotency retention longer than realistic client
+retry windows.
 
 Run and record the
 [Production v1 backup/restore drill](../reliability/backup-restore.md#production-v1-drill)
