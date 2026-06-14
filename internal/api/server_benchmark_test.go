@@ -321,6 +321,257 @@ func BenchmarkAPIServer_Write_RepairMarkAbandoned(b *testing.B) {
 	}
 }
 
+func BenchmarkAPIServer_HTTP_Write_CreateJob(b *testing.B) {
+	server, _ := newBenchmarkAPIServer(b)
+	handler := server.Handler()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		jobID := fmt.Sprintf("bench-api-http-create-%06d", i)
+		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/jobs", fmt.Sprintf(benchAPIJobDefinition, jobID))
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			b.Fatalf("CreateJob status=%d: %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_TriggerJobAccepted(b *testing.B) {
+	server, repos, db := newBenchmarkAPIServerWithDB(b)
+	ctx := context.Background()
+	jobID := "bench-api-http-trigger-accepted"
+	seedBenchmarkAPIStoredJob(b, ctx, repos, jobID)
+
+	ingress := newBenchmarkAPIIngress()
+	server.SetExecutionIngress(ingress)
+	handler := server.Handler()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, http.NoBody)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			b.Fatalf("TriggerJob status=%d: %s", rec.Code, rec.Body.String())
+		}
+
+		b.StopTimer()
+		submission := ingress.wait(b)
+		if submission.Envelope == nil || submission.Envelope.RunID == "" {
+			b.Fatalf("missing execution envelope in trigger submission")
+		}
+
+		waitBenchmarkAPIDispatched(b, db, submission.Envelope.RunID)
+		b.StartTimer()
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_TriggerJobDispatch(b *testing.B) {
+	server, repos, db := newBenchmarkAPIServerWithDB(b)
+	ctx := context.Background()
+	jobID := "bench-api-http-trigger"
+	seedBenchmarkAPIStoredJob(b, ctx, repos, jobID)
+
+	ingress := newBenchmarkAPIIngress()
+	server.SetExecutionIngress(ingress)
+	handler := server.Handler()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, http.NoBody)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			b.Fatalf("TriggerJob status=%d: %s", rec.Code, rec.Body.String())
+		}
+
+		submission := ingress.wait(b)
+		if submission.Envelope == nil || submission.Envelope.RunID == "" {
+			b.Fatalf("missing execution envelope in trigger submission")
+		}
+
+		waitBenchmarkAPIDispatched(b, db, submission.Envelope.RunID)
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_RunJobAccepted(b *testing.B) {
+	server, _, db := newBenchmarkAPIServerWithDB(b)
+	ingress := newBenchmarkAPIIngress()
+	server.SetExecutionIngress(ingress)
+	handler := server.Handler()
+
+	const body = `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/jobs/run", body)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			b.Fatalf("RunJob status=%d: %s", rec.Code, rec.Body.String())
+		}
+
+		b.StopTimer()
+		submission := ingress.wait(b)
+		if submission.Envelope == nil || submission.Envelope.RunID == "" {
+			b.Fatalf("missing execution envelope in run submission")
+		}
+
+		waitBenchmarkAPIDispatched(b, db, submission.Envelope.RunID)
+		b.StartTimer()
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_RunJobDispatch(b *testing.B) {
+	server, _, db := newBenchmarkAPIServerWithDB(b)
+	ingress := newBenchmarkAPIIngress()
+	server.SetExecutionIngress(ingress)
+	handler := server.Handler()
+
+	const body = `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/jobs/run", body)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			b.Fatalf("RunJob status=%d: %s", rec.Code, rec.Body.String())
+		}
+
+		submission := ingress.wait(b)
+		if submission.Envelope == nil || submission.Envelope.RunID == "" {
+			b.Fatalf("missing execution envelope in run submission")
+		}
+
+		waitBenchmarkAPIDispatched(b, db, submission.Envelope.RunID)
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_ForceFailRun(b *testing.B) {
+	server, repos := newBenchmarkAPIServer(b)
+	handler := server.Handler()
+	ctx := context.Background()
+	jobID := "bench-api-http-force-fail"
+	seedBenchmarkAPIStoredJob(b, ctx, repos, jobID)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		runID := seedBenchmarkAPIRun(b, ctx, repos, jobID, i+1)
+		b.StartTimer()
+
+		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-fail", `{"reason":"benchmark"}`)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			b.Fatalf("ForceFailRun status=%d: %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_ForceRequeueRun(b *testing.B) {
+	server, repos := newBenchmarkAPIServer(b)
+	handler := server.Handler()
+	ctx := context.Background()
+	jobID := "bench-api-http-force-requeue"
+	seedBenchmarkAPIStoredJob(b, ctx, repos, jobID)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		runID := seedBenchmarkAPIRun(b, ctx, repos, jobID, i+1)
+		if err := repos.Runs().MarkRunFailed(ctx, runID, dal.FailureCodeExecution, "benchmark"); err != nil {
+			b.Fatalf("mark run failed: %v", err)
+		}
+
+		b.StartTimer()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/force-requeue", http.NoBody)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			b.Fatalf("ForceRequeueRun status=%d: %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_CancelRun(b *testing.B) {
+	server, repos := newBenchmarkAPIServer(b)
+	handler := server.Handler()
+	ctx := context.Background()
+	jobID := "bench-api-http-cancel"
+	seedBenchmarkAPIStoredJob(b, ctx, repos, jobID)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		runID := seedBenchmarkAPIRun(b, ctx, repos, jobID, i+1)
+		claimBenchmarkAPIRun(b, ctx, repos.Runs(), runID)
+		b.StartTimer()
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+runID+"/cancel", http.NoBody)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			b.Fatalf("CancelRun status=%d: %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func BenchmarkAPIServer_HTTP_Write_RepairMarkAbandoned(b *testing.B) {
+	server, repos := newBenchmarkAPIServer(b)
+	handler := server.Handler()
+	ctx := context.Background()
+	jobID := "bench-api-http-repair-abandoned"
+	seedBenchmarkAPIStoredJob(b, ctx, repos, jobID)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		runID := seedBenchmarkAPIRun(b, ctx, repos, jobID, i+1)
+		claimBenchmarkAPIRun(b, ctx, repos.Runs(), runID)
+		if err := repos.Runs().MarkRunOrphaned(ctx, runID, dal.OrphanReasonLeaseExpired); err != nil {
+			b.Fatalf("mark run orphaned: %v", err)
+		}
+
+		b.StartTimer()
+		req := newBenchmarkAPIHTTPRequest(http.MethodPost, "/api/v1/runs/"+runID+"/repair/mark-abandoned", `{"reason":"benchmark"}`)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			b.Fatalf("RepairMarkRunAbandoned status=%d: %s", rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func newBenchmarkAPIServer(b *testing.B) (*api.APIServer, *dal.SQLRepositories) {
 	b.Helper()
 
@@ -346,6 +597,12 @@ func newBenchmarkAPIServerWithDB(b *testing.B) (*api.APIServer, *dal.SQLReposito
 
 	b.Cleanup(func() { _ = db.Close() })
 	return api.NewAPIServer(mocks.NopLogger{}, db), dal.NewSQLRepositories(db), db
+}
+
+func newBenchmarkAPIHTTPRequest(method, target, body string) *http.Request {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
 }
 
 type benchmarkAPIIngress struct {

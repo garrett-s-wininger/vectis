@@ -1062,6 +1062,8 @@ func uniqueMacroJob(job macroJobSpec) macroJobSpec {
 func newMacroBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 	b.Helper()
 
+	b.Setenv("VECTIS_API_ALLOWED_HOSTS", "example.com")
+
 	dbConfig := macroDatabaseConfigFromEnv(b)
 	db, err := sql.Open(dbConfig.driver, dbConfig.dsn)
 	if err != nil {
@@ -2562,7 +2564,7 @@ func (s *storeLogStream) Send(chunk *apipb.LogChunk) error {
 		Timestamp: time.Now(),
 		Stream:    chunk.GetStream(),
 		Sequence:  chunk.GetSequence(),
-		Data:      string(chunk.GetData()),
+		Data:      append([]byte(nil), chunk.GetData()...),
 		Completed: chunk.GetCompleted(),
 	}
 
