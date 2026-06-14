@@ -664,3 +664,41 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 		t.Fatalf("expected attempt count 2 after restart, got %d", dlq2.Items[0].GetAttemptCount())
 	}
 }
+
+func TestQueueDelivery_RequeueDeadLetterRejectsInvalidHandoff(t *testing.T) {
+	ctx := context.Background()
+	svc, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{}, nil)
+	if err != nil {
+		t.Fatalf("new queue: %v", err)
+	}
+
+	qs, ok := svc.(*queueServer)
+	if !ok {
+		t.Fatalf("expected *queueServer, got %T", svc)
+	}
+
+	deliveryID := "delivery-invalid-dlq"
+	jobID := "job-invalid-dlq"
+	qs.deadLetter = []deadLetterItem{{
+		deliveryID:   deliveryID,
+		jobRequest:   &api.JobRequest{Job: &api.Job{Id: &jobID}},
+		attemptCount: 1,
+	}}
+
+	if _, err := svc.RequeueDeadLetter(ctx, &api.RequeueDeadLetterRequest{DeliveryId: &deliveryID}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("RequeueDeadLetter error = %v, want FailedPrecondition", err)
+	}
+
+	got, err := svc.TryDequeue(ctx, &api.DequeueRequest{})
+	if err != nil {
+		t.Fatalf("TryDequeue: %v", err)
+	}
+
+	if got != nil {
+		t.Fatalf("invalid dead-letter handoff was requeued: %#v", got)
+	}
+
+	if len(qs.deadLetter) != 1 {
+		t.Fatalf("invalid dead-letter item should remain in DLQ, got %d items", len(qs.deadLetter))
+	}
+}

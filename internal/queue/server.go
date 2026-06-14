@@ -1020,6 +1020,10 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 	deliveryID := req.GetDeliveryId()
 	for i, item := range s.deadLetter {
 		if item.deliveryID == deliveryID {
+			if err := validateEnqueueHandoff(item.jobRequest); err != nil {
+				return nil, status.Errorf(codes.FailedPrecondition, "dead letter execution handoff invalid: %v", err)
+			}
+
 			if s.persistence != nil {
 				if err := s.beforeFault(ctx, FaultPointDeadLetterRequeue); err != nil {
 					return nil, err

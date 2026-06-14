@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
+
+	"google.golang.org/protobuf/proto"
 )
 
 type queueServiceCloser interface {
@@ -534,6 +537,89 @@ func TestQueuePersistence_RejectsConcurrentPersistenceDir(t *testing.T) {
 	}
 }
 
+func TestQueuePersistence_RejectsInvalidRestoredHandoffs(t *testing.T) {
+	badPayload := marshalQueuePersistenceJobRequest(t, &api.JobRequest{
+		Job: &api.Job{Id: queueTestString("job-bad")},
+	})
+
+	cases := []struct {
+		name string
+		snap queueSnapshot
+		want string
+	}{
+		{
+			name: "pending",
+			snap: queueSnapshot{
+				LastAppliedIndex: 1,
+				Jobs:             [][]byte{badPayload},
+			},
+			want: "restore pending[0]",
+		},
+		{
+			name: "inflight",
+			snap: queueSnapshot{
+				LastAppliedIndex: 1,
+				Inflight: []inflightSnapshot{{
+					DeliveryID:    "delivery-bad",
+					Job:           badPayload,
+					LeaseUntilUTC: time.Now().Add(time.Minute).Unix(),
+				}},
+			},
+			want: "restore inflight[delivery-bad]",
+		},
+		{
+			name: "dead letter",
+			snap: queueSnapshot{
+				LastAppliedIndex: 1,
+				DeadLetter: []deadLetterSnapshot{{
+					DeliveryID:   "delivery-bad",
+					Job:          badPayload,
+					AttemptCount: 1,
+				}},
+			},
+			want: "restore dead_letter[0]",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeQueueSnapshot(t, dir, tt.snap)
+
+			_, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{PersistenceDir: dir}, nil)
+			if err == nil {
+				t.Fatal("NewQueueServiceWithOptions succeeded, want invalid persisted handoff error")
+			}
+
+			if !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "execution envelope metadata is required") {
+				t.Fatalf("restart error %q does not contain %q and missing envelope reason", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func TestQueuePersistence_RejectsInvalidWALHandoff(t *testing.T) {
+	dir := t.TempDir()
+	badPayload := marshalQueuePersistenceJobRequest(t, &api.JobRequest{
+		Job: &api.Job{Id: queueTestString("job-bad-wal")},
+	})
+
+	writeQueueWALRecord(t, dir, walRecord{
+		Index: 1,
+		Type:  walRecordEnqueue,
+		Job:   badPayload,
+	})
+
+	_, err := NewQueueServiceWithOptions(noopLogger{}, QueueOptions{PersistenceDir: dir}, nil)
+	if err == nil {
+		t.Fatal("NewQueueServiceWithOptions succeeded, want invalid WAL handoff error")
+	}
+
+	if !strings.Contains(err.Error(), "restore pending[0]") || !strings.Contains(err.Error(), "execution envelope metadata is required") {
+		t.Fatalf("restart error %q does not contain pending missing-envelope reason", err.Error())
+	}
+}
+
 func TestQueuePersistenceLockSubprocess(t *testing.T) {
 	if os.Getenv("VECTIS_QUEUE_LOCK_SUBPROCESS") != "1" {
 		t.Skip("helper test")
@@ -571,4 +657,51 @@ func listWALSegments(t *testing.T, dir string) []string {
 	}
 
 	return segments
+}
+
+func marshalQueuePersistenceJobRequest(t *testing.T, req *api.JobRequest) []byte {
+	t.Helper()
+
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal job request: %v", err)
+	}
+
+	return payload
+}
+
+func writeQueueSnapshot(t *testing.T, dir string, snap queueSnapshot) {
+	t.Helper()
+
+	f, err := os.Create(filepath.Join(dir, snapshotFileName))
+	if err != nil {
+		t.Fatalf("create snapshot: %v", err)
+	}
+
+	if err := json.NewEncoder(f).Encode(snap); err != nil {
+		_ = f.Close()
+		t.Fatalf("encode snapshot: %v", err)
+	}
+
+	if err := f.Close(); err != nil {
+		t.Fatalf("close snapshot: %v", err)
+	}
+}
+
+func writeQueueWALRecord(t *testing.T, dir string, rec walRecord) {
+	t.Helper()
+
+	f, err := os.Create(filepath.Join(dir, walSegmentPrefix+"000001"))
+	if err != nil {
+		t.Fatalf("create wal segment: %v", err)
+	}
+
+	if err := json.NewEncoder(f).Encode(rec); err != nil {
+		_ = f.Close()
+		t.Fatalf("encode wal record: %v", err)
+	}
+
+	if err := f.Close(); err != nil {
+		t.Fatalf("close wal segment: %v", err)
+	}
 }

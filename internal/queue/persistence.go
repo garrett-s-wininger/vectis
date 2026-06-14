@@ -153,6 +153,10 @@ func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, r
 	}
 
 	state, err := p.loadState()
+	if err == nil {
+		err = validatePersistedQueueState(state)
+	}
+
 	if err != nil {
 		_ = p.Close()
 		return nil, nil, err
