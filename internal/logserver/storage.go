@@ -25,13 +25,24 @@ const (
 
 	logEntryRecordLengthSize = 4
 	logEntryRecordHeaderSize = 32
+	logEntryRecordFixedSize  = logEntryRecordLengthSize + logEntryRecordHeaderSize + logEntryRecordLengthSize
 
 	maxPooledLogEntryRecordBufferSize = 4 << 20
+
+	minVectoredLogEntryRecordWriteSize = 256 << 10
+	maxLogEntryRecordWritevSegments    = 1024
+	maxLogEntryRecordWritevEntries     = maxLogEntryRecordWritevSegments / 3
 )
 
 var logEntryRecordBufferPool = sync.Pool{
 	New: func() any {
 		return &logEntryRecordBuffer{}
+	},
+}
+
+var logEntryRecordWritevBufferPool = sync.Pool{
+	New: func() any {
+		return &logEntryRecordWritevBuffer{}
 	},
 }
 
@@ -107,6 +118,11 @@ type cachedRunLogFile struct {
 
 type logEntryRecordBuffer struct {
 	buf []byte
+}
+
+type logEntryRecordWritevBuffer struct {
+	fixed []byte
+	batch platformWriteBatch
 }
 
 type filesystemStats struct {
@@ -235,9 +251,6 @@ func (s *LocalRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
 		return err
 	}
 
-	records := borrowLogEntryRecordBuffer(total)
-	defer releaseLogEntryRecordBuffer(records)
-	b := appendLogEntryRecords(records.buf, entries)
 	path := s.runPath(runID)
 
 	s.mu.Lock()
@@ -248,13 +261,13 @@ func (s *LocalRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
 		return err
 	}
 
-	n, err := f.Write(b)
+	if useVectoredLogEntryRecordWrite(total) {
+		err = writeLogEntryRecordsVectored(f, entries, total)
+	} else {
+		err = writeLogEntryRecordsContiguous(f, entries, total)
+	}
 	if err != nil {
 		return fmt.Errorf("append log entry: %w", err)
-	}
-
-	if n != len(b) {
-		return fmt.Errorf("append log entry: %w", io.ErrShortWrite)
 	}
 
 	return nil
@@ -310,6 +323,34 @@ func releaseLogEntryRecordBuffer(records *logEntryRecordBuffer) {
 	logEntryRecordBufferPool.Put(records)
 }
 
+func borrowLogEntryRecordWritevBuffer(entryCount int) *logEntryRecordWritevBuffer {
+	records := logEntryRecordWritevBufferPool.Get().(*logEntryRecordWritevBuffer)
+
+	fixedSize := entryCount * logEntryRecordFixedSize
+	if cap(records.fixed) < fixedSize {
+		records.fixed = make([]byte, fixedSize)
+	}
+
+	records.fixed = records.fixed[:fixedSize]
+	iovSize := entryCount * 3
+	records.batch.ensureCapacity(iovSize)
+	records.batch.reset()
+
+	return records
+}
+
+func releaseLogEntryRecordWritevBuffer(records *logEntryRecordWritevBuffer) {
+	if cap(records.fixed) > maxLogEntryRecordWritevEntries*logEntryRecordFixedSize {
+		records.fixed = nil
+	} else {
+		records.fixed = records.fixed[:0]
+	}
+
+	records.batch.release(maxLogEntryRecordWritevSegments)
+
+	logEntryRecordWritevBufferPool.Put(records)
+}
+
 func appendLogEntryRecords(buf []byte, entries []LogEntry) []byte {
 	for _, entry := range entries {
 		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)))
@@ -325,6 +366,86 @@ func appendLogEntryRecords(buf []byte, entries []LogEntry) []byte {
 	}
 
 	return buf
+}
+
+func useVectoredLogEntryRecordWrite(total int) bool {
+	return platformSupportsVectoredWrite && total >= minVectoredLogEntryRecordWriteSize
+}
+
+func writeLogEntryRecordsContiguous(f *os.File, entries []LogEntry, total int) error {
+	records := borrowLogEntryRecordBuffer(total)
+	defer releaseLogEntryRecordBuffer(records)
+
+	b := appendLogEntryRecords(records.buf, entries)
+	n, err := f.Write(b)
+	if err != nil {
+		return err
+	}
+
+	if n != len(b) {
+		return io.ErrShortWrite
+	}
+
+	return nil
+}
+
+func writeLogEntryRecordsVectored(f *os.File, entries []LogEntry, total int) error {
+	fd := int(f.Fd())
+	written := 0
+	for len(entries) > 0 {
+		chunkLen := len(entries)
+		if chunkLen > maxLogEntryRecordWritevEntries {
+			chunkLen = maxLogEntryRecordWritevEntries
+		}
+
+		records := borrowLogEntryRecordWritevBuffer(chunkLen)
+		chunkBytes := appendLogEntryRecordIovs(records, entries[:chunkLen])
+		err := records.batch.writeAll(fd)
+		releaseLogEntryRecordWritevBuffer(records)
+		if err != nil {
+			return err
+		}
+
+		written += chunkBytes
+		entries = entries[chunkLen:]
+	}
+
+	if written != total {
+		return io.ErrShortWrite
+	}
+
+	return nil
+}
+
+func appendLogEntryRecordIovs(records *logEntryRecordWritevBuffer, entries []LogEntry) int {
+	written := 0
+
+	for i := range entries {
+		entry := entries[i]
+		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)))
+		fixedOffset := i * logEntryRecordFixedSize
+		prefixHeader := records.fixed[fixedOffset : fixedOffset+logEntryRecordLengthSize+logEntryRecordHeaderSize]
+		footer := records.fixed[fixedOffset+logEntryRecordLengthSize+logEntryRecordHeaderSize : fixedOffset+logEntryRecordFixedSize]
+
+		binary.LittleEndian.PutUint32(prefixHeader[0:4], bodyLen)
+		binary.LittleEndian.PutUint64(prefixHeader[4:12], uint64(entry.Timestamp.Unix()))
+		binary.LittleEndian.PutUint32(prefixHeader[12:16], uint32(entry.Timestamp.Nanosecond()))
+		binary.LittleEndian.PutUint32(prefixHeader[16:20], uint32(entry.Stream))
+		binary.LittleEndian.PutUint64(prefixHeader[20:28], uint64(entry.Sequence))
+		binary.LittleEndian.PutUint32(prefixHeader[28:32], uint32(entry.Completed))
+		binary.LittleEndian.PutUint32(prefixHeader[32:36], uint32(len(entry.Data)))
+		binary.LittleEndian.PutUint32(footer, bodyLen)
+
+		records.batch.appendBytes(prefixHeader)
+		if len(entry.Data) > 0 {
+			records.batch.appendBytes(entry.Data)
+		}
+
+		records.batch.appendBytes(footer)
+		written += len(prefixHeader) + len(entry.Data) + len(footer)
+	}
+
+	return written
 }
 
 func (s *LocalRunLogStore) appendFileLocked(runID, path string) (*os.File, error) {
