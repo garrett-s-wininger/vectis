@@ -31,13 +31,22 @@ func queueTestRequest(t testing.TB, req *api.JobRequest) *api.JobRequest {
 func queueTestRequestWithDeadline(t testing.TB, req *api.JobRequest, deadlineUnixNano int64) *api.JobRequest {
 	t.Helper()
 
+	cloned, err := newQueueTestRequest(req, deadlineUnixNano)
+	if err != nil {
+		t.Fatalf("prepare queue test request: %v", err)
+	}
+
+	return cloned
+}
+
+func newQueueTestRequest(req *api.JobRequest, deadlineUnixNano int64) (*api.JobRequest, error) {
 	if req == nil {
-		t.Fatal("job request is required")
+		return nil, fmt.Errorf("job request is required")
 	}
 
 	cloned, ok := proto.Clone(req).(*api.JobRequest)
 	if !ok {
-		t.Fatal("clone job request")
+		return nil, fmt.Errorf("clone job request")
 	}
 
 	if cloned.Job == nil {
@@ -82,8 +91,8 @@ func queueTestRequestWithDeadline(t testing.TB, req *api.JobRequest, deadlineUni
 	}
 
 	if _, err := cell.AttachExecutionEnvelope(cloned, dispatch, time.Now().UnixNano()); err != nil {
-		t.Fatalf("attach execution envelope: %v", err)
+		return nil, fmt.Errorf("attach execution envelope: %w", err)
 	}
 
-	return cloned
+	return cloned, nil
 }

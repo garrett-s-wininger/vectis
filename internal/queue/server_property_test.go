@@ -187,7 +187,12 @@ type queueTraceModel struct {
 func (m *queueTraceModel) enqueue(ctx context.Context, svc api.QueueServiceServer) error {
 	jobID := fmt.Sprintf("job-%03d", m.nextID)
 	m.nextID++
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	req, err := newQueueTestRequest(&api.JobRequest{Job: &api.Job{Id: &jobID}}, 0)
+	if err != nil {
+		return err
+	}
+
+	if _, err := svc.Enqueue(ctx, req); err != nil {
 		return err
 	}
 
@@ -261,7 +266,11 @@ func checkIsolationEligibilityTrace(trace []byte) error {
 	expected := make([]string, 0)
 	for i, raw := range trace {
 		jobID := fmt.Sprintf("job-%03d", i)
-		req := propertyIsolationJob(jobID, raw)
+		req, err := propertyIsolationJob(jobID, raw)
+		if err != nil {
+			return err
+		}
+
 		if _, err := svc.Enqueue(ctx, req); err != nil {
 			return fmt.Errorf("enqueue %s: %w", jobID, err)
 		}
@@ -309,7 +318,7 @@ func supportedIsolationForTrace(trace []byte) []string {
 	}
 }
 
-func propertyIsolationJob(jobID string, raw byte) *api.JobRequest {
+func propertyIsolationJob(jobID string, raw byte) (*api.JobRequest, error) {
 	root := queueTestNode("root", "builtins/shell")
 	switch raw % 3 {
 	case 1:
@@ -320,7 +329,7 @@ func propertyIsolationJob(jobID string, raw byte) *api.JobRequest {
 		root.Isolation = &vm
 	}
 
-	return &api.JobRequest{Job: &api.Job{Id: &jobID, Root: root}}
+	return newQueueTestRequest(&api.JobRequest{Job: &api.Job{Id: &jobID, Root: root}}, 0)
 }
 
 func propertyJobEligible(req *api.JobRequest, supported []string) bool {

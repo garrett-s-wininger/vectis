@@ -895,14 +895,13 @@ func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID stri
 	}
 
 	if len(m.PendingExecutions) > 0 {
-		rec := m.PendingExecutions[0]
-		if rec.RunID == "" {
-			rec.RunID = runID
-		}
-		return rec, nil
+		return m.defaultPendingExecutionForRun(m.PendingExecutions[0], runID), nil
 	}
 
-	rec := m.PendingExecution
+	return m.defaultPendingExecutionForRun(m.PendingExecution, runID), nil
+}
+
+func (m *MockRunsRepository) defaultPendingExecutionForRun(rec dal.ExecutionDispatchRecord, runID string) dal.ExecutionDispatchRecord {
 	if rec.RunID == "" {
 		rec.RunID = runID
 	}
@@ -915,8 +914,24 @@ func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID stri
 		rec.TaskKey = dal.RootTaskKey
 	}
 
+	if rec.TaskID == "" {
+		rec.TaskID = rec.RunID + ":" + rec.TaskKey
+	}
+
+	if rec.TaskName == "" {
+		rec.TaskName = rec.TaskKey
+	}
+
+	if rec.TaskAttemptID == "" {
+		rec.TaskAttemptID = fmt.Sprintf("%s:attempt:%d", rec.TaskID, defaultPositive(rec.Attempt, 1))
+	}
+
 	if rec.SegmentID == "" {
 		rec.SegmentID = rec.RunID + ":" + rec.TaskKey + ":segment"
+	}
+
+	if rec.SegmentName == "" {
+		rec.SegmentName = rec.TaskKey
 	}
 
 	if rec.ExecutionID == "" {
@@ -935,11 +950,47 @@ func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID stri
 		rec.DefinitionVersion = 1
 	}
 
+	if queued, ok := m.queuedRunByID(rec.RunID); ok {
+		if rec.JobID == "" {
+			rec.JobID = queued.JobID
+		}
+
+		if rec.DefinitionVersion == 1 && queued.DefinitionVersion > 0 {
+			rec.DefinitionVersion = queued.DefinitionVersion
+		}
+
+		if rec.DefinitionHash == "" {
+			rec.DefinitionHash = queued.DefinitionHash
+		}
+
+		if rec.OwningCell == "" {
+			rec.OwningCell = queued.OwningCell
+		}
+	}
+
 	if rec.DefinitionHash == "" {
 		rec.DefinitionHash = "test-definition-hash"
 	}
 
-	return rec, nil
+	return rec
+}
+
+func defaultPositive(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+
+	return fallback
+}
+
+func (m *MockRunsRepository) queuedRunByID(runID string) (dal.QueuedRun, bool) {
+	for _, queued := range m.QueuedRuns {
+		if queued.RunID == runID {
+			return queued, true
+		}
+	}
+
+	return dal.QueuedRun{}, false
 }
 
 func (m *MockRunsRepository) ListPendingExecutions(ctx context.Context, runID string) ([]dal.ExecutionDispatchRecord, error) {
@@ -950,22 +1001,12 @@ func (m *MockRunsRepository) ListPendingExecutions(ctx context.Context, runID st
 	if len(m.PendingExecutions) > 0 {
 		out := append([]dal.ExecutionDispatchRecord(nil), m.PendingExecutions...)
 		for i := range out {
-			if out[i].RunID == "" {
-				out[i].RunID = runID
-			}
+			out[i] = m.defaultPendingExecutionForRun(out[i], runID)
 		}
 		return out, nil
 	}
 
-	rec := m.PendingExecution
-	if rec.ExecutionID == "" && rec.TaskID == "" {
-		return nil, nil
-	}
-	if rec.RunID == "" {
-		rec.RunID = runID
-	}
-
-	return []dal.ExecutionDispatchRecord{rec}, nil
+	return []dal.ExecutionDispatchRecord{m.defaultPendingExecutionForRun(m.PendingExecution, runID)}, nil
 }
 
 func (m *MockRunsRepository) GetExecutionDispatch(ctx context.Context, executionID string) (dal.ExecutionDispatchRecord, error) {

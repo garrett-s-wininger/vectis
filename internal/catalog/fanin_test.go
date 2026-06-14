@@ -375,6 +375,11 @@ func checkFanInDrainsUniqueSourceEvents(t *testing.T, raw []byte) error {
 	events := fanInPropertyEvents(raw)
 	unique := make(map[string]struct{})
 	for _, event := range events {
+		uniqueKey := event.sourceCell + "\x00" + event.eventKey
+		if _, ok := unique[uniqueKey]; ok {
+			continue
+		}
+
 		repos := sourceA
 		if event.sourceCell == "pdx-b" {
 			repos = sourceB
@@ -384,7 +389,7 @@ func checkFanInDrainsUniqueSourceEvents(t *testing.T, raw []byte) error {
 			return fmt.Errorf("record source event %s/%s: %w", event.sourceCell, event.eventKey, err)
 		}
 
-		unique[event.sourceCell+"\x00"+event.eventKey] = struct{}{}
+		unique[uniqueKey] = struct{}{}
 	}
 
 	processor := NewFanInProcessor(target.CatalogEvents(), []FanInSource{

@@ -27,7 +27,7 @@ func TestQueueFault_EnqueuePersistenceFailureLeavesQueueEmptyAndRecovers(t *test
 	}
 
 	jobID := "job-enqueue-fault"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err == nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err == nil {
 		t.Fatal("expected injected enqueue persistence failure")
 	} else if !errors.Is(err, faultinject.ErrInjected) {
 		t.Fatalf("expected injected enqueue failure, got %v", err)
@@ -44,7 +44,7 @@ func TestQueueFault_EnqueuePersistenceFailureLeavesQueueEmptyAndRecovers(t *test
 		t.Fatalf("expected empty queue after failed enqueue, got %#v", got)
 	}
 
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue after recovery: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestQueueFault_DeliverPersistenceFailureLeavesJobPending(t *testing.T) {
 	defer closeQueueService(t, svc)
 
 	jobID := "job-deliver-fault"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestQueueFault_AckPersistenceFailureKeepsDeliveryInflightAcrossRestart(t *t
 	}
 
 	jobID := "job-ack-fault"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -209,7 +209,7 @@ func TestQueueFault_ExpiredRequeueFailureDoesNotBurnAttempt(t *testing.T) {
 	defer closeQueueService(t, svc)
 
 	jobID := "job-requeue-fault"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
@@ -270,7 +270,7 @@ func TestQueueFault_DeadLetterPersistenceFailureDoesNotMoveInMemory(t *testing.T
 	defer closeQueueService(t, svc)
 
 	jobID := "job-dlq-fault"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 

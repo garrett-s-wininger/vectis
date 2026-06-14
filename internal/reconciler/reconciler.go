@@ -565,12 +565,7 @@ func (s *Service) dispatchRequestsForQueuedRun(ctx context.Context, runID string
 	}
 
 	if len(dispatches) == 0 {
-		req, err := s.recordExecutionPayload(ctx, runID, baseReq, definitionHash)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		return []*api.JobRequest{req}, 0, nil
+		return nil, 0, fmt.Errorf("missing pending execution for run %s", runID)
 	}
 
 	seedReq := cloneJobRequestForReconciler(baseReq)
