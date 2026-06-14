@@ -2057,9 +2057,15 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	attemptStarted := time.Now()
+	recordSync := func(outcome, reason string) {
+		s.recordSourceRepositorySyncMetric(ctx, observability.SourceSyncTriggerManual, rec, outcome, reason, time.Since(attemptStarted))
+	}
+
 	syncRef := sourceRepositorySyncRef(rec)
 	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
 	if !syncStarted {
+		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock)
 		s.writeRunningSourceRepositorySync(w, rec, nsPath, syncRef, declared)
 		return
 	}
@@ -2073,6 +2079,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		RunningStaleBeforeUnix: sourceSyncStaleBeforeUnix(startedAt),
 	})
 	if err != nil {
+		recordSync(observability.SourceSyncOutcomeFailed, observability.SourceSyncReasonDatabaseBeginFailed)
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -2094,6 +2101,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	s.markDBRecovered()
 
 	if !began {
+		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock)
 		s.writeRunningSourceRepositorySync(w, running, nsPath, syncRef, declared)
 		return
 	}
@@ -2122,6 +2130,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	syncRecord.FinishedAtUnix = time.Now().Unix()
 	updated, err := s.sources.UpdateRepositorySync(ctx, syncRecord)
 	if err != nil {
+		recordSync(observability.SourceSyncOutcomeFailed, observability.SourceSyncReasonDatabaseUpdateFailed)
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -2141,6 +2150,12 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.markDBRecovered()
+
+	if syncRecord.Status == dal.SourceSyncStatusFailed {
+		recordSync(observability.SourceSyncOutcomeFailed, sourceRepositorySyncMetricReason(syncRecord.Error))
+	} else {
+		recordSync(observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone)
+	}
 
 	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath, declared))
 }
@@ -3035,6 +3050,24 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	}
 
 	return status.ErrorCode + ": " + status.ErrorMessage
+}
+
+func (s *APIServer) recordSourceRepositorySyncMetric(ctx context.Context, trigger string, rec dal.SourceRepositoryRecord, outcome, reason string, d time.Duration) {
+	if s.sourceSyncMetrics == nil {
+		return
+	}
+
+	s.sourceSyncMetrics.RecordSourceRepositorySync(ctx, trigger, rec.SourceKind, rec.CheckoutMode, outcome, reason, d)
+}
+
+func sourceRepositorySyncMetricReason(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return observability.SourceSyncReasonNone
+	}
+
+	code, _, _ := strings.Cut(raw, ":")
+	return observability.SourceSyncReasonFromErrorCode(code)
 }
 
 func (s *APIServer) writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepositoryRecord, namespacePath, syncRef string, declared map[string]struct{}) {

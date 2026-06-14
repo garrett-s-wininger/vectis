@@ -101,6 +101,7 @@ type APIServer struct {
 	logRoutingMetrics  logclient.RoutingMetrics
 	apiDispatchMetrics *observability.APIDispatchMetrics
 	apiSecurityMetrics securityRejectionMetrics
+	sourceSyncMetrics  sourceRepositorySyncMetrics
 
 	// authzOverride, if non-nil, replaces SelectAuthorizer(complete) in middleware (tests).
 	authzOverride authz.Authorizer
@@ -153,6 +154,10 @@ type routeSpec struct {
 
 type dispatchMetrics interface {
 	RecordDispatchEvent(ctx context.Context, source, eventType, targetCell string)
+}
+
+type sourceRepositorySyncMetrics interface {
+	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -695,6 +700,10 @@ func (s *APIServer) SetAPIDispatchMetrics(m *observability.APIDispatchMetrics) {
 
 func (s *APIServer) SetAPISecurityMetrics(m securityRejectionMetrics) {
 	s.apiSecurityMetrics = m
+}
+
+func (s *APIServer) SetSourceSyncMetrics(m sourceRepositorySyncMetrics) {
+	s.sourceSyncMetrics = m
 }
 
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {

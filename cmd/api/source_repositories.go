@@ -11,6 +11,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/secrets"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/utils"
@@ -18,6 +19,9 @@ import (
 
 type sourceRepositorySyncStatusFunc func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
 type sourceRepositoryCredentialResolver func(context.Context, dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error)
+type sourceRepositorySyncMetrics interface {
+	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
+}
 
 func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
 	decls, err := config.SourceRepositoryDeclarations()
@@ -71,14 +75,14 @@ func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRe
 }
 
 func syncConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
-	return syncConfiguredSourceRepositoriesWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus)
+	return syncConfiguredSourceRepositoriesWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus, nil)
 }
 
 func startConfiguredSourceRepositoryPeriodicSync(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) {
-	startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus)
+	startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx, repos, logger, configuredSourceRepositorySyncCheckoutStatus, nil)
 }
 
-func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc) {
+func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) {
 	interval := config.SourceSyncConfiguredRepositoriesInterval()
 	if interval <= 0 {
 		return
@@ -112,7 +116,7 @@ func startConfiguredSourceRepositoryPeriodicSyncWithStatus(ctx context.Context, 
 
 				return
 			case <-ticker.C:
-				if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, logger, statusFn); err != nil && logger != nil {
+				if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, logger, statusFn, metrics); err != nil && logger != nil {
 					logger.Warn("Configured source repository periodic sync cycle completed with errors: %v", err)
 				}
 			}
@@ -172,7 +176,7 @@ func reconcileConfiguredSourceSchedules(ctx context.Context, repos *dal.SQLRepos
 	return nil
 }
 
-func syncConfiguredSourceRepositoriesPeriodicCycle(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc) error {
+func syncConfiguredSourceRepositoriesPeriodicCycle(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) error {
 	if statusFn == nil {
 		statusFn = configuredSourceRepositorySyncCheckoutStatus
 	}
@@ -208,10 +212,10 @@ func syncConfiguredSourceRepositoriesPeriodicCycle(ctx context.Context, repos *d
 		eligible = append(eligible, rec)
 	}
 
-	return syncConfiguredSourceRepositoryRecords(ctx, repos, logger, eligible, config.SourceSyncConfiguredRepositoriesMaxConcurrency(), statusFn)
+	return syncConfiguredSourceRepositoryRecords(ctx, repos, logger, eligible, config.SourceSyncConfiguredRepositoriesMaxConcurrency(), statusFn, metrics)
 }
 
-func syncConfiguredSourceRepositoryRecords(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, records []dal.SourceRepositoryRecord, maxConcurrency int, statusFn sourceRepositorySyncStatusFunc) error {
+func syncConfiguredSourceRepositoryRecords(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, records []dal.SourceRepositoryRecord, maxConcurrency int, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -250,7 +254,7 @@ func syncConfiguredSourceRepositoryRecords(ctx context.Context, repos *dal.SQLRe
 			}
 			defer syncCancel()
 
-			err := syncConfiguredSourceRepository(syncCtx, repos, logger, rec, statusFn)
+			err := syncConfiguredSourceRepository(syncCtx, repos, logger, rec, statusFn, metrics, observability.SourceSyncTriggerPeriodic)
 			if err != nil && logger != nil {
 				logger.Warn("Configured source repository periodic sync failed: %v", err)
 			}
@@ -289,7 +293,7 @@ func configuredSourceRepositorySyncBackoffActive(rec dal.SourceRepositoryRecord,
 	return time.Unix(rec.LastSyncFinishedAtUnix, 0).Add(backoff).After(time.Unix(nowUnix, 0))
 }
 
-func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc) error {
+func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics) error {
 	if !config.SourceSyncConfiguredRepositoriesOnStartup() {
 		return nil
 	}
@@ -318,7 +322,7 @@ func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.
 			continue
 		}
 
-		if err := syncConfiguredSourceRepository(ctx, repos, logger, rec, statusFn); err != nil {
+		if err := syncConfiguredSourceRepository(ctx, repos, logger, rec, statusFn, metrics, observability.SourceSyncTriggerStartup); err != nil {
 			return err
 		}
 	}
@@ -326,7 +330,12 @@ func syncConfiguredSourceRepositoriesWithStatus(ctx context.Context, repos *dal.
 	return nil
 }
 
-func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, rec dal.SourceRepositoryRecord, statusFn sourceRepositorySyncStatusFunc) error {
+func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger, rec dal.SourceRepositoryRecord, statusFn sourceRepositorySyncStatusFunc, metrics sourceRepositorySyncMetrics, trigger string) error {
+	attemptStarted := time.Now()
+	recordSync := func(outcome, reason string) {
+		recordSourceRepositorySyncMetric(ctx, metrics, trigger, rec, outcome, reason, time.Since(attemptStarted))
+	}
+
 	syncRef := configuredSourceRepositorySyncRef(rec)
 	startedAt := time.Now().Unix()
 	running, began, err := repos.Sources().BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
@@ -337,11 +346,13 @@ func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositor
 	})
 
 	if err != nil {
+		recordSync(observability.SourceSyncOutcomeFailed, observability.SourceSyncReasonDatabaseBeginFailed)
 		return fmt.Errorf("begin configured source repository sync %q: %w", rec.RepositoryID, err)
 	}
 
 	if !began {
 		logConfiguredSourceRepository(logger, "sync already running", running, "")
+		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock)
 		return nil
 	}
 
@@ -372,13 +383,16 @@ func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositor
 
 	updated, err := repos.Sources().UpdateRepositorySync(updateCtx, syncRecord)
 	if err != nil {
+		recordSync(observability.SourceSyncOutcomeFailed, observability.SourceSyncReasonDatabaseUpdateFailed)
 		return fmt.Errorf("update configured source repository sync %q: %w", rec.RepositoryID, err)
 	}
 
 	if syncRecord.Status == dal.SourceSyncStatusFailed {
+		recordSync(observability.SourceSyncOutcomeFailed, sourceRepositorySyncMetricReason(syncRecord.Error))
 		return fmt.Errorf("sync configured source repository %q: %s", rec.RepositoryID, syncRecord.Error)
 	}
 
+	recordSync(observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone)
 	logConfiguredSourceRepository(logger, "synced", updated, "")
 	return nil
 }
@@ -659,6 +673,24 @@ func configuredSourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatu
 	}
 
 	return status.ErrorCode + ": " + status.ErrorMessage
+}
+
+func recordSourceRepositorySyncMetric(ctx context.Context, metrics sourceRepositorySyncMetrics, trigger string, rec dal.SourceRepositoryRecord, outcome, reason string, d time.Duration) {
+	if metrics == nil {
+		return
+	}
+
+	metrics.RecordSourceRepositorySync(ctx, trigger, rec.SourceKind, rec.CheckoutMode, outcome, reason, d)
+}
+
+func sourceRepositorySyncMetricReason(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return observability.SourceSyncReasonNone
+	}
+
+	code, _, _ := strings.Cut(raw, ":")
+	return observability.SourceSyncReasonFromErrorCode(code)
 }
 
 func configuredSourceSyncStaleBeforeUnix(nowUnix int64) int64 {

@@ -137,64 +137,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	sourceCtx, sourceCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer sourceCancel()
-	sourceRepos := dal.NewSQLRepositories(db)
-	sourceCredentialResolver, err := newConfiguredSourceRepositoryCredentialResolver(logger)
-	if err != nil {
-		logger.Error("Failed to configure source repository credentials: %v", err)
-		exitCode = 1
-		return
-	}
-
-	sourceSyncStatus := configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(sourceCredentialResolver)
-	if err := reconcileConfiguredSourceRepositories(sourceCtx, sourceRepos, logger); err != nil {
-		logger.Error("Failed to reconcile configured source repositories: %v", err)
-		exitCode = 1
-		return
-	}
-
-	if err := reconcileConfiguredSourceSchedules(sourceCtx, sourceRepos, logger); err != nil {
-		logger.Error("Failed to reconcile configured source schedules: %v", err)
-		exitCode = 1
-		return
-	}
-
-	sourceSyncCtx := sourceCtx
-	sourceSyncCancel := func() {}
-	if config.SourceSyncConfiguredRepositoriesOnStartup() {
-		if timeout := config.SourceSyncRunningTimeout(); timeout > 0 {
-			sourceSyncCtx, sourceSyncCancel = context.WithTimeout(context.Background(), timeout)
-		} else {
-			sourceSyncCtx, sourceSyncCancel = context.WithCancel(context.Background())
-		}
-	}
-	defer sourceSyncCancel()
-
-	if err := syncConfiguredSourceRepositoriesWithStatus(sourceSyncCtx, sourceRepos, logger, sourceSyncStatus); err != nil {
-		logger.Error("Failed to sync configured source repositories: %v", err)
-		exitCode = 1
-		return
-	}
-
-	sourcePeriodicSyncCtx, sourcePeriodicSyncCancel := context.WithCancel(cmd.Context())
-	defer sourcePeriodicSyncCancel()
-	startConfiguredSourceRepositoryPeriodicSyncWithStatus(sourcePeriodicSyncCtx, sourceRepos, logger, sourceSyncStatus)
-
-	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
-	if err != nil {
-		logger.Error("Failed to initialize tracer: %v", err)
-		exitCode = 1
-		return
-	}
-	defer cli.DeferShutdown(logger, "Tracer", shutdownTracer)()
-
 	metricsHandler, shutdownMetrics, err := observability.InitAPIMetrics(cmd.Context())
 	if err != nil {
 		logger.Error("Failed to initialize metrics: %v", err)
 		exitCode = 1
 		return
 	}
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	if err := observability.RegisterSQLDBPoolMetrics(db); err != nil {
 		logger.Error("Failed to register DB pool metrics: %v", err)
@@ -250,7 +199,64 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
+	sourceSyncMetrics, err := observability.NewSourceSyncMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize source sync metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceCtx, sourceCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer sourceCancel()
+	sourceRepos := dal.NewSQLRepositories(db)
+	sourceCredentialResolver, err := newConfiguredSourceRepositoryCredentialResolver(logger)
+	if err != nil {
+		logger.Error("Failed to configure source repository credentials: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceSyncStatus := configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(sourceCredentialResolver)
+	if err := reconcileConfiguredSourceRepositories(sourceCtx, sourceRepos, logger); err != nil {
+		logger.Error("Failed to reconcile configured source repositories: %v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := reconcileConfiguredSourceSchedules(sourceCtx, sourceRepos, logger); err != nil {
+		logger.Error("Failed to reconcile configured source schedules: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceSyncCtx := sourceCtx
+	sourceSyncCancel := func() {}
+	if config.SourceSyncConfiguredRepositoriesOnStartup() {
+		if timeout := config.SourceSyncRunningTimeout(); timeout > 0 {
+			sourceSyncCtx, sourceSyncCancel = context.WithTimeout(context.Background(), timeout)
+		} else {
+			sourceSyncCtx, sourceSyncCancel = context.WithCancel(context.Background())
+		}
+	}
+	defer sourceSyncCancel()
+
+	if err := syncConfiguredSourceRepositoriesWithStatus(sourceSyncCtx, sourceRepos, logger, sourceSyncStatus, sourceSyncMetrics); err != nil {
+		logger.Error("Failed to sync configured source repositories: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourcePeriodicSyncCtx, sourcePeriodicSyncCancel := context.WithCancel(cmd.Context())
+	defer sourcePeriodicSyncCancel()
+	startConfiguredSourceRepositoryPeriodicSyncWithStatus(sourcePeriodicSyncCtx, sourceRepos, logger, sourceSyncStatus, sourceSyncMetrics)
+
+	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
+	if err != nil {
+		logger.Error("Failed to initialize tracer: %v", err)
+		exitCode = 1
+		return
+	}
+	defer cli.DeferShutdown(logger, "Tracer", shutdownTracer)()
 
 	actionDescriptorResolver, err := actionconfig.DescriptorResolver()
 	if err != nil {
@@ -311,6 +317,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetLogRoutingMetrics(logRoutingMetrics)
 	server.SetAPIDispatchMetrics(apiDispatchMetrics)
 	server.SetAPISecurityMetrics(apiSecurityMetrics)
+	server.SetSourceSyncMetrics(sourceSyncMetrics)
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {

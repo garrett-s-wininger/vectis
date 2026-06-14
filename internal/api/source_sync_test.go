@@ -13,17 +13,63 @@ import (
 
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/observability"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/testutil/dbtest"
 
 	"github.com/spf13/viper"
 )
 
+type sourceSyncMetricRecord struct {
+	trigger      string
+	sourceKind   string
+	checkoutMode string
+	outcome      string
+	reason       string
+}
+
+type recordingSourceSyncMetrics struct {
+	mu      sync.Mutex
+	records []sourceSyncMetricRecord
+}
+
+func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.records = append(m.records, sourceSyncMetricRecord{
+		trigger:      trigger,
+		sourceKind:   sourceKind,
+		checkoutMode: checkoutMode,
+		outcome:      outcome,
+		reason:       reason,
+	})
+}
+
+func (m *recordingSourceSyncMetrics) has(trigger, sourceKind, checkoutMode, outcome, reason string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, rec := range m.records {
+		if rec.trigger == trigger &&
+			rec.sourceKind == sourceKind &&
+			rec.checkoutMode == checkoutMode &&
+			rec.outcome == outcome &&
+			rec.reason == reason {
+			return true
+		}
+	}
+
+	return false
+}
+
 func TestAPIServer_SyncSourceRepositoryReturnsRunningForDuplicate(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
 	db := dbtest.NewTestDB(t)
 	server := NewAPIServer(mocks.NewMockLogger(), db)
+	metrics := &recordingSourceSyncMetrics{}
+	server.SetSourceSyncMetrics(metrics)
 	handler := server.Handler()
 	ctx := context.Background()
 
@@ -107,6 +153,14 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDuplicate(t *testing.T) 
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("expected duplicate request not to run sync, got %d sync calls", got)
 	}
+
+	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock) {
+		t.Fatalf("missing in-memory lock source sync metric: %+v", metrics.records)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+		t.Fatalf("missing manual success source sync metric: %+v", metrics.records)
+	}
 }
 
 func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *testing.T) {
@@ -114,6 +168,8 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *t
 
 	db := dbtest.NewTestDB(t)
 	server := NewAPIServer(mocks.NewMockLogger(), db)
+	metrics := &recordingSourceSyncMetrics{}
+	server.SetSourceSyncMetrics(metrics)
 	handler := server.Handler()
 	ctx := context.Background()
 	sources := dal.NewSQLRepositories(db).Sources()
@@ -168,6 +224,10 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *t
 	if got := calls.Load(); got != 0 {
 		t.Fatalf("database-reserved sync should not run checkout work, got %d calls", got)
 	}
+
+	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock) {
+		t.Fatalf("missing database lock source sync metric: %+v", metrics.records)
+	}
 }
 
 func TestAPIServer_SyncSourceRepositoryReclaimsStaleDatabaseReservation(t *testing.T) {
@@ -180,6 +240,8 @@ func TestAPIServer_SyncSourceRepositoryReclaimsStaleDatabaseReservation(t *testi
 
 	db := dbtest.NewTestDB(t)
 	server := NewAPIServer(mocks.NewMockLogger(), db)
+	metrics := &recordingSourceSyncMetrics{}
+	server.SetSourceSyncMetrics(metrics)
 	handler := server.Handler()
 	ctx := context.Background()
 	sources := dal.NewSQLRepositories(db).Sources()
@@ -239,5 +301,9 @@ func TestAPIServer_SyncSourceRepositoryReclaimsStaleDatabaseReservation(t *testi
 
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("expected stale reservation to run sync once, got %d calls", got)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+		t.Fatalf("missing stale recovery source sync metric: %+v", metrics.records)
 	}
 }

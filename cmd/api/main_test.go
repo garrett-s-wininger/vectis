@@ -15,10 +15,54 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/secrets"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/testutil/dbtest"
 )
+
+type sourceSyncMetricRecord struct {
+	trigger      string
+	sourceKind   string
+	checkoutMode string
+	outcome      string
+	reason       string
+}
+
+type recordingSourceSyncMetrics struct {
+	mu      sync.Mutex
+	records []sourceSyncMetricRecord
+}
+
+func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.records = append(m.records, sourceSyncMetricRecord{
+		trigger:      trigger,
+		sourceKind:   sourceKind,
+		checkoutMode: checkoutMode,
+		outcome:      outcome,
+		reason:       reason,
+	})
+}
+
+func (m *recordingSourceSyncMetrics) has(trigger, sourceKind, checkoutMode, outcome, reason string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, rec := range m.records {
+		if rec.trigger == trigger &&
+			rec.sourceKind == sourceKind &&
+			rec.checkoutMode == checkoutMode &&
+			rec.outcome == outcome &&
+			rec.reason == reason {
+			return true
+		}
+	}
+
+	return false
+}
 
 func TestBuildAccessLogger_json(t *testing.T) {
 	log, closeLog := buildAccessLogger("json")
@@ -423,6 +467,7 @@ func TestSyncConfiguredSourceRepositories_SyncsEnabledRepositories(t *testing.T)
 	}
 
 	calls := 0
+	metrics := &recordingSourceSyncMetrics{}
 	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
 		calls++
 		if rec.RepositoryID != "vectis-local" || syncRef != "main" {
@@ -430,7 +475,7 @@ func TestSyncConfiguredSourceRepositories_SyncsEnabledRepositories(t *testing.T)
 		}
 
 		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
-	})
+	}, metrics)
 
 	if err != nil {
 		t.Fatalf("sync: %v", err)
@@ -452,6 +497,10 @@ func TestSyncConfiguredSourceRepositories_SyncsEnabledRepositories(t *testing.T)
 		got.LastSyncFinishedAtUnix == 0 ||
 		got.LastSyncError != "" {
 		t.Fatalf("sync result mismatch: %+v", got)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerStartup, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+		t.Fatalf("missing startup success source sync metric: %+v", metrics.records)
 	}
 }
 
@@ -484,7 +533,7 @@ func TestSyncConfiguredSourceRepositories_PersistsFailure(t *testing.T) {
 		}
 
 		return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
-	})
+	}, nil)
 
 	if err == nil {
 		t.Fatal("expected startup sync failure")
@@ -530,7 +579,7 @@ func TestSyncConfiguredSourceRepositories_PersistsFailureAfterCanceledSyncContex
 	err := syncConfiguredSourceRepositoriesWithStatus(syncCtx, repos, nil, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
 		cancel()
 		return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "context deadline exceeded"}
-	})
+	}, nil)
 
 	if err == nil {
 		t.Fatal("expected startup sync failure")
@@ -575,7 +624,7 @@ func TestSyncConfiguredSourceRepositories_SkipsDisabledRepositories(t *testing.T
 	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
 		calls++
 		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
-	})
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("sync disabled: %v", err)
@@ -694,6 +743,7 @@ func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *
 	}
 
 	calls := make([]string, 0, 2)
+	metrics := &recordingSourceSyncMetrics{}
 	err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
 		calls = append(calls, rec.RepositoryID)
 		if rec.RepositoryID == "bad-repo" {
@@ -701,7 +751,7 @@ func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *
 		}
 
 		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "good123"}
-	})
+	}, metrics)
 
 	if err == nil {
 		t.Fatal("expected periodic sync cycle to report failed repository")
@@ -727,6 +777,14 @@ func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *
 
 	if good.SyncStatus != dal.SourceSyncStatusSucceeded || good.LastSyncCommit != "good123" {
 		t.Fatalf("good repository sync mismatch: %+v", good)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerPeriodic, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeFailed, "git_fetch_failed") {
+		t.Fatalf("missing periodic failure source sync metric: %+v", metrics.records)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerPeriodic, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+		t.Fatalf("missing periodic success source sync metric: %+v", metrics.records)
 	}
 }
 
@@ -773,7 +831,7 @@ func TestSyncConfiguredSourceRepositoriesPeriodicCycle_SkipsRecentFailures(t *te
 	if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
 		calls = append(calls, rec.RepositoryID)
 		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("periodic sync cycle: %v", err)
 	}
 
@@ -835,7 +893,7 @@ func TestSyncConfiguredSourceRepositoryRecords_RespectsMaxConcurrency(t *testing
 		mu.Unlock()
 
 		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("periodic sync records: %v", err)
 	}
 
