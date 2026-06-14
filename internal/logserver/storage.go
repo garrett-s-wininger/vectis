@@ -1,9 +1,8 @@
 package logserver
 
 import (
-	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +11,9 @@ import (
 	"sort"
 	"sync"
 	"syscall"
+	"time"
+
+	api "vectis/api/gen/go"
 )
 
 var ErrLogStoreReadOnly = errors.New("log storage is read-only for new runs")
@@ -19,6 +21,9 @@ var ErrLogStoreReadOnly = errors.New("log storage is read-only for new runs")
 const (
 	logStorageLockFileName       = "log.lock"
 	defaultLogStoreOpenFileLimit = 256
+
+	logEntryRecordLengthSize = 4
+	logEntryRecordHeaderSize = 32
 )
 
 type RunLogStore interface {
@@ -190,7 +195,7 @@ func (s *LocalRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
 	}
 
 	path := s.runPath(runID)
-	b, err := marshalLogEntryLines(entries)
+	b, err := marshalLogEntryRecords(entries)
 	if err != nil {
 		return err
 	}
@@ -215,25 +220,37 @@ func (s *LocalRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
 	return nil
 }
 
-func marshalLogEntryLines(entries []LogEntry) ([]byte, error) {
-	var size int
+func marshalLogEntryRecords(entries []LogEntry) ([]byte, error) {
+	var total int
+	maxInt := uint64(int(^uint(0) >> 1))
 	for _, entry := range entries {
-		size += len(entry.Data) + 128
-	}
-
-	var buf bytes.Buffer
-	buf.Grow(size)
-	for _, entry := range entries {
-		b, err := json.Marshal(entry)
-		if err != nil {
-			return nil, fmt.Errorf("marshal log entry: %w", err)
+		bodyLen := uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data))
+		if bodyLen > uint64(^uint32(0)) {
+			return nil, fmt.Errorf("marshal log entry: data length %d exceeds binary record limit", len(entry.Data))
 		}
 
-		buf.Write(b)
-		buf.WriteByte('\n')
+		recordLen := bodyLen + logEntryRecordLengthSize
+		if uint64(total) > maxInt-recordLen {
+			return nil, fmt.Errorf("marshal log entry: batch exceeds addressable buffer size")
+		}
+
+		total += int(recordLen)
 	}
 
-	return buf.Bytes(), nil
+	buf := make([]byte, 0, total)
+	for _, entry := range entries {
+		bodyLen := uint32(uint64(logEntryRecordHeaderSize) + uint64(len(entry.Data)))
+		buf = binary.LittleEndian.AppendUint32(buf, bodyLen)
+		buf = binary.LittleEndian.AppendUint64(buf, uint64(entry.Timestamp.Unix()))
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(entry.Timestamp.Nanosecond()))
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(entry.Stream))
+		buf = binary.LittleEndian.AppendUint64(buf, uint64(entry.Sequence))
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(entry.Completed))
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(entry.Data)))
+		buf = append(buf, entry.Data...)
+	}
+
+	return buf, nil
 }
 
 func (s *LocalRunLogStore) appendFileLocked(runID, path string) (*os.File, error) {
@@ -360,11 +377,10 @@ func (s *LocalRunLogStore) List(runID string) ([]LogEntry, error) {
 	}
 	defer f.Close()
 
-	dec := json.NewDecoder(f)
 	entries := make([]LogEntry, 0, 128)
 	for {
-		var entry LogEntry
-		if err := dec.Decode(&entry); err != nil {
+		entry, err := readLogEntryRecord(f)
+		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
@@ -382,7 +398,46 @@ func (s *LocalRunLogStore) List(runID string) ([]LogEntry, error) {
 	return entries, nil
 }
 
+func readLogEntryRecord(r io.Reader) (LogEntry, error) {
+	var lengthBuf [logEntryRecordLengthSize]byte
+	if _, err := io.ReadFull(r, lengthBuf[:]); err != nil {
+		return LogEntry{}, err
+	}
+
+	bodyLen := binary.LittleEndian.Uint32(lengthBuf[:])
+	if bodyLen < logEntryRecordHeaderSize {
+		return LogEntry{}, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+	}
+
+	if uint64(bodyLen) > uint64(int(^uint(0)>>1)) {
+		return LogEntry{}, fmt.Errorf("record body length %d exceeds addressable buffer size", bodyLen)
+	}
+
+	body := make([]byte, int(bodyLen))
+	if _, err := io.ReadFull(r, body); err != nil {
+		return LogEntry{}, err
+	}
+
+	dataLen := binary.LittleEndian.Uint32(body[28:32])
+	if dataLen != uint32(len(body)-logEntryRecordHeaderSize) {
+		return LogEntry{}, fmt.Errorf("record data length %d does not match body payload length %d", dataLen, len(body)-logEntryRecordHeaderSize)
+	}
+
+	nsec := binary.LittleEndian.Uint32(body[8:12])
+	if nsec > uint32(time.Second-time.Nanosecond) {
+		return LogEntry{}, fmt.Errorf("record timestamp nanosecond value %d is invalid", nsec)
+	}
+
+	return LogEntry{
+		Timestamp: time.Unix(int64(binary.LittleEndian.Uint64(body[0:8])), int64(nsec)).UTC(),
+		Stream:    api.Stream(int32(binary.LittleEndian.Uint32(body[12:16]))),
+		Sequence:  int64(binary.LittleEndian.Uint64(body[16:24])),
+		Data:      string(body[logEntryRecordHeaderSize:]),
+		Completed: api.RunOutcome(int32(binary.LittleEndian.Uint32(body[24:28]))),
+	}, nil
+}
+
 func (s *LocalRunLogStore) runPath(runID string) string {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(runID))
-	return filepath.Join(s.baseDir, encoded+".jsonl")
+	return filepath.Join(s.baseDir, encoded+".vlog")
 }

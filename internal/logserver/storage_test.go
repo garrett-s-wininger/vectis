@@ -1,8 +1,10 @@
 package logserver
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -126,6 +128,58 @@ func TestLocalRunLogStore_AppendBatchAndList(t *testing.T) {
 		if got[i].Sequence != entries[i].Sequence || got[i].Data != entries[i].Data {
 			t.Fatalf("entry %d mismatch: got=%+v want=%+v", i, got[i], entries[i])
 		}
+	}
+}
+
+func TestLocalRunLogStore_AppendBatchPreservesRawDataBytes(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	raw := []byte{'q', '"', '\n', 0, 0xff, '\\'}
+	entry := LogEntry{
+		Timestamp: time.Unix(1_710_000_000, 123_456_789).UTC(),
+		Stream:    api.Stream_STREAM_STDERR,
+		Sequence:  7,
+		Data:      string(raw),
+		Completed: api.RunOutcome_RUN_OUTCOME_FAILURE,
+	}
+
+	if err := store.AppendBatch("run-raw-bytes", []LogEntry{entry}); err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+
+	got, err := store.List("run-raw-bytes")
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(got))
+	}
+
+	if !got[0].Timestamp.Equal(entry.Timestamp) ||
+		got[0].Stream != entry.Stream ||
+		got[0].Sequence != entry.Sequence ||
+		got[0].Completed != entry.Completed ||
+		!bytes.Equal([]byte(got[0].Data), raw) {
+		t.Fatalf("entry mismatch: got=%+v want=%+v gotData=%v wantData=%v", got[0], entry, []byte(got[0].Data), raw)
+	}
+}
+
+func TestLocalRunLogStore_ListRejectsTruncatedRecord(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-truncated"
+	if err := os.WriteFile(store.runPath(runID), []byte{logEntryRecordHeaderSize, 0, 0}, 0o644); err != nil {
+		t.Fatalf("write truncated record: %v", err)
+	}
+
+	if _, err := store.List(runID); err == nil {
+		t.Fatal("expected truncated record to fail")
 	}
 }
 
