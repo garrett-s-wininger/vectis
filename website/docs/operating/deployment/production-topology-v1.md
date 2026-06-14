@@ -139,6 +139,7 @@ Before calling a production v1 deployment ready, confirm:
 | Linux deployment runbook | [Production Linux Deployment](./production-linux.md) |
 | Environment-file template | [Production Environment Template](./production-env-template.md) |
 | Config and secrets contract | [Production Config And Secrets Contract](./production-config-contract.md) |
+| Security checklist | [Production Security Checklist](./production-security-checklist.md) |
 | Reference deployment boundaries | [Reference Deployment Posture](./reference-deployment-posture.md) |
 | Replica counts and restart behavior | [Scaling And Restarts](./scaling-and-restarts.md) |
 | Configuration and service prefixes | [Configuration](../configuration.md) |

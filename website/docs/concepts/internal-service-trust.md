@@ -154,3 +154,7 @@ Use this baseline for shared or production-like environments:
 5. Scrape metrics from a trusted network; do not expose metrics directly to users.
 6. Prefer API/RBAC-mediated log access over direct log HTTP access.
 7. Rotate generated TLS material and deployment secrets using your platform's normal secret lifecycle.
+
+For an operator checklist that combines API edge, internal network, TLS/mTLS,
+service identity, secret, file, and worker hardening, see
+[Production Security Checklist](../operating/deployment/production-security-checklist.md).

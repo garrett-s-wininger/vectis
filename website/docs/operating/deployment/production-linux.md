@@ -10,6 +10,8 @@ own host placement, live `/etc/vectis/*.env` files, secrets, TLS material,
 PostgreSQL, firewalls, service enablement, observability, backups, and retention
 scheduling. The required production settings and secret inventory are summarized
 in [Production Config And Secrets Contract](./production-config-contract.md).
+Use [Production Security Checklist](./production-security-checklist.md) before
+exposing the deployment to users or shared infrastructure.
 
 ## Current Packaging Boundary
 
@@ -253,6 +255,7 @@ Before the deployment is handed to operators:
 | Production topology | [Production Topology v1](./production-topology-v1.md) |
 | Environment-file template | [Production Environment Template](./production-env-template.md) |
 | Config and secrets contract | [Production Config And Secrets Contract](./production-config-contract.md) |
+| Security checklist | [Production Security Checklist](./production-security-checklist.md) |
 | Reference deployment posture | [Reference Deployment Posture](./reference-deployment-posture.md) |
 | Scaling and restarts | [Scaling And Restarts](./scaling-and-restarts.md) |
 | Configuration | [Configuration](../configuration.md) |

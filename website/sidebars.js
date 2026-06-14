@@ -39,6 +39,7 @@ const sidebars = {
             'operating/deployment/production-linux',
             'operating/deployment/production-env-template',
             'operating/deployment/production-config-contract',
+            'operating/deployment/production-security-checklist',
             'operating/deployment/reference-deployment-posture',
             'operating/deployment/trusted-proxy-client-ip',
             'operating/deployment/secrets-and-redaction',
