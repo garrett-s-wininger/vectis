@@ -531,18 +531,7 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 	}()
 
 	// Phase 1: Replay historical entries
-	entries, err := s.store.List(runID)
-	if err != nil {
-		s.logger.Warn("Failed to load persisted logs for run %s: %v", runID, err)
-	}
-
-	if len(entries) == 0 {
-		entries = buffer.GetEntries()
-	}
-
-	terminalSeq := terminalSequence(entries)
-	terminalAlreadyConsumed := terminalSeq > 0 && terminalSeq <= sinceSeq
-	entries, replayTruncated := boundedReplayEntries(entries, sinceSeq, tail, replayLimit)
+	entries, terminalAlreadyConsumed, replayTruncated := s.replayHistoricalEntries(runID, sinceSeq, tail, replayLimit, buffer)
 
 	var maxReplayedSeq = sinceSeq
 	var sawCompletionDuringReplay bool
@@ -652,6 +641,36 @@ afterDrain:
 			}
 		}
 	}
+}
+
+func (s *Server) replayHistoricalEntries(runID string, sinceSeq int64, tail, replayLimit int, buffer *JobBuffer) ([]LogEntry, bool, bool) {
+	if replayStore, ok := s.store.(RunLogReplayStore); ok {
+		result, err := replayStore.Replay(runID, LogReplayOptions{
+			SinceSequence: sinceSeq,
+			Limit:         replayLimit,
+			Tail:          tail,
+		})
+
+		if err != nil {
+			s.logger.Warn("Failed to replay persisted logs for run %s: %v", runID, err)
+		} else if result.Found {
+			return result.Entries, result.TerminalAlreadyConsumed, result.Truncated
+		}
+	}
+
+	entries, err := s.store.List(runID)
+	if err != nil {
+		s.logger.Warn("Failed to load persisted logs for run %s: %v", runID, err)
+	}
+
+	if len(entries) == 0 {
+		entries = buffer.GetEntries()
+	}
+
+	terminalSeq := terminalSequence(entries)
+	terminalAlreadyConsumed := terminalSeq > 0 && terminalSeq <= sinceSeq
+	entries, replayTruncated := boundedReplayEntries(entries, sinceSeq, tail, replayLimit)
+	return entries, terminalAlreadyConsumed, replayTruncated
 }
 
 func terminalSequence(entries []LogEntry) int64 {

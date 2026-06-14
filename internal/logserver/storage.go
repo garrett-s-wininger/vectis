@@ -1,6 +1,7 @@
 package logserver
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -36,6 +37,25 @@ type RunLogBatchStore interface {
 	AppendBatch(runID string, entries []LogEntry) error
 }
 
+// RunLogReplayStore replays a bounded sequence range without materializing the
+// whole run log first.
+type RunLogReplayStore interface {
+	Replay(runID string, opts LogReplayOptions) (LogReplayResult, error)
+}
+
+type LogReplayOptions struct {
+	SinceSequence int64
+	Limit         int
+	Tail          int
+}
+
+type LogReplayResult struct {
+	Found                   bool
+	Entries                 []LogEntry
+	Truncated               bool
+	TerminalAlreadyConsumed bool
+}
+
 type NoopRunLogStore struct{}
 
 func (NoopRunLogStore) Append(string, LogEntry) error {
@@ -48,6 +68,10 @@ func (NoopRunLogStore) AppendBatch(string, []LogEntry) error {
 
 func (NoopRunLogStore) List(string) ([]LogEntry, error) {
 	return nil, nil
+}
+
+func (NoopRunLogStore) Replay(string, LogReplayOptions) (LogReplayResult, error) {
+	return LogReplayResult{}, nil
 }
 
 type LocalRunLogStore struct {
@@ -229,7 +253,7 @@ func marshalLogEntryRecords(entries []LogEntry) ([]byte, error) {
 			return nil, fmt.Errorf("marshal log entry: data length %d exceeds binary record limit", len(entry.Data))
 		}
 
-		recordLen := bodyLen + logEntryRecordLengthSize
+		recordLen := bodyLen + 2*logEntryRecordLengthSize
 		if uint64(total) > maxInt-recordLen {
 			return nil, fmt.Errorf("marshal log entry: batch exceeds addressable buffer size")
 		}
@@ -248,6 +272,7 @@ func marshalLogEntryRecords(entries []LogEntry) ([]byte, error) {
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(entry.Completed))
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(entry.Data)))
 		buf = append(buf, entry.Data...)
+		buf = binary.LittleEndian.AppendUint32(buf, bodyLen)
 	}
 
 	return buf, nil
@@ -418,6 +443,23 @@ func readLogEntryRecord(r io.Reader) (LogEntry, error) {
 		return LogEntry{}, err
 	}
 
+	var suffix [logEntryRecordLengthSize]byte
+	if _, err := io.ReadFull(r, suffix[:]); err != nil {
+		return LogEntry{}, err
+	}
+
+	if got := binary.LittleEndian.Uint32(suffix[:]); got != bodyLen {
+		return LogEntry{}, fmt.Errorf("record length suffix %d does not match prefix %d", got, bodyLen)
+	}
+
+	return decodeLogEntryRecordBody(body)
+}
+
+func decodeLogEntryRecordBody(body []byte) (LogEntry, error) {
+	if len(body) < logEntryRecordHeaderSize {
+		return LogEntry{}, fmt.Errorf("record body length %d is smaller than header length %d", len(body), logEntryRecordHeaderSize)
+	}
+
 	dataLen := binary.LittleEndian.Uint32(body[28:32])
 	if dataLen != uint32(len(body)-logEntryRecordHeaderSize) {
 		return LogEntry{}, fmt.Errorf("record data length %d does not match body payload length %d", dataLen, len(body)-logEntryRecordHeaderSize)
@@ -435,6 +477,289 @@ func readLogEntryRecord(r io.Reader) (LogEntry, error) {
 		Data:      string(body[logEntryRecordHeaderSize:]),
 		Completed: api.RunOutcome(int32(binary.LittleEndian.Uint32(body[24:28]))),
 	}, nil
+}
+
+func (s *LocalRunLogStore) Replay(runID string, opts LogReplayOptions) (LogReplayResult, error) {
+	if runID == "" {
+		return LogReplayResult{}, nil
+	}
+
+	path := s.runPath(runID)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return LogReplayResult{}, nil
+		}
+
+		return LogReplayResult{}, fmt.Errorf("open log store file %s: %w", path, err)
+	}
+	defer f.Close()
+
+	if opts.Tail > 0 {
+		return replayTailFromFile(f, opts)
+	}
+
+	capacity := opts.Limit
+	if capacity <= 0 {
+		capacity = 128
+	}
+
+	result := LogReplayResult{
+		Found:   true,
+		Entries: make([]LogEntry, 0, capacity),
+	}
+
+	r := bufio.NewReaderSize(f, 1<<20)
+	for {
+		header, err := readLogEntryRecordHeader(r)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return result, nil
+			}
+
+			return LogReplayResult{}, fmt.Errorf("decode log entry from %s: %w", path, err)
+		}
+
+		if header.sequence <= opts.SinceSequence {
+			if err := s.skipReplayRecordData(r, header, &result); err != nil {
+				return LogReplayResult{}, fmt.Errorf("decode log entry from %s: %w", path, err)
+			}
+
+			continue
+		}
+
+		if opts.Limit > 0 && len(result.Entries) >= opts.Limit {
+			result.Truncated = true
+			return result, nil
+		}
+
+		entry, err := readLogEntryRecordDataBuffered(r, header)
+		if err != nil {
+			return LogReplayResult{}, fmt.Errorf("decode log entry from %s: %w", path, err)
+		}
+
+		result.Entries = append(result.Entries, entry)
+	}
+}
+
+func (s *LocalRunLogStore) skipReplayRecordData(r *bufio.Reader, header logEntryRecordHeader, result *LogReplayResult) error {
+	if header.stream != api.Stream_STREAM_CONTROL && header.completed == api.RunOutcome_RUN_OUTCOME_UNSPECIFIED {
+		if _, err := r.Discard(header.dataLen); err != nil {
+			return err
+		}
+
+		suffix, err := r.Peek(logEntryRecordLengthSize)
+		if err != nil {
+			return err
+		}
+		if got := binary.LittleEndian.Uint32(suffix[:]); got != uint32(header.bodyLen) {
+			return fmt.Errorf("record length suffix %d does not match prefix %d", got, header.bodyLen)
+		}
+
+		_, err = r.Discard(logEntryRecordLengthSize)
+		return err
+	}
+
+	entry, err := readLogEntryRecordDataBuffered(r, header)
+	if err != nil {
+		return err
+	}
+
+	if isCompletedEvent(entry) {
+		result.TerminalAlreadyConsumed = true
+	}
+
+	return nil
+}
+
+type logEntryRecordHeader struct {
+	timestamp time.Time
+	stream    api.Stream
+	sequence  int64
+	completed api.RunOutcome
+	bodyLen   int
+	dataLen   int
+}
+
+func readLogEntryRecordHeader(r io.Reader) (logEntryRecordHeader, error) {
+	var lengthBuf [logEntryRecordLengthSize]byte
+	if _, err := io.ReadFull(r, lengthBuf[:]); err != nil {
+		return logEntryRecordHeader{}, err
+	}
+
+	bodyLen := binary.LittleEndian.Uint32(lengthBuf[:])
+	if bodyLen < logEntryRecordHeaderSize {
+		return logEntryRecordHeader{}, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+	}
+
+	if uint64(bodyLen) > uint64(int(^uint(0)>>1)) {
+		return logEntryRecordHeader{}, fmt.Errorf("record body length %d exceeds addressable buffer size", bodyLen)
+	}
+
+	var headerBuf [logEntryRecordHeaderSize]byte
+	if _, err := io.ReadFull(r, headerBuf[:]); err != nil {
+		return logEntryRecordHeader{}, err
+	}
+
+	dataLen := binary.LittleEndian.Uint32(headerBuf[28:32])
+	if dataLen != bodyLen-logEntryRecordHeaderSize {
+		return logEntryRecordHeader{}, fmt.Errorf("record data length %d does not match body payload length %d", dataLen, bodyLen-logEntryRecordHeaderSize)
+	}
+
+	nsec := binary.LittleEndian.Uint32(headerBuf[8:12])
+	if nsec > uint32(time.Second-time.Nanosecond) {
+		return logEntryRecordHeader{}, fmt.Errorf("record timestamp nanosecond value %d is invalid", nsec)
+	}
+
+	return logEntryRecordHeader{
+		timestamp: time.Unix(int64(binary.LittleEndian.Uint64(headerBuf[0:8])), int64(nsec)).UTC(),
+		stream:    api.Stream(int32(binary.LittleEndian.Uint32(headerBuf[12:16]))),
+		sequence:  int64(binary.LittleEndian.Uint64(headerBuf[16:24])),
+		completed: api.RunOutcome(int32(binary.LittleEndian.Uint32(headerBuf[24:28]))),
+		bodyLen:   int(bodyLen),
+		dataLen:   int(dataLen),
+	}, nil
+}
+
+func readLogEntryRecordData(r io.Reader, header logEntryRecordHeader) (LogEntry, error) {
+	data := make([]byte, header.dataLen)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return LogEntry{}, err
+	}
+
+	var suffix [logEntryRecordLengthSize]byte
+	if _, err := io.ReadFull(r, suffix[:]); err != nil {
+		return LogEntry{}, err
+	}
+
+	if got := binary.LittleEndian.Uint32(suffix[:]); got != uint32(header.bodyLen) {
+		return LogEntry{}, fmt.Errorf("record length suffix %d does not match prefix %d", got, header.bodyLen)
+	}
+
+	return LogEntry{
+		Timestamp: header.timestamp,
+		Stream:    header.stream,
+		Sequence:  header.sequence,
+		Data:      string(data),
+		Completed: header.completed,
+	}, nil
+}
+
+func readLogEntryRecordDataBuffered(r *bufio.Reader, header logEntryRecordHeader) (LogEntry, error) {
+	recordTail := make([]byte, header.dataLen+logEntryRecordLengthSize)
+	if _, err := io.ReadFull(r, recordTail); err != nil {
+		return LogEntry{}, err
+	}
+
+	suffix := recordTail[header.dataLen:]
+	if got := binary.LittleEndian.Uint32(suffix); got != uint32(header.bodyLen) {
+		return LogEntry{}, fmt.Errorf("record length suffix %d does not match prefix %d", got, header.bodyLen)
+	}
+
+	return LogEntry{
+		Timestamp: header.timestamp,
+		Stream:    header.stream,
+		Sequence:  header.sequence,
+		Data:      string(recordTail[:header.dataLen]),
+		Completed: header.completed,
+	}, nil
+}
+
+func replayTailFromFile(f *os.File, opts LogReplayOptions) (LogReplayResult, error) {
+	st, err := f.Stat()
+	if err != nil {
+		return LogReplayResult{}, err
+	}
+
+	result := LogReplayResult{
+		Found:   true,
+		Entries: make([]LogEntry, 0, opts.Tail),
+	}
+
+	pos := st.Size()
+	for pos > 0 && len(result.Entries) < opts.Tail {
+		entry, nextPos, err := readLogEntryRecordBefore(f, pos)
+		if err != nil {
+			return LogReplayResult{}, err
+		}
+
+		pos = nextPos
+		if entry.Sequence <= opts.SinceSequence {
+			if isCompletedEvent(entry) {
+				result.TerminalAlreadyConsumed = true
+			}
+
+			if opts.SinceSequence > 0 {
+				break
+			}
+
+			continue
+		}
+
+		result.Entries = append(result.Entries, entry)
+	}
+
+	for i, j := 0, len(result.Entries)-1; i < j; i, j = i+1, j-1 {
+		result.Entries[i], result.Entries[j] = result.Entries[j], result.Entries[i]
+	}
+
+	if opts.Limit > 0 && len(result.Entries) > opts.Limit {
+		result.Entries = result.Entries[:opts.Limit]
+		result.Truncated = true
+	}
+
+	return result, nil
+}
+
+func readLogEntryRecordBefore(f *os.File, pos int64) (LogEntry, int64, error) {
+	if pos < int64(2*logEntryRecordLengthSize+logEntryRecordHeaderSize) {
+		return LogEntry{}, 0, fmt.Errorf("record ending at %d is smaller than minimum record size", pos)
+	}
+
+	var suffix [logEntryRecordLengthSize]byte
+	suffixOffset := pos - logEntryRecordLengthSize
+	if _, err := f.ReadAt(suffix[:], suffixOffset); err != nil {
+		return LogEntry{}, 0, err
+	}
+
+	bodyLen := binary.LittleEndian.Uint32(suffix[:])
+	if bodyLen < logEntryRecordHeaderSize {
+		return LogEntry{}, 0, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+	}
+
+	if uint64(bodyLen) > uint64(int(^uint(0)>>1)) {
+		return LogEntry{}, 0, fmt.Errorf("record body length %d exceeds addressable buffer size", bodyLen)
+	}
+
+	recordStart := pos - logEntryRecordLengthSize - int64(bodyLen) - logEntryRecordLengthSize
+	if recordStart < 0 {
+		return LogEntry{}, 0, fmt.Errorf("record starting before beginning of file")
+	}
+
+	var prefix [logEntryRecordLengthSize]byte
+	if _, err := f.ReadAt(prefix[:], recordStart); err != nil {
+		return LogEntry{}, 0, err
+	}
+
+	if got := binary.LittleEndian.Uint32(prefix[:]); got != bodyLen {
+		return LogEntry{}, 0, fmt.Errorf("record length prefix %d does not match suffix %d", got, bodyLen)
+	}
+
+	body := make([]byte, int(bodyLen))
+	if _, err := f.ReadAt(body, recordStart+logEntryRecordLengthSize); err != nil {
+		return LogEntry{}, 0, err
+	}
+
+	entry, err := decodeLogEntryRecordBody(body)
+	if err != nil {
+		return LogEntry{}, 0, err
+	}
+
+	return entry, recordStart, nil
 }
 
 func (s *LocalRunLogStore) runPath(runID string) string {

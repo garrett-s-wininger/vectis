@@ -172,6 +172,29 @@ func (s *recordingBatchRunLogStore) List(string) ([]LogEntry, error) {
 	return nil, nil
 }
 
+type replayRecordingRunLogStore struct {
+	replayCalls  int
+	listCalls    int
+	lastOptions  LogReplayOptions
+	replayResult LogReplayResult
+	listEntries  []LogEntry
+}
+
+func (s *replayRecordingRunLogStore) Append(string, LogEntry) error {
+	return nil
+}
+
+func (s *replayRecordingRunLogStore) List(string) ([]LogEntry, error) {
+	s.listCalls++
+	return s.listEntries, nil
+}
+
+func (s *replayRecordingRunLogStore) Replay(_ string, opts LogReplayOptions) (LogReplayResult, error) {
+	s.replayCalls++
+	s.lastOptions = opts
+	return s.replayResult, nil
+}
+
 func TestServer_EvictsOldestTerminalBufferOverLimit(t *testing.T) {
 	s := NewServer(mocks.NopLogger{})
 	s.maxRunBuffers = 2
@@ -222,6 +245,72 @@ func TestServerPersistsStreamEntriesWithBatchStore(t *testing.T) {
 
 	if !reflect.DeepEqual(store.batchCalls, want) {
 		t.Fatalf("batch calls = %+v, want %+v", store.batchCalls, want)
+	}
+}
+
+func TestServerReplayHistoricalEntriesUsesReplayStoreWithoutTail(t *testing.T) {
+	store := &replayRecordingRunLogStore{
+		replayResult: LogReplayResult{
+			Found:                   true,
+			Truncated:               true,
+			TerminalAlreadyConsumed: true,
+			Entries:                 []LogEntry{{Sequence: 2, Data: "second"}},
+		},
+		listEntries: []LogEntry{{Sequence: 1, Data: "first"}},
+	}
+
+	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
+	entries, terminalAlreadyConsumed, replayTruncated := s.replayHistoricalEntries("run-1", 1, 0, 1, NewJobBuffer(mocks.NopLogger{}, nil))
+	if store.replayCalls != 1 {
+		t.Fatalf("replay calls = %d, want 1", store.replayCalls)
+	}
+
+	if store.listCalls != 0 {
+		t.Fatalf("list calls = %d, want 0", store.listCalls)
+	}
+
+	if len(entries) != 1 || entries[0].Sequence != 2 {
+		t.Fatalf("entries = %+v, want sequence 2", entries)
+	}
+
+	if !terminalAlreadyConsumed {
+		t.Fatal("expected terminalAlreadyConsumed")
+	}
+
+	if !replayTruncated {
+		t.Fatal("expected replayTruncated")
+	}
+}
+
+func TestServerReplayHistoricalEntriesUsesReplayStoreForTail(t *testing.T) {
+	store := &replayRecordingRunLogStore{
+		replayResult: LogReplayResult{
+			Found:   true,
+			Entries: []LogEntry{{Sequence: 2, Data: "second"}},
+		},
+		listEntries: []LogEntry{{Sequence: 99, Data: "list"}},
+	}
+
+	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
+	entries, _, replayTruncated := s.replayHistoricalEntries("run-1", 0, 1, 10, NewJobBuffer(mocks.NopLogger{}, nil))
+	if store.replayCalls != 1 {
+		t.Fatalf("replay calls = %d, want 1", store.replayCalls)
+	}
+
+	if store.listCalls != 0 {
+		t.Fatalf("list calls = %d, want 0", store.listCalls)
+	}
+
+	if store.lastOptions.Tail != 1 || store.lastOptions.Limit != 10 {
+		t.Fatalf("replay options = %+v, want tail=1 limit=10", store.lastOptions)
+	}
+
+	if len(entries) != 1 || entries[0].Sequence != 2 {
+		t.Fatalf("entries = %+v, want replay sequence 2", entries)
+	}
+
+	if replayTruncated {
+		t.Fatal("did not expect replay truncation")
 	}
 }
 

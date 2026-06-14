@@ -167,6 +167,188 @@ func TestLocalRunLogStore_AppendBatchPreservesRawDataBytes(t *testing.T) {
 	}
 }
 
+func TestLocalRunLogStore_ReplayAppliesSinceAndLimit(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-replay-limit"
+	entries := []LogEntry{
+		{Sequence: 1, Data: "first"},
+		{Sequence: 2, Data: "second"},
+		{Sequence: 3, Data: "third"},
+		{Sequence: 4, Data: "fourth"},
+	}
+	if err := store.AppendBatch(runID, entries); err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+
+	got, err := store.Replay(runID, LogReplayOptions{SinceSequence: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if !got.Found {
+		t.Fatal("expected replay to find persisted run")
+	}
+	if !got.Truncated {
+		t.Fatal("expected replay to be truncated")
+	}
+	if got.TerminalAlreadyConsumed {
+		t.Fatal("did not expect terminal to be consumed")
+	}
+	if len(got.Entries) != 2 || got.Entries[0].Sequence != 2 || got.Entries[1].Sequence != 3 {
+		t.Fatalf("replay entries = %+v, want sequences [2 3]", got.Entries)
+	}
+}
+
+func TestLocalRunLogStore_ReplayDetectsSkippedCompletion(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-replay-terminal"
+	entries := []LogEntry{
+		{Sequence: 1, Data: "first"},
+		{
+			Stream:   api.Stream_STREAM_CONTROL,
+			Sequence: 2,
+			Data:     `{"event":"completed","status":"success"}`,
+		},
+	}
+	if err := store.AppendBatch(runID, entries); err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+
+	got, err := store.Replay(runID, LogReplayOptions{SinceSequence: 2, Limit: 10})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if !got.Found {
+		t.Fatal("expected replay to find persisted run")
+	}
+	if len(got.Entries) != 0 {
+		t.Fatalf("expected no entries after since sequence, got %+v", got.Entries)
+	}
+	if !got.TerminalAlreadyConsumed {
+		t.Fatal("expected skipped terminal event to be detected")
+	}
+}
+
+func TestLocalRunLogStore_ReplayTailUsesLengthFooter(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-replay-tail"
+	entries := []LogEntry{
+		{Sequence: 1, Data: "first"},
+		{Sequence: 2, Data: "second"},
+		{Sequence: 3, Data: "third"},
+		{Sequence: 4, Data: "fourth"},
+	}
+	if err := store.AppendBatch(runID, entries); err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+
+	got, err := store.Replay(runID, LogReplayOptions{Tail: 3, Limit: 2})
+	if err != nil {
+		t.Fatalf("replay tail: %v", err)
+	}
+	if !got.Found {
+		t.Fatal("expected replay to find persisted run")
+	}
+	if !got.Truncated {
+		t.Fatal("expected replay to be truncated by limit")
+	}
+	if len(got.Entries) != 2 || got.Entries[0].Sequence != 2 || got.Entries[1].Sequence != 3 {
+		t.Fatalf("tail replay entries = %+v, want sequences [2 3]", got.Entries)
+	}
+}
+
+func TestLocalRunLogStore_ReplayTailAppliesSinceBeforeTail(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-replay-tail-since"
+	entries := []LogEntry{
+		{Sequence: 1, Data: "first"},
+		{Sequence: 2, Data: "second"},
+		{Sequence: 3, Data: "third"},
+		{Sequence: 4, Data: "fourth"},
+	}
+	if err := store.AppendBatch(runID, entries); err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+
+	got, err := store.Replay(runID, LogReplayOptions{SinceSequence: 1, Tail: 2, Limit: 10})
+	if err != nil {
+		t.Fatalf("replay tail: %v", err)
+	}
+	if !got.Found {
+		t.Fatal("expected replay to find persisted run")
+	}
+	if got.Truncated {
+		t.Fatal("did not expect replay to be truncated")
+	}
+	if len(got.Entries) != 2 || got.Entries[0].Sequence != 3 || got.Entries[1].Sequence != 4 {
+		t.Fatalf("tail replay entries = %+v, want sequences [3 4]", got.Entries)
+	}
+}
+
+func TestLocalRunLogStore_ReplayTailDetectsConsumedCompletion(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-replay-tail-terminal"
+	entries := []LogEntry{
+		{Sequence: 1, Data: "first"},
+		{
+			Stream:   api.Stream_STREAM_CONTROL,
+			Sequence: 2,
+			Data:     `{"event":"completed","status":"success"}`,
+		},
+	}
+	if err := store.AppendBatch(runID, entries); err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+
+	got, err := store.Replay(runID, LogReplayOptions{SinceSequence: 2, Tail: 2, Limit: 2})
+	if err != nil {
+		t.Fatalf("replay tail: %v", err)
+	}
+	if !got.Found {
+		t.Fatal("expected replay to find persisted run")
+	}
+	if len(got.Entries) != 0 {
+		t.Fatalf("expected no replay entries, got %+v", got.Entries)
+	}
+	if !got.TerminalAlreadyConsumed {
+		t.Fatal("expected tail replay to detect consumed terminal event")
+	}
+}
+
+func TestLocalRunLogStore_ReplayMissingRun(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	got, err := store.Replay("missing-run", LogReplayOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("replay missing run: %v", err)
+	}
+	if got.Found {
+		t.Fatal("did not expect missing run to be found")
+	}
+}
+
 func TestLocalRunLogStore_ListRejectsTruncatedRecord(t *testing.T) {
 	store, err := NewLocalRunLogStore(t.TempDir())
 	if err != nil {
@@ -180,6 +362,48 @@ func TestLocalRunLogStore_ListRejectsTruncatedRecord(t *testing.T) {
 
 	if _, err := store.List(runID); err == nil {
 		t.Fatal("expected truncated record to fail")
+	}
+}
+
+func TestLocalRunLogStore_ListRejectsMismatchedRecordLengthFooter(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-bad-footer"
+	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: "x"}})
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	record[len(record)-1] ^= 0xff
+	if err := os.WriteFile(store.runPath(runID), record, 0o644); err != nil {
+		t.Fatalf("write bad footer record: %v", err)
+	}
+
+	if _, err := store.List(runID); err == nil {
+		t.Fatal("expected mismatched footer to fail")
+	}
+}
+
+func TestLocalRunLogStore_ReplayTailRejectsMismatchedRecordLengthFooter(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-bad-tail-footer"
+	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: "x"}})
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	record[len(record)-1] ^= 0xff
+	if err := os.WriteFile(store.runPath(runID), record, 0o644); err != nil {
+		t.Fatalf("write bad footer record: %v", err)
+	}
+
+	if _, err := store.Replay(runID, LogReplayOptions{Tail: 1}); err == nil {
+		t.Fatal("expected mismatched footer to fail")
 	}
 }
 
