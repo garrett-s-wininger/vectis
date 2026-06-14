@@ -54,6 +54,13 @@ make vm-package-builder-prepare
 make vm-package-builder-check
 ```
 
+To prepare and check every VM-backed deploy/package lane in one pass, use:
+
+```sh
+make vm-prepare
+make vm-check
+```
+
 Then install-test it in the Linux VM lane with:
 
 ```sh
@@ -66,6 +73,12 @@ make test-e2e-package-services-rpm
 make test-e2e-package-local-deb
 make test-e2e-package-local-rpm
 make test-e2e-package-local
+```
+
+For the full VM-backed deployment/package smoke lane, use:
+
+```sh
+make test-e2e-vm
 ```
 
 The e2e package targets use `PACKAGE_ARCH`, which defaults to the local Go
@@ -95,7 +108,9 @@ live under `PACKAGE_LOCAL_VM_CACHE_ROOT`, which defaults to `/var/tmp` so repeat
 VM builds can reuse downloads across boots. The build VM must have Go, `make`,
 and a C compiler installed. The default path is a Packer-prepared builder named
 `vectis-package-builder`; run `make vm-package-builder-prepare` to create or
-refresh it. Direct Linux-builder entrypoints are available as
+refresh it. Prepared VMs write `/etc/vectis-vm-prep/*-prep-version` markers;
+rerun the matching prepare target when a check reports a stale marker. Direct
+Linux-builder entrypoints are available as
 `make package-local-native-deb`, `make package-local-native-rpm`, and
 `make package-local-native`.
 

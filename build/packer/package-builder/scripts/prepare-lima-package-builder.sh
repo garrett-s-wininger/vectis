@@ -6,6 +6,7 @@ instance=${VECTIS_PACKER_LIMA_INSTANCE:-vectis-package-builder}
 template=${VECTIS_PACKER_LIMA_TEMPLATE:-ubuntu-lts}
 go_version=${VECTIS_PACKER_GO_VERSION:-}
 go_sha256=${VECTIS_PACKER_GO_SHA256:-}
+prep_version=${VECTIS_PACKER_PREP_VERSION:-1}
 cpus=${VECTIS_PACKER_CPUS:-4}
 memory=${VECTIS_PACKER_MEMORY:-4}
 disk=${VECTIS_PACKER_DISK:-60}
@@ -38,13 +39,14 @@ fi
 
 "$limactl_bin" --tty=false start "$instance"
 
-"$limactl_bin" --tty=false shell "$instance" -- sh -s -- "$go_version" "$go_sha256" "$cache_root" "$workspace_root" <<'GUEST'
+"$limactl_bin" --tty=false shell "$instance" -- sh -s -- "$go_version" "$go_sha256" "$cache_root" "$workspace_root" "$prep_version" <<'GUEST'
 set -eu
 
 go_version=$1
 go_sha256=$2
 cache_root=$3
 workspace_root=$4
+prep_version=$5
 
 case "$(uname -m)" in
 	x86_64)
@@ -96,7 +98,9 @@ fi
 
 sudo ln -sfn "/usr/local/go-${go_version}" /usr/local/go
 sudo install -d -m 1777 "$cache_root" "$cache_root/go-build" "$cache_root/gomod" "$workspace_root"
+sudo install -d -m 0755 /etc/vectis-vm-prep
 printf '%s\n' 'export PATH=/usr/local/go/bin:$PATH' | sudo tee /etc/profile.d/vectis-package-builder.sh >/dev/null
+printf '%s\n' "$prep_version" | sudo tee /etc/vectis-vm-prep/package-builder-prep-version >/dev/null
 
 PATH=/usr/local/go/bin:$PATH
 export PATH

@@ -6,6 +6,11 @@ variable "profile" {
   type = string
 }
 
+variable "prep_version" {
+  type    = string
+  default = "1"
+}
+
 variable "instance" {
   type = string
 }
@@ -53,6 +58,7 @@ build {
       "VECTIS_PACKER_LIMA_INSTANCE=${var.instance}",
       "VECTIS_PACKER_LIMA_TEMPLATE=${var.base_template}",
       "VECTIS_PACKER_PACKAGE_PROFILE=${var.profile}",
+      "VECTIS_PACKER_PREP_VERSION=${var.prep_version}",
       "VECTIS_PACKER_CPUS=${var.cpus}",
       "VECTIS_PACKER_MEMORY=${var.memory}",
       "VECTIS_PACKER_DISK=${var.disk}",

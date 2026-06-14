@@ -12,12 +12,20 @@ make vm-package-builder-prepare
 make vm-package-builder-check
 ```
 
+The shared VM umbrella targets include this builder:
+
+```sh
+make vm-prepare
+make vm-check
+```
+
 The builder installs:
 
 - the exact Go toolchain version declared by the root `go.mod`
 - `make`
 - a C compiler and build essentials for SQLite-enabled CGO builds
 - writable guest workspace and persistent Go cache directories
+- `/etc/vectis-vm-prep/package-builder-prep-version`
 
 Useful overrides:
 

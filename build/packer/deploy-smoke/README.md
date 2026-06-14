@@ -11,6 +11,13 @@ make vm-deploy-smoke-prepare
 make vm-deploy-smoke-check
 ```
 
+The shared VM umbrella targets include this deploy smoke VM:
+
+```sh
+make vm-prepare
+make vm-check
+```
+
 Defaults:
 
 | Instance | Template |

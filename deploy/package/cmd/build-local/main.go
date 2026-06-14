@@ -23,6 +23,8 @@ const (
 	defaultBuildVMWorkspace = "/var/tmp/vectis-package-local-workspaces"
 	defaultBuildVMCacheRoot = "/var/tmp/vectis-package-local-cache"
 	defaultBuildTimeout     = 30 * time.Minute
+	buildVMPrepVersion      = "1"
+	buildVMPrepVersionPath  = "/etc/vectis-vm-prep/package-builder-prep-version"
 )
 
 type envFlags []string
@@ -256,6 +258,10 @@ func runMakeInVM(ctx context.Context, opts options, target string, stdout, stder
 		return fmt.Errorf("start build VM %q: %w", opts.Instance, err)
 	}
 
+	if err := verifyPreparedBuildVM(ctx, manager, opts); err != nil {
+		return err
+	}
+
 	guestWorkDir, err := prepareVMWorkspace(ctx, manager, opts, stdout)
 	if err != nil {
 		return err
@@ -278,6 +284,22 @@ func runMakeInVM(ctx context.Context, opts options, target string, stdout, stder
 	}
 
 	return buildErr
+}
+
+func verifyPreparedBuildVM(ctx context.Context, manager platform.VirtualMachineManager, opts options) error {
+	if err := manager.Shell(ctx, opts.Instance, nil, "sh", "-c", `test "$(cat "$1")" = "$2"`, "vectis-package-builder-check", buildVMPrepVersionPath, expectedBuildVMPrepVersion()); err != nil {
+		return fmt.Errorf("build VM %q is stale or missing package builder preparation; run `make vm-package-builder-prepare` before building vectis-local packages: %w", opts.Instance, err)
+	}
+
+	return nil
+}
+
+func expectedBuildVMPrepVersion() string {
+	if version := strings.TrimSpace(os.Getenv("PACKER_VM_PREP_VERSION")); version != "" {
+		return version
+	}
+
+	return buildVMPrepVersion
 }
 
 func prepareVMWorkspace(ctx context.Context, manager platform.VirtualMachineManager, opts options, stdout io.Writer) (string, error) {

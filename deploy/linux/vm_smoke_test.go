@@ -54,6 +54,9 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		"/etc/vectis/vectis.env",
 	})
 
+	requireRecordedCommand(t, manager, []string{"grep", "-qx", vmSmokeGuestProfile, vmSmokeGuestProfilePath})
+	requireRecordedCommand(t, manager, []string{"grep", "-qx", expectedVMSmokeGuestPrepVersion(), vmSmokeGuestPrepPath})
+
 	requireRecordedCommandCount(t, manager, []string{
 		"sudo", "install", "-D", "-m", "0644", "-o", "root", "-g", "root",
 		vmSmokeRemoteArtifactDir + "/sysusers.d/vectis.conf",

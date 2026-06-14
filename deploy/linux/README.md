@@ -82,9 +82,13 @@ make vm-deploy-smoke-check
 make test-e2e-deploy-linux
 ```
 
+`make vm-prepare` and `make vm-check` run this lane along with the package
+builder and package install smoke VMs.
+
 By default, `make vm-deploy-smoke-prepare` prepares a Lima instance named
 `vectis-deploy-smoke` from the `ubuntu-lts` template, installs the systemd
-tooling needed by the harness, and writes `/etc/vectis/deploy-smoke-profile`.
+tooling needed by the harness, and writes
+`/etc/vectis-vm-prep/deploy-smoke-profile`.
 The e2e harness expects that prepared instance to exist; it does not create raw
 VMs from templates. During the test it starts the VM, renders the Linux
 artifacts into a temporary local directory, copies them into the guest, installs
@@ -93,6 +97,10 @@ them under `/etc/systemd/system`, `/etc/vectis`, `/usr/lib/sysusers.d`, and
 `systemd-analyze verify`, `systemd-sysusers`, `systemd-tmpfiles`, and
 `systemctl daemon-reload`. The file installation step is driven by the rendered
 `install/manifest.tsv`.
+
+The prepared guest also carries
+`/etc/vectis-vm-prep/deploy-smoke-prep-version` so stale VMs fail early with a
+prepare-target hint.
 
 The harness installs marker-bearing stubs under `/usr/bin`, so cleanup can
 remove smoke files without claiming ownership of existing host binaries. It

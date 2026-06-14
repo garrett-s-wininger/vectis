@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -128,10 +131,89 @@ func TestRelativePackageOutRejectsOutsideWorktree(t *testing.T) {
 	}
 }
 
+func TestVerifyPreparedBuildVMChecksVersionMarker(t *testing.T) {
+	manager := &recordingBuildVMManager{}
+
+	err := verifyPreparedBuildVM(context.Background(), manager, options{Instance: "builder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"sh", "-c", `test "$(cat "$1")" = "$2"`,
+		"vectis-package-builder-check",
+		buildVMPrepVersionPath,
+		expectedBuildVMPrepVersion(),
+	}
+
+	if !reflect.DeepEqual(manager.shellCommands[0], want) {
+		t.Fatalf("version check command = %v, want %v", manager.shellCommands[0], want)
+	}
+}
+
+func TestVerifyPreparedBuildVMReportsPrepTarget(t *testing.T) {
+	manager := &recordingBuildVMManager{shellErr: errors.New("missing marker")}
+
+	err := verifyPreparedBuildVM(context.Background(), manager, options{Instance: "builder"})
+	if err == nil {
+		t.Fatal("expected stale builder error")
+	}
+
+	if !strings.Contains(err.Error(), "make vm-package-builder-prepare") {
+		t.Fatalf("stale builder error = %q, want prep target hint", err)
+	}
+}
+
 func TestSafeGuestName(t *testing.T) {
 	if got, want := safeGuestName("vectis deb/arm64"), "vectis-deb-arm64"; got != want {
 		t.Fatalf("safe guest name = %q, want %q", got, want)
 	}
+}
+
+type recordingBuildVMManager struct {
+	shellErr      error
+	shellCommands [][]string
+}
+
+func (m *recordingBuildVMManager) Provider() string {
+	return "recording"
+}
+
+func (m *recordingBuildVMManager) CheckAvailable() error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) InstanceExists(context.Context, string) (bool, error) {
+	return true, nil
+}
+
+func (m *recordingBuildVMManager) Create(context.Context, string, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Start(context.Context, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Stop(context.Context, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Delete(context.Context, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) CopyDir(context.Context, string, string, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) CopyDirFrom(context.Context, string, string, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Shell(_ context.Context, _ string, _ io.Reader, args ...string) error {
+	m.shellCommands = append(m.shellCommands, append([]string{}, args...))
+	return m.shellErr
 }
 
 func clearPackageLocalEnv(t *testing.T) {

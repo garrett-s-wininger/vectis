@@ -83,6 +83,7 @@ Prepared VM controls used by deploy and package lanes:
 
 | Variable | Meaning |
 |---|---|
+| `PACKER_VM_PREP_VERSION` | Shared prepared VM marker version checked by `vm-check` and VM e2e harnesses; defaults to `1`. |
 | `PACKER_DEPLOY_SMOKE_INSTANCE` | Prepared Linux deploy smoke VM; defaults to `vectis-deploy-smoke`. |
 | `PACKER_DEPLOY_SMOKE_TEMPLATE` | Lima template used for the prepared Linux deploy smoke VM; defaults to `ubuntu-lts`. |
 | `PACKER_PACKAGE_BUILDER_INSTANCE` | Prepared Linux package builder instance; defaults to `vectis-package-builder`. |

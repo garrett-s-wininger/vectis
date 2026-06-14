@@ -18,10 +18,13 @@ import (
 )
 
 const (
-	defaultPackageProvider = "auto"
-	defaultPackageInstance = "vectis-package-smoke"
-	defaultRPMInstance     = "vectis-package-rpm-smoke"
-	defaultPackageTimeout  = 10 * time.Minute
+	defaultPackageProvider      = "auto"
+	defaultPackageInstance      = "vectis-package-smoke"
+	defaultRPMInstance          = "vectis-package-rpm-smoke"
+	defaultPackageTimeout       = 10 * time.Minute
+	packageSmokePrepVersion     = "1"
+	packageSmokeProfilePath     = "/etc/vectis-vm-prep/package-smoke-profile"
+	packageSmokePrepVersionPath = "/etc/vectis-vm-prep/package-smoke-prep-version"
 )
 
 type packageSmokeCase struct {
@@ -77,9 +80,7 @@ func runPackageSmoke(t *testing.T, smoke packageSmokeCase) {
 		t.Fatalf("start package smoke VM: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 
-	if err := manager.Shell(ctx, smoke.instance, nil, "sh", "-c", `test "$(cat /etc/vectis/package-smoke-profile)" = "$1"`, "vectis-package-smoke-profile", smoke.profile); err != nil {
-		skipOrFatal(t, "package smoke VM %q is not prepared for %s packages; run make vm-package-smoke-prepare", smoke.instance, smoke.profile)
-	}
+	requirePreparedPackageSmokeVM(t, ctx, manager, smoke)
 
 	if !truthyEnv("VECTIS_E2E_KEEP_PACKAGE_LINUX") {
 		t.Cleanup(func() {
@@ -151,6 +152,32 @@ func runPackageSmoke(t *testing.T, smoke packageSmokeCase) {
 	}
 
 	verifier(ctx, t, manager, smoke.instance, &stdout, &stderr)
+}
+
+func requirePreparedPackageSmokeVM(t *testing.T, ctx context.Context, manager platform.VirtualMachineManager, smoke packageSmokeCase) {
+	t.Helper()
+
+	checks := []struct {
+		path string
+		want string
+	}{
+		{path: packageSmokeProfilePath, want: smoke.profile},
+		{path: packageSmokePrepVersionPath, want: expectedPackageSmokePrepVersion()},
+	}
+
+	for _, check := range checks {
+		if err := manager.Shell(ctx, smoke.instance, nil, "sh", "-c", `test "$(cat "$1")" = "$2"`, "vectis-package-smoke-check", check.path, check.want); err != nil {
+			skipOrFatal(t, "package smoke VM %q is not prepared for %s packages; run make vm-package-smoke-prepare", smoke.instance, smoke.profile)
+		}
+	}
+}
+
+func expectedPackageSmokePrepVersion() string {
+	if version := strings.TrimSpace(os.Getenv("PACKER_VM_PREP_VERSION")); version != "" {
+		return version
+	}
+
+	return packageSmokePrepVersion
 }
 
 func packagePathsFromEnv(t *testing.T, smoke packageSmokeCase) []string {

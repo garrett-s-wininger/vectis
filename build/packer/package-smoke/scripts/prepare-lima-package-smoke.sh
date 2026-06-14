@@ -5,6 +5,7 @@ limactl_bin=${VECTIS_PACKER_LIMA_BIN:-limactl}
 instance=${VECTIS_PACKER_LIMA_INSTANCE:-}
 template=${VECTIS_PACKER_LIMA_TEMPLATE:-}
 profile=${VECTIS_PACKER_PACKAGE_PROFILE:-}
+prep_version=${VECTIS_PACKER_PREP_VERSION:-1}
 cpus=${VECTIS_PACKER_CPUS:-2}
 memory=${VECTIS_PACKER_MEMORY:-2}
 disk=${VECTIS_PACKER_DISK:-30}
@@ -49,10 +50,11 @@ fi
 
 "$limactl_bin" --tty=false start "$instance"
 
-"$limactl_bin" --tty=false shell "$instance" -- sh -s -- "$profile" <<'GUEST'
+"$limactl_bin" --tty=false shell "$instance" -- sh -s -- "$profile" "$prep_version" <<'GUEST'
 set -eu
 
 profile=$1
+prep_version=$2
 
 if ! command -v sudo >/dev/null 2>&1; then
 	echo "sudo is required inside the package smoke VM" >&2
@@ -89,8 +91,9 @@ command -v systemctl >/dev/null
 command -v systemd-sysusers >/dev/null
 command -v systemd-tmpfiles >/dev/null
 
-sudo install -d -m 0755 /etc/vectis
-printf '%s\n' "$profile" | sudo tee /etc/vectis/package-smoke-profile >/dev/null
+sudo install -d -m 0755 /etc/vectis-vm-prep
+printf '%s\n' "$profile" | sudo tee /etc/vectis-vm-prep/package-smoke-profile >/dev/null
+printf '%s\n' "$prep_version" | sudo tee /etc/vectis-vm-prep/package-smoke-prep-version >/dev/null
 GUEST
 
 case "$stop_after" in

@@ -20,7 +20,9 @@ const (
 	vmSmokeMarkerDestination = "/etc/vectis/.vectis-linux-smoke"
 	vmSmokeBinDir            = "smoke/bin"
 	vmSmokeGuestProfile      = "systemd"
-	vmSmokeGuestProfilePath  = "/etc/vectis/deploy-smoke-profile"
+	vmSmokeGuestProfilePath  = "/etc/vectis-vm-prep/deploy-smoke-profile"
+	vmSmokeGuestPrepVersion  = "1"
+	vmSmokeGuestPrepPath     = "/etc/vectis-vm-prep/deploy-smoke-prep-version"
 	defaultLimaInstance      = "vectis-deploy-smoke"
 )
 
@@ -277,6 +279,8 @@ func verifyPreparedVMSmokeGuest(ctx context.Context, opts VMSmokeOptions) error 
 	checks := [][]string{
 		{"test", "-r", vmSmokeGuestProfilePath},
 		{"grep", "-qx", vmSmokeGuestProfile, vmSmokeGuestProfilePath},
+		{"test", "-r", vmSmokeGuestPrepPath},
+		{"grep", "-qx", expectedVMSmokeGuestPrepVersion(), vmSmokeGuestPrepPath},
 		{"systemctl", "--version"},
 		{"systemd-analyze", "--version"},
 		{"systemd-sysusers", "--version"},
@@ -290,6 +294,14 @@ func verifyPreparedVMSmokeGuest(ctx context.Context, opts VMSmokeOptions) error 
 	}
 
 	return nil
+}
+
+func expectedVMSmokeGuestPrepVersion() string {
+	if version := strings.TrimSpace(os.Getenv("PACKER_VM_PREP_VERSION")); version != "" {
+		return version
+	}
+
+	return vmSmokeGuestPrepVersion
 }
 
 func vmSmokeInstallPlan(manifestPath string) ([]InstallEntry, []string, error) {

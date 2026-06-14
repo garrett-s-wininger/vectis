@@ -11,6 +11,13 @@ make vm-package-smoke-prepare
 make vm-package-smoke-check
 ```
 
+The shared VM umbrella targets include both package smoke profiles:
+
+```sh
+make vm-prepare
+make vm-check
+```
+
 Or run one side of the package matrix:
 
 ```sh

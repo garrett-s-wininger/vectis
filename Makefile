@@ -131,7 +131,7 @@ test-e2e:
 
 .PHONY: test-e2e-deploy-linux
 test-e2e-deploy-linux:
-	go test -tags=e2e ./tests/e2e/deploy/linux -count=1 -v
+	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) go test -tags=e2e ./tests/e2e/deploy/linux -count=1 -v
 
 .PHONY: test-postgres-integration
 test-postgres-integration:
@@ -176,6 +176,7 @@ PACKAGE_LOCAL_APPS ?= local api artifact catalog cell-ingress cron docs log orch
 PACKAGE_LOCAL_ALLOW_CROSS_CGO ?= 0
 PACKAGE_LOCAL_MAKE ?= make
 PACKER ?= packer
+PACKER_VM_PREP_VERSION ?= 1
 PACKER_DEPLOY_SMOKE_DIR ?= build/packer/deploy-smoke
 PACKER_DEPLOY_SMOKE_INSTANCE ?= vectis-deploy-smoke
 PACKER_DEPLOY_SMOKE_TEMPLATE ?= ubuntu-lts
@@ -215,10 +216,10 @@ PACKAGE_LOCAL_VM_CACHE_ROOT ?= $(PACKER_PACKAGE_BUILDER_CACHE_ROOT)
 PACKAGE_LOCAL_VM_KEEP ?= 0
 PACKAGE_LOCAL_VM_PRESERVE_ENV ?= 0
 PACKAGE_LOCAL_VM_GO ?= go
-packer_deploy_smoke_vars = -var 'instance=$(PACKER_DEPLOY_SMOKE_INSTANCE)' -var 'base_template=$(PACKER_DEPLOY_SMOKE_TEMPLATE)' -var 'cpus=$(PACKER_DEPLOY_SMOKE_CPUS)' -var 'memory=$(PACKER_DEPLOY_SMOKE_MEMORY)' -var 'disk=$(PACKER_DEPLOY_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_DEPLOY_SMOKE_STOP)' -var 'lima_bin=$(PACKER_DEPLOY_SMOKE_LIMA_BIN)'
+packer_deploy_smoke_vars = -var 'instance=$(PACKER_DEPLOY_SMOKE_INSTANCE)' -var 'base_template=$(PACKER_DEPLOY_SMOKE_TEMPLATE)' -var 'prep_version=$(PACKER_VM_PREP_VERSION)' -var 'cpus=$(PACKER_DEPLOY_SMOKE_CPUS)' -var 'memory=$(PACKER_DEPLOY_SMOKE_MEMORY)' -var 'disk=$(PACKER_DEPLOY_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_DEPLOY_SMOKE_STOP)' -var 'lima_bin=$(PACKER_DEPLOY_SMOKE_LIMA_BIN)'
 packer_package_builder_optional_sha = $(if $(strip $(PACKER_PACKAGE_BUILDER_GO_SHA256)),-var 'go_sha256=$(PACKER_PACKAGE_BUILDER_GO_SHA256)',)
-packer_package_builder_vars = -var 'instance=$(PACKER_PACKAGE_BUILDER_INSTANCE)' -var 'base_template=$(PACKER_PACKAGE_BUILDER_TEMPLATE)' -var 'go_version=$(PACKER_PACKAGE_BUILDER_GO_VERSION)' $(packer_package_builder_optional_sha) -var 'cpus=$(PACKER_PACKAGE_BUILDER_CPUS)' -var 'memory=$(PACKER_PACKAGE_BUILDER_MEMORY)' -var 'disk=$(PACKER_PACKAGE_BUILDER_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_BUILDER_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' -var 'workspace_root=$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' -var 'cache_root=$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)'
-packer_package_smoke_vars = -var 'profile=$(1)' -var 'instance=$(2)' -var 'base_template=$(3)' -var 'cpus=$(PACKER_PACKAGE_SMOKE_CPUS)' -var 'memory=$(PACKER_PACKAGE_SMOKE_MEMORY)' -var 'disk=$(PACKER_PACKAGE_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_SMOKE_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_SMOKE_LIMA_BIN)'
+packer_package_builder_vars = -var 'instance=$(PACKER_PACKAGE_BUILDER_INSTANCE)' -var 'base_template=$(PACKER_PACKAGE_BUILDER_TEMPLATE)' -var 'go_version=$(PACKER_PACKAGE_BUILDER_GO_VERSION)' $(packer_package_builder_optional_sha) -var 'prep_version=$(PACKER_VM_PREP_VERSION)' -var 'cpus=$(PACKER_PACKAGE_BUILDER_CPUS)' -var 'memory=$(PACKER_PACKAGE_BUILDER_MEMORY)' -var 'disk=$(PACKER_PACKAGE_BUILDER_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_BUILDER_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' -var 'workspace_root=$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' -var 'cache_root=$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)'
+packer_package_smoke_vars = -var 'profile=$(1)' -var 'instance=$(2)' -var 'base_template=$(3)' -var 'prep_version=$(PACKER_VM_PREP_VERSION)' -var 'cpus=$(PACKER_PACKAGE_SMOKE_CPUS)' -var 'memory=$(PACKER_PACKAGE_SMOKE_MEMORY)' -var 'disk=$(PACKER_PACKAGE_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_SMOKE_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_SMOKE_LIMA_BIN)'
 package_deb_arch = $(if $(filter x86_64,$(1)),amd64,$(if $(filter aarch64,$(1)),arm64,$(if $(filter 386,$(1)),i386,$(1))))
 package_rpm_arch = $(if $(filter amd64,$(1)),x86_64,$(if $(filter arm64,$(1)),aarch64,$(1)))
 package_service_bins = $(addprefix $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-,$(PACKAGE_SERVICE_APPS))
@@ -228,7 +229,7 @@ package_common_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS)
 package_service_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS) --input vectis-$(2)=$(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-$(2)
 package_local_inputs = --input vectis-local-wrapper=$(PACKAGE_LOCAL_WRAPPER) --input vectis-local-binaries=$(call package_local_bin_dir,$(1))
 package_local_dispatch_env = --env 'PACKAGE_OUT=$(PACKAGE_OUT)' --env 'PACKAGE_BUILD_DIR=$(PACKAGE_BUILD_DIR)' --env 'PACKAGE_VERSION=$(PACKAGE_VERSION)' --env 'PACKAGE_RELEASE=$(PACKAGE_RELEASE)' --env 'PACKAGE_ARCH=$(2)' --env 'PACKAGE_LOCAL_ARCHES=$(2)' --env 'PACKAGE_LOCAL_APPS=$(PACKAGE_LOCAL_APPS)'
-package_local_dispatch = $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
+package_local_dispatch = PACKER_VM_PREP_VERSION='$(PACKER_VM_PREP_VERSION)' $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
 package_common_deb_path = $(PACKAGE_OUT)/vectis-common_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
 package_common_rpm_path = $(PACKAGE_OUT)/vectis-common-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(1)).rpm
 package_service_deb_path = $(PACKAGE_OUT)/vectis-$(2)_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
@@ -276,6 +277,24 @@ PACKAGE_SERVICES_RPM_TARGETS := $(addprefix package-services-rpm-,$(PACKAGE_ARCH
 
 .PRECIOUS: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli $(PACKAGE_SERVICE_BINARIES) $(PACKAGE_LOCAL_BINARIES) $(PACKAGE_LOCAL_WRAPPER)
 
+.PHONY: vm-validate
+vm-validate:
+	$(MAKE) vm-deploy-smoke-validate
+	$(MAKE) vm-package-builder-validate
+	$(MAKE) vm-package-smoke-validate
+
+.PHONY: vm-prepare
+vm-prepare:
+	$(MAKE) vm-deploy-smoke-prepare
+	$(MAKE) vm-package-builder-prepare
+	$(MAKE) vm-package-smoke-prepare
+
+.PHONY: vm-check
+vm-check:
+	$(MAKE) vm-deploy-smoke-check
+	$(MAKE) vm-package-builder-check
+	$(MAKE) vm-package-smoke-check
+
 .PHONY: vm-deploy-smoke-validate
 vm-deploy-smoke-validate:
 	$(PACKER) validate $(packer_deploy_smoke_vars) $(PACKER_DEPLOY_SMOKE_DIR)
@@ -289,7 +308,7 @@ vm-deploy-smoke-check:
 	@status=0; \
 	$(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false start $(PACKER_DEPLOY_SMOKE_INSTANCE) || status=$$?; \
 	if [ $$status -eq 0 ]; then \
-		$(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_DEPLOY_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis/deploy-smoke-profile)" = "systemd"; command -v systemctl >/dev/null; command -v systemd-analyze >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
+		$(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_DEPLOY_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis-vm-prep/deploy-smoke-profile)" = "systemd"; test "$$(cat /etc/vectis-vm-prep/deploy-smoke-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; command -v systemctl >/dev/null; command -v systemd-analyze >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
 	fi; \
 	case "$(PACKER_DEPLOY_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_DEPLOY_SMOKE_INSTANCE) || status=$$?;; esac; \
 	exit $$status
@@ -307,7 +326,7 @@ vm-package-builder-check:
 	@status=0; \
 	$(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_BUILDER_INSTANCE) || status=$$?; \
 	if [ $$status -eq 0 ]; then \
-		$(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_BUILDER_INSTANCE) -- sh -lc 'set -eu; PATH=/usr/local/go/bin:$$PATH; test "$$(go env GOVERSION)" = "go$(PACKER_PACKAGE_BUILDER_GO_VERSION)"; command -v make >/dev/null; command -v cc >/dev/null; test -d "$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)"; test -d "$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)"' || status=$$?; \
+		$(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_BUILDER_INSTANCE) -- sh -lc 'set -eu; PATH=/usr/local/go/bin:$$PATH; test "$$(cat /etc/vectis-vm-prep/package-builder-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; test "$$(go env GOVERSION)" = "go$(PACKER_PACKAGE_BUILDER_GO_VERSION)"; command -v make >/dev/null; command -v cc >/dev/null; test -d "$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)"; test -d "$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)"' || status=$$?; \
 	fi; \
 	case "$(PACKER_PACKAGE_BUILDER_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_BUILDER_INSTANCE) || status=$$?;; esac; \
 	exit $$status
@@ -333,7 +352,7 @@ vm-package-smoke-deb-check:
 	@status=0; \
 	$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) || status=$$?; \
 	if [ $$status -eq 0 ]; then \
-		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis/package-smoke-profile)" = "deb"; command -v dpkg >/dev/null; command -v dpkg-deb >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
+		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis-vm-prep/package-smoke-profile)" = "deb"; test "$$(cat /etc/vectis-vm-prep/package-smoke-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; command -v dpkg >/dev/null; command -v dpkg-deb >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
 	fi; \
 	case "$(PACKER_PACKAGE_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) || status=$$?;; esac; \
 	exit $$status
@@ -343,7 +362,7 @@ vm-package-smoke-rpm-check:
 	@status=0; \
 	$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) || status=$$?; \
 	if [ $$status -eq 0 ]; then \
-		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis/package-smoke-profile)" = "rpm"; command -v rpm >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
+		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis-vm-prep/package-smoke-profile)" = "rpm"; test "$$(cat /etc/vectis-vm-prep/package-smoke-prep-version)" = "$(PACKER_VM_PREP_VERSION)"; command -v rpm >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
 	fi; \
 	case "$(PACKER_PACKAGE_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) || status=$$?;; esac; \
 	exit $$status
@@ -504,30 +523,40 @@ test-package:
 
 .PHONY: test-e2e-package-cli-deb
 test-e2e-package-cli-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET)
-	VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIDeb -count=1 -v
+	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIDeb -count=1 -v
 
 .PHONY: test-e2e-package-cli-rpm
 test-e2e-package-cli-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET)
-	VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIRPM -count=1 -v
+	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIRPM -count=1 -v
 
 .PHONY: test-e2e-package-services-deb
 test-e2e-package-services-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET) package-services-deb-$(PACKAGE_ARCH)
-	VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) VECTIS_E2E_PACKAGE_SERVICES_DEB="$(abspath $(PACKAGE_COMMON_DEB) $(PACKAGE_SERVICE_DEB_PATHS) $(PACKAGE_SERVICES_DEB))" go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesDeb -count=1 -v
+	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) VECTIS_E2E_PACKAGE_SERVICES_DEB="$(abspath $(PACKAGE_COMMON_DEB) $(PACKAGE_SERVICE_DEB_PATHS) $(PACKAGE_SERVICES_DEB))" go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesDeb -count=1 -v
 
 .PHONY: test-e2e-package-services-rpm
 test-e2e-package-services-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET) package-services-rpm-$(PACKAGE_ARCH)
-	VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_SERVICES_RPM="$(abspath $(PACKAGE_COMMON_RPM) $(PACKAGE_SERVICE_RPM_PATHS) $(PACKAGE_SERVICES_RPM))" go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesRPM -count=1 -v
+	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_SERVICES_RPM="$(abspath $(PACKAGE_COMMON_RPM) $(PACKAGE_SERVICE_RPM_PATHS) $(PACKAGE_SERVICES_RPM))" go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesRPM -count=1 -v
 
 .PHONY: test-e2e-package-local-deb
 test-e2e-package-local-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET) package-local-deb-$(PACKAGE_ARCH)
-	VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) VECTIS_E2E_PACKAGE_LOCAL_DEB=$(abspath $(PACKAGE_LOCAL_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageLocalDeb -count=1 -v
+	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) VECTIS_E2E_PACKAGE_LOCAL_DEB=$(abspath $(PACKAGE_LOCAL_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageLocalDeb -count=1 -v
 
 .PHONY: test-e2e-package-local-rpm
 test-e2e-package-local-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET) package-local-rpm-$(PACKAGE_ARCH)
-	VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_LOCAL_RPM=$(abspath $(PACKAGE_LOCAL_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageLocalRPM -count=1 -v
+	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_LOCAL_RPM=$(abspath $(PACKAGE_LOCAL_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageLocalRPM -count=1 -v
 
 .PHONY: test-e2e-package-local
 test-e2e-package-local: test-e2e-package-local-deb test-e2e-package-local-rpm
+
+.PHONY: test-e2e-vm
+test-e2e-vm:
+	$(MAKE) vm-check
+	$(MAKE) test-e2e-deploy-linux
+	$(MAKE) test-e2e-package-cli-deb
+	$(MAKE) test-e2e-package-cli-rpm
+	$(MAKE) test-e2e-package-services-deb
+	$(MAKE) test-e2e-package-services-rpm
+	$(MAKE) test-e2e-package-local
 
 .PHONY: website-a11y
 website-a11y:
