@@ -146,6 +146,7 @@ claim_ttl = "5m"
 [reconciler]
 interval = "30s"
 lease_ttl = "2m"
+redispatch_limit = 1000
 metrics_host = "localhost"
 metrics_port = 9085
 

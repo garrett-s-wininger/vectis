@@ -50,6 +50,21 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 		t.Fatalf("ReconcilerLeaseTTL() with empty viper: got %v", got)
 	}
 
+	if d.Reconciler.RedispatchLimit != 1000 {
+		t.Fatalf("expected reconciler.redispatch_limit 1000, got %d", d.Reconciler.RedispatchLimit)
+	}
+
+	if got := ReconcilerRedispatchLimit(); got != 1000 {
+		t.Fatalf("ReconcilerRedispatchLimit() with empty viper: got %d", got)
+	}
+
+	viper.Set("redispatch_limit", 250)
+	if got := ReconcilerRedispatchLimit(); got != 250 {
+		t.Fatalf("ReconcilerRedispatchLimit() with flat viper override: got %d", got)
+	}
+
+	viper.Set("redispatch_limit", 0)
+
 	if d.Reconciler.MetricsPort != 9085 {
 		t.Fatalf("expected reconciler.metrics_port 9085, got %d", d.Reconciler.MetricsPort)
 	}

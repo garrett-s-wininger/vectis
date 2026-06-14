@@ -211,6 +211,7 @@ type MockRunsRepository struct {
 	LastListSince          *time.Time
 	LastListOwningCell     string
 	LastListRunTasksRunID  string
+	LastQueuedListLimit    int
 	RecordedSecurityEvents []dal.RecordExecutionSecurityEventParams
 	LastTaskExecution      dal.TaskExecutionCreate
 	LastActivatedTaskID    string
@@ -800,10 +801,24 @@ func (m *MockRunsRepository) SnapshotLastListOwningCell() string {
 }
 
 func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]dal.QueuedRun, error) {
+	return m.ListQueuedBeforeDispatchCutoffLimit(ctx, cutoffUnix, 0)
+}
+
+func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoffLimit(ctx context.Context, cutoffUnix int64, limit int) ([]dal.QueuedRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.LastQueuedListLimit = limit
 	if m.QueuedListErr != nil {
 		return nil, m.QueuedListErr
 	}
-	return append([]dal.QueuedRun(nil), m.QueuedRuns...), nil
+
+	out := append([]dal.QueuedRun(nil), m.QueuedRuns...)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+
+	return out, nil
 }
 
 func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID string) (dal.ExecutionDispatchRecord, error) {

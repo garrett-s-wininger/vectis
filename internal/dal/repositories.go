@@ -769,6 +769,7 @@ type RunsRepository interface {
 	CountPendingTaskContinuations(ctx context.Context) (int64, error)
 	CountPendingTaskContinuationsByCell(ctx context.Context) ([]RunCountByCell, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
+	ListQueuedBeforeDispatchCutoffLimit(ctx context.Context, cutoffUnix int64, limit int) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
 	ListPendingExecutions(ctx context.Context, runID string) ([]ExecutionDispatchRecord, error)
 	GetExecutionDispatch(ctx context.Context, executionID string) (ExecutionDispatchRecord, error)

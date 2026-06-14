@@ -4122,6 +4122,35 @@ func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_ListQueuedBeforeDispatchCutoffLimit(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	runIDs := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		runIndex := i + 1
+		runID, _, err := runs.CreateRun(ctx, "job-queued-limit", &runIndex, 1)
+		if err != nil {
+			t.Fatalf("create run %d: %v", runIndex, err)
+		}
+		runIDs = append(runIDs, runID)
+	}
+
+	queued, err := runs.ListQueuedBeforeDispatchCutoffLimit(ctx, time.Now().Unix()+60, 2)
+	if err != nil {
+		t.Fatalf("list queued limit: %v", err)
+	}
+
+	if len(queued) != 2 {
+		t.Fatalf("expected 2 limited queued runs, got %+v", queued)
+	}
+
+	if queued[0].RunID != runIDs[0] || queued[1].RunID != runIDs[1] {
+		t.Fatalf("expected first two queued runs in insertion order, got %+v", queued)
+	}
+}
+
 func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()

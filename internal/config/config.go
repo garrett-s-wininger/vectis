@@ -351,6 +351,7 @@ type ReconcilerDefaults struct {
 	QueueAddress    string       `toml:"queue.address"`
 	Interval        tomlDuration `toml:"interval"`
 	LeaseTTL        tomlDuration `toml:"lease_ttl"`
+	RedispatchLimit int          `toml:"redispatch_limit"`
 	MetricsHost     string       `toml:"metrics_host"`
 	MetricsPort     int          `toml:"metrics_port"`
 }
@@ -681,6 +682,10 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(d.Reconciler.LeaseTTL) <= 0 {
 		panic("config defaults: reconciler.lease_ttl must be > 0")
+	}
+
+	if d.Reconciler.RedispatchLimit <= 0 {
+		panic("config defaults: reconciler.redispatch_limit must be > 0")
 	}
 
 	validateHost(d.Reconciler.MetricsHost, "reconciler.metrics_host")
@@ -1938,6 +1943,19 @@ func ReconcilerLeaseTTL() time.Duration {
 	}
 
 	return 2 * time.Minute
+}
+
+func ReconcilerRedispatchLimit() int {
+	if limit := viper.GetInt("redispatch_limit"); limit > 0 {
+		return limit
+	}
+
+	limit := MustDefaults().Reconciler.RedispatchLimit
+	if limit > 0 {
+		return limit
+	}
+
+	return 1000
 }
 
 func ReconcilerMetricsPort() int {

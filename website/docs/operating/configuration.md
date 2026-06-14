@@ -59,6 +59,7 @@ Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dis
 | Expose a dedicated metrics listener off-host | Set the service `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST=0.0.0.0` plus `VECTIS_METRICS_ALLOWED_HOSTS=<scrape-host>` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
 | Change reconciler failover TTL | `VECTIS_RECONCILER_LEASE_TTL=2m` |
+| Bound reconciler redispatch work per pass | `VECTIS_RECONCILER_REDISPATCH_LIMIT=1000` |
 | Set cron claim TTL | `VECTIS_CRON_CLAIM_TTL=5m` or `vectis-cron --claim-ttl 5m` |
 | Name a cron replica in claim records | `VECTIS_CRON_INSTANCE_ID=cron-a` or `vectis-cron --instance-id cron-a` |
 | Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
@@ -135,7 +136,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
-| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--metrics-host`, `--metrics-port` |
+| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--redispatch-limit`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |

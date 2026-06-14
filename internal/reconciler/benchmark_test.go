@@ -17,7 +17,7 @@ import (
 
 func BenchmarkReconciler_ProcessQueuedRedispatch(b *testing.B) {
 	for _, queuedRuns := range []int{100, 1000, 5000} {
-		b.Run(fmt.Sprintf("queued_%d", queuedRuns), func(b *testing.B) {
+		b.Run(fmt.Sprintf("queued_%d/limit_%d", queuedRuns, QueuedRedispatchLimit), func(b *testing.B) {
 			ctx := context.Background()
 			db, repos := newBenchmarkReconcilerDBAndRepos(b)
 			jobID := fmt.Sprintf("bench-reconciler-process-%d", queuedRuns)

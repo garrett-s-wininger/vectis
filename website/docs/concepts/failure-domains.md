@@ -195,7 +195,7 @@ The reconciler repairs a specific reliability gap: a run is durable in the datab
 
 If all reconciler instances are down, that automatic repair stops. The API and queue do not fully replace it. Dispatch repair attempts are visible in run dispatch events; see [Dispatch Visibility](../operating/reliability/dispatch-visibility.md).
 
-The reconciler runs on a configurable interval and waits a configurable minimum age before redispatching, so it does not fight normal dispatch latency.
+The reconciler runs on a configurable interval, waits a configurable minimum age before redispatching, and bounds redispatches per pass so large stale backlogs drain predictably instead of monopolizing one scan.
 
 Multiple reconcilers can run in one execution cell. They coordinate through a database-backed service lease, so one instance performs scans while other instances stand by. If the lease holder exits or loses database access, another instance can take over after the lease expires.
 

@@ -3865,13 +3865,27 @@ func unixNanoStringPtr(value sql.NullInt64) *string {
 }
 
 func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error) {
-	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+	return r.listQueuedBeforeDispatchCutoff(ctx, cutoffUnix, 0)
+}
+
+func (r *SQLRunsRepository) ListQueuedBeforeDispatchCutoffLimit(ctx context.Context, cutoffUnix int64, limit int) ([]QueuedRun, error) {
+	return r.listQueuedBeforeDispatchCutoff(ctx, cutoffUnix, limit)
+}
+
+func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64, limit int) ([]QueuedRun, error) {
+	query := `
 		SELECT run_id, job_id, definition_version, definition_hash, owning_cell
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
-		ORDER BY id ASC
-	`), cutoffUnix)
+		ORDER BY id ASC`
+	args := []any{cutoffUnix}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)

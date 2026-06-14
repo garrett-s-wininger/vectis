@@ -31,6 +31,7 @@ import (
 
 const (
 	MinDispatchGap          = 30 * time.Second
+	QueuedRedispatchLimit   = 1000
 	DefaultServiceLeaseTTL  = 2 * time.Minute
 	ServiceLeaseName        = "reconciler"
 	TaskFinalizeRepairLimit = 100
@@ -52,6 +53,7 @@ type Service struct {
 	metrics         *observability.ReconcilerMetrics
 	actionResolver  actionregistry.Resolver
 	dispatchMetrics dispatchMetrics
+	redispatchLimit int
 	leaseName       string
 	leaseOwner      string
 	leaseTTL        time.Duration
@@ -83,21 +85,28 @@ func NewServiceWithRepositories(
 	}
 
 	return &Service{
-		jobs:        jobs,
-		runs:        runs,
-		logger:      logger,
-		queueClient: queue,
-		clock:       clock,
-		minGap:      MinDispatchGap,
-		leaseName:   ServiceLeaseName,
-		leaseOwner:  uuid.NewString(),
-		leaseTTL:    DefaultServiceLeaseTTL,
+		jobs:            jobs,
+		runs:            runs,
+		logger:          logger,
+		queueClient:     queue,
+		clock:           clock,
+		minGap:          MinDispatchGap,
+		redispatchLimit: QueuedRedispatchLimit,
+		leaseName:       ServiceLeaseName,
+		leaseOwner:      uuid.NewString(),
+		leaseTTL:        DefaultServiceLeaseTTL,
 	}
 }
 
 func (s *Service) SetMinDispatchGap(d time.Duration) {
 	if d > 0 {
 		s.minGap = d
+	}
+}
+
+func (s *Service) SetRedispatchLimit(limit int) {
+	if limit > 0 {
+		s.redispatchLimit = limit
 	}
 }
 
@@ -201,7 +210,7 @@ func (s *Service) Process(ctx context.Context) error {
 	}
 
 	cutoff := now.Add(-s.minGap).Unix()
-	batch, err := s.runs.ListQueuedBeforeDispatchCutoff(ctx, cutoff)
+	batch, err := s.runs.ListQueuedBeforeDispatchCutoffLimit(ctx, cutoff, s.redispatchLimit)
 	if err != nil {
 		if database.IsUnavailableError(err) {
 			s.noteDBUnavailable(err)
