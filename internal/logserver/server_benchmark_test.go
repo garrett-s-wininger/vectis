@@ -218,6 +218,48 @@ func runLocalRunLogStoreAppendBatchParallelBenchmark(b *testing.B, runCount, pay
 	b.ReportMetric(float64(payloadBytes), "payload_bytes")
 }
 
+func BenchmarkJobBuffer_BroadcastOneSubscriber(b *testing.B) {
+	for _, payloadBytes := range []int{256, 4096} {
+		b.Run(fmt.Sprintf("payload_%04d", payloadBytes), func(b *testing.B) {
+			buffer := NewJobBuffer(mocks.NopLogger{}, nil)
+			ch := make(chan LogEntry, 1024)
+			buffer.Subscribe(ch)
+
+			done := make(chan int, 1)
+			go func() {
+				count := 0
+				for range ch {
+					count++
+				}
+				done <- count
+			}()
+
+			entry := benchmarkLogEntry(payloadBytes)
+			entry.Stream = api.Stream_STREAM_CONTROL
+
+			b.SetBytes(int64(payloadBytes))
+			b.ReportAllocs()
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				entry.Sequence = int64(i + 1)
+				buffer.Broadcast("bench-run", entry)
+			}
+
+			elapsed := time.Since(start)
+			b.StopTimer()
+
+			buffer.Unsubscribe(ch)
+			if got := <-done; got != b.N {
+				b.Fatalf("subscriber received %d entries, want %d", got, b.N)
+			}
+
+			reportLogThroughput(b, b.N, payloadBytes, elapsed)
+			b.ReportMetric(float64(payloadBytes), "payload_bytes")
+		})
+	}
+}
+
 func BenchmarkLogEntry_JSONMarshal(b *testing.B) {
 	for _, payloadBytes := range []int{256, 4096} {
 		b.Run(fmt.Sprintf("payload_%04d", payloadBytes), func(b *testing.B) {

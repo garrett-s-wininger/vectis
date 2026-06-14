@@ -92,7 +92,7 @@ type LogEntry struct {
 type JobBuffer struct {
 	mu           sync.RWMutex
 	entries      []LogEntry
-	subscribers  map[chan []byte]struct{}
+	subscribers  map[chan LogEntry]struct{}
 	subMu        sync.RWMutex
 	logger       interfaces.Logger
 	metrics      *observability.LogMetrics
@@ -103,7 +103,7 @@ type JobBuffer struct {
 func NewJobBuffer(logger interfaces.Logger, metrics *observability.LogMetrics) *JobBuffer {
 	return &JobBuffer{
 		entries:      make([]LogEntry, 0, MaxLogLinesPerJob),
-		subscribers:  make(map[chan []byte]struct{}),
+		subscribers:  make(map[chan LogEntry]struct{}),
 		logger:       logger,
 		metrics:      metrics,
 		lastActivity: time.Now(),
@@ -147,13 +147,13 @@ func (jb *JobBuffer) IsTerminal() bool {
 	return jb.terminal
 }
 
-func (jb *JobBuffer) Subscribe(ch chan []byte) {
+func (jb *JobBuffer) Subscribe(ch chan LogEntry) {
 	jb.subMu.Lock()
 	defer jb.subMu.Unlock()
 	jb.subscribers[ch] = struct{}{}
 }
 
-func (jb *JobBuffer) Unsubscribe(ch chan []byte) bool {
+func (jb *JobBuffer) Unsubscribe(ch chan LogEntry) bool {
 	jb.subMu.Lock()
 	defer jb.subMu.Unlock()
 
@@ -189,32 +189,19 @@ func (jb *JobBuffer) LastActivity() time.Time {
 
 func (jb *JobBuffer) Broadcast(runID string, entry LogEntry) {
 	jb.subMu.RLock()
-	hasSubscribers := len(jb.subscribers) > 0
-	jb.subMu.RUnlock()
-	if !hasSubscribers {
-		return
-	}
-
-	data, err := json.Marshal(entry)
-	if err != nil {
-		if jb.logger != nil {
-			jb.logger.Warn("Failed to marshal log entry for run %s (seq %d): %v", runID, entry.Sequence, err)
-		}
-
-		return
-	}
-
-	jb.subMu.RLock()
 	defer jb.subMu.RUnlock()
+	if len(jb.subscribers) == 0 {
+		return
+	}
 
 	for ch := range jb.subscribers {
 		if entry.Stream == api.Stream_STREAM_CONTROL {
-			ch <- data
+			ch <- entry
 			continue
 		}
 
 		select {
-		case ch <- data:
+		case ch <- entry:
 		default:
 			if jb.metrics != nil {
 				jb.metrics.RecordChannelDrop(context.Background())
@@ -536,7 +523,7 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 
 	// Subscribe before replay to avoid the race window between replay and
 	// subscription. Entries arriving during replay are deduplicated by sequence.
-	outCh := make(chan []byte, 256)
+	outCh := make(chan LogEntry, 256)
 	buffer.Subscribe(outCh)
 	defer func() {
 		buffer.Unsubscribe(outCh)
@@ -600,30 +587,25 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 				return nil
 			}
 
-			var entry LogEntry
-			if err := json.Unmarshal(msg, &entry); err != nil {
-				continue
-			}
-
-			if entry.Sequence <= maxReplayedSeq {
+			if msg.Sequence <= maxReplayedSeq {
 				continue
 			}
 
 			chunk := &api.LogChunk{
 				RunId:     &runID,
-				Data:      []byte(entry.Data),
-				Sequence:  &entry.Sequence,
-				Stream:    &entry.Stream,
-				Timestamp: timestamppb.New(entry.Timestamp),
-				Completed: entry.Completed.Enum(),
+				Data:      []byte(msg.Data),
+				Sequence:  &msg.Sequence,
+				Stream:    &msg.Stream,
+				Timestamp: timestamppb.New(msg.Timestamp),
+				Completed: msg.Completed.Enum(),
 			}
 
 			if err := stream.Send(chunk); err != nil {
 				return err
 			}
 
-			maxReplayedSeq = entry.Sequence
-			if isCompletedEvent(entry) {
+			maxReplayedSeq = msg.Sequence
+			if isCompletedEvent(msg) {
 				return nil
 			}
 		default:
@@ -647,30 +629,25 @@ afterDrain:
 				return nil
 			}
 
-			var entry LogEntry
-			if err := json.Unmarshal(msg, &entry); err != nil {
-				continue
-			}
-
-			if entry.Sequence <= maxReplayedSeq {
+			if msg.Sequence <= maxReplayedSeq {
 				continue
 			}
 
 			chunk := &api.LogChunk{
 				RunId:     &runID,
-				Data:      []byte(entry.Data),
-				Sequence:  &entry.Sequence,
-				Stream:    &entry.Stream,
-				Timestamp: timestamppb.New(entry.Timestamp),
-				Completed: entry.Completed.Enum(),
+				Data:      []byte(msg.Data),
+				Sequence:  &msg.Sequence,
+				Stream:    &msg.Stream,
+				Timestamp: timestamppb.New(msg.Timestamp),
+				Completed: msg.Completed.Enum(),
 			}
 
 			if err := stream.Send(chunk); err != nil {
 				return err
 			}
 
-			maxReplayedSeq = entry.Sequence
-			if isCompletedEvent(entry) {
+			maxReplayedSeq = msg.Sequence
+			if isCompletedEvent(msg) {
 				return nil
 			}
 		}

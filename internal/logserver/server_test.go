@@ -232,7 +232,7 @@ func TestServer_DoesNotEvictActiveTerminalBuffer(t *testing.T) {
 	base := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
 	buffer := s.getOrCreateBuffer("active-terminal")
 	buffer.Add(completedLogEntry(base, 1))
-	ch := make(chan []byte, 1)
+	ch := make(chan LogEntry, 1)
 	buffer.Subscribe(ch)
 
 	s.getOrCreateBuffer("new-run").Add(stdoutLogEntry(base.Add(time.Second), 1))
