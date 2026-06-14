@@ -73,6 +73,23 @@ func (s ExecutionSubmission) Validate() error {
 		return ErrMissingExecutionEnvelope
 	}
 
+	if err := s.Envelope.Validate(); err != nil {
+		return err
+	}
+
+	env, ok, err := ExecutionEnvelopeFromRequest(s.Request)
+	if err != nil {
+		return err
+	}
+
+	if !ok {
+		return ErrMissingExecutionEnvelope
+	}
+
+	if !executionEnvelopesMatchSubmission(env, s.Envelope) {
+		return errors.New("execution submission envelope does not match request metadata")
+	}
+
 	return nil
 }
 

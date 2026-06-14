@@ -274,8 +274,8 @@ func acceptedExecutionResponse(submission cell.ExecutionSubmission) submitExecut
 }
 
 func executionAcceptance(submission cell.ExecutionSubmission) (dal.CellExecutionAcceptance, error) {
-	if submission.Request == nil || submission.Envelope == nil {
-		return dal.CellExecutionAcceptance{}, errors.New("execution submission is incomplete")
+	if err := submission.Validate(); err != nil {
+		return dal.CellExecutionAcceptance{}, err
 	}
 
 	definitionJSON, err := json.Marshal(submission.Envelope.Job)

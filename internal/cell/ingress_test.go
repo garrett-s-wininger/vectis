@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	api "vectis/api/gen/go"
@@ -37,6 +38,23 @@ func TestNewExecutionSubmissionRequiresEnvelope(t *testing.T) {
 
 	if _, err := NewExecutionSubmission(req); !errors.Is(err, ErrMissingExecutionEnvelope) {
 		t.Fatalf("NewExecutionSubmission missing envelope: got %v, want ErrMissingExecutionEnvelope", err)
+	}
+}
+
+func TestExecutionSubmissionRejectsEnvelopeDrift(t *testing.T) {
+	submission, err := NewExecutionSubmission(validJobRequest(t))
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	submission.Envelope.ExecutionID = "execution-other"
+	err = submission.Validate()
+	if err == nil {
+		t.Fatal("Validate succeeded, want envelope drift error")
+	}
+
+	if !strings.Contains(err.Error(), "does not match request metadata") {
+		t.Fatalf("Validate error %q does not contain request metadata mismatch", err.Error())
 	}
 }
 

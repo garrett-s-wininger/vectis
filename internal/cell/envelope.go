@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	api "vectis/api/gen/go"
@@ -203,6 +204,57 @@ func jobsEqualIgnoringDeliveryID(a, b *api.Job) bool {
 	a = cloneJobWithoutDeliveryID(a)
 	b = cloneJobWithoutDeliveryID(b)
 	return proto.Equal(a, b)
+}
+
+func executionEnvelopesMatchSubmission(a, b *ExecutionEnvelope) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	if a.EnvelopeVersion != b.EnvelopeVersion ||
+		a.RunID != b.RunID ||
+		a.RunIndex != b.RunIndex ||
+		a.TaskID != b.TaskID ||
+		a.TaskKey != b.TaskKey ||
+		a.TaskName != b.TaskName ||
+		a.TaskAttemptID != b.TaskAttemptID ||
+		a.TaskAttempt != b.TaskAttempt ||
+		a.NamespacePath != b.NamespacePath ||
+		a.SegmentID != b.SegmentID ||
+		a.ExecutionID != b.ExecutionID ||
+		a.CellID != b.CellID ||
+		a.Attempt != b.Attempt ||
+		a.DefinitionVersion != b.DefinitionVersion ||
+		a.DefinitionHash != b.DefinitionHash ||
+		a.CreatedAtUnixNano != b.CreatedAtUnixNano {
+		return false
+	}
+
+	if !jobsEqualIgnoringDeliveryID(a.Job, b.Job) {
+		return false
+	}
+
+	if !actionLocksEqual(a.ActionLocks, b.ActionLocks) {
+		return false
+	}
+
+	return stringMapsEqual(a.Metadata, b.Metadata)
+}
+
+func actionLocksEqual(a, b []actionregistry.ActionLock) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+
+	return reflect.DeepEqual(a, b)
+}
+
+func stringMapsEqual(a, b map[string]string) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+
+	return reflect.DeepEqual(a, b)
 }
 
 func cloneJobWithoutDeliveryID(job *api.Job) *api.Job {

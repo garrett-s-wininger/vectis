@@ -311,6 +311,18 @@ func TestSubmitExecutionDurablyAcceptsBeforeReturningQueueUnavailable(t *testing
 	}
 }
 
+func TestExecutionAcceptanceRejectsEnvelopeDrift(t *testing.T) {
+	submission, err := cell.NewExecutionSubmission(validJobRequestForCell(t, "iad-a"))
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	submission.Envelope.ExecutionID = "execution-other"
+	if _, err := executionAcceptance(submission); err == nil || !strings.Contains(err.Error(), "does not match request metadata") {
+		t.Fatalf("executionAcceptance drift error = %v, want request metadata mismatch", err)
+	}
+}
+
 func TestSubmitExecutionMarksDurableAcceptanceEnqueued(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	acceptances := &recordingAcceptanceStore{}
