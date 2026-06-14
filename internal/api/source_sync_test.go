@@ -307,3 +307,75 @@ func TestAPIServer_SyncSourceRepositoryReclaimsStaleDatabaseReservation(t *testi
 		t.Fatalf("missing stale recovery source sync metric: %+v", metrics.records)
 	}
 }
+
+func TestAPIServer_SyncSourceRepositoryUsesConfiguredCheckoutStatus(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	db := dbtest.NewTestDB(t)
+	server := NewAPIServer(mocks.NewMockLogger(), db)
+	metrics := &recordingSourceSyncMetrics{}
+	server.SetSourceSyncMetrics(metrics)
+	handler := server.Handler()
+	ctx := context.Background()
+
+	if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:  "private-managed-repo",
+		NamespaceID:   1,
+		SourceKind:    dal.SourceKindLocalCheckout,
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		CheckoutPath:  filepath.Join(t.TempDir(), "managed"),
+		CanonicalURL:  "ssh://git.example/acme/private-managed-repo.git",
+		DefaultRef:    "main",
+		CredentialRef: "encryptedfs://git/private-managed-repo",
+		Enabled:       true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	var calls atomic.Int32
+	server.SetSourceSyncCheckoutStatus(func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+		calls.Add(1)
+		if rec.RepositoryID != "private-managed-repo" ||
+			rec.CheckoutMode != dal.SourceCheckoutModeManaged ||
+			rec.CredentialRef != "encryptedfs://git/private-managed-repo" ||
+			syncRef != "main" {
+			t.Fatalf("sync record mismatch: rec=%+v syncRef=%q", rec, syncRef)
+		}
+
+		return sourcepkg.GitCheckoutStatus{
+			CheckoutPath:       rec.CheckoutPath,
+			PathExists:         true,
+			PathIsDirectory:    true,
+			GitRepository:      true,
+			DefaultRef:         syncRef,
+			DefaultRefResolved: true,
+			ResolvedCommit:     "0123456789abcdef0123456789abcdef01234567",
+		}
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/private-managed-repo/sync", nil)
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync status: got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp sourceRepositoryResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected configured checkout status to run once, got %d calls", got)
+	}
+
+	if resp.RepositoryID != "private-managed-repo" ||
+		resp.Sync.Status != dal.SourceSyncStatusSucceeded ||
+		resp.Sync.Commit != "0123456789abcdef0123456789abcdef01234567" {
+		t.Fatalf("sync response mismatch: %+v", resp)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerManual, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+		t.Fatalf("missing manual managed sync success metric: %+v", metrics.records)
+	}
+}

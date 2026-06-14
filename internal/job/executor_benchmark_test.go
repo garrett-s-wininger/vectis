@@ -39,7 +39,7 @@ type benchmarkStoreLogClient struct {
 }
 
 func (c benchmarkStoreLogClient) StreamLogs(context.Context) (interfaces.LogStream, error) {
-	return benchmarkStoreLogStream{store: c.store}, nil
+	return benchmarkStoreLogStream(c), nil
 }
 
 func (c benchmarkStoreLogClient) Close() error {

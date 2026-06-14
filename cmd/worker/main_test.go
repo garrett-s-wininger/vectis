@@ -4394,61 +4394,63 @@ func TestEnsureExecutionSPIFFERegistrationRequiresTrustedInputs(t *testing.T) {
 		t.Fatalf("NewIdentity: %v", err)
 	}
 
-	baseWorker := worker{
-		spiffeRegistrar:            &recordingSPIFFERegistrar{},
-		spiffeRegistrationParentID: "spiffe://prod.example/vectis-spiffe/agent/worker-node",
-		spiffeRegistrationSelectors: []spire.Selector{
-			{Type: "unix", Value: "uid:1000"},
-		},
+	newBaseWorker := func() *worker {
+		return &worker{
+			spiffeRegistrar:            &recordingSPIFFERegistrar{},
+			spiffeRegistrationParentID: "spiffe://prod.example/vectis-spiffe/agent/worker-node",
+			spiffeRegistrationSelectors: []spire.Selector{
+				{Type: "unix", Value: "uid:1000"},
+			},
+		}
 	}
 
 	expiresAt := time.Now().Add(5 * time.Minute)
 	tests := []struct {
-		name     string
-		worker   worker
-		identity *workloadidentity.Identity
-		env      *cell.ExecutionEnvelope
-		wantErr  string
+		name       string
+		makeWorker func() *worker
+		identity   *workloadidentity.Identity
+		env        *cell.ExecutionEnvelope
+		wantErr    string
 	}{
 		{
-			name:     "nil registrar is no-op",
-			worker:   worker{},
-			identity: identity,
-			env:      env,
-			wantErr:  "",
+			name:       "nil registrar is no-op",
+			makeWorker: func() *worker { return &worker{} },
+			identity:   identity,
+			env:        env,
+			wantErr:    "",
 		},
 		{
-			name:     "missing identity",
-			worker:   baseWorker,
-			identity: nil,
-			env:      env,
-			wantErr:  "execution identity",
+			name:       "missing identity",
+			makeWorker: newBaseWorker,
+			identity:   nil,
+			env:        env,
+			wantErr:    "execution identity",
 		},
 		{
-			name:     "missing envelope",
-			worker:   baseWorker,
-			identity: identity,
-			env:      nil,
-			wantErr:  "execution envelope",
+			name:       "missing envelope",
+			makeWorker: newBaseWorker,
+			identity:   identity,
+			env:        nil,
+			wantErr:    "execution envelope",
 		},
 		{
 			name: "missing parent",
-			worker: func() worker {
-				w := baseWorker
+			makeWorker: func() *worker {
+				w := newBaseWorker()
 				w.spiffeRegistrationParentID = ""
 				return w
-			}(),
+			},
 			identity: identity,
 			env:      env,
 			wantErr:  "parent SPIFFE ID",
 		},
 		{
 			name: "missing selectors",
-			worker: func() worker {
-				w := baseWorker
+			makeWorker: func() *worker {
+				w := newBaseWorker()
 				w.spiffeRegistrationSelectors = nil
 				return w
-			}(),
+			},
 			identity: identity,
 			env:      env,
 			wantErr:  "selector",
@@ -4457,7 +4459,7 @@ func TestEnsureExecutionSPIFFERegistrationRequiresTrustedInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, registered, err := tt.worker.ensureExecutionSPIFFERegistration(context.Background(), tt.identity, tt.env, expiresAt)
+			_, registered, err := tt.makeWorker().ensureExecutionSPIFFERegistration(context.Background(), tt.identity, tt.env, expiresAt)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("ensureExecutionSPIFFERegistration error = %v, want nil", err)

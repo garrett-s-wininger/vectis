@@ -79,7 +79,7 @@ func main() {
 		postgresDatabase,
 	)
 
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.Command(args[0], args[1:]...) // #nosec G204 -- perf wrapper intentionally runs the caller-provided benchmark command.
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -155,7 +155,7 @@ func startPostgres(ctx context.Context, podman, image, containerName, hostPort s
 		)
 	}
 
-	output, err := exec.CommandContext(ctx, podman, args...).CombinedOutput()
+	output, err := exec.CommandContext(ctx, podman, args...).CombinedOutput() // #nosec G204 -- podman path and args are built by this local perf helper.
 	if err != nil {
 		return "", fmt.Errorf("%s %v: %w\n%s", podman, args, err, string(output))
 	}

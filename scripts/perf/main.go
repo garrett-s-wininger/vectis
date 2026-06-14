@@ -574,7 +574,7 @@ func macroDatabaseTag(database string) (string, error) {
 }
 
 func runCommand(command []string, env map[string]string) commandResult {
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd := exec.Command(command[0], command[1:]...) // #nosec G204 -- perf harness intentionally runs configured local benchmark commands.
 	cmd.Dir = repoRoot()
 	if env != nil {
 		cmd.Env = envList(env)
@@ -970,7 +970,7 @@ func writeHTMLReport(path string, summary Summary) error {
 	err = tmpl.Execute(&rendered, struct {
 		Payload template.JS
 	}{
-		Payload: template.JS(payload),
+		Payload: template.JS(payload), // #nosec G203 -- payload is produced by json.Marshal from benchmark results for this static report.
 	})
 
 	if err != nil {
@@ -1146,7 +1146,7 @@ func repoRoot() string {
 }
 
 func commandOutputNoRepo(command []string, fallback string) string {
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd := exec.Command(command[0], command[1:]...) // #nosec G204 -- perf harness intentionally runs configured local helper commands.
 	output, err := cmd.Output()
 	if err != nil {
 		return fallback

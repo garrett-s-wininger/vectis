@@ -52,7 +52,7 @@ func newSampleCore() *sampleCore {
 	return &sampleCore{cancelled: map[string]string{}}
 }
 
-func (sampleCore) Describe(context.Context) (sdk.Description, error) {
+func (*sampleCore) Describe(context.Context) (sdk.Description, error) {
 	return sdk.Description{
 		ProtocolVersion:    sdk.ProtocolVersion,
 		SupportedIsolation: []string{"host"},

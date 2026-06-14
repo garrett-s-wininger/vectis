@@ -90,7 +90,7 @@ func TestFetchX509SVIDReturnsMatchingSVID(t *testing.T) {
 	}
 
 	got.Certificates[0] = nil
-	if cert == nil {
+	if source.svids[2].Certificates[0] == nil {
 		t.Fatal("FetchX509SVID did not isolate certificate slice")
 	}
 }

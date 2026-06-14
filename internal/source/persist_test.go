@@ -66,7 +66,7 @@ func TestDefinitionPersisterCreateJobFromRegisteredRepository(t *testing.T) {
 	}
 
 	if job.GetRoot().GetWith()["command"] != "true" {
-		t.Fatalf("stored job definition mismatch: %+v", job)
+		t.Fatalf("stored job definition mismatch: command=%q", job.GetRoot().GetWith()["command"])
 	}
 
 	sourceRec, err := repos.Sources().GetDefinitionSource(ctx, "build", 1)

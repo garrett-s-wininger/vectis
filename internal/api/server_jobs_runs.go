@@ -20,8 +20,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
-	jobdef "vectis/internal/job"
-	jobexec "vectis/internal/job"
+	jobpkg "vectis/internal/job"
 	jobvalidation "vectis/internal/job/validation"
 	"vectis/internal/observability"
 
@@ -713,7 +712,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var job api.Job
-	if err := jobdef.DecodeDefinitionJSON(req.Job, &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
@@ -1088,7 +1087,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	var job api.Job
-	if err := jobdef.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
 		return
 	}
@@ -1426,7 +1425,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var job api.Job
-	if err := jobdef.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
 		return
 	}
@@ -1613,7 +1612,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var job api.Job
-	if err := jobdef.DecodeDefinitionJSON(body, &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON(body, &job); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
@@ -1715,7 +1714,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	targetCellID := runTargetOptions{CellID: req.CellID, TargetCellID: req.TargetCellID}.targetCellID()
 
 	var job api.Job
-	if err := jobdef.DecodeDefinitionJSON(req.Job, &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
@@ -2062,7 +2061,7 @@ func (s *APIServer) materializeJobTasks(ctx context.Context, runID string, job *
 		job.RunId = &runID
 	}
 
-	_, err := jobexec.EnsureJobTaskExecutionsWithActions(ctx, s.runs, job, targetCellID, s.actionDescriptorResolver)
+	_, err := jobpkg.EnsureJobTaskExecutionsWithActions(ctx, s.runs, job, targetCellID, s.actionDescriptorResolver)
 	return err
 }
 

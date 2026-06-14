@@ -318,6 +318,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetAPIDispatchMetrics(apiDispatchMetrics)
 	server.SetAPISecurityMetrics(apiSecurityMetrics)
 	server.SetSourceSyncMetrics(sourceSyncMetrics)
+	server.SetSourceSyncCheckoutStatus(sourceSyncStatus)
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {

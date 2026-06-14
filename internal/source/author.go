@@ -129,11 +129,5 @@ func (a LocalCommitDefinitionAuthor) WriteDefinition(ctx context.Context, req Wr
 		return WrittenDefinition{}, err
 	}
 
-	return WrittenDefinition{
-		RequestedRef: commit.RequestedRef,
-		Commit:       commit.Commit,
-		ParentCommit: commit.ParentCommit,
-		Path:         commit.Path,
-		BlobSHA:      commit.BlobSHA,
-	}, nil
+	return WrittenDefinition(commit), nil
 }

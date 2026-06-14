@@ -706,6 +706,10 @@ func (s *APIServer) SetSourceSyncMetrics(m sourceRepositorySyncMetrics) {
 	s.sourceSyncMetrics = m
 }
 
+func (s *APIServer) SetSourceSyncCheckoutStatus(fn func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus) {
+	s.sourceSyncCheckoutStatus = fn
+}
+
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
 	s.mu.RLock()
 	auditor := s.auditor

@@ -941,7 +941,7 @@ func (execGitRunner) RunGit(ctx context.Context, checkoutPath string, args ...st
 
 func (execGitRunner) RunGitWithInputEnv(ctx context.Context, checkoutPath string, input []byte, env []string, args ...string) ([]byte, error) {
 	gitArgs := append([]string{"-C", checkoutPath}, args...)
-	cmd := exec.CommandContext(ctx, "git", gitArgs...)
+	cmd := exec.CommandContext(ctx, "git", gitArgs...) // #nosec G204 -- Git arguments are assembled by source-control helpers after ref/path normalization.
 
 	if len(input) > 0 {
 		cmd.Stdin = bytes.NewReader(input)
@@ -988,7 +988,7 @@ var errStopGitStream = errors.New("stop git stream")
 
 func (execGitRunner) StreamGitRecords(ctx context.Context, checkoutPath string, args []string, handle func([]byte) error) error {
 	gitArgs := append([]string{"-C", checkoutPath}, args...)
-	cmd := exec.CommandContext(ctx, "git", gitArgs...)
+	cmd := exec.CommandContext(ctx, "git", gitArgs...) // #nosec G204 -- Git arguments are assembled by source-control helpers after ref/path normalization.
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

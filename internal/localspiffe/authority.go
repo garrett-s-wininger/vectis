@@ -575,7 +575,8 @@ func applyEntryUpdate(existing, incoming *spiretypes.Entry, mask *spiretypes.Ent
 	if mask == nil {
 		replacement := cloneEntry(incoming)
 		if replacement != nil {
-			*existing = *replacement
+			proto.Reset(existing)
+			proto.Merge(existing, replacement)
 		}
 		return
 	}

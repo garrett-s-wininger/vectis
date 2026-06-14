@@ -193,37 +193,42 @@ func assertSQLiteForeignKeyTargetsExist(t *testing.T, db *sql.DB) {
 	}
 
 	for _, table := range tables {
-		fkRows, err := db.Query(fmt.Sprintf("PRAGMA foreign_key_list(%s)", sqliteIdentifier(table)))
-		if err != nil {
-			t.Fatalf("list foreign keys for %s: %v", table, err)
+		assertSQLiteForeignKeyTargetsExistForTable(t, db, table, existing)
+	}
+}
+
+func assertSQLiteForeignKeyTargetsExistForTable(t *testing.T, db *sql.DB, table string, existing map[string]struct{}) {
+	t.Helper()
+
+	fkRows, err := db.Query(fmt.Sprintf("PRAGMA foreign_key_list(%s)", sqliteIdentifier(table)))
+	if err != nil {
+		t.Fatalf("list foreign keys for %s: %v", table, err)
+	}
+	defer fkRows.Close()
+
+	for fkRows.Next() {
+		var (
+			id       int
+			seq      int
+			target   string
+			from     string
+			to       sql.NullString
+			onUpdate string
+			onDelete string
+			match    string
+		)
+
+		if err := fkRows.Scan(&id, &seq, &target, &from, &to, &onUpdate, &onDelete, &match); err != nil {
+			t.Fatalf("scan foreign key for %s: %v", table, err)
 		}
 
-		for fkRows.Next() {
-			var (
-				id       int
-				seq      int
-				target   string
-				from     string
-				to       sql.NullString
-				onUpdate string
-				onDelete string
-				match    string
-			)
-
-			if err := fkRows.Scan(&id, &seq, &target, &from, &to, &onUpdate, &onDelete, &match); err != nil {
-				_ = fkRows.Close()
-				t.Fatalf("scan foreign key for %s: %v", table, err)
-			}
-
-			if _, ok := existing[target]; !ok {
-				_ = fkRows.Close()
-				t.Fatalf("table %s foreign key %d.%d references missing table %s", table, id, seq, target)
-			}
+		if _, ok := existing[target]; !ok {
+			t.Fatalf("table %s foreign key %d.%d references missing table %s", table, id, seq, target)
 		}
+	}
 
-		if err := fkRows.Close(); err != nil {
-			t.Fatalf("close foreign keys for %s: %v", table, err)
-		}
+	if err := fkRows.Err(); err != nil {
+		t.Fatalf("iterate foreign keys for %s: %v", table, err)
 	}
 }
 

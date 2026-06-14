@@ -61,7 +61,7 @@ func TestLoadDefinitionResolvesReadsAndCanonicalizesJob(t *testing.T) {
 	}
 
 	if roundTrip.GetId() != "" || roundTrip.GetRoot().GetWith()["command"] != "go test ./..." {
-		t.Fatalf("canonical definition mismatch: %+v", roundTrip)
+		t.Fatalf("canonical definition mismatch: id=%q command=%q", roundTrip.GetId(), roundTrip.GetRoot().GetWith()["command"])
 	}
 }
 

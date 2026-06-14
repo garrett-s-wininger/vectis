@@ -710,6 +710,25 @@ func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.
 	if creds.Username != "oauth2" || creds.Password != "ghp_private" {
 		t.Fatalf("credentials = %+v, want oauth token material", creds)
 	}
+
+	sshRef := "encryptedfs://git/private-repo-ssh"
+	sshPrivateKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----"
+	if err := secrets.WriteEncryptedFSSecretFile(root, sshRef, []byte(`{"ssh_private_key":"-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----","known_hosts":"git.example ssh-ed25519 AAAA"}`), key); err != nil {
+		t.Fatalf("write encrypted source SSH credential: %v", err)
+	}
+
+	creds, err = resolver(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo-ssh",
+		CredentialRef: sshRef,
+	})
+
+	if err != nil {
+		t.Fatalf("resolve source SSH credential: %v", err)
+	}
+
+	if creds.SSHPrivateKey != sshPrivateKey || creds.SSHKnownHosts != "git.example ssh-ed25519 AAAA" {
+		t.Fatalf("credentials = %+v, want SSH material", creds)
+	}
 }
 
 func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *testing.T) {
