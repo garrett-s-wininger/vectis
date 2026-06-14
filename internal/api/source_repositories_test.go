@@ -112,7 +112,6 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 
 	createBody := map[string]any{
 		"repository_id": "vectis-local",
-		"path":          ".vectis/jobs/build.json",
 	}
 
 	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/source/build", createBody)
@@ -152,7 +151,11 @@ func TestAPIServer_SourceBackedJobLifecycle(t *testing.T) {
 		t.Fatalf("GetDefinitionSource v1: %v", err)
 	}
 
-	if sourceRec.RepositoryID != "vectis-local" || sourceRec.RequestedRef != "HEAD" || sourceRec.ResolvedCommit != firstCommit || sourceRec.BlobSHA != firstBlob {
+	if sourceRec.RepositoryID != "vectis-local" ||
+		sourceRec.RequestedRef != "HEAD" ||
+		sourceRec.ResolvedCommit != firstCommit ||
+		sourceRec.DefinitionPath != ".vectis/jobs/build.json" ||
+		sourceRec.BlobSHA != firstBlob {
 		t.Fatalf("stored source provenance mismatch: %+v", sourceRec)
 	}
 

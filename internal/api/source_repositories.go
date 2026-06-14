@@ -1396,16 +1396,6 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	definitionPath := strings.TrimSpace(r.URL.Query().Get("path"))
-	if definitionPath == "" {
-		var err error
-		definitionPath, err = sourceTriggerDefinitionPath(jobID)
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
-			return
-		}
-	}
-
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
@@ -1423,12 +1413,16 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
-	if ref == "" {
-		ref = strings.TrimSpace(rec.DefaultRef)
-	}
-	if ref == "" {
-		ref = "HEAD"
+	target, err := sourcepkg.ResolveDefinitionTarget(sourcepkg.DefinitionTargetRequest{
+		JobID:      jobID,
+		Ref:        r.URL.Query().Get("ref"),
+		DefaultRef: rec.DefaultRef,
+		Path:       r.URL.Query().Get("path"),
+	})
+
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
 	}
 
 	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
@@ -1438,8 +1432,8 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 	}
 
 	loaded, err := store.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
-		Ref:  ref,
-		Path: definitionPath,
+		Ref:  target.Ref,
+		Path: target.Path,
 	})
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -1506,7 +1500,7 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 
 	definitionPath := strings.TrimSpace(req.Path)
 	if definitionPath == "" {
-		definitionPath, err = sourceTriggerDefinitionPath(jobID)
+		definitionPath, err = sourcepkg.DefinitionPathForJobID(jobID)
 		if err != nil {
 			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
 			return
@@ -1738,21 +1732,16 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	ref := strings.TrimSpace(req.Ref)
-	if ref == "" {
-		ref = strings.TrimSpace(rec.DefaultRef)
-	}
-	if ref == "" {
-		ref = "HEAD"
-	}
+	target, err := sourcepkg.ResolveDefinitionTarget(sourcepkg.DefinitionTargetRequest{
+		JobID:      jobID,
+		Ref:        req.Ref,
+		DefaultRef: rec.DefaultRef,
+		Path:       req.Path,
+	})
 
-	definitionPath := strings.TrimSpace(req.Path)
-	if definitionPath == "" {
-		definitionPath, err = sourceTriggerDefinitionPath(jobID)
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
-			return
-		}
+	if err != nil {
+		s.writeSourceDefinitionError(w, err)
+		return
 	}
 
 	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
@@ -1777,8 +1766,8 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	}
 
 	loaded, err := store.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
-		Ref:  ref,
-		Path: definitionPath,
+		Ref:  target.Ref,
+		Path: target.Path,
 	})
 	if err != nil {
 		if idempotencyReserved {
@@ -2349,11 +2338,6 @@ func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Reque
 
 	req.Ref = strings.TrimSpace(req.Ref)
 	req.Path = strings.TrimSpace(req.Path)
-	if req.Path == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_path", "path is required", nil)
-		return
-	}
-
 	ctx, cancel := s.handlerDBCtx(r)
 	defer cancel()
 
@@ -2560,11 +2544,6 @@ func (s *APIServer) persistJobFromSource(w http.ResponseWriter, r *http.Request,
 
 	if req.RepositoryID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required", nil)
-		return
-	}
-
-	if req.Path == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_path", "path is required", nil)
 		return
 	}
 
@@ -3339,10 +3318,6 @@ func sourceImportJobIDFromPath(rootPath, filePath string) (string, error) {
 	}
 
 	return jobID, nil
-}
-
-func sourceTriggerDefinitionPath(jobID string) (string, error) {
-	return sourcepkg.DefinitionPathForJobID(jobID)
 }
 
 func validSourceImportJobIDPart(part string) bool {

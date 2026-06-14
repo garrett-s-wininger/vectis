@@ -471,34 +471,17 @@ func (s *CronService) definitionResolver(rec dal.SourceRepositoryRecord) (source
 }
 
 func resolveSourceScheduleReference(jobID string, repoRec dal.SourceRepositoryRecord, schedule *CronSchedule) (string, string, error) {
-	ref := schedule.effectiveSourceRef()
-	if ref == "" {
-		ref = strings.TrimSpace(repoRec.DefaultRef)
-	}
-
-	if ref == "" {
-		ref = "HEAD"
-	}
-
-	ref, err := sourcepkg.NormalizeRef(ref)
+	target, err := sourcepkg.ResolveDefinitionTarget(sourcepkg.DefinitionTargetRequest{
+		JobID:      jobID,
+		Ref:        schedule.effectiveSourceRef(),
+		DefaultRef: repoRec.DefaultRef,
+		Path:       schedule.effectiveSourcePath(),
+	})
 	if err != nil {
 		return "", "", err
 	}
 
-	definitionPath := schedule.effectiveSourcePath()
-	if definitionPath == "" {
-		definitionPath, err = sourcepkg.DefinitionPathForJobID(jobID)
-		if err != nil {
-			return "", "", fmt.Errorf("%w: %v", sourcepkg.ErrInvalidReference, err)
-		}
-	} else {
-		definitionPath, err = sourcepkg.NormalizeTreePath(definitionPath)
-		if err != nil {
-			return "", "", err
-		}
-	}
-
-	return ref, definitionPath, nil
+	return target.Ref, target.Path, nil
 }
 
 func (s *CronService) TriggerSchedule(ctx context.Context, sched CronSchedule) error {

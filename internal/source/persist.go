@@ -104,18 +104,24 @@ func (p DefinitionPersister) load(ctx context.Context, req PersistDefinitionRequ
 		return Definition{}, dal.SourceRepositoryRecord{}, dal.JobDefinitionSourceRecord{}, fmt.Errorf("%w: source repository %s is disabled", ErrInvalidReference, repoRec.RepositoryID)
 	}
 
-	if req.Ref == "" {
-		req.Ref = strings.TrimSpace(repoRec.DefaultRef)
-	}
-
 	resolver, err := p.definitionResolver(repoRec)
 	if err != nil {
 		return Definition{}, dal.SourceRepositoryRecord{}, dal.JobDefinitionSourceRecord{}, err
 	}
 
-	loaded, err := resolver.ResolveDefinition(ctx, DefinitionRequest{
+	target, err := ResolveDefinitionTarget(DefinitionTargetRequest{
+		JobID:      req.JobID,
 		Ref:        req.Ref,
+		DefaultRef: repoRec.DefaultRef,
 		Path:       req.Path,
+	})
+	if err != nil {
+		return Definition{}, dal.SourceRepositoryRecord{}, dal.JobDefinitionSourceRecord{}, err
+	}
+
+	loaded, err := resolver.ResolveDefinition(ctx, DefinitionRequest{
+		Ref:        target.Ref,
+		Path:       target.Path,
 		Validation: req.Validation,
 	})
 	if err != nil {
