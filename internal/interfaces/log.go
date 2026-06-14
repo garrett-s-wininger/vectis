@@ -60,6 +60,11 @@ func (c *GRPCLogClient) StreamLogsForRun(ctx context.Context, _ string) (LogStre
 	return c.StreamLogs(ctx)
 }
 
+// PreferUnscopedLogStream reports that run-scoped streams are a no-op for this client.
+func (c *GRPCLogClient) PreferUnscopedLogStream() bool {
+	return true
+}
+
 func (c *GRPCLogClient) Close() error {
 	if c.conn != nil {
 		return c.conn.Close()

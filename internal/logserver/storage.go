@@ -15,7 +15,10 @@ import (
 
 var ErrLogStoreReadOnly = errors.New("log storage is read-only for new runs")
 
-const logStorageLockFileName = "log.lock"
+const (
+	logStorageLockFileName       = "log.lock"
+	defaultLogStoreOpenFileLimit = 256
+)
 
 type RunLogStore interface {
 	Append(runID string, entry LogEntry) error
@@ -38,11 +41,21 @@ type LocalRunLogStore struct {
 	newRunMinFreeBytes uint64
 	statFS             filesystemStatFunc
 	lockFile           *os.File
+	openFileLimit      int
+	openFiles          map[string]*cachedRunLogFile
+	openFileClock      uint64
 }
 
 type LocalRunLogStoreOptions struct {
 	NewRunMinFreeBytes uint64
+	OpenFileLimit      int
 	statFS             filesystemStatFunc
+}
+
+type cachedRunLogFile struct {
+	runID    string
+	file     *os.File
+	lastUsed uint64
 }
 
 type filesystemStats struct {
@@ -86,12 +99,18 @@ func NewLocalRunLogStoreWithOptions(baseDir string, opts LocalRunLogStoreOptions
 	if statFS == nil {
 		statFS = defaultFilesystemStats
 	}
+	openFileLimit := opts.OpenFileLimit
+	if openFileLimit <= 0 {
+		openFileLimit = defaultLogStoreOpenFileLimit
+	}
 
 	return &LocalRunLogStore{
 		baseDir:            baseDir,
 		newRunMinFreeBytes: opts.NewRunMinFreeBytes,
 		statFS:             statFS,
 		lockFile:           lockFile,
+		openFileLimit:      openFileLimit,
+		openFiles:          make(map[string]*cachedRunLogFile),
 	}, nil
 }
 
@@ -115,15 +134,28 @@ func acquireLogStorageLock(dir string) (*os.File, error) {
 }
 
 func (s *LocalRunLogStore) Close() error {
-	if s == nil || s.lockFile == nil {
+	if s == nil {
 		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var result error
+	for runID, cached := range s.openFiles {
+		if err := cached.file.Close(); err != nil && result == nil {
+			result = fmt.Errorf("close log store file for run %s: %w", cached.runID, err)
+		}
+		delete(s.openFiles, runID)
 	}
 
 	lockFile := s.lockFile
 	s.lockFile = nil
+	if lockFile == nil {
+		return result
+	}
 
-	var result error
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil && result == nil {
 		result = fmt.Errorf("unlock log storage directory %s: %w", s.baseDir, err)
 	}
 
@@ -149,27 +181,79 @@ func (s *LocalRunLogStore) Append(runID string, entry LogEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	f, err := s.appendFileLocked(runID, path)
+	if err != nil {
+		return err
+	}
+
+	_, err = f.Write(b)
+	if err != nil {
+		return fmt.Errorf("append log entry: %w", err)
+	}
+
+	return nil
+}
+
+func (s *LocalRunLogStore) appendFileLocked(runID, path string) (*os.File, error) {
+	if cached := s.openFiles[runID]; cached != nil {
+		cached.lastUsed = s.nextOpenFileClockLocked()
+		return cached.file, nil
+	}
+
 	exists, err := fileExists(path)
 	if err != nil {
-		return fmt.Errorf("inspect log store file %s: %w", path, err)
+		return nil, fmt.Errorf("inspect log store file %s: %w", path, err)
 	}
 	if !exists {
 		if err := s.ensureCanCreateRunLocked(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("open log store file %s: %w", path, err)
-	}
-	defer f.Close()
-
-	if _, err := f.Write(b); err != nil {
-		return fmt.Errorf("append log entry: %w", err)
+		return nil, fmt.Errorf("open log store file %s: %w", path, err)
 	}
 
-	return nil
+	if s.openFiles == nil {
+		s.openFiles = make(map[string]*cachedRunLogFile)
+	}
+	s.openFiles[runID] = &cachedRunLogFile{
+		runID:    runID,
+		file:     f,
+		lastUsed: s.nextOpenFileClockLocked(),
+	}
+	s.evictOpenFilesLocked()
+
+	return f, nil
+}
+
+func (s *LocalRunLogStore) nextOpenFileClockLocked() uint64 {
+	s.openFileClock++
+	return s.openFileClock
+}
+
+func (s *LocalRunLogStore) evictOpenFilesLocked() {
+	if s.openFileLimit <= 0 {
+		return
+	}
+
+	for len(s.openFiles) > s.openFileLimit {
+		var victimRunID string
+		var victim *cachedRunLogFile
+		for runID, cached := range s.openFiles {
+			if victim == nil || cached.lastUsed < victim.lastUsed {
+				victimRunID = runID
+				victim = cached
+			}
+		}
+		if victim == nil {
+			return
+		}
+
+		delete(s.openFiles, victimRunID)
+		_ = victim.file.Close()
+	}
 }
 
 func (s *LocalRunLogStore) ensureCanCreateRunLocked() error {

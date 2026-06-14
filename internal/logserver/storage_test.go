@@ -165,6 +165,78 @@ func TestLocalRunLogStore_ReadOnlyThresholdAllowsExistingRuns(t *testing.T) {
 	}
 }
 
+func TestLocalRunLogStore_EvictedExistingRunsStayWritableBelowThreshold(t *testing.T) {
+	freeBytes := uint64(1000)
+	store, err := NewLocalRunLogStoreWithOptions(t.TempDir(), LocalRunLogStoreOptions{
+		NewRunMinFreeBytes: 100,
+		OpenFileLimit:      1,
+		statFS: func(string) (filesystemStats, error) {
+			return filesystemStats{freeBytes: freeBytes, freeInodes: 1}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: "first"}); err != nil {
+		t.Fatalf("append initial existing entry: %v", err)
+	}
+	if err := store.Append("other-run", LogEntry{Sequence: 1, Data: "other"}); err != nil {
+		t.Fatalf("append other run: %v", err)
+	}
+
+	freeBytes = 99
+	if err := store.Append("existing-run", LogEntry{Sequence: 2, Data: "second"}); err != nil {
+		t.Fatalf("append evicted existing run below threshold: %v", err)
+	}
+
+	got, err := store.List("existing-run")
+	if err != nil {
+		t.Fatalf("list existing run: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(got))
+	}
+	for i, wantSeq := range []int64{1, 2} {
+		if got[i].Sequence != wantSeq {
+			t.Fatalf("entry %d: expected sequence %d, got %d", i, wantSeq, got[i].Sequence)
+		}
+	}
+}
+
+func TestLocalRunLogStore_CloseReleasesCachedRunFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewLocalRunLogStore(dir)
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+	if err := store.Append("cached-run", LogEntry{Sequence: 1, Data: "first"}); err != nil {
+		t.Fatalf("append cached entry: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store again: %v", err)
+	}
+
+	reopened, err := NewLocalRunLogStore(dir)
+	if err != nil {
+		t.Fatalf("new store after close: %v", err)
+	}
+	defer reopened.Close()
+
+	got, err := reopened.List("cached-run")
+	if err != nil {
+		t.Fatalf("list cached run after reopen: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(got))
+	}
+}
+
 func TestLocalRunLogStore_LocksStorageDir(t *testing.T) {
 	dir := t.TempDir()
 

@@ -22,6 +22,7 @@ import (
 const (
 	defaultBatchSize       = 100
 	defaultMaxChunksPerSec = 10000
+	defaultFlushInterval   = 10 * time.Millisecond
 	defaultScanInterval    = 5 * time.Second
 )
 
@@ -44,18 +45,18 @@ type Metrics interface {
 // When vectis-log is unavailable it writes to a shared spool directory
 // for later retry.
 type Forwarder struct {
-	logClient       interfaces.LogClient
-	logger          interfaces.Logger
-	chunkCh         <-chan *api.LogChunk
-	spoolDir        string
-	batchSize       int
-	maxChunksPerSec int
-	scanInterval    time.Duration
-	shutdownCh      chan struct{}
-	shutdownOnce    sync.Once
-	spoolCounter    uint64
-	sendMu          sync.Mutex
-	metrics         Metrics
+	logClient     interfaces.LogClient
+	logger        interfaces.Logger
+	chunkCh       <-chan *api.LogChunk
+	spoolDir      string
+	batchSize     int
+	flushInterval time.Duration
+	scanInterval  time.Duration
+	shutdownCh    chan struct{}
+	shutdownOnce  sync.Once
+	spoolCounter  uint64
+	sendMu        sync.Mutex
+	metrics       Metrics
 }
 
 // NewForwarder creates a forwarder that reads from the provided chunk channel.
@@ -79,14 +80,27 @@ func NewForwarder(
 	}
 
 	return &Forwarder{
-		chunkCh:         chunkCh,
-		logger:          logger,
-		spoolDir:        spoolDir,
-		batchSize:       batchSize,
-		maxChunksPerSec: maxChunksPerSec,
-		scanInterval:    defaultScanInterval,
-		shutdownCh:      make(chan struct{}),
+		chunkCh:       chunkCh,
+		logger:        logger,
+		spoolDir:      spoolDir,
+		batchSize:     batchSize,
+		flushInterval: forwarderFlushInterval(maxChunksPerSec),
+		scanInterval:  defaultScanInterval,
+		shutdownCh:    make(chan struct{}),
 	}
+}
+
+func forwarderFlushInterval(maxChunksPerSec int) time.Duration {
+	if maxChunksPerSec <= 0 {
+		maxChunksPerSec = defaultMaxChunksPerSec
+	}
+
+	interval := time.Second / time.Duration(maxChunksPerSec)
+	if interval < defaultFlushInterval {
+		return defaultFlushInterval
+	}
+
+	return interval
 }
 
 // SetLogClient configures the gRPC client used to reach vectis-log.
@@ -115,7 +129,7 @@ func (f *Forwarder) Run(ctx context.Context) {
 	})
 
 	batch := make([]*api.LogChunk, 0, f.batchSize)
-	ticker := time.NewTicker(time.Second / time.Duration(f.maxChunksPerSec))
+	ticker := time.NewTicker(f.flushInterval)
 	defer ticker.Stop()
 
 	for {
@@ -272,6 +286,10 @@ func (f *Forwarder) sendBatch(parentCtx context.Context, batch []*api.LogChunk) 
 }
 
 func (f *Forwarder) sendChunkGroups(ctx context.Context, chunks []*api.LogChunk) error {
+	if f.preferUnscopedLogStream(chunks) {
+		return f.sendChunkGroup(ctx, "", "", chunks)
+	}
+
 	groups := groupChunksByRoute(chunks)
 	for _, group := range groups {
 		if err := f.sendChunkGroup(ctx, group.runID, group.logShardID, group.chunks); err != nil {
@@ -280,6 +298,21 @@ func (f *Forwarder) sendChunkGroups(ctx context.Context, chunks []*api.LogChunk)
 	}
 
 	return nil
+}
+
+func (f *Forwarder) preferUnscopedLogStream(chunks []*api.LogChunk) bool {
+	client, ok := f.logClient.(interface{ PreferUnscopedLogStream() bool })
+	if !ok || !client.PreferUnscopedLogStream() {
+		return false
+	}
+
+	for _, chunk := range chunks {
+		if chunk.GetLogShardId() != "" {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (f *Forwarder) sendChunkGroup(ctx context.Context, runID, logShardID string, chunks []*api.LogChunk) error {

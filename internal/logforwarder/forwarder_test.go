@@ -26,6 +26,14 @@ type assignedRecordingLogClient struct {
 	calls []assignedStreamCall
 }
 
+type preferUnscopedAssignedRecordingLogClient struct {
+	assignedRecordingLogClient
+}
+
+func (c *preferUnscopedAssignedRecordingLogClient) PreferUnscopedLogStream() bool {
+	return true
+}
+
 func (c *assignedRecordingLogClient) StreamLogs(context.Context) (interfaces.LogStream, error) {
 	c.calls = append(c.calls, assignedStreamCall{})
 	return &assignedRecordingLogStream{client: c, callIndex: len(c.calls) - 1}, nil
@@ -155,6 +163,21 @@ func assertNoSpoolFiles(t *testing.T, dir string, timeout time.Duration) {
 	t.Fatalf("timed out waiting for spool files to be removed")
 }
 
+func TestForwarderFlushIntervalFloorsHighChunkRates(t *testing.T) {
+	if got := forwarderFlushInterval(1_000_000); got != defaultFlushInterval {
+		t.Fatalf("high-rate flush interval = %v, want %v", got, defaultFlushInterval)
+	}
+
+	if got := forwarderFlushInterval(defaultMaxChunksPerSec); got != defaultFlushInterval {
+		t.Fatalf("default flush interval = %v, want %v", got, defaultFlushInterval)
+	}
+
+	wantSlow := 100 * time.Millisecond
+	if got := forwarderFlushInterval(10); got != wantSlow {
+		t.Fatalf("low-rate flush interval = %v, want %v", got, wantSlow)
+	}
+}
+
 func TestForwarderRoutesChunkGroupsByShardHint(t *testing.T) {
 	client := &assignedRecordingLogClient{}
 	fwd := NewForwarder(nil, interfaces.NewLogger("test"), t.TempDir(), 10, 10000)
@@ -191,6 +214,67 @@ func TestForwarderRoutesChunkGroupsByShardHint(t *testing.T) {
 
 	if len(client.calls[1].chunks) != 1 {
 		t.Fatalf("second stream chunk count = %d, want 1", len(client.calls[1].chunks))
+	}
+}
+
+func TestForwarderUsesSingleStreamForPreferredUnscopedClient(t *testing.T) {
+	client := &preferUnscopedAssignedRecordingLogClient{}
+	fwd := NewForwarder(nil, interfaces.NewLogger("test"), t.TempDir(), 10, 10000)
+	fwd.SetLogClient(client)
+
+	runA := "run-a"
+	runB := "run-b"
+	chunks := []*api.LogChunk{
+		{RunId: &runA, Sequence: proto.Int64(1), Data: []byte("a1")},
+		{RunId: &runB, Sequence: proto.Int64(1), Data: []byte("b1")},
+		{RunId: &runA, Sequence: proto.Int64(2), Data: []byte("a2")},
+	}
+
+	if err := fwd.sendChunkGroups(context.Background(), chunks); err != nil {
+		t.Fatalf("send chunk groups: %v", err)
+	}
+
+	if len(client.calls) != 1 {
+		t.Fatalf("expected 1 stream, got %d", len(client.calls))
+	}
+
+	if client.calls[0].runID != "" || client.calls[0].logShardID != "" {
+		t.Fatalf("stream = (%q, %q), want unscoped stream", client.calls[0].runID, client.calls[0].logShardID)
+	}
+
+	if len(client.calls[0].chunks) != len(chunks) {
+		t.Fatalf("stream chunk count = %d, want %d", len(client.calls[0].chunks), len(chunks))
+	}
+}
+
+func TestForwarderPreservesShardHintsForPreferredUnscopedClient(t *testing.T) {
+	client := &preferUnscopedAssignedRecordingLogClient{}
+	fwd := NewForwarder(nil, interfaces.NewLogger("test"), t.TempDir(), 10, 10000)
+	fwd.SetLogClient(client)
+
+	runA := "run-a"
+	runB := "run-b"
+	shardA := "log-a"
+	shardB := "log-b"
+	chunks := []*api.LogChunk{
+		{RunId: &runA, LogShardId: &shardA, Sequence: proto.Int64(1), Data: []byte("a1")},
+		{RunId: &runB, LogShardId: &shardB, Sequence: proto.Int64(1), Data: []byte("b1")},
+	}
+
+	if err := fwd.sendChunkGroups(context.Background(), chunks); err != nil {
+		t.Fatalf("send chunk groups: %v", err)
+	}
+
+	if len(client.calls) != 2 {
+		t.Fatalf("expected 2 streams, got %d", len(client.calls))
+	}
+
+	if client.calls[0].runID != runA || client.calls[0].logShardID != shardA {
+		t.Fatalf("first stream = (%q, %q), want (%q, %q)", client.calls[0].runID, client.calls[0].logShardID, runA, shardA)
+	}
+
+	if client.calls[1].runID != runB || client.calls[1].logShardID != shardB {
+		t.Fatalf("second stream = (%q, %q), want (%q, %q)", client.calls[1].runID, client.calls[1].logShardID, runB, shardB)
 	}
 }
 
