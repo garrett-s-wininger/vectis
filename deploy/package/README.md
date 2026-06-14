@@ -11,12 +11,23 @@ Build the first package with:
 make package-cli
 ```
 
+By default this builds `vectis-cli` DEB and RPM packages for `linux/amd64` and
+`linux/arm64`. Override `PACKAGE_ARCHES` with Go architecture names to change
+the build matrix, for example:
+
+```sh
+make package-cli PACKAGE_ARCHES=arm64
+```
+
 Then install-test it in the Linux VM lane with:
 
 ```sh
 make test-e2e-package-cli-deb
 make test-e2e-package-cli-rpm
 ```
+
+The e2e package targets use `PACKAGE_ARCH`, which defaults to the local Go
+architecture, so the package under test matches the VM architecture.
 
 Production packages are built with `CGO_ENABLED=0 -tags=nosqlite`, matching the
 container build posture. SQLite remains available for local source builds unless
