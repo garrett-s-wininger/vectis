@@ -121,7 +121,7 @@ For source-only deployments, combine declared repositories with:
 export VECTIS_SOURCE_STORED_JOBS_ENABLED=false
 ```
 
-Use `GET /api/v1/source/status` or `vectis-cli health check` to verify that the API reports stored job APIs disabled, source repository persistence configured, and at least one enabled source repository available for direct source triggers and source schedules. For local development, `vectis-local --source-only --source-repository vectis-local=/path/to/repo` sets the API source-only and source repository environment for you and enables startup sync for the declared checkout.
+Use `GET /api/v1/source/status` or `vectis-cli health check` to verify that the API reports source repository persistence configured and at least one enabled source repository available for reusable job triggers and source schedules. For local development, `vectis-local --source-only --source-repository vectis-local=/path/to/repo` sets the API source repository environment for you and enables startup sync for the declared checkout.
 
 ## Service Prefixes
 

@@ -28,6 +28,16 @@ func sourceJobRepositoryIDFromQuery(r *http.Request) string {
 	return strings.TrimSpace(r.URL.Query().Get("repository_id"))
 }
 
+func requireSourceJobRepositoryIDFromQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
+	repositoryID := sourceJobRepositoryIDFromQuery(r)
+	if repositoryID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
+		return "", false
+	}
+
+	return repositoryID, true
+}
+
 func setSourceJobPathValues(r *http.Request, repositoryID, jobID string) {
 	r.SetPathValue("id", repositoryID)
 	r.SetPathValue("job_id", jobID)

@@ -1,6 +1,6 @@
 # CLI Guide
 
-`vectis-cli` is the everyday way to talk to a Vectis API from a terminal. Use it to submit jobs, trigger stored or source-backed jobs, follow logs, inspect runs, check health, and perform local/operator maintenance.
+`vectis-cli` is the everyday way to talk to a Vectis API from a terminal. Use it to submit one-off jobs, manage repository-backed reusable jobs, follow logs, inspect runs, check health, and perform local/operator maintenance.
 
 This guide is task-based. For a compact command inventory, see [CLI Operational Coverage](../operating/reference/cli-operational-coverage.md).
 
@@ -168,45 +168,7 @@ For safe client retries after a network error, pass an idempotency key:
 
 ## List, Show, And Trigger Jobs
 
-Create a reusable stored job:
-
-```sh
-./bin/vectis-cli jobs create examples/sequenced.json
-```
-
-List stored jobs:
-
-```sh
-./bin/vectis-cli jobs list
-```
-
-Show a stored definition:
-
-```sh
-./bin/vectis-cli jobs show sequenced-job
-```
-
-Trigger a stored job and stream logs:
-
-```sh
-./bin/vectis-cli jobs trigger sequenced-job --follow
-```
-
-Trigger without following:
-
-```sh
-./bin/vectis-cli jobs trigger sequenced-job
-```
-
-Trigger a stored job in specific execution cells:
-
-```sh
-./bin/vectis-cli jobs trigger sequenced-job --cell local --cell pdx-b
-```
-
-When more than one cell is targeted, the command prints one run per cell. Use `runs list <job-id>` or `runs show <run-id>` to inspect the global run catalog.
-
-For source-backed jobs, use the same jobs commands with `--repository`:
+Reusable jobs are source-backed. Use the jobs commands with `--repository` to select the repository that owns the definition:
 
 ```sh
 ./bin/vectis-cli jobs create ./build.json --repository vectis-local --branch main --message "Add build job"
@@ -217,7 +179,7 @@ For source-backed jobs, use the same jobs commands with `--repository`:
 ./bin/vectis-cli jobs delete build --repository vectis-local --branch main --message "Delete build job" --yes
 ```
 
-Pass `--path` when a source-backed job does not use the default `.vectis/jobs/<job-id>.json` layout. Source-backed create can use `--job-id` when the definition omits a top-level `id`. Source-backed create, edit, delete, and trigger work without creating a stored job row. Triggers create a durable run and source provenance, and can target one execution cell with `--cell`.
+Pass `--path` when a source-backed job does not use the default `.vectis/jobs/<job-id>.json` layout. Create can use `--job-id` when the definition omits a top-level `id`. Create, edit, delete, and trigger work without creating a stored job row. Triggers create a durable run and source provenance, and can target one execution cell with `--cell`.
 
 Inspect source-backed run history and follow future runs through the job-facing commands:
 
@@ -229,18 +191,16 @@ Inspect source-backed run history and follow future runs through the job-facing 
 Edit a reusable job in `$EDITOR`:
 
 ```sh
-./bin/vectis-cli jobs edit sequenced-job
 ./bin/vectis-cli jobs edit build --repository vectis-local --branch main
 ```
 
 Delete a reusable job:
 
 ```sh
-./bin/vectis-cli jobs delete sequenced-job --yes
 ./bin/vectis-cli jobs delete build --repository vectis-local --branch main --yes
 ```
 
-Deleting a stored job removes the stored definition and prevents future triggers. Deleting a source-backed job commits removal of the source definition file. Neither path erases historical runs.
+Deleting a source-backed job commits removal of the source definition file. Historical runs remain available from their captured definition snapshots.
 
 ## Manage Source Repositories
 
@@ -368,7 +328,7 @@ Stream logs for the latest source-defined run, or for a specific source run:
 ./bin/vectis-cli sources logs vectis-local build <run-id>
 ```
 
-Use `jobs trigger --repository` with `source.stored_jobs_enabled=false` when the instance should run only repository-defined jobs.
+Use `jobs trigger --repository` for reusable repository-defined jobs.
 
 ## Inspect Runs
 
@@ -435,22 +395,22 @@ Replay back to a named execution cell, or make the request safe to retry:
 ./bin/vectis-cli runs replay <run-id> --idempotency-key "$(uuidgen)"
 ```
 
-List runs for a stored job:
+List runs for a source-backed reusable job:
 
 ```sh
-./bin/vectis-cli runs list sequenced-job
+./bin/vectis-cli runs list build --repository vectis-local
 ```
 
-Filter a stored job's runs to one execution cell:
+Filter a reusable job's runs to one execution cell:
 
 ```sh
-./bin/vectis-cli runs list sequenced-job --cell pdx-b
+./bin/vectis-cli runs list build --repository vectis-local --cell pdx-b
 ```
 
 Limit the number of runs:
 
 ```sh
-./bin/vectis-cli runs list sequenced-job --limit 10
+./bin/vectis-cli runs list build --repository vectis-local --limit 10
 ```
 
 Cancel an executing run:
@@ -469,10 +429,10 @@ Stream logs for one run:
 ./bin/vectis-cli logs run <run-id>
 ```
 
-Follow future runs for a stored job:
+Follow future runs for a reusable source-backed job:
 
 ```sh
-./bin/vectis-cli logs job sequenced-job
+./bin/vectis-cli logs job build --repository vectis-local --follow
 ```
 
 `logs job` follows runs created after you connect. It is useful when you want a terminal open before triggering the next run.
@@ -484,7 +444,7 @@ Filter to one stream when needed:
 ./bin/vectis-cli logs run <run-id> --stderr
 ```
 
-For source-only jobs, use the source-scoped log route so runs are matched by repository provenance:
+You can also use the explicit source-scoped log command when building repository-oriented tooling:
 
 ```sh
 ./bin/vectis-cli sources logs vectis-local build --follow
@@ -576,8 +536,8 @@ For local development, a comfortable CLI loop looks like this:
 2. Run `./bin/vectis-cli health check`.
 3. Edit a job JSON file.
 4. Run it with `./bin/vectis-cli jobs run <file> --follow`.
-5. Store it once it works: `./bin/vectis-cli jobs create <file>`.
-6. Trigger future runs with `./bin/vectis-cli jobs trigger <job-id> --follow`.
-7. Inspect history with `./bin/vectis-cli runs list <job-id>`.
+5. Commit it once it works: `./bin/vectis-cli jobs create <file> --repository <repo> --branch <branch>`.
+6. Trigger future runs with `./bin/vectis-cli jobs trigger <job-id> --repository <repo> --follow`.
+7. Inspect history with `./bin/vectis-cli runs list <job-id> --repository <repo>`.
 
-That keeps experimentation fast while still exercising the same API and worker path used by stored jobs.
+That keeps experimentation fast while still exercising the same API and worker path used by reusable source-backed jobs.

@@ -234,8 +234,8 @@ Run after every upgrade:
 1. `vectis-cli --version` and one daemon `--version` report the expected release.
 2. API `GET /health/live` and `GET /health/ready` return healthy status.
 3. If auth is enabled, login/setup state behaves as expected.
-4. `vectis-cli jobs list` succeeds.
-5. `vectis-cli runs list <job-id>` succeeds for a known job.
+4. `vectis-cli jobs list --repository <repo>` succeeds.
+5. `vectis-cli runs list <job-id> --repository <repo>` succeeds for a known job.
 6. Trigger a known-safe job.
 7. Confirm the run reaches a terminal state.
 8. Fetch or stream the run logs.

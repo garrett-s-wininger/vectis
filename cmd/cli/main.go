@@ -162,11 +162,10 @@ Commands are grouped around the thing you want to work with:
   logs       stream run logs or follow future runs for a job
   secrets    manage job secret stores
   auth       log in, log out, and manage API tokens`,
-	Example: `  vectis-cli jobs create build.json
-  vectis-cli jobs trigger build-main --follow
+	Example: `  vectis-cli jobs create build.json --repository vectis --branch main
   vectis-cli jobs trigger build-main --repository vectis --ref main --follow
-  vectis-cli jobs list --format json
-  vectis-cli runs list build-main
+  vectis-cli jobs list --repository vectis --format json
+  vectis-cli runs list build-main --repository vectis
   vectis-cli runs show run-123
   vectis-cli runs definition run-123
   vectis-cli runs artifacts list run-123

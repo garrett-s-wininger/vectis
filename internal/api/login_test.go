@@ -112,7 +112,7 @@ func TestLogin_endToEnd(t *testing.T) {
 		}
 
 		rec2 := httptest.NewRecorder()
-		req2 := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req2 := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
 		req2.AddCookie(&sessionCookie)
 		h.ServeHTTP(rec2, req2)
 		if rec2.Code != http.StatusOK {
@@ -147,7 +147,7 @@ func TestLogin_endToEnd(t *testing.T) {
 		}
 
 		rec2 := httptest.NewRecorder()
-		req2 := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req2 := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
 		req2.Header.Set("Authorization", "Bearer "+out.Token)
 		h.ServeHTTP(rec2, req2)
 		if rec2.Code != http.StatusOK {
@@ -356,7 +356,7 @@ func TestLogin_sessionSharedAcrossAPIServers(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
 	req.AddCookie(sessionCookie)
 	h2.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

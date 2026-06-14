@@ -1,6 +1,6 @@
 # Your First Job
 
-This guide explains how to write the JSON job definitions that Vectis runs today. It is for people who have started a local Vectis stack and want to understand what they are submitting with `vectis-cli jobs run` or `vectis-cli jobs create`.
+This guide explains how to write the JSON job definitions that Vectis runs today. It is for people who have started a local Vectis stack and want to understand what they are submitting with `vectis-cli jobs run` or repository-backed `vectis-cli jobs create --repository`.
 
 If you have not run Vectis locally yet, start with [Getting Started](../getting-started.md).
 
@@ -35,12 +35,12 @@ There are two IDs to keep straight:
 
 | Field | What it identifies | When you need it |
 | --- | --- | --- |
-| `id` at the top level | The job definition | Required when storing a reusable job with `jobs create`. |
+| `id` at the top level | The reusable job definition | Required when creating a reusable source-backed job unless you pass `--job-id`. |
 | `id` inside a node | One step in the job tree | Required for each node, and must be unique within the job. |
 
-For one-off runs, `jobs run` can accept a job without a top-level `id`; the API can generate one. For stored jobs, include the top-level `id` so you can trigger it later.
+For one-off runs, `jobs run` can accept a job without a top-level `id`; the API can generate one. For reusable source-backed jobs, include the top-level `id` or pass `--job-id` so you can trigger it later.
 
-## One-Off Run Or Stored Job?
+## One-Off Run Or Reusable Job?
 
 Use a one-off run when you are experimenting:
 
@@ -48,17 +48,17 @@ Use a one-off run when you are experimenting:
 ./bin/vectis-cli jobs run hello.json --follow
 ```
 
-Use a stored job when you want to trigger the same definition repeatedly:
+Use a reusable source-backed job when you want to trigger the same definition repeatedly:
 
 ```sh
-./bin/vectis-cli jobs create hello.json
-./bin/vectis-cli jobs trigger hello-job --follow
+./bin/vectis-cli jobs create hello.json --repository vectis-local --branch main --message "Add hello job"
+./bin/vectis-cli jobs trigger hello-job --repository vectis-local --ref main --follow
 ```
 
-You can list stored jobs with:
+You can list reusable jobs from a repository with:
 
 ```sh
-./bin/vectis-cli jobs list
+./bin/vectis-cli jobs list --repository vectis-local --ref main
 ```
 
 ## Multiple Steps
@@ -313,8 +313,8 @@ When you are learning or debugging, this loop is usually enough:
 
 1. Edit a local JSON file.
 2. Run it once with `./bin/vectis-cli jobs run <file> --follow`.
-3. If it works and you want to reuse it, store it with `./bin/vectis-cli jobs create <file>`.
-4. Trigger stored runs with `./bin/vectis-cli jobs trigger <job-id> --follow`.
-5. Inspect history with `./bin/vectis-cli runs list <job-id>`.
+3. If it works and you want to reuse it, commit it with `./bin/vectis-cli jobs create <file> --repository <repo> --branch <branch>`.
+4. Trigger future runs with `./bin/vectis-cli jobs trigger <job-id> --repository <repo> --follow`.
+5. Inspect history with `./bin/vectis-cli runs list <job-id> --repository <repo>`.
 
 This keeps experimentation cheap while still giving you a path to a reusable job.

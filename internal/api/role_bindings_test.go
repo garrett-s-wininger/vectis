@@ -331,19 +331,25 @@ func TestHierarchicalRBAC_Integration(t *testing.T) {
 		t.Fatalf("create binding: %v", err)
 	}
 
-	// Create a job in the namespace
-	if err := repos.Jobs().Create(ctx, "job-in-ns", `{"id":"job-in-ns"}`, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	// Create a source repository in the namespace.
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "repo-in-ns",
+		NamespaceID:  ns.ID,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
 	}
 
-	// Verify viewer can read the job
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-in-ns", nil)
-	req.SetPathValue("id", "job-in-ns")
+	// Verify the repository-scoped job resource is readable.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/repo-in-ns", nil)
+	req.SetPathValue("id", "repo-in-ns")
 	rec := httptest.NewRecorder()
 
-	server.GetJob(rec, req)
+	server.GetSourceRepository(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("viewer should be able to read job, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("viewer should be able to read repository job resource, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

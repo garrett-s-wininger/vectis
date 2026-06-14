@@ -320,7 +320,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Pattern:   "GET /api/v1/jobs/{id}",
 			Handler:   http.HandlerFunc(s.GetJob),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
-			Query:     routeQueryParams("path", "ref", "repository_id", "version"),
+			Query:     routeQueryParams("path", "ref", "repository_id"),
 			RateLimit: defaultLimits.General,
 		},
 		{

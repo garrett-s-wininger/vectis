@@ -160,76 +160,10 @@ func TestSetIdempotencyHeader(t *testing.T) {
 	}
 }
 
-func TestTriggerJob_sendsIdempotencyKey(t *testing.T) {
-	oldKey := triggerIdemKey
-	triggerIdemKey = "trigger-retry-key"
-	t.Cleanup(func() { triggerIdemKey = oldKey })
-
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/jobs/trigger/job-1" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		if got := r.Header.Get("Idempotency-Key"); got != "trigger-retry-key" {
-			t.Errorf("Idempotency-Key=%q", got)
-		}
-
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"job_id": "job-1", "run_id": "run-1", "run_index": 1,
-		})
-	})
-
-	triggerJob(&cobra.Command{}, []string{"job-1"})
-}
-
-func TestTriggerJob_sendsTargetCells(t *testing.T) {
-	oldCells := triggerCellIDs
-	triggerCellIDs = []string{"iad-a", "pdx-b", "iad-a", "sjc-c,pdx-b"}
-	t.Cleanup(func() { triggerCellIDs = oldCells })
-
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method=%s", r.Method)
-		}
-
-		if r.URL.Path != "/api/v1/jobs/trigger/job-1" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		var body struct {
-			CellIDs []string `json:"cell_ids"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode body: %v", err)
-		}
-
-		wantCells := []string{"iad-a", "pdx-b", "sjc-c"}
-		if strings.Join(body.CellIDs, ",") != strings.Join(wantCells, ",") {
-			t.Errorf("cell_ids=%v, want %v", body.CellIDs, wantCells)
-		}
-
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"job_id": "job-1",
-			"runs": []map[string]any{
-				{"run_id": "run-a", "run_index": 1, "cell_id": "iad-a"},
-				{"run_id": "run-b", "run_index": 2, "cell_id": "pdx-b"},
-				{"run_id": "run-c", "run_index": 3, "cell_id": "sjc-c"},
-			},
-		})
-	})
-
-	var buf bytes.Buffer
-	if err := triggerJobWithOutput(&cobra.Command{}, []string{"job-1"}, &buf); err != nil {
-		t.Fatal(err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{"CELL", "RUN ID", "iad-a", "run-a", "pdx-b", "run-b", "sjc-c", "run-c"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
-		}
+func TestTriggerJob_requiresRepository(t *testing.T) {
+	err := triggerJobWithOutput(&cobra.Command{}, []string{"job-1"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "--repository is required") {
+		t.Fatalf("expected repository error, got %v", err)
 	}
 }
 
@@ -358,8 +292,8 @@ func TestWriteTriggerJobResult_jsonOutputIncludesMultiCellRuns(t *testing.T) {
 	}
 }
 
-func TestTriggerJobRequestBody_rejectsEmptyCell(t *testing.T) {
-	if _, err := triggerJobRequestBody([]string{"iad-a,"}); err == nil {
+func TestNormalizeTriggerCellIDs_rejectsEmptyCell(t *testing.T) {
+	if _, err := normalizeTriggerCellIDs([]string{"iad-a,"}); err == nil {
 		t.Fatal("expected empty cell error")
 	}
 }
@@ -3037,99 +2971,10 @@ func TestTokenDelete_notFound(t *testing.T) {
 	}
 }
 
-func TestListJobNames_tableOutput(t *testing.T) {
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("method=%s", r.Method)
-		}
-
-		if r.URL.Path != "/api/v1/jobs" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{"name": "z-job", "namespace": "/prod"},
-				{"name": "a-job"},
-			},
-		})
-	})
-
-	var buf bytes.Buffer
-	if err := listJobNames(&buf, false, "", 0); err != nil {
-		t.Fatal(err)
-	}
-
-	if got, want := buf.String(), "NAME   NAMESPACE\na-job  -\nz-job  /prod\n"; got != want {
-		t.Fatalf("output: want %q, got %q", want, got)
-	}
-}
-
-func TestListJobNames_quietOutput(t *testing.T) {
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{"name": "z-job"},
-				{"name": "a-job"},
-			},
-		})
-	})
-
-	var buf bytes.Buffer
-	if err := listJobNames(&buf, true, "", 0); err != nil {
-		t.Fatal(err)
-	}
-
-	if got, want := buf.String(), "a-job\nz-job\n"; got != want {
-		t.Fatalf("output: want %q, got %q", want, got)
-	}
-}
-
-func TestListJobNames_jsonOutput(t *testing.T) {
-	withOutputFormat(t, outputJSON)
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("cursor"); got != "7" {
-			t.Errorf("cursor=%q, want 7", got)
-		}
-
-		if got := r.URL.Query().Get("limit"); got != "25" {
-			t.Errorf("limit=%q, want 25", got)
-		}
-
-		next := int64(9)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"data": []map[string]any{
-				{"name": "z-job", "namespace": "/prod"},
-				{"name": "a-job"},
-			},
-			"next_cursor": next,
-		})
-	})
-
-	var buf bytes.Buffer
-	if err := listJobNames(&buf, false, "7", 25); err != nil {
-		t.Fatal(err)
-	}
-
-	var resp struct {
-		Data []struct {
-			Name      string `json:"name"`
-			Namespace string `json:"namespace,omitempty"`
-		} `json:"data"`
-		NextCursor *int64 `json:"next_cursor,omitempty"`
-	}
-
-	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
-	}
-
-	names := []string{resp.Data[0].Name, resp.Data[1].Name}
-	if got, want := strings.Join(names, ","), "a-job,z-job"; got != want {
-		t.Fatalf("names: want %q, got %q", want, got)
-	}
-
-	if resp.NextCursor == nil || *resp.NextCursor != 9 {
-		t.Fatalf("next_cursor: want 9, got %+v", resp.NextCursor)
+func TestListJobs_requiresRepository(t *testing.T) {
+	err := listJobsWithOutput(io.Discard, jobListOptions{})
+	if err == nil || !strings.Contains(err.Error(), "--repository is required") {
+		t.Fatalf("expected repository error, got %v", err)
 	}
 }
 
@@ -3411,18 +3256,6 @@ func TestDeleteSourceJobFromJobsFacade_sendsAuthoringQuery(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
-	}
-}
-
-func TestListJobNames_rejectsUnexpectedShape(t *testing.T) {
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode([]map[string]any{
-			{"name": "legacy-shape"},
-		})
-	})
-
-	if err := listJobNames(io.Discard, false, "", 0); err == nil {
-		t.Fatal("expected error")
 	}
 }
 
@@ -4928,7 +4761,7 @@ func TestDoctor_success(t *testing.T) {
 		"catalog inbox ok: 0 pending",
 		"Source Control",
 		"OK    Source mode",
-		"stored job APIs enabled",
+		"source mode ready: 1 enabled source repositories",
 		"OK    Repository sync",
 		"source repository sync ok: 1 enabled",
 		"OK    Repository declarations",
@@ -5524,7 +5357,7 @@ func TestDoctor_sourceRepositorySyncWarnsForFailedAndStaleRunning(t *testing.T) 
 	}
 }
 
-func TestDoctor_sourceModeWarnsWhenSourceOnlyHasNoEnabledRepositories(t *testing.T) {
+func TestDoctor_sourceModeWarnsWhenNoEnabledRepositories(t *testing.T) {
 	status := doctorSourceStatus{
 		StoredJobsEnabled:      false,
 		RepositoriesConfigured: true,
@@ -5540,7 +5373,7 @@ func TestDoctor_sourceModeWarnsWhenSourceOnlyHasNoEnabledRepositories(t *testing
 		t.Fatalf("expected source-only warning, got %#v", check)
 	}
 
-	for _, want := range []string{"source-only mode has no enabled source repositories", "stored_jobs_enabled=false", "repositories=1", "enabled_repositories=0", "disabled_repositories=1"} {
+	for _, want := range []string{"source mode has no enabled source repositories", "stored_jobs_enabled=false", "repositories=1", "enabled_repositories=0", "disabled_repositories=1"} {
 		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
 			t.Fatalf("expected source mode check to contain %q, got %#v", want, check)
 		}

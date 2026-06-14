@@ -661,12 +661,18 @@ func TestTokenScoping_endToEnd(t *testing.T) {
 	})
 
 	t.Run("propagated_token_allows_child_namespace", func(t *testing.T) {
-		if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), "test-job", `{"id":"test-job"}`, 2); err != nil {
-			t.Fatalf("failed to create job: %v", err)
+		if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+			RepositoryID: "child-repo",
+			NamespaceID:  2,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: t.TempDir(),
+			Enabled:      true,
+		}); err != nil {
+			t.Fatalf("failed to create source repository: %v", err)
 		}
 
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/child-repo", nil)
 		req.Header.Set("Authorization", "Bearer "+propagatedToken)
 		h.ServeHTTP(rec, req)
 

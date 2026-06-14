@@ -697,104 +697,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.requireStoredJobs(w) {
-		return
-	}
-
-	var req struct {
-		Namespace string          `json:"namespace"`
-		Job       json.RawMessage `json:"job"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		// Fallback to legacy format: the body is the job definition itself
-		req.Job = body
-	}
-
-	if req.Job == nil {
-		req.Job = body
-	}
-
-	var job api.Job
-	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
-		return
-	}
-
-	if job.Id == nil || *job.Id == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job id is required", nil)
-		return
-	}
-
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	if !s.requireNamespaces(w) {
-		return
-	}
-
-	namespacePath := "/"
-	if req.Namespace != "" {
-		namespacePath = req.Namespace
-	}
-
-	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "namespace_not_found", "namespace not found", nil)
-			return
-		}
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, ns.Path) {
-		return
-	}
-
-	err = s.jobs.Create(ctx, *job.Id, string(req.Job), ns.ID)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "job_already_exists", "job already exists", nil)
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
-
-	s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]any{
-		"job_id":    *job.Id,
-		"namespace": ns.Path,
-	})
-
-	s.logger.Info("Stored job: %s", *job.Id)
-	w.WriteHeader(http.StatusCreated)
+	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
 }
 
 func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -809,156 +712,22 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.requireStoredJobs(w) {
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	err = s.jobs.Delete(ctx, jobID)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
-
-	s.auditLog(ctx, audit.EventJobDeleted, actorID, 0, map[string]any{
-		"job_id":    jobID,
-		"namespace": nsPath,
-	})
-
-	s.logger.Info("Deleted job: %s", jobID)
-	w.WriteHeader(http.StatusNoContent)
+	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
 }
 
 func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
-	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
-		r.SetPathValue("id", repositoryID)
-		s.ListSourceRepositoryJobs(w, r)
-		return
-	}
-
-	if !s.requireStoredJobs(w) {
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
 	if !ok {
 		return
 	}
 
-	params := parsePageParams(r)
-	records, nextCursor, err := s.jobs.List(ctx, params.Cursor, params.Limit)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	var jobs []map[string]any
-	z := s.effectiveAuthorizer(true)
-	for _, rec := range records {
-		var nsPath string
-		if s.namespaces != nil && config.APIAuthEnabled() {
-			ns, err := s.namespaces.GetByID(ctx, rec.NamespaceID)
-			if err != nil {
-				continue
-			}
-
-			nsPath = ns.Path
-			if !z.Allow(ctx, p, authz.ActionJobRead, authz.Resource{NamespacePath: nsPath}) {
-				continue
-			}
-		}
-
-		var definition any
-		if err := json.Unmarshal([]byte(rec.DefinitionJSON), &definition); err != nil {
-			s.logger.Error("Failed to parse job definition for job %s: %v", rec.JobID, err)
-			continue
-		}
-
-		job := map[string]any{
-			"name":       rec.JobID,
-			"definition": definition,
-		}
-
-		if nsPath != "" {
-			job["namespace"] = nsPath
-		}
-
-		jobs = append(jobs, job)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if jobs == nil {
-		jobs = make([]map[string]any, 0)
-	}
-
-	resp := buildPaginatedResponse(jobs, nextCursor)
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
-		s.logger.Error("Failed to encode jobs as JSON: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	_, _ = w.Write(buf.Bytes())
+	r.SetPathValue("id", repositoryID)
+	s.ListSourceRepositoryJobs(w, r)
 }
 
 func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
-	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
-		jobID := r.PathValue("id")
-		setSourceJobPathValues(r, repositoryID, jobID)
-		s.GetSourceRepositoryJobDefinition(w, r)
-		return
-	}
-
-	if !s.requireStoredJobs(w) {
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
+	if !ok {
 		return
 	}
 
@@ -968,87 +737,8 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobRead, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	var definitionJSON string
-	var version int
-
-	if versionParam := r.URL.Query().Get("version"); versionParam != "" {
-		v, err := strconv.Atoi(versionParam)
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_version", "invalid version parameter", nil)
-			return
-		}
-
-		definitionJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, v)
-		if err != nil {
-			if dal.IsNotFound(err) {
-				writeAPIError(w, http.StatusNotFound, "job_version_not_found", "job version not found", nil)
-				return
-			}
-
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("Database error: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-
-		version = v
-	} else {
-		definitionJSON, version, err = s.jobs.GetDefinition(ctx, jobID)
-		if err != nil {
-			if dal.IsNotFound(err) {
-				writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-				return
-			}
-
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("Database error: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-	}
-	s.markDBRecovered()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Vectis-Version", strconv.Itoa(version))
-	w.WriteHeader(http.StatusOK)
-	if _, err := io.WriteString(w, definitionJSON); err != nil {
-		s.logger.Error("Failed to write job definition: %v", err)
-	}
+	setSourceJobPathValues(r, repositoryID, jobID)
+	s.GetSourceRepositoryJobDefinition(w, r)
 }
 
 func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
@@ -1061,200 +751,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.requireStoredJobs(w) {
-		return
-	}
-
-	jobID := r.PathValue("id")
-	if jobID == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunTrigger, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	definitionJSON, definitionVersion, err := s.jobs.GetDefinition(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	var job api.Job
-	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
-		return
-	}
-
-	definitionHash := dal.DefinitionHash(definitionJSON)
-	job.Id = &jobID
-
-	triggerBody, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
-	if !ok {
-		return
-	}
-
-	targetCellIDs, err := parseRunTargetOptions(triggerBody)
-	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "invalid trigger options", nil)
-		return
-	}
-
-	idempotencyKey := idempotencyKeyFromRequest(r)
-	idempotencyScope := principalIdempotencyScope("trigger:"+jobID, p)
-	idempotencyHashParts := []string{http.MethodPost, "/api/v1/jobs/trigger/" + jobID}
-	if trimmed := bytes.TrimSpace(triggerBody); len(trimmed) > 0 {
-		idempotencyHashParts = append(idempotencyHashParts, string(trimmed))
-	}
-
-	idempotencyHash := hashIdempotencyRequest(idempotencyHashParts...)
-	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
-	if !ok {
-		return
-	}
-
-	if idempotencyRecord.ResponseJSON != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
-		return
-	}
-
-	if idempotencyInProgress {
-		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
-			return triggerJobResponse(jobID, createdRuns), true
-		}) {
-			return
-		}
-
-		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
-		return
-	}
-
-	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, string(bytes.TrimSpace(triggerBody)), targetCellIDs)
-	if err != nil {
-		if idempotencyReserved {
-			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error recording trigger invocation: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
-		if idempotencyReserved {
-			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error attaching trigger idempotency resource: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, targetCellIDs, newRunAuditMetadata(invocationID))
-	if err != nil {
-		if idempotencyReserved {
-			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error creating job run: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
-
-	for _, createdRun := range createdRuns {
-		s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
-		s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
-			"job_id":      jobID,
-			"run_id":      createdRun.RunID,
-			"run_index":   createdRun.RunIndex,
-			"namespace":   nsPath,
-			"target_cell": createdRun.TargetCellID,
-			"invocation":  invocationID,
-		})
-	}
-
-	for _, createdRun := range createdRuns {
-		s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAccepted)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	response := triggerJobResponse(jobID, createdRuns)
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		s.logger.Error("Failed to encode trigger response: %v", err)
-		return
-	}
-
-	_, _ = w.Write(buf.Bytes())
-	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
-
-	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
-	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
-	bgCtx := detachedTraceContextFromRequest(r)
-	for _, createdRun := range createdRuns {
-		runID := createdRun.RunID
-		jobForRun := cloneJobForRun(&job, runID)
-		go s.finishTriggerEnqueue(bgCtx, jobID, runID, createdRun.RunIndex, jobForRun, definitionHash)
-	}
+	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
 }
 
 func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job, definitionHash string) {
@@ -1642,86 +1139,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !s.requireStoredJobs(w) {
-		return
-	}
-
-	var job api.Job
-	if err := jobpkg.DecodeDefinitionJSON(body, &job); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
-		return
-	}
-
-	if job.Id == nil || *job.Id != jobID {
-		writeAPIError(w, http.StatusBadRequest, "job_id_mismatch", "job id mismatch", nil)
-		return
-	}
-
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	newVersion, err := s.jobs.UpdateDefinition(ctx, jobID, string(body))
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	w.Header().Set("X-Vectis-Version", strconv.Itoa(newVersion))
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
-
-	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
-		"job_id":    jobID,
-		"namespace": nsPath,
-	})
-
-	s.logger.Info("Updated job definition: %s", jobID)
-	w.WriteHeader(http.StatusNoContent)
+	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
 }
 
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
@@ -2131,14 +1549,8 @@ func detachedTraceContextFromRequest(r *http.Request) context.Context {
 }
 
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
-	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
-		jobID := r.PathValue("id")
-		setSourceJobPathValues(r, repositoryID, jobID)
-		s.GetSourceRepositoryJobRuns(w, r)
-		return
-	}
-
-	if !s.requireStoredJobs(w) {
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
+	if !ok {
 		return
 	}
 
@@ -2148,53 +1560,8 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts, ok := parseRunListRequestOptions(w, r)
-	if !ok {
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, opts.afterIndex, opts.since, opts.owningCell, opts.cursor, opts.limit)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	s.writeJobRunsResponse(w, ctx, jobID, runRows, nextCursor)
+	setSourceJobPathValues(r, repositoryID, jobID)
+	s.GetSourceRepositoryJobRuns(w, r)
 }
 
 type runListRequestOptions struct {

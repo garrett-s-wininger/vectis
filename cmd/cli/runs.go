@@ -1050,6 +1050,10 @@ func runListRuns(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job id is required (pass [job-id] or --job)"))
 	}
 
+	if strings.TrimSpace(runListRepositoryID) == "" {
+		runCLIError(fmt.Errorf("--repository is required to list runs for a reusable job"))
+	}
+
 	since, _ := cmd.Flags().GetString("since")
 	runCLIError(listRunsForRepository(jobID, runListRepositoryID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
 }
@@ -1392,7 +1396,7 @@ var runPayloadCmd = &cobra.Command{
 var runDefinitionCmd = &cobra.Command{
 	Use:   "definition [run-id]",
 	Short: "Show the frozen job definition for a run",
-	Long:  `Fetch the immutable job definition snapshot captured for one run. This works for source-only, stored, and ephemeral runs.`,
+	Long:  `Fetch the immutable job definition snapshot captured for one run. This works for source-backed and ephemeral runs.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runGetRunDefinition,
 }
@@ -1447,7 +1451,7 @@ var runCancelCmd = &cobra.Command{
 var runListCmd = &cobra.Command{
 	Use:   "list [job-id]",
 	Short: "List runs for a job",
-	Long: `List runs for a stored job, or pass --repository to list runs for a source-backed job by recorded source provenance. Pass the job id as an argument or with --job.
+	Long: `List runs for a source-backed reusable job by recorded source provenance. Pass the job id as an argument or with --job and select the source repository with --repository.
 
 Use --since to filter to runs created at or after a date. Use --limit to control page size.
 Use --cell to filter to runs owned by one execution cell.

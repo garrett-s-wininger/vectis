@@ -1822,7 +1822,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
-	rootCmd.PersistentFlags().Bool("source-only", false, "Disable stored job APIs for the local API server")
+	rootCmd.PersistentFlags().Bool("source-only", false, "Configure the local API server for source-backed reusable jobs")
 	rootCmd.PersistentFlags().StringArray("source-repository", nil, "Declare a local source repository as repository_id=checkout_path; may be repeated")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
 	rootCmd.PersistentFlags().String("spiffe-dir", "", "Directory for local vectis-spiffe authority data")

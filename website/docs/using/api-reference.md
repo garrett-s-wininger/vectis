@@ -102,50 +102,7 @@ curl -sS 'http://localhost:8080/api/v1/jobs/build/runs?repository_id=vectis-loca
 curl -N 'http://localhost:8080/api/v1/sse/jobs/build/runs?repository_id=vectis-local'
 ```
 
-### Store Then Trigger A Job
-
-Use stored jobs when the same definition will be triggered repeatedly:
-
-```sh
-curl -sS \
-  -H 'Content-Type: application/json' \
-  --data-binary @examples/sequenced.json \
-  http://localhost:8080/api/v1/jobs
-```
-
-Then trigger it by job ID:
-
-```sh
-curl -sS \
-  -X POST \
-  -H "Idempotency-Key: $(uuidgen)" \
-  http://localhost:8080/api/v1/jobs/trigger/sequenced-job
-```
-
-`POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept an optional `cell_id` field to select the target execution cell. `target_cell_id` is accepted as an alias. If omitted, Vectis uses the API process's configured cell.
-
-Stored-job triggers can fan out to multiple cells in one request by sending `cell_ids` or `target_cell_ids`:
-
-```sh
-curl -sS \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"cell_ids":["iad-a","pdx-b"]}' \
-  http://localhost:8080/api/v1/jobs/trigger/sequenced-job
-```
-
-Multi-cell trigger responses return one run per target cell:
-
-```json
-{
-  "job_id": "sequenced-job",
-  "runs": [
-    {"run_id": "0fd7f565-a774-42e3-8e46-7c6f4f4c2c71", "run_index": 1, "cell_id": "iad-a"},
-    {"run_id": "1d811208-886f-4262-9a02-a21df616f0b7", "run_index": 2, "cell_id": "pdx-b"}
-  ]
-}
-```
+`POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept an optional `cell_id` field to select one target execution cell. `target_cell_id` is accepted as an alias. If omitted, Vectis uses the API process's configured cell.
 
 ### Replay A Completed Run
 
@@ -201,7 +158,7 @@ JSON routes expect `Content-Type: application/json`. Job create and run routes a
 }
 ```
 
-Ephemeral runs do not require a top-level job `id`. Stored jobs do. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
+Ephemeral runs do not require a top-level job `id`. Reusable source-backed jobs require an `id` unless the client supplies a job ID separately. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
 
 Node inputs can also be bound from earlier node outputs in the same local execution scope with `inputs.<field>.from.node` and `inputs.<field>.from.output`; static `with.<field>` and bound `inputs.<field>` are mutually exclusive.
 
@@ -329,7 +286,7 @@ The table below is the exact route inventory. Read it by family:
 | Family | Use it for |
 | --- | --- |
 | Health and diagnostics | Process health plus authenticated schema state, queue pressure, log reachability, and Prometheus metrics. |
-| Jobs | List, inspect, trigger, and watch reusable job definitions from source repositories or stored rows. |
+| Jobs | List, inspect, trigger, and watch reusable job definitions from source repositories. |
 | Source repositories | Register, sync, browse, and administer Git checkouts that supply source-backed job definitions. |
 | Ephemeral runs | Submit one-off job definitions without storing them first. |
 | Runs, logs, and artifacts | Inspect run status, list/download artifacts, stream logs, cancel active work, or repair orphaned runs. |
@@ -340,25 +297,25 @@ The table below is the exact route inventory. Read it by family:
 
 List routes use `limit` and `cursor` query parameters where implemented. Paginated responses include `next_cursor` when another page is available. Omit `cursor` to read the first page.
 
-`GET /api/v1/jobs?repository_id=<repo>` lists triggerable source-backed jobs from a registered source repository. It accepts `ref`, `path`, `limit`, and path `cursor`. Without `repository_id`, it lists stored jobs when stored jobs are enabled.
+`GET /api/v1/jobs?repository_id=<repo>` lists triggerable source-backed jobs from a registered source repository. It accepts `ref`, `path`, `limit`, and path `cursor`. `repository_id` is required for reusable jobs.
 
-`GET /api/v1/jobs/{id}?repository_id=<repo>` resolves one source-backed job definition by job ID, optional `ref`, and optional `path` override. Without `repository_id`, it reads the stored job definition and accepts `version`.
+`GET /api/v1/jobs/{id}?repository_id=<repo>` resolves one source-backed job definition by job ID, optional `ref`, and optional `path` override. `repository_id` is required.
 
-`POST /api/v1/jobs` creates a stored job by default. When the JSON body includes `repository_id`, it commits a source-backed job definition through repository authoring instead; source create accepts `job_id`, `ref`/`branch`, `path`, `message`, `expected_head`, and `job`.
+`POST /api/v1/jobs` commits a source-backed job definition through repository authoring. The JSON body must include `repository_id` and accepts `job_id`, `ref`/`branch`, `path`, `message`, `expected_head`, and `job`.
 
-`PUT /api/v1/jobs/{id}` replaces a stored job by default. When the body or query includes `repository_id`, it commits a source-backed definition update and accepts the same authoring fields as source create. `DELETE /api/v1/jobs/{id}?repository_id=<repo>` commits a source-backed definition deletion; optional `ref`/`branch`, `path`, `message`, and `expected_head` query parameters control the delete commit.
+`PUT /api/v1/jobs/{id}` commits a source-backed definition update and accepts the same authoring fields as source create. The body or query must include `repository_id`. `DELETE /api/v1/jobs/{id}?repository_id=<repo>` commits a source-backed definition deletion; optional `ref`/`branch`, `path`, `message`, and `expected_head` query parameters control the delete commit.
 
-`GET /api/v1/jobs/{id}/runs` is backed by the global run catalog, not by per-cell fan-out. With `repository_id`, it scopes results to recorded source provenance for that repository and job ID. Without `repository_id`, it returns stored-job run records. It returns summary run records from `job_runs`, including `owning_cell`, and accepts `after_index`, `since`, and `cell_id`/`owning_cell` filters.
+`GET /api/v1/jobs/{id}/runs?repository_id=<repo>` is backed by the global run catalog and scopes results to recorded source provenance for that repository and job ID. It returns summary run records from `job_runs`, including `owning_cell`, and accepts `after_index`, `since`, and `cell_id`/`owning_cell` filters.
 
-Run submission routes can target a cell with `cell_id`/`target_cell_id`; stored-job triggers can also fan out with `cell_ids`/`target_cell_ids`. Replay defaults to the source run's owning cell and can override it with one `cell_id`/`target_cell_id`. Non-local targets require the API to be configured with matching private cell ingress endpoints.
+Run submission routes can target one cell with `cell_id`/`target_cell_id`. Replay defaults to the source run's owning cell and can override it with one `cell_id`/`target_cell_id`. Non-local targets require the API to be configured with matching private cell ingress endpoints.
 
 Run list/detail responses include audit metadata such as `definition_version`, `definition_hash`, `owning_cell`, trigger invocation fields, requested cells, and `execution_payload_hash`. When a run uses a source-backed definition snapshot, these responses also include `source` provenance with repository id, requested ref, resolved commit, definition path, and blob SHA. Run detail also includes `dispatch_summary`, `dispatch_events`, and a compact `task_completion` summary when task records exist. The dispatch summary groups dispatch events by producer source so tooling can compare API, cron, and reconciler handoff attempts before reading the raw chronological event trail. Queued run detail may include `next_action` with `task_completion_pending` when task-level progress explains what the run is waiting on, or `task_continuation_pending` when a child task execution is waiting for redispatch; orphaned task-run detail may include `task_finalization_repair_pending` when the stored task summary can already reduce to a terminal state. Failed run detail may include `next_action=security_gate_failed` and `latest_failed_security_event` when the newest failed worker-controlled SVID or secret-resolution gate explains the failure. `GET /api/v1/runs/{id}/definition` returns the immutable job definition snapshot captured for that run, with the run id, job id, definition version/hash, and source provenance when available; it does not reread the source repository. `GET /api/v1/runs/{id}/tasks` includes task-attempt execution identity, execution status, execution lease owner/expiry when an attempt is owned by a worker, and redacted `security_events` for worker-controlled SVID checks and secret resolution. Security events expose outcome, reason, provider kind, and counts only; claim tokens, secret refs, secret values, delivery paths, SVIDs, and private key material are not exposed. In multi-cell deployments, cell catalog fan-in copies these security events into the global run catalog with the same redacted shape. `GET /api/v1/runs/{id}/artifacts` lists artifact manifests recorded by the run and accepts optional `task_id`, `task_attempt_id`, and `execution_id` filters. `GET /api/v1/runs/{id}/artifacts/{name}/download` streams the exact blob bytes uploaded by the worker; Vectis does not transform, compress, or expand archives before serving them. The frozen execution payload itself is available only through the operator-scoped execution-payload route.
 
 `POST /api/v1/jobs/run`, `POST /api/v1/jobs/trigger/{id}`, `POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger`, and `POST /api/v1/runs/{id}/replay` accept `Idempotency-Key`. Use this header when a client might retry after a timeout or dropped connection. Keys must be 1-255 visible ASCII characters and cannot contain whitespace or commas. Other routes reject the header. Retry guidance for each route family is in [Idempotency And Retries](./idempotency-and-retries.md).
 
-Set `source.stored_jobs_enabled` to `false` (or `VECTIS_SOURCE_STORED_JOBS_ENABLED=false`) for source-only deployments that should not create, update, read, trigger, or stream stored jobs. Stored-job calls then return `409 stored_jobs_disabled`; one-off runs, direct source repository triggers, and jobs API calls with `repository_id` remain available.
+Reusable job routes are source-backed and require `repository_id`. One-off runs remain available through `POST /api/v1/jobs/run`.
 
-`vectis-api` also reconciles source repository registrations declared in `source.repositories` or `VECTIS_SOURCE_REPOSITORIES` at startup. Declarations create missing repositories and update changed checkout, authoring, default ref, credential, and enabled fields; they do not delete omitted repositories or move a repository between namespaces. Source repository responses expose `declared`, which is false when the database row is no longer present in current source repository config. Use `GET /api/v1/source/status` to inspect source-mode capabilities such as whether stored job APIs are enabled, whether source repositories/schedules are configured, how many repository and schedule declarations the API currently sees, and persisted repository/schedule totals by enabled, stale, sync, and override state. Set `source.sync_configured_repositories_on_startup=true` or `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` to sync enabled configured repositories during startup; this is disabled by default to avoid deployment delays for large repositories, and a failed startup sync fails API startup after persisting the repository sync error. Set `source.sync_configured_repositories_interval` or `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_INTERVAL` to a positive duration to refresh enabled configured repositories in the background, with `source.sync_configured_repositories_max_concurrency` and `source.sync_configured_repositories_failure_backoff` controlling fetch/probe concurrency and failed-repo retry pressure. Declare source cron schedules in `source.schedules` or `VECTIS_SOURCE_SCHEDULES`; each schedule uses `schedule_id` as its reconcile key and triggers directly from a repository `ref` and definition `path`, or from the default `.vectis/jobs/...` path derived from `job_id`. Use `GET /api/v1/source-schedules` or `GET /api/v1/source-repositories/{id}/schedules` to inspect the reconciled schedule rows, whether each row is still declared in current config, next run time, enabled state, configured ref/path, active override, and effective ref/path.
+`vectis-api` also reconciles source repository registrations declared in `source.repositories` or `VECTIS_SOURCE_REPOSITORIES` at startup. Declarations create missing repositories and update changed checkout, authoring, default ref, credential, and enabled fields; they do not delete omitted repositories or move a repository between namespaces. Source repository responses expose `declared`, which is false when the database row is no longer present in current source repository config. Use `GET /api/v1/source/status` to inspect source-mode capabilities such as whether legacy stored job mode is enabled, whether source repositories/schedules are configured, how many repository and schedule declarations the API currently sees, and persisted repository/schedule totals by enabled, stale, sync, and override state. Set `source.sync_configured_repositories_on_startup=true` or `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true` to sync enabled configured repositories during startup; this is disabled by default to avoid deployment delays for large repositories, and a failed startup sync fails API startup after persisting the repository sync error. Set `source.sync_configured_repositories_interval` or `VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_INTERVAL` to a positive duration to refresh enabled configured repositories in the background, with `source.sync_configured_repositories_max_concurrency` and `source.sync_configured_repositories_failure_backoff` controlling fetch/probe concurrency and failed-repo retry pressure. Declare source cron schedules in `source.schedules` or `VECTIS_SOURCE_SCHEDULES`; each schedule uses `schedule_id` as its reconcile key and triggers directly from a repository `ref` and definition `path`, or from the default `.vectis/jobs/...` path derived from `job_id`. Use `GET /api/v1/source-schedules` or `GET /api/v1/source-repositories/{id}/schedules` to inspect the reconciled schedule rows, whether each row is still declared in current config, next run time, enabled state, configured ref/path, active override, and effective ref/path.
 
 Source repository routes currently register local Git checkouts with `source_kind: "local_checkout"` and a `checkout_path`; each checkout path can be registered once. Repositories include `checkout_mode` (`external` for caller-owned checkout paths, `managed` for Vectis-owned checkout materialization), `authoring_mode` (`read_only` by default, `local_commit` for small-install local authoring, or `external_change_request` for future code-host integrations), `declared`, an `authoring` capability block, and a `sync` object with the last sync status/evidence. Clients should use `authoring.write_definitions` to decide whether source definition authoring is currently available; `authoring.reason` explains disabled, read-only, or not-yet-configured modes. When creating a managed repository, omit `checkout_path` to let Vectis derive a stable path under `source.checkout_root` (default `{{data_home}}/vectis/source-checkouts`). Sync probes external checkouts; for managed checkouts, sync clones from `canonical_url` when the checkout is missing or empty, fetches `origin` when it already exists, advances the local branch ref for the requested default ref, and persists `sync.status`, ref, commit, timestamps, and any checkout error. If `credential_ref` is set, `vectis-api` resolves it from its configured source credential encryptedfs root/key and supplies the resulting HTTPS token or username/password material through askpass, or SSH private key material through a temporary identity file and `GIT_SSH_COMMAND`; SSH payloads may include `known_hosts` to pin host keys, otherwise OpenSSH's normal host-key verification applies. A duplicate sync request for the same repository while one is already running returns `202` with the repository response showing `sync.status: "running"` and `Retry-After: 1`; running reservations older than `source.sync_running_timeout` (default `15m`) may be reclaimed by a later sync request. Update a repository to change its checkout path, checkout mode, authoring mode, default ref, metadata, or enabled state. Delete only unused repository registrations; a declared repository, or a repository with source schedules or recorded source provenance, returns `409` and should be removed from config or disabled instead so scheduled references, historical runs, and definition metadata remain resolvable. Check repository status to verify that the checkout path exists, is a Git work tree, and that the configured default ref resolves when present. List branches with optional `prefix` and `limit` query parameters to populate ref pickers without scanning repository contents; managed repositories return fetched `origin` branches as plain branch names. Browse repository trees with `ref`, `path`, `recursive`, `limit`, and path `cursor` query parameters to choose definition paths at a pinned commit without reading file contents. Discover candidate job definitions with `ref`, `path` (default `.vectis/jobs`), `limit`, and path `cursor`; this returns JSON blob paths, blob SHAs, and sizes without loading file contents. Branch, tree, definition, and source-job responses include `truncated: true` when the response hit its limit before exhausting matching repository content; tree, definition, and source-job responses also include `next_cursor` when another request can continue from the returned path. List source repository jobs to derive triggerable `job_id`s from definition paths without reading file contents; invalid names or duplicate derived IDs are returned separately. Resolve a definition from source with `ref` (optional when the repository has `default_ref`) and `path` to preview the canonical JSON plus resolved commit and blob SHA; managed repositories also resolve fetched remote branches by plain branch name, such as `feature/build`, after sync. Read a source repository job definition with `ref` and optional `path`; without `path`, the job ID maps to the default `.vectis/jobs` layout. With `authoring_mode: "local_commit"`, create, update, and delete source job definitions through `/api/v1/jobs` plus `repository_id`; these operations create local commits without creating a stored job row or pushing to the remote. Trigger directly from a source repository with `ref`, optional `path`, and optional `cell_id`/`target_cell_id`; Vectis creates a durable definition snapshot, run row, and source provenance without creating a `stored_jobs` row. For user-facing job workflows, prefer the `/api/v1/jobs` facade with `repository_id`; the `/api/v1/source-repositories/.../jobs` routes remain useful for explicit repository-scoped tooling and diagnostics. Source-backed cron schedules expose `declared`, which is false when the database row is no longer present in current source schedule config. `PATCH /api/v1/source-schedules/{schedule_id}` updates only `enabled`, so operators can stop stale schedules without changing configured source fields. `DELETE /api/v1/source-schedules/{schedule_id}` removes only source-backed schedules that are stale, disabled, and clear of active overrides; it returns `409` while the schedule is still declared, enabled, or overridden. Schedules can also carry a temporary hotfix override for `ref`, `path`, and `reason`; schedule responses expose `configured_ref`/`configured_path`, effective `ref`/`path`, and the active `override` object when one is set. Config reconciliation preserves active overrides, so clear them explicitly once the configured repository location contains the fix. List source repository job runs and stream source repository run logs to read run history scoped by repository provenance, even when a stored job with the same ID exists elsewhere.
 
@@ -410,15 +367,15 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/source-repositories/{id}/jobs/{job_id}/runs` | List runs for a source repository job, scoped by recorded source provenance | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs` | Stream logs for a source repository job run, scoped by recorded source provenance | `run:read` | general | `200` `text/event-stream` |
 | POST | `/api/v1/source-repositories/{id}/jobs/{job_id}/trigger` | Start a run directly from a repository definition without creating a stored job row | `run:trigger` | general | `202` JSON run |
-| GET | `/api/v1/jobs` | List stored jobs, or source repository jobs when `repository_id` is supplied | `job:read` | general | `200` JSON list |
-| POST | `/api/v1/jobs` | Create a stored job definition, or commit a source job definition when `repository_id` is supplied | `job:write` | general | `201` stored; `200` JSON source definition |
-| GET | `/api/v1/jobs/{id}` | Get one stored job, or resolve one source repository job when `repository_id` is supplied | `job:read` | general | `200` JSON job or definition |
-| PUT | `/api/v1/jobs/{id}` | Replace a stored job definition, or commit a source job definition update when `repository_id` is supplied | `job:write` | general | `204` stored; `200` JSON source definition |
-| DELETE | `/api/v1/jobs/{id}` | Delete a stored job definition, or commit a source definition deletion when `repository_id` is supplied | `job:write` | general | `204` empty |
+| GET | `/api/v1/jobs` | List source repository jobs; requires `repository_id` | `job:read` | general | `200` JSON list |
+| POST | `/api/v1/jobs` | Commit a source job definition; body requires `repository_id` | `job:write` | general | `200` JSON source definition |
+| GET | `/api/v1/jobs/{id}` | Resolve one source repository job; requires `repository_id` | `job:read` | general | `200` JSON definition |
+| PUT | `/api/v1/jobs/{id}` | Commit a source job definition update; body or query requires `repository_id` | `job:write` | general | `200` JSON source definition |
+| DELETE | `/api/v1/jobs/{id}` | Commit a source definition deletion; requires `repository_id` | `job:write` | general | `204` empty |
 | POST | `/api/v1/jobs/run` | Start an ephemeral run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
-| POST | `/api/v1/jobs/trigger/{id}` | Trigger a stored job, or a source repository job when `repository_id` is supplied in the body | `run:trigger` | general | `202` JSON run |
-| GET | `/api/v1/jobs/{id}/runs` | List global catalog runs for one job, optionally scoped by `repository_id` or filtered by `cell_id` | `run:read` | general | `200` JSON list |
-| GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one job, optionally scoped by `repository_id` | `run:read` | general | `200` `text/event-stream` |
+| POST | `/api/v1/jobs/trigger/{id}` | Trigger a source repository job; body requires `repository_id` | `run:trigger` | general | `202` JSON run |
+| GET | `/api/v1/jobs/{id}/runs` | List global catalog runs for one source-backed job; requires `repository_id` | `run:read` | general | `200` JSON list |
+| GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one source-backed job; requires `repository_id` | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs` | Stream run events for a source repository job | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/runs/{id}` | Get one run, including audit metadata, dispatch summary/events, and task completion summary when present | `run:read` | general | `200` JSON run |
 | GET | `/api/v1/runs/{id}/definition` | Get the frozen job definition snapshot for one run | `run:read` | general | `200` JSON definition |

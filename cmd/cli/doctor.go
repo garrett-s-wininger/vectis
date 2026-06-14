@@ -1171,20 +1171,16 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string) doctorC
 	}
 
 	evidence := formatDoctorSourceModeEvidence(status)
-	if status.StoredJobsEnabled {
-		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "stored job APIs enabled", Evidence: evidence, DocLink: doc}
-	}
-
 	if !status.RepositoriesConfigured {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only mode is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring or re-enable stored job APIs", DocLink: doc}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source mode is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring", DocLink: doc}
 	}
 
 	enabled := status.Repositories.Enabled
 	if enabled == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only mode has no enabled source repositories", Evidence: evidence, SuggestedAction: "Declare or enable a source repository, or re-enable stored job APIs", DocLink: doc}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source mode has no enabled source repositories", Evidence: evidence, SuggestedAction: "Declare or enable a source repository", DocLink: doc}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source-only mode ready: %d enabled source repositories", enabled), Evidence: evidence, DocLink: doc}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source mode ready: %d enabled source repositories", enabled), Evidence: evidence, DocLink: doc}
 }
 
 func formatDoctorSourceModeEvidence(status doctorSourceStatus) string {

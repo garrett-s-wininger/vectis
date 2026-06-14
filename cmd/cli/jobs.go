@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"sort"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"vectis/api/gen/go"
@@ -88,61 +86,7 @@ func triggerJobWithOutput(cmd *cobra.Command, args []string, out io.Writer) erro
 		return triggerSourceJobFromJobsFacadeWithOutput(cmd, out, repositoryID, jobID)
 	}
 
-	body, err := triggerJobRequestBody(triggerCellIDs)
-	if err != nil {
-		return err
-	}
-
-	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/jobs/trigger/%s", jobID), body)
-	if err != nil {
-		return fmt.Errorf("failed to create trigger request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	setIdempotencyHeader(req, triggerIdemKey)
-
-	resp, err := doAPIRequest(req)
-	if err != nil {
-		return fmt.Errorf("failed to trigger job: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusAccepted:
-		var result jobRunResult
-
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			return fmt.Errorf("failed to parse response: %w", err)
-		}
-
-		return writeTriggerJobResult(cmd, out, result)
-	case http.StatusNotFound:
-		return fmt.Errorf("job %q not found", jobID)
-	case http.StatusServiceUnavailable:
-		return fmt.Errorf("queue service unavailable")
-	default:
-		return fmt.Errorf("unexpected status: %s", resp.Status)
-	}
-}
-
-func triggerJobRequestBody(rawCellIDs []string) (io.Reader, error) {
-	cellIDs, err := normalizeTriggerCellIDs(rawCellIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(cellIDs) == 0 {
-		return nil, nil
-	}
-
-	body, err := json.Marshal(struct {
-		CellIDs []string `json:"cell_ids"`
-	}{CellIDs: cellIDs})
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode trigger options: %w", err)
-	}
-
-	return bytes.NewReader(body), nil
+	return fmt.Errorf("--repository is required to trigger a reusable job; use jobs run for one-off definitions")
 }
 
 func singleSourceTriggerCellIDFromCells(rawCellIDs []string) (string, error) {
@@ -365,26 +309,6 @@ func runJobRequestBody(jobBody []byte, cellID string) (io.Reader, error) {
 	return bytes.NewReader(body), nil
 }
 
-func fetchJobDefinitionBody(jobID string) ([]byte, int, error) {
-	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s", jobID), nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to create job definition request: %w", err)
-	}
-
-	resp, err := doAPIRequest(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch job definition: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return nil, resp.StatusCode, fmt.Errorf("failed to read job definition: %w", readErr)
-	}
-
-	return body, resp.StatusCode, nil
-}
-
 func fetchSourceJobDefinitionBodyFromJobsFacade(cmd *cobra.Command, repositoryID, jobID string) ([]byte, int, error) {
 	params := url.Values{}
 	setTrimmedQueryParam(params, "repository_id", repositoryID)
@@ -467,14 +391,11 @@ func editJob(cmd *cobra.Command, args []string) {
 
 	jobID := args[0]
 	repositoryID := stringFlagValue(cmd, "repository")
-	var body []byte
-	var statusCode int
-	var err error
-	if repositoryID != "" {
-		body, statusCode, err = fetchSourceJobDefinitionBodyFromJobsFacade(cmd, repositoryID, jobID)
-	} else {
-		body, statusCode, err = fetchJobDefinitionBody(jobID)
+	if repositoryID == "" {
+		runCLIError(fmt.Errorf("--repository is required to edit a reusable job"))
 	}
+
+	body, statusCode, err := fetchSourceJobDefinitionBodyFromJobsFacade(cmd, repositoryID, jobID)
 	if err != nil {
 		runCLIError(err)
 	}
@@ -548,10 +469,7 @@ func editJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job must have a root node"))
 	}
 
-	if repositoryID == "" && (job.Id == nil || *job.Id != jobID) {
-		runCLIError(fmt.Errorf("job id mismatch (expected %q, got %v)", jobID, job.Id))
-	}
-	if repositoryID != "" && strings.TrimSpace(job.GetId()) != "" && strings.TrimSpace(job.GetId()) != jobID {
+	if strings.TrimSpace(job.GetId()) != "" && strings.TrimSpace(job.GetId()) != jobID {
 		runCLIError(fmt.Errorf("job id mismatch (expected %q, got %v)", jobID, job.Id))
 	}
 
@@ -560,37 +478,9 @@ func editJob(cmd *cobra.Command, args []string) {
 	if err != nil {
 		runCLIError(fmt.Errorf("failed to normalize job JSON: %w", err))
 	}
+
 	pretty = append(pretty, '\n')
-
-	if repositoryID != "" {
-		runCLIError(updateSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID, pretty))
-		return
-	}
-
-	req, err := newAPIRequest(http.MethodPut, fmt.Sprintf("/api/v1/jobs/%s", jobID), bytes.NewReader(pretty))
-	if err != nil {
-		runCLIError(fmt.Errorf("failed to create update request: %w", err))
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	updateResp, err := doAPIRequest(req)
-	if err != nil {
-		runCLIError(fmt.Errorf("failed to update job: %w", err))
-	}
-	defer updateResp.Body.Close()
-
-	switch updateResp.StatusCode {
-	case http.StatusNoContent:
-		runCLIError(writeAction(os.Stdout, "Job updated successfully.", cliActionResult{Status: "updated"}))
-	case http.StatusBadRequest:
-		runCLIError(fmt.Errorf("invalid job definition or id mismatch"))
-	case http.StatusUnsupportedMediaType:
-		runCLIError(fmt.Errorf("content type must be application/json"))
-	case http.StatusNotFound:
-		runCLIError(fmt.Errorf("job %q not found", jobID))
-	default:
-		runCLIError(fmt.Errorf("unexpected status updating job: %s", updateResp.Status))
-	}
+	runCLIError(updateSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID, pretty))
 }
 
 func getJobDefinition(cmd *cobra.Command, args []string) {
@@ -605,23 +495,7 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	body, statusCode, err := fetchJobDefinitionBody(jobID)
-	if err != nil {
-		runCLIError(err)
-	}
-
-	switch statusCode {
-	case http.StatusOK:
-		// NOTE(garrett): Continue
-	case http.StatusNotFound:
-		runCLIError(fmt.Errorf("job %q not found", jobID))
-	default:
-		runCLIError(fmt.Errorf("unexpected status fetching job: %d", statusCode))
-	}
-
-	raw, _ := cmd.Flags().GetBool("raw")
-	out := formatJobDefinitionBody(body, !raw)
-	fmt.Print(string(out))
+	runCLIError(fmt.Errorf("--repository is required to show a reusable job"))
 }
 
 func listJobs(cmd *cobra.Command, args []string) {
@@ -660,83 +534,25 @@ func createJob(cmd *cobra.Command, args []string) {
 	}
 
 	repositoryID := stringFlagValue(cmd, "repository")
-	if repositoryID != "" {
-		if namespace := stringFlagValue(cmd, "namespace"); namespace != "" {
-			runCLIError(fmt.Errorf("--namespace cannot be used with --repository"))
-		}
-
-		if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{Resolver: actionResolver}); err != nil {
-			runCLIError(fmt.Errorf("invalid job definition: %w", err))
-		}
-
-		jobID := stringFlagValue(cmd, "job-id")
-		if jobID == "" {
-			jobID = strings.TrimSpace(job.GetId())
-		}
-		if jobID == "" {
-			runCLIError(fmt.Errorf("source job creation requires --job-id or an id field in the job definition"))
-		}
-
-		runCLIError(createSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID, body))
-		return
+	if repositoryID == "" {
+		runCLIError(fmt.Errorf("--repository is required to create a reusable job; use jobs run for one-off definitions"))
 	}
 
-	if job.Id == nil || *job.Id == "" {
-		runCLIError(fmt.Errorf("job definition must include an id field"))
+	if namespace := stringFlagValue(cmd, "namespace"); namespace != "" {
+		runCLIError(fmt.Errorf("--namespace cannot be used with --repository"))
 	}
 
-	if jobID := stringFlagValue(cmd, "job-id"); jobID != "" {
-		runCLIError(fmt.Errorf("--job-id requires --repository"))
-	}
-
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: actionResolver}); err != nil {
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{Resolver: actionResolver}); err != nil {
 		runCLIError(fmt.Errorf("invalid job definition: %w", err))
 	}
 
-	namespace, _ := cmd.Flags().GetString("namespace")
-
-	payload, err := json.Marshal(struct {
-		Namespace string          `json:"namespace"`
-		Job       json.RawMessage `json:"job"`
-	}{
-		Namespace: namespace,
-		Job:       body,
-	})
-
-	if err != nil {
-		runCLIError(fmt.Errorf("failed to encode request: %w", err))
+	jobID := stringFlagValue(cmd, "job-id")
+	if jobID == "" {
+		jobID = strings.TrimSpace(job.GetId())
+		runCLIError(fmt.Errorf("source job creation requires --job-id or an id field in the job definition"))
 	}
 
-	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(payload))
-	if err != nil {
-		runCLIError(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := doAPIRequest(req)
-	if err != nil {
-		runCLIError(fmt.Errorf("request failed: %w", err))
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusCreated:
-		if outputIsJSON() {
-			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "created", "job_id": *job.Id}))
-		} else {
-			fmt.Printf("Job %q stored.\n", *job.Id)
-		}
-	case http.StatusConflict:
-		runCLIError(fmt.Errorf("job %q already exists", *job.Id))
-	case http.StatusBadRequest:
-		runCLIError(fmt.Errorf("invalid job definition"))
-	case http.StatusUnsupportedMediaType:
-		runCLIError(fmt.Errorf("content type must be application/json"))
-	case http.StatusServiceUnavailable:
-		runCLIError(fmt.Errorf("database unavailable"))
-	default:
-		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
-	}
+	runCLIError(createSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID, body))
 }
 
 func createSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string, definition []byte) error {
@@ -869,29 +685,7 @@ func deleteJob(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	req, err := newAPIRequest(http.MethodDelete, fmt.Sprintf("/api/v1/jobs/%s", jobID), nil)
-	if err != nil {
-		runCLIError(err)
-	}
-
-	resp, err := doAPIRequest(req)
-	if err != nil {
-		runCLIError(fmt.Errorf("request failed: %w", err))
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusNoContent:
-		if outputIsJSON() {
-			runCLIError(writeJSON(os.Stdout, map[string]string{"status": "deleted", "job_id": jobID}))
-		} else {
-			fmt.Printf("Job %q deleted.\n", jobID)
-		}
-	case http.StatusNotFound:
-		runCLIError(fmt.Errorf("job %q not found", jobID))
-	default:
-		runCLIError(fmt.Errorf("unexpected status: %s", resp.Status))
-	}
+	runCLIError(fmt.Errorf("--repository is required to delete a reusable job"))
 }
 
 func deleteSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
@@ -943,106 +737,7 @@ func listJobsWithOutput(w io.Writer, opts jobListOptions) error {
 		return listSourceJobsFromJobsFacadeWithOutput(w, opts)
 	}
 
-	return listJobNames(w, opts.Quiet, opts.Cursor, opts.Limit)
-}
-
-func listJobNames(w io.Writer, quiet bool, cursor string, limit int) error {
-	path := "/api/v1/jobs"
-	params := url.Values{}
-	if strings.TrimSpace(cursor) != "" {
-		cursorValue, err := strconv.ParseInt(strings.TrimSpace(cursor), 10, 64)
-		if err != nil || cursorValue < 0 {
-			return fmt.Errorf("--cursor must be a non-negative integer when listing stored jobs")
-		}
-
-		if cursorValue > 0 {
-			params.Set("cursor", strconv.FormatInt(cursorValue, 10))
-		}
-	}
-
-	if limit > 0 {
-		params.Set("limit", strconv.Itoa(limit))
-	}
-
-	if encoded := params.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-
-	req, err := newAPIRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create list jobs request: %w", err)
-	}
-
-	resp, err := doAPIRequest(req)
-	if err != nil {
-		return fmt.Errorf("failed to list jobs: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status listing jobs: %s", resp.Status)
-	}
-
-	type jobListItem struct {
-		Name       string          `json:"name"`
-		Namespace  string          `json:"namespace,omitempty"`
-		Definition json.RawMessage `json:"definition,omitempty"`
-	}
-
-	var jobsResp struct {
-		Data       []jobListItem `json:"data"`
-		NextCursor *int64        `json:"next_cursor,omitempty"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&jobsResp); err != nil {
-		return fmt.Errorf("failed to parse jobs response: %w", err)
-	}
-
-	jobs := make([]jobListItem, 0, len(jobsResp.Data))
-	for _, job := range jobsResp.Data {
-		if job.Name != "" {
-			jobs = append(jobs, job)
-		}
-	}
-
-	sort.Slice(jobs, func(i, j int) bool {
-		return jobs[i].Name < jobs[j].Name
-	})
-
-	if outputIsJSON() {
-		jobsResp.Data = jobs
-		return writeJSON(w, jobsResp)
-	}
-
-	if quiet {
-		for _, job := range jobs {
-			fmt.Fprintln(w, job.Name)
-		}
-
-		return nil
-	}
-
-	if len(jobs) == 0 {
-		fmt.Fprintln(w, "No jobs found")
-		return nil
-	}
-
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tNAMESPACE")
-	for _, job := range jobs {
-		namespace := job.Namespace
-		if namespace == "" {
-			namespace = "-"
-		}
-		fmt.Fprintf(tw, "%s\t%s\n", job.Name, namespace)
-	}
-	_ = tw.Flush()
-
-	if jobsResp.NextCursor != nil {
-		fmt.Fprintf(w, "\nMore jobs available. Continue with --cursor %d.\n", *jobsResp.NextCursor)
-	}
-
-	return nil
+	return fmt.Errorf("--repository is required to list reusable jobs")
 }
 
 var jobsCmd = &cobra.Command{
@@ -1051,9 +746,7 @@ var jobsCmd = &cobra.Command{
 	Long: `Create, inspect, trigger, and run reusable jobs.
 
 Common flows:
-  vectis-cli jobs create build.json
   vectis-cli jobs create build.json --repository vectis --branch main
-  vectis-cli jobs trigger build-main --follow
   vectis-cli jobs trigger build-main --repository vectis --ref main --follow
   vectis-cli jobs run scratch.json`,
 	GroupID: cliGroupWorkflows,
@@ -1063,9 +756,9 @@ Common flows:
 var triggerCmd = &cobra.Command{
 	Use:   "trigger [job-id]",
 	Short: "Trigger a reusable job",
-	Long: `Trigger a stored job by its job-id, or pass --repository to trigger a source-backed job through the jobs API facade.
+	Long: `Trigger a reusable source-backed job by job-id through the jobs API facade.
 The API records the run and returns immediately (202 with run_id); enqueue to the queue happens in the background, so a down queue does not block this command.
-Use --cell repeatedly to fan out a stored job into named execution cells. Source-backed triggers accept at most one --cell.`,
+Pass --repository to select the source repository. Source-backed triggers accept at most one --cell.`,
 	Args: cobra.ExactArgs(1),
 	Run:  triggerJob,
 }
@@ -1083,7 +776,7 @@ Use --cell to route the one-off run into a named execution cell.`,
 var editCmd = &cobra.Command{
 	Use:   "edit [job-id]",
 	Short: "Edit a job definition using $EDITOR",
-	Long:  `Fetch a stored job definition, or pass --repository to edit a source-backed definition, then update it if you save and exit successfully.`,
+	Long:  `Fetch a source-backed job definition, then update it if you save and exit successfully. Pass --repository to select the source repository.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   editJob,
 }
@@ -1091,7 +784,7 @@ var editCmd = &cobra.Command{
 var getCmd = &cobra.Command{
 	Use:   "show [job-id]",
 	Short: "Show a job definition",
-	Long:  `Fetch a stored job definition by job-id, or pass --repository to resolve a source-backed job definition by ref and path.`,
+	Long:  `Fetch a source-backed job definition by job-id. Pass --repository to select the source repository.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   getJobDefinition,
 }
@@ -1099,7 +792,7 @@ var getCmd = &cobra.Command{
 var createCmd = &cobra.Command{
 	Use:   "create [path|-]",
 	Short: "Create a reusable job definition",
-	Long:  `Create a reusable job definition for later trigger, edit, and delete. Pass --repository to commit the definition through source authoring. Path is a JSON file; use "-" to read from stdin.`,
+	Long:  `Create a reusable source-backed job definition for later trigger, edit, and delete. Pass --repository to commit the definition through source authoring. Path is a JSON file; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   createJob,
 }
@@ -1107,7 +800,7 @@ var createCmd = &cobra.Command{
 var deleteCmd = &cobra.Command{
 	Use:   "delete [job-id]",
 	Short: "Delete a reusable job definition",
-	Long:  `Delete a stored job definition, or pass --repository to commit a source definition deletion. The job must exist. Pass --yes to skip confirmation.`,
+	Long:  `Delete a reusable source-backed job definition by committing a source definition deletion. The job must exist. Pass --repository to select the source repository and --yes to skip confirmation.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   deleteJob,
 }
@@ -1115,7 +808,7 @@ var deleteCmd = &cobra.Command{
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List reusable jobs",
-	Long:  `Fetch stored jobs by default, or pass --repository to list source-backed jobs discovered from a repository. Use --quiet to print only job IDs.`,
+	Long:  `List reusable source-backed jobs discovered from a repository. Pass --repository to select the source repository. Use --quiet to print only job IDs.`,
 	Args:  cobra.NoArgs,
 	Run:   listJobs,
 }

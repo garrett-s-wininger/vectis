@@ -28,14 +28,8 @@ const (
 )
 
 func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
-	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
-		jobID := r.PathValue("id")
-		setSourceJobPathValues(r, repositoryID, jobID)
-		s.HandleSSESourceRepositoryJobRuns(w, r)
-		return
-	}
-
-	if !s.requireStoredJobs(w) {
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
+	if !ok {
 		return
 	}
 
@@ -45,36 +39,8 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	s.streamRunEvents(w, r, jobID, "job: "+jobID)
+	setSourceJobPathValues(r, repositoryID, jobID)
+	s.HandleSSESourceRepositoryJobRuns(w, r)
 }
 
 func (s *APIServer) streamRunEvents(w http.ResponseWriter, r *http.Request, subscriptionKey, logSubject string) {

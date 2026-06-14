@@ -9,7 +9,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Area | Operator use | Commands |
 | --- | --- | --- |
 | Actions | Inspect configured action descriptors and resolve friendly names to digests for pinning. | `vectis-cli actions list`, `actions resolve`, `--ignore-policy` |
-| Jobs | Manage stored and source-backed jobs, and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `create --repository`, `edit`, `edit --repository`, `delete`, `delete --repository`, `trigger`, `trigger --cell`, `trigger --repository`, `run`, `run --cell` |
+| Jobs | Manage source-backed reusable jobs, and run one-off job files. | `vectis-cli jobs list --repository`, `show --repository`, `create --repository`, `edit --repository`, `delete --repository`, `trigger --repository`, `trigger --cell`, `run`, `run --cell` |
 | Runs | Inspect, cancel, retry, download artifacts, identify failed worker-controlled SVID/secret gates, filter by repository or cell, or manually repair run state. | `vectis-cli runs list`, `runs list --repository`, `runs list --cell`, `show`, `tasks`, `artifacts list`, `artifacts download`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
 | Cells | Inspect execution cell readiness, routing, queued pressure, orchestrator-driven task progress, and catalog fan-in counts. | `vectis-cli cells status` |
 | Logs | Stream logs for one run or follow future runs for a job, including source-backed jobs. | `vectis-cli logs run`, `logs job`, `logs job --repository` |

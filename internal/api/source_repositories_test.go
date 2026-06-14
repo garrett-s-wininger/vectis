@@ -961,8 +961,8 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 		path   string
 		body   any
 	}{
-		{name: "list stored jobs", method: http.MethodGet, path: "/api/v1/jobs"},
-		{name: "create stored job", method: http.MethodPost, path: "/api/v1/jobs", body: jobBody},
+		{name: "list reusable jobs without repository", method: http.MethodGet, path: "/api/v1/jobs"},
+		{name: "create reusable job without repository", method: http.MethodPost, path: "/api/v1/jobs", body: jobBody},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var rec *httptest.ResponseRecorder
@@ -974,7 +974,7 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 				rec = doJSONRequest(t, handler, tc.method, tc.path, tc.body)
 			}
 
-			assertAPIError(t, rec, http.StatusConflict, "stored_jobs_disabled")
+			assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 		})
 	}
 
@@ -1088,7 +1088,7 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	storedSSERec := httptest.NewRecorder()
 	storedSSEReq := httptest.NewRequest(http.MethodGet, "/api/v1/sse/jobs/build/runs", nil)
 	handler.ServeHTTP(storedSSERec, storedSSEReq)
-	assertAPIError(t, storedSSERec, http.StatusConflict, "stored_jobs_disabled")
+	assertAPIError(t, storedSSERec, http.StatusBadRequest, "missing_repository_id")
 
 	runLogsRec := httptest.NewRecorder()
 	runLogsReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+triggerResp.RunID+"/logs", nil)

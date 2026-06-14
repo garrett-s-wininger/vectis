@@ -121,34 +121,34 @@ Hello from Vectis!
 Running multiple steps in sequence
 ```
 
-## Store And Trigger A Job
+## Save And Trigger A Reusable Job
 
-If you want to save a job definition and trigger it later, create a stored job:
+If you want to save a job definition and trigger it later, commit it to a registered source repository:
 
 ```sh
-./bin/vectis-cli jobs create examples/sequenced.json
+./bin/vectis-cli jobs create examples/sequenced.json --repository vectis-local --branch main --message "Add sequenced job"
 ```
 
-If you already created this example during an earlier run, the CLI will say the job already exists. That is fine; you can keep using it or delete it with `./bin/vectis-cli jobs delete sequenced-job --yes`.
+If you already created this example during an earlier run, update it with `./bin/vectis-cli jobs edit sequenced-job --repository vectis-local --branch main` or delete it with `./bin/vectis-cli jobs delete sequenced-job --repository vectis-local --branch main --yes`.
 
 Then trigger it:
 
 ```sh
-./bin/vectis-cli jobs trigger sequenced-job --follow
+./bin/vectis-cli jobs trigger sequenced-job --repository vectis-local --ref main --follow
 ```
 
 The `--follow` flag streams logs for the run that was just created.
 
-You can list stored jobs with:
+You can list reusable jobs from the repository with:
 
 ```sh
-./bin/vectis-cli jobs list
+./bin/vectis-cli jobs list --repository vectis-local --ref main
 ```
 
-And list recent runs for a stored job with:
+And list recent runs for that source-backed job with:
 
 ```sh
-./bin/vectis-cli runs list sequenced-job
+./bin/vectis-cli runs list sequenced-job --repository vectis-local
 ```
 
 ## Inspect A Run Later

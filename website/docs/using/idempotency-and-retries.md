@@ -29,7 +29,7 @@ Only these routes currently record idempotency keys:
 | Route | Use it for | Safe retry behavior |
 | --- | --- | --- |
 | `POST /api/v1/jobs/run` | Start an ephemeral run from a job definition. | Same key and same request returns the same `202` response. |
-| `POST /api/v1/jobs/trigger/{id}` | Trigger a stored job, or trigger a source-backed job when the body includes `repository_id`. | Same key and same trigger returns the same `202` response. |
+| `POST /api/v1/jobs/trigger/{id}` | Trigger a source-backed job when the body includes `repository_id`. | Same key and same trigger returns the same `202` response. |
 | `POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger` | Trigger a source-backed job through the explicit repository route. | Same key and same trigger returns the same `202` response. |
 | `POST /api/v1/runs/{id}/replay` | Create a fresh run from a completed source run's captured definition version. | Same key, source run, and replay target returns the same `202` response. |
 
@@ -37,7 +37,7 @@ Other routes may be safe to retry for other reasons, but they do not replay a re
 
 ## CLI Usage
 
-One-off runs, stored-job triggers, source-backed triggers, and replay requests accept `--idempotency-key`:
+One-off runs, source-backed triggers, and replay requests accept `--idempotency-key`:
 
 ```sh
 ./bin/vectis-cli jobs run job.json --idempotency-key "$(uuidgen)"
@@ -73,10 +73,10 @@ Keys are opaque client strings. Use at least 128 bits of randomness, or use a st
 
 Vectis stores the key with a scope and a request hash.
 
-For stored-job and source-backed triggers, the scope includes:
+For source-backed triggers, the scope includes:
 
 - the authenticated principal, or anonymous access when auth is disabled
-- the stored job ID, or the source repository and job ID pair
+- the source repository and job ID pair
 - the trigger operation
 
 For ephemeral runs, the scope includes:

@@ -391,7 +391,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 var rootCmd = &cobra.Command{
 	Use:   "vectis-api-server",
 	Short: "Vectis API Server",
-	Long:  `The Vectis API Server provides REST endpoints for triggering stored jobs.`,
+	Long:  `The Vectis API Server provides REST endpoints for triggering source-backed and one-off jobs.`,
 	Run:   runVectisAPI,
 }
 

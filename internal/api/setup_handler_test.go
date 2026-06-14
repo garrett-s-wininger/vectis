@@ -89,9 +89,9 @@ func TestSetupHandlers_endToEndThroughHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("jobs_with_token", func(t *testing.T) {
+	t.Run("namespaces_with_token", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
 		req.Header.Set("Authorization", "Bearer "+apiToken)
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -99,9 +99,9 @@ func TestSetupHandlers_endToEndThroughHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("jobs_without_token_rejected", func(t *testing.T) {
+	t.Run("namespaces_without_token_rejected", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("code=%d", rec.Code)

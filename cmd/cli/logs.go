@@ -548,6 +548,10 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 	}
 
 	repositoryID := stringFlagValue(cmd, "repository")
+	if repositoryID == "" {
+		runCLIError(fmt.Errorf("--repository is required to stream logs for a reusable job; use logs run for a specific run"))
+	}
+
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
 	filterStderr, _ := cmd.Flags().GetBool("stderr")
 	follow, _ := cmd.Flags().GetBool("follow")
@@ -590,7 +594,7 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 var logsCmd = &cobra.Command{
 	Use:     "logs",
 	Short:   "Stream logs for runs",
-	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run. Use "logs job" for the latest run of a job, add --repository for source-backed jobs, or add --follow to wait for future runs. Use "-" as the id to read from stdin.`,
+	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run. Use "logs job --repository" for the latest run of a reusable source-backed job, or add --follow to wait for future runs. Use "-" as the id to read from stdin.`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
 }
@@ -606,7 +610,7 @@ var logsRunCmd = &cobra.Command{
 var logsJobCmd = &cobra.Command{
 	Use:   "job [job-id]",
 	Short: "Stream logs for the latest run of a job",
-	Long:  `Stream logs for the latest run of a job. Add --repository for source-backed jobs, and add --follow to wait for each future run triggered after you connect. Argument is a job-id; use "-" to read from stdin.`,
+	Long:  `Stream logs for the latest run of a source-backed reusable job. Pass --repository to select the source repository, and add --follow to wait for each future run triggered after you connect. Argument is a job-id; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runLogsJob,
 }

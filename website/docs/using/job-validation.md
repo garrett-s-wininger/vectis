@@ -4,7 +4,7 @@ Vectis validates a job before it stores it or starts a run. Validation is there 
 
 You will usually see validation while using:
 
-- `./bin/vectis-cli jobs create <file>`
+- `./bin/vectis-cli jobs create <file> --repository <repo>`
 - `./bin/vectis-cli jobs run <file>`
 - `POST /api/v1/jobs`
 - `PUT /api/v1/jobs/{id}`
@@ -14,7 +14,7 @@ If you are new to the job format, we suggest you start with [Your First Job](./y
 
 ## The Smallest Valid Shape
 
-A stored job needs an `id` and a `root` node:
+A reusable source-backed job needs an `id` and a `root` node:
 
 ```json
 {
@@ -43,7 +43,7 @@ An ephemeral run can omit the top-level job `id` because the API creates a run I
 }
 ```
 
-The top-level job `id` is the stored job's name. Node `id` values identify steps inside that job. They are different things, even when the names look similar.
+The top-level job `id` is the reusable job's name. Node `id` values identify steps inside that job. They are different things, even when the names look similar.
 
 ## What Vectis Checks
 
@@ -51,7 +51,7 @@ Every job must have:
 
 | Part | Rule |
 | --- | --- |
-| Job `id` | Required for stored jobs. Optional for ephemeral runs. |
+| Job `id` | Required for reusable source-backed jobs unless `--job-id` is supplied. Optional for ephemeral runs. |
 | Job `default_isolation` | Optional. If present, must be `host` or `vm`. |
 | `root` | Required. This is the first node Vectis executes. |
 | Node `id` | Required on every node and unique within the job. |
@@ -243,7 +243,7 @@ Each entry in `details.fields` points to a field path in the job document:
 
 | Field path | Meaning |
 | --- | --- |
-| `id` | The stored job ID is missing or invalid. |
+| `id` | The reusable job ID is missing or invalid. |
 | `root` | The job has no root node. |
 | `root.id` | The root node is missing its node ID. |
 | `root.uses` | The root node is missing or names an unknown action. |

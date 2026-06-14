@@ -7,12 +7,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -49,6 +47,25 @@ func insertStoredJobForTest(t *testing.T, db *sql.DB, jobID, definitionJSON stri
 	if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), jobID, definitionJSON, namespaceID); err != nil {
 		t.Fatalf("insert stored job %s: %v", jobID, err)
 	}
+}
+
+func insertSourceJobForTest(t *testing.T, db *sql.DB, repositoryID, jobID, definitionJSON string) string {
+	t.Helper()
+
+	repoPath := initAPIGitRepo(t)
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/"+jobID+".json", strings.TrimSpace(definitionJSON)+"\n", "add "+jobID)
+	if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID: repositoryID,
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: repoPath,
+		DefaultRef:   "HEAD",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("insert source repository %s: %v", repositoryID, err)
+	}
+
+	return repoPath
 }
 
 func claimPendingRunExecutionForAPITest(t *testing.T, runs dal.RunsRepository, runID, owner string, leaseUntil time.Time) dal.ExecutionClaimResult {
@@ -226,8 +243,8 @@ func apiErrorValidationFields(t *testing.T, rec *httptest.ResponseRecorder) []st
 	return body.Details.Fields
 }
 
-func TestAPIServer_CreateJob_Success(t *testing.T) {
-	server, logger, _, db := setupTestServer(t)
+func TestAPIServer_CreateJob_RequiresRepositoryID(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
 
 	jobDef := map[string]any{
 		"id": "test-job-1",
@@ -247,9 +264,7 @@ func TestAPIServer_CreateJob_Success(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	if rec.Code != http.StatusCreated {
-		t.Errorf("expected status %d, got %d", http.StatusCreated, rec.Code)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "test-job-1").Scan(&count)
@@ -257,21 +272,8 @@ func TestAPIServer_CreateJob_Success(t *testing.T) {
 		t.Fatalf("failed to query db: %v", err)
 	}
 
-	if count != 1 {
-		t.Errorf("expected 1 job in db, got %d", count)
-	}
-
-	infoCalls := logger.GetInfoCalls()
-	hasStoredMsg := false
-	for _, msg := range infoCalls {
-		if strings.Contains(msg, "Stored job: test-job-1") {
-			hasStoredMsg = true
-			break
-		}
-	}
-
-	if !hasStoredMsg {
-		t.Errorf("expected logger to contain 'Stored job: test-job-1', got: %v", infoCalls)
+	if count != 0 {
+		t.Errorf("expected no stored job in db, got %d", count)
 	}
 }
 
@@ -287,7 +289,7 @@ func TestAPIServer_CreateJob_InvalidContentType(t *testing.T) {
 	assertAPIError(t, rec, http.StatusUnsupportedMediaType, "unsupported_media_type")
 }
 
-func TestAPIServer_CreateJob_DBUnavailable(t *testing.T) {
+func TestAPIServer_CreateJob_RequiresRepositoryIDBeforeStorage(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	if err := db.Close(); err != nil {
 		t.Fatalf("close db: %v", err)
@@ -309,7 +311,7 @@ func TestAPIServer_CreateJob_DBUnavailable(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 }
 
 func TestAPIServer_GetJobs_DBUnavailable(t *testing.T) {
@@ -318,24 +320,23 @@ func TestAPIServer_GetJobs_DBUnavailable(t *testing.T) {
 		t.Fatalf("close db: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs?repository_id=repo-db-down", nil)
 	rec := httptest.NewRecorder()
 	server.GetJobs(rec, req)
 
 	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
-func TestAPIServer_GetJobs_ListError_ClassifiedUnavailable(t *testing.T) {
+func TestAPIServer_GetJobs_RequiresRepositoryID(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
-	jobs.ListErr = fmt.Errorf("dial: %w", syscall.ECONNREFUSED)
 	runs := mocks.NewMockRunsRepository()
 	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces", nil)
 	rec := httptest.NewRecorder()
 	server.GetJobs(rec, req)
 
-	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 }
 
 func TestAPIServer_GetQueueBacklogIncludesCellBreakdown(t *testing.T) {
@@ -737,7 +738,7 @@ func TestAPIServer_GetJobRuns_DBUnavailable(t *testing.T) {
 		t.Fatalf("close db: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/some-job/runs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/some-job/runs?repository_id=repo-db-down", nil)
 	req.SetPathValue("id", "some-job")
 	rec := httptest.NewRecorder()
 	server.GetJobRuns(rec, req)
@@ -748,24 +749,23 @@ func TestAPIServer_GetJobRuns_DBUnavailable(t *testing.T) {
 func TestAPIServer_GetJobRuns_NotFound(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/missing/runs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/missing/runs?repository_id=missing-repo", nil)
 	req.SetPathValue("id", "missing")
 	rec := httptest.NewRecorder()
 	server.GetJobRuns(rec, req)
 
-	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
+	assertAPIError(t, rec, http.StatusNotFound, "source_repository_not_found")
 }
 
-func TestAPIServer_TriggerJob_DBUnavailableOnGetDefinition(t *testing.T) {
+func TestAPIServer_TriggerJob_DBUnavailableOnGetRepository(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
-	jobDef := `{"id": "job-trig-db", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-trig-db", jobDef)
 
 	if err := db.Close(); err != nil {
 		t.Fatalf("close db: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-trig-db", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-trig-db", strings.NewReader(`{"repository_id":"repo-db-down"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "job-trig-db")
 	rec := httptest.NewRecorder()
 	server.TriggerJob(rec, req)
@@ -1027,7 +1027,7 @@ func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM stored_jobs").Scan(&count)
@@ -1036,7 +1036,7 @@ func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestAPIServer_CreateJob_DuplicateJobID(t *testing.T) {
+func TestAPIServer_CreateJob_DuplicateJobIDRequiresRepositoryID(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
 	jobDef := map[string]any{
@@ -1056,16 +1056,7 @@ func TestAPIServer_CreateJob_DuplicateJobID(t *testing.T) {
 	rec1 := httptest.NewRecorder()
 	server.CreateJob(rec1, req1)
 
-	if rec1.Code != http.StatusCreated {
-		t.Fatalf("first job creation failed: %d", rec1.Code)
-	}
-
-	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
-	req2.Header.Set("Content-Type", "application/json")
-	rec2 := httptest.NewRecorder()
-	server.CreateJob(rec2, req2)
-
-	assertAPIError(t, rec2, http.StatusConflict, "job_already_exists")
+	assertAPIError(t, rec1, http.StatusBadRequest, "missing_repository_id")
 }
 
 func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
@@ -1085,21 +1076,7 @@ func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
-
-	fields := apiErrorValidationFields(t, rec)
-	wantFields := map[string]string{
-		"root.id":   "is required",
-		"root.uses": `unknown action "builtins/not-real"`,
-	}
-
-	for _, field := range fields {
-		delete(wantFields, field.Field)
-	}
-
-	if len(wantFields) != 0 {
-		t.Fatalf("missing structured validation fields %v in body=%s", wantFields, rec.Body.String())
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "bad-job").Scan(&count); err != nil {
@@ -1111,7 +1088,7 @@ func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
 	}
 }
 
-func TestAPIServer_GetJobs_Empty(t *testing.T) {
+func TestAPIServer_GetJobs_EmptyRequiresRepositoryID(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
@@ -1119,71 +1096,11 @@ func TestAPIServer_GetJobs_Empty(t *testing.T) {
 
 	server.GetJobs(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
-	}
-
-	var resp struct {
-		Data       []map[string]any `json:"data"`
-		NextCursor *int64           `json:"next_cursor,omitempty"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse response: %v", err)
-	}
-
-	if len(resp.Data) != 0 {
-		t.Errorf("expected empty array, got %v", resp.Data)
-	}
-
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("expected Content-Type application/json, got %s", ct)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 }
 
-func TestAPIServer_GetJobs_WithJobs(t *testing.T) {
-	server, _, _, db := setupTestServer(t)
-
-	job1 := `{"id": "job-1", "root": {"uses": "builtins/shell"}}`
-	job2 := `{"id": "job-2", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-1", job1)
-	insertStoredJobForTest(t, db, "job-2", job2)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
-	rec := httptest.NewRecorder()
-
-	server.GetJobs(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
-	}
-
-	var resp struct {
-		Data       []map[string]any `json:"data"`
-		NextCursor *int64           `json:"next_cursor,omitempty"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse response: %v", err)
-	}
-
-	jobs := resp.Data
-	if len(jobs) != 2 {
-		t.Errorf("expected 2 jobs, got %d", len(jobs))
-	}
-
-	if jobs[0]["name"] != "job-1" && jobs[0]["name"] != "job-2" {
-		t.Errorf("unexpected job name: %v", jobs[0]["name"])
-	}
-
-	if jobs[0]["definition"] == nil {
-		t.Error("expected definition to be present")
-	}
-}
-
-func TestAPIServer_GetJob_Success(t *testing.T) {
-	server, _, _, db := setupTestServer(t)
-
-	jobDef := `{"id": "job-get-1", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-get-1", jobDef)
+func TestAPIServer_GetJob_RequiresRepositoryID(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-get-1", nil)
 	req.SetPathValue("id", "job-get-1")
@@ -1191,40 +1108,28 @@ func TestAPIServer_GetJob_Success(t *testing.T) {
 
 	server.GetJob(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
-	}
-
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
-		t.Fatalf("expected Content-Type application/json, got %s", ct)
-	}
-
-	if strings.TrimSpace(rec.Body.String()) != jobDef {
-		t.Fatalf("expected body %s, got %s", jobDef, rec.Body.String())
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 }
 
 func TestAPIServer_GetJob_NotFound(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/nonexistent?repository_id=missing-repo", nil)
 	req.SetPathValue("id", "nonexistent")
 	rec := httptest.NewRecorder()
 
 	server.GetJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
+	assertAPIError(t, rec, http.StatusNotFound, "source_repository_not_found")
 }
 
 func TestAPIServer_GetJob_DBUnavailable(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
-	jobDef := `{"id": "job-db-down", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-db-down", jobDef)
 	if err := db.Close(); err != nil {
 		t.Fatalf("close db: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-db-down", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-db-down?repository_id=repo-db-down", nil)
 	req.SetPathValue("id", "job-db-down")
 	rec := httptest.NewRecorder()
 	server.GetJob(rec, req)
@@ -1232,38 +1137,8 @@ func TestAPIServer_GetJob_DBUnavailable(t *testing.T) {
 	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
-func TestAPIServer_GetJob_InvalidVersion(t *testing.T) {
-	server, _, _, db := setupTestServer(t)
-
-	jobDef := `{"id": "job-version", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-version", jobDef)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-version?version=abc", nil)
-	req.SetPathValue("id", "job-version")
-	rec := httptest.NewRecorder()
-	server.GetJob(rec, req)
-
-	assertAPIError(t, rec, http.StatusBadRequest, "invalid_version")
-}
-
-func TestAPIServer_GetJob_VersionNotFound(t *testing.T) {
-	server, _, _, db := setupTestServer(t)
-
-	jobDef := `{"id": "job-version-missing", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-version-missing", jobDef)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-version-missing?version=99", nil)
-	req.SetPathValue("id", "job-version-missing")
-	rec := httptest.NewRecorder()
-	server.GetJob(rec, req)
-
-	assertAPIError(t, rec, http.StatusNotFound, "job_version_not_found")
-}
-
-func TestAPIServer_DeleteJob_Success(t *testing.T) {
-	server, logger, _, db := setupTestServer(t)
-	jobDef := `{"id": "job-to-delete", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-to-delete", jobDef)
+func TestAPIServer_DeleteJob_RequiresRepositoryID(t *testing.T) {
+	server, _, _, _ := setupTestServer(t)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/job-to-delete", nil)
 	req.SetPathValue("id", "job-to-delete")
@@ -1271,28 +1146,7 @@ func TestAPIServer_DeleteJob_Success(t *testing.T) {
 
 	server.DeleteJob(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("expected status %d, got %d", http.StatusNoContent, rec.Code)
-	}
-
-	var count int
-	db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "job-to-delete").Scan(&count)
-	if count != 0 {
-		t.Errorf("expected 0 jobs with id 'job-to-delete', got %d", count)
-	}
-
-	infoCalls := logger.GetInfoCalls()
-	hasDeletedMsg := false
-	for _, msg := range infoCalls {
-		if strings.Contains(msg, "Deleted job: job-to-delete") {
-			hasDeletedMsg = true
-			break
-		}
-	}
-
-	if !hasDeletedMsg {
-		t.Errorf("expected logger to contain 'Deleted job: job-to-delete', got: %v", infoCalls)
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 }
 
 func TestAPIServer_DeleteJob_MissingID(t *testing.T) {
@@ -1309,21 +1163,24 @@ func TestAPIServer_DeleteJob_MissingID(t *testing.T) {
 func TestAPIServer_DeleteJob_NotFound(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/missing", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/missing?repository_id=missing-repo", nil)
 	req.SetPathValue("id", "missing")
 	rec := httptest.NewRecorder()
 	server.DeleteJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
+	assertAPIError(t, rec, http.StatusNotFound, "source_repository_not_found")
 }
 
 func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	server, logger, queueService, db := setupTestServer(t)
-	jobDef := `{"id": "job-to-trigger", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	insertStoredJobForTest(t, db, "job-to-trigger", jobDef)
+	jobID := "job-to-trigger"
+	repositoryID := "repo-trigger"
+	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-to-trigger", nil)
-	req.SetPathValue("id", "job-to-trigger")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
 
 	server.TriggerJob(rec, req)
@@ -1338,8 +1195,8 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Errorf("expected 1 job enqueued, got %d", len(jobs))
 	}
 
-	if jobs[0].GetId() != "job-to-trigger" {
-		t.Errorf("expected job id 'job-to-trigger', got %s", jobs[0].GetId())
+	if jobs[0].GetId() != jobID {
+		t.Errorf("expected job id %q, got %s", jobID, jobs[0].GetId())
 	}
 
 	runID := jobs[0].GetRunId()
@@ -1358,7 +1215,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("decode execution envelope: %v", err)
 	}
 
-	if env.Job.GetId() != "job-to-trigger" || env.RunID != runID {
+	if env.Job.GetId() != jobID || env.RunID != runID {
 		t.Fatalf("unexpected envelope identity: job=%q run=%q", env.Job.GetId(), env.RunID)
 	}
 
@@ -1368,7 +1225,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 
 	var dbStatus string
 	var runIndex int
-	err = db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", "job-to-trigger", runID).Scan(&dbStatus, &runIndex)
+	err = db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex)
 	if err != nil {
 		t.Fatalf("expected job_runs row for triggered job: %v", err)
 	}
@@ -1412,12 +1269,12 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("query execution payload: %v", err)
 	}
 
-	if !strings.Contains(executionPayload, runID) || !strings.Contains(executionPayload, "job-to-trigger") {
+	if !strings.Contains(executionPayload, runID) || !strings.Contains(executionPayload, jobID) {
 		t.Fatalf("execution payload should contain run/job identity, got %s", executionPayload)
 	}
 
-	getRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-to-trigger/runs", nil)
-	getRunsReq.SetPathValue("id", "job-to-trigger")
+	getRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/"+jobID+"/runs?repository_id="+repositoryID, nil)
+	getRunsReq.SetPathValue("id", jobID)
 	getRunsRec := httptest.NewRecorder()
 	server.GetJobRuns(getRunsRec, getRunsReq)
 	if getRunsRec.Code != http.StatusOK {
@@ -1615,37 +1472,39 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 
 	payloadJob, ok := payloadResp.Payload["job"].(map[string]any)
-	if !ok || payloadJob["id"] != "job-to-trigger" || payloadJob["runId"] != runID {
+	if !ok || payloadJob["id"] != jobID || payloadJob["runId"] != runID {
 		t.Fatalf("unexpected execution payload job identity: %+v", payloadResp.Payload["job"])
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
-	hasTriggeredMsg := false
-	for time.Now().Before(deadline) && !hasTriggeredMsg {
+	hasEnqueuedMsg := false
+	for time.Now().Before(deadline) && !hasEnqueuedMsg {
 		for _, msg := range logger.GetInfoCalls() {
-			if strings.Contains(msg, "Triggered job: job-to-trigger") {
-				hasTriggeredMsg = true
+			if strings.Contains(msg, "Enqueued source job: "+jobID) {
+				hasEnqueuedMsg = true
 				break
 			}
 		}
-		if !hasTriggeredMsg {
+		if !hasEnqueuedMsg {
 			time.Sleep(5 * time.Millisecond)
 		}
 	}
 
-	if !hasTriggeredMsg {
-		t.Errorf("expected logger to contain 'Triggered job: job-to-trigger', got: %v", logger.GetInfoCalls())
+	if !hasEnqueuedMsg {
+		t.Errorf("expected logger to contain 'Enqueued source job: %s', got: %v", jobID, logger.GetInfoCalls())
 	}
 }
 
 func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-replay"
-	defV1 := `{"id": "job-replay", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
-	defV2 := `{"id": "job-replay", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo new"}}}`
-	insertStoredJobForTest(t, db, jobID, defV1)
+	repositoryID := "repo-replay"
+	defV1 := `{"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
+	defV2 := `{"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo new"}}}`
+	repoPath := insertSourceJobForTest(t, db, repositoryID, jobID, defV1)
 
-	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
+	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	triggerReq.Header.Set("Content-Type", "application/json")
 	triggerReq.SetPathValue("id", jobID)
 	triggerRec := httptest.NewRecorder()
 	server.TriggerJob(triggerRec, triggerReq)
@@ -1664,14 +1523,7 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 		t.Fatalf("mark source failed: %v", err)
 	}
 
-	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/"+jobID, strings.NewReader(defV2))
-	updateReq.Header.Set("Content-Type", "application/json")
-	updateReq.SetPathValue("id", jobID)
-	updateRec := httptest.NewRecorder()
-	server.UpdateJobDefinition(updateRec, updateReq)
-	if updateRec.Code != http.StatusNoContent {
-		t.Fatalf("update definition: expected status %d, got %d: %s", http.StatusNoContent, updateRec.Code, updateRec.Body.String())
-	}
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/"+jobID+".json", strings.TrimSpace(defV2)+"\n", "update "+jobID)
 
 	replayReq := httptest.NewRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", nil)
 	replayReq.SetPathValue("id", sourceRunID)
@@ -1844,10 +1696,12 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 func TestAPIServer_ReplayRun_RejectsActiveSourceRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-replay-active"
-	definition := `{"id": "job-replay-active", "root": {"uses": "builtins/shell", "with": {"command": "echo active"}}}`
-	insertStoredJobForTest(t, db, jobID, definition)
+	repositoryID := "repo-replay-active"
+	definition := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo active"}}}`
+	insertSourceJobForTest(t, db, repositoryID, jobID, definition)
 
-	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
+	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	triggerReq.Header.Set("Content-Type", "application/json")
 	triggerReq.SetPathValue("id", jobID)
 	triggerRec := httptest.NewRecorder()
 	server.TriggerJob(triggerRec, triggerReq)
@@ -1868,11 +1722,15 @@ func TestAPIServer_ReplayRun_RejectsActiveSourceRun(t *testing.T) {
 
 func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
-	jobDef := `{"id": "job-idempotent", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	insertStoredJobForTest(t, db, "job-idempotent", jobDef)
+	jobID := "job-idempotent"
+	repositoryID := "repo-idempotent"
+	jobDef := `{"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
+	triggerBody := `{"repository_id":"` + repositoryID + `","ref":"HEAD"}`
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-idempotent", nil)
-	req.SetPathValue("id", "job-idempotent")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(triggerBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", jobID)
 	req.Header.Set("Idempotency-Key", "trigger-key-1")
 	rec := httptest.NewRecorder()
 	server.TriggerJob(rec, req)
@@ -1880,8 +1738,9 @@ func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 		t.Fatalf("first trigger: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
 	}
 
-	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-idempotent", nil)
-	req2.SetPathValue("id", "job-idempotent")
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(triggerBody))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.SetPathValue("id", jobID)
 	req2.Header.Set("Idempotency-Key", "trigger-key-1")
 	rec2 := httptest.NewRecorder()
 	server.TriggerJob(rec2, req2)
@@ -1899,7 +1758,7 @@ func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	}
 
 	var runCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "job-idempotent").Scan(&runCount); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
 		t.Fatalf("count runs: %v", err)
 	}
 
@@ -1958,10 +1817,24 @@ func TestAPIServer_TriggerJob_IdempotencyCrashRecoveryReplaysInvocationRuns(t *t
 
 func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
-	insertStoredJobForTest(t, db, "job-a", `{"id":"job-a","root":{"id":"root","uses":"builtins/shell"}}`)
-	insertStoredJobForTest(t, db, "job-b", `{"id":"job-b","root":{"id":"root","uses":"builtins/shell"}}`)
+	repositoryID := "repo-idempotency-scope"
+	repoPath := initAPIGitRepo(t)
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-a.json", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"a"}}}`+"\n", "add job-a")
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-b.json", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"b"}}}`+"\n", "add job-b")
+	if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID: repositoryID,
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: repoPath,
+		DefaultRef:   "HEAD",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-a", nil)
+	triggerBody := `{"repository_id":"` + repositoryID + `","ref":"HEAD"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-a", strings.NewReader(triggerBody))
+	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "job-a")
 	req.Header.Set("Idempotency-Key", "same-key")
 	rec := httptest.NewRecorder()
@@ -1970,7 +1843,8 @@ func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
 		t.Fatalf("first trigger: expected %d, got %d", http.StatusAccepted, rec.Code)
 	}
 
-	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-b", nil)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-b", strings.NewReader(triggerBody))
+	req2.Header.Set("Content-Type", "application/json")
 	req2.SetPathValue("id", "job-b")
 	req2.Header.Set("Idempotency-Key", "same-key")
 	rec2 := httptest.NewRecorder()
@@ -1983,13 +1857,14 @@ func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
 func TestAPIServer_TriggerJob_NotFound(t *testing.T) {
 	server, _, queueService, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/nonexistent-job", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/nonexistent-job", strings.NewReader(`{"repository_id":"missing-repo"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "nonexistent-job")
 	rec := httptest.NewRecorder()
 
 	server.TriggerJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
+	assertAPIError(t, rec, http.StatusNotFound, "source_repository_not_found")
 
 	jobs := queueService.GetJobs()
 	if len(jobs) != 0 {
@@ -2000,22 +1875,26 @@ func TestAPIServer_TriggerJob_NotFound(t *testing.T) {
 func TestAPIServer_TriggerJob_MissingID(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/", strings.NewReader(`{"repository_id":"repo"}`))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	server.TriggerJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "missing_id")
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_job_id")
 }
 
 func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 	server, logger, queueService, db := setupTestServer(t)
-	jobDef := `{"id": "job-trigger-fail", "root": {"uses": "builtins/shell"}}`
-	insertStoredJobForTest(t, db, "job-trigger-fail", jobDef)
+	jobID := "job-trigger-fail"
+	repositoryID := "repo-trigger-fail"
+	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo fail"}}}`
+	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-trigger-fail", nil)
-	req.SetPathValue("id", "job-trigger-fail")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
 
 	server.TriggerJob(rec, req)
@@ -2050,11 +1929,14 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 
 func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransitions(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
-	jobDef := `{"id": "job-runs-status", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	insertStoredJobForTest(t, db, "job-runs-status", jobDef)
+	jobID := "job-runs-status"
+	repositoryID := "repo-runs-status"
+	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/job-runs-status", nil)
-	req.SetPathValue("id", "job-runs-status")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
 	server.TriggerJob(rec, req)
 	if rec.Code != http.StatusAccepted {
@@ -2079,8 +1961,8 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 		t.Fatalf("MarkRunFailed: %v", err)
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs", nil)
-	getReq.SetPathValue("id", "job-runs-status")
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/"+jobID+"/runs?repository_id="+repositoryID, nil)
+	getReq.SetPathValue("id", jobID)
 	getRec := httptest.NewRecorder()
 	server.GetJobRuns(getRec, getReq)
 	if getRec.Code != http.StatusOK {
@@ -2132,7 +2014,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs?since=not-a-date", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-runs-status/runs?repository_id=repo-runs-status&since=not-a-date", nil)
 	req.SetPathValue("id", "job-runs-status")
 	rec := httptest.NewRecorder()
 	server.GetJobRuns(rec, req)
@@ -2140,8 +2022,8 @@ func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
 	assertAPIError(t, rec, http.StatusBadRequest, "invalid_since")
 }
 
-func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
-	server, logger, _, db := setupTestServer(t)
+func TestAPIServer_UpdateJobDefinition_RequiresRepositoryID(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
 	initialDef := `{"id": "job-to-update", "root": {"uses": "builtins/shell", "with": {"command": "echo old"}}}`
 	insertStoredJobForTest(t, db, "job-to-update", initialDef)
 
@@ -2164,33 +2046,14 @@ func TestAPIServer_UpdateJobDefinition_Success(t *testing.T) {
 
 	server.UpdateJobDefinition(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("expected status %d, got %d", http.StatusNoContent, rec.Code)
-	}
-
-	if rec.Header().Get("X-Vectis-Version") != "2" {
-		t.Errorf("expected X-Vectis-Version header 2, got %s", rec.Header().Get("X-Vectis-Version"))
-	}
+	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
 
 	updatedDef, _, err := dal.NewSQLRepositories(db).Jobs().GetDefinition(context.Background(), "job-to-update")
 	if err != nil {
-		t.Fatalf("get updated definition: %v", err)
+		t.Fatalf("get original definition: %v", err)
 	}
-	if !strings.Contains(updatedDef, "echo new") {
-		t.Errorf("expected updated definition to contain 'echo new', got: %s", updatedDef)
-	}
-
-	infoCalls := logger.GetInfoCalls()
-	hasUpdatedMsg := false
-	for _, msg := range infoCalls {
-		if strings.Contains(msg, "Updated job definition: job-to-update") {
-			hasUpdatedMsg = true
-			break
-		}
-	}
-
-	if !hasUpdatedMsg {
-		t.Errorf("expected logger to contain 'Updated job definition: job-to-update', got: %v", infoCalls)
+	if updatedDef != initialDef {
+		t.Errorf("expected original stored definition to remain unchanged, got: %s", updatedDef)
 	}
 }
 
@@ -2226,7 +2089,7 @@ func TestAPIServer_UpdateJobDefinition_IDMismatch(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(newDef)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-1", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-1?repository_id=repo", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "job-1")
 	rec := httptest.NewRecorder()
@@ -2239,14 +2102,14 @@ func TestAPIServer_UpdateJobDefinition_IDMismatch(t *testing.T) {
 func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-1", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-1?repository_id=repo", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "job-1")
 	rec := httptest.NewRecorder()
 
 	server.UpdateJobDefinition(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_request_body")
 }
 
 func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.T) {
@@ -2263,7 +2126,7 @@ func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.
 	}
 
 	body, _ := json.Marshal(newDef)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-validation-update", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-validation-update?repository_id=repo", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "job-validation-update")
 	rec := httptest.NewRecorder()
@@ -3067,13 +2930,14 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	jobID := "job-sse-test"
-	jobDef := `{"id": "job-sse-test", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	insertStoredJobForTest(t, db, jobID, jobDef)
+	repositoryID := "repo-sse-test"
+	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	httpServer := httptest.NewServer(server.Handler())
 	defer httpServer.Close()
 
-	sseURL := httpServer.URL + "/api/v1/sse/jobs/" + jobID + "/runs"
+	sseURL := httpServer.URL + "/api/v1/sse/jobs/" + jobID + "/runs?repository_id=" + repositoryID
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -3089,7 +2953,7 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 	}
 	defer sseResp.Body.Close()
 
-	triggerResp, err := http.Post(httpServer.URL+"/api/v1/jobs/trigger/"+jobID, "application/json", nil)
+	triggerResp, err := http.Post(httpServer.URL+"/api/v1/jobs/trigger/"+jobID, "application/json", strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
 	if err != nil {
 		t.Fatalf("trigger job: %v", err)
 	}
@@ -3449,7 +3313,7 @@ func TestAPIServer_Handler_AccessLogJSON(t *testing.T) {
 	h := srv.Handler()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/source/status", nil)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -3476,7 +3340,7 @@ func TestAPIServer_Handler_AccessLogJSON(t *testing.T) {
 		t.Fatalf("%+v", payload)
 	}
 
-	if payload.HTTPRoute != "GET /api/v1/jobs" {
+	if payload.HTTPRoute != "GET /api/v1/source/status" {
 		t.Fatalf("http_route=%q", payload.HTTPRoute)
 	}
 }

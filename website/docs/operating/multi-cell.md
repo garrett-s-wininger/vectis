@@ -44,8 +44,8 @@ Start `vectis-api`, `vectis-cron`, `vectis-reconciler`, and `vectis-catalog` aga
 
 ## Request Flow
 
-1. A client triggers a stored job with `cell_id` or `cell_ids`.
-2. `vectis-api` creates one global run row per target cell and records the owning cell.
+1. A client triggers a source-backed reusable job with `cell_id`.
+2. `vectis-api` creates a global run row and records the owning cell.
 3. `vectis-api` routes each execution to the target cell's private `vectis-cell-ingress` endpoint.
 4. Cell ingress durably accepts the execution in the cell DB, then hands it to the cell-local queue.
 5. A worker in that cell claims the run, executes it, and records status events in the cell-local catalog inbox.
@@ -83,7 +83,7 @@ VECTIS_RECONCILER_CELL_INGRESS_ENDPOINTS=iad-a=https://iad.example:8085,pdx-b=ht
 VECTIS_CRON_CELL_INGRESS_ENDPOINTS=iad-a=https://iad.example:8085,pdx-b=https://pdx.example:8085
 ```
 
-Use the same cell IDs that clients pass as `cell_id` or `cell_ids`. If global and cell databases are split, configure an ingress endpoint for every execution target, including the local/default cell. Direct queue fallback is disabled when Vectis detects split global and cell databases.
+Use the same cell IDs that clients pass as `cell_id`. If global and cell databases are split, configure an ingress endpoint for every execution target, including the local/default cell. Direct queue fallback is disabled when Vectis detects split global and cell databases.
 
 Cell ingress is private infrastructure, not a public API. Expose it only to global producers that are allowed to submit executions to that cell.
 
@@ -168,10 +168,12 @@ This reports cell IDs, a `ready` summary, ingress route readiness, dispatch repa
 This starts one global stack plus a queue, cell ingress, worker, and cell-local SQLite database for each cell. It also wires `VECTIS_CELL_INGRESS_ENDPOINTS` and `VECTIS_CATALOG_CELL_DATABASE_DSNS` for the child processes.
 By default, local cell ingress endpoints use `https://` with the generated local mTLS material. `vectis-local --grpc-insecure` switches local ingress endpoints to loopback `http://`.
 
-Trigger one job across cells:
+Trigger the same source-backed job in multiple cells with one request per target cell:
 
 ```sh
-./bin/vectis-cli jobs trigger example-job --cell local --cell pdx-b --cell sjc-c
+./bin/vectis-cli jobs trigger example-job --repository vectis-local --cell local
+./bin/vectis-cli jobs trigger example-job --repository vectis-local --cell pdx-b
+./bin/vectis-cli jobs trigger example-job --repository vectis-local --cell sjc-c
 ```
 
 Run a one-off job file in one cell:
@@ -187,7 +189,7 @@ Replay a completed run into its original cell, or override the target cell expli
 ./bin/vectis-cli runs replay <run-id> --cell pdx-b
 ```
 
-Replay creates a new run ID. It does not take over the source run. The new run uses the source run's captured definition version and records `replay_of_run_id`, so operators can reproduce what originally ran even if the stored job has changed since then.
+Replay creates a new run ID. It does not take over the source run. The new run uses the source run's captured definition version and records `replay_of_run_id`, so operators can reproduce what originally ran even if the repository definition has changed since then.
 
 Then list the global run catalog:
 

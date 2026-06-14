@@ -28,7 +28,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Enqueue** — Add work to `vectis-queue` so a worker can pick it up.
 
-**Ephemeral run** — A run started from an inline job definition, usually with `vectis-cli jobs run <file>` or `POST /api/v1/jobs/run`. The definition is stored enough for recovery, but it is not a normal stored job that users trigger later by job ID.
+**Ephemeral run** — A run started from an inline job definition, usually with `vectis-cli jobs run <file>` or `POST /api/v1/jobs/run`. The definition is stored enough for recovery, but it is not a reusable source-backed job that users trigger later by job ID.
 
 ## I
 
@@ -38,9 +38,9 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Job** — A definition of work Vectis can execute. A job is a tree of nodes, starting at `root`.
 
-**Job definition** — The stored or submitted JSON shape that describes a job. Stored jobs keep a definition under a stable job ID; ephemeral runs submit the definition inline.
+**Job definition** — The source-controlled or submitted JSON shape that describes a job. Reusable jobs keep a definition under a stable job ID in a registered repository; ephemeral runs submit the definition inline.
 
-**Job ID** — The stable name of a stored job. This is different from a node ID inside the job tree.
+**Job ID** — The stable name of a reusable job definition. This is different from a node ID inside the job tree.
 
 ## L
 
@@ -74,17 +74,15 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Registry (`vectis-registry`)** — Internal service discovery. Queue, log, and artifact can register their addresses, and other components can resolve those addresses instead of using pinned configuration.
 
-**Run** — One execution of a job. A stored job can have many runs over time; each run has its own run ID, status, timestamps, logs, and dispatch history.
+**Run** — One execution of a job. A reusable job can have many runs over time; each run has its own run ID, status, timestamps, logs, and dispatch history.
 
 **Run ID** — The unique ID for one run. Use it to inspect status, cancel a run, or stream logs.
 
-**Run index** — A per-job sequence number used to order runs for the same stored job.
+**Run index** — A per-job sequence number used to order runs for the same reusable job.
 
 ## S
 
 **Schedule** — A database-backed rule that tells `vectis-cron` when to create runs.
-
-**Stored job** — A reusable job definition saved under a job ID. Stored jobs can be listed, shown, updated, deleted, and triggered later.
 
 ## W
 

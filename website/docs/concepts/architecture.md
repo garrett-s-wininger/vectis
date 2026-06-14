@@ -17,7 +17,7 @@ The database says what should exist and what state it is in. The queue helps mov
 
 ## What Happens When A Run Starts
 
-A typical stored-job trigger looks like this:
+A typical source-backed reusable job trigger looks like this:
 
 1. A client calls `vectis-api`.
 2. The API creates a run row in the database.
@@ -33,7 +33,7 @@ A typical stored-job trigger looks like this:
 
 The queue handoff can happen after the HTTP response. If the API records the run but misses the queue handoff, `vectis-reconciler` finds the queued run later and enqueues it again.
 
-Ephemeral runs follow the same execution path, except the job definition is submitted inline instead of being looked up from a stored job.
+Ephemeral runs follow the same execution path, except the job definition is submitted inline instead of being resolved from a source repository.
 
 In a split global/cell deployment, steps 5 through 9 happen against the cell-local database and queue. `vectis-catalog` can backfill missing cell catalog events from observed cell-local state, fan in pending catalog events from configured cell databases, then apply them to the global database.
 

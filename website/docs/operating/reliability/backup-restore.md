@@ -169,8 +169,8 @@ Run this after every restore drill and after real disaster recovery:
 
 1. Check API liveness and readiness: `GET /health/live` and `GET /health/ready`.
 2. If auth is enabled, verify setup state and log in with an expected operator account or token.
-3. List jobs with `vectis-cli jobs list`.
-4. List recent runs for one restored job with `vectis-cli runs list <job-id>`.
+3. List jobs with `vectis-cli jobs list --repository <repo>`.
+4. List recent runs for one restored job with `vectis-cli runs list <job-id> --repository <repo>`.
 5. Fetch logs for one restored run when log storage was part of the backup set.
 6. Download or stat one restored artifact when artifact storage was part of the backup set.
 7. Trigger a small known-safe job.
