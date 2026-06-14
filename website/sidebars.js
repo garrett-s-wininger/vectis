@@ -83,6 +83,7 @@ const sidebars = {
         'developing/migrations',
         'developing/retry-policy',
         'developing/releases',
+        'developing/production-readiness-evidence',
         {
           type: 'category',
           label: 'Performance',

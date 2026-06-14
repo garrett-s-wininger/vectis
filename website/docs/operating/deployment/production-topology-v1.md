@@ -148,3 +148,4 @@ Before calling a production v1 deployment ready, confirm:
 | Runbooks and alerts | [Runbooks And Alerts](../reliability/runbooks.md) |
 | Capacity envelope | [Capacity And Load Envelope](../capacity/capacity-load-envelope.md) |
 | Release production gate | [Releases And Upgrades](../../developing/releases.md#production-readiness-gate) |
+| Release evidence template | [Production Readiness Evidence](../../developing/production-readiness-evidence.md) |

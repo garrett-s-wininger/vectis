@@ -100,6 +100,10 @@ operators a release is safe for a production-v1 deployment. If a release is
 developer-only, alpha-only, or intentionally not production-ready, say that in
 the release notes and list the missing gate items.
 
+For production-ready release candidates, complete a
+[Production Readiness Evidence](./production-readiness-evidence.md) record and
+keep it with the release notes and release artifacts.
+
 | Gate | Evidence |
 | --- | --- |
 | Topology fit | Release notes state whether the release stays inside [Production Topology v1](../operating/deployment/production-topology-v1.md), changes that contract, or introduces an experimental shape. |
