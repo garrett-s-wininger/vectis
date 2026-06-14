@@ -561,6 +561,10 @@ func (r *runState) applySnapshots(snapshots []TaskExecutionSnapshot, now time.Ti
 			return err
 		}
 
+		if err := r.validateSnapshotRecord(task, snapshot.Record); err != nil {
+			return err
+		}
+
 		if shouldApplySnapshotStatus(task, status, now) {
 			task.status = status
 			if status != dal.ExecutionStatusRunning {
@@ -596,6 +600,82 @@ func (r *runState) taskForSnapshot(snapshot TaskExecutionSnapshot) (*taskState, 
 		return nil, fmt.Errorf("%w: task %s", dal.ErrNotFound, taskKey)
 	}
 	return nil, fmt.Errorf("%w: execution %s", dal.ErrNotFound, executionID)
+}
+
+func (r *runState) validateSnapshotRecord(task *taskState, record dal.TaskExecutionRecord) error {
+	if task == nil {
+		return fmt.Errorf("%w: snapshot task is required", dal.ErrConflict)
+	}
+
+	expected := task.record
+	if err := matchSnapshotString("run_id", record.RunID, r.runID); err != nil {
+		return err
+	}
+
+	if err := matchSnapshotString("task_id", record.TaskID, expected.TaskID); err != nil {
+		return err
+	}
+
+	if err := matchSnapshotString("parent_task_id", record.ParentTaskID, expected.ParentTaskID); err != nil {
+		return err
+	}
+
+	if err := matchSnapshotString("task_key", record.TaskKey, expected.TaskKey); err != nil {
+		return err
+	}
+
+	if err := matchSnapshotAttempt(record, expected.TaskID); err != nil {
+		return err
+	}
+
+	executionID := strings.TrimSpace(record.ExecutionID)
+	if executionID != "" && executionID != expected.ExecutionID {
+		if existing, ok := r.executions[executionID]; ok && existing != task {
+			return fmt.Errorf("%w: snapshot execution_id %q belongs to another task", dal.ErrConflict, executionID)
+		}
+	}
+
+	return nil
+}
+
+func matchSnapshotString(field, got, want string) error {
+	got = strings.TrimSpace(got)
+	if got == "" {
+		return nil
+	}
+
+	if got != want {
+		return fmt.Errorf("%w: snapshot %s %q does not match task %s %q", dal.ErrConflict, field, got, field, want)
+	}
+
+	return nil
+}
+
+func matchSnapshotAttempt(record dal.TaskExecutionRecord, expectedTaskID string) error {
+	attemptID := strings.TrimSpace(record.TaskAttemptID)
+	if attemptID == "" {
+		return nil
+	}
+
+	taskID := strings.TrimSpace(record.TaskID)
+	if taskID == "" {
+		taskID = strings.TrimSpace(expectedTaskID)
+	}
+
+	if !strings.HasPrefix(attemptID, taskID+":attempt:") {
+		return fmt.Errorf("%w: snapshot task_attempt_id %q does not belong to task_id %q", dal.ErrConflict, attemptID, taskID)
+	}
+
+	if record.Attempt <= 0 {
+		return nil
+	}
+
+	wantSuffix := fmt.Sprintf(":attempt:%d", record.Attempt)
+	if !strings.HasSuffix(attemptID, wantSuffix) {
+		return fmt.Errorf("%w: snapshot task_attempt_id %q does not match attempt %d", dal.ErrConflict, attemptID, record.Attempt)
+	}
+
+	return nil
 }
 
 func (r *runState) applySnapshotRecord(task *taskState, record dal.TaskExecutionRecord) {

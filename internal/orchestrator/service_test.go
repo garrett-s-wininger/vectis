@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -317,6 +318,126 @@ func TestServiceLoadRunHydratesExecutionSnapshots(t *testing.T) {
 	}
 	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
 		t.Fatalf("hydrated finalization outcome: %+v", result)
+	}
+}
+
+func TestServiceLoadRunRejectsSnapshotIdentityDrift(t *testing.T) {
+	ctx := context.Background()
+	runID := "run-snapshot-drift"
+	root := orchestratorTestRecord(runID, dal.RootTaskKey, "", dal.RootTaskKey, "iad-a")
+	build := orchestratorTestRecord(runID, "build", dal.RootTaskKey, "build", "iad-a")
+
+	tests := []struct {
+		name   string
+		record dal.TaskExecutionRecord
+		want   string
+	}{
+		{
+			name: "run id mismatch",
+			record: func() dal.TaskExecutionRecord {
+				rec := build
+				rec.RunID = "run-other"
+				return rec
+			}(),
+			want: "run_id",
+		},
+		{
+			name: "task id mismatch",
+			record: func() dal.TaskExecutionRecord {
+				rec := build
+				rec.TaskID = root.TaskID
+				return rec
+			}(),
+			want: "task_id",
+		},
+		{
+			name: "task attempt mismatch",
+			record: func() dal.TaskExecutionRecord {
+				rec := build
+				rec.TaskAttemptID = root.TaskAttemptID
+				return rec
+			}(),
+			want: "task_attempt_id",
+		},
+		{
+			name: "execution id collision",
+			record: func() dal.TaskExecutionRecord {
+				rec := build
+				rec.ExecutionID = root.ExecutionID
+				return rec
+			}(),
+			want: "execution_id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clock := newManualClock()
+			svc := orchestrator.New(2, orchestrator.WithClock(clock))
+			t.Cleanup(svc.Close)
+
+			_, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+				RunID:  runID,
+				CellID: "iad-a",
+				Tasks: []orchestrator.TaskSpec{{
+					TaskKey:       "build",
+					ParentTaskKey: dal.RootTaskKey,
+					Name:          "build",
+					CellID:        "iad-a",
+				}},
+				Executions: []orchestrator.TaskExecutionSnapshot{{
+					Record: tt.record,
+					Status: dal.ExecutionStatusRunning,
+				}},
+			})
+
+			if !errors.Is(err, dal.ErrConflict) {
+				t.Fatalf("LoadRun error = %v, want conflict", err)
+			}
+
+			if err != nil && !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("LoadRun error = %q, want field %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func TestServiceLoadRunHydratesRootRetrySnapshot(t *testing.T) {
+	ctx := context.Background()
+	clock := newManualClock()
+	svc := orchestrator.New(2, orchestrator.WithClock(clock))
+	t.Cleanup(svc.Close)
+
+	runID := "run-root-retry-snapshot"
+	root := orchestratorTestRecord(runID, dal.RootTaskKey, "", dal.RootTaskKey, "iad-a")
+	root.TaskAttemptID = runID + ":root:attempt:2"
+	root.SegmentID = "segment-root-retry"
+	root.ExecutionID = "execution-root-retry"
+	root.Attempt = 2
+
+	loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+		RunID:  runID,
+		CellID: "iad-a",
+		Tasks: []orchestrator.TaskSpec{{
+			TaskKey:       "build",
+			ParentTaskKey: dal.RootTaskKey,
+			Name:          "build",
+			CellID:        "iad-a",
+		}},
+		Executions: []orchestrator.TaskExecutionSnapshot{{
+			Record: root,
+			Status: dal.ExecutionStatusSucceeded,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("load run: %v", err)
+	}
+
+	if loaded.Root.ExecutionID != root.ExecutionID ||
+		loaded.Root.SegmentID != root.SegmentID ||
+		loaded.Root.TaskAttemptID != root.TaskAttemptID ||
+		loaded.Root.Attempt != root.Attempt {
+		t.Fatalf("root snapshot was not hydrated: got %+v want %+v", loaded.Root, root)
 	}
 }
 
