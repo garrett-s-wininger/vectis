@@ -335,6 +335,55 @@ func TestServerPublishLogEntryGroupsBatchesSubscriberFanout(t *testing.T) {
 	}
 }
 
+func TestJobBufferBroadcastControlDoesNotBlockWhenSubscriberFull(t *testing.T) {
+	buffer := NewJobBuffer(mocks.NopLogger{}, nil)
+	ch := make(chan LogEntry, 1)
+	ch <- stdoutLogEntry(time.Now(), 1)
+	buffer.Subscribe(ch)
+
+	done := make(chan struct{})
+	go func() {
+		buffer.Broadcast("run-a", completedLogEntry(time.Now(), 2))
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("control broadcast blocked behind a full subscriber channel")
+	}
+
+	buffer.Unsubscribe(ch)
+}
+
+func TestJobBufferRecordsTerminalEntryWhenMemoryBufferFull(t *testing.T) {
+	buffer := NewJobBuffer(mocks.NopLogger{}, nil)
+	base := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < MaxLogLinesPerJob; i++ {
+		if !buffer.Add(stdoutLogEntry(base.Add(time.Duration(i)*time.Millisecond), int64(i+1))) {
+			t.Fatalf("stdout entry %d unexpectedly dropped", i+1)
+		}
+	}
+
+	terminal := completedLogEntry(base.Add(time.Minute), MaxLogLinesPerJob+1)
+	if buffer.Add(terminal) {
+		t.Fatal("terminal entry unexpectedly fit in full memory buffer")
+	}
+
+	if !buffer.IsTerminal() {
+		t.Fatal("expected full buffer to retain terminal state")
+	}
+
+	got, ok := buffer.TerminalEntry()
+	if !ok {
+		t.Fatal("expected full buffer to retain terminal entry")
+	}
+
+	if got.Sequence != terminal.Sequence || !bytes.Equal(got.Data, terminal.Data) {
+		t.Fatalf("terminal entry = %+v, want sequence %d data %q", got, terminal.Sequence, terminal.Data)
+	}
+}
+
 func TestServerReplayHistoricalEntriesUsesReplayStoreWithoutTail(t *testing.T) {
 	store := &replayRecordingRunLogStore{
 		replayResult: LogReplayResult{

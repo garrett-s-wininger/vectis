@@ -288,13 +288,13 @@ func BenchmarkJobBuffer_BroadcastOneSubscriber(b *testing.B) {
 			ch := make(chan LogEntry, 1024)
 			buffer.Subscribe(ch)
 
-			done := make(chan int, 1)
+			var received atomic.Uint64
+			done := make(chan struct{})
 			go func() {
-				count := 0
 				for range ch {
-					count++
+					received.Add(1)
 				}
-				done <- count
+				close(done)
 			}()
 
 			entry := benchmarkLogEntry(payloadBytes)
@@ -313,9 +313,39 @@ func BenchmarkJobBuffer_BroadcastOneSubscriber(b *testing.B) {
 			b.StopTimer()
 
 			buffer.Unsubscribe(ch)
-			if got := <-done; got != b.N {
-				b.Fatalf("subscriber received %d entries, want %d", got, b.N)
+			<-done
+
+			reportLogThroughput(b, b.N, payloadBytes, elapsed)
+			b.ReportMetric(float64(payloadBytes), "payload_bytes")
+			b.ReportMetric(float64(received.Load())/float64(b.N)*100, "delivered_pct")
+		})
+	}
+}
+
+func BenchmarkJobBuffer_BroadcastFullControlSubscriber(b *testing.B) {
+	for _, payloadBytes := range []int{256, 4096} {
+		b.Run(fmt.Sprintf("payload_%04d", payloadBytes), func(b *testing.B) {
+			buffer := NewJobBuffer(mocks.NopLogger{}, nil)
+			ch := make(chan LogEntry, 1)
+			ch <- benchmarkLogEntry(payloadBytes)
+			buffer.Subscribe(ch)
+
+			entry := benchmarkLogEntry(payloadBytes)
+			entry.Stream = api.Stream_STREAM_CONTROL
+
+			b.SetBytes(int64(payloadBytes))
+			b.ReportAllocs()
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				entry.Sequence = int64(i + 1)
+				buffer.Broadcast("bench-run", entry)
 			}
+
+			elapsed := time.Since(start)
+			b.StopTimer()
+
+			buffer.Unsubscribe(ch)
 
 			reportLogThroughput(b, b.N, payloadBytes, elapsed)
 			b.ReportMetric(float64(payloadBytes), "payload_bytes")

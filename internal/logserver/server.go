@@ -36,6 +36,7 @@ const (
 
 	defaultLogAppendBatchSize          = 256
 	defaultLogAppendBatchFlushInterval = 10 * time.Millisecond
+	defaultGetLogsTerminalPollInterval = 100 * time.Millisecond
 
 	GetLogsReplayLimitMetadata = "vectis-log-replay-limit"
 	GetLogsTailMetadata        = "vectis-log-tail"
@@ -109,14 +110,15 @@ func (e LogEntry) MarshalJSON() ([]byte, error) {
 }
 
 type JobBuffer struct {
-	mu           sync.RWMutex
-	entries      []LogEntry
-	subscribers  map[chan LogEntry]struct{}
-	subMu        sync.RWMutex
-	logger       interfaces.Logger
-	metrics      *observability.LogMetrics
-	lastActivity time.Time
-	terminal     bool
+	mu            sync.RWMutex
+	entries       []LogEntry
+	subscribers   map[chan LogEntry]struct{}
+	subMu         sync.RWMutex
+	logger        interfaces.Logger
+	metrics       *observability.LogMetrics
+	lastActivity  time.Time
+	terminal      bool
+	terminalEntry LogEntry
 }
 
 func NewJobBuffer(logger interfaces.Logger, metrics *observability.LogMetrics) *JobBuffer {
@@ -135,7 +137,7 @@ func (jb *JobBuffer) Add(entry LogEntry) bool {
 
 	jb.lastActivity = entry.Timestamp
 	if isCompletedEvent(entry) {
-		jb.terminal = true
+		jb.recordTerminalLocked(entry)
 	}
 
 	if len(jb.entries) >= MaxLogLinesPerJob {
@@ -157,8 +159,7 @@ func (jb *JobBuffer) AddBatch(entries []LogEntry) int {
 	jb.lastActivity = entries[len(entries)-1].Timestamp
 	for _, entry := range entries {
 		if isCompletedEvent(entry) {
-			jb.terminal = true
-			break
+			jb.recordTerminalLocked(entry)
 		}
 	}
 
@@ -193,6 +194,25 @@ func (jb *JobBuffer) IsTerminal() bool {
 	defer jb.mu.RUnlock()
 
 	return jb.terminal
+}
+
+func (jb *JobBuffer) TerminalEntry() (LogEntry, bool) {
+	jb.mu.RLock()
+	defer jb.mu.RUnlock()
+
+	if !jb.terminal {
+		return LogEntry{}, false
+	}
+
+	return jb.terminalEntry, true
+}
+
+func (jb *JobBuffer) recordTerminalLocked(entry LogEntry) {
+	if !jb.terminal || entry.Sequence >= jb.terminalEntry.Sequence {
+		jb.terminalEntry = entry
+	}
+
+	jb.terminal = true
 }
 
 func (jb *JobBuffer) Subscribe(ch chan LogEntry) {
@@ -235,7 +255,7 @@ func (jb *JobBuffer) LastActivity() time.Time {
 	return jb.lastActivity
 }
 
-func (jb *JobBuffer) Broadcast(runID string, entry LogEntry) {
+func (jb *JobBuffer) Broadcast(_ string, entry LogEntry) {
 	jb.subMu.RLock()
 	defer jb.subMu.RUnlock()
 	if len(jb.subscribers) == 0 {
@@ -243,26 +263,11 @@ func (jb *JobBuffer) Broadcast(runID string, entry LogEntry) {
 	}
 
 	for ch := range jb.subscribers {
-		if entry.Stream == api.Stream_STREAM_CONTROL {
-			ch <- entry
-			continue
-		}
-
-		select {
-		case ch <- entry:
-		default:
-			if jb.metrics != nil {
-				jb.metrics.RecordChannelDrop(context.Background())
-			}
-
-			if jb.logger != nil {
-				jb.logger.Warn("channel full for run %s; dropping log line (seq %d)", runID, entry.Sequence)
-			}
-		}
+		jb.sendToSubscriber(ch, entry)
 	}
 }
 
-func (jb *JobBuffer) BroadcastBatch(runID string, entries []LogEntry) {
+func (jb *JobBuffer) BroadcastBatch(_ string, entries []LogEntry) {
 	if len(entries) == 0 {
 		return
 	}
@@ -275,22 +280,17 @@ func (jb *JobBuffer) BroadcastBatch(runID string, entries []LogEntry) {
 
 	for _, entry := range entries {
 		for ch := range jb.subscribers {
-			if entry.Stream == api.Stream_STREAM_CONTROL {
-				ch <- entry
-				continue
-			}
+			jb.sendToSubscriber(ch, entry)
+		}
+	}
+}
 
-			select {
-			case ch <- entry:
-			default:
-				if jb.metrics != nil {
-					jb.metrics.RecordChannelDrop(context.Background())
-				}
-
-				if jb.logger != nil {
-					jb.logger.Warn("channel full for run %s; dropping log line (seq %d)", runID, entry.Sequence)
-				}
-			}
+func (jb *JobBuffer) sendToSubscriber(ch chan LogEntry, entry LogEntry) {
+	select {
+	case ch <- entry:
+	default:
+		if jb.metrics != nil {
+			jb.metrics.RecordChannelDrop(context.Background())
 		}
 	}
 }
@@ -759,16 +759,7 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 	var maxReplayedSeq = sinceSeq
 	var sawCompletionDuringReplay bool
 	for _, entry := range entries {
-		chunk := &api.LogChunk{
-			RunId:     &runID,
-			Data:      entry.Data,
-			Sequence:  &entry.Sequence,
-			Stream:    &entry.Stream,
-			Timestamp: timestamppb.New(entry.Timestamp),
-			Completed: entry.Completed.Enum(),
-		}
-
-		if err := stream.Send(chunk); err != nil {
+		if err := sendLogEntryChunk(stream, runID, entry); err != nil {
 			return err
 		}
 
@@ -803,16 +794,7 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 				continue
 			}
 
-			chunk := &api.LogChunk{
-				RunId:     &runID,
-				Data:      msg.Data,
-				Sequence:  &msg.Sequence,
-				Stream:    &msg.Stream,
-				Timestamp: timestamppb.New(msg.Timestamp),
-				Completed: msg.Completed.Enum(),
-			}
-
-			if err := stream.Send(chunk); err != nil {
+			if err := sendLogEntryChunk(stream, runID, msg); err != nil {
 				return err
 			}
 
@@ -830,12 +812,23 @@ afterDrain:
 		return nil
 	}
 
+	if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh); done {
+		return err
+	}
+
+	terminalTicker := time.NewTicker(defaultGetLogsTerminalPollInterval)
+	defer terminalTicker.Stop()
+
 	// Phase 2: Live subscription — drain the channel, skipping entries already
 	// replayed (deduplicated by sequence).
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-terminalTicker.C:
+			if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh); done {
+				return err
+			}
 		case msg, ok := <-outCh:
 			if !ok {
 				return nil
@@ -845,16 +838,7 @@ afterDrain:
 				continue
 			}
 
-			chunk := &api.LogChunk{
-				RunId:     &runID,
-				Data:      msg.Data,
-				Sequence:  &msg.Sequence,
-				Stream:    &msg.Stream,
-				Timestamp: timestamppb.New(msg.Timestamp),
-				Completed: msg.Completed.Enum(),
-			}
-
-			if err := stream.Send(chunk); err != nil {
+			if err := sendLogEntryChunk(stream, runID, msg); err != nil {
 				return err
 			}
 
@@ -862,8 +846,42 @@ afterDrain:
 			if isCompletedEvent(msg) {
 				return nil
 			}
+
+			if done, err := sendBufferedTerminalIfReady(stream, runID, buffer, maxReplayedSeq, outCh); done {
+				return err
+			}
 		}
 	}
+}
+
+func sendLogEntryChunk(stream api.LogService_GetLogsServer, runID string, entry LogEntry) error {
+	return stream.Send(&api.LogChunk{
+		RunId:     &runID,
+		Data:      entry.Data,
+		Sequence:  &entry.Sequence,
+		Stream:    &entry.Stream,
+		Timestamp: timestamppb.New(entry.Timestamp),
+		Completed: entry.Completed.Enum(),
+	})
+}
+
+func sendBufferedTerminalIfReady(stream api.LogService_GetLogsServer, runID string, buffer *JobBuffer, maxReplayedSeq int64, outCh chan LogEntry) (bool, error) {
+	if len(outCh) != 0 {
+		return false, nil
+	}
+
+	entry, ok := buffer.TerminalEntry()
+	if !ok {
+		return false, nil
+	}
+
+	if entry.Sequence > maxReplayedSeq {
+		if err := sendLogEntryChunk(stream, runID, entry); err != nil {
+			return true, err
+		}
+	}
+
+	return true, nil
 }
 
 func (s *Server) replayHistoricalEntries(runID string, sinceSeq int64, tail, replayLimit int, buffer *JobBuffer) ([]LogEntry, bool, bool) {
