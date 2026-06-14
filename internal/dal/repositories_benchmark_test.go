@@ -319,3 +319,210 @@ func BenchmarkDAL_ListQueuedBeforeDispatchCutoff(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkDAL_RunRead_GetRun(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkRepos(b)
+	runID := seedBenchmarkRunReadLiveTasks(b, ctx, repos, 5000)
+	runs := repos.Runs()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		rec, err := runs.GetRun(ctx, runID)
+		if err != nil {
+			b.Fatalf("get run: %v", err)
+		}
+
+		if rec.RunID != runID {
+			b.Fatalf("run id=%q, want %q", rec.RunID, runID)
+		}
+	}
+}
+
+func BenchmarkDAL_RunRead_GetRunTaskCompletion(b *testing.B) {
+	for _, mode := range []string{"live", "final_facts"} {
+		for _, childTasks := range []int{10, 100, 1000, 5000} {
+			b.Run(fmt.Sprintf("%s/tasks_%d", mode, childTasks), func(b *testing.B) {
+				ctx := context.Background()
+				repos := newBenchmarkRepos(b)
+				runID := seedBenchmarkRunReadTasks(b, ctx, repos, mode, childTasks)
+				runs := repos.Runs()
+				wantTotal := childTasks + 1
+
+				b.ReportAllocs()
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					summary, err := runs.GetRunTaskCompletion(ctx, runID)
+					if err != nil {
+						b.Fatalf("get run task completion: %v", err)
+					}
+
+					if summary.Total != wantTotal {
+						b.Fatalf("summary total=%d, want %d", summary.Total, wantTotal)
+					}
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkDAL_RunRead_ListRunTasks(b *testing.B) {
+	for _, mode := range []string{"live", "final_facts"} {
+		for _, childTasks := range []int{100, 1000, 5000} {
+			for _, limit := range []int{50, 200} {
+				b.Run(fmt.Sprintf("%s/tasks_%d/limit_%d", mode, childTasks, limit), func(b *testing.B) {
+					ctx := context.Background()
+					repos := newBenchmarkRepos(b)
+					runID := seedBenchmarkRunReadTasks(b, ctx, repos, mode, childTasks)
+					runs := repos.Runs()
+					wantRecords := min(limit, childTasks+1)
+
+					b.ReportAllocs()
+					b.ResetTimer()
+
+					for i := 0; i < b.N; i++ {
+						records, _, err := runs.ListRunTasks(ctx, runID, 0, limit)
+						if err != nil {
+							b.Fatalf("list run tasks: %v", err)
+						}
+
+						if len(records) != wantRecords {
+							b.Fatalf("task records=%d, want %d", len(records), wantRecords)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func seedBenchmarkRunReadTasks(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, mode string, childTasks int) string {
+	b.Helper()
+
+	switch mode {
+	case "live":
+		return seedBenchmarkRunReadLiveTasks(b, ctx, repos, childTasks)
+	case "final_facts":
+		return seedBenchmarkRunReadFinalFacts(b, ctx, repos, childTasks)
+	default:
+		b.Fatalf("unknown run read benchmark mode %q", mode)
+		return ""
+	}
+}
+
+func seedBenchmarkRunReadLiveTasks(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, childTasks int) string {
+	b.Helper()
+
+	jobID := fmt.Sprintf("bench-run-read-live-%d", childTasks)
+	seedBenchmarkJob(b, ctx, repos, jobID)
+	runID := createBenchmarkRun(b, ctx, repos.Runs(), jobID, 1)
+
+	for i := 0; i < childTasks; i++ {
+		taskKey := benchmarkRunReadTaskKey(i)
+		if _, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+			RunID:        runID,
+			TaskKey:      taskKey,
+			Name:         taskKey,
+			SpecHash:     "bench-spec",
+			TargetCellID: dal.DefaultCellID,
+		}); err != nil {
+			b.Fatalf("seed live task %d: %v", i, err)
+		}
+	}
+
+	return runID
+}
+
+func seedBenchmarkRunReadFinalFacts(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, childTasks int) string {
+	b.Helper()
+
+	jobID := fmt.Sprintf("bench-run-read-final-facts-%d", childTasks)
+	seedBenchmarkJob(b, ctx, repos, jobID)
+	runID := createBenchmarkRun(b, ctx, repos.Runs(), jobID, 1)
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		b.Fatalf("get root execution for final facts: %v", err)
+	}
+
+	snapshots := make([]dal.TaskExecutionSnapshot, 0, childTasks+1)
+	observedAt := time.Now().UnixNano()
+	snapshots = append(snapshots, dal.TaskExecutionSnapshot{
+		Record: dal.TaskExecutionRecord{
+			RunID:         dispatch.RunID,
+			TaskID:        dispatch.TaskID,
+			TaskKey:       dispatch.TaskKey,
+			Name:          dispatch.TaskName,
+			TaskAttemptID: dispatch.TaskAttemptID,
+			SegmentID:     dispatch.SegmentID,
+			ExecutionID:   dispatch.ExecutionID,
+			CellID:        dispatch.CellID,
+			Attempt:       dispatch.Attempt,
+		},
+		Status:               dal.ExecutionStatusSucceeded,
+		AcceptedAtUnixNano:   observedAt,
+		StartedAtUnixNano:    observedAt,
+		FinishedAtUnixNano:   observedAt,
+		LastObservedUnixNano: observedAt,
+		EventSequence:        1,
+	})
+
+	rootTaskID := dispatch.TaskID
+	for i := 0; i < childTasks; i++ {
+		taskKey := benchmarkRunReadTaskKey(i)
+		taskID := benchmarkRunReadTaskID(runID, taskKey)
+		attemptID := benchmarkRunReadTaskAttemptID(taskID)
+		snapshots = append(snapshots, dal.TaskExecutionSnapshot{
+			Record: dal.TaskExecutionRecord{
+				RunID:         runID,
+				ParentTaskID:  rootTaskID,
+				TaskKey:       taskKey,
+				Name:          taskKey,
+				TaskAttemptID: attemptID,
+				SegmentID:     benchmarkRunReadTaskSegmentID(taskID),
+				ExecutionID:   benchmarkRunReadTaskExecutionID(attemptID),
+				CellID:        dal.DefaultCellID,
+				Attempt:       1,
+			},
+			Status:               dal.ExecutionStatusSucceeded,
+			AcceptedAtUnixNano:   observedAt,
+			StartedAtUnixNano:    observedAt,
+			FinishedAtUnixNano:   observedAt,
+			LastObservedUnixNano: observedAt,
+			EventSequence:        int64(i + 2),
+		})
+	}
+
+	if err := repos.Runs().ApplyTerminalExecutionSnapshot(ctx, dal.TerminalExecutionSnapshotUpdate{
+		RunID:      runID,
+		Outcome:    dal.ExecutionFinalizationOutcomeRunSucceeded,
+		Executions: snapshots,
+	}); err != nil {
+		b.Fatalf("apply terminal execution snapshot: %v", err)
+	}
+
+	return runID
+}
+
+func benchmarkRunReadTaskKey(i int) string {
+	return fmt.Sprintf("task-%06d", i)
+}
+
+func benchmarkRunReadTaskID(runID, taskKey string) string {
+	return runID + ":" + taskKey
+}
+
+func benchmarkRunReadTaskAttemptID(taskID string) string {
+	return taskID + ":attempt:1"
+}
+
+func benchmarkRunReadTaskSegmentID(taskID string) string {
+	return taskID + ":segment"
+}
+
+func benchmarkRunReadTaskExecutionID(attemptID string) string {
+	return attemptID + ":execution"
+}
