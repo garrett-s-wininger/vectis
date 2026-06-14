@@ -178,6 +178,7 @@ Commands are grouped around the thing you want to work with:
   vectis-cli jobs list --format json
   vectis-cli runs list build-main
   vectis-cli runs show run-123
+  vectis-cli runs definition run-123
   vectis-cli runs artifacts list run-123
   vectis-cli secrets encryptedfs put encryptedfs://team/npm-token --root /var/lib/vectis/secrets --key-file /etc/vectis/secrets.key
   vectis-cli auth login
@@ -243,6 +244,7 @@ func init() {
 	configureRunArtifactsListFlags(runArtifactsListCmd)
 	configureRunArtifactsDownloadFlags(runArtifactsDownloadCmd)
 	configureRunReplayFlags(runReplayCmd)
+	runDefinitionCmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
 	configureForceFailFlags(forceFailCmd)
 	configureRepairMarkFlags(repairMarkSucceededCmd)
 	configureRepairMarkFlags(repairMarkFailedCmd)
@@ -250,7 +252,7 @@ func init() {
 	configureRepairMarkFlags(repairMarkAbandonedCmd)
 	runRepairCmd.AddCommand(repairMarkSucceededCmd, repairMarkFailedCmd, repairMarkCancelledCmd, repairMarkAbandonedCmd, repairMarkQueuedCmd)
 	runArtifactsCmd.AddCommand(runArtifactsListCmd, runArtifactsDownloadCmd)
-	runsCmd.AddCommand(runListCmd, runGetCmd, runTasksCmd, runArtifactsCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
+	runsCmd.AddCommand(runListCmd, runGetCmd, runDefinitionCmd, runTasksCmd, runArtifactsCmd, runPayloadCmd, runReplayCmd, runCancelCmd, runRepairCmd, forceFailCmd, forceRequeueCmd)
 	rootCmd.AddCommand(runsCmd)
 
 	cellsCmd.AddCommand(cellsStatusCmd)

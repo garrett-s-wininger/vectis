@@ -211,6 +211,15 @@ type runExecutionPayloadResult struct {
 	Payload        json.RawMessage `json:"payload"`
 }
 
+type runDefinitionResult struct {
+	RunID             string            `json:"run_id"`
+	JobID             string            `json:"job_id"`
+	DefinitionVersion int               `json:"definition_version"`
+	DefinitionHash    string            `json:"definition_hash"`
+	Source            *sourceProvenance `json:"source,omitempty"`
+	Definition        json.RawMessage   `json:"definition"`
+}
+
 type runReplayResult struct {
 	JobID         string `json:"job_id"`
 	RunID         string `json:"run_id"`
@@ -241,6 +250,10 @@ func runGetRun(cmd *cobra.Command, args []string) {
 
 func runGetRunPayload(cmd *cobra.Command, args []string) {
 	runCLIError(getRunExecutionPayload(args[0], os.Stdout))
+}
+
+func runGetRunDefinition(cmd *cobra.Command, args []string) {
+	runCLIError(getRunDefinition(cmd, args[0], os.Stdout))
 }
 
 func runGetRunTasks(cmd *cobra.Command, args []string) {
@@ -519,6 +532,41 @@ func getRunExecutionPayload(runID string, w io.Writer) error {
 		return fmt.Errorf("execution payload for run %q not found", runID)
 	case http.StatusForbidden:
 		return fmt.Errorf("not authorized to read execution payload for run %q", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func getRunDefinition(cmd *cobra.Command, runID string, w io.Writer) error {
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s/definition", runID), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result runDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		raw, _ := cmd.Flags().GetBool("raw")
+		_, err := w.Write(formatJobDefinitionBody(result.Definition, !raw))
+		return err
+	case http.StatusNotFound:
+		return fmt.Errorf("definition for run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read definition for run %q", runID)
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
@@ -1326,6 +1374,14 @@ var runPayloadCmd = &cobra.Command{
 	Long:  `Fetch the immutable execution payload captured at first durable dispatch for one run. This is an operator-only audit surface.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runGetRunPayload,
+}
+
+var runDefinitionCmd = &cobra.Command{
+	Use:   "definition [run-id]",
+	Short: "Show the frozen job definition for a run",
+	Long:  `Fetch the immutable job definition snapshot captured for one run. This works for source-only, stored, and ephemeral runs.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGetRunDefinition,
 }
 
 var runTasksCmd = &cobra.Command{

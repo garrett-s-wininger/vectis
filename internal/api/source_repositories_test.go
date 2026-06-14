@@ -2466,6 +2466,49 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("source repository run response mismatch: %+v", runResp)
 	}
 
+	getDefinitionRec := httptest.NewRecorder()
+	getDefinitionReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+triggerResp.RunID+"/definition", nil)
+	handler.ServeHTTP(getDefinitionRec, getDefinitionReq)
+	if getDefinitionRec.Code != http.StatusOK {
+		t.Fatalf("get source repository run definition: status=%d body=%s", getDefinitionRec.Code, getDefinitionRec.Body.String())
+	}
+
+	var runDefinitionResp struct {
+		RunID             string          `json:"run_id"`
+		JobID             string          `json:"job_id"`
+		DefinitionVersion int             `json:"definition_version"`
+		DefinitionHash    string          `json:"definition_hash"`
+		Definition        json.RawMessage `json:"definition"`
+		Source            *struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source,omitempty"`
+	}
+
+	if err := json.NewDecoder(getDefinitionRec.Body).Decode(&runDefinitionResp); err != nil {
+		t.Fatalf("decode run definition response: %v", err)
+	}
+
+	var runDefinitionJob api.Job
+	if err := json.Unmarshal(runDefinitionResp.Definition, &runDefinitionJob); err != nil {
+		t.Fatalf("decode run definition job: %v", err)
+	}
+
+	if runDefinitionResp.RunID != triggerResp.RunID ||
+		runDefinitionResp.JobID != "build" ||
+		runDefinitionResp.DefinitionVersion != 1 ||
+		runDefinitionResp.DefinitionHash != triggerResp.DefinitionHash ||
+		runDefinitionResp.Source == nil ||
+		runDefinitionResp.Source.RepositoryID != "managed-repo" ||
+		runDefinitionResp.Source.ResolvedCommit != commit ||
+		runDefinitionResp.Source.BlobSHA != blob ||
+		runDefinitionJob.GetRoot().GetWith()["command"] != "source-trigger" {
+		t.Fatalf("source repository run definition response mismatch: resp=%+v job=%+v", runDefinitionResp, runDefinitionJob.GetRoot().GetWith())
+	}
+
 	secondTriggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/jobs/build/trigger", map[string]any{
 		"ref": "HEAD",
 	})

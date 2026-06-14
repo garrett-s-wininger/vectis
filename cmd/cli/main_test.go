@@ -3734,6 +3734,89 @@ func TestGetRunExecutionPayload_jsonOutput(t *testing.T) {
 	}
 }
 
+func TestGetRunDefinition_success(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/runs/run-1/definition" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":             "run-1",
+			"job_id":             "build",
+			"definition_version": 2,
+			"definition_hash":    "sha256:def",
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "abc123",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "blob123",
+			},
+			"definition": map[string]any{
+				"root": map[string]any{
+					"id":   "root",
+					"uses": "builtins/shell",
+					"with": map[string]any{"command": "true"},
+				},
+			},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("raw", false, "")
+
+	var buf bytes.Buffer
+	if err := getRunDefinition(cmd, "run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`"root": {`, `"command": "true"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "run_id=run-1") {
+		t.Fatalf("text output should print definition JSON only, got:\n%s", out)
+	}
+}
+
+func TestGetRunDefinition_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":             "run-1",
+			"job_id":             "build",
+			"definition_version": 2,
+			"definition_hash":    "sha256:def",
+			"definition": map[string]any{
+				"root": map[string]any{"id": "root"},
+			},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("raw", false, "")
+
+	var buf bytes.Buffer
+	if err := getRunDefinition(cmd, "run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result runDefinitionResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.RunID != "run-1" || result.JobID != "build" || result.DefinitionVersion != 2 || result.DefinitionHash != "sha256:def" || !strings.Contains(string(result.Definition), "root") {
+		t.Fatalf("unexpected definition JSON: %+v definition=%s", result, string(result.Definition))
+	}
+}
+
 func TestGetRunExecutionPayload_notFound(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

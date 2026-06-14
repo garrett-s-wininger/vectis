@@ -2557,6 +2557,125 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 }
 
+func (s *APIServer) GetRunDefinition(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	rec, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+
+	definitionJSON, err := s.jobs.GetDefinitionVersion(ctx, rec.JobID, rec.DefinitionVersion)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_definition_not_found", "run definition not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	if !json.Valid([]byte(definitionJSON)) {
+		s.logger.Error("Stored definition for run %s is not valid JSON", runID)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	source, err := s.definitionSourceProvenance(ctx, rec.JobID, rec.DefinitionVersion)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting run source provenance: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	definitionHash := rec.DefinitionHash
+	if strings.TrimSpace(definitionHash) == "" {
+		definitionHash = dal.DefinitionHash(definitionJSON)
+	}
+
+	resp := struct {
+		RunID             string                    `json:"run_id"`
+		JobID             string                    `json:"job_id"`
+		DefinitionVersion int                       `json:"definition_version"`
+		DefinitionHash    string                    `json:"definition_hash"`
+		Source            *sourceProvenanceResponse `json:"source,omitempty"`
+		Definition        json.RawMessage           `json:"definition"`
+	}{
+		RunID:             rec.RunID,
+		JobID:             rec.JobID,
+		DefinitionVersion: rec.DefinitionVersion,
+		DefinitionHash:    definitionHash,
+		Source:            source,
+		Definition:        json.RawMessage(definitionJSON),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode run definition: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
 const (
 	runNextActionTaskCompletionPending         = "task_completion_pending"
 	runNextActionTaskContinuationPending       = "task_continuation_pending"

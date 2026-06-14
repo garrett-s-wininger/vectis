@@ -364,6 +364,14 @@ It also prints audit fields such as the definition hash, trigger invocation, req
 When task records exist, the output includes a compact task completion summary.
 If the run failed during a worker-controlled SVID or secret-resolution gate, `runs show` prints `next_action=security_gate_failed`, a redacted `latest_failed_security_event`, and retry guidance to fix that gate before retrying or replaying.
 
+Show the frozen job definition snapshot captured for a run:
+
+```sh
+./bin/vectis-cli runs definition <run-id>
+```
+
+Use `--format json` to include the run id, job id, definition version/hash, and source provenance alongside the definition JSON.
+
 List the task graph nodes and task attempts recorded for one run:
 
 ```sh
