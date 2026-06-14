@@ -29,18 +29,20 @@ Only these routes currently record idempotency keys:
 | Route | Use it for | Safe retry behavior |
 | --- | --- | --- |
 | `POST /api/v1/jobs/run` | Start an ephemeral run from a job definition. | Same key and same request returns the same `202` response. |
-| `POST /api/v1/jobs/trigger/{id}` | Trigger a stored job. | Same key and same trigger returns the same `202` response. |
+| `POST /api/v1/jobs/trigger/{id}` | Trigger a stored job, or trigger a source-backed job when the body includes `repository_id`. | Same key and same trigger returns the same `202` response. |
+| `POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger` | Trigger a source-backed job through the explicit repository route. | Same key and same trigger returns the same `202` response. |
 | `POST /api/v1/runs/{id}/replay` | Create a fresh run from a completed source run's captured definition version. | Same key, source run, and replay target returns the same `202` response. |
 
 Other routes may be safe to retry for other reasons, but they do not replay a recorded response.
 
 ## CLI Usage
 
-One-off runs, stored-job triggers, and replay requests accept `--idempotency-key`:
+One-off runs, stored-job triggers, source-backed triggers, and replay requests accept `--idempotency-key`:
 
 ```sh
 ./bin/vectis-cli jobs run job.json --idempotency-key "$(uuidgen)"
 ./bin/vectis-cli jobs trigger build-main --idempotency-key "$(uuidgen)"
+./bin/vectis-cli sources trigger vectis-local build-main --idempotency-key "$(uuidgen)"
 ./bin/vectis-cli runs replay <run-id> --idempotency-key "$(uuidgen)"
 ```
 
@@ -71,10 +73,10 @@ Keys are opaque client strings. Use at least 128 bits of randomness, or use a st
 
 Vectis stores the key with a scope and a request hash.
 
-For stored-job triggers, the scope includes:
+For stored-job and source-backed triggers, the scope includes:
 
 - the authenticated principal, or anonymous access when auth is disabled
-- the stored job ID
+- the stored job ID, or the source repository and job ID pair
 - the trigger operation
 
 For ephemeral runs, the scope includes:
@@ -110,6 +112,7 @@ When you get `idempotency_in_progress`, wait briefly and retry with the same key
 | --- | --- |
 | `POST /api/v1/jobs/run` | Use `Idempotency-Key` for safe retries. |
 | `POST /api/v1/jobs/trigger/{id}` | Use `Idempotency-Key` for safe retries. |
+| `POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger` | Use `Idempotency-Key` for safe source-backed trigger retries. |
 | `POST /api/v1/runs/{id}/replay` | Use `Idempotency-Key` for safe retries. If you pass `cell_id`, retry with the same target cell. |
 | `POST /api/v1/jobs` | Retry only if `409 job_already_exists` is acceptable as "already stored." |
 | `PUT /api/v1/jobs/{id}` | Retrying the same body is generally safe because the route replaces the definition. |

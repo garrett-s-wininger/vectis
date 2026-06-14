@@ -860,6 +860,12 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
+	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
+		r.SetPathValue("id", repositoryID)
+		s.ListSourceRepositoryJobs(w, r)
+		return
+	}
+
 	if !s.requireStoredJobs(w) {
 		return
 	}
@@ -936,6 +942,13 @@ func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
+	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
+		jobID := r.PathValue("id")
+		setSourceJobPathValues(r, repositoryID, jobID)
+		s.GetSourceRepositoryJobDefinition(w, r)
+		return
+	}
+
 	if !s.requireStoredJobs(w) {
 		return
 	}
@@ -1030,6 +1043,15 @@ func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
+	if repositoryID, ok := sourceJobRepositoryIDFromTriggerBody(w, r); !ok {
+		return
+	} else if repositoryID != "" {
+		jobID := r.PathValue("id")
+		setSourceJobPathValues(r, repositoryID, jobID)
+		s.TriggerSourceRepositoryJob(w, r)
+		return
+	}
+
 	if !s.requireStoredJobs(w) {
 		return
 	}
@@ -2096,6 +2118,13 @@ func detachedTraceContextFromRequest(r *http.Request) context.Context {
 }
 
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
+	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
+		jobID := r.PathValue("id")
+		setSourceJobPathValues(r, repositoryID, jobID)
+		s.GetSourceRepositoryJobRuns(w, r)
+		return
+	}
+
 	if !s.requireStoredJobs(w) {
 		return
 	}

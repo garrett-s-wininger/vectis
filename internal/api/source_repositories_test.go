@@ -273,6 +273,140 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	}
 }
 
+func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
+
+	server, _, _, db := setupTestServer(t)
+	repos := dal.NewSQLRepositories(db)
+	handler := server.Handler()
+
+	repoPath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "build definition")
+	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
+	blob := apiGitOutput(t, repoPath, "rev-parse", "HEAD:.vectis/jobs/build.json")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": repoPath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs?repository_id=vectis-local&ref=HEAD", nil)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list jobs facade: status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	var listResp struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Jobs           []struct {
+			JobID  string `json:"job_id"`
+			Path   string `json:"path"`
+			Source struct {
+				RepositoryID   string `json:"repository_id"`
+				ResolvedCommit string `json:"resolved_commit"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source"`
+		} `json:"jobs"`
+	}
+
+	if err := json.NewDecoder(listRec.Body).Decode(&listResp); err != nil {
+		t.Fatalf("decode jobs facade list: %v", err)
+	}
+
+	if listResp.RepositoryID != "vectis-local" ||
+		listResp.ResolvedCommit != commit ||
+		len(listResp.Jobs) != 1 ||
+		listResp.Jobs[0].JobID != "build" ||
+		listResp.Jobs[0].Path != ".vectis/jobs/build.json" ||
+		listResp.Jobs[0].Source.RepositoryID != "vectis-local" ||
+		listResp.Jobs[0].Source.ResolvedCommit != commit ||
+		listResp.Jobs[0].Source.BlobSHA != blob {
+		t.Fatalf("jobs facade list mismatch: %+v", listResp)
+	}
+
+	showReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=vectis-local&ref=HEAD", nil)
+	showRec := httptest.NewRecorder()
+	handler.ServeHTTP(showRec, showReq)
+	if showRec.Code != http.StatusOK {
+		t.Fatalf("show job facade: status=%d body=%s", showRec.Code, showRec.Body.String())
+	}
+
+	showResp := decodeSourceRepositoryJobDefinitionResponse(t, showRec)
+	if showResp.JobID != "build" ||
+		showResp.Source.RepositoryID != "vectis-local" ||
+		showResp.Source.ResolvedCommit != commit ||
+		showResp.Source.BlobSHA != blob {
+		t.Fatalf("jobs facade show mismatch: %+v", showResp)
+	}
+
+	triggerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/trigger/build", map[string]any{
+		"repository_id": "vectis-local",
+		"ref":           "HEAD",
+	})
+
+	if triggerRec.Code != http.StatusAccepted {
+		t.Fatalf("trigger job facade: status=%d body=%s", triggerRec.Code, triggerRec.Body.String())
+	}
+
+	triggerResp := decodeSourceJobTriggerResponse(t, triggerRec)
+	if triggerResp.JobID != "build" ||
+		triggerResp.RunID == "" ||
+		triggerResp.DefinitionVersion != 1 ||
+		triggerResp.Source.RepositoryID != "vectis-local" ||
+		triggerResp.Source.ResolvedCommit != commit ||
+		triggerResp.Source.BlobSHA != blob {
+		t.Fatalf("jobs facade trigger mismatch: %+v", triggerResp)
+	}
+
+	if _, _, err := repos.Jobs().GetDefinition(context.Background(), "build"); !dal.IsNotFound(err) {
+		t.Fatalf("jobs facade source trigger should not create stored job, got %v", err)
+	}
+
+	runsReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build/runs?repository_id=vectis-local", nil)
+	runsRec := httptest.NewRecorder()
+	handler.ServeHTTP(runsRec, runsReq)
+	if runsRec.Code != http.StatusOK {
+		t.Fatalf("list job runs facade: status=%d body=%s", runsRec.Code, runsRec.Body.String())
+	}
+
+	var runsResp struct {
+		Data []struct {
+			RunID             string `json:"run_id"`
+			DefinitionVersion int    `json:"definition_version"`
+			Source            *struct {
+				RepositoryID   string `json:"repository_id"`
+				ResolvedCommit string `json:"resolved_commit"`
+				BlobSHA        string `json:"blob_sha"`
+			} `json:"source,omitempty"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(runsRec.Body).Decode(&runsResp); err != nil {
+		t.Fatalf("decode job runs facade: %v", err)
+	}
+
+	if len(runsResp.Data) != 1 ||
+		runsResp.Data[0].RunID != triggerResp.RunID ||
+		runsResp.Data[0].DefinitionVersion != 1 ||
+		runsResp.Data[0].Source == nil ||
+		runsResp.Data[0].Source.RepositoryID != "vectis-local" ||
+		runsResp.Data[0].Source.ResolvedCommit != commit ||
+		runsResp.Data[0].Source.BlobSHA != blob {
+		t.Fatalf("jobs facade runs mismatch: %+v", runsResp.Data)
+	}
+}
+
 func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly-build","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":true}]`)

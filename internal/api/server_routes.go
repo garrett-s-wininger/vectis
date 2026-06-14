@@ -313,14 +313,14 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Pattern:   "GET /api/v1/jobs",
 			Handler:   http.HandlerFunc(s.GetJobs),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
-			Query:     routeQueryParams("cursor", "limit"),
+			Query:     routeQueryParams("cursor", "limit", "path", "ref", "repository_id"),
 			RateLimit: defaultLimits.General,
 		},
 		{
 			Pattern:   "GET /api/v1/jobs/{id}",
 			Handler:   http.HandlerFunc(s.GetJob),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
-			Query:     routeQueryParams("version"),
+			Query:     routeQueryParams("path", "ref", "repository_id", "version"),
 			RateLimit: defaultLimits.General,
 		},
 		{
@@ -369,6 +369,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 				"cursor",
 				"limit",
 				"owning_cell",
+				"repository_id",
 				"since",
 			),
 			RateLimit: defaultLimits.General,
@@ -379,6 +380,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Auth:      routeAuthPolicy{Action: authz.ActionRunRead},
 			Cache:     routeCachePolicy{mode: routeCacheHandlerManaged},
 			Accept:    routeAcceptSSEPolicy(),
+			Query:     routeQueryParams("repository_id"),
 			RateLimit: defaultLimits.General,
 		},
 		{

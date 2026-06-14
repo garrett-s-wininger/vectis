@@ -28,6 +28,13 @@ const (
 )
 
 func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
+	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
+		jobID := r.PathValue("id")
+		setSourceJobPathValues(r, repositoryID, jobID)
+		s.HandleSSESourceRepositoryJobRuns(w, r)
+		return
+	}
+
 	if !s.requireStoredJobs(w) {
 		return
 	}
