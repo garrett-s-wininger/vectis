@@ -59,20 +59,97 @@ Use the highest matching class when writing release notes:
 
 ## Release Notes Template
 
-Each release should include:
+Each release should include the following sections. Keep empty sections only
+when the release explicitly says "none" or "not production-ready."
 
-- Version and source commit.
-- Artifact list and image tags.
-- Breaking changes.
-- REST API changes.
-- gRPC/protobuf changes, including reserved or removed fields if any.
-- Config/env changes and default changes.
-- Database migrations, with old-binary/new-schema and new-binary/old-schema assessment.
-- Operational changes: ports, probes, metrics, logs, dashboards, TLS, auth, RBAC.
-- Capacity/performance impact when hot paths changed, with a link to benchmark or deployed-stack evidence when relevant.
-- Upgrade instructions for SQLite/local and Postgres/reference deploys.
-- Rollback instructions: previous artifacts only, database restore, roll-forward repair, or explicitly safe down migration.
-- Known risks and manual verification steps.
+```md
+## Vectis <version>
+
+Source commit: <git-sha>
+Release date: <date>
+Production readiness: production-ready | not production-ready | alpha-only
+Production evidence: <link to completed evidence record or "not applicable">
+
+### Artifact Set
+
+- Binaries:
+- Container images:
+- Linux packages:
+- Generated systemd artifacts:
+- Docs artifact:
+
+### Compatibility And Skew
+
+- Supported version skew:
+- Components that must roll together:
+- Old-binary/new-schema behavior:
+- New-binary/old-schema behavior:
+
+### Breaking Changes
+
+- None, or list every operator/user-visible break.
+
+### API And gRPC Changes
+
+- REST:
+- gRPC/protobuf:
+- Removed or reserved fields:
+
+### Config, Security, And Secrets
+
+- New or changed env/config:
+- TLS, mTLS, service identity, auth, RBAC, allowed Host, or proxy changes:
+- Secret-manager or SPIFFE/secrets changes:
+
+### Migrations
+
+- Schema changed: yes | no
+- Migration command:
+- Rollback path:
+- Fresh backup required before upgrade: yes | no
+
+### Operations
+
+- Ports/probes/health checks:
+- Metrics/logs/dashboards/alerts:
+- Retention or durable storage changes:
+- Runbook changes:
+
+### Capacity
+
+- Capacity-sensitive change: yes | no
+- Evidence link or waiver:
+- Published envelope changed: yes | no
+
+### Smoke And Drill Evidence
+
+- `make test-quick`:
+- Postgres integration, when required:
+- Linux package/artifact smoke:
+- VM deploy/package lanes, when required:
+- SQLite/local upgrade smoke:
+- Postgres/reference upgrade smoke:
+- Operator smoke run:
+- Security checklist result:
+
+### Upgrade Instructions
+
+- SQLite/local:
+- Postgres/reference or production-v1:
+- Required downtime or sequencing:
+
+### Rollback Instructions
+
+- Rollback choice: previous artifacts | database restore | roll-forward repair | safe down migration
+- Commands or procedure:
+- Data-loss or compatibility caveats:
+
+### Known Risks And Waivers
+
+- Risk/waiver:
+- Owner:
+- Expiration or follow-up:
+```
 
 Schema changes must follow [Database Migrations](./migrations.md), including the production rollback note for each release. Capacity-sensitive changes should follow [Capacity And Performance Checks](./performance/capacity-checks.md).
 
@@ -89,9 +166,11 @@ Schema changes must follow [Database Migrations](./migrations.md), including the
 9. Run or cite [Capacity And Performance Checks](./performance/capacity-checks.md) for capacity-sensitive changes.
 10. Update docs for any changed API, config, deployment, security, metrics, capacity, or runbook behavior.
 11. Draft release notes with the template above.
-12. Smoke test SQLite/local upgrade.
-13. Smoke test Postgres/reference upgrade when deploy or database behavior changed.
-14. Tag the release commit and publish artifacts from that tag.
+12. Complete [Production Readiness Evidence](./production-readiness-evidence.md) when the release will be called production-ready.
+13. Smoke test SQLite/local upgrade.
+14. Smoke test Postgres/reference upgrade when deploy or database behavior changed.
+15. Run or waive VM-backed deploy/package lanes when Linux install, package, worker isolation, or VM provider behavior changed.
+16. Tag the release commit and publish artifacts from that tag.
 
 ## Production Readiness Gate
 
@@ -182,6 +261,8 @@ Choose one, and document it in release notes:
 | Production topology gate | [Production Topology v1](../operating/deployment/production-topology-v1.md) |
 | Production config and secrets | [Production Config And Secrets Contract](../operating/deployment/production-config-contract.md) |
 | Production monitoring | [Production Monitoring Contract](../operating/reliability/production-monitoring.md) |
+| Production security checklist | [Production Security Checklist](../operating/deployment/production-security-checklist.md) |
+| Production drills | [Production Drills](../operating/reliability/production-drills.md) |
 | Operator capacity envelope | [Capacity And Load Envelope](../operating/capacity/capacity-load-envelope.md) |
 | Upgrade backup and restore planning | [Backup And Restore](../operating/reliability/backup-restore.md) |
 | Scaling and restart order | [Scaling And Restarts](../operating/deployment/scaling-and-restarts.md) |
