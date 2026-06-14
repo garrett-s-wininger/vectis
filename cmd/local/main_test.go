@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -473,6 +474,83 @@ func TestValidLocalHTTPSTLSMode(t *testing.T) {
 	}
 }
 
+func TestAPIEnvSourceOnlyRepositories(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_LOCAL_SOURCE_REPOSITORIES", "")
+	viper.Set("host", "127.0.0.1")
+	viper.Set("source_only", true)
+
+	tmp := t.TempDir()
+	repoDir := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	relativeRoot := filepath.Join(tmp, "cwd")
+	relativeRepo := filepath.Join(relativeRoot, "relative-repo")
+	if err := os.MkdirAll(relativeRepo, 0o755); err != nil {
+		t.Fatalf("mkdir relative repo: %v", err)
+	}
+
+	t.Chdir(relativeRoot)
+	viper.Set("source_repositories", []string{
+		"vectis-local=" + repoDir,
+		"relative=relative-repo",
+	})
+
+	env, err := apiEnv()
+	if err != nil {
+		t.Fatalf("apiEnv: %v", err)
+	}
+
+	if !hasEnv(env, "VECTIS_API_SERVER_HOST=127.0.0.1") {
+		t.Fatalf("api env missing host: %v", env)
+	}
+
+	if !hasEnv(env, "VECTIS_SOURCE_STORED_JOBS_ENABLED=false") {
+		t.Fatalf("api env missing stored jobs disable: %v", env)
+	}
+
+	if !hasEnv(env, "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true") {
+		t.Fatalf("api env missing source sync startup: %v", env)
+	}
+
+	raw, ok := envValue(env, "VECTIS_SOURCE_REPOSITORIES")
+	if !ok {
+		t.Fatalf("api env missing source repositories: %v", env)
+	}
+
+	var repos []config.SourceRepositoryDeclaration
+	if err := json.Unmarshal([]byte(raw), &repos); err != nil {
+		t.Fatalf("decode source repositories: %v", err)
+	}
+
+	if len(repos) != 2 {
+		t.Fatalf("source repositories=%+v, want 2", repos)
+	}
+
+	if repos[0].RepositoryID != "vectis-local" ||
+		repos[0].CheckoutPath != repoDir ||
+		repos[0].SourceKind != "local_checkout" ||
+		repos[0].CheckoutMode != "external" {
+		t.Fatalf("first source repository mismatch: %+v", repos[0])
+	}
+
+	if repos[1].RepositoryID != "relative" || repos[1].CheckoutPath != relativeRepo {
+		t.Fatalf("relative source repository mismatch: %+v", repos[1])
+	}
+}
+
+func TestAPIEnvRejectsMalformedSourceRepository(t *testing.T) {
+	resetLocalTestConfig(t)
+	viper.Set("source_repositories", []string{"not-a-mapping"})
+
+	_, err := apiEnv()
+	if err == nil || !strings.Contains(err.Error(), "repository_id=checkout_path") {
+		t.Fatalf("apiEnv error = %v, want repository mapping error", err)
+	}
+}
+
 func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 	resetLocalTestConfig(t)
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
@@ -647,6 +725,17 @@ func hasEnvPrefix(env []string, prefix string) bool {
 	}
 
 	return false
+}
+
+func envValue(env []string, key string) (string, bool) {
+	prefix := key + "="
+	for _, got := range env {
+		if strings.HasPrefix(got, prefix) {
+			return strings.TrimPrefix(got, prefix), true
+		}
+	}
+
+	return "", false
 }
 
 func envContains(env []string, prefix, want string) bool {

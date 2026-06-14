@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"net"
@@ -911,8 +912,77 @@ func docsEnv() []string {
 	return env
 }
 
-func apiEnv() []string {
-	return []string{"VECTIS_API_SERVER_HOST=" + localHost()}
+func apiEnv() ([]string, error) {
+	env := []string{"VECTIS_API_SERVER_HOST=" + localHost()}
+
+	if viper.GetBool("source_only") {
+		env = append(env, "VECTIS_SOURCE_STORED_JOBS_ENABLED=false")
+	}
+
+	sourceRepos, err := localSourceRepositoryDeclarations()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(sourceRepos) > 0 {
+		payload, err := json.Marshal(sourceRepos)
+		if err != nil {
+			return nil, fmt.Errorf("encode local source repositories: %w", err)
+		}
+
+		env = append(env,
+			"VECTIS_SOURCE_REPOSITORIES="+string(payload),
+			"VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true",
+		)
+	}
+
+	return env, nil
+}
+
+func localSourceRepositoryDeclarations() ([]config.SourceRepositoryDeclaration, error) {
+	values := localSourceRepositorySpecs()
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	repos := make([]config.SourceRepositoryDeclaration, 0, len(values))
+	for _, value := range values {
+		repositoryID, checkoutPath, ok := strings.Cut(value, "=")
+		repositoryID = strings.TrimSpace(repositoryID)
+		checkoutPath = strings.TrimSpace(checkoutPath)
+		if !ok || repositoryID == "" || checkoutPath == "" {
+			return nil, fmt.Errorf("local source repository %q must use repository_id=checkout_path", value)
+		}
+
+		if !filepath.IsAbs(checkoutPath) {
+			abs, err := filepath.Abs(checkoutPath)
+			if err != nil {
+				return nil, fmt.Errorf("local source repository %q checkout path: %w", repositoryID, err)
+			}
+
+			checkoutPath = abs
+		}
+
+		repos = append(repos, config.SourceRepositoryDeclaration{
+			RepositoryID: repositoryID,
+			SourceKind:   "local_checkout",
+			CheckoutMode: "external",
+			CheckoutPath: checkoutPath,
+		})
+	}
+
+	return repos, nil
+}
+
+func localSourceRepositorySpecs() []string {
+	values := viper.GetStringSlice("source_repositories")
+	if len(values) == 0 {
+		if raw := strings.TrimSpace(viper.GetString("source_repositories")); raw != "" {
+			values = []string{raw}
+		}
+	}
+
+	return cleanCommaSeparated(values)
 }
 
 func queueEnv(cell localCell, multiCell bool) []string {
@@ -1432,8 +1502,13 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	services := localServices(logger, topology)
 
+	localAPIEnv, err := apiEnv()
+	if err != nil {
+		logger.Fatal("%v", err)
+	}
+
 	tlsEnv = append(tlsEnv, localDatabaseEnv(topology)...)
-	tlsEnv = append(tlsEnv, apiEnv()...)
+	tlsEnv = append(tlsEnv, localAPIEnv...)
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, localCatalogCellDatabaseEnv(topology.Cells)...)
 	tlsEnv = append(tlsEnv, docsEnv()...)
@@ -1703,6 +1778,10 @@ Use --cell repeatedly to add extra local execution cells over the default cell
 from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
 and use per-cell SQLite databases, queues, secrets roots, ingress endpoints, and workers.
 
+Use --source-only with one or more --source-repository repository_id=checkout_path
+flags to start a local source-defined-jobs instance without hand-authoring the
+JSON source repository environment.
+
 Use --profile=ha to start a local multi-instance exercise cell with multiple
 registries, queue shards, log shards, artifact shards, API replicas, worker-core,
 a secrets service, workers, cron instances, and reconcilers.`,
@@ -1743,6 +1822,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
+	rootCmd.PersistentFlags().Bool("source-only", false, "Disable stored job APIs for the local API server")
+	rootCmd.PersistentFlags().StringArray("source-repository", nil, "Declare a local source repository as repository_id=checkout_path; may be repeated")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
 	rootCmd.PersistentFlags().String("spiffe-dir", "", "Directory for local vectis-spiffe authority data")
 	rootCmd.PersistentFlags().String("spiffe-runtime-dir", "", "Directory for local vectis-spiffe authority Unix sockets")
@@ -1764,6 +1845,8 @@ func init() {
 	_ = viper.BindPFlag("docs_enabled", rootCmd.PersistentFlags().Lookup("docs"))
 	_ = viper.BindPFlag("docs_port", rootCmd.PersistentFlags().Lookup("docs-port"))
 	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
+	_ = viper.BindPFlag("source_only", rootCmd.PersistentFlags().Lookup("source-only"))
+	_ = viper.BindPFlag("source_repositories", rootCmd.PersistentFlags().Lookup("source-repository"))
 	_ = viper.BindPFlag("cells", rootCmd.PersistentFlags().Lookup("cell"))
 	_ = viper.BindPFlag("spiffe_dir", rootCmd.PersistentFlags().Lookup("spiffe-dir"))
 	_ = viper.BindPFlag("spiffe_runtime_dir", rootCmd.PersistentFlags().Lookup("spiffe-runtime-dir"))
@@ -1783,6 +1866,8 @@ func init() {
 	_ = viper.BindEnv("docs_enabled", "VECTIS_LOCAL_DOCS_ENABLED")
 	_ = viper.BindEnv("docs_port", "VECTIS_LOCAL_DOCS_PORT")
 	_ = viper.BindEnv("docs_dir", "VECTIS_LOCAL_DOCS_DIR")
+	_ = viper.BindEnv("source_only", "VECTIS_LOCAL_SOURCE_ONLY")
+	_ = viper.BindEnv("source_repositories", "VECTIS_LOCAL_SOURCE_REPOSITORIES")
 	_ = viper.BindEnv("cells", "VECTIS_LOCAL_CELLS")
 	_ = viper.BindEnv("spiffe_dir", "VECTIS_LOCAL_SPIFFE_DIR")
 	_ = viper.BindEnv("spiffe_runtime_dir", "VECTIS_LOCAL_SPIFFE_RUNTIME_DIR")
