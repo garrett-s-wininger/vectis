@@ -151,6 +151,7 @@ The Podman reference profile provisions `vectis-spiffe` and the encryptedfs-back
 | --- | --- |
 | Configuration and ports | [Configuration](../configuration.md) |
 | Production topology | [Production Topology v1](./production-topology-v1.md) |
+| Production Linux runbook | [Production Linux Deployment](./production-linux.md) |
 | Security posture | [Security](../../concepts/security.md) |
 | Internal service trust | [Internal Service Trust](../../concepts/internal-service-trust.md) |
 | Local SPIFFE secret smoke test | [Local SPIFFE Secrets Smoke Test](./local-spiffe-secrets-smoke-test.md) |

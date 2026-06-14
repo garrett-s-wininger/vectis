@@ -136,6 +136,7 @@ Before calling a production v1 deployment ready, confirm:
 
 | Topic | Document |
 | --- | --- |
+| Linux deployment runbook | [Production Linux Deployment](./production-linux.md) |
 | Reference deployment boundaries | [Reference Deployment Posture](./reference-deployment-posture.md) |
 | Replica counts and restart behavior | [Scaling And Restarts](./scaling-and-restarts.md) |
 | Configuration and service prefixes | [Configuration](../configuration.md) |
