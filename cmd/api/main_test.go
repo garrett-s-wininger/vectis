@@ -380,6 +380,94 @@ func TestReconcileConfiguredSourceSchedules_CreatesAndUpdates(t *testing.T) {
 	}
 }
 
+func TestReconcileConfiguredSourceSchedules_PreservesActiveOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis",
+			"checkout_path": "/work/vectis",
+			"default_ref":   "main",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile repositories: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "0 * * * *",
+			"ref":           "main",
+			"path":          ".vectis/jobs/build.json",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule create: %v", err)
+	}
+
+	if _, err := repos.Schedules().SetSourceCronScheduleOverride(ctx, "nightly-build", dal.SourceScheduleOverride{
+		Ref:           "hotfix/build",
+		Path:          ".vectis/jobs/build-hotfix.json",
+		Reason:        "production hotfix",
+		CreatedAtUnix: 1234,
+	}); err != nil {
+		t.Fatalf("set source schedule override: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "deploy",
+			"cron_spec":     "30 * * * *",
+			"ref":           "release",
+			"path":          ".vectis/jobs/deploy.json",
+			"enabled":       false,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule update: %v", err)
+	}
+
+	got, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID after update: %v", err)
+	}
+
+	if got.JobID != "deploy" ||
+		got.SourceRepositoryID != "vectis" ||
+		got.SourceRef != "release" ||
+		got.SourcePath != ".vectis/jobs/deploy.json" ||
+		got.CronSpec != "30 * * * *" ||
+		got.Enabled {
+		t.Fatalf("updated configured schedule fields mismatch: %+v", got)
+	}
+
+	if got.SourceOverrideRef != "hotfix/build" ||
+		got.SourceOverridePath != ".vectis/jobs/build-hotfix.json" ||
+		got.SourceOverrideReason != "production hotfix" ||
+		got.SourceOverrideCreatedAtUnix != 1234 {
+		t.Fatalf("source schedule override was not preserved: %+v", got)
+	}
+}
+
 func TestReconcileConfiguredSourceSchedules_RejectsInvalid(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
