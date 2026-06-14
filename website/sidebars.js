@@ -35,6 +35,7 @@ const sidebars = {
           type: 'category',
           label: 'Deployment',
           items: [
+            'operating/deployment/production-topology-v1',
             'operating/deployment/reference-deployment-posture',
             'operating/deployment/trusted-proxy-client-ip',
             'operating/deployment/secrets-and-redaction',

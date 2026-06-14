@@ -4,6 +4,11 @@
 
 It is not a turnkey production architecture.
 
+For the conservative production-oriented operating target, start with
+[Production Topology v1](./production-topology-v1.md). Treat the Podman profile
+as a reference map for that topology, not as the production control plane
+itself.
+
 ## Use It For
 
 | Use case | Fit |
@@ -145,6 +150,7 @@ The Podman reference profile provisions `vectis-spiffe` and the encryptedfs-back
 | Topic | Document |
 | --- | --- |
 | Configuration and ports | [Configuration](../configuration.md) |
+| Production topology | [Production Topology v1](./production-topology-v1.md) |
 | Security posture | [Security](../../concepts/security.md) |
 | Internal service trust | [Internal Service Trust](../../concepts/internal-service-trust.md) |
 | Local SPIFFE secret smoke test | [Local SPIFFE Secrets Smoke Test](./local-spiffe-secrets-smoke-test.md) |

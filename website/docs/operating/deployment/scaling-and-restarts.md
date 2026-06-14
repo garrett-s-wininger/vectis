@@ -4,7 +4,7 @@ This page explains how far you can scale each Vectis component today, which serv
 
 The current posture is intentionally conservative: Vectis is safest as a single-site deployment with one shared SQL database, one orchestrator, one or more queue shards with separate persistence, one or more run-sharded log services with separate storage, one or more artifact shards with separate storage, DB-coordinated cron replicas, one active reconciler lease holder, and as many workers as the orchestrator, database, queue, log service, and artifact service can comfortably support.
 
-For dependency behavior during outages, see [Failure Domains](../../concepts/failure-domains.md). For reference deployment boundaries, see [Reference Deployment Posture](./reference-deployment-posture.md). For database pool sizing, see [Configuration](../configuration.md#postgresql-connection-pool-pgx-only).
+For the supported production-oriented starting shape, see [Production Topology v1](./production-topology-v1.md). For dependency behavior during outages, see [Failure Domains](../../concepts/failure-domains.md). For reference deployment boundaries, see [Reference Deployment Posture](./reference-deployment-posture.md). For database pool sizing, see [Configuration](../configuration.md#postgresql-connection-pool-pgx-only).
 
 This page answers "is this component topology supported, and what happens when it changes?" For workload pressure, saturation signals, and when to revalidate a larger operating point, see [Capacity And Load Envelope](../capacity/capacity-load-envelope.md).
 
@@ -183,6 +183,7 @@ For repair steps, see [Repair Runbooks](../reliability/repair-runbooks.md).
 | Topic | Document |
 | --- | --- |
 | Failure behavior | [Failure Domains](../../concepts/failure-domains.md) |
+| Production topology | [Production Topology v1](./production-topology-v1.md) |
 | Configuration and pool sizing | [Configuration](../configuration.md) |
 | Reference deployment posture | [Reference Deployment Posture](./reference-deployment-posture.md) |
 | Runbooks and alerts | [Runbooks](../reliability/runbooks.md) |
