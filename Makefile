@@ -418,6 +418,9 @@ test-e2e-package-local-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET) package-local-deb-$(P
 test-e2e-package-local-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET) package-local-rpm-$(PACKAGE_ARCH)
 	VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_LOCAL_RPM=$(abspath $(PACKAGE_LOCAL_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageLocalRPM -count=1 -v
 
+.PHONY: test-e2e-package-local
+test-e2e-package-local: test-e2e-package-local-deb test-e2e-package-local-rpm
+
 .PHONY: website-a11y
 website-a11y:
 	cd website && \

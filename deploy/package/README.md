@@ -56,6 +56,7 @@ make test-e2e-package-services-deb
 make test-e2e-package-services-rpm
 make test-e2e-package-local-deb
 make test-e2e-package-local-rpm
+make test-e2e-package-local
 ```
 
 The e2e package targets use `PACKAGE_ARCH`, which defaults to the local Go
