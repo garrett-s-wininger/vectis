@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"net"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,9 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/cell"
 	"vectis/internal/interfaces/mocks"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func benchmarkJob() *api.Job {
@@ -596,6 +600,22 @@ func BenchmarkQueue_BlockedWorkerBurstDispatch(b *testing.B) {
 	}
 }
 
+func BenchmarkQueue_GRPCBlockedWorkerBurstDispatch(b *testing.B) {
+	for _, workers := range []int{100, 1000, 5000, 10000} {
+		b.Run(fmt.Sprintf("blocked_workers_%05d", workers), func(b *testing.B) {
+			runGRPCBlockedWorkerBurstDispatchBenchmark(b, workers)
+		})
+	}
+}
+
+func BenchmarkQueue_GRPCBlockedWorkerBurstDispatch_ManyConns(b *testing.B) {
+	for _, workers := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("blocked_workers_%05d", workers), func(b *testing.B) {
+			runGRPCBlockedWorkerBurstDispatchManyConnsBenchmark(b, workers)
+		})
+	}
+}
+
 func runBlockedWorkerBurstDispatchBenchmark(b *testing.B, workers int) {
 	if workers <= 0 {
 		b.Fatal("workers must be positive")
@@ -663,20 +683,279 @@ func runBlockedWorkerBurstDispatchBenchmark(b *testing.B, workers int) {
 	b.ReportMetric(float64(workers), "blocked_workers")
 }
 
-func waitForQueueWaiters(tb testing.TB, queue *queueServer, want int) {
+func runGRPCBlockedWorkerBurstDispatchBenchmark(b *testing.B, workers int) {
+	if workers <= 0 {
+		b.Fatal("workers must be positive")
+	}
+
+	var measured time.Duration
+	b.ReportAllocs()
+	for iteration := 0; iteration < b.N; iteration++ {
+		measured += runGRPCBlockedWorkerBurstDispatchIteration(b, iteration, workers)
+	}
+
+	if measured > 0 {
+		totalDeliveries := float64(workers * b.N)
+		b.ReportMetric(totalDeliveries/measured.Seconds(), "deliveries/s")
+	}
+
+	b.ReportMetric(float64(workers), "blocked_workers")
+	b.ReportMetric(1, "client_conns")
+}
+
+func runGRPCBlockedWorkerBurstDispatchIteration(b *testing.B, iteration, workers int) time.Duration {
+	b.Helper()
+	b.StopTimer()
+	ctx, cancel := context.WithCancel(context.Background())
+	address, queue, cleanupServer := startBenchmarkQueueGRPCServer(b)
+	conn, cleanupConn := dialBenchmarkQueueGRPCServer(b, address)
+	defer cleanupServer()
+	defer cleanupConn()
+	defer cancel()
+
+	client := api.NewQueueServiceClient(conn)
+	results := make(chan error, workers)
+
+	for range workers {
+		go func() {
+			got, err := client.Dequeue(ctx, &api.DequeueRequest{})
+			if err != nil {
+				results <- err
+				return
+			}
+
+			if got == nil {
+				results <- fmt.Errorf("expected dequeued job")
+				return
+			}
+
+			results <- nil
+		}()
+	}
+
+	waitForQueueWaiters(b, queue, workers)
+
+	b.StartTimer()
+	start := time.Now()
+	for jobIndex := 0; jobIndex < workers; jobIndex++ {
+		jobID := fmt.Sprintf("grpc-burst-job-%d-%d", iteration, jobIndex)
+		if _, err := client.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+			b.Fatalf("enqueue grpc burst job %d: %v", jobIndex, err)
+		}
+	}
+
+	deadline := time.After(20 * time.Second)
+	for delivered := 0; delivered < workers; delivered++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				b.Fatal(err)
+			}
+		case <-deadline:
+			b.Fatalf("timed out waiting for %d blocked grpc workers to receive burst jobs; got %d", workers, delivered)
+		}
+	}
+
+	measured := time.Since(start)
+	b.StopTimer()
+
+	return measured
+}
+
+func runGRPCBlockedWorkerBurstDispatchManyConnsBenchmark(b *testing.B, workers int) {
+	if workers <= 0 {
+		b.Fatal("workers must be positive")
+	}
+
+	b.StopTimer()
+	ctx, cancel := context.WithCancel(context.Background())
+	address, queue, cleanupServer := startBenchmarkQueueGRPCServer(b)
+	enqueuerConn, cleanupEnqueuer := dialBenchmarkQueueGRPCServer(b, address)
+	defer cleanupServer()
+	defer cleanupEnqueuer()
+	defer cancel()
+
+	enqueuer := api.NewQueueServiceClient(enqueuerConn)
+	clients := make([]api.QueueServiceClient, 0, workers)
+	cleanupConns := make([]func(), 0, workers)
+	defer func() {
+		for _, cleanupConn := range cleanupConns {
+			cleanupConn()
+		}
+	}()
+
+	for workerIndex := range workers {
+		conn, cleanupConn := dialBenchmarkQueueGRPCServer(b, address)
+		conn.Connect()
+		cleanupConns = append(cleanupConns, cleanupConn)
+		clients = append(clients, api.NewQueueServiceClient(conn))
+		if workerIndex%128 == 127 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	var measured time.Duration
+	var waitersReady time.Duration
+	b.ReportAllocs()
+	for iteration := 0; iteration < b.N; iteration++ {
+		var iterationReady time.Duration
+		var iterationMeasured time.Duration
+		iterationMeasured, iterationReady = runGRPCBlockedWorkerBurstDispatchManyConnsIteration(
+			b,
+			ctx,
+			queue,
+			enqueuer,
+			clients,
+			iteration,
+		)
+
+		measured += iterationMeasured
+		waitersReady += iterationReady
+	}
+
+	if measured > 0 {
+		totalDeliveries := float64(workers * b.N)
+		b.ReportMetric(totalDeliveries/measured.Seconds(), "deliveries/s")
+	}
+
+	if waitersReady > 0 {
+		totalWaiters := float64(workers * b.N)
+		b.ReportMetric(totalWaiters/waitersReady.Seconds(), "waiters_ready/s")
+	}
+
+	b.ReportMetric(float64(workers), "blocked_workers")
+	b.ReportMetric(float64(workers+1), "client_conns")
+}
+
+func runGRPCBlockedWorkerBurstDispatchManyConnsIteration(
+	b *testing.B,
+	ctx context.Context,
+	queue *queueServer,
+	enqueuer api.QueueServiceClient,
+	clients []api.QueueServiceClient,
+	iteration int,
+) (time.Duration, time.Duration) {
+	b.Helper()
+	b.StopTimer()
+
+	workers := len(clients)
+	results := make(chan error, workers)
+
+	for workerIndex, client := range clients {
+		client := client
+		go func() {
+			got, err := client.Dequeue(ctx, &api.DequeueRequest{})
+			if err != nil {
+				results <- err
+				return
+			}
+
+			if got == nil {
+				results <- fmt.Errorf("expected dequeued job")
+				return
+			}
+
+			results <- nil
+		}()
+
+		if workerIndex%128 == 127 {
+			runtime.Gosched()
+		}
+	}
+
+	waitersReady := waitForQueueWaitersWithin(b, queue, workers, 2*time.Minute)
+
+	b.StartTimer()
+	start := time.Now()
+	for jobIndex := 0; jobIndex < workers; jobIndex++ {
+		jobID := fmt.Sprintf("grpc-manyconns-burst-job-%d-%d", iteration, jobIndex)
+		if _, err := enqueuer.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+			b.Fatalf("enqueue grpc many-conn burst job %d: %v", jobIndex, err)
+		}
+	}
+
+	deadline := time.After(30 * time.Second)
+	for delivered := 0; delivered < workers; delivered++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				b.Fatal(err)
+			}
+		case <-deadline:
+			b.Fatalf("timed out waiting for %d blocked grpc many-conn workers to receive burst jobs; got %d", workers, delivered)
+		}
+	}
+
+	measured := time.Since(start)
+	b.StopTimer()
+
+	return measured, waitersReady
+}
+
+func startBenchmarkQueueGRPCServer(tb testing.TB) (string, *queueServer, func()) {
 	tb.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		tb.Fatalf("listen benchmark queue grpc server: %v", err)
+	}
+
+	server := grpc.NewServer()
+	queueSvc := RegisterQueueService(server, mocks.NopLogger{}, QueueOptions{}, nil)
+	queue, ok := queueSvc.(*queueServer)
+	if !ok {
+		tb.Fatal("expected queue server implementation")
+	}
+
+	serveDone := make(chan struct{})
+	go func() {
+		defer close(serveDone)
+		_ = server.Serve(listener)
+	}()
+
+	cleanup := func() {
+		server.Stop()
+		_ = listener.Close()
+		<-serveDone
+	}
+
+	return listener.Addr().String(), queue, cleanup
+}
+
+func dialBenchmarkQueueGRPCServer(tb testing.TB, address string) (*grpc.ClientConn, func()) {
+	tb.Helper()
+
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		tb.Fatalf("dial benchmark queue grpc server: %v", err)
+	}
+
+	return conn, func() {
+		_ = conn.Close()
+	}
+}
+
+func waitForQueueWaiters(tb testing.TB, queue *queueServer, want int) {
+	tb.Helper()
+	_ = waitForQueueWaitersWithin(tb, queue, want, 5*time.Second)
+}
+
+func waitForQueueWaitersWithin(tb testing.TB, queue *queueServer, want int, timeout time.Duration) time.Duration {
+	tb.Helper()
+
+	start := time.Now()
+	deadline := start.Add(timeout)
 	for {
 		queue.mu.Lock()
 		got := len(queue.waiters)
 		queue.mu.Unlock()
+
 		if got >= want {
-			return
+			return time.Since(start)
 		}
 
 		if time.Now().After(deadline) {
-			tb.Fatalf("timed out waiting for %d blocked queue waiters; got %d", want, got)
+			tb.Fatalf("timed out after %v waiting for %d blocked queue waiters; got %d", timeout, want, got)
 		}
 
 		runtime.Gosched()

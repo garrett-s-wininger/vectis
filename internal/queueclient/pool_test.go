@@ -234,6 +234,49 @@ func TestQueuePoolTryDequeueReturnsErrorWhenAllShardsUnavailable(t *testing.T) {
 	}
 }
 
+func TestQueuePoolTryDequeueConnectionLimitWalksOneShardAtATime(t *testing.T) {
+	jobID := "job-on-second-shard"
+	p, dialed, closed := newLazyFakeQueuePool(map[string]*fakeQueueServiceClient{
+		"a": {},
+		"b": {tryJobs: []*api.JobRequest{{Job: &api.Job{Id: &jobID}}}},
+	})
+
+	p.dequeueCounter.Store(^uint64(0))
+	got, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("first try dequeue: %v", err)
+	}
+
+	if got != nil {
+		t.Fatalf("first try dequeue got job %+v, want nil", got.GetJob())
+	}
+
+	if strings.Join(*dialed, ",") != "a" {
+		t.Fatalf("dialed endpoints after first try = %v, want [a]", *dialed)
+	}
+
+	if len(*closed) != 0 {
+		t.Fatalf("closed endpoints after first try = %v, want none", *closed)
+	}
+
+	got, err = p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("second try dequeue: %v", err)
+	}
+
+	if got.GetJob().GetId() != jobID {
+		t.Fatalf("second try dequeue got %+v, want job %s", got.GetJob(), jobID)
+	}
+
+	if strings.Join(*dialed, ",") != "a,b" {
+		t.Fatalf("dialed endpoints after second try = %v, want [a b]", *dialed)
+	}
+
+	if strings.Join(*closed, ",") != "a" {
+		t.Fatalf("closed endpoints after second try = %v, want [a]", *closed)
+	}
+}
+
 func TestQueuePoolAckRoutesToDeliveryShard(t *testing.T) {
 	a := &fakeQueueServiceClient{}
 	b := &fakeQueueServiceClient{}
@@ -330,4 +373,48 @@ func newFakeQueuePool(clients map[string]*fakeQueueServiceClient) *queuePool {
 	}
 
 	return p
+}
+
+func newLazyFakeQueuePool(clients map[string]*fakeQueueServiceClient) (*queuePool, *[]string, *[]string) {
+	p := &queuePool{
+		logger:    mocks.NopLogger{},
+		opts:      QueuePoolOptions{DequeueConnectionLimit: 1},
+		endpoints: make(map[string]*queuePoolEndpoint, len(clients)),
+	}
+
+	p.setDequeueSupportedIsolation(nil)
+	ids := make([]string, 0, len(clients))
+	for id := range clients {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		ep := &queuePoolEndpoint{id: id, address: id}
+		p.endpoints[id] = ep
+		p.activeIDs = append(p.activeIDs, id)
+		p.active = append(p.active, ep)
+	}
+
+	dialed := make([]string, 0, len(clients))
+	closed := make([]string, 0, len(clients))
+	p.dial = func(_ context.Context, id, address string) (*queuePoolEndpoint, error) {
+		client := clients[id]
+		if client == nil {
+			return nil, status.Error(codes.Unavailable, "queue shard unavailable")
+		}
+
+		dialed = append(dialed, id)
+		return &queuePoolEndpoint{
+			id:      id,
+			address: address,
+			client:  client,
+			cleanup: func() {
+				closed = append(closed, id)
+			},
+		}, nil
+	}
+
+	return p, &dialed, &closed
 }

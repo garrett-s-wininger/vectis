@@ -3,7 +3,6 @@ package queueclient
 import (
 	"context"
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -25,12 +24,15 @@ import (
 
 const poolDequeuePollInterval = 250 * time.Millisecond
 
+var queuePoolSequence atomic.Uint64
+
 type QueuePoolOptions struct {
 	PinnedAddress             string
 	RegistryAddress           string
 	RetryMetrics              backoff.RetryMetrics
 	RefreshInterval           time.Duration
 	DequeueSupportedIsolation []string
+	DequeueConnectionLimit    int
 }
 
 type ManagingQueuePoolService struct {
@@ -63,6 +65,10 @@ type ManagingQueuePoolClient struct {
 }
 
 func NewManagingQueuePoolClient(ctx context.Context, logger interfaces.Logger, opts QueuePoolOptions) (*ManagingQueuePoolClient, error) {
+	if opts.DequeueConnectionLimit <= 0 {
+		opts.DequeueConnectionLimit = 1
+	}
+
 	pool, err := newQueuePool(ctx, logger, opts)
 	if err != nil {
 		return nil, err
@@ -145,6 +151,10 @@ func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolO
 		endpoints: make(map[string]*queuePoolEndpoint),
 	}
 
+	seed := queuePoolSequence.Add(1)
+	p.enqueueCounter.Store(seed * uint64(11400714819323198485))
+	p.dequeueCounter.Store(seed)
+
 	if err := p.setDequeueSupportedIsolation(opts.DequeueSupportedIsolation); err != nil {
 		return nil, err
 	}
@@ -160,6 +170,11 @@ func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolO
 	}
 
 	if err := p.refresh(ctx); err != nil {
+		_ = p.close()
+		return nil, err
+	}
+
+	if err := p.connectInitialEndpoint(ctx); err != nil {
 		_ = p.close()
 		return nil, err
 	}
@@ -211,58 +226,31 @@ func (p *queuePool) refresh(ctx context.Context) error {
 		return fmt.Errorf("resolve queue pool: %w", err)
 	}
 
-	p.mu.RLock()
-	existing := make(map[string]*queuePoolEndpoint, len(p.endpoints))
-	maps.Copy(existing, p.endpoints)
-	p.mu.RUnlock()
-
-	replacements := make(map[string]*queuePoolEndpoint)
-	var firstErr error
-	for _, d := range desired {
-		if ep := existing[d.id]; ep != nil && ep.address == d.address {
-			continue
-		}
-
-		ep, err := p.connectEndpoint(ctx, d.id, d.address)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-
-			p.logger.Warn("queue pool: failed to connect to %s at %s: %v", d.id, d.address, err)
-			continue
-		}
-
-		replacements[d.id] = ep
-	}
-
+	desiredByID := make(map[string]desiredQueueEndpoint, len(desired))
 	activeIDs := make([]string, 0, len(desired))
 	activeEndpoints := make([]*queuePoolEndpoint, 0, len(desired))
 	for _, d := range desired {
-		if replacements[d.id] != nil {
-			activeIDs = append(activeIDs, d.id)
-			activeEndpoints = append(activeEndpoints, replacements[d.id])
-			continue
-		}
+		desiredByID[d.id] = d
+	}
 
-		if ep := existing[d.id]; ep != nil && ep.address == d.address {
-			activeIDs = append(activeIDs, d.id)
-			activeEndpoints = append(activeEndpoints, ep)
+	p.mu.Lock()
+	for id, ep := range p.endpoints {
+		d, ok := desiredByID[id]
+		if !ok || d.address != ep.address {
+			ep.close()
+			delete(p.endpoints, id)
 		}
 	}
 
-	sort.Strings(activeIDs)
-	sort.Slice(activeEndpoints, func(i, j int) bool {
-		return activeEndpoints[i].id < activeEndpoints[j].id
-	})
-
-	p.mu.Lock()
-	for id, ep := range replacements {
-		if old := p.endpoints[id]; old != nil {
-			old.close()
+	for _, d := range desired {
+		ep := p.endpoints[d.id]
+		if ep == nil {
+			ep = &queuePoolEndpoint{id: d.id, address: d.address}
+			p.endpoints[d.id] = ep
 		}
 
-		p.endpoints[id] = ep
+		activeIDs = append(activeIDs, d.id)
+		activeEndpoints = append(activeEndpoints, ep)
 	}
 
 	p.activeIDs = activeIDs
@@ -272,10 +260,6 @@ func (p *queuePool) refresh(ctx context.Context) error {
 	p.mu.Unlock()
 
 	if activeCount == 0 {
-		if firstErr != nil {
-			return firstErr
-		}
-
 		return fmt.Errorf("no queue endpoints available")
 	}
 
@@ -359,6 +343,121 @@ func (p *queuePool) dialEndpoint(ctx context.Context, id, address string) (*queu
 		client:  api.NewQueueServiceClient(conn),
 		cleanup: cleanup,
 	}, nil
+}
+
+func (p *queuePool) ensureEndpointConnected(ctx context.Context, ep *queuePoolEndpoint) (*queuePoolEndpoint, error) {
+	if ep == nil {
+		return nil, fmt.Errorf("queue endpoint is nil")
+	}
+
+	if ep.client != nil {
+		return ep, nil
+	}
+
+	p.mu.RLock()
+	current := p.endpoints[ep.id]
+	if current != nil && current.address == ep.address && current.client != nil {
+		p.mu.RUnlock()
+		return current, nil
+	}
+
+	id := ep.id
+	address := ep.address
+	p.mu.RUnlock()
+
+	replacement, err := p.connectEndpoint(ctx, id, address)
+	if err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	current = p.endpoints[id]
+	if current == nil || current.address != address {
+		p.mu.Unlock()
+		replacement.close()
+		return nil, fmt.Errorf("queue endpoint %q is no longer active", id)
+	}
+
+	if current.client != nil {
+		p.mu.Unlock()
+		replacement.close()
+		return current, nil
+	}
+
+	p.endpoints[id] = replacement
+	if len(p.active) > 0 {
+		active := append([]*queuePoolEndpoint(nil), p.active...)
+		for i, activeEndpoint := range active {
+			if activeEndpoint != nil && activeEndpoint.id == id {
+				active[i] = replacement
+				break
+			}
+		}
+
+		p.active = active
+	}
+	p.mu.Unlock()
+
+	current.close()
+	return replacement, nil
+}
+
+func (p *queuePool) connectInitialEndpoint(ctx context.Context) error {
+	endpoints := p.snapshotActiveEndpoints()
+	if len(endpoints) == 0 {
+		return fmt.Errorf("no queue endpoints available")
+	}
+
+	start := 0
+	if len(endpoints) > 1 {
+		start = int((p.dequeueCounter.Load() + 1) % uint64(len(endpoints)))
+	}
+
+	var lastErr error
+	for offset := range endpoints {
+		ep := endpoints[(start+offset)%len(endpoints)]
+		if _, err := p.ensureEndpointConnected(ctx, ep); err != nil {
+			lastErr = err
+			continue
+		}
+
+		return nil
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no queue endpoints available")
+	}
+
+	return lastErr
+}
+
+func (p *queuePool) disconnectConnectedEndpointsExcept(keepID string) {
+	var closing []*queuePoolEndpoint
+
+	p.mu.Lock()
+	for id, ep := range p.endpoints {
+		if id == keepID || ep == nil || ep.client == nil {
+			continue
+		}
+
+		placeholder := &queuePoolEndpoint{id: ep.id, address: ep.address}
+		p.endpoints[id] = placeholder
+		if len(p.active) > 0 {
+			for i, activeEndpoint := range p.active {
+				if activeEndpoint != nil && activeEndpoint.id == id {
+					p.active[i] = placeholder
+					break
+				}
+			}
+		}
+
+		closing = append(closing, ep)
+	}
+	p.mu.Unlock()
+
+	for _, ep := range closing {
+		ep.close()
+	}
 }
 
 func (p *queuePool) hasActiveEndpoints() bool {
@@ -445,10 +544,31 @@ func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empt
 		attempts = 2
 	}
 
+	tried := make(map[string]struct{}, attempts)
 	for range attempts {
-		ep, err := p.chooseEndpointFrom(endpoints)
+		candidates := make([]*queuePoolEndpoint, 0, len(endpoints))
+		for _, ep := range endpoints {
+			if _, ok := tried[ep.id]; ok {
+				continue
+			}
+
+			candidates = append(candidates, ep)
+		}
+
+		if len(candidates) == 0 {
+			break
+		}
+
+		ep, err := p.chooseEndpointFrom(candidates)
 		if err != nil {
 			return nil, err
+		}
+
+		tried[ep.id] = struct{}{}
+		ep, err = p.ensureEndpointConnected(ctx, ep)
+		if err != nil {
+			lastErr = err
+			continue
 		}
 
 		ep.inflight.Add(1)
@@ -505,9 +625,23 @@ func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
 	endpoints, start := p.rotatedActiveEndpointsFrom(endpoints)
 	var lastErr error
 	sawReachable := false
+	attempts := len(endpoints)
+	if p.opts.DequeueConnectionLimit > 0 && attempts > p.opts.DequeueConnectionLimit {
+		attempts = p.opts.DequeueConnectionLimit
+	}
 
-	for offset := range endpoints {
+	for offset := range attempts {
 		ep := endpoints[(start+offset)%len(endpoints)]
+		ep, err := p.ensureEndpointConnected(ctx, ep)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if p.opts.DequeueConnectionLimit == 1 {
+			p.disconnectConnectedEndpointsExcept(ep.id)
+		}
+
 		req, err := p.tryDequeueEndpoint(ctx, ep)
 		if err == nil {
 			sawReachable = true
@@ -560,6 +694,12 @@ func (p *queuePool) ack(ctx context.Context, deliveryID string) error {
 			return fmt.Errorf("queue endpoint %q not available for delivery %q", instanceID, deliveryID)
 		}
 
+		var err error
+		ep, err = p.ensureEndpointConnected(ctx, ep)
+		if err != nil {
+			return err
+		}
+
 		return p.ackEndpoint(ctx, ep, deliveryID)
 	}
 
@@ -570,6 +710,13 @@ func (p *queuePool) ack(ctx context.Context, deliveryID string) error {
 
 	var lastErr error
 	for _, ep := range endpoints {
+		var err error
+		ep, err = p.ensureEndpointConnected(ctx, ep)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
 		if err := p.ackEndpoint(ctx, ep, deliveryID); err != nil {
 			lastErr = err
 		}

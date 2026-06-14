@@ -1,0 +1,369 @@
+package queueclient_test
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	api "vectis/api/gen/go"
+	"vectis/internal/interfaces"
+	"vectis/internal/interfaces/mocks"
+	"vectis/internal/queue"
+	"vectis/internal/queueclient"
+	"vectis/internal/registry"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/stats"
+)
+
+func BenchmarkQueuePool_GRPCWorkerFanout(b *testing.B) {
+	cases := []struct {
+		shards  int
+		workers int
+	}{
+		{shards: 1, workers: 100},
+		{shards: 1, workers: 1000},
+		{shards: 2, workers: 100},
+		{shards: 2, workers: 1000},
+		{shards: 4, workers: 100},
+	}
+
+	for _, tc := range cases {
+		b.Run(fmt.Sprintf("shards_%d_workers_%05d", tc.shards, tc.workers), func(b *testing.B) {
+			runQueuePoolGRPCWorkerFanout(b, tc.shards, tc.workers)
+		})
+	}
+}
+
+func BenchmarkQueuePool_GRPCWorkerFanoutLarge(b *testing.B) {
+	cases := []struct {
+		shards  int
+		workers int
+	}{
+		{shards: 4, workers: 1000},
+		{shards: 1, workers: 5000},
+		{shards: 2, workers: 5000},
+		{shards: 4, workers: 5000},
+	}
+
+	for _, tc := range cases {
+		b.Run(fmt.Sprintf("shards_%d_workers_%05d", tc.shards, tc.workers), func(b *testing.B) {
+			runQueuePoolGRPCWorkerFanout(b, tc.shards, tc.workers)
+		})
+	}
+}
+
+func runQueuePoolGRPCWorkerFanout(b *testing.B, shardCount, workers int) {
+	if shardCount <= 0 {
+		b.Fatal("shard count must be positive")
+	}
+
+	if workers <= 0 {
+		b.Fatal("workers must be positive")
+	}
+
+	b.StopTimer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reg := startGRPCBenchmarkRegistry(b)
+	defer reg.close()
+
+	shards := startGRPCBenchmarkQueueShards(b, shardCount)
+	defer closeGRPCBenchmarkQueueShards(shards)
+	registerGRPCBenchmarkQueueShards(b, ctx, reg.address, shards)
+
+	workerClients := make([]*queueclient.ManagingQueuePoolClient, 0, workers)
+	for workerIndex := range workers {
+		client, err := queueclient.NewManagingQueuePoolClient(ctx, mocks.NopLogger{}, queueclient.QueuePoolOptions{
+			RegistryAddress: reg.address,
+			RefreshInterval: time.Hour,
+		})
+
+		if err != nil {
+			b.Fatalf("create worker queue pool %d: %v", workerIndex, err)
+		}
+
+		workerClients = append(workerClients, client)
+		if workerIndex%64 == 63 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	defer func() {
+		for _, client := range workerClients {
+			if err := client.Close(); err != nil {
+				b.Fatalf("close worker queue pool: %v", err)
+			}
+		}
+	}()
+
+	var measured time.Duration
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		b.StopTimer()
+		prefillGRPCBenchmarkQueueShards(b, shards, iteration, workers)
+
+		workCtx, cancelWork := context.WithTimeout(ctx, 30*time.Second)
+		var ready sync.WaitGroup
+		var done sync.WaitGroup
+		start := make(chan struct{})
+		errs := make(chan error, workers)
+		ready.Add(workers)
+		done.Add(workers)
+
+		for _, client := range workerClients {
+			client := client
+			go func() {
+				defer done.Done()
+				ready.Done()
+				<-start
+
+				job, err := client.Dequeue(workCtx)
+				if err != nil {
+					errs <- fmt.Errorf("dequeue: %w", err)
+					return
+				}
+
+				if job == nil || job.GetJob() == nil {
+					errs <- fmt.Errorf("expected dequeued job")
+					return
+				}
+
+				deliveryID := job.GetJob().GetDeliveryId()
+				if deliveryID == "" {
+					errs <- fmt.Errorf("expected delivery ID")
+					return
+				}
+
+				if err := client.Ack(workCtx, deliveryID); err != nil {
+					errs <- fmt.Errorf("ack: %w", err)
+					return
+				}
+			}()
+		}
+
+		ready.Wait()
+		b.StartTimer()
+		iterationStart := time.Now()
+		close(start)
+		done.Wait()
+		iterationMeasured := time.Since(iterationStart)
+		b.StopTimer()
+		cancelWork()
+
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		measured += iterationMeasured
+	}
+
+	if measured > 0 {
+		totalDeliveries := float64(workers * b.N)
+		b.ReportMetric(totalDeliveries/measured.Seconds(), "deliveries/s")
+		b.ReportMetric(totalDeliveries/measured.Seconds(), "acks/s")
+	}
+
+	b.ReportMetric(float64(shardCount), "shards")
+	b.ReportMetric(float64(workers), "workers")
+
+	queueConns, queueConnPeak := measureGRPCBenchmarkQueueConns(shards)
+	workerQueueConns := queueConns - int64(shardCount)
+	if workerQueueConns < 0 {
+		workerQueueConns = 0
+	}
+
+	registryConns := reg.conns.current.Load()
+	b.ReportMetric(float64(workerQueueConns), "worker_queue_conns")
+	b.ReportMetric(float64(queueConns), "queue_conns")
+	b.ReportMetric(float64(queueConnPeak), "queue_conn_peak")
+	b.ReportMetric(float64(registryConns), "registry_conns")
+	b.ReportMetric(float64(reg.conns.max.Load()), "registry_conn_peak")
+	b.ReportMetric(float64(queueConns+registryConns), "total_grpc_conns")
+}
+
+type grpcBenchmarkRegistry struct {
+	address  string
+	server   *grpc.Server
+	listener net.Listener
+	done     chan struct{}
+	conns    *grpcBenchmarkConnCounter
+}
+
+func startGRPCBenchmarkRegistry(tb testing.TB) grpcBenchmarkRegistry {
+	tb.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		tb.Fatalf("listen registry: %v", err)
+	}
+
+	conns := &grpcBenchmarkConnCounter{}
+	server := grpc.NewServer(grpc.StatsHandler(conns))
+	api.RegisterRegistryServiceServer(server, registry.NewRegistryService(mocks.NopLogger{}))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = server.Serve(listener)
+	}()
+
+	return grpcBenchmarkRegistry{
+		address:  listener.Addr().String(),
+		server:   server,
+		listener: listener,
+		done:     done,
+		conns:    conns,
+	}
+}
+
+func (r grpcBenchmarkRegistry) close() {
+	r.server.Stop()
+	_ = r.listener.Close()
+	<-r.done
+}
+
+type grpcBenchmarkQueueShard struct {
+	id       string
+	address  string
+	server   *grpc.Server
+	listener net.Listener
+	done     chan struct{}
+	conn     *grpc.ClientConn
+	client   api.QueueServiceClient
+	conns    *grpcBenchmarkConnCounter
+}
+
+func startGRPCBenchmarkQueueShards(tb testing.TB, shardCount int) []grpcBenchmarkQueueShard {
+	tb.Helper()
+
+	shards := make([]grpcBenchmarkQueueShard, 0, shardCount)
+	for shardIndex := range shardCount {
+		id := fmt.Sprintf("queue-%02d", shardIndex+1)
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			tb.Fatalf("listen queue shard %s: %v", id, err)
+		}
+
+		conns := &grpcBenchmarkConnCounter{}
+		server := grpc.NewServer(grpc.StatsHandler(conns))
+		queue.RegisterQueueService(server, mocks.NopLogger{}, queue.QueueOptions{InstanceID: id}, nil)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_ = server.Serve(listener)
+		}()
+
+		conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			server.Stop()
+			_ = listener.Close()
+			<-done
+			tb.Fatalf("dial enqueue client for shard %s: %v", id, err)
+		}
+
+		conn.Connect()
+		shards = append(shards, grpcBenchmarkQueueShard{
+			id:       id,
+			address:  listener.Addr().String(),
+			server:   server,
+			listener: listener,
+			done:     done,
+			conn:     conn,
+			client:   api.NewQueueServiceClient(conn),
+			conns:    conns,
+		})
+	}
+
+	return shards
+}
+
+func closeGRPCBenchmarkQueueShards(shards []grpcBenchmarkQueueShard) {
+	for _, shard := range shards {
+		_ = shard.conn.Close()
+		shard.server.Stop()
+		_ = shard.listener.Close()
+		<-shard.done
+	}
+}
+
+func measureGRPCBenchmarkQueueConns(shards []grpcBenchmarkQueueShard) (int64, int64) {
+	var current int64
+	var peak int64
+	for _, shard := range shards {
+		current += shard.conns.current.Load()
+		peak += shard.conns.max.Load()
+	}
+
+	return current, peak
+}
+
+type grpcBenchmarkConnCounter struct {
+	current atomic.Int64
+	total   atomic.Int64
+	max     atomic.Int64
+}
+
+func (c *grpcBenchmarkConnCounter) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
+	return ctx
+}
+
+func (c *grpcBenchmarkConnCounter) HandleRPC(context.Context, stats.RPCStats) {}
+
+func (c *grpcBenchmarkConnCounter) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
+	return ctx
+}
+
+func (c *grpcBenchmarkConnCounter) HandleConn(_ context.Context, stat stats.ConnStats) {
+	switch stat.(type) {
+	case *stats.ConnBegin:
+		current := c.current.Add(1)
+		c.total.Add(1)
+		for {
+			maximum := c.max.Load()
+			if current <= maximum || c.max.CompareAndSwap(maximum, current) {
+				return
+			}
+		}
+	case *stats.ConnEnd:
+		c.current.Add(-1)
+	}
+}
+
+func registerGRPCBenchmarkQueueShards(tb testing.TB, ctx context.Context, registryAddress string, shards []grpcBenchmarkQueueShard) {
+	tb.Helper()
+
+	reg, err := registry.New(ctx, registryAddress, mocks.NopLogger{}, interfaces.SystemClock{}, nil)
+	if err != nil {
+		tb.Fatalf("registry client: %v", err)
+	}
+	defer func() { _ = reg.Close() }()
+
+	for _, shard := range shards {
+		if err := reg.RegisterInstanceWithMetadata(ctx, api.Component_COMPONENT_QUEUE, shard.id, shard.address, registry.QueueIngressMetadata()); err != nil {
+			tb.Fatalf("register queue shard %s: %v", shard.id, err)
+		}
+	}
+}
+
+func prefillGRPCBenchmarkQueueShards(tb testing.TB, shards []grpcBenchmarkQueueShard, iteration, jobs int) {
+	tb.Helper()
+
+	ctx := context.Background()
+	for jobIndex := range jobs {
+		shard := shards[jobIndex%len(shards)]
+		jobID := fmt.Sprintf("grpc-pool-fanout-job-%d-%d", iteration, jobIndex)
+		if _, err := shard.client.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+			tb.Fatalf("prefill queue shard %s: %v", shard.id, err)
+		}
+	}
+}
