@@ -265,212 +265,6 @@ func TestTriggerJobRequestBody_rejectsEmptyCell(t *testing.T) {
 	}
 }
 
-func TestPersistJobFromSource_sendsCreateRequestAndPrintsProvenance(t *testing.T) {
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method=%s", r.Method)
-		}
-
-		if r.URL.Path != "/api/v1/jobs/source/build" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		if got := r.Header.Get("Content-Type"); got != "application/json" {
-			t.Errorf("Content-Type=%q", got)
-		}
-
-		var body jobSourceRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode body: %v", err)
-		}
-
-		if body.Namespace != "/team-a" ||
-			body.RepositoryID != "vectis" ||
-			body.Ref != "main" ||
-			body.Path != "" {
-			t.Errorf("create source body mismatch: %+v", body)
-		}
-
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"job_id":          "build",
-			"version":         3,
-			"definition_hash": "hash",
-			"source": map[string]any{
-				"repository_id":   "vectis",
-				"requested_ref":   "main",
-				"resolved_commit": "0123456789abcdef",
-				"path":            ".vectis/jobs/build.json",
-				"blob_sha":        "abcdef0123456789",
-			},
-		})
-	})
-
-	var buf bytes.Buffer
-	err := persistJobFromSourceWithOutput(&buf, http.MethodPost, "build", "vectis", "", "/team-a", "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{"job_id=build", "version=3", "definition_hash=hash", "repository_id=vectis", "requested_ref=main", "resolved_commit=0123456789abcdef", "path=.vectis/jobs/build.json", "blob_sha=abcdef0123456789"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
-		}
-	}
-}
-
-func TestOptionalJobSourcePath(t *testing.T) {
-	if got := optionalJobSourcePath([]string{"build", "vectis"}); got != "" {
-		t.Fatalf("two-argument source path: got %q, want empty", got)
-	}
-
-	if got := optionalJobSourcePath([]string{"build", "vectis", ".vectis/jobs/build.json"}); got != ".vectis/jobs/build.json" {
-		t.Fatalf("explicit source path: got %q", got)
-	}
-}
-
-func TestPersistJobFromSource_sendsUpdateRequest(t *testing.T) {
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			t.Errorf("method=%s", r.Method)
-		}
-
-		if r.URL.Path != "/api/v1/jobs/source/build" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		var body jobSourceRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode body: %v", err)
-		}
-
-		if body.Namespace != "" ||
-			body.RepositoryID != "vectis" ||
-			body.Ref != "release/1" ||
-			body.Path != ".vectis/jobs/build.json" {
-			t.Errorf("update source body mismatch: %+v", body)
-		}
-
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"job_id":          "build",
-			"version":         4,
-			"definition_hash": "hash-2",
-			"source": map[string]any{
-				"repository_id":   "vectis",
-				"requested_ref":   "release/1",
-				"resolved_commit": "fedcba9876543210",
-				"path":            ".vectis/jobs/build.json",
-				"blob_sha":        "abcdef0123456789",
-			},
-		})
-	})
-
-	var buf bytes.Buffer
-	err := persistJobFromSourceWithOutput(&buf, http.MethodPut, "build", "vectis", ".vectis/jobs/build.json", "", "release/1")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{"job_id=build", "version=4", "definition_hash=hash-2", "requested_ref=release/1", "resolved_commit=fedcba9876543210"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
-		}
-	}
-}
-
-func TestShowStoredJobSource_sendsVersionAndPrintsProvenance(t *testing.T) {
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("method=%s", r.Method)
-		}
-
-		if r.URL.Path != "/api/v1/jobs/build/source" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		if got := r.URL.Query().Get("version"); got != "2" {
-			t.Errorf("version=%q", got)
-		}
-
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"job_id":          "build",
-			"version":         2,
-			"definition_hash": "hash",
-			"source": map[string]any{
-				"repository_id":   "vectis",
-				"requested_ref":   "main",
-				"resolved_commit": "0123456789abcdef",
-				"path":            ".vectis/jobs/build.json",
-				"blob_sha":        "abcdef0123456789",
-			},
-		})
-	})
-
-	var buf bytes.Buffer
-	if err := showStoredJobSourceWithOutput(&buf, "build", 2); err != nil {
-		t.Fatal(err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{"job_id=build", "version=2", "repository_id=vectis", "requested_ref=main", "resolved_commit=0123456789abcdef", "path=.vectis/jobs/build.json"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
-		}
-	}
-}
-
-func TestShowStoredJobSourceDefinition_sendsVersionAndPrintsDefinition(t *testing.T) {
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("method=%s", r.Method)
-		}
-
-		if r.URL.Path != "/api/v1/jobs/build/source/definition" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		if got := r.URL.Query().Get("version"); got != "2" {
-			t.Errorf("version=%q", got)
-		}
-
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"job_id":          "build",
-			"version":         2,
-			"definition_hash": "hash",
-			"definition": map[string]any{
-				"root": map[string]any{
-					"id":   "root",
-					"uses": "builtins/shell",
-					"with": map[string]any{"command": "true"},
-				},
-			},
-			"source": map[string]any{
-				"repository_id":   "vectis",
-				"requested_ref":   "main",
-				"resolved_commit": "0123456789abcdef",
-				"path":            ".vectis/jobs/build.json",
-				"blob_sha":        "abcdef0123456789",
-			},
-		})
-	})
-
-	cmd := &cobra.Command{}
-	cmd.Flags().Bool("raw", false, "")
-	var buf bytes.Buffer
-	if err := showStoredJobSourceDefinitionWithOutput(cmd, &buf, "build", 2); err != nil {
-		t.Fatal(err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{`"root"`, `"builtins/shell"`} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
-		}
-	}
-}
-
 func TestTriggerSourceJob_sendsOptionsAndIdempotencyKey(t *testing.T) {
 	oldRef := sourceTriggerRef
 	oldPath := sourceTriggerPath
@@ -626,7 +420,6 @@ func TestSourceOverview_sendsRequestAndPrintsStatus(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"stored_jobs_enabled":     false,
 			"repositories_configured": true,
-			"source_jobs_configured":  true,
 			"schedules_configured":    true,
 			"declared_repositories":   2,
 			"declared_schedules":      3,
@@ -663,7 +456,6 @@ func TestSourceOverview_sendsRequestAndPrintsStatus(t *testing.T) {
 	for _, want := range []string{
 		"stored_jobs_enabled=false",
 		"repositories_configured=true",
-		"source_jobs_configured=true",
 		"schedules_configured=true",
 		"declared_repositories=2",
 		"declared_schedules=3",
@@ -1713,96 +1505,6 @@ func TestResolveSourceDefinition_sendsBodyAndPrintsDefinition(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{`"root"`, `"builtins/shell"`} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
-		}
-	}
-}
-
-func TestImportSourceDefinitions_sendsBodyAndPrintsSummary(t *testing.T) {
-	oldRef := sourceImportRef
-	oldPath := sourceImportPath
-	oldLimit := sourceImportLimit
-	oldCursor := sourceImportCursor
-	oldDryRun := sourceImportDryRun
-	oldUpdateExisting := sourceImportUpdateExisting
-	sourceImportRef = "main"
-	sourceImportPath = ".vectis/jobs"
-	sourceImportLimit = 5
-	sourceImportCursor = ".vectis/jobs/previous.json"
-	sourceImportDryRun = true
-	sourceImportUpdateExisting = true
-	t.Cleanup(func() {
-		sourceImportRef = oldRef
-		sourceImportPath = oldPath
-		sourceImportLimit = oldLimit
-		sourceImportCursor = oldCursor
-		sourceImportDryRun = oldDryRun
-		sourceImportUpdateExisting = oldUpdateExisting
-	})
-
-	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method=%s", r.Method)
-		}
-
-		if r.URL.Path != "/api/v1/source-repositories/vectis/definitions/import" {
-			t.Errorf("path=%s", r.URL.Path)
-		}
-
-		if got := r.Header.Get("Content-Type"); got != "application/json" {
-			t.Errorf("Content-Type=%q", got)
-		}
-
-		var body sourceDefinitionsImportRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decode body: %v", err)
-		}
-		if body.Ref != "main" ||
-			body.Path != ".vectis/jobs" ||
-			body.Limit != 5 ||
-			body.Cursor != ".vectis/jobs/previous.json" ||
-			!body.DryRun ||
-			!body.UpdateExisting {
-			t.Errorf("import body mismatch: %+v", body)
-		}
-
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"repository_id":   "vectis",
-			"requested_ref":   "main",
-			"resolved_commit": "0123456789abcdef",
-			"path":            ".vectis/jobs",
-			"limit":           5,
-			"truncated":       true,
-			"next_cursor":     ".vectis/jobs/build.json",
-			"dry_run":         true,
-			"update_existing": true,
-			"summary":         map[string]any{"total": 1, "would_create": 1},
-			"results": []map[string]any{
-				{
-					"job_id":          "build",
-					"status":          "would_create",
-					"version":         1,
-					"definition_hash": "hash",
-					"source": map[string]any{
-						"repository_id":   "vectis",
-						"requested_ref":   "main",
-						"resolved_commit": "0123456789abcdef",
-						"path":            ".vectis/jobs/build.json",
-						"blob_sha":        "abcdef",
-					},
-				},
-			},
-		})
-	})
-
-	var buf bytes.Buffer
-	if err := importSourceDefinitionsWithOutput(&buf, "vectis"); err != nil {
-		t.Fatal(err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "limit=5", "truncated=true", "next_cursor=.vectis/jobs/build.json", "dry_run=true", "update_existing=true", "would_create=1", "JOB ID", "build", "would_create", ".vectis/jobs/build.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -4651,7 +4353,6 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"stored_jobs_enabled":     true,
 			"repositories_configured": true,
-			"source_jobs_configured":  true,
 			"schedules_configured":    true,
 			"declared_repositories":   1,
 			"declared_schedules":      1,
@@ -5379,7 +5080,6 @@ func TestDoctor_sourceModeWarnsWhenSourceOnlyHasNoEnabledRepositories(t *testing
 	status := doctorSourceStatus{
 		StoredJobsEnabled:      false,
 		RepositoriesConfigured: true,
-		SourceJobsConfigured:   true,
 		SchedulesConfigured:    true,
 		DeclaredRepositories:   1,
 		DeclaredSchedules:      1,

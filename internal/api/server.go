@@ -83,7 +83,6 @@ type APIServer struct {
 	catalogEvents            dal.CatalogEventsRepository
 	schedules                dal.SchedulesRepository
 	sources                  dal.SourcesRepository
-	sourceJobs               dal.SourceBackedJobsRepository
 	logger                   interfaces.Logger
 	actionResolver           action.Resolver
 	actionDescriptorResolver actionregistry.Resolver
@@ -173,9 +172,6 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
 	s.sources = repos.Sources()
-	if sourceJobs, ok := repos.Jobs().(dal.SourceBackedJobsRepository); ok {
-		s.sourceJobs = sourceJobs
-	}
 	s.artifacts = repos.Artifacts()
 	s.cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
 	return s
@@ -204,10 +200,6 @@ func NewAPIServerWithRepositories(
 		auditPolicy:            audit.DefaultPolicy(),
 		sourceDefinitionAuthor: sourcepkg.NewDefinitionAuthorFromRecord,
 		sourceAuthoring:        sourcepkg.AuthoringCapabilityFromRecord,
-	}
-
-	if sourceJobs, ok := jobs.(dal.SourceBackedJobsRepository); ok {
-		s.sourceJobs = sourceJobs
 	}
 
 	return s
@@ -409,15 +401,6 @@ func (s *APIServer) requireSources(w http.ResponseWriter) bool {
 func (s *APIServer) requireSchedules(w http.ResponseWriter) bool {
 	if s.schedules == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "schedules_not_configured", "schedules not configured", nil)
-		return false
-	}
-
-	return true
-}
-
-func (s *APIServer) requireSourceJobs(w http.ResponseWriter) bool {
-	if s.sourceJobs == nil {
-		writeAPIError(w, http.StatusServiceUnavailable, "source_jobs_not_configured", "source-backed job persistence not configured", nil)
 		return false
 	}
 

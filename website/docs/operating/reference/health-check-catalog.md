@@ -94,7 +94,7 @@ When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes sourc
 
 When `source.repositories.sync` warns, `evidence` includes repository counts and affected repository IDs after the detailed repository fetch, for example `repositories=3 enabled=3 failed=1 running=1 failed_repositories=vectis stale_running_repositories=infra`.
 
-When `source.mode` warns, `evidence` includes source-mode booleans and aggregate counts from source status, for example `stored_jobs_enabled=false repositories_configured=true source_jobs_configured=true declared_repositories=1 repositories=1 enabled_repositories=0`.
+When `source.mode` warns, `evidence` includes source-mode booleans and aggregate counts from source status, for example `stored_jobs_enabled=false repositories_configured=true declared_repositories=1 repositories=1 enabled_repositories=0`.
 
 When `source.repositories.declared` warns, `evidence` includes stale enabled and disabled repository IDs after the detailed repository fetch, for example `stale_enabled_ids=vectis stale_disabled_ids=old-mirror`.
 

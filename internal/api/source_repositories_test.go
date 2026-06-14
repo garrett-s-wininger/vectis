@@ -729,7 +729,6 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	var statusResp struct {
 		StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
 		RepositoriesConfigured bool `json:"repositories_configured"`
-		SourceJobsConfigured   bool `json:"source_jobs_configured"`
 		Repositories           struct {
 			Total   int `json:"total"`
 			Enabled int `json:"enabled"`
@@ -740,7 +739,6 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	}
 	if statusResp.StoredJobsEnabled ||
 		!statusResp.RepositoriesConfigured ||
-		!statusResp.SourceJobsConfigured ||
 		statusResp.Repositories.Total != 1 ||
 		statusResp.Repositories.Enabled != 1 {
 		t.Fatalf("source-only status mismatch: %+v", statusResp)
@@ -856,47 +854,6 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	waitForNEnqueuedJobs(t, queueService, 2)
 }
 
-func TestAPIServer_SourceStoredJobBridgeRoutesRemoved(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-
-	server, _, _, _ := setupTestServer(t)
-	handler := server.Handler()
-
-	for _, tc := range []struct {
-		name   string
-		method string
-		path   string
-		body   any
-	}{
-		{name: "create stored job from source", method: http.MethodPost, path: "/api/v1/jobs/source/build", body: map[string]any{
-			"repository_id": "vectis-local",
-			"path":          ".vectis/jobs/build.json",
-		}},
-		{name: "update stored job from source", method: http.MethodPut, path: "/api/v1/jobs/source/build", body: map[string]any{
-			"repository_id": "vectis-local",
-			"path":          ".vectis/jobs/build.json",
-		}},
-		{name: "get stored job source", method: http.MethodGet, path: "/api/v1/jobs/build/source"},
-		{name: "get stored job source definition", method: http.MethodGet, path: "/api/v1/jobs/build/source/definition"},
-		{name: "import source definitions into stored jobs", method: http.MethodPost, path: "/api/v1/source-repositories/vectis-local/definitions/import", body: map[string]any{}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var rec *httptest.ResponseRecorder
-			if tc.body == nil {
-				req := httptest.NewRequest(tc.method, tc.path, nil)
-				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
-			} else {
-				rec = doJSONRequest(t, handler, tc.method, tc.path, tc.body)
-			}
-
-			if rec.Code != http.StatusNotFound {
-				t.Fatalf("removed bridge route status=%d body=%s", rec.Code, rec.Body.String())
-			}
-		})
-	}
-}
-
 func TestAPIServer_SourceStatus(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
@@ -971,7 +928,6 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 	var resp struct {
 		StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
 		RepositoriesConfigured bool `json:"repositories_configured"`
-		SourceJobsConfigured   bool `json:"source_jobs_configured"`
 		SchedulesConfigured    bool `json:"schedules_configured"`
 		DeclaredRepositories   int  `json:"declared_repositories"`
 		DeclaredSchedules      int  `json:"declared_schedules"`
@@ -997,7 +953,6 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 
 	if resp.StoredJobsEnabled ||
 		!resp.RepositoriesConfigured ||
-		!resp.SourceJobsConfigured ||
 		!resp.SchedulesConfigured ||
 		resp.DeclaredRepositories != 2 ||
 		resp.DeclaredSchedules != 1 ||
@@ -2845,86 +2800,6 @@ func decodeSourceJobTriggerResponse(t *testing.T, rec *httptest.ResponseRecorder
 			Path           string `json:"path"`
 			BlobSHA        string `json:"blob_sha"`
 		} `json:"source"`
-	}
-
-	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
-		t.Fatal(err)
-	}
-
-	return out
-}
-
-func decodeSourceDefinitionsImportResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
-	RepositoryID   string `json:"repository_id"`
-	RequestedRef   string `json:"requested_ref"`
-	ResolvedCommit string `json:"resolved_commit"`
-	Path           string `json:"path"`
-	Limit          int    `json:"limit"`
-	Truncated      bool   `json:"truncated"`
-	NextCursor     string `json:"next_cursor"`
-	DryRun         bool   `json:"dry_run"`
-	UpdateExisting bool   `json:"update_existing"`
-	Summary        struct {
-		Total       int `json:"total"`
-		Created     int `json:"created"`
-		Updated     int `json:"updated"`
-		Unchanged   int `json:"unchanged"`
-		WouldCreate int `json:"would_create"`
-		WouldUpdate int `json:"would_update"`
-		Conflicted  int `json:"conflicted"`
-		Invalid     int `json:"invalid"`
-	} `json:"summary"`
-	Results []struct {
-		JobID          string `json:"job_id"`
-		Status         string `json:"status"`
-		Version        int    `json:"version"`
-		DefinitionHash string `json:"definition_hash"`
-		Error          string `json:"error"`
-		Source         struct {
-			RepositoryID   string `json:"repository_id"`
-			RequestedRef   string `json:"requested_ref"`
-			ResolvedCommit string `json:"resolved_commit"`
-			Path           string `json:"path"`
-			BlobSHA        string `json:"blob_sha"`
-		} `json:"source"`
-	} `json:"results"`
-} {
-	t.Helper()
-
-	var out struct {
-		RepositoryID   string `json:"repository_id"`
-		RequestedRef   string `json:"requested_ref"`
-		ResolvedCommit string `json:"resolved_commit"`
-		Path           string `json:"path"`
-		Limit          int    `json:"limit"`
-		Truncated      bool   `json:"truncated"`
-		NextCursor     string `json:"next_cursor"`
-		DryRun         bool   `json:"dry_run"`
-		UpdateExisting bool   `json:"update_existing"`
-		Summary        struct {
-			Total       int `json:"total"`
-			Created     int `json:"created"`
-			Updated     int `json:"updated"`
-			Unchanged   int `json:"unchanged"`
-			WouldCreate int `json:"would_create"`
-			WouldUpdate int `json:"would_update"`
-			Conflicted  int `json:"conflicted"`
-			Invalid     int `json:"invalid"`
-		} `json:"summary"`
-		Results []struct {
-			JobID          string `json:"job_id"`
-			Status         string `json:"status"`
-			Version        int    `json:"version"`
-			DefinitionHash string `json:"definition_hash"`
-			Error          string `json:"error"`
-			Source         struct {
-				RepositoryID   string `json:"repository_id"`
-				RequestedRef   string `json:"requested_ref"`
-				ResolvedCommit string `json:"resolved_commit"`
-				Path           string `json:"path"`
-				BlobSHA        string `json:"blob_sha"`
-			} `json:"source"`
-		} `json:"results"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {

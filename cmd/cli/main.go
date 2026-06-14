@@ -82,11 +82,6 @@ var (
 	triggerCellIDs              []string
 	runIdemKey                  string
 	runCellID                   string
-	jobSourceCreateNamespace    string
-	jobSourceCreateRef          string
-	jobSourceUpdateRef          string
-	jobSourceShowVersion        int
-	jobSourceDefinitionVersion  int
 	sourceListNamespace         string
 	sourceListQuiet             bool
 	sourceListStaleOnly         bool
@@ -130,12 +125,6 @@ var (
 	sourceDefinitionsCursor     string
 	sourceDefinitionsQuiet      bool
 	sourceResolveRef            string
-	sourceImportRef             string
-	sourceImportPath            string
-	sourceImportLimit           int
-	sourceImportCursor          string
-	sourceImportDryRun          bool
-	sourceImportUpdateExisting  bool
 	sourceJobsRef               string
 	sourceJobsPath              string
 	sourceJobsLimit             int

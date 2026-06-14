@@ -67,7 +67,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 
 ## Source Repositories
 
-`vectis-api` can reconcile source repository registrations at startup. This is the declarative path for configure-as-code instances: declare the repository list, start the API, then trigger jobs directly from source or import/update stored jobs as needed.
+`vectis-api` can reconcile source repository registrations at startup. This is the declarative path for configure-as-code instances: declare the repository list, start the API, then trigger jobs directly from source or source-backed schedules.
 
 Use `VECTIS_SOURCE_REPOSITORIES` or `VECTIS_API_SERVER_SOURCE_REPOSITORIES` with a JSON array:
 

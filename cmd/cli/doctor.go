@@ -985,7 +985,6 @@ func doctorSourceStatusNeedsScheduleDetails(status doctorSourceStatus, statusLoa
 type doctorSourceStatus struct {
 	StoredJobsEnabled      bool                         `json:"stored_jobs_enabled"`
 	RepositoriesConfigured bool                         `json:"repositories_configured"`
-	SourceJobsConfigured   bool                         `json:"source_jobs_configured"`
 	SchedulesConfigured    bool                         `json:"schedules_configured"`
 	DeclaredRepositories   int                          `json:"declared_repositories"`
 	DeclaredSchedules      int                          `json:"declared_schedules"`
@@ -1176,7 +1175,7 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string) doctorC
 		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "stored job APIs enabled", Evidence: evidence, DocLink: doc}
 	}
 
-	if !status.RepositoriesConfigured || !status.SourceJobsConfigured {
+	if !status.RepositoriesConfigured {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source-only mode is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring or re-enable stored job APIs", DocLink: doc}
 	}
 
@@ -1192,7 +1191,6 @@ func formatDoctorSourceModeEvidence(status doctorSourceStatus) string {
 	return strings.Join([]string{
 		fmt.Sprintf("stored_jobs_enabled=%t", status.StoredJobsEnabled),
 		fmt.Sprintf("repositories_configured=%t", status.RepositoriesConfigured),
-		fmt.Sprintf("source_jobs_configured=%t", status.SourceJobsConfigured),
 		fmt.Sprintf("schedules_configured=%t", status.SchedulesConfigured),
 		fmt.Sprintf("declared_repositories=%d", status.DeclaredRepositories),
 		fmt.Sprintf("declared_schedules=%d", status.DeclaredSchedules),
