@@ -261,5 +261,6 @@ Before the deployment is handed to operators:
 | Trusted proxy headers | [Trusted Proxy Headers](./trusted-proxy-client-ip.md) |
 | Secrets and redaction | [Secrets And Redaction](./secrets-and-redaction.md) |
 | Backup and restore | [Backup And Restore](../reliability/backup-restore.md) |
+| Production monitoring | [Production Monitoring Contract](../reliability/production-monitoring.md) |
 | Retention | [Retention And Storage Pressure](../reliability/retention.md) |
 | Runbooks and alerts | [Runbooks And Alerts](../reliability/runbooks.md) |

@@ -49,6 +49,7 @@ const sidebars = {
           label: 'Reliability',
           items: [
             'operating/reliability/runbooks',
+            'operating/reliability/production-monitoring',
             'operating/reliability/repair-runbooks',
             'operating/reliability/dispatch-visibility',
             'operating/reliability/backup-restore',

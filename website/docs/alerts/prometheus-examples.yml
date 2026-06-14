@@ -124,6 +124,33 @@ groups:
           summary: Vectis log-forwarder has durable spool backlog
           runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
 
+      - alert: VectisArtifactStorageLowFreeBytes
+        expr: vectis_artifact_storage_free_bytes < 1073741824
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis artifact storage free bytes are below the example threshold
+          runbook: /docs/operating/reliability/production-monitoring
+
+      - alert: VectisArtifactStorageLowFreeInodes
+        expr: vectis_artifact_storage_free_inodes < 10000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis artifact storage free inodes are below the example threshold
+          runbook: /docs/operating/reliability/production-monitoring
+
+      - alert: VectisArtifactStorageReadOnly
+        expr: vectis_artifact_storage_new_blob_writable == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Vectis artifact shard is not writable for new blobs
+          runbook: /docs/operating/reliability/production-monitoring
+
       - alert: VectisAuditDrops
         expr: increase(vectis_audit_events_dropped_total[10m]) > 0
         labels:

@@ -255,6 +255,10 @@ At handoff, monitoring must cover:
 - artifact storage pressure and upload failures;
 - secret-resolution failures when `vectis-secrets` is enabled.
 
+Use [Production Monitoring Contract](../reliability/production-monitoring.md)
+for the full monitoring ownership model, starter alert set, known gaps, and
+handoff checklist.
+
 ## Backup And Retention Contract
 
 Backups must include:
@@ -307,4 +311,5 @@ Before starting production traffic, confirm:
 | Secrets and redaction | [Secrets And Redaction](./secrets-and-redaction.md) |
 | Trusted proxy headers | [Trusted Proxy Headers](./trusted-proxy-client-ip.md) |
 | Backup and restore | [Backup And Restore](../reliability/backup-restore.md) |
+| Production monitoring | [Production Monitoring Contract](../reliability/production-monitoring.md) |
 | Retention | [Retention And Storage Pressure](../reliability/retention.md) |
