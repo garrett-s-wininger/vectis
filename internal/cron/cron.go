@@ -25,8 +25,6 @@ import (
 	"vectis/internal/interfaces"
 	jobdef "vectis/internal/job"
 	"vectis/internal/queueclient"
-
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type CronSchedule struct {
@@ -451,26 +449,7 @@ func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string,
 }
 
 func (s *CronService) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
-	payloadJSON, err := protojson.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal execution payload: %w", err)
-	}
-
-	_, recordedPayloadJSON, err := s.runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), definitionHash)
-	if err != nil {
-		return nil, fmt.Errorf("record execution payload: %w", err)
-	}
-
-	if recordedPayloadJSON == string(payloadJSON) {
-		return req, nil
-	}
-
-	var recordedReq api.JobRequest
-	if err := protojson.Unmarshal([]byte(recordedPayloadJSON), &recordedReq); err != nil {
-		return nil, fmt.Errorf("parse recorded execution payload: %w", err)
-	}
-
-	return &recordedReq, nil
+	return cell.RecordExecutionHandoffPayload(ctx, s.runs, runID, req, definitionHash)
 }
 
 func (s *CronService) ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {

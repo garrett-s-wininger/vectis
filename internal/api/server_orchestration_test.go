@@ -18,12 +18,17 @@ import (
 
 func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
-	jobs.Definitions["job-1"] = `{"id":"job-1","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	definition := `{"id":"job-1","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.Definitions["job-1"] = definition
 	jobs.DefinitionVersions["job-1"] = 3
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"
 	runs.CreateRunIndex = 7
+	runs.PendingExecution = dal.ExecutionDispatchRecord{
+		DefinitionVersion: 3,
+		DefinitionHash:    dal.DefinitionHash(definition),
+	}
 
 	logger := mocks.NewMockLogger()
 	queue := mocks.NewMockQueueService()
@@ -75,12 +80,17 @@ func TestAPIServer_TriggerJob_OrchestrationUsesRepositories(t *testing.T) {
 
 func TestAPIServer_TriggerJob_OrchestrationUsesTargetCell(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
-	jobs.Definitions["job-target-cell"] = `{"id":"job-target-cell","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	definition := `{"id":"job-target-cell","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.Definitions["job-target-cell"] = definition
 	jobs.DefinitionVersions["job-target-cell"] = 4
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-target-cell"
 	runs.CreateRunIndex = 1
+	runs.PendingExecution = dal.ExecutionDispatchRecord{
+		DefinitionVersion: 4,
+		DefinitionHash:    dal.DefinitionHash(definition),
+	}
 
 	server := api.NewAPIServerWithRepositories(mocks.NewMockLogger(), jobs, runs, mocks.StubEphemeralRunStarter{})
 	server.SetQueueClient(mocks.NewMockQueueService())
@@ -104,12 +114,17 @@ func TestAPIServer_TriggerJob_OrchestrationUsesTargetCell(t *testing.T) {
 
 func TestAPIServer_TriggerJob_OrchestrationUsesTargetCells(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
-	jobs.Definitions["job-target-cells"] = `{"id":"job-target-cells","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	definition := `{"id":"job-target-cells","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.Definitions["job-target-cells"] = definition
 	jobs.DefinitionVersions["job-target-cells"] = 5
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-target-cells"
 	runs.CreateRunIndex = 11
+	runs.PendingExecution = dal.ExecutionDispatchRecord{
+		DefinitionVersion: 5,
+		DefinitionHash:    dal.DefinitionHash(definition),
+	}
 
 	queue := mocks.NewMockQueueService()
 	logger := mocks.NewMockLogger()
@@ -211,7 +226,8 @@ func TestAPIServer_TriggerJob_OrchestrationUsesTargetCells(t *testing.T) {
 
 func TestAPIServer_TriggerJob_DispatchesTargetCellThroughExecutionIngress(t *testing.T) {
 	jobs := mocks.NewMockJobsRepository()
-	jobs.Definitions["job-remote-cell"] = `{"id":"job-remote-cell","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	definition := `{"id":"job-remote-cell","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	jobs.Definitions["job-remote-cell"] = definition
 	jobs.DefinitionVersions["job-remote-cell"] = 6
 
 	runs := mocks.NewMockRunsRepository()
@@ -226,7 +242,7 @@ func TestAPIServer_TriggerJob_DispatchesTargetCellThroughExecutionIngress(t *tes
 		CellID:            "iad-a",
 		Attempt:           1,
 		DefinitionVersion: 6,
-		DefinitionHash:    "sha256:abc123",
+		DefinitionHash:    dal.DefinitionHash(definition),
 	}
 
 	ingress := &recordingExecutionIngress{done: make(chan struct{})}

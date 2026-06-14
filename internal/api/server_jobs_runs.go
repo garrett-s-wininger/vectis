@@ -31,7 +31,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -2016,26 +2015,7 @@ func requestedCellsForInvocation(targetCellIDs []string) []string {
 }
 
 func (s *APIServer) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
-	payloadJSON, err := protojson.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal execution payload: %w", err)
-	}
-
-	_, recordedPayloadJSON, err := s.runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), definitionHash)
-	if err != nil {
-		return nil, fmt.Errorf("record execution payload: %w", err)
-	}
-
-	if recordedPayloadJSON == string(payloadJSON) {
-		return req, nil
-	}
-
-	var recordedReq api.JobRequest
-	if err := protojson.Unmarshal([]byte(recordedPayloadJSON), &recordedReq); err != nil {
-		return nil, fmt.Errorf("parse recorded execution payload: %w", err)
-	}
-
-	return &recordedReq, nil
+	return cell.RecordExecutionHandoffPayload(ctx, s.runs, runID, req, definitionHash)
 }
 
 func (s *APIServer) materializeJobTasks(ctx context.Context, runID string, job *api.Job, targetCellID string) error {

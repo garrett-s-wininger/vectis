@@ -21,12 +21,17 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	clock.SetNow(time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC))
 
 	jobs := mocks.NewMockJobsRepository()
-	jobs.Definitions["job-1"] = `{"id":"job-1","root":{"uses":"builtins/shell"}}`
+	definition := `{"id":"job-1","root":{"uses":"builtins/shell"}}`
+	jobs.Definitions["job-1"] = definition
 	jobs.DefinitionVersions["job-1"] = 4
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"
 	runs.CreateRunIndex = 1
+	runs.PendingExecution = dal.ExecutionDispatchRecord{
+		DefinitionVersion: 4,
+		DefinitionHash:    dal.DefinitionHash(definition),
+	}
 
 	schedules := mocks.NewMockSchedulesRepository()
 	schedules.Ready = []dal.CronSchedule{{
