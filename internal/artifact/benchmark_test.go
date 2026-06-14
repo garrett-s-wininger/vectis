@@ -146,6 +146,47 @@ func BenchmarkArtifactService_UploadBlob(b *testing.B) {
 	}
 }
 
+func BenchmarkPublisher_UploadBlob(b *testing.B) {
+	for _, size := range benchmarkArtifactSizes() {
+		for _, chunkBytes := range benchmarkArtifactChunkSizes() {
+			b.Run(fmt.Sprintf("%s/chunk_%s", benchmarkArtifactSizeName(size), benchmarkArtifactSizeName(chunkBytes)), func(b *testing.B) {
+				store, err := NewLocalStore(b.TempDir())
+				if err != nil {
+					b.Fatalf("new local store: %v", err)
+				}
+				defer store.Close()
+
+				publisher := &Publisher{
+					client:           newBenchmarkArtifactServiceClient(b, store, ServerOptions{}),
+					uploadChunkBytes: chunkBytes,
+				}
+
+				payload := benchmarkArtifactPayload(size)
+				ctx := context.Background()
+
+				b.SetBytes(int64(size))
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					desc, err := publisher.uploadBlob(ctx, PublishRequest{
+						Reader:       bytes.NewReader(payload),
+						ExpectedSize: int64(size),
+						RequireSize:  true,
+					})
+
+					if err != nil {
+						b.Fatalf("publisher upload artifact payload: %v", err)
+					}
+
+					b.StopTimer()
+					removeBenchmarkArtifactBlob(b, store, desc.Digest)
+					b.StartTimer()
+				}
+			})
+		}
+	}
+}
+
 func BenchmarkArtifactService_ReadBlob(b *testing.B) {
 	for _, size := range benchmarkArtifactSizes() {
 		for _, chunkBytes := range benchmarkArtifactChunkSizes() {

@@ -193,7 +193,7 @@ func (p *Publisher) uploadBlob(ctx context.Context, req PublishRequest) (BlobDes
 		n, readErr := req.Reader.Read(buf)
 		if n > 0 {
 			emptyReads = 0
-			if err := stream.Send(&api.UploadBlobRequest{Data: append([]byte(nil), buf[:n]...)}); err != nil {
+			if err := stream.Send(&api.UploadBlobRequest{Data: buf[:n]}); err != nil {
 				return BlobDescriptor{}, err
 			}
 		}

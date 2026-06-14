@@ -148,7 +148,7 @@ func (s *Server) ReadBlob(req *api.GetBlobRequest, stream api.ArtifactService_Re
 		n, readErr := rc.Read(buf)
 		if n > 0 {
 			resp := &api.ReadBlobResponse{
-				Data: append([]byte(nil), buf[:n]...),
+				Data: buf[:n],
 			}
 
 			if !sentDescriptor {
