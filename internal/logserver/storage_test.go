@@ -2,6 +2,8 @@ package logserver
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -123,6 +125,43 @@ func TestLocalRunLogStore_AppendBatchAndList(t *testing.T) {
 	for i := range entries {
 		if got[i].Sequence != entries[i].Sequence || got[i].Data != entries[i].Data {
 			t.Fatalf("entry %d mismatch: got=%+v want=%+v", i, got[i], entries[i])
+		}
+	}
+}
+
+func TestLocalRunLogStore_ConcurrentAppendBatchDifferentRuns(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	const runCount = 16
+	const entriesPerRun = 32
+
+	var wg sync.WaitGroup
+	for run := range runCount {
+		runID := fmt.Sprintf("run-%02d", run)
+		wg.Go(func() {
+			entries := make([]LogEntry, 0, entriesPerRun)
+			for i := 1; i <= entriesPerRun; i++ {
+				entries = append(entries, LogEntry{Sequence: int64(i), Data: fmt.Sprintf("%s-line-%02d", runID, i)})
+			}
+
+			if err := store.AppendBatch(runID, entries); err != nil {
+				t.Errorf("append batch for %s: %v", runID, err)
+			}
+		})
+	}
+	wg.Wait()
+
+	for run := range runCount {
+		runID := fmt.Sprintf("run-%02d", run)
+		got, err := store.List(runID)
+		if err != nil {
+			t.Fatalf("list %s: %v", runID, err)
+		}
+		if len(got) != entriesPerRun {
+			t.Fatalf("%s: expected %d entries, got %d", runID, entriesPerRun, len(got))
 		}
 	}
 }
