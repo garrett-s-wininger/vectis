@@ -558,7 +558,9 @@ func normalizeSHA256Digest(digest string) (string, error) {
 }
 
 func copyHashing(ctx context.Context, w io.Writer, r io.Reader, h hash.Hash, maxBytes int64) (int64, error) {
-	buf := make([]byte, 128*1024)
+	buf, releaseBuf := borrowArtifactBuffer(defaultArtifactChunkBytes)
+	defer releaseBuf()
+
 	var size int64
 	mw := io.MultiWriter(w, h)
 

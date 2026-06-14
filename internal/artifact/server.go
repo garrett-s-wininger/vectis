@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const defaultReadBlobChunkBytes = 128 * 1024
+const defaultReadBlobChunkBytes = defaultArtifactChunkBytes
 
 type Store interface {
 	Put(context.Context, io.Reader, PutOptions) (BlobDescriptor, error)
@@ -136,7 +136,9 @@ func (s *Server) ReadBlob(req *api.GetBlobRequest, stream api.ArtifactService_Re
 	}
 	defer rc.Close()
 
-	buf := make([]byte, s.readChunkBytes)
+	buf, releaseBuf := borrowArtifactBuffer(s.readChunkBytes)
+	defer releaseBuf()
+
 	sentDescriptor := false
 	for {
 		if err := ctx.Err(); err != nil {

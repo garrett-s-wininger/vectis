@@ -12,7 +12,7 @@ import (
 	"vectis/internal/dal"
 )
 
-const defaultUploadBlobChunkBytes = 128 * 1024
+const defaultUploadBlobChunkBytes = defaultArtifactChunkBytes
 
 var ErrRunArtifactQuotaExceeded = errors.New("artifact run quota exceeded")
 
@@ -181,7 +181,9 @@ func (p *Publisher) uploadBlob(ctx context.Context, req PublishRequest) (BlobDes
 		return BlobDescriptor{}, err
 	}
 
-	buf := make([]byte, p.uploadChunkBytes)
+	buf, releaseBuf := borrowArtifactBuffer(p.uploadChunkBytes)
+	defer releaseBuf()
+
 	emptyReads := 0
 	for {
 		if err := ctx.Err(); err != nil {
