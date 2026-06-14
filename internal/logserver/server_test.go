@@ -248,6 +248,49 @@ func TestServerPersistsStreamEntriesWithBatchStore(t *testing.T) {
 	}
 }
 
+func TestServerPublishLogEntryGroupsBatchesSubscriberFanout(t *testing.T) {
+	s := NewServer(mocks.NopLogger{})
+	base := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	buffer := s.getOrCreateBuffer("run-a")
+	ch := make(chan LogEntry, 4)
+	buffer.Subscribe(ch)
+
+	groups := []runLogEntryGroup{
+		{
+			runID: "run-a",
+			entries: []LogEntry{
+				stdoutLogEntry(base, 1),
+				stdoutLogEntry(base.Add(time.Second), 2),
+				completedLogEntry(base.Add(2*time.Second), 3),
+			},
+		},
+	}
+
+	lastRunID, lastBuffer := s.publishLogEntryGroups(t.Context(), groups, "run-a")
+	if lastRunID != "run-a" {
+		t.Fatalf("last run id = %q, want run-a", lastRunID)
+	}
+
+	if lastBuffer != buffer {
+		t.Fatal("expected publish to return the run buffer")
+	}
+
+	if !buffer.IsTerminal() {
+		t.Fatal("expected batch publish to mark buffer terminal")
+	}
+
+	for wantSeq := int64(1); wantSeq <= 3; wantSeq++ {
+		select {
+		case got := <-ch:
+			if got.Sequence != wantSeq {
+				t.Fatalf("subscriber sequence = %d, want %d", got.Sequence, wantSeq)
+			}
+		default:
+			t.Fatalf("missing subscriber entry sequence %d", wantSeq)
+		}
+	}
+}
+
 func TestServerReplayHistoricalEntriesUsesReplayStoreWithoutTail(t *testing.T) {
 	store := &replayRecordingRunLogStore{
 		replayResult: LogReplayResult{

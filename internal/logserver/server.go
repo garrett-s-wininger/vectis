@@ -127,6 +127,35 @@ func (jb *JobBuffer) Add(entry LogEntry) bool {
 	return true
 }
 
+func (jb *JobBuffer) AddBatch(entries []LogEntry) int {
+	if len(entries) == 0 {
+		return 0
+	}
+
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	jb.lastActivity = entries[len(entries)-1].Timestamp
+	for _, entry := range entries {
+		if isCompletedEvent(entry) {
+			jb.terminal = true
+			break
+		}
+	}
+
+	available := MaxLogLinesPerJob - len(jb.entries)
+	if available <= 0 {
+		return len(entries)
+	}
+
+	if available > len(entries) {
+		available = len(entries)
+	}
+
+	jb.entries = append(jb.entries, entries[:available]...)
+	return len(entries) - available
+}
+
 func (jb *JobBuffer) GetEntries() []LogEntry {
 	jb.mu.RLock()
 	defer jb.mu.RUnlock()
@@ -209,6 +238,39 @@ func (jb *JobBuffer) Broadcast(runID string, entry LogEntry) {
 
 			if jb.logger != nil {
 				jb.logger.Warn("channel full for run %s; dropping log line (seq %d)", runID, entry.Sequence)
+			}
+		}
+	}
+}
+
+func (jb *JobBuffer) BroadcastBatch(runID string, entries []LogEntry) {
+	if len(entries) == 0 {
+		return
+	}
+
+	jb.subMu.RLock()
+	defer jb.subMu.RUnlock()
+	if len(jb.subscribers) == 0 {
+		return
+	}
+
+	for _, entry := range entries {
+		for ch := range jb.subscribers {
+			if entry.Stream == api.Stream_STREAM_CONTROL {
+				ch <- entry
+				continue
+			}
+
+			select {
+			case ch <- entry:
+			default:
+				if jb.metrics != nil {
+					jb.metrics.RecordChannelDrop(context.Background())
+				}
+
+				if jb.logger != nil {
+					jb.logger.Warn("channel full for run %s; dropping log line (seq %d)", runID, entry.Sequence)
+				}
 			}
 		}
 	}
@@ -320,14 +382,12 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			return nil
 		}
 
-		if err := s.appendLogEntryBatch(ctx, pending); err != nil {
+		groups := groupStreamLogEntries(pending)
+		if err := s.appendLogEntryGroups(ctx, pending, groups); err != nil {
 			return err
 		}
 
-		for _, item := range pending {
-			lastRunID = item.runID
-			lastBuffer = s.publishLogEntry(ctx, item.runID, item.entry)
-		}
+		lastRunID, lastBuffer = s.publishLogEntryGroups(ctx, groups, pending[len(pending)-1].runID)
 
 		pending = pending[:0]
 		return nil
@@ -439,7 +499,15 @@ func (s *Server) appendLogEntryBatch(ctx context.Context, entries []streamLogEnt
 		return nil
 	}
 
-	if err := s.persistLogEntryBatch(entries); err != nil {
+	return s.appendLogEntryGroups(ctx, entries, groupStreamLogEntries(entries))
+}
+
+func (s *Server) appendLogEntryGroups(ctx context.Context, entries []streamLogEntry, groups []runLogEntryGroup) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	if err := s.persistLogEntryGroups(entries, groups); err != nil {
 		if s.metrics != nil {
 			s.metrics.RecordAppendFailure(ctx)
 		}
@@ -455,8 +523,12 @@ func (s *Server) appendLogEntryBatch(ctx context.Context, entries []streamLogEnt
 }
 
 func (s *Server) persistLogEntryBatch(entries []streamLogEntry) error {
+	return s.persistLogEntryGroups(entries, groupStreamLogEntries(entries))
+}
+
+func (s *Server) persistLogEntryGroups(entries []streamLogEntry, groups []runLogEntryGroup) error {
 	if batchStore, ok := s.store.(RunLogBatchStore); ok {
-		for _, group := range groupStreamLogEntries(entries) {
+		for _, group := range groups {
 			if err := batchStore.AppendBatch(group.runID, group.entries); err != nil {
 				return err
 			}
@@ -472,6 +544,47 @@ func (s *Server) persistLogEntryBatch(entries []streamLogEntry) error {
 	}
 
 	return nil
+}
+
+func (s *Server) publishLogEntryGroups(ctx context.Context, groups []runLogEntryGroup, lastRunID string) (string, *JobBuffer) {
+	var lastBuffer *JobBuffer
+	var terminalSeen bool
+
+	for _, group := range groups {
+		buffer := s.getOrCreateBuffer(group.runID)
+		dropped := buffer.AddBatch(group.entries)
+		for range dropped {
+			if s.metrics != nil {
+				s.metrics.RecordMemoryBufferDrop(ctx)
+			}
+		}
+
+		if dropped > 0 {
+			firstDropped := group.entries[len(group.entries)-dropped].Sequence
+			lastDropped := group.entries[len(group.entries)-1].Sequence
+			s.logger.Warn("Log buffer full for run %s, dropping %d log lines from flush (seq %d-%d)", group.runID, dropped, firstDropped, lastDropped)
+		}
+
+		buffer.BroadcastBatch(group.runID, group.entries)
+
+		if buffer.IsTerminal() {
+			terminalSeen = true
+		}
+
+		if group.runID == lastRunID {
+			lastBuffer = buffer
+		}
+
+		firstSeq := group.entries[0].Sequence
+		lastSeq := group.entries[len(group.entries)-1].Sequence
+		s.logger.Debug("Received %d logs from run %s (seq %d-%d)", len(group.entries), group.runID, firstSeq, lastSeq)
+	}
+
+	if terminalSeen {
+		s.evictTerminalBuffers()
+	}
+
+	return lastRunID, lastBuffer
 }
 
 func groupStreamLogEntries(entries []streamLogEntry) []runLogEntryGroup {
