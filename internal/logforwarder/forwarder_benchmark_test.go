@@ -39,10 +39,12 @@ func BenchmarkLogForwarder_SocketOffload(b *testing.B) {
 func BenchmarkLogForwarder_SocketToLogServer(b *testing.B) {
 	for _, store := range []string{"noop", "local"} {
 		for _, runs := range []int{1, 100} {
-			b.Run(fmt.Sprintf("store_%s/runs_%03d/payload_4096", store, runs), func(b *testing.B) {
-				client, cleanup := startBenchmarkForwarderLogServer(b, store)
-				runLogForwarderSocketBenchmark(b, client, cleanup, runs, 4096)
-			})
+			for _, payloadBytes := range []int{256, 4096} {
+				b.Run(fmt.Sprintf("store_%s/runs_%03d/payload_%04d", store, runs, payloadBytes), func(b *testing.B) {
+					client, cleanup := startBenchmarkForwarderLogServer(b, store)
+					runLogForwarderSocketBenchmark(b, client, cleanup, runs, payloadBytes)
+				})
+			}
 		}
 	}
 }
@@ -130,6 +132,7 @@ func runLogForwarderSocketBenchmark(
 	}
 
 	b.ReportMetric(float64(countingClient.streams.Load()), "streams")
+	b.ReportMetric(float64(countingClient.batches.Load()), "batches")
 	b.ReportMetric(float64(runCount), "runs")
 	b.ReportMetric(float64(payloadBytes), "payload_bytes")
 }
@@ -160,6 +163,7 @@ type benchmarkCountingLogClient struct {
 	chunks  atomic.Int64
 	bytes   atomic.Int64
 	streams atomic.Int64
+	batches atomic.Int64
 }
 
 func (c *benchmarkCountingLogClient) StreamLogs(ctx context.Context) (interfaces.LogStream, error) {
@@ -198,6 +202,76 @@ func (c *benchmarkCountingLogClient) StreamLogsForAssignedRun(ctx context.Contex
 	}
 
 	return c.StreamLogsForRun(ctx, runID)
+}
+
+func (c *benchmarkCountingLogClient) SendLogBatch(ctx context.Context, chunks []*api.LogChunk) error {
+	if inner, ok := c.inner.(interfaces.LogBatchClient); ok {
+		if err := inner.SendLogBatch(ctx, chunks); err != nil {
+			return err
+		}
+
+		c.recordBatch(chunks)
+		return nil
+	}
+
+	return c.sendBatchByStream(ctx, chunks)
+}
+
+func (c *benchmarkCountingLogClient) SendLogBatchForRun(ctx context.Context, runID string, chunks []*api.LogChunk) error {
+	if inner, ok := c.inner.(interfaces.RunLogBatchClient); ok {
+		if err := inner.SendLogBatchForRun(ctx, runID, chunks); err != nil {
+			return err
+		}
+
+		c.recordBatch(chunks)
+		return nil
+	}
+
+	return c.SendLogBatch(ctx, chunks)
+}
+
+func (c *benchmarkCountingLogClient) SendLogBatchForAssignedRun(ctx context.Context, runID, shardID string, chunks []*api.LogChunk) error {
+	if inner, ok := c.inner.(interfaces.AssignedRunLogBatchClient); ok {
+		if err := inner.SendLogBatchForAssignedRun(ctx, runID, shardID, chunks); err != nil {
+			return err
+		}
+
+		c.recordBatch(chunks)
+		return nil
+	}
+
+	return c.SendLogBatchForRun(ctx, runID, chunks)
+}
+
+func (c *benchmarkCountingLogClient) sendBatchByStream(ctx context.Context, chunks []*api.LogChunk) error {
+	stream, err := c.StreamLogs(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, chunk := range chunks {
+		if err := stream.Send(chunk); err != nil {
+			_ = stream.CloseSend()
+			return err
+		}
+	}
+
+	if closer, ok := stream.(interface{ CloseAndRecv() error }); ok {
+		return closer.CloseAndRecv()
+	}
+
+	return stream.CloseSend()
+}
+
+func (c *benchmarkCountingLogClient) recordBatch(chunks []*api.LogChunk) {
+	c.batches.Add(1)
+	c.chunks.Add(int64(len(chunks)))
+	var bytes int64
+	for _, chunk := range chunks {
+		bytes += int64(len(chunk.GetData()))
+	}
+
+	c.bytes.Add(bytes)
 }
 
 func (c *benchmarkCountingLogClient) Close() error {
@@ -252,6 +326,18 @@ func (benchmarkRecordingLogClient) StreamLogsForRun(context.Context, string) (in
 
 func (benchmarkRecordingLogClient) StreamLogsForAssignedRun(context.Context, string, string) (interfaces.LogStream, error) {
 	return benchmarkRecordingLogStream{}, nil
+}
+
+func (benchmarkRecordingLogClient) SendLogBatch(context.Context, []*api.LogChunk) error {
+	return nil
+}
+
+func (benchmarkRecordingLogClient) SendLogBatchForRun(context.Context, string, []*api.LogChunk) error {
+	return nil
+}
+
+func (benchmarkRecordingLogClient) SendLogBatchForAssignedRun(context.Context, string, string, []*api.LogChunk) error {
+	return nil
 }
 
 func (benchmarkRecordingLogClient) Close() error {

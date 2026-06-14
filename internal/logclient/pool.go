@@ -80,6 +80,18 @@ func (m *ManagingLogClient) StreamLogsForAssignedRun(ctx context.Context, runID,
 	return m.pool.streamLogsForAssignedRun(ctx, runID, shardID)
 }
 
+func (m *ManagingLogClient) SendLogBatch(ctx context.Context, chunks []*api.LogChunk) error {
+	return m.pool.sendLogBatch(ctx, chunks)
+}
+
+func (m *ManagingLogClient) SendLogBatchForRun(ctx context.Context, runID string, chunks []*api.LogChunk) error {
+	return m.pool.sendLogBatchForRun(ctx, runID, chunks)
+}
+
+func (m *ManagingLogClient) SendLogBatchForAssignedRun(ctx context.Context, runID, shardID string, chunks []*api.LogChunk) error {
+	return m.pool.sendLogBatchForAssignedRun(ctx, runID, shardID, chunks)
+}
+
 func (m *ManagingLogClient) AssignLogShardForRun(ctx context.Context, runID string) (string, error) {
 	return m.pool.assignLogShardForRun(ctx, runID)
 }
@@ -610,6 +622,125 @@ func (p *logPool) streamLogsForAssignedRun(ctx context.Context, runID, shardID s
 	return ep.writer.StreamLogs(ctx)
 }
 
+func (p *logPool) sendLogBatch(ctx context.Context, chunks []*api.LogChunk) error {
+	groups := make([]routedLogChunkGroup, 0)
+	indexes := make(map[routedLogChunkGroupKey]int)
+	for _, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+
+		key := routedLogChunkGroupKey{
+			runID:      chunk.GetRunId(),
+			logShardID: chunk.GetLogShardId(),
+		}
+
+		idx, ok := indexes[key]
+		if !ok {
+			idx = len(groups)
+			indexes[key] = idx
+			groups = append(groups, routedLogChunkGroup{runID: key.runID, logShardID: key.logShardID})
+		}
+
+		groups[idx].chunks = append(groups[idx].chunks, chunk)
+	}
+
+	for _, group := range groups {
+		var err error
+		if group.logShardID != "" {
+			err = p.sendLogBatchForAssignedRun(ctx, group.runID, group.logShardID, group.chunks)
+		} else {
+			err = p.sendLogBatchForRun(ctx, group.runID, group.chunks)
+		}
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *logPool) sendLogBatchForRun(ctx context.Context, runID string, chunks []*api.LogChunk) error {
+	ep, err := p.chooseWriteEndpoint(ctx, runID)
+	if err != nil {
+		return err
+	}
+
+	if err = sendLogBatchToEndpoint(ctx, ep, chunks); err == nil {
+		return nil
+	}
+
+	if rerr := p.reconnectEndpoint(ctx, ep.id); rerr != nil {
+		p.logger.Debug("log pool reconnect to %s failed: %v", ep.id, rerr)
+		return err
+	}
+
+	ep, chooseErr := p.chooseWriteEndpoint(ctx, runID)
+	if chooseErr != nil {
+		return chooseErr
+	}
+
+	return sendLogBatchToEndpoint(ctx, ep, chunks)
+}
+
+func (p *logPool) sendLogBatchForAssignedRun(ctx context.Context, runID, shardID string, chunks []*api.LogChunk) error {
+	if runID == "" {
+		return fmt.Errorf("run id is required")
+	}
+
+	if shardID == "" {
+		return p.sendLogBatchForRun(ctx, runID, chunks)
+	}
+
+	ep, err := p.chooseEndpointByID(shardID)
+	if err != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationAssignedWrite, ShardRouteFailureAssignedUnavailable)
+		return err
+	}
+
+	if err = sendLogBatchToEndpoint(ctx, ep, chunks); err == nil {
+		return nil
+	}
+
+	if rerr := p.reconnectEndpoint(ctx, ep.id); rerr != nil {
+		p.logger.Debug("log pool reconnect to %s failed: %v", ep.id, rerr)
+		return err
+	}
+
+	ep, chooseErr := p.chooseEndpointByID(shardID)
+	if chooseErr != nil {
+		p.recordRouteFailure(ctx, ShardRouteOperationAssignedWrite, ShardRouteFailureAssignedUnavailable)
+		return chooseErr
+	}
+
+	return sendLogBatchToEndpoint(ctx, ep, chunks)
+}
+
+func sendLogBatchToEndpoint(ctx context.Context, ep *logEndpoint, chunks []*api.LogChunk) error {
+	if batchWriter, ok := ep.writer.(interfaces.LogBatchClient); ok {
+		return batchWriter.SendLogBatch(ctx, chunks)
+	}
+
+	stream, err := ep.writer.StreamLogs(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, chunk := range chunks {
+		if err := stream.Send(chunk); err != nil {
+			_ = stream.CloseSend()
+			return err
+		}
+	}
+
+	if closer, ok := stream.(interface{ CloseAndRecv() error }); ok {
+		return closer.CloseAndRecv()
+	}
+
+	return stream.CloseSend()
+}
+
 func (p *logPool) assignLogShardForRun(ctx context.Context, runID string) (string, error) {
 	ep, err := p.chooseWriteEndpoint(ctx, runID)
 	if err != nil {
@@ -819,7 +950,21 @@ func (s *routingLogStream) CloseAndRecv() error {
 	return s.stream.CloseSend()
 }
 
+type routedLogChunkGroupKey struct {
+	runID      string
+	logShardID string
+}
+
+type routedLogChunkGroup struct {
+	runID      string
+	logShardID string
+	chunks     []*api.LogChunk
+}
+
 var _ interfaces.RunLogClient = (*ManagingLogClient)(nil)
 var _ interfaces.AssignedRunLogClient = (*ManagingLogClient)(nil)
+var _ interfaces.LogBatchClient = (*ManagingLogClient)(nil)
+var _ interfaces.RunLogBatchClient = (*ManagingLogClient)(nil)
+var _ interfaces.AssignedRunLogBatchClient = (*ManagingLogClient)(nil)
 var _ interfaces.RunLogShardAssigner = (*ManagingLogClient)(nil)
 var _ interfaces.LogStream = (*routingLogStream)(nil)

@@ -24,6 +24,8 @@ const (
 	defaultMaxChunksPerSec = 10000
 	defaultFlushInterval   = 10 * time.Millisecond
 	defaultScanInterval    = 5 * time.Second
+
+	maxBatchRPCPayloadBytes = 256 << 10
 )
 
 const (
@@ -316,6 +318,12 @@ func (f *Forwarder) preferUnscopedLogStream(chunks []*api.LogChunk) bool {
 }
 
 func (f *Forwarder) sendChunkGroup(ctx context.Context, runID, logShardID string, chunks []*api.LogChunk) error {
+	if preferBatchRPC(chunks) {
+		if sent, err := f.sendChunkBatch(ctx, runID, logShardID, chunks); sent || err != nil {
+			return err
+		}
+	}
+
 	stream, err := f.openLogStream(ctx, runID, logShardID)
 	if err != nil {
 		return fmt.Errorf("create stream: %w", err)
@@ -341,6 +349,34 @@ func closeLogStream(stream interfaces.LogStream) error {
 	}
 
 	return stream.CloseSend()
+}
+
+func (f *Forwarder) sendChunkBatch(ctx context.Context, runID, logShardID string, chunks []*api.LogChunk) (bool, error) {
+	if assigned, ok := f.logClient.(interfaces.AssignedRunLogBatchClient); ok && runID != "" && logShardID != "" {
+		return true, assigned.SendLogBatchForAssignedRun(ctx, runID, logShardID, chunks)
+	}
+
+	if scoped, ok := f.logClient.(interfaces.RunLogBatchClient); ok && runID != "" {
+		return true, scoped.SendLogBatchForRun(ctx, runID, chunks)
+	}
+
+	if batch, ok := f.logClient.(interfaces.LogBatchClient); ok {
+		return true, batch.SendLogBatch(ctx, chunks)
+	}
+
+	return false, nil
+}
+
+func preferBatchRPC(chunks []*api.LogChunk) bool {
+	var payloadBytes int
+	for _, chunk := range chunks {
+		payloadBytes += len(chunk.GetRunId()) + len(chunk.GetData())
+		if payloadBytes > maxBatchRPCPayloadBytes {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (f *Forwarder) openLogStream(ctx context.Context, runID, logShardID string) (interfaces.LogStream, error) {

@@ -12,6 +12,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/logbatch"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -26,6 +27,18 @@ func BenchmarkLogServer_StreamIngest(b *testing.B) {
 			for _, payloadBytes := range []int{256, 4096} {
 				b.Run(fmt.Sprintf("store_%s/runs_%03d/payload_%04d", store, runs, payloadBytes), func(b *testing.B) {
 					runLogServerStreamIngestBenchmark(b, store, runs, payloadBytes)
+				})
+			}
+		}
+	}
+}
+
+func BenchmarkLogServer_BatchIngest(b *testing.B) {
+	for _, store := range []string{"noop", "local"} {
+		for _, runs := range []int{1, 100} {
+			for _, payloadBytes := range []int{256, 4096} {
+				b.Run(fmt.Sprintf("store_%s/runs_%03d/payload_%04d/batch_256", store, runs, payloadBytes), func(b *testing.B) {
+					runLogServerBatchIngestBenchmark(b, store, runs, payloadBytes, 256)
 				})
 			}
 		}
@@ -72,6 +85,56 @@ func runLogServerStreamIngestBenchmark(b *testing.B, storeName string, runCount,
 	b.StopTimer()
 
 	reportLogThroughput(b, b.N, payloadBytes, elapsed)
+	b.ReportMetric(float64(runCount), "runs")
+	b.ReportMetric(float64(payloadBytes), "payload_bytes")
+}
+
+func runLogServerBatchIngestBenchmark(b *testing.B, storeName string, runCount, payloadBytes, batchSize int) {
+	b.Helper()
+
+	store := benchmarkRunLogStore(b, storeName)
+	client, cleanup := startBenchmarkLogServer(b, store)
+	defer cleanup()
+
+	ctx := context.Background()
+	payload := []byte(strings.Repeat("x", payloadBytes))
+	runIDs := benchmarkRunIDs(runCount)
+	streamType := api.Stream_STREAM_STDOUT
+	chunks := make([]*api.LogChunk, batchSize)
+	sequences := make([]int64, batchSize)
+	for i := range chunks {
+		chunks[i] = &api.LogChunk{
+			Data:     payload,
+			Sequence: &sequences[i],
+			Stream:   &streamType,
+		}
+	}
+
+	b.SetBytes(int64(payloadBytes * batchSize))
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+	for i := 0; i < b.N; i++ {
+		for j := range chunks {
+			chunks[j].RunId = &runIDs[(i*batchSize+j)%len(runIDs)]
+			sequences[j] = int64(i*batchSize + j + 1)
+		}
+
+		records, err := logbatch.MarshalChunks(chunks)
+		if err != nil {
+			b.Fatalf("marshal log batch %d: %v", i, err)
+		}
+
+		if _, err := client.SendLogBatch(ctx, &api.LogBatch{Records: records}); err != nil {
+			b.Fatalf("send log batch %d: %v", i, err)
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	reportLogThroughput(b, b.N*batchSize, payloadBytes, elapsed)
+	b.ReportMetric(float64(batchSize), "batch_size")
 	b.ReportMetric(float64(runCount), "runs")
 	b.ReportMetric(float64(payloadBytes), "payload_bytes")
 }

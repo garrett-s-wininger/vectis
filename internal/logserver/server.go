@@ -24,6 +24,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
+	"vectis/internal/logbatch"
 	"vectis/internal/logroute"
 	"vectis/internal/observability"
 	"vectis/internal/registry"
@@ -474,20 +475,13 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 				return status.Error(codes.InvalidArgument, err.Error())
 			}
 
-			now := time.Now()
-			if ts := chunk.GetTimestamp(); ts != nil {
-				now = ts.AsTime()
+			item, err := streamLogEntryFromChunk(received.chunk)
+			if err != nil {
+				return err
 			}
+			item.runID = streamRoute.RunID
 
-			entry := LogEntry{
-				Timestamp: now,
-				Stream:    chunk.GetStream(),
-				Sequence:  chunk.GetSequence(),
-				Data:      chunk.GetData(),
-				Completed: chunk.GetCompleted(),
-			}
-
-			pending = append(pending, streamLogEntry{runID: streamRoute.RunID, entry: entry})
+			pending = append(pending, item)
 			if len(pending) >= defaultLogAppendBatchSize {
 				if err := flushPending(); err != nil {
 					return err
@@ -495,6 +489,78 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			}
 		}
 	}
+}
+
+func (s *Server) SendLogBatch(ctx context.Context, batch *api.LogBatch) (*api.Empty, error) {
+	if batch == nil {
+		return nil, status.Error(codes.InvalidArgument, "log batch is required")
+	}
+
+	records := batch.GetRecords()
+	if len(records) == 0 {
+		return &api.Empty{}, nil
+	}
+
+	entries := make([]streamLogEntry, 0, defaultLogAppendBatchSize)
+	if err := logbatch.DecodeRecords(records, func(record logbatch.Record) error {
+		if s.metrics != nil {
+			s.metrics.RecordGRPCChunk(ctx)
+		}
+
+		timestamp := time.Now()
+		if record.HasTimestamp {
+			timestamp = record.Timestamp
+		}
+
+		entries = append(entries, streamLogEntry{
+			runID: record.RunID,
+			entry: LogEntry{
+				Timestamp: timestamp,
+				Stream:    record.Stream,
+				Sequence:  record.Sequence,
+				Data:      record.Data,
+				Completed: record.Completed,
+			},
+		})
+
+		return nil
+	}); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode log batch: %v", err)
+	}
+
+	if len(entries) == 0 {
+		return &api.Empty{}, nil
+	}
+
+	groups := groupStreamLogEntries(entries)
+	if err := s.appendLogEntryGroups(ctx, entries, groups); err != nil {
+		return nil, err
+	}
+
+	s.publishLogEntryGroups(ctx, groups, entries[len(entries)-1].runID)
+	return &api.Empty{}, nil
+}
+
+func streamLogEntryFromChunk(chunk *api.LogChunk) (streamLogEntry, error) {
+	if chunk == nil {
+		return streamLogEntry{}, status.Error(codes.InvalidArgument, "log chunk is required")
+	}
+
+	now := time.Now()
+	if ts := chunk.GetTimestamp(); ts != nil {
+		now = ts.AsTime()
+	}
+
+	return streamLogEntry{
+		runID: chunk.GetRunId(),
+		entry: LogEntry{
+			Timestamp: now,
+			Stream:    chunk.GetStream(),
+			Sequence:  chunk.GetSequence(),
+			Data:      chunk.GetData(),
+			Completed: chunk.GetCompleted(),
+		},
+	}, nil
 }
 
 func receiveLogStream(stream api.LogService_StreamLogsServer, done <-chan struct{}, out chan<- streamLogReceive) {

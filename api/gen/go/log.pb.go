@@ -73,6 +73,50 @@ func (x *GetLogsRequest) GetSinceSequence() int64 {
 	return 0
 }
 
+type LogBatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Records       []byte                 `protobuf:"bytes,1,opt,name=records" json:"records,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogBatch) Reset() {
+	*x = LogBatch{}
+	mi := &file_log_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogBatch) ProtoMessage() {}
+
+func (x *LogBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_log_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogBatch.ProtoReflect.Descriptor instead.
+func (*LogBatch) Descriptor() ([]byte, []int) {
+	return file_log_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *LogBatch) GetRecords() []byte {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
 var File_log_proto protoreflect.FileDescriptor
 
 const file_log_proto_rawDesc = "" +
@@ -80,11 +124,14 @@ const file_log_proto_rawDesc = "" +
 	"\tlog.proto\x1a\fcommon.proto\"N\n" +
 	"\x0eGetLogsRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12%\n" +
-	"\x0esince_sequence\x18\x02 \x01(\x03R\rsinceSequence2m\n" +
+	"\x0esince_sequence\x18\x02 \x01(\x03R\rsinceSequence\"$\n" +
+	"\bLogBatch\x12\x18\n" +
+	"\arecords\x18\x01 \x01(\fR\arecords2\x97\x01\n" +
 	"\n" +
 	"LogService\x12/\n" +
 	"\n" +
-	"StreamLogs\x12\x10.common.LogChunk\x1a\r.common.Empty(\x01\x12.\n" +
+	"StreamLogs\x12\x10.common.LogChunk\x1a\r.common.Empty(\x01\x12(\n" +
+	"\fSendLogBatch\x12\t.LogBatch\x1a\r.common.Empty\x12.\n" +
 	"\aGetLogs\x12\x0f.GetLogsRequest\x1a\x10.common.LogChunk0\x01B\x17Z\x15vectis/api/gen/go;apib\beditionsp\xe8\a"
 
 var (
@@ -99,19 +146,22 @@ func file_log_proto_rawDescGZIP() []byte {
 	return file_log_proto_rawDescData
 }
 
-var file_log_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_log_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_log_proto_goTypes = []any{
 	(*GetLogsRequest)(nil), // 0: GetLogsRequest
-	(*LogChunk)(nil),       // 1: common.LogChunk
-	(*Empty)(nil),          // 2: common.Empty
+	(*LogBatch)(nil),       // 1: LogBatch
+	(*LogChunk)(nil),       // 2: common.LogChunk
+	(*Empty)(nil),          // 3: common.Empty
 }
 var file_log_proto_depIdxs = []int32{
-	1, // 0: LogService.StreamLogs:input_type -> common.LogChunk
-	0, // 1: LogService.GetLogs:input_type -> GetLogsRequest
-	2, // 2: LogService.StreamLogs:output_type -> common.Empty
-	1, // 3: LogService.GetLogs:output_type -> common.LogChunk
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	2, // 0: LogService.StreamLogs:input_type -> common.LogChunk
+	1, // 1: LogService.SendLogBatch:input_type -> LogBatch
+	0, // 2: LogService.GetLogs:input_type -> GetLogsRequest
+	3, // 3: LogService.StreamLogs:output_type -> common.Empty
+	3, // 4: LogService.SendLogBatch:output_type -> common.Empty
+	2, // 5: LogService.GetLogs:output_type -> common.LogChunk
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -129,7 +179,7 @@ func file_log_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_log_proto_rawDesc), len(file_log_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

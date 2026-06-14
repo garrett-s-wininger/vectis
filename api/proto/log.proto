@@ -9,7 +9,12 @@ message GetLogsRequest {
     int64 since_sequence = 2;
 }
 
+message LogBatch {
+    bytes records = 1;
+}
+
 service LogService {
     rpc StreamLogs(stream common.LogChunk) returns (common.Empty);
+    rpc SendLogBatch(LogBatch) returns (common.Empty);
     rpc GetLogs(GetLogsRequest) returns (stream common.LogChunk);
 }

@@ -10,6 +10,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/logbatch"
 	"vectis/internal/registry"
 
 	"google.golang.org/grpc/codes"
@@ -246,6 +247,48 @@ func TestServerPersistsStreamEntriesWithBatchStore(t *testing.T) {
 
 	if !reflect.DeepEqual(store.batchCalls, want) {
 		t.Fatalf("batch calls = %+v, want %+v", store.batchCalls, want)
+	}
+}
+
+func TestServerSendLogBatchPersistsAndPublishes(t *testing.T) {
+	store := &recordingBatchRunLogStore{}
+	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
+	buffer := s.getOrCreateBuffer("run-a")
+	ch := make(chan LogEntry, 2)
+	buffer.Subscribe(ch)
+
+	runID := "run-a"
+	streamType := api.Stream_STREAM_STDOUT
+	seq1 := int64(1)
+	seq2 := int64(2)
+	records, err := logbatch.MarshalChunks([]*api.LogChunk{
+		{RunId: &runID, Sequence: &seq1, Stream: &streamType, Data: []byte("first")},
+		{RunId: &runID, Sequence: &seq2, Stream: &streamType, Data: []byte("second")},
+	})
+
+	if err != nil {
+		t.Fatalf("marshal log batch: %v", err)
+	}
+
+	_, err = s.SendLogBatch(t.Context(), &api.LogBatch{Records: records})
+	if err != nil {
+		t.Fatalf("send log batch: %v", err)
+	}
+
+	want := []batchStoreCall{{runID: "run-a", sequences: []int64{1, 2}}}
+	if !reflect.DeepEqual(store.batchCalls, want) {
+		t.Fatalf("batch calls = %+v, want %+v", store.batchCalls, want)
+	}
+
+	for wantSeq := int64(1); wantSeq <= 2; wantSeq++ {
+		select {
+		case got := <-ch:
+			if got.Sequence != wantSeq {
+				t.Fatalf("subscriber sequence = %d, want %d", got.Sequence, wantSeq)
+			}
+		default:
+			t.Fatalf("missing subscriber entry sequence %d", wantSeq)
+		}
 	}
 }
 
