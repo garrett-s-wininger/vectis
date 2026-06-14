@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,10 @@ import (
 	"testing"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/dal"
+	"vectis/internal/migrations"
 
+	_ "github.com/mattn/go-sqlite3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
@@ -187,6 +191,139 @@ func BenchmarkPublisher_UploadBlob(b *testing.B) {
 	}
 }
 
+func BenchmarkPublisher_Publish(b *testing.B) {
+	for _, size := range benchmarkArtifactSizes() {
+		for _, quota := range []bool{false, true} {
+			b.Run(fmt.Sprintf("%s/%s", benchmarkArtifactSizeName(size), benchmarkArtifactQuotaName(quota)), func(b *testing.B) {
+				benchmarkPublisherPublish(b, size, quota)
+			})
+		}
+	}
+}
+
+func benchmarkPublisherPublish(b *testing.B, size int, quota bool) {
+	b.Helper()
+
+	store, err := NewLocalStore(b.TempDir())
+	if err != nil {
+		b.Fatalf("new local store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	repos := newBenchmarkArtifactRepositories(b)
+	runID := createBenchmarkArtifactRun(b, ctx, repos, "bench-artifact-publish")
+
+	opts := PublisherOptions{
+		Client:           newBenchmarkArtifactServiceClient(b, store, ServerOptions{}),
+		Manifests:        repos.Artifacts(),
+		ArtifactShardID:  "artifact-bench",
+		UploadChunkBytes: defaultUploadBlobChunkBytes,
+	}
+
+	if quota {
+		opts.MaxRunBytes = 1 << 62
+		opts.MaxRunArtifacts = 1 << 62
+	}
+
+	publisher, err := NewPublisher(opts)
+	if err != nil {
+		b.Fatalf("new publisher: %v", err)
+	}
+
+	payload := benchmarkArtifactPayload(size)
+	b.SetBytes(int64(size))
+	b.ReportAllocs()
+	b.ReportMetric(float64(boolToInt(quota)), "quota_checks")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		artifactName := fmt.Sprintf("artifact-%d", i)
+		published, err := publisher.Publish(ctx, PublishRequest{
+			RunID:        runID,
+			Name:         artifactName,
+			Path:         artifactName,
+			Reader:       bytes.NewReader(payload),
+			ExpectedSize: int64(size),
+			RequireSize:  true,
+		})
+
+		if err != nil {
+			b.Fatalf("publish artifact payload: %v", err)
+		}
+
+		b.StopTimer()
+		removeBenchmarkArtifactBlob(b, store, published.Blob.Digest)
+		b.StartTimer()
+	}
+}
+
+func BenchmarkArtifactManifest_Record(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkArtifactRepositories(b)
+	runID := createBenchmarkArtifactRun(b, ctx, repos, "bench-artifact-manifest-record")
+	artifacts := repos.Artifacts()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := artifacts.Record(ctx, benchmarkArtifactCreate(runID, i, 64<<10)); err != nil {
+			b.Fatalf("record artifact manifest: %v", err)
+		}
+	}
+}
+
+func BenchmarkArtifactManifest_GetRunUsage(b *testing.B) {
+	for _, count := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("artifacts_%05d", count), func(b *testing.B) {
+			ctx := context.Background()
+			repos := newBenchmarkArtifactRepositories(b)
+			runID := createBenchmarkArtifactRun(b, ctx, repos, "bench-artifact-manifest-usage")
+			artifacts := repos.Artifacts()
+			seedBenchmarkArtifactManifests(b, ctx, artifacts, runID, count)
+
+			b.ReportAllocs()
+			b.ReportMetric(float64(count), "artifact_count")
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				usage, err := artifacts.GetRunUsageExcludingName(ctx, runID, "missing")
+				if err != nil {
+					b.Fatalf("get artifact manifest usage: %v", err)
+				}
+
+				if usage.Count != int64(count) {
+					b.Fatalf("usage count = %d, want %d", usage.Count, count)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkArtifactManifest_ListByRun(b *testing.B) {
+	for _, count := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("artifacts_%05d/limit_100", count), func(b *testing.B) {
+			ctx := context.Background()
+			repos := newBenchmarkArtifactRepositories(b)
+			runID := createBenchmarkArtifactRun(b, ctx, repos, "bench-artifact-manifest-list")
+			artifacts := repos.Artifacts()
+			seedBenchmarkArtifactManifests(b, ctx, artifacts, runID, count)
+
+			b.ReportAllocs()
+			b.ReportMetric(float64(count), "artifact_count")
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				records, _, err := artifacts.ListByRun(ctx, runID, 0, 100)
+				if err != nil {
+					b.Fatalf("list artifact manifests: %v", err)
+				}
+
+				if len(records) != min(count, 100) {
+					b.Fatalf("listed %d artifacts, want %d", len(records), min(count, 100))
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkArtifactService_ReadBlob(b *testing.B) {
 	for _, size := range benchmarkArtifactSizes() {
 		for _, chunkBytes := range benchmarkArtifactChunkSizes() {
@@ -243,6 +380,22 @@ func benchmarkArtifactSizeName(size int) string {
 	}
 }
 
+func benchmarkArtifactQuotaName(enabled bool) string {
+	if enabled {
+		return "quota_on"
+	}
+
+	return "quota_off"
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+
+	return 0
+}
+
 func benchmarkArtifactPayload(size int) []byte {
 	payload := make([]byte, size)
 	for i := range payload {
@@ -275,6 +428,66 @@ func readBenchmarkArtifactBlob(r io.Reader, buf []byte) (int64, error) {
 
 			return total, err
 		}
+	}
+}
+
+func newBenchmarkArtifactRepositories(b *testing.B) *dal.SQLRepositories {
+	b.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		b.Fatalf("open benchmark artifact db: %v", err)
+	}
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := migrations.Run(db, "sqlite3"); err != nil {
+		_ = db.Close()
+		b.Fatalf("run artifact benchmark migrations: %v", err)
+	}
+
+	b.Cleanup(func() { _ = db.Close() })
+	return dal.NewSQLRepositories(db)
+}
+
+func createBenchmarkArtifactRun(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string) string {
+	b.Helper()
+
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
+		b.Fatalf("create artifact benchmark job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		b.Fatalf("create artifact benchmark run: %v", err)
+	}
+
+	return runID
+}
+
+func seedBenchmarkArtifactManifests(b *testing.B, ctx context.Context, artifacts dal.ArtifactsRepository, runID string, count int) {
+	b.Helper()
+
+	for i := 0; i < count; i++ {
+		if _, err := artifacts.Record(ctx, benchmarkArtifactCreate(runID, i, int64(64<<10))); err != nil {
+			b.Fatalf("seed artifact manifest %d: %v", i, err)
+		}
+	}
+}
+
+func benchmarkArtifactCreate(runID string, index int, size int64) dal.ArtifactCreate {
+	digest := fmt.Sprintf("%064x", index+1)
+	name := fmt.Sprintf("artifact-%d", index)
+	return dal.ArtifactCreate{
+		RunID:           runID,
+		Name:            name,
+		Path:            name,
+		BlobKey:         BlobKeySHA256(digest),
+		BlobAlgorithm:   HashSHA256,
+		BlobDigest:      digest,
+		SizeBytes:       size,
+		ArtifactShardID: "artifact-bench",
 	}
 }
 
