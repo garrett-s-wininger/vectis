@@ -188,6 +188,16 @@ PACKER_PACKAGE_BUILDER_STOP ?= true
 PACKER_PACKAGE_BUILDER_LIMA_BIN ?= $(if $(PACKAGE_LOCAL_VM_PROVIDER_PATH),$(PACKAGE_LOCAL_VM_PROVIDER_PATH),limactl)
 PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT ?= /var/tmp/vectis-package-local-workspaces
 PACKER_PACKAGE_BUILDER_CACHE_ROOT ?= /var/tmp/vectis-package-local-cache
+PACKER_PACKAGE_SMOKE_DIR ?= build/packer/package-smoke
+PACKER_PACKAGE_SMOKE_CPUS ?= 2
+PACKER_PACKAGE_SMOKE_MEMORY ?= 2
+PACKER_PACKAGE_SMOKE_DISK ?= 30
+PACKER_PACKAGE_SMOKE_STOP ?= true
+PACKER_PACKAGE_SMOKE_LIMA_BIN ?= limactl
+PACKER_PACKAGE_DEB_SMOKE_INSTANCE ?= vectis-package-smoke
+PACKER_PACKAGE_DEB_SMOKE_TEMPLATE ?= ubuntu-lts
+PACKER_PACKAGE_RPM_SMOKE_INSTANCE ?= vectis-package-rpm-smoke
+PACKER_PACKAGE_RPM_SMOKE_TEMPLATE ?= fedora
 PACKAGE_LOCAL_VM_PROVIDER ?= auto
 PACKAGE_LOCAL_VM_PROVIDER_PATH ?=
 PACKAGE_LOCAL_VM_INSTANCE ?= $(PACKER_PACKAGE_BUILDER_INSTANCE)
@@ -199,6 +209,7 @@ PACKAGE_LOCAL_VM_PRESERVE_ENV ?= 0
 PACKAGE_LOCAL_VM_GO ?= go
 packer_package_builder_optional_sha = $(if $(strip $(PACKER_PACKAGE_BUILDER_GO_SHA256)),-var 'go_sha256=$(PACKER_PACKAGE_BUILDER_GO_SHA256)',)
 packer_package_builder_vars = -var 'instance=$(PACKER_PACKAGE_BUILDER_INSTANCE)' -var 'base_template=$(PACKER_PACKAGE_BUILDER_TEMPLATE)' -var 'go_version=$(PACKER_PACKAGE_BUILDER_GO_VERSION)' $(packer_package_builder_optional_sha) -var 'cpus=$(PACKER_PACKAGE_BUILDER_CPUS)' -var 'memory=$(PACKER_PACKAGE_BUILDER_MEMORY)' -var 'disk=$(PACKER_PACKAGE_BUILDER_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_BUILDER_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' -var 'workspace_root=$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' -var 'cache_root=$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)'
+packer_package_smoke_vars = -var 'profile=$(1)' -var 'instance=$(2)' -var 'base_template=$(3)' -var 'cpus=$(PACKER_PACKAGE_SMOKE_CPUS)' -var 'memory=$(PACKER_PACKAGE_SMOKE_MEMORY)' -var 'disk=$(PACKER_PACKAGE_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_SMOKE_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_SMOKE_LIMA_BIN)'
 package_deb_arch = $(if $(filter x86_64,$(1)),amd64,$(if $(filter aarch64,$(1)),arm64,$(if $(filter 386,$(1)),i386,$(1))))
 package_rpm_arch = $(if $(filter amd64,$(1)),x86_64,$(if $(filter arm64,$(1)),aarch64,$(1)))
 package_service_bins = $(addprefix $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-,$(PACKAGE_SERVICE_APPS))
@@ -273,6 +284,45 @@ vm-package-builder-check:
 	fi; \
 	case "$(PACKER_PACKAGE_BUILDER_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_BUILDER_INSTANCE) || status=$$?;; esac; \
 	exit $$status
+
+.PHONY: vm-package-smoke-validate
+vm-package-smoke-validate:
+	$(PACKER) validate $(call packer_package_smoke_vars,deb,$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE),$(PACKER_PACKAGE_DEB_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
+	$(PACKER) validate $(call packer_package_smoke_vars,rpm,$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE),$(PACKER_PACKAGE_RPM_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
+
+.PHONY: vm-package-smoke-deb-prepare
+vm-package-smoke-deb-prepare:
+	$(PACKER) build $(call packer_package_smoke_vars,deb,$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE),$(PACKER_PACKAGE_DEB_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
+
+.PHONY: vm-package-smoke-rpm-prepare
+vm-package-smoke-rpm-prepare:
+	$(PACKER) build $(call packer_package_smoke_vars,rpm,$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE),$(PACKER_PACKAGE_RPM_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
+
+.PHONY: vm-package-smoke-prepare
+vm-package-smoke-prepare: vm-package-smoke-deb-prepare vm-package-smoke-rpm-prepare
+
+.PHONY: vm-package-smoke-deb-check
+vm-package-smoke-deb-check:
+	@status=0; \
+	$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) || status=$$?; \
+	if [ $$status -eq 0 ]; then \
+		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis/package-smoke-profile)" = "deb"; command -v dpkg >/dev/null; command -v dpkg-deb >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
+	fi; \
+	case "$(PACKER_PACKAGE_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_DEB_SMOKE_INSTANCE) || status=$$?;; esac; \
+	exit $$status
+
+.PHONY: vm-package-smoke-rpm-check
+vm-package-smoke-rpm-check:
+	@status=0; \
+	$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) || status=$$?; \
+	if [ $$status -eq 0 ]; then \
+		$(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis/package-smoke-profile)" = "rpm"; command -v rpm >/dev/null; command -v systemctl >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
+	fi; \
+	case "$(PACKER_PACKAGE_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_RPM_SMOKE_INSTANCE) || status=$$?;; esac; \
+	exit $$status
+
+.PHONY: vm-package-smoke-check
+vm-package-smoke-check: vm-package-smoke-deb-check vm-package-smoke-rpm-check
 
 $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli: cmd/cli/main.go $(API) $(INTERNAL)
 	mkdir -p $(dir ${@})

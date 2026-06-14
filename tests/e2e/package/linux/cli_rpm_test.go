@@ -9,8 +9,8 @@ import (
 func TestE2EPackageCLIRPM(t *testing.T) {
 	runPackageSmoke(t, packageSmokeCase{
 		envPackagePath: "VECTIS_E2E_PACKAGE_CLI_RPM",
+		profile:        "rpm",
 		instance:       envOrDefault("VECTIS_E2E_PACKAGE_RPM_LINUX_INSTANCE", defaultRPMInstance),
-		template:       envOrDefault("VECTIS_E2E_PACKAGE_RPM_LINUX_TEMPLATE", defaultRPMTemplate),
 		remoteDir:      "/tmp/vectis-cli-package-rpm",
 		parseCommand:   []string{"rpm", "-qp", "--nosignature"},
 		installCommand: []string{"sudo", "rpm", "-Uvh", "--nosignature"},

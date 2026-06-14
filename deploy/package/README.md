@@ -57,6 +57,8 @@ make vm-package-builder-check
 Then install-test it in the Linux VM lane with:
 
 ```sh
+make vm-package-smoke-prepare
+make vm-package-smoke-check
 make test-e2e-package-cli-deb
 make test-e2e-package-cli-rpm
 make test-e2e-package-services-deb
@@ -67,7 +69,9 @@ make test-e2e-package-local
 ```
 
 The e2e package targets use `PACKAGE_ARCH`, which defaults to the local Go
-architecture, so the package under test matches the VM architecture.
+architecture, so the package under test matches the VM architecture. The e2e
+package harness expects prepared smoke VMs; it does not create raw VMs from
+templates.
 
 Production CLI and service packages are built with `CGO_ENABLED=0
 -tags=nosqlite`, matching the container build posture. The `vectis-local`

@@ -20,17 +20,15 @@ import (
 const (
 	defaultPackageProvider = "auto"
 	defaultPackageInstance = "vectis-package-smoke"
-	defaultPackageTemplate = "ubuntu-lts"
 	defaultRPMInstance     = "vectis-package-rpm-smoke"
-	defaultRPMTemplate     = "fedora"
 	defaultPackageTimeout  = 10 * time.Minute
 )
 
 type packageSmokeCase struct {
 	envPackagePath  string
 	envPackagePaths []string
+	profile         string
 	instance        string
-	template        string
 	remoteDir       string
 	parseCommand    []string
 	installCommand  []string
@@ -72,13 +70,15 @@ func runPackageSmoke(t *testing.T, smoke packageSmokeCase) {
 	}
 
 	if !exists {
-		if err := manager.Create(ctx, smoke.instance, smoke.template); err != nil {
-			t.Fatalf("create package smoke VM: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
-		}
+		skipOrFatal(t, "package smoke VM %q does not exist; run make vm-package-smoke-prepare", smoke.instance)
 	}
 
 	if err := manager.Start(ctx, smoke.instance); err != nil {
 		t.Fatalf("start package smoke VM: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	if err := manager.Shell(ctx, smoke.instance, nil, "sh", "-c", `test "$(cat /etc/vectis/package-smoke-profile)" = "$1"`, "vectis-package-smoke-profile", smoke.profile); err != nil {
+		skipOrFatal(t, "package smoke VM %q is not prepared for %s packages; run make vm-package-smoke-prepare", smoke.instance, smoke.profile)
 	}
 
 	if !truthyEnv("VECTIS_E2E_KEEP_PACKAGE_LINUX") {

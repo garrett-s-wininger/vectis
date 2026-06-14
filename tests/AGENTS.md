@@ -75,10 +75,8 @@ Useful e2e controls:
 | `VECTIS_E2E_PACKAGE_LOCAL_RPM` | Path to a native Linux CGO `vectis-local` RPM for package e2e testing. |
 | `VECTIS_E2E_PACKAGE_LINUX_PROVIDER` | Linux package VM provider; defaults to `auto` (currently Lima). |
 | `VECTIS_E2E_PACKAGE_LINUX_PROVIDER_PATH` | Override the VM provider command path, such as `limactl`. |
-| `VECTIS_E2E_PACKAGE_LINUX_INSTANCE` | Override the Linux package smoke VM instance name. |
-| `VECTIS_E2E_PACKAGE_LINUX_TEMPLATE` | Override the VM template used when creating the Linux package smoke instance. |
-| `VECTIS_E2E_PACKAGE_RPM_LINUX_INSTANCE` | Override the Linux RPM package smoke VM instance name. |
-| `VECTIS_E2E_PACKAGE_RPM_LINUX_TEMPLATE` | Override the RPM package VM template; defaults to `fedora`. |
+| `VECTIS_E2E_PACKAGE_LINUX_INSTANCE` | Override the prepared Linux DEB package smoke VM instance name. |
+| `VECTIS_E2E_PACKAGE_RPM_LINUX_INSTANCE` | Override the prepared Linux RPM package smoke VM instance name. |
 | `VECTIS_E2E_PACKAGE_LINUX_TIMEOUT` | Timeout for the Linux package VM smoke; defaults to `10m`. |
 | `VECTIS_E2E_KEEP_PACKAGE_LINUX=true` | Leave the Linux package smoke VM running after the test for debugging. |
 
@@ -93,6 +91,10 @@ lane runs:
 | `PACKER_PACKAGE_BUILDER_GO_SHA256` | Optional SHA-256 for the downloaded Go archive. |
 | `PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT` | Guest-side parent directory for writable package build workspaces. |
 | `PACKER_PACKAGE_BUILDER_CACHE_ROOT` | Guest-side parent directory for persistent Go build and module caches. |
+| `PACKER_PACKAGE_DEB_SMOKE_INSTANCE` | Prepared DEB package smoke VM; defaults to `vectis-package-smoke`. |
+| `PACKER_PACKAGE_DEB_SMOKE_TEMPLATE` | Lima template used for the prepared DEB package smoke VM; defaults to `ubuntu-lts`. |
+| `PACKER_PACKAGE_RPM_SMOKE_INSTANCE` | Prepared RPM package smoke VM; defaults to `vectis-package-rpm-smoke`. |
+| `PACKER_PACKAGE_RPM_SMOKE_TEMPLATE` | Lima template used for the prepared RPM package smoke VM; defaults to `fedora`. |
 
 | Variable | Meaning |
 |---|---|
