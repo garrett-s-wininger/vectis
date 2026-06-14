@@ -3,6 +3,7 @@ package logserver
 import (
 	"context"
 	"io"
+	"reflect"
 	"testing"
 	"time"
 
@@ -142,6 +143,35 @@ func TestStreamLogsRejectsMixedRunStream(t *testing.T) {
 	}
 }
 
+type batchStoreCall struct {
+	runID     string
+	sequences []int64
+}
+
+type recordingBatchRunLogStore struct {
+	appendCalls int
+	batchCalls  []batchStoreCall
+}
+
+func (s *recordingBatchRunLogStore) Append(string, LogEntry) error {
+	s.appendCalls++
+	return nil
+}
+
+func (s *recordingBatchRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
+	call := batchStoreCall{runID: runID, sequences: make([]int64, 0, len(entries))}
+	for _, entry := range entries {
+		call.sequences = append(call.sequences, entry.Sequence)
+	}
+
+	s.batchCalls = append(s.batchCalls, call)
+	return nil
+}
+
+func (s *recordingBatchRunLogStore) List(string) ([]LogEntry, error) {
+	return nil, nil
+}
+
 func TestServer_EvictsOldestTerminalBufferOverLimit(t *testing.T) {
 	s := NewServer(mocks.NopLogger{})
 	s.maxRunBuffers = 2
@@ -165,6 +195,33 @@ func TestServer_EvictsOldestTerminalBufferOverLimit(t *testing.T) {
 
 	if _, ok := s.buffers["run-3"]; !ok {
 		t.Fatal("expected nonterminal buffer to remain")
+	}
+}
+
+func TestServerPersistsStreamEntriesWithBatchStore(t *testing.T) {
+	store := &recordingBatchRunLogStore{}
+	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
+	entries := []streamLogEntry{
+		{runID: "run-a", entry: LogEntry{Sequence: 1}},
+		{runID: "run-b", entry: LogEntry{Sequence: 2}},
+		{runID: "run-a", entry: LogEntry{Sequence: 3}},
+	}
+
+	if err := s.persistLogEntryBatch(entries); err != nil {
+		t.Fatalf("persist log entry batch: %v", err)
+	}
+
+	if store.appendCalls != 0 {
+		t.Fatalf("append calls = %d, want 0", store.appendCalls)
+	}
+
+	want := []batchStoreCall{
+		{runID: "run-a", sequences: []int64{1, 3}},
+		{runID: "run-b", sequences: []int64{2}},
+	}
+
+	if !reflect.DeepEqual(store.batchCalls, want) {
+		t.Fatalf("batch calls = %+v, want %+v", store.batchCalls, want)
 	}
 }
 

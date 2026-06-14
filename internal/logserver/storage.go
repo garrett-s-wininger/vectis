@@ -1,6 +1,7 @@
 package logserver
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -25,9 +26,18 @@ type RunLogStore interface {
 	List(runID string) ([]LogEntry, error)
 }
 
+// RunLogBatchStore persists multiple entries for a run with one durable append.
+type RunLogBatchStore interface {
+	AppendBatch(runID string, entries []LogEntry) error
+}
+
 type NoopRunLogStore struct{}
 
 func (NoopRunLogStore) Append(string, LogEntry) error {
+	return nil
+}
+
+func (NoopRunLogStore) AppendBatch(string, []LogEntry) error {
 	return nil
 }
 
@@ -167,16 +177,23 @@ func (s *LocalRunLogStore) Close() error {
 }
 
 func (s *LocalRunLogStore) Append(runID string, entry LogEntry) error {
+	return s.AppendBatch(runID, []LogEntry{entry})
+}
+
+func (s *LocalRunLogStore) AppendBatch(runID string, entries []LogEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
 	if runID == "" {
 		return fmt.Errorf("run id is required")
 	}
 
 	path := s.runPath(runID)
-	b, err := json.Marshal(entry)
+	b, err := marshalLogEntryLines(entries)
 	if err != nil {
-		return fmt.Errorf("marshal log entry: %w", err)
+		return err
 	}
-	b = append(b, '\n')
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -186,12 +203,37 @@ func (s *LocalRunLogStore) Append(runID string, entry LogEntry) error {
 		return err
 	}
 
-	_, err = f.Write(b)
+	n, err := f.Write(b)
 	if err != nil {
 		return fmt.Errorf("append log entry: %w", err)
 	}
 
+	if n != len(b) {
+		return fmt.Errorf("append log entry: %w", io.ErrShortWrite)
+	}
+
 	return nil
+}
+
+func marshalLogEntryLines(entries []LogEntry) ([]byte, error) {
+	var size int
+	for _, entry := range entries {
+		size += len(entry.Data) + 128
+	}
+
+	var buf bytes.Buffer
+	buf.Grow(size)
+	for _, entry := range entries {
+		b, err := json.Marshal(entry)
+		if err != nil {
+			return nil, fmt.Errorf("marshal log entry: %w", err)
+		}
+
+		buf.Write(b)
+		buf.WriteByte('\n')
+	}
+
+	return buf.Bytes(), nil
 }
 
 func (s *LocalRunLogStore) appendFileLocked(runID, path string) (*os.File, error) {

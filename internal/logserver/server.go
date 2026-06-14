@@ -33,6 +33,9 @@ const (
 	MaxLogLinesPerJob = 10000
 	MaxRunBuffers     = 1024
 
+	defaultLogAppendBatchSize          = 256
+	defaultLogAppendBatchFlushInterval = 10 * time.Millisecond
+
 	GetLogsReplayLimitMetadata = "vectis-log-replay-limit"
 	GetLogsTailMetadata        = "vectis-log-tail"
 )
@@ -43,6 +46,21 @@ type RunOptions struct {
 
 type newRunWritableReporter interface {
 	NewRunWritable() bool
+}
+
+type streamLogEntry struct {
+	runID string
+	entry LogEntry
+}
+
+type streamLogReceive struct {
+	chunk *api.LogChunk
+	err   error
+}
+
+type runLogEntryGroup struct {
+	runID   string
+	entries []LogEntry
 }
 
 func DefaultInstanceID(bindAddr string) string {
@@ -293,101 +311,211 @@ func (s *Server) evictTerminalBuffersLocked() {
 }
 
 func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
-	// Each StreamLogs connection carries logs for a single run (one worker = one
-	// connection). The synthetic completion on EOF applies only to the last run
-	// seen. Multi-run connections would need per-buffer tracking on EOF.
+	// Synthetic completion is intended for direct worker streams and applies to
+	// the last run seen. Forwarder batch streams may carry multiple runs, but do
+	// not request synthetic completion.
 	ctx := stream.Context()
 	syntheticCompletion := boolMetadata(ctx, interfaces.LogSyntheticCompletionMetadata)
 	var lastBuffer *JobBuffer
 	var lastRunID string
 	var route logroute.StreamRoute
+	pending := make([]streamLogEntry, 0, defaultLogAppendBatchSize)
+
+	flushPending := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+
+		if err := s.appendLogEntryBatch(ctx, pending); err != nil {
+			return err
+		}
+
+		for _, item := range pending {
+			lastRunID = item.runID
+			lastBuffer = s.publishLogEntry(ctx, item.runID, item.entry)
+		}
+
+		pending = pending[:0]
+		return nil
+	}
+
+	recvDone := make(chan struct{})
+	recvCh := make(chan streamLogReceive, 1)
+	defer close(recvDone)
+	go receiveLogStream(stream, recvDone, recvCh)
+
+	ticker := time.NewTicker(defaultLogAppendBatchFlushInterval)
+	defer ticker.Stop()
 
 	for {
-		chunk, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				// Worker stream ended. Emit synthetic completion if needed.
-				if syntheticCompletion && lastBuffer != nil && !lastBuffer.IsTerminal() {
-					s.logger.Warn("Stream ended for run %s without completion event", lastRunID)
+		select {
+		case <-ctx.Done():
+			if err := flushPending(); err != nil {
+				return err
+			}
 
-					entries := lastBuffer.GetEntries()
-					synthetic := LogEntry{
-						Timestamp: time.Now(),
-						Stream:    api.Stream_STREAM_CONTROL,
-						Sequence:  nextSequence(entries),
-						Data:      `{"event":"completed","status":"unknown","synthetic":true}`,
-						Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
-					}
-
-					if err := s.store.Append(lastRunID, synthetic); err != nil {
-						s.logger.Warn("Failed to store synthetic completion for run %s: %v", lastRunID, err)
-					}
-
-					if !lastBuffer.Add(synthetic) {
-						s.logger.Warn("Failed to add synthetic completion to buffer for run %s", lastRunID)
-					}
-
-					lastBuffer.Broadcast(lastRunID, synthetic)
-					s.evictTerminalBuffers()
+			return ctx.Err()
+		case <-ticker.C:
+			if err := flushPending(); err != nil {
+				return err
+			}
+		case received := <-recvCh:
+			if received.err != nil {
+				if err := flushPending(); err != nil {
+					return err
 				}
-				return stream.SendAndClose(&api.Empty{})
+
+				if errors.Is(received.err, io.EOF) {
+					// Worker stream ended. Emit synthetic completion if needed.
+					if syntheticCompletion && lastBuffer != nil && !lastBuffer.IsTerminal() {
+						s.logger.Warn("Stream ended for run %s without completion event", lastRunID)
+
+						entries := lastBuffer.GetEntries()
+						synthetic := LogEntry{
+							Timestamp: time.Now(),
+							Stream:    api.Stream_STREAM_CONTROL,
+							Sequence:  nextSequence(entries),
+							Data:      `{"event":"completed","status":"unknown","synthetic":true}`,
+							Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
+						}
+
+						if err := s.appendLogEntryBatch(ctx, []streamLogEntry{{runID: lastRunID, entry: synthetic}}); err != nil {
+							s.logger.Warn("Failed to store synthetic completion for run %s: %v", lastRunID, err)
+						}
+
+						s.publishLogEntry(ctx, lastRunID, synthetic)
+					}
+
+					return stream.SendAndClose(&api.Empty{})
+				}
+
+				return received.err
 			}
 
-			return err
-		}
-
-		streamRoute, err := route.Bind(chunk)
-		if err != nil {
-			return status.Error(codes.InvalidArgument, err.Error())
-		}
-
-		if s.metrics != nil {
-			s.metrics.RecordGRPCChunk(ctx)
-		}
-
-		now := time.Now()
-		if ts := chunk.GetTimestamp(); ts != nil {
-			now = ts.AsTime()
-		}
-
-		entry := LogEntry{
-			Timestamp: now,
-			Stream:    chunk.GetStream(),
-			Sequence:  chunk.GetSequence(),
-			Data:      string(chunk.GetData()),
-			Completed: chunk.GetCompleted(),
-		}
-
-		if err := s.store.Append(streamRoute.RunID, entry); err != nil {
 			if s.metrics != nil {
-				s.metrics.RecordAppendFailure(ctx)
+				s.metrics.RecordGRPCChunk(ctx)
 			}
 
-			if errors.Is(err, ErrLogStoreReadOnly) {
-				return status.Error(codes.ResourceExhausted, err.Error())
+			chunk := received.chunk
+			streamRoute, err := route.Bind(chunk)
+			if err != nil {
+				return status.Error(codes.InvalidArgument, err.Error())
 			}
 
-			return err
-		}
-
-		lastRunID = streamRoute.RunID
-		lastBuffer = s.getOrCreateBuffer(lastRunID)
-
-		if !lastBuffer.Add(entry) {
-			if s.metrics != nil {
-				s.metrics.RecordMemoryBufferDrop(ctx)
+			now := time.Now()
+			if ts := chunk.GetTimestamp(); ts != nil {
+				now = ts.AsTime()
 			}
-			s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", streamRoute.RunID, entry.Sequence)
+
+			entry := LogEntry{
+				Timestamp: now,
+				Stream:    chunk.GetStream(),
+				Sequence:  chunk.GetSequence(),
+				Data:      string(chunk.GetData()),
+				Completed: chunk.GetCompleted(),
+			}
+
+			pending = append(pending, streamLogEntry{runID: streamRoute.RunID, entry: entry})
+			if len(pending) >= defaultLogAppendBatchSize {
+				if err := flushPending(); err != nil {
+					return err
+				}
+			}
 		}
-
-		lastBuffer.Broadcast(streamRoute.RunID, entry)
-
-		if lastBuffer.IsTerminal() {
-			s.evictTerminalBuffers()
-		}
-
-		s.logger.Debug("Received log from run %s (seq %d)", streamRoute.RunID, chunk.GetSequence())
 	}
+}
+
+func receiveLogStream(stream api.LogService_StreamLogsServer, done <-chan struct{}, out chan<- streamLogReceive) {
+	for {
+		chunk, err := stream.Recv()
+		select {
+		case out <- streamLogReceive{chunk: chunk, err: err}:
+		case <-done:
+			return
+		}
+
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (s *Server) appendLogEntryBatch(ctx context.Context, entries []streamLogEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	if err := s.persistLogEntryBatch(entries); err != nil {
+		if s.metrics != nil {
+			s.metrics.RecordAppendFailure(ctx)
+		}
+
+		if errors.Is(err, ErrLogStoreReadOnly) {
+			return status.Error(codes.ResourceExhausted, err.Error())
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func (s *Server) persistLogEntryBatch(entries []streamLogEntry) error {
+	if batchStore, ok := s.store.(RunLogBatchStore); ok {
+		for _, group := range groupStreamLogEntries(entries) {
+			if err := batchStore.AppendBatch(group.runID, group.entries); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	for _, item := range entries {
+		if err := s.store.Append(item.runID, item.entry); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func groupStreamLogEntries(entries []streamLogEntry) []runLogEntryGroup {
+	groupIndex := make(map[string]int)
+	groups := make([]runLogEntryGroup, 0)
+	for _, item := range entries {
+		idx, ok := groupIndex[item.runID]
+		if !ok {
+			idx = len(groups)
+			groupIndex[item.runID] = idx
+			groups = append(groups, runLogEntryGroup{runID: item.runID})
+		}
+
+		groups[idx].entries = append(groups[idx].entries, item.entry)
+	}
+
+	return groups
+}
+
+func (s *Server) publishLogEntry(ctx context.Context, runID string, entry LogEntry) *JobBuffer {
+	buffer := s.getOrCreateBuffer(runID)
+
+	if !buffer.Add(entry) {
+		if s.metrics != nil {
+			s.metrics.RecordMemoryBufferDrop(ctx)
+		}
+
+		s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", runID, entry.Sequence)
+	}
+
+	buffer.Broadcast(runID, entry)
+
+	if buffer.IsTerminal() {
+		s.evictTerminalBuffers()
+	}
+
+	s.logger.Debug("Received log from run %s (seq %d)", runID, entry.Sequence)
+	return buffer
 }
 
 func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsServer) error {

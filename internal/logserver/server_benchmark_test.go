@@ -115,6 +115,54 @@ func runLocalRunLogStoreAppendBenchmark(b *testing.B, runCount, payloadBytes int
 	b.ReportMetric(float64(payloadBytes), "payload_bytes")
 }
 
+func BenchmarkLocalRunLogStore_AppendBatch(b *testing.B) {
+	for _, runs := range []int{1, 100} {
+		for _, payloadBytes := range []int{256, 4096} {
+			b.Run(fmt.Sprintf("runs_%03d/payload_%04d/batch_256", runs, payloadBytes), func(b *testing.B) {
+				runLocalRunLogStoreAppendBatchBenchmark(b, runs, payloadBytes, 256)
+			})
+		}
+	}
+}
+
+func runLocalRunLogStoreAppendBatchBenchmark(b *testing.B, runCount, payloadBytes, batchSize int) {
+	b.Helper()
+
+	store, err := NewLocalRunLogStore(b.TempDir())
+	if err != nil {
+		b.Fatalf("create local log store: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	runIDs := benchmarkRunIDs(runCount)
+	entries := make([]LogEntry, batchSize)
+	for i := range entries {
+		entries[i] = benchmarkLogEntry(payloadBytes)
+	}
+
+	b.SetBytes(int64(payloadBytes * batchSize))
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+	for i := 0; i < b.N; i++ {
+		for j := range entries {
+			entries[j].Sequence = int64(i*batchSize + j + 1)
+		}
+
+		if err := store.AppendBatch(runIDs[i%len(runIDs)], entries); err != nil {
+			b.Fatalf("append log entry batch %d: %v", i, err)
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	reportLogThroughput(b, b.N*batchSize, payloadBytes, elapsed)
+	b.ReportMetric(float64(batchSize), "batch_size")
+	b.ReportMetric(float64(runCount), "runs")
+	b.ReportMetric(float64(payloadBytes), "payload_bytes")
+}
+
 func BenchmarkLogEntry_JSONMarshal(b *testing.B) {
 	for _, payloadBytes := range []int{256, 4096} {
 		b.Run(fmt.Sprintf("payload_%04d", payloadBytes), func(b *testing.B) {

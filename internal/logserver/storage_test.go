@@ -94,6 +94,39 @@ func TestLocalRunLogStore_ListReturnsSortedBySequence(t *testing.T) {
 	}
 }
 
+func TestLocalRunLogStore_AppendBatchAndList(t *testing.T) {
+	store, err := NewLocalRunLogStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	runID := "run-append-batch"
+	entries := []LogEntry{
+		{Sequence: 1, Data: "first"},
+		{Sequence: 2, Data: "second"},
+		{Sequence: 3, Data: "third"},
+	}
+
+	if err := store.AppendBatch(runID, entries); err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+
+	got, err := store.List(runID)
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+
+	if len(got) != len(entries) {
+		t.Fatalf("expected %d entries, got %d", len(entries), len(got))
+	}
+
+	for i := range entries {
+		if got[i].Sequence != entries[i].Sequence || got[i].Data != entries[i].Data {
+			t.Fatalf("entry %d mismatch: got=%+v want=%+v", i, got[i], entries[i])
+		}
+	}
+}
+
 func TestLocalRunLogStore_SanitizesRunIDInPath(t *testing.T) {
 	store, err := NewLocalRunLogStore(t.TempDir())
 	if err != nil {
