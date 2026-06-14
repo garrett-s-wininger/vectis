@@ -42,6 +42,12 @@ const (
 	sourceSyncRunningTimeoutConfigKey                          = "source.sync_running_timeout"
 	sourceRepositoriesConfigKey                                = "source.repositories"
 	sourceSchedulesConfigKey                                   = "source.schedules"
+	sourceKindLocalCheckout                                    = "local_checkout"
+	sourceCheckoutModeExternal                                 = "external"
+	sourceCheckoutModeManaged                                  = "managed"
+	sourceAuthoringModeReadOnly                                = "read_only"
+	sourceAuthoringModeLocalCommit                             = "local_commit"
+	sourceAuthoringModeExternalChangeRequest                   = "external_change_request"
 )
 
 type SourceRepositoryDeclaration struct {
@@ -288,6 +294,38 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 			return nil, fmt.Errorf("source.repositories[%d].repository_id is required", i)
 		}
 
+		if repo.SourceKind == "" {
+			repo.SourceKind = sourceKindLocalCheckout
+		}
+
+		if repo.SourceKind != sourceKindLocalCheckout {
+			return nil, fmt.Errorf("source.repositories[%d].source_kind %q is not supported", i, repo.SourceKind)
+		}
+
+		if repo.CheckoutMode == "" {
+			repo.CheckoutMode = sourceCheckoutModeExternal
+		}
+
+		if !validSourceRepositoryCheckoutMode(repo.CheckoutMode) {
+			return nil, fmt.Errorf("source.repositories[%d].checkout_mode %q is not supported", i, repo.CheckoutMode)
+		}
+
+		if repo.AuthoringMode == "" {
+			repo.AuthoringMode = sourceAuthoringModeReadOnly
+		}
+
+		if !validSourceRepositoryAuthoringMode(repo.AuthoringMode) {
+			return nil, fmt.Errorf("source.repositories[%d].authoring_mode %q is not supported", i, repo.AuthoringMode)
+		}
+
+		if repo.AuthoringMode == sourceAuthoringModeLocalCommit && repo.CheckoutMode != sourceCheckoutModeManaged {
+			return nil, fmt.Errorf("source.repositories[%d].authoring_mode %q requires checkout_mode %q", i, repo.AuthoringMode, sourceCheckoutModeManaged)
+		}
+
+		if repo.CheckoutPath == "" && repo.CheckoutMode != sourceCheckoutModeManaged {
+			return nil, fmt.Errorf("source.repositories[%d].checkout_path is required unless checkout_mode is %q", i, sourceCheckoutModeManaged)
+		}
+
 		if repo.DefaultRef != "" {
 			ref, err := refspec.NormalizeRef(repo.DefaultRef)
 			if err != nil {
@@ -306,6 +344,24 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 	}
 
 	return out, nil
+}
+
+func validSourceRepositoryCheckoutMode(mode string) bool {
+	switch mode {
+	case sourceCheckoutModeExternal, sourceCheckoutModeManaged:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSourceRepositoryAuthoringMode(mode string) bool {
+	switch mode {
+	case sourceAuthoringModeReadOnly, sourceAuthoringModeLocalCommit, sourceAuthoringModeExternalChangeRequest:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeSourceScheduleDeclarations(in []SourceScheduleDeclaration) ([]SourceScheduleDeclaration, error) {

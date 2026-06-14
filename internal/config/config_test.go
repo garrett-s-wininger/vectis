@@ -664,7 +664,10 @@ func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
 	}
 
 	if repos[0].RepositoryID != "vectis-local" ||
+		repos[0].SourceKind != "local_checkout" ||
 		repos[0].CheckoutPath != "/work/vectis" ||
+		repos[0].CheckoutMode != "external" ||
+		repos[0].AuthoringMode != "read_only" ||
 		repos[0].Namespace != "/team-a" ||
 		repos[0].DefaultRef != "main" ||
 		repos[0].Enabled == nil ||
@@ -692,7 +695,7 @@ func TestSourceRepositoryDeclarations_EnvJSON(t *testing.T) {
 func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis"},{"repository_id":"vectis"}]`)
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_path":"/work/vectis"},{"repository_id":"vectis","checkout_path":"/work/vectis-2"}]`)
 	t.Setenv(envAPIServerSourceRepositories, "")
 
 	if _, err := SourceRepositoryDeclarations(); err == nil {
@@ -704,9 +707,34 @@ func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 		t.Fatal("expected unknown JSON field error")
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","default_ref":"HEAD~1"}]`)
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_path":"/work/vectis","default_ref":"HEAD~1"}]`)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected invalid default_ref error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","source_kind":"archive","checkout_path":"/work/vectis"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected unsupported source_kind error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"magic","checkout_path":"/work/vectis"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected unsupported checkout_mode error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","authoring_mode":"magic","checkout_path":"/work/vectis"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected unsupported authoring_mode error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"external","authoring_mode":"local_commit","checkout_path":"/work/vectis"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected incompatible source authoring mode error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected missing checkout_path error")
 	}
 }
 

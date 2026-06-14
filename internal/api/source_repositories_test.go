@@ -953,7 +953,7 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
 	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
-	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"vectis-local"},{"repository_id":"infra"}]`)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"vectis-local","checkout_path":"/work/vectis"},{"repository_id":"infra","checkout_path":"/work/infra"}]`)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly","repository_id":"vectis-local","job_id":"build","cron_spec":"0 2 * * *"}]`)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
