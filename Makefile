@@ -173,6 +173,19 @@ PACKAGE_ARCHES ?= amd64 arm64
 PACKAGE_SERVICE_APPS ?= api catalog cell-ingress cron docs log log-forwarder queue reconciler registry worker
 PACKAGE_LOCAL_ARCHES ?= $(PACKAGE_ARCH)
 PACKAGE_LOCAL_APPS ?= local api artifact catalog cell-ingress cron docs log orchestrator queue reconciler registry secrets worker worker-core
+PACKAGE_LOCAL_ALLOW_CROSS_CGO ?= 0
+PACKAGE_LOCAL_MAKE ?= make
+PACKAGE_LOCAL_VM_PROVIDER ?= auto
+PACKAGE_LOCAL_VM_PROVIDER_PATH ?=
+PACKAGE_LOCAL_VM_INSTANCE ?= vectis-package-local-build
+PACKAGE_LOCAL_VM_TEMPLATE ?= ubuntu-lts
+PACKAGE_LOCAL_VM_TIMEOUT ?= 30m
+PACKAGE_LOCAL_VM_WORKSPACE_ROOT ?= /tmp/vectis-package-local-workspaces
+PACKAGE_LOCAL_VM_CACHE_ROOT ?= /var/tmp/vectis-package-local-cache
+PACKAGE_LOCAL_VM_BOOTSTRAP ?= 1
+PACKAGE_LOCAL_VM_KEEP ?= 0
+PACKAGE_LOCAL_VM_PRESERVE_ENV ?= 0
+PACKAGE_LOCAL_VM_GO ?= go
 package_deb_arch = $(if $(filter x86_64,$(1)),amd64,$(if $(filter aarch64,$(1)),arm64,$(if $(filter 386,$(1)),i386,$(1))))
 package_rpm_arch = $(if $(filter amd64,$(1)),x86_64,$(if $(filter arm64,$(1)),aarch64,$(1)))
 package_service_bins = $(addprefix $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-,$(PACKAGE_SERVICE_APPS))
@@ -181,6 +194,8 @@ package_local_bins = $(addprefix $(call package_local_bin_dir,$(1))/vectis-,$(PA
 package_common_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS)
 package_service_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS) --input vectis-$(2)=$(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-$(2)
 package_local_inputs = --input vectis-local-wrapper=$(PACKAGE_LOCAL_WRAPPER) --input vectis-local-binaries=$(call package_local_bin_dir,$(1))
+package_local_dispatch_env = --env 'PACKAGE_OUT=$(PACKAGE_OUT)' --env 'PACKAGE_BUILD_DIR=$(PACKAGE_BUILD_DIR)' --env 'PACKAGE_VERSION=$(PACKAGE_VERSION)' --env 'PACKAGE_RELEASE=$(PACKAGE_RELEASE)' --env 'PACKAGE_ARCH=$(2)' --env 'PACKAGE_LOCAL_ARCHES=$(2)' --env 'PACKAGE_LOCAL_APPS=$(PACKAGE_LOCAL_APPS)'
+package_local_dispatch = $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --template '$(PACKAGE_LOCAL_VM_TEMPLATE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-bootstrap=$(PACKAGE_LOCAL_VM_BOOTSTRAP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
 package_common_deb_path = $(PACKAGE_OUT)/vectis-common_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
 package_common_rpm_path = $(PACKAGE_OUT)/vectis-common-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(1)).rpm
 package_service_deb_path = $(PACKAGE_OUT)/vectis-$(2)_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
@@ -219,6 +234,8 @@ PACKAGE_COMMON_DEB_TARGETS := $(addprefix package-common-deb-,$(PACKAGE_ARCHES))
 PACKAGE_COMMON_RPM_TARGETS := $(addprefix package-common-rpm-,$(PACKAGE_ARCHES))
 PACKAGE_LOCAL_DEB_TARGETS := $(addprefix package-local-deb-,$(PACKAGE_LOCAL_ARCHES))
 PACKAGE_LOCAL_RPM_TARGETS := $(addprefix package-local-rpm-,$(PACKAGE_LOCAL_ARCHES))
+PACKAGE_LOCAL_NATIVE_DEB_TARGETS := $(addprefix package-local-native-deb-,$(PACKAGE_LOCAL_ARCHES))
+PACKAGE_LOCAL_NATIVE_RPM_TARGETS := $(addprefix package-local-native-rpm-,$(PACKAGE_LOCAL_ARCHES))
 PACKAGE_SERVICE_DEB_TARGETS := $(foreach arch,$(PACKAGE_ARCHES),$(foreach app,$(PACKAGE_SERVICE_APPS),package-service-deb-$(arch)-$(app)))
 PACKAGE_SERVICE_RPM_TARGETS := $(foreach arch,$(PACKAGE_ARCHES),$(foreach app,$(PACKAGE_SERVICE_APPS),package-service-rpm-$(arch)-$(app)))
 PACKAGE_SERVICES_DEB_TARGETS := $(addprefix package-services-deb-,$(PACKAGE_ARCHES))
@@ -282,11 +299,19 @@ package-cli-rpm: $(PACKAGE_CLI_RPM_TARGETS)
 package-cli: package-cli-deb package-cli-rpm
 
 .PHONY: $(addprefix package-local-deb-,$(PACKAGE_LOCAL_ALL_ARCHES))
-$(addprefix package-local-deb-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-deb-%: $(PACKAGE_LOCAL_WRAPPER) $(call package_local_bins,%)
-	go run ./deploy/package/cmd/build --package vectis-local --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(call package_local_inputs,${*})
+$(addprefix package-local-deb-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-deb-%:
+	$(call package_local_dispatch,deb,${*})
 
 .PHONY: $(addprefix package-local-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES))
-$(addprefix package-local-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-rpm-%: $(PACKAGE_LOCAL_WRAPPER) $(call package_local_bins,%)
+$(addprefix package-local-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-rpm-%:
+	$(call package_local_dispatch,rpm,${*})
+
+.PHONY: $(addprefix package-local-native-deb-,$(PACKAGE_LOCAL_ALL_ARCHES))
+$(addprefix package-local-native-deb-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-native-deb-%: $(PACKAGE_LOCAL_WRAPPER) $(call package_local_bins,%)
+	go run ./deploy/package/cmd/build --package vectis-local --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(call package_local_inputs,${*})
+
+.PHONY: $(addprefix package-local-native-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES))
+$(addprefix package-local-native-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-native-rpm-%: $(PACKAGE_LOCAL_WRAPPER) $(call package_local_bins,%)
 	go run ./deploy/package/cmd/build --package vectis-local --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(call package_local_inputs,${*})
 
 .PHONY: $(addprefix package-common-deb-,$(PACKAGE_SERVICE_ALL_ARCHES))
@@ -334,6 +359,15 @@ package-local-rpm: $(PACKAGE_LOCAL_RPM_TARGETS)
 
 .PHONY: package-local
 package-local: package-local-deb package-local-rpm
+
+.PHONY: package-local-native-deb
+package-local-native-deb: $(PACKAGE_LOCAL_NATIVE_DEB_TARGETS)
+
+.PHONY: package-local-native-rpm
+package-local-native-rpm: $(PACKAGE_LOCAL_NATIVE_RPM_TARGETS)
+
+.PHONY: package-local-native
+package-local-native: package-local-native-deb package-local-native-rpm
 
 .PHONY: package-service-deb
 package-service-deb: $(PACKAGE_SERVICE_DEB_TARGETS)

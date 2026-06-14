@@ -82,6 +82,23 @@ Useful e2e controls:
 | `VECTIS_E2E_PACKAGE_LINUX_TIMEOUT` | Timeout for the Linux package VM smoke; defaults to `10m`. |
 | `VECTIS_E2E_KEEP_PACKAGE_LINUX=true` | Leave the Linux package smoke VM running after the test for debugging. |
 
+Local package build controls used by `make package-local` before the e2e install
+lane runs:
+
+| Variable | Meaning |
+|---|---|
+| `PACKAGE_LOCAL_VM_PROVIDER` | Build VM provider for non-Linux hosts; defaults to `auto` (currently Lima). |
+| `PACKAGE_LOCAL_VM_PROVIDER_PATH` | Override the VM provider command path, such as `limactl`. |
+| `PACKAGE_LOCAL_VM_INSTANCE` | Override the local package build VM instance name. |
+| `PACKAGE_LOCAL_VM_TEMPLATE` | Override the VM template used when creating the local package build instance. |
+| `PACKAGE_LOCAL_VM_TIMEOUT` | Timeout for local package builds through the VM; defaults to `30m`. |
+| `PACKAGE_LOCAL_VM_WORKSPACE_ROOT` | Guest-side parent directory for writable local package build workspaces; defaults to `/tmp/vectis-package-local-workspaces`. |
+| `PACKAGE_LOCAL_VM_CACHE_ROOT` | Guest-side parent directory for persistent Go build and module caches; defaults to `/var/tmp/vectis-package-local-cache`. |
+| `PACKAGE_LOCAL_VM_BOOTSTRAP=0` | Disable automatic apt-based build prerequisite installation in the local package build VM. |
+| `PACKAGE_LOCAL_VM_GO` | Go executable to use inside the local package build VM; defaults to `go`. |
+| `PACKAGE_LOCAL_VM_KEEP=1` | Leave the local package build VM running after the package build. |
+| `PACKAGE_LOCAL_ALLOW_CROSS_CGO=1` | Force the native build path on a non-Linux host with a working Linux CGO cross-toolchain. |
+
 ## Mocks
 
 Import `"vectis/internal/interfaces/mocks"`. Record-and-verify + `XxxErr` injection pattern; details in [`internal/AGENTS.md`](../internal/AGENTS.md). Mocks are hand-written (no mockgen), which keeps the mock package dependency-free and makes mock behaviour explicit in review.

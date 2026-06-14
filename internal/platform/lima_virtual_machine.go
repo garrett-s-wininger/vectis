@@ -122,6 +122,10 @@ func (m *limaVirtualMachineManager) CopyDir(ctx context.Context, localDir, insta
 	return m.run(ctx, nil, "copy", "-r", localDir, instance+":"+remoteDir)
 }
 
+func (m *limaVirtualMachineManager) CopyDirFrom(ctx context.Context, instance, remoteDir, localDir string) error {
+	return m.run(ctx, nil, "copy", "-r", instance+":"+remoteDir, localDir)
+}
+
 func (m *limaVirtualMachineManager) Shell(ctx context.Context, instance string, stdin io.Reader, args ...string) error {
 	return m.run(ctx, stdin, append([]string{"shell", instance}, args...)...)
 }

@@ -37,6 +37,7 @@ type VirtualMachineManager interface {
 	Stop(ctx context.Context, instance string) error
 	Delete(ctx context.Context, instance string) error
 	CopyDir(ctx context.Context, localDir, instance, remoteDir string) error
+	CopyDirFrom(ctx context.Context, instance, remoteDir, localDir string) error
 	Shell(ctx context.Context, instance string, stdin io.Reader, args ...string) error
 }
 

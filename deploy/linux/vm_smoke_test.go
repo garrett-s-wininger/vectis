@@ -160,6 +160,10 @@ func (m *recordingVMManager) CopyDir(_ context.Context, localDir, _ string, remo
 	return nil
 }
 
+func (m *recordingVMManager) CopyDirFrom(context.Context, string, string, string) error {
+	return nil
+}
+
 func (m *recordingVMManager) Shell(_ context.Context, _ string, stdin io.Reader, args ...string) error {
 	if stdin != nil {
 		return io.ErrUnexpectedEOF

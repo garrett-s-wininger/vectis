@@ -42,7 +42,10 @@ make package-cli PACKAGE_ARCHES=arm64
 
 The local package target uses `PACKAGE_LOCAL_ARCHES`, which defaults to
 `PACKAGE_ARCH`, because SQLite-enabled CGO builds normally need a native Linux C
-toolchain.
+toolchain. `make package-local` gates on the host platform: Linux hosts run the
+native CGO package target directly, while macOS and other non-Linux hosts run
+that native target inside the configured platform VM provider. Lima is the
+default provider.
 
 Then install-test it in the Linux VM lane with:
 
@@ -61,8 +64,29 @@ architecture, so the package under test matches the VM architecture.
 Production CLI and service packages are built with `CGO_ENABLED=0
 -tags=nosqlite`, matching the container build posture. The `vectis-local`
 package is intentionally different: it is a native Linux CGO build with SQLite
-enabled, so build it on Linux or set `PACKAGE_LOCAL_ALLOW_CROSS_CGO=1` only when
-a working Linux C cross-toolchain is available.
+enabled. The public local package target uses a VM automatically on non-Linux
+hosts. Set `PACKAGE_LOCAL_ALLOW_CROSS_CGO=1` only when you intentionally want to
+run the native target on a non-Linux host with a working Linux C cross-toolchain.
+
+Useful VM knobs for local package builds:
+
+```sh
+make package-local \
+  PACKAGE_LOCAL_VM_PROVIDER=lima \
+  PACKAGE_LOCAL_VM_INSTANCE=vectis-package-local-build \
+  PACKAGE_LOCAL_VM_TEMPLATE=ubuntu-lts
+```
+
+The dispatcher copies the worktree into a writable guest workspace under
+`PACKAGE_LOCAL_VM_WORKSPACE_ROOT` and copies `PACKAGE_OUT` back after the build,
+so it does not require a writable host mount in Lima. Go build and module caches
+live under `PACKAGE_LOCAL_VM_CACHE_ROOT`, which defaults to `/var/tmp` so repeat
+VM builds can reuse downloads across boots. The build VM must have Go, `make`,
+and a C compiler installed. The dispatcher bootstraps those prerequisites by
+default for apt-based Linux guests; set `PACKAGE_LOCAL_VM_BOOTSTRAP=0` to require
+a pre-provisioned builder. Direct Linux-builder entrypoints are available as
+`make package-local-native-deb`, `make package-local-native-rpm`, and
+`make package-local-native`.
 
 The TOML package manifest is shared across DEB and RPM so package metadata and
 file inventory are not duplicated across formats. Service packages use
