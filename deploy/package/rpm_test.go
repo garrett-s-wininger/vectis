@@ -80,10 +80,30 @@ func TestRPMArchiveShape(t *testing.T) {
 	if mainEntries[0].tag != rpmTagHeaderImmutable {
 		t.Fatalf("first main header tag = %d, want %d", mainEntries[0].tag, rpmTagHeaderImmutable)
 	}
+	assertRPMHeaderTagsAbsent(t, mainEntries, map[int]string{
+		1023: "pre-install script",
+		1024: "post-install script",
+		1025: "pre-uninstall script",
+		1026: "post-uninstall script",
+		1085: "pre-install script interpreter",
+		1086: "post-install script interpreter",
+		1087: "pre-uninstall script interpreter",
+		1088: "post-uninstall script interpreter",
+	})
 
 	headerSHA256 := sha256.Sum256(b[mainOffset:payloadOffset])
 	if got, want := rpmHeaderString(t, b[96:], signatureEntries, rpmTagSigSHA256), hex.EncodeToString(headerSHA256[:]); got != want {
 		t.Fatalf("signature SHA256 header = %q, want %q", got, want)
+	}
+}
+
+func assertRPMHeaderTagsAbsent(t *testing.T, entries []rpmHeaderIndex, tags map[int]string) {
+	t.Helper()
+
+	for _, entry := range entries {
+		if name, ok := tags[int(entry.tag)]; ok {
+			t.Fatalf("RPM header unexpectedly contains %s tag %d", name, entry.tag)
+		}
 	}
 }
 

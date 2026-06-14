@@ -66,6 +66,25 @@ func buildDebDataArchive(files []resolvedFile) ([]byte, string, error) {
 		return sorted[i].Destination < sorted[j].Destination
 	})
 
+	for _, dir := range packageParentDirs(sorted) {
+		header := &tar.Header{
+			Name:     "." + dir + "/",
+			Typeflag: tar.TypeDir,
+			Mode:     0o755,
+			ModTime:  time.Unix(0, 0),
+			Uid:      0,
+			Gid:      0,
+			Uname:    "root",
+			Gname:    "root",
+		}
+
+		if err := tw.WriteHeader(header); err != nil {
+			_ = tw.Close()
+			_ = gz.Close()
+			return nil, "", err
+		}
+	}
+
 	for _, file := range sorted {
 		content, err := os.ReadFile(file.Source)
 		if err != nil {

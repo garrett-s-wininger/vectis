@@ -27,26 +27,24 @@ const (
 )
 
 type packageSmokeCase struct {
-	envPackagePath string
-	instance       string
-	template       string
-	remoteDir      string
-	parseCommand   []string
-	installCommand []string
-	removeCommand  []string
+	envPackagePath  string
+	envPackagePaths []string
+	instance        string
+	template        string
+	remoteDir       string
+	parseCommand    []string
+	installCommand  []string
+	removeCommand   []string
+	verifyInstalled packageSmokeVerifier
+	verifyRemoved   packageSmokeVerifier
 }
+
+type packageSmokeVerifier func(context.Context, *testing.T, platform.VirtualMachineManager, string, *bytes.Buffer, *bytes.Buffer)
 
 func runPackageSmoke(t *testing.T, smoke packageSmokeCase) {
 	t.Helper()
 
-	packagePath := strings.TrimSpace(os.Getenv(smoke.envPackagePath))
-	if packagePath == "" {
-		skipOrFatal(t, "%s is not set", smoke.envPackagePath)
-	}
-
-	if _, err := os.Stat(packagePath); err != nil {
-		skipOrFatal(t, "%s %s is not readable: %v", smoke.envPackagePath, packagePath, err)
-	}
+	packagePaths := packagePathsFromEnv(t, smoke)
 
 	ctx, cancel := context.WithTimeout(context.Background(), packageTimeout(t))
 	defer cancel()
@@ -93,8 +91,14 @@ func runPackageSmoke(t *testing.T, smoke packageSmokeCase) {
 		})
 	}
 
-	stageDir := stagePackage(t, packagePath)
-	remotePackage := path.Join(smoke.remoteDir, filepath.Base(packagePath))
+	_ = manager.Shell(ctx, smoke.instance, nil, smoke.removeCommand...)
+
+	stageDir := stagePackages(t, packagePaths)
+	remotePackages := make([]string, 0, len(packagePaths))
+	for _, packagePath := range packagePaths {
+		remotePackages = append(remotePackages, path.Join(smoke.remoteDir, filepath.Base(packagePath)))
+	}
+
 	installed := false
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -116,49 +120,109 @@ func runPackageSmoke(t *testing.T, smoke packageSmokeCase) {
 	}
 
 	if len(smoke.parseCommand) > 0 {
-		if err := manager.Shell(ctx, smoke.instance, nil, append(smoke.parseCommand, remotePackage)...); err != nil {
-			t.Fatalf("package metadata did not parse: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		for _, remotePackage := range remotePackages {
+			if err := manager.Shell(ctx, smoke.instance, nil, appendCommand(smoke.parseCommand, remotePackage)...); err != nil {
+				t.Fatalf("package metadata did not parse: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+			}
 		}
 	}
 
-	if err := manager.Shell(ctx, smoke.instance, nil, append(smoke.installCommand, remotePackage)...); err != nil {
-		t.Fatalf("install vectis-cli package: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	if err := manager.Shell(ctx, smoke.instance, nil, appendCommand(smoke.installCommand, remotePackages...)...); err != nil {
+		t.Fatalf("install package set: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 
 	installed = true
 
-	if err := manager.Shell(ctx, smoke.instance, nil, "test", "-x", "/usr/bin/vectis-cli"); err != nil {
-		t.Fatalf("packaged CLI was not installed executable: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	verifier := smoke.verifyInstalled
+	if verifier == nil {
+		verifier = verifyCLIInstalled
 	}
 
-	if err := manager.Shell(ctx, smoke.instance, nil, "vectis-cli", "--version"); err != nil {
-		t.Fatalf("packaged CLI did not run: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
-	}
-
-	if err := manager.Shell(ctx, smoke.instance, nil, "test", "!", "-e", "/etc/systemd/system/vectis.target"); err != nil {
-		t.Fatalf("vectis-cli package should not install service units: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
-	}
-
+	verifier(ctx, t, manager, smoke.instance, &stdout, &stderr)
 	if err := manager.Shell(ctx, smoke.instance, nil, smoke.removeCommand...); err != nil {
-		t.Fatalf("remove vectis-cli package: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		t.Fatalf("remove package set: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 
 	installed = false
-	if err := manager.Shell(ctx, smoke.instance, nil, "test", "!", "-e", "/usr/bin/vectis-cli"); err != nil {
+
+	verifier = smoke.verifyRemoved
+	if verifier == nil {
+		verifier = verifyCLIRemoved
+	}
+
+	verifier(ctx, t, manager, smoke.instance, &stdout, &stderr)
+}
+
+func packagePathsFromEnv(t *testing.T, smoke packageSmokeCase) []string {
+	t.Helper()
+
+	envKeys := append([]string{}, smoke.envPackagePaths...)
+	if smoke.envPackagePath != "" {
+		envKeys = append([]string{smoke.envPackagePath}, envKeys...)
+	}
+
+	packagePaths := make([]string, 0, len(envKeys))
+	for _, envKey := range envKeys {
+		packagePath := strings.TrimSpace(os.Getenv(envKey))
+		if packagePath == "" {
+			skipOrFatal(t, "%s is not set", envKey)
+		}
+
+		if _, err := os.Stat(packagePath); err != nil {
+			skipOrFatal(t, "%s %s is not readable: %v", envKey, packagePath, err)
+		}
+
+		packagePaths = append(packagePaths, packagePath)
+	}
+
+	if len(packagePaths) == 0 {
+		t.Fatal("package smoke case did not declare package env keys")
+	}
+
+	return packagePaths
+}
+
+func verifyCLIInstalled(ctx context.Context, t *testing.T, manager platform.VirtualMachineManager, instance string, stdout, stderr *bytes.Buffer) {
+	t.Helper()
+
+	if err := manager.Shell(ctx, instance, nil, "test", "-x", "/usr/bin/vectis-cli"); err != nil {
+		t.Fatalf("packaged CLI was not installed executable: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	if err := manager.Shell(ctx, instance, nil, "vectis-cli", "--version"); err != nil {
+		t.Fatalf("packaged CLI did not run: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	if err := manager.Shell(ctx, instance, nil, "test", "!", "-e", "/etc/systemd/system/vectis.target"); err != nil {
+		t.Fatalf("vectis-cli package should not install service units: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+}
+
+func verifyCLIRemoved(ctx context.Context, t *testing.T, manager platform.VirtualMachineManager, instance string, stdout, stderr *bytes.Buffer) {
+	t.Helper()
+
+	if err := manager.Shell(ctx, instance, nil, "test", "!", "-e", "/usr/bin/vectis-cli"); err != nil {
 		t.Fatalf("packaged CLI remained after removal: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 }
 
-func stagePackage(t *testing.T, packagePath string) string {
+func stagePackages(t *testing.T, packagePaths []string) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	destination := filepath.Join(dir, filepath.Base(packagePath))
-	if err := copyFile(destination, packagePath); err != nil {
-		t.Fatal(err)
+	for _, packagePath := range packagePaths {
+		destination := filepath.Join(dir, filepath.Base(packagePath))
+		if err := copyFile(destination, packagePath); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	return dir
+}
+
+func appendCommand(base []string, args ...string) []string {
+	out := append([]string{}, base...)
+	return append(out, args...)
 }
 
 func copyFile(destination, source string) error {

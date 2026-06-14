@@ -23,3 +23,134 @@ destination = "/usr/bin/vectis-cli"
 mode = "0755"
 owner = "root"
 group = "root"
+
+[[package]]
+id = "vectis-services"
+name = "vectis-services"
+summary = "Standalone Vectis service stack"
+description = """
+Vectis services installs the long-running binaries and systemd artifacts for the
+standalone Vectis service stack. Host-specific configuration remains owned by
+operators and config management.
+"""
+depends = ["vectis-cli", "ca-certificates", "systemd"]
+
+[[package.file]]
+id = "vectis-api"
+source = "vectis-api"
+destination = "/usr/bin/vectis-api"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-catalog"
+source = "vectis-catalog"
+destination = "/usr/bin/vectis-catalog"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-cell-ingress"
+source = "vectis-cell-ingress"
+destination = "/usr/bin/vectis-cell-ingress"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-cron"
+source = "vectis-cron"
+destination = "/usr/bin/vectis-cron"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-docs"
+source = "vectis-docs"
+destination = "/usr/bin/vectis-docs"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-log"
+source = "vectis-log"
+destination = "/usr/bin/vectis-log"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-log-forwarder"
+source = "vectis-log-forwarder"
+destination = "/usr/bin/vectis-log-forwarder"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-queue"
+source = "vectis-queue"
+destination = "/usr/bin/vectis-queue"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-reconciler"
+source = "vectis-reconciler"
+destination = "/usr/bin/vectis-reconciler"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-registry"
+source = "vectis-registry"
+destination = "/usr/bin/vectis-registry"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-worker"
+source = "vectis-worker"
+destination = "/usr/bin/vectis-worker"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "systemd"
+source = "linux-artifacts/systemd"
+destination = "/usr/lib/systemd/system"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "sysusers"
+source = "linux-artifacts/sysusers.d/vectis.conf"
+destination = "/usr/lib/sysusers.d/vectis.conf"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "tmpfiles"
+source = "linux-artifacts/tmpfiles.d/vectis.conf"
+destination = "/usr/lib/tmpfiles.d/vectis.conf"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "env-examples"
+source = "linux-artifacts/env"
+destination = "/usr/share/doc/vectis-services/examples"
+mode = "0644"
+owner = "root"
+group = "root"

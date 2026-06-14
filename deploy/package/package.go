@@ -4,9 +4,11 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -267,18 +269,31 @@ func (m Manifest) resolve(opts BuildOptions) (resolvedPackage, error) {
 	}
 
 	for _, file := range source.Files {
-		resolved, err := resolvePackageFile(file, opts.Inputs)
+		resolved, err := resolvePackageFiles(file, opts.Inputs)
 		if err != nil {
 			return resolvedPackage{}, fmt.Errorf("package %q: %w", source.ID, err)
 		}
 
-		pkg.Files = append(pkg.Files, resolved)
+		pkg.Files = append(pkg.Files, resolved...)
 	}
 
 	return pkg, nil
 }
 
 func resolvePackageFile(file PackageFile, inputs map[string]string) (resolvedFile, error) {
+	files, err := resolvePackageFiles(file, inputs)
+	if err != nil {
+		return resolvedFile{}, err
+	}
+
+	if len(files) != 1 {
+		return resolvedFile{}, fmt.Errorf("file %q resolved to %d files, want 1", file.ID, len(files))
+	}
+
+	return files[0], nil
+}
+
+func resolvePackageFiles(file PackageFile, inputs map[string]string) ([]resolvedFile, error) {
 	source := strings.TrimSpace(file.Source)
 	for _, key := range []string{file.ID, file.Source} {
 		if key == "" {
@@ -291,35 +306,145 @@ func resolvePackageFile(file PackageFile, inputs map[string]string) (resolvedFil
 		}
 	}
 
+	source = resolveInputRoot(source, inputs)
 	if source == "" {
-		return resolvedFile{}, fmt.Errorf("file %q source is required", file.ID)
+		return nil, fmt.Errorf("file %q source is required", file.ID)
 	}
 
 	destination := filepath.ToSlash(strings.TrimSpace(file.Destination))
 	if !strings.HasPrefix(destination, "/") {
-		return resolvedFile{}, fmt.Errorf("file %q destination must be absolute: %s", file.ID, file.Destination)
+		return nil, fmt.Errorf("file %q destination must be absolute: %s", file.ID, file.Destination)
 	}
 
 	if strings.Contains(destination, "\x00") || strings.Contains(destination, "\n") || strings.Contains(destination, "\t") {
-		return resolvedFile{}, fmt.Errorf("file %q destination contains an unsupported control character", file.ID)
+		return nil, fmt.Errorf("file %q destination contains an unsupported control character", file.ID)
 	}
 
 	if strings.Contains(destination, "/../") || strings.HasSuffix(destination, "/..") {
-		return resolvedFile{}, fmt.Errorf("file %q destination must not contain parent traversal: %s", file.ID, file.Destination)
+		return nil, fmt.Errorf("file %q destination must not contain parent traversal: %s", file.ID, file.Destination)
 	}
 
 	mode, err := parseFileMode(valueOr(file.Mode, "0644"))
 	if err != nil {
-		return resolvedFile{}, fmt.Errorf("file %q mode: %w", file.ID, err)
+		return nil, fmt.Errorf("file %q mode: %w", file.ID, err)
 	}
 
-	return resolvedFile{
-		Source:      source,
-		Destination: destination,
-		Mode:        mode,
-		Owner:       valueOr(file.Owner, "root"),
-		Group:       valueOr(file.Group, "root"),
-	}, nil
+	owner := valueOr(file.Owner, "root")
+	group := valueOr(file.Group, "root")
+	info, err := os.Stat(source)
+	if err != nil || !info.IsDir() {
+		return []resolvedFile{{
+			Source:      source,
+			Destination: destination,
+			Mode:        mode,
+			Owner:       owner,
+			Group:       group,
+		}}, nil
+	}
+
+	var files []resolvedFile
+	if err := filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+
+		files = append(files, resolvedFile{
+			Source:      path,
+			Destination: filepath.ToSlash(filepath.Join(destination, rel)),
+			Mode:        mode,
+			Owner:       owner,
+			Group:       group,
+		})
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("walk file %q source directory %s: %w", file.ID, source, err)
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("file %q source directory %s did not contain files", file.ID, source)
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Destination < files[j].Destination
+	})
+
+	return files, nil
+}
+
+func resolveInputRoot(source string, inputs map[string]string) string {
+	if source == "" || len(inputs) == 0 {
+		return source
+	}
+
+	keys := make([]string, 0, len(inputs))
+	for key := range inputs {
+		if strings.TrimSpace(key) != "" {
+			keys = append(keys, key)
+		}
+	}
+
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) == len(keys[j]) {
+			return keys[i] < keys[j]
+		}
+		return len(keys[i]) > len(keys[j])
+	})
+
+	slashSource := filepath.ToSlash(source)
+	for _, key := range keys {
+		root := strings.TrimSpace(inputs[key])
+		if root == "" {
+			continue
+		}
+
+		key = filepath.ToSlash(strings.TrimSpace(key))
+		if slashSource == key {
+			return root
+		}
+
+		prefix := strings.TrimSuffix(key, "/") + "/"
+		if strings.HasPrefix(slashSource, prefix) {
+			return filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(slashSource, prefix)))
+		}
+	}
+
+	return source
+}
+
+func packageParentDirs(files []resolvedFile) []string {
+	seen := map[string]struct{}{}
+	for _, file := range files {
+		dir := path.Dir(path.Clean(filepath.ToSlash(file.Destination)))
+		for dir != "." && dir != "/" {
+			seen[dir] = struct{}{}
+			dir = path.Dir(dir)
+		}
+	}
+
+	dirs := make([]string, 0, len(seen))
+	for dir := range seen {
+		dirs = append(dirs, dir)
+	}
+
+	sort.Slice(dirs, func(i, j int) bool {
+		iDepth := strings.Count(strings.Trim(dirs[i], "/"), "/")
+		jDepth := strings.Count(strings.Trim(dirs[j], "/"), "/")
+		if iDepth == jDepth {
+			return dirs[i] < dirs[j]
+		}
+		return iDepth < jDepth
+	})
+
+	return dirs
 }
 
 func parseFileMode(raw string) (int64, error) {

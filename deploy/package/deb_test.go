@@ -54,6 +54,10 @@ func TestDebArchiveContents(t *testing.T) {
 	}
 
 	controlFiles := readGzipTar(t, members["control.tar.gz"])
+	if got, want := sortedMemberNames(controlFiles), []string{"./control", "./md5sums"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("control archive files = %v, want %v", got, want)
+	}
+
 	control := string(controlFiles["./control"])
 	for _, want := range []string{
 		"Package: vectis-cli\n",

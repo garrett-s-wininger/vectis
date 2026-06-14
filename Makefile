@@ -170,25 +170,50 @@ PACKAGE_OUT ?= artifacts/packages
 PACKAGE_BUILD_DIR ?= $(PACKAGE_OUT)/build
 PACKAGE_ARCH ?= $(shell go env GOARCH)
 PACKAGE_ARCHES ?= amd64 arm64
+PACKAGE_SERVICE_APPS ?= api catalog cell-ingress cron docs log log-forwarder queue reconciler registry worker
 package_deb_arch = $(if $(filter x86_64,$(1)),amd64,$(if $(filter aarch64,$(1)),arm64,$(if $(filter 386,$(1)),i386,$(1))))
 package_rpm_arch = $(if $(filter amd64,$(1)),x86_64,$(if $(filter arm64,$(1)),aarch64,$(1)))
+package_service_bins = $(addprefix $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-,$(PACKAGE_SERVICE_APPS))
+package_service_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS) $(foreach app,$(PACKAGE_SERVICE_APPS),--input vectis-$(app)=$(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-$(app))
 PACKAGE_VERSION ?= 0.0.0+$(COMMIT)
 PACKAGE_RELEASE ?= 1
+PACKAGE_LINUX_ARTIFACTS := $(PACKAGE_BUILD_DIR)/linux-artifacts
+PACKAGE_LINUX_ARTIFACTS_STAMP := $(PACKAGE_LINUX_ARTIFACTS)/.stamp
 PACKAGE_CLI_BIN = $(PACKAGE_BUILD_DIR)/linux-$(PACKAGE_ARCH)/vectis-cli
 PACKAGE_CLI_DEB = $(PACKAGE_OUT)/vectis-cli_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(PACKAGE_ARCH)).deb
 PACKAGE_CLI_RPM = $(PACKAGE_OUT)/vectis-cli-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(PACKAGE_ARCH)).rpm
+PACKAGE_SERVICES_DEB = $(PACKAGE_OUT)/vectis-services_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(PACKAGE_ARCH)).deb
+PACKAGE_SERVICES_RPM = $(PACKAGE_OUT)/vectis-services-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(PACKAGE_ARCH)).rpm
 PACKAGE_CLI_DEB_TARGETS := $(addprefix package-cli-deb-,$(PACKAGE_ARCHES))
 PACKAGE_CLI_RPM_TARGETS := $(addprefix package-cli-rpm-,$(PACKAGE_ARCHES))
 PACKAGE_CLI_DEB_ARCH_TARGET := package-cli-deb-$(PACKAGE_ARCH)
 PACKAGE_CLI_RPM_ARCH_TARGET := package-cli-rpm-$(PACKAGE_ARCH)
 PACKAGE_CLI_ALL_DEB_TARGETS := $(sort $(PACKAGE_CLI_DEB_TARGETS) $(PACKAGE_CLI_DEB_ARCH_TARGET))
 PACKAGE_CLI_ALL_RPM_TARGETS := $(sort $(PACKAGE_CLI_RPM_TARGETS) $(PACKAGE_CLI_RPM_ARCH_TARGET))
+PACKAGE_SERVICE_ALL_ARCHES := $(sort $(PACKAGE_ARCHES) $(PACKAGE_ARCH))
+PACKAGE_SERVICE_BINARIES := $(foreach arch,$(PACKAGE_SERVICE_ALL_ARCHES),$(call package_service_bins,$(arch)))
+PACKAGE_SERVICES_DEB_TARGETS := $(addprefix package-services-deb-,$(PACKAGE_ARCHES))
+PACKAGE_SERVICES_RPM_TARGETS := $(addprefix package-services-rpm-,$(PACKAGE_ARCHES))
 
-.PRECIOUS: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli
+.PRECIOUS: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli $(PACKAGE_SERVICE_BINARIES)
 
 $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli: cmd/cli/main.go $(API) $(INTERNAL)
 	mkdir -p $(dir ${@})
 	GOOS=linux GOARCH=${*} CGO_ENABLED=0 $(GO) build -tags=nosqlite -ldflags '${LDFLAGS}' -o ${@} ./cmd/cli
+
+$(PACKAGE_LINUX_ARTIFACTS_STAMP): deploy/linux/services.toml deploy/linux/artifacts.go deploy/linux/cmd/render/main.go
+	rm -rf $(PACKAGE_LINUX_ARTIFACTS)
+	mkdir -p $(PACKAGE_LINUX_ARTIFACTS)
+	go run ./deploy/linux/cmd/render -out $(PACKAGE_LINUX_ARTIFACTS)
+	touch ${@}
+
+define package_service_binary_rules
+$(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-%: cmd/%/main.go $(API) $(INTERNAL)
+	mkdir -p $$(dir $$@)
+	GOOS=linux GOARCH=$(1) CGO_ENABLED=0 $$(GO) build -tags=nosqlite -ldflags '$$(LDFLAGS)' -o $$@ ./cmd/$$*
+endef
+
+$(foreach arch,$(PACKAGE_SERVICE_ALL_ARCHES),$(eval $(call package_service_binary_rules,$(arch))))
 
 .PHONY: $(PACKAGE_CLI_ALL_DEB_TARGETS)
 $(PACKAGE_CLI_ALL_DEB_TARGETS): package-cli-deb-%: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli
@@ -207,6 +232,26 @@ package-cli-rpm: $(PACKAGE_CLI_RPM_TARGETS)
 .PHONY: package-cli
 package-cli: package-cli-deb package-cli-rpm
 
+.PHONY: $(addprefix package-services-deb-,$(PACKAGE_SERVICE_ALL_ARCHES))
+$(addprefix package-services-deb-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-services-deb-%: $(PACKAGE_LINUX_ARTIFACTS_STAMP) $(call package_service_bins,%)
+	go run ./deploy/package/cmd/build --package vectis-services --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(call package_service_inputs,${*})
+
+.PHONY: $(addprefix package-services-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES))
+$(addprefix package-services-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-services-rpm-%: $(PACKAGE_LINUX_ARTIFACTS_STAMP) $(call package_service_bins,%)
+	go run ./deploy/package/cmd/build --package vectis-services --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(call package_service_inputs,${*})
+
+.PHONY: package-services-deb
+package-services-deb: $(PACKAGE_SERVICES_DEB_TARGETS)
+
+.PHONY: package-services-rpm
+package-services-rpm: $(PACKAGE_SERVICES_RPM_TARGETS)
+
+.PHONY: package-services
+package-services: package-services-deb package-services-rpm
+
+.PHONY: package-linux
+package-linux: package-cli package-services
+
 .PHONY: test-package
 test-package:
 	go test ./deploy/package/...
@@ -218,6 +263,14 @@ test-e2e-package-cli-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET)
 .PHONY: test-e2e-package-cli-rpm
 test-e2e-package-cli-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET)
 	VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIRPM -count=1 -v
+
+.PHONY: test-e2e-package-services-deb
+test-e2e-package-services-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET) package-services-deb-$(PACKAGE_ARCH)
+	VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) VECTIS_E2E_PACKAGE_SERVICES_DEB=$(abspath $(PACKAGE_SERVICES_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesDeb -count=1 -v
+
+.PHONY: test-e2e-package-services-rpm
+test-e2e-package-services-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET) package-services-rpm-$(PACKAGE_ARCH)
+	VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_SERVICES_RPM=$(abspath $(PACKAGE_SERVICES_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesRPM -count=1 -v
 
 .PHONY: website-a11y
 website-a11y:
