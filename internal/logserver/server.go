@@ -188,6 +188,13 @@ func (jb *JobBuffer) LastActivity() time.Time {
 }
 
 func (jb *JobBuffer) Broadcast(runID string, entry LogEntry) {
+	jb.subMu.RLock()
+	hasSubscribers := len(jb.subscribers) > 0
+	jb.subMu.RUnlock()
+	if !hasSubscribers {
+		return
+	}
+
 	data, err := json.Marshal(entry)
 	if err != nil {
 		if jb.logger != nil {
