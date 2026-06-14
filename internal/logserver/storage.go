@@ -474,7 +474,7 @@ func decodeLogEntryRecordBody(body []byte) (LogEntry, error) {
 		Timestamp: time.Unix(int64(binary.LittleEndian.Uint64(body[0:8])), int64(nsec)).UTC(),
 		Stream:    api.Stream(int32(binary.LittleEndian.Uint32(body[12:16]))),
 		Sequence:  int64(binary.LittleEndian.Uint64(body[16:24])),
-		Data:      string(body[logEntryRecordHeaderSize:]),
+		Data:      body[logEntryRecordHeaderSize:],
 		Completed: api.RunOutcome(int32(binary.LittleEndian.Uint32(body[24:28]))),
 	}, nil
 }
@@ -644,7 +644,7 @@ func readLogEntryRecordData(r io.Reader, header logEntryRecordHeader) (LogEntry,
 		Timestamp: header.timestamp,
 		Stream:    header.stream,
 		Sequence:  header.sequence,
-		Data:      string(data),
+		Data:      data,
 		Completed: header.completed,
 	}, nil
 }
@@ -664,7 +664,7 @@ func readLogEntryRecordDataBuffered(r *bufio.Reader, header logEntryRecordHeader
 		Timestamp: header.timestamp,
 		Stream:    header.stream,
 		Sequence:  header.sequence,
-		Data:      string(recordTail[:header.dataLen]),
+		Data:      recordTail[:header.dataLen],
 		Completed: header.completed,
 	}, nil
 }

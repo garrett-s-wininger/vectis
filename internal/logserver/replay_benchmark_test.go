@@ -396,7 +396,7 @@ func readBenchmarkLogRecordData(r io.Reader, header benchmarkLogRecordHeader) (L
 		Timestamp: header.timestamp,
 		Stream:    header.stream,
 		Sequence:  header.sequence,
-		Data:      string(data),
+		Data:      data,
 		Completed: header.completed,
 	}, nil
 }

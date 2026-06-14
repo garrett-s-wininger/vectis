@@ -358,7 +358,7 @@ func benchmarkLogEntry(payloadBytes int) LogEntry {
 		Timestamp: time.Unix(1, 0).UTC(),
 		Stream:    api.Stream_STREAM_STDOUT,
 		Sequence:  1,
-		Data:      strings.Repeat("x", payloadBytes),
+		Data:      []byte(strings.Repeat("x", payloadBytes)),
 	}
 }
 

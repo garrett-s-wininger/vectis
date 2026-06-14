@@ -21,8 +21,8 @@ func TestLocalRunLogStore_AppendAndList(t *testing.T) {
 	runID := "run-append-list"
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	want := []LogEntry{
-		{Timestamp: now, Stream: api.Stream_STREAM_STDOUT, Sequence: 1, Data: "hello"},
-		{Timestamp: now.Add(time.Second), Stream: api.Stream_STREAM_STDERR, Sequence: 2, Data: "oops"},
+		{Timestamp: now, Stream: api.Stream_STREAM_STDOUT, Sequence: 1, Data: []byte("hello")},
+		{Timestamp: now.Add(time.Second), Stream: api.Stream_STREAM_STDERR, Sequence: 2, Data: []byte("oops")},
 	}
 
 	for _, entry := range want {
@@ -41,7 +41,7 @@ func TestLocalRunLogStore_AppendAndList(t *testing.T) {
 	}
 
 	for i := range want {
-		if got[i].Sequence != want[i].Sequence || got[i].Data != want[i].Data || got[i].Stream != want[i].Stream {
+		if got[i].Sequence != want[i].Sequence || !bytes.Equal(got[i].Data, want[i].Data) || got[i].Stream != want[i].Stream {
 			t.Fatalf("entry %d mismatch: got=%+v want=%+v", i, got[i], want[i])
 		}
 	}
@@ -71,9 +71,9 @@ func TestLocalRunLogStore_ListReturnsSortedBySequence(t *testing.T) {
 
 	runID := "run-out-of-order"
 	entries := []LogEntry{
-		{Sequence: 3, Data: "third"},
-		{Sequence: 1, Data: "first"},
-		{Sequence: 2, Data: "second"},
+		{Sequence: 3, Data: []byte("third")},
+		{Sequence: 1, Data: []byte("first")},
+		{Sequence: 2, Data: []byte("second")},
 	}
 
 	for _, entry := range entries {
@@ -106,9 +106,9 @@ func TestLocalRunLogStore_AppendBatchAndList(t *testing.T) {
 
 	runID := "run-append-batch"
 	entries := []LogEntry{
-		{Sequence: 1, Data: "first"},
-		{Sequence: 2, Data: "second"},
-		{Sequence: 3, Data: "third"},
+		{Sequence: 1, Data: []byte("first")},
+		{Sequence: 2, Data: []byte("second")},
+		{Sequence: 3, Data: []byte("third")},
 	}
 
 	if err := store.AppendBatch(runID, entries); err != nil {
@@ -125,7 +125,7 @@ func TestLocalRunLogStore_AppendBatchAndList(t *testing.T) {
 	}
 
 	for i := range entries {
-		if got[i].Sequence != entries[i].Sequence || got[i].Data != entries[i].Data {
+		if got[i].Sequence != entries[i].Sequence || !bytes.Equal(got[i].Data, entries[i].Data) {
 			t.Fatalf("entry %d mismatch: got=%+v want=%+v", i, got[i], entries[i])
 		}
 	}
@@ -142,7 +142,7 @@ func TestLocalRunLogStore_AppendBatchPreservesRawDataBytes(t *testing.T) {
 		Timestamp: time.Unix(1_710_000_000, 123_456_789).UTC(),
 		Stream:    api.Stream_STREAM_STDERR,
 		Sequence:  7,
-		Data:      string(raw),
+		Data:      raw,
 		Completed: api.RunOutcome_RUN_OUTCOME_FAILURE,
 	}
 
@@ -162,8 +162,8 @@ func TestLocalRunLogStore_AppendBatchPreservesRawDataBytes(t *testing.T) {
 		got[0].Stream != entry.Stream ||
 		got[0].Sequence != entry.Sequence ||
 		got[0].Completed != entry.Completed ||
-		!bytes.Equal([]byte(got[0].Data), raw) {
-		t.Fatalf("entry mismatch: got=%+v want=%+v gotData=%v wantData=%v", got[0], entry, []byte(got[0].Data), raw)
+		!bytes.Equal(got[0].Data, raw) {
+		t.Fatalf("entry mismatch: got=%+v want=%+v gotData=%v wantData=%v", got[0], entry, got[0].Data, raw)
 	}
 }
 
@@ -175,10 +175,10 @@ func TestLocalRunLogStore_ReplayAppliesSinceAndLimit(t *testing.T) {
 
 	runID := "run-replay-limit"
 	entries := []LogEntry{
-		{Sequence: 1, Data: "first"},
-		{Sequence: 2, Data: "second"},
-		{Sequence: 3, Data: "third"},
-		{Sequence: 4, Data: "fourth"},
+		{Sequence: 1, Data: []byte("first")},
+		{Sequence: 2, Data: []byte("second")},
+		{Sequence: 3, Data: []byte("third")},
+		{Sequence: 4, Data: []byte("fourth")},
 	}
 	if err := store.AppendBatch(runID, entries); err != nil {
 		t.Fatalf("append batch: %v", err)
@@ -210,11 +210,11 @@ func TestLocalRunLogStore_ReplayDetectsSkippedCompletion(t *testing.T) {
 
 	runID := "run-replay-terminal"
 	entries := []LogEntry{
-		{Sequence: 1, Data: "first"},
+		{Sequence: 1, Data: []byte("first")},
 		{
 			Stream:   api.Stream_STREAM_CONTROL,
 			Sequence: 2,
-			Data:     `{"event":"completed","status":"success"}`,
+			Data:     []byte(`{"event":"completed","status":"success"}`),
 		},
 	}
 	if err := store.AppendBatch(runID, entries); err != nil {
@@ -244,10 +244,10 @@ func TestLocalRunLogStore_ReplayTailUsesLengthFooter(t *testing.T) {
 
 	runID := "run-replay-tail"
 	entries := []LogEntry{
-		{Sequence: 1, Data: "first"},
-		{Sequence: 2, Data: "second"},
-		{Sequence: 3, Data: "third"},
-		{Sequence: 4, Data: "fourth"},
+		{Sequence: 1, Data: []byte("first")},
+		{Sequence: 2, Data: []byte("second")},
+		{Sequence: 3, Data: []byte("third")},
+		{Sequence: 4, Data: []byte("fourth")},
 	}
 	if err := store.AppendBatch(runID, entries); err != nil {
 		t.Fatalf("append batch: %v", err)
@@ -276,10 +276,10 @@ func TestLocalRunLogStore_ReplayTailAppliesSinceBeforeTail(t *testing.T) {
 
 	runID := "run-replay-tail-since"
 	entries := []LogEntry{
-		{Sequence: 1, Data: "first"},
-		{Sequence: 2, Data: "second"},
-		{Sequence: 3, Data: "third"},
-		{Sequence: 4, Data: "fourth"},
+		{Sequence: 1, Data: []byte("first")},
+		{Sequence: 2, Data: []byte("second")},
+		{Sequence: 3, Data: []byte("third")},
+		{Sequence: 4, Data: []byte("fourth")},
 	}
 	if err := store.AppendBatch(runID, entries); err != nil {
 		t.Fatalf("append batch: %v", err)
@@ -308,11 +308,11 @@ func TestLocalRunLogStore_ReplayTailDetectsConsumedCompletion(t *testing.T) {
 
 	runID := "run-replay-tail-terminal"
 	entries := []LogEntry{
-		{Sequence: 1, Data: "first"},
+		{Sequence: 1, Data: []byte("first")},
 		{
 			Stream:   api.Stream_STREAM_CONTROL,
 			Sequence: 2,
-			Data:     `{"event":"completed","status":"success"}`,
+			Data:     []byte(`{"event":"completed","status":"success"}`),
 		},
 	}
 	if err := store.AppendBatch(runID, entries); err != nil {
@@ -372,7 +372,7 @@ func TestLocalRunLogStore_ListRejectsMismatchedRecordLengthFooter(t *testing.T) 
 	}
 
 	runID := "run-bad-footer"
-	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: "x"}})
+	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: []byte("x")}})
 	if err != nil {
 		t.Fatalf("marshal record: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestLocalRunLogStore_ReplayTailRejectsMismatchedRecordLengthFooter(t *testi
 	}
 
 	runID := "run-bad-tail-footer"
-	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: "x"}})
+	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: []byte("x")}})
 	if err != nil {
 		t.Fatalf("marshal record: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestLocalRunLogStore_ConcurrentAppendBatchDifferentRuns(t *testing.T) {
 		wg.Go(func() {
 			entries := make([]LogEntry, 0, entriesPerRun)
 			for i := 1; i <= entriesPerRun; i++ {
-				entries = append(entries, LogEntry{Sequence: int64(i), Data: fmt.Sprintf("%s-line-%02d", runID, i)})
+				entries = append(entries, LogEntry{Sequence: int64(i), Data: []byte(fmt.Sprintf("%s-line-%02d", runID, i))})
 			}
 
 			if err := store.AppendBatch(runID, entries); err != nil {
@@ -451,7 +451,7 @@ func TestLocalRunLogStore_SanitizesRunIDInPath(t *testing.T) {
 	}
 
 	runID := "../run/with/slashes"
-	if err := store.Append(runID, LogEntry{Sequence: 1, Data: "x"}); err != nil {
+	if err := store.Append(runID, LogEntry{Sequence: 1, Data: []byte("x")}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 
@@ -477,7 +477,7 @@ func TestLocalRunLogStore_ReadOnlyThresholdRejectsNewRuns(t *testing.T) {
 		t.Fatalf("new local run log store: %v", err)
 	}
 
-	err = store.Append("new-run", LogEntry{Sequence: 1, Data: "x"})
+	err = store.Append("new-run", LogEntry{Sequence: 1, Data: []byte("x")})
 	if !errors.Is(err, ErrLogStoreReadOnly) {
 		t.Fatalf("expected ErrLogStoreReadOnly, got %v", err)
 	}
@@ -496,12 +496,12 @@ func TestLocalRunLogStore_ReadOnlyThresholdAllowsExistingRuns(t *testing.T) {
 		t.Fatalf("new local run log store: %v", err)
 	}
 
-	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: "first"}); err != nil {
+	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: []byte("first")}); err != nil {
 		t.Fatalf("append initial entry: %v", err)
 	}
 
 	freeBytes = 99
-	if err := store.Append("existing-run", LogEntry{Sequence: 2, Data: "second"}); err != nil {
+	if err := store.Append("existing-run", LogEntry{Sequence: 2, Data: []byte("second")}); err != nil {
 		t.Fatalf("append existing run below threshold: %v", err)
 	}
 
@@ -528,15 +528,15 @@ func TestLocalRunLogStore_EvictedExistingRunsStayWritableBelowThreshold(t *testi
 		t.Fatalf("new local run log store: %v", err)
 	}
 
-	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: "first"}); err != nil {
+	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: []byte("first")}); err != nil {
 		t.Fatalf("append initial existing entry: %v", err)
 	}
-	if err := store.Append("other-run", LogEntry{Sequence: 1, Data: "other"}); err != nil {
+	if err := store.Append("other-run", LogEntry{Sequence: 1, Data: []byte("other")}); err != nil {
 		t.Fatalf("append other run: %v", err)
 	}
 
 	freeBytes = 99
-	if err := store.Append("existing-run", LogEntry{Sequence: 2, Data: "second"}); err != nil {
+	if err := store.Append("existing-run", LogEntry{Sequence: 2, Data: []byte("second")}); err != nil {
 		t.Fatalf("append evicted existing run below threshold: %v", err)
 	}
 
@@ -562,7 +562,7 @@ func TestLocalRunLogStore_CloseReleasesCachedRunFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new local run log store: %v", err)
 	}
-	if err := store.Append("cached-run", LogEntry{Sequence: 1, Data: "first"}); err != nil {
+	if err := store.Append("cached-run", LogEntry{Sequence: 1, Data: []byte("first")}); err != nil {
 		t.Fatalf("append cached entry: %v", err)
 	}
 	if err := store.Close(); err != nil {

@@ -1,6 +1,7 @@
 package logserver
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"reflect"
@@ -22,7 +23,7 @@ func completedLogEntry(ts time.Time, seq int64) LogEntry {
 		Timestamp: ts,
 		Stream:    api.Stream_STREAM_CONTROL,
 		Sequence:  seq,
-		Data:      `{"event":"completed","status":"success"}`,
+		Data:      []byte(`{"event":"completed","status":"success"}`),
 	}
 }
 
@@ -31,7 +32,7 @@ func stdoutLogEntry(ts time.Time, seq int64) LogEntry {
 		Timestamp: ts,
 		Stream:    api.Stream_STREAM_STDOUT,
 		Sequence:  seq,
-		Data:      "line",
+		Data:      []byte("line"),
 	}
 }
 
@@ -297,9 +298,9 @@ func TestServerReplayHistoricalEntriesUsesReplayStoreWithoutTail(t *testing.T) {
 			Found:                   true,
 			Truncated:               true,
 			TerminalAlreadyConsumed: true,
-			Entries:                 []LogEntry{{Sequence: 2, Data: "second"}},
+			Entries:                 []LogEntry{{Sequence: 2, Data: []byte("second")}},
 		},
-		listEntries: []LogEntry{{Sequence: 1, Data: "first"}},
+		listEntries: []LogEntry{{Sequence: 1, Data: []byte("first")}},
 	}
 
 	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
@@ -329,9 +330,9 @@ func TestServerReplayHistoricalEntriesUsesReplayStoreForTail(t *testing.T) {
 	store := &replayRecordingRunLogStore{
 		replayResult: LogReplayResult{
 			Found:   true,
-			Entries: []LogEntry{{Sequence: 2, Data: "second"}},
+			Entries: []LogEntry{{Sequence: 2, Data: []byte("second")}},
 		},
-		listEntries: []LogEntry{{Sequence: 99, Data: "list"}},
+		listEntries: []LogEntry{{Sequence: 99, Data: []byte("list")}},
 	}
 
 	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
@@ -412,7 +413,7 @@ func TestIsCompletedEvent(t *testing.T) {
 	}
 
 	entry := completedLogEntry(time.Now(), 1)
-	entry.Data = `{"event":"start"}`
+	entry.Data = []byte(`{"event":"start"}`)
 	if isCompletedEvent(entry) {
 		t.Fatal("non-completed control event should not be completed")
 	}
@@ -494,6 +495,24 @@ func TestReplayTruncatedChunk(t *testing.T) {
 	}
 }
 
+func TestLogEntryMarshalJSONEncodesDataAsString(t *testing.T) {
+	entry := LogEntry{
+		Timestamp: time.Unix(1, 2).UTC(),
+		Stream:    api.Stream_STREAM_STDOUT,
+		Sequence:  3,
+		Data:      []byte("hello"),
+	}
+
+	got, err := entry.MarshalJSON()
+	if err != nil {
+		t.Fatalf("marshal log entry: %v", err)
+	}
+
+	if !bytes.Contains(got, []byte(`"data":"hello"`)) {
+		t.Fatalf("marshal data = %s, want string data", got)
+	}
+}
+
 func TestIsCompletedEvent_ProtoCompletedField(t *testing.T) {
 	if !isCompletedEvent(LogEntry{
 		Stream:    api.Stream_STREAM_STDOUT,
@@ -513,7 +532,7 @@ func TestIsCompletedEvent_ProtoCompletedField(t *testing.T) {
 func TestIsCompletedEvent_SyntheticUnknown(t *testing.T) {
 	if !isCompletedEvent(LogEntry{
 		Stream:    api.Stream_STREAM_CONTROL,
-		Data:      `{"event":"completed","status":"unknown","synthetic":true}`,
+		Data:      []byte(`{"event":"completed","status":"unknown","synthetic":true}`),
 		Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
 	}) {
 		t.Fatal("synthetic completion with Completed=UNKNOWN should be detected")
@@ -523,7 +542,7 @@ func TestIsCompletedEvent_SyntheticUnknown(t *testing.T) {
 func TestIsCompletedEvent_UnspecifiedButJSONCompleted(t *testing.T) {
 	if !isCompletedEvent(LogEntry{
 		Stream:    api.Stream_STREAM_CONTROL,
-		Data:      `{"event":"completed","status":"success"}`,
+		Data:      []byte(`{"event":"completed","status":"success"}`),
 		Completed: api.RunOutcome_RUN_OUTCOME_UNSPECIFIED,
 	}) {
 		t.Fatal("JSON completed event should be detected even without proto field (backward compat)")
@@ -533,7 +552,7 @@ func TestIsCompletedEvent_UnspecifiedButJSONCompleted(t *testing.T) {
 func TestIsCompletedEvent_UnspecifiedAndNotJSONCompleted(t *testing.T) {
 	if isCompletedEvent(LogEntry{
 		Stream:    api.Stream_STREAM_CONTROL,
-		Data:      `{"event":"start"}`,
+		Data:      []byte(`{"event":"start"}`),
 		Completed: api.RunOutcome_RUN_OUTCOME_UNSPECIFIED,
 	}) {
 		t.Fatal("non-completed event with UNSPECIFIED should not be detected")

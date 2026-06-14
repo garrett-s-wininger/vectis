@@ -85,8 +85,26 @@ type LogEntry struct {
 	Timestamp time.Time      `json:"timestamp"`
 	Stream    api.Stream     `json:"stream"`
 	Sequence  int64          `json:"sequence"`
-	Data      string         `json:"data"`
+	Data      []byte         `json:"data"`
 	Completed api.RunOutcome `json:"completed,omitempty"`
+}
+
+func (e LogEntry) MarshalJSON() ([]byte, error) {
+	type logEntryJSON struct {
+		Timestamp time.Time      `json:"timestamp"`
+		Stream    api.Stream     `json:"stream"`
+		Sequence  int64          `json:"sequence"`
+		Data      string         `json:"data"`
+		Completed api.RunOutcome `json:"completed,omitempty"`
+	}
+
+	return json.Marshal(logEntryJSON{
+		Timestamp: e.Timestamp,
+		Stream:    e.Stream,
+		Sequence:  e.Sequence,
+		Data:      string(e.Data),
+		Completed: e.Completed,
+	})
 }
 
 type JobBuffer struct {
@@ -429,7 +447,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 							Timestamp: time.Now(),
 							Stream:    api.Stream_STREAM_CONTROL,
 							Sequence:  nextSequence(entries),
-							Data:      `{"event":"completed","status":"unknown","synthetic":true}`,
+							Data:      []byte(`{"event":"completed","status":"unknown","synthetic":true}`),
 							Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
 						}
 
@@ -465,7 +483,7 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 				Timestamp: now,
 				Stream:    chunk.GetStream(),
 				Sequence:  chunk.GetSequence(),
-				Data:      string(chunk.GetData()),
+				Data:      chunk.GetData(),
 				Completed: chunk.GetCompleted(),
 			}
 
@@ -651,7 +669,7 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 	for _, entry := range entries {
 		chunk := &api.LogChunk{
 			RunId:     &runID,
-			Data:      []byte(entry.Data),
+			Data:      entry.Data,
 			Sequence:  &entry.Sequence,
 			Stream:    &entry.Stream,
 			Timestamp: timestamppb.New(entry.Timestamp),
@@ -695,7 +713,7 @@ func (s *Server) GetLogs(req *api.GetLogsRequest, stream api.LogService_GetLogsS
 
 			chunk := &api.LogChunk{
 				RunId:     &runID,
-				Data:      []byte(msg.Data),
+				Data:      msg.Data,
 				Sequence:  &msg.Sequence,
 				Stream:    &msg.Stream,
 				Timestamp: timestamppb.New(msg.Timestamp),
@@ -737,7 +755,7 @@ afterDrain:
 
 			chunk := &api.LogChunk{
 				RunId:     &runID,
-				Data:      []byte(msg.Data),
+				Data:      msg.Data,
 				Sequence:  &msg.Sequence,
 				Stream:    &msg.Stream,
 				Timestamp: timestamppb.New(msg.Timestamp),
@@ -898,7 +916,7 @@ func isCompletedEvent(entry LogEntry) bool {
 		Event string `json:"event"`
 	}
 
-	if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil {
+	if err := json.Unmarshal(entry.Data, &meta); err != nil {
 		return false
 	}
 
