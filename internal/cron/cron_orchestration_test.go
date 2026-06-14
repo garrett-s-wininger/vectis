@@ -11,8 +11,30 @@ import (
 	"vectis/internal/cron"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/testutil/dbtest"
 )
+
+func configureMockCronSource(t *testing.T, svc *cron.CronService) {
+	t.Helper()
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	svc.SetSources(repos.Sources())
+	svc.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		return &recordingCronDefinitionResolver{}, nil
+	})
+}
 
 func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	logger := mocks.NewMockLogger()
@@ -21,9 +43,6 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	clock.SetNow(time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC))
 
 	jobs := mocks.NewMockJobsRepository()
-	definition := `{"id":"job-1","root":{"uses":"builtins/shell"}}`
-	jobs.Definitions["job-1"] = definition
-	jobs.DefinitionVersions["job-1"] = 4
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"
@@ -35,10 +54,13 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 
 	schedules := mocks.NewMockSchedulesRepository()
 	schedules.Ready = []dal.CronSchedule{{
-		ID:        42,
-		JobID:     "job-1",
-		CronSpec:  "* * * * *",
-		NextRunAt: clock.Now().Add(-1 * time.Minute),
+		ID:                 42,
+		JobID:              "job-1",
+		CronSpec:           "* * * * *",
+		NextRunAt:          clock.Now().Add(-1 * time.Minute),
+		SourceRepositoryID: "source-repo",
+		SourceRef:          "main",
+		SourcePath:         ".vectis/jobs/job-1.json",
 	}}
 
 	svc := cron.NewCronServiceWithRepositories(logger, jobs, runs, schedules)
@@ -46,6 +68,7 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	svc.SetClock(clock)
 	svc.SetInstanceID("cron-a")
 	svc.SetClaimTTL(2 * time.Minute)
+	configureMockCronSource(t, svc)
 
 	if err := svc.ProcessSchedules(context.Background()); err != nil {
 		t.Fatalf("ProcessSchedules: %v", err)
@@ -56,8 +79,12 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	}
 
 	lastCreateJobID, lastDefVersion := runs.SnapshotLastCreate()
-	if lastCreateJobID != "job-1" || lastDefVersion != 4 {
-		t.Fatalf("expected cron run for job-1 definition version 4, got job=%q version=%d", lastCreateJobID, lastDefVersion)
+	if lastCreateJobID != "job-1" || lastDefVersion != 1 {
+		t.Fatalf("expected source cron run for job-1 definition version 1, got job=%q version=%d", lastCreateJobID, lastDefVersion)
+	}
+
+	if runs.LastSourceRecord.RepositoryID != "source-repo" || runs.LastSourceRecord.DefinitionPath != ".vectis/jobs/job-1.json" {
+		t.Fatalf("expected source cron provenance on scheduled run, got %+v", runs.LastSourceRecord)
 	}
 
 	lastScheduleID, lastScheduledFor := runs.SnapshotLastScheduled()
@@ -100,7 +127,6 @@ func TestCronService_ProcessSchedules_QueueErrorReleasesScheduleClaim(t *testing
 	clock.SetNow(time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC))
 
 	jobs := mocks.NewMockJobsRepository()
-	jobs.Definitions["job-1"] = `{"id":"job-1","root":{"uses":"builtins/shell"}}`
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"
@@ -108,15 +134,19 @@ func TestCronService_ProcessSchedules_QueueErrorReleasesScheduleClaim(t *testing
 
 	schedules := mocks.NewMockSchedulesRepository()
 	schedules.Ready = []dal.CronSchedule{{
-		ID:        42,
-		JobID:     "job-1",
-		CronSpec:  "* * * * *",
-		NextRunAt: clock.Now().Add(-1 * time.Minute),
+		ID:                 42,
+		JobID:              "job-1",
+		CronSpec:           "* * * * *",
+		NextRunAt:          clock.Now().Add(-1 * time.Minute),
+		SourceRepositoryID: "source-repo",
+		SourceRef:          "main",
+		SourcePath:         ".vectis/jobs/job-1.json",
 	}}
 
 	svc := cron.NewCronServiceWithRepositories(logger, jobs, runs, schedules)
 	svc.SetQueueClient(queue)
 	svc.SetClock(clock)
+	configureMockCronSource(t, svc)
 
 	if err := svc.ProcessSchedules(context.Background()); err != nil {
 		t.Fatalf("ProcessSchedules should continue on enqueue failures, got: %v", err)
@@ -179,10 +209,19 @@ func TestCronService_ProcessSchedules_TwoInstancesOnlyOneClaimsDueTick(t *testin
 	ctx := context.Background()
 
 	jobID := "cron-ha"
-	insertCronTestJob(t, db, jobID, `{"id":"cron-ha","root":{"uses":"builtins/shell"}}`)
-
 	now := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
-	insertCronTestSchedule(t, db, jobID, "* * * * *", now)
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	insertCronTestSourceSchedule(t, db, jobID, "source-repo", "main", ".vectis/jobs/cron-ha.json", "* * * * *", now)
 
 	queue := mocks.NewMockQueueService()
 	newService := func(instanceID string) *cron.CronService {
@@ -193,6 +232,9 @@ func TestCronService_ProcessSchedules_TwoInstancesOnlyOneClaimsDueTick(t *testin
 		svc.SetClock(clock)
 		svc.SetInstanceID(instanceID)
 		svc.SetClaimTTL(time.Minute)
+		svc.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+			return &recordingCronDefinitionResolver{}, nil
+		})
 		return svc
 	}
 

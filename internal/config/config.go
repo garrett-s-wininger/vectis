@@ -238,7 +238,6 @@ type DatabaseDefaults struct {
 
 type SourceDefaults struct {
 	CheckoutRoot                             string                        `toml:"checkout_root"`
-	StoredJobsEnabled                        bool                          `toml:"stored_jobs_enabled"`
 	SyncConfiguredRepositoriesOnStartup      bool                          `toml:"sync_configured_repositories_on_startup"`
 	SyncConfiguredRepositoriesInterval       tomlDuration                  `toml:"sync_configured_repositories_interval"`
 	SyncConfiguredRepositoriesMaxConcurrency int                           `toml:"sync_configured_repositories_max_concurrency"`

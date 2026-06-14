@@ -507,10 +507,6 @@ func TestAPIEnvSourceOnlyRepositories(t *testing.T) {
 		t.Fatalf("api env missing host: %v", env)
 	}
 
-	if !hasEnv(env, "VECTIS_SOURCE_STORED_JOBS_ENABLED=false") {
-		t.Fatalf("api env missing stored jobs disable: %v", env)
-	}
-
 	if !hasEnv(env, "VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP=true") {
 		t.Fatalf("api env missing source sync startup: %v", env)
 	}

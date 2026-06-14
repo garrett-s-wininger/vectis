@@ -238,9 +238,14 @@ func TestDeleteNamespace_HasJobs(t *testing.T) {
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	// Create a job in the namespace
-	if err := repos.Jobs().Create(ctx, "job-in-ns", `{"id":"job-in-ns"}`, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		NamespaceID:  ns.ID,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d", ns.ID), nil)

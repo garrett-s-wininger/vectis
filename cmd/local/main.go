@@ -915,10 +915,6 @@ func docsEnv() []string {
 func apiEnv() ([]string, error) {
 	env := []string{"VECTIS_API_SERVER_HOST=" + localHost()}
 
-	if viper.GetBool("source_only") {
-		env = append(env, "VECTIS_SOURCE_STORED_JOBS_ENABLED=false")
-	}
-
 	sourceRepos, err := localSourceRepositoryDeclarations()
 	if err != nil {
 		return nil, err

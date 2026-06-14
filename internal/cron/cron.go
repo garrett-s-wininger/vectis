@@ -23,7 +23,6 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
-	jobdef "vectis/internal/job"
 	"vectis/internal/queueclient"
 	sourcepkg "vectis/internal/source"
 
@@ -299,79 +298,16 @@ func (s *CronService) CalculateNextRun(spec string, from time.Time) (time.Time, 
 	return schedule.Next(from), nil
 }
 
-func (s *CronService) GetJobDefinition(ctx context.Context, jobID string) (*api.Job, error) {
-	job, _, _, err := s.getJobDefinitionWithVersion(ctx, jobID)
-	return job, err
-}
-
-func (s *CronService) getJobDefinitionWithVersion(ctx context.Context, jobID string) (*api.Job, int, string, error) {
-	definitionJSON, version, err := s.jobs.GetDefinition(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			return nil, 0, "", fmt.Errorf("job not found: %s", jobID)
-		}
-
-		return nil, 0, "", fmt.Errorf("database error: %w", err)
-	}
-
-	var job api.Job
-	if err := jobdef.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
-		return nil, 0, "", fmt.Errorf("failed to parse job definition: %w", err)
-	}
-
-	return &job, version, dal.DefinitionHash(definitionJSON), nil
-}
-
 func (s *CronService) TriggerJob(ctx context.Context, jobID string) error {
 	return s.triggerJob(ctx, jobID, nil)
 }
 
 func (s *CronService) triggerJob(ctx context.Context, jobID string, schedule *CronSchedule) error {
-	if schedule != nil && strings.TrimSpace(schedule.SourceRepositoryID) != "" {
-		return s.triggerSourceJob(ctx, jobID, schedule)
+	if schedule == nil || strings.TrimSpace(schedule.SourceRepositoryID) == "" {
+		return fmt.Errorf("%w: cron job %s requires a source repository schedule", sourcepkg.ErrInvalidReference, jobID)
 	}
 
-	job, definitionVersion, definitionHash, err := s.getJobDefinitionWithVersion(ctx, jobID)
-	if err != nil {
-		return err
-	}
-
-	job.Id = &jobID
-
-	invocationID, err := s.recordTriggerInvocation(ctx, jobID, schedule)
-	if err != nil {
-		return err
-	}
-	audit := dal.RunAuditMetadata{
-		TriggerInvocationID:   invocationID,
-		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()),
-	}
-
-	var runID string
-	if schedule != nil {
-		var created bool
-		runID, _, created, err = s.runs.CreateScheduledRun(ctx, schedule.ID, schedule.NextRunAt, jobID, definitionVersion, audit)
-		if err != nil {
-			return err
-		}
-
-		if !created {
-			s.logger.Info("Reusing existing cron run %s for schedule %d at %v", runID, schedule.ID, schedule.NextRunAt)
-		}
-	} else {
-		created, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, nil, audit)
-		if err != nil {
-			return err
-		}
-
-		if len(created) == 0 {
-			return fmt.Errorf("%w: no cron run created", dal.ErrNotFound)
-		}
-
-		runID = created[0].RunID
-	}
-
-	return s.dispatchRun(ctx, job, runID, definitionHash)
+	return s.triggerSourceJob(ctx, jobID, schedule)
 }
 
 func (s *CronService) triggerSourceJob(ctx context.Context, jobID string, schedule *CronSchedule) error {

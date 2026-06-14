@@ -699,21 +699,6 @@ func (m *MockRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payl
 	return dal.ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload %s", dal.ErrNotFound, payloadHash)
 }
 
-func (m *MockRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID string, definitionVersion int, audit dal.RunAuditMetadata) (string, int, bool, error) {
-	if m.CreateRunErr != nil {
-		return "", 0, false, m.CreateRunErr
-	}
-
-	m.mu.Lock()
-	m.LastCreateJobID = jobID
-	m.LastDefinitionVersion = definitionVersion
-	m.LastRunAudit = audit
-	m.LastScheduleID = scheduleID
-	m.LastScheduledFor = scheduledFor
-	m.mu.Unlock()
-	return m.CreateRunID, m.CreateRunIndex, m.CreateRunCreated, nil
-}
-
 func (m *MockRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source dal.JobDefinitionSourceRecord, audit dal.RunAuditMetadata) (string, int, int, bool, error) {
 	if m.CreateRunErr != nil {
 		return "", 0, 0, false, m.CreateRunErr

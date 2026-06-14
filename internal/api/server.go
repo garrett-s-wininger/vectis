@@ -466,50 +466,22 @@ func (s *APIServer) checkNamespaceAuth(ctx context.Context, p *authn.Principal, 
 	return z.Allow(ctx, p, action, authz.Resource{NamespacePath: namespacePath})
 }
 
-func (s *APIServer) getJobNamespacePath(ctx context.Context, jobID string) (string, error) {
-	nsID, err := s.jobs.GetNamespaceID(ctx, jobID)
-	if err != nil {
-		return "", err
-	}
-
-	if s.namespaces == nil {
-		return "/", nil
-	}
-
-	ns, err := s.namespaces.GetByID(ctx, nsID)
-	if err != nil {
-		return "", err
-	}
-
-	return ns.Path, nil
-}
-
 func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (string, error) {
 	jobID, err := s.runs.GetRunJobID(ctx, runID)
 	if err != nil {
 		return "", err
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	nsPath, err := s.getSourceRunNamespacePath(ctx, runID, jobID)
 	if err != nil {
-		if dal.IsNotFound(err) {
-			nsPath, err := s.getSourceRunNamespacePath(ctx, runID, jobID)
-			if err != nil {
-				return "", err
-			}
-
-			if nsPath != "" {
-				return nsPath, nil
-			}
-
-			// Ephemeral runs don't have stored_jobs entries;
-			// they run in the default namespace.
-			return "/", nil
-		}
 		return "", err
 	}
 
-	return nsPath, nil
+	if nsPath != "" {
+		return nsPath, nil
+	}
+
+	return "/", nil
 }
 
 func (s *APIServer) getSourceRunNamespacePath(ctx context.Context, runID, jobID string) (string, error) {

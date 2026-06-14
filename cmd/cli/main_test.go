@@ -451,7 +451,6 @@ func TestSourceOverview_sendsRequestAndPrintsStatus(t *testing.T) {
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"stored_jobs_enabled":     false,
 			"repositories_configured": true,
 			"schedules_configured":    true,
 			"declared_repositories":   2,
@@ -487,7 +486,6 @@ func TestSourceOverview_sendsRequestAndPrintsStatus(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"stored_jobs_enabled=false",
 		"repositories_configured=true",
 		"schedules_configured=true",
 		"declared_repositories=2",
@@ -4632,7 +4630,6 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/v1/source/status":
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"stored_jobs_enabled":     true,
 			"repositories_configured": true,
 			"schedules_configured":    true,
 			"declared_repositories":   1,
@@ -4686,7 +4683,23 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func withHealthyDoctorFilesystemStats(t *testing.T) {
+	t.Helper()
+
+	old := doctorFilesystemStats
+	doctorFilesystemStats = func(path string) (doctorFSStats, error) {
+		return doctorFSStats{
+			freeBytes:   10 << 30,
+			freePercent: 50,
+			freeInodes:  1000,
+		}, nil
+	}
+	t.Cleanup(func() { doctorFilesystemStats = old })
+}
+
 func TestDoctor_success(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	seen := map[string]int{}
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		seen[r.URL.Path]++
@@ -4803,6 +4816,8 @@ func TestDoctor_success(t *testing.T) {
 }
 
 func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health/live", "/health/ready":
@@ -4863,6 +4878,8 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 }
 
 func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health/live", "/health/ready":
@@ -4921,6 +4938,8 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 }
 
 func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health/live":
@@ -4975,6 +4994,8 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 }
 
 func TestDoctor_jsonOutput(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health/live", "/health/ready":
@@ -5052,6 +5073,8 @@ func TestDoctor_jsonOutput(t *testing.T) {
 }
 
 func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health/live", "/health/ready":
@@ -5106,6 +5129,8 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 }
 
 func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health/live":
@@ -5212,6 +5237,8 @@ func TestDoctorTLSFiles_warnsForSoonExpiringCertificate(t *testing.T) {
 }
 
 func TestDoctorFilesystemPressure_existingWritableDirectory(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	dir := t.TempDir()
 	check := doctorFilesystemPressure("test.fs", "Test filesystem", "test path", dir)
 	if check.Status != doctorOK {
@@ -5265,6 +5292,8 @@ func writeTestCertificate(t *testing.T, notAfter time.Time) (string, string) {
 }
 
 func TestDoctor_strictWarnsExitNonzero(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health/live", "/health/ready":
@@ -5359,7 +5388,6 @@ func TestDoctor_sourceRepositorySyncWarnsForFailedAndStaleRunning(t *testing.T) 
 
 func TestDoctor_sourceModeWarnsWhenNoEnabledRepositories(t *testing.T) {
 	status := doctorSourceStatus{
-		StoredJobsEnabled:      false,
 		RepositoriesConfigured: true,
 		SchedulesConfigured:    true,
 		DeclaredRepositories:   1,
@@ -5373,7 +5401,7 @@ func TestDoctor_sourceModeWarnsWhenNoEnabledRepositories(t *testing.T) {
 		t.Fatalf("expected source-only warning, got %#v", check)
 	}
 
-	for _, want := range []string{"source mode has no enabled source repositories", "stored_jobs_enabled=false", "repositories=1", "enabled_repositories=0", "disabled_repositories=1"} {
+	for _, want := range []string{"source mode has no enabled source repositories", "repositories=1", "enabled_repositories=0", "disabled_repositories=1"} {
 		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
 			t.Fatalf("expected source mode check to contain %q, got %#v", want, check)
 		}

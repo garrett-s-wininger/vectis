@@ -227,6 +227,7 @@ func TestNamespacesRepository_HasJobs(t *testing.T) {
 
 	db := dbtest.NewTestDB(t)
 	repo := NewSQLNamespacesRepository(db)
+	sources := &SQLSourcesRepository{db: db}
 	ctx := context.Background()
 
 	rootID := int64(1)
@@ -237,6 +238,25 @@ func TestNamespacesRepository_HasJobs(t *testing.T) {
 
 	if has {
 		t.Fatal("expected no jobs on fresh db")
+	}
+
+	if _, err := sources.CreateRepository(ctx, SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		NamespaceID:  rootID,
+		SourceKind:   SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	has, err = repo.HasJobs(ctx, rootID)
+	if err != nil {
+		t.Fatalf("has jobs after source repository failed: %v", err)
+	}
+
+	if !has {
+		t.Fatal("expected source repository to keep namespace non-empty")
 	}
 }
 

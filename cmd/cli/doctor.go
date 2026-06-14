@@ -58,6 +58,7 @@ type doctorReport struct {
 
 var doctorJSON bool
 var doctorStrict bool
+var doctorFilesystemStats = filesystemStats
 
 const (
 	doctorDiskWarnFreeBytes  = 1 << 30
@@ -983,7 +984,6 @@ func doctorSourceStatusNeedsScheduleDetails(status doctorSourceStatus, statusLoa
 }
 
 type doctorSourceStatus struct {
-	StoredJobsEnabled      bool                         `json:"stored_jobs_enabled"`
 	RepositoriesConfigured bool                         `json:"repositories_configured"`
 	SchedulesConfigured    bool                         `json:"schedules_configured"`
 	DeclaredRepositories   int                          `json:"declared_repositories"`
@@ -1185,7 +1185,6 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string) doctorC
 
 func formatDoctorSourceModeEvidence(status doctorSourceStatus) string {
 	return strings.Join([]string{
-		fmt.Sprintf("stored_jobs_enabled=%t", status.StoredJobsEnabled),
 		fmt.Sprintf("repositories_configured=%t", status.RepositoriesConfigured),
 		fmt.Sprintf("schedules_configured=%t", status.SchedulesConfigured),
 		fmt.Sprintf("declared_repositories=%d", status.DeclaredRepositories),
@@ -1866,7 +1865,7 @@ func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 		}
 	}
 
-	stats, err := filesystemStats(statPath)
+	stats, err := doctorFilesystemStats(statPath)
 	if err != nil {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err), Evidence: statPath, SuggestedAction: "Run vectis-cli health check on the host that owns the path", DocLink: doc}
 	}

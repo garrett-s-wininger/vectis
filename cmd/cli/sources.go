@@ -49,7 +49,6 @@ type sourceRepositorySyncInfo struct {
 }
 
 type sourceOverviewResult struct {
-	StoredJobsEnabled      bool                         `json:"stored_jobs_enabled"`
 	RepositoriesConfigured bool                         `json:"repositories_configured"`
 	SchedulesConfigured    bool                         `json:"schedules_configured"`
 	DeclaredRepositories   int                          `json:"declared_repositories"`
@@ -310,7 +309,6 @@ func writeSourceOverviewResult(out io.Writer, result sourceOverviewResult) error
 		return writeJSON(out, result)
 	}
 
-	fmt.Fprintf(out, "stored_jobs_enabled=%t\n", result.StoredJobsEnabled)
 	fmt.Fprintf(out, "repositories_configured=%t\n", result.RepositoriesConfigured)
 	fmt.Fprintf(out, "schedules_configured=%t\n", result.SchedulesConfigured)
 	fmt.Fprintf(out, "declared_repositories=%d\n", result.DeclaredRepositories)

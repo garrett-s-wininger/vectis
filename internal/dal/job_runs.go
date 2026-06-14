@@ -876,44 +876,6 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 	return createdRuns, nil
 }
 
-func (r *SQLRunsRepository) CreateScheduledRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
-	if scheduleID <= 0 {
-		return "", 0, false, fmt.Errorf("schedule id is required")
-	}
-
-	scheduledForKey := scheduledFor.UTC().Format(time.RFC3339)
-
-	for attempt := 0; attempt < 3; attempt++ {
-		runID, runIndexOut, _, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
-		if err != nil {
-			return "", 0, false, err
-		}
-		if found {
-			return runID, runIndexOut, false, nil
-		}
-
-		runID, runIndexOut, created, err := r.tryCreateScheduledRun(ctx, scheduleID, scheduledForKey, jobID, definitionVersion, audit)
-		if err != nil {
-			return "", 0, false, err
-		}
-
-		if created {
-			return runID, runIndexOut, true, nil
-		}
-	}
-
-	runID, runIndexOut, _, found, err := r.findScheduledRun(ctx, scheduleID, scheduledForKey)
-	if err != nil {
-		return "", 0, false, err
-	}
-
-	if found {
-		return runID, runIndexOut, false, nil
-	}
-
-	return "", 0, false, fmt.Errorf("%w: scheduled run for schedule %d at %s was not created", ErrConflict, scheduleID, scheduledForKey)
-}
-
 func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
 	if scheduleID <= 0 {
 		return "", 0, 0, false, fmt.Errorf("schedule id is required")
@@ -969,45 +931,6 @@ func (r *SQLRunsRepository) findScheduledRun(ctx context.Context, scheduleID int
 	}
 
 	return "", 0, 0, false, nil
-}
-
-func (r *SQLRunsRepository) tryCreateScheduledRun(ctx context.Context, scheduleID int64, scheduledForKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", 0, false, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	runID = uuid.New().String()
-	runIndexOut, err = createRunTx(ctx, tx, runID, jobID, nil, definitionVersion, r.currentCellID(), audit)
-	if err != nil {
-		return "", 0, false, err
-	}
-
-	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
-		INSERT INTO cron_schedule_fires (schedule_id, scheduled_for, run_id)
-		VALUES (?, ?, ?)
-		ON CONFLICT(schedule_id, scheduled_for) DO NOTHING
-	`), scheduleID, scheduledForKey, runID)
-
-	if err != nil {
-		return "", 0, false, normalizeSQLError(err)
-	}
-
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return "", 0, false, err
-	}
-
-	if rows == 0 {
-		return "", 0, false, nil
-	}
-
-	if err = tx.Commit(); err != nil {
-		return "", 0, false, err
-	}
-
-	return runID, runIndexOut, true, nil
 }
 
 func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledForKey, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
@@ -3011,8 +2934,9 @@ func (r *SQLRunsRepository) ListPendingExecutions(ctx context.Context, runID str
 		JOIN segment_executions se ON se.segment_id = rs.segment_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
-		LEFT JOIN stored_jobs sj ON sj.job_id = jr.job_id
-		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
+		LEFT JOIN job_definition_sources jds ON jds.job_id = jr.job_id AND jds.version = jr.definition_version
+		LEFT JOIN source_repositories sr ON sr.repository_id = jds.repository_id
+		LEFT JOIN namespaces ns ON ns.id = sr.namespace_id
 		WHERE jr.run_id = ?
 			AND rs.status = ?
 			AND se.status = ?
@@ -3075,8 +2999,9 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
-		LEFT JOIN stored_jobs sj ON sj.job_id = jr.job_id
-		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
+		LEFT JOIN job_definition_sources jds ON jds.job_id = jr.job_id AND jds.version = jr.definition_version
+		LEFT JOIN source_repositories sr ON sr.repository_id = jds.repository_id
+		LEFT JOIN namespaces ns ON ns.id = sr.namespace_id
 		WHERE se.execution_id = ?
 			AND rs.status = ?
 			AND se.status = ?
@@ -3129,8 +3054,9 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runI
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = jr.run_id
 		JOIN run_tasks rt ON rt.task_id = se.task_id AND rt.run_id = jr.run_id
 		JOIN task_attempts ta ON ta.attempt_id = se.task_attempt_id AND ta.task_id = rt.task_id AND ta.run_id = jr.run_id AND ta.attempt = se.attempt
-		LEFT JOIN stored_jobs sj ON sj.job_id = jr.job_id
-		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
+		LEFT JOIN job_definition_sources jds ON jds.job_id = jr.job_id AND jds.version = jr.definition_version
+		LEFT JOIN source_repositories sr ON sr.repository_id = jds.repository_id
+		LEFT JOIN namespaces ns ON ns.id = sr.namespace_id
 		WHERE jr.run_id = ?
 			AND se.execution_id = ?
 			AND jr.status IN (?, ?)

@@ -275,8 +275,6 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 
 func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
-	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
 
 	server, _, _, db := setupTestServer(t)
 	repos := dal.NewSQLRepositories(db)
@@ -409,8 +407,6 @@ func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
 
 func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
-	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
@@ -933,10 +929,8 @@ func TestAPIServer_DeleteSourceScheduleGuards(t *testing.T) {
 	assertAPIError(t, missingRec, http.StatusNotFound, "source_schedule_not_found")
 }
 
-func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
+func TestAPIServer_SourceBackedJobsDoNotRequireStoredRows(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
-	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
 	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
 	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
@@ -987,7 +981,7 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	})
 
 	if runRec.Code != http.StatusAccepted {
-		t.Fatalf("one-off run with stored jobs disabled: status=%d body=%s", runRec.Code, runRec.Body.String())
+		t.Fatalf("one-off run: status=%d body=%s", runRec.Code, runRec.Body.String())
 	}
 
 	repoPath := initAPIGitRepo(t)
@@ -1000,18 +994,17 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	})
 
 	if registerRec.Code != http.StatusCreated {
-		t.Fatalf("register source repository with stored jobs disabled: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
 	}
 
 	statusRec := httptest.NewRecorder()
 	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/source/status", nil)
 	handler.ServeHTTP(statusRec, statusReq)
 	if statusRec.Code != http.StatusOK {
-		t.Fatalf("source status with stored jobs disabled: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+		t.Fatalf("source status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
 	}
 
 	var statusResp struct {
-		StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
 		RepositoriesConfigured bool `json:"repositories_configured"`
 		Repositories           struct {
 			Total   int `json:"total"`
@@ -1021,18 +1014,18 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	if err := json.NewDecoder(statusRec.Body).Decode(&statusResp); err != nil {
 		t.Fatalf("decode source status: %v", err)
 	}
-	if statusResp.StoredJobsEnabled ||
-		!statusResp.RepositoriesConfigured ||
+
+	if !statusResp.RepositoriesConfigured ||
 		statusResp.Repositories.Total != 1 ||
 		statusResp.Repositories.Enabled != 1 {
-		t.Fatalf("source-only status mismatch: %+v", statusResp)
+		t.Fatalf("source status mismatch: %+v", statusResp)
 	}
 
 	jobsRec := httptest.NewRecorder()
 	jobsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs", nil)
 	handler.ServeHTTP(jobsRec, jobsReq)
 	if jobsRec.Code != http.StatusOK {
-		t.Fatalf("list source repository jobs with stored jobs disabled: status=%d body=%s", jobsRec.Code, jobsRec.Body.String())
+		t.Fatalf("list source repository jobs: status=%d body=%s", jobsRec.Code, jobsRec.Body.String())
 	}
 
 	var jobsResp struct {
@@ -1048,9 +1041,11 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 			} `json:"source"`
 		} `json:"jobs"`
 	}
+
 	if err := json.NewDecoder(jobsRec.Body).Decode(&jobsResp); err != nil {
 		t.Fatalf("decode source jobs: %v", err)
 	}
+
 	if jobsResp.RepositoryID != "vectis-local" ||
 		len(jobsResp.Jobs) != 1 ||
 		jobsResp.Jobs[0].JobID != "build" ||
@@ -1066,7 +1061,7 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	})
 
 	if sourceTriggerRec.Code != http.StatusAccepted {
-		t.Fatalf("source trigger with stored jobs disabled: status=%d body=%s", sourceTriggerRec.Code, sourceTriggerRec.Body.String())
+		t.Fatalf("source trigger: status=%d body=%s", sourceTriggerRec.Code, sourceTriggerRec.Body.String())
 	}
 
 	triggerResp := decodeSourceJobTriggerResponse(t, sourceTriggerRec)
@@ -1104,7 +1099,7 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 	runsReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/jobs/build/runs", nil)
 	handler.ServeHTTP(runsRec, runsReq)
 	if runsRec.Code != http.StatusOK {
-		t.Fatalf("list source repository runs with stored jobs disabled: status=%d body=%s", runsRec.Code, runsRec.Body.String())
+		t.Fatalf("list source repository runs: status=%d body=%s", runsRec.Code, runsRec.Body.String())
 	}
 
 	var runsResp struct {
@@ -1140,8 +1135,6 @@ func TestAPIServer_SourceStoredJobsDisabled(t *testing.T) {
 
 func TestAPIServer_SourceStatus(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	t.Setenv("VECTIS_SOURCE_STORED_JOBS_ENABLED", "false")
-	t.Setenv("VECTIS_API_SERVER_SOURCE_STORED_JOBS_ENABLED", "")
 	t.Setenv("VECTIS_SOURCE_REPOSITORIES", `[{"repository_id":"vectis-local","checkout_path":"/work/vectis"},{"repository_id":"infra","checkout_path":"/work/infra"}]`)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly","repository_id":"vectis-local","job_id":"build","cron_spec":"0 2 * * *"}]`)
@@ -1210,7 +1203,6 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 	}
 
 	var resp struct {
-		StoredJobsEnabled      bool `json:"stored_jobs_enabled"`
 		RepositoriesConfigured bool `json:"repositories_configured"`
 		SchedulesConfigured    bool `json:"schedules_configured"`
 		DeclaredRepositories   int  `json:"declared_repositories"`
@@ -1235,8 +1227,7 @@ func TestAPIServer_SourceStatus(t *testing.T) {
 		t.Fatalf("decode source status: %v", err)
 	}
 
-	if resp.StoredJobsEnabled ||
-		!resp.RepositoriesConfigured ||
+	if !resp.RepositoriesConfigured ||
 		!resp.SchedulesConfigured ||
 		resp.DeclaredRepositories != 2 ||
 		resp.DeclaredSchedules != 1 ||

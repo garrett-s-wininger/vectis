@@ -9,7 +9,6 @@ import (
 )
 
 type sourceStatusResponse struct {
-	StoredJobsEnabled      bool                         `json:"stored_jobs_enabled"`
 	RepositoriesConfigured bool                         `json:"repositories_configured"`
 	SchedulesConfigured    bool                         `json:"schedules_configured"`
 	DeclaredRepositories   int                          `json:"declared_repositories"`
@@ -92,7 +91,6 @@ func (s *APIServer) GetSourceStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, sourceStatusResponse{
-		StoredJobsEnabled:      config.SourceStoredJobsEnabled(),
 		RepositoriesConfigured: s.sources != nil,
 		SchedulesConfigured:    s.schedules != nil,
 		DeclaredRepositories:   len(repositoryDecls),

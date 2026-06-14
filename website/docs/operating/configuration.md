@@ -115,13 +115,7 @@ Each schedule entry accepts `schedule_id`, `repository_id`, `job_id`, `cron_spec
 
 For production hotfixes, operators can set a temporary source schedule override with `PUT /api/v1/source-schedules/{schedule_id}/override` or `vectis-cli sources override`. Overrides can replace the configured ref, path, or both until the fix lands in the declared repository location. Config reconciliation preserves the active override; clear it explicitly with `DELETE /api/v1/source-schedules/{schedule_id}/override` or `vectis-cli sources clear-override` to return future runs to the configured ref/path.
 
-For source-only deployments, combine declared repositories with:
-
-```sh
-export VECTIS_SOURCE_STORED_JOBS_ENABLED=false
-```
-
-Use `GET /api/v1/source/status` or `vectis-cli health check` to verify that the API reports source repository persistence configured and at least one enabled source repository available for reusable job triggers and source schedules. For local development, `vectis-local --source-only --source-repository vectis-local=/path/to/repo` sets the API source repository environment for you and enables startup sync for the declared checkout.
+For source-only deployments, declare at least one source repository and use `GET /api/v1/source/status` or `vectis-cli health check` to verify that the API reports source repository persistence configured and at least one enabled source repository available for reusable job triggers and source schedules. For local development, `vectis-local --source-only --source-repository vectis-local=/path/to/repo` sets the API source repository environment for you and enables startup sync for the declared checkout.
 
 ## Service Prefixes
 

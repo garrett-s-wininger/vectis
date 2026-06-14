@@ -658,8 +658,8 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 		t.Fatalf("dispatch job id: got %q, want %q", dispatch.JobID, jobID)
 	}
 
-	if dispatch.NamespacePath != "/team-a" {
-		t.Fatalf("dispatch namespace path: got %q, want /team-a", dispatch.NamespacePath)
+	if dispatch.NamespacePath != "/" {
+		t.Fatalf("dispatch namespace path: got %q, want /", dispatch.NamespacePath)
 	}
 
 	if dispatch.SegmentID == "" {
@@ -2373,7 +2373,7 @@ func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
 		t.Fatalf("get active execution dispatch: %v", err)
 	}
 
-	if activeDispatch.RunID != runID || activeDispatch.ExecutionID != dispatch.ExecutionID || activeDispatch.JobID != jobID || activeDispatch.NamespacePath != "/team-validate-execution-claims" {
+	if activeDispatch.RunID != runID || activeDispatch.ExecutionID != dispatch.ExecutionID || activeDispatch.JobID != jobID || activeDispatch.NamespacePath != "/" {
 		t.Fatalf("active execution dispatch = %+v", activeDispatch)
 	}
 
@@ -3878,80 +3878,6 @@ func TestRunsRepository_CreateRunAndListSinceOrdered(t *testing.T) {
 	}
 }
 
-func TestRunsRepository_CreateScheduledRunIdempotentByScheduleTick(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	repos := dal.NewSQLRepositories(db)
-	jobs := repos.Jobs()
-	runs := repos.Runs()
-	ctx := context.Background()
-
-	jobID := "cron-idempotent"
-	if err := jobs.Create(ctx, jobID, `{"id":"cron-idempotent"}`, 1); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
-
-	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
-	scheduleID := insertCronTriggerSpec(t, ctx, db, jobID, "* * * * *", scheduledFor)
-
-	runID1, idx1, created, err := runs.CreateScheduledRun(ctx, scheduleID, scheduledFor, jobID, 1, dal.RunAuditMetadata{})
-	if err != nil {
-		t.Fatalf("create scheduled run: %v", err)
-	}
-
-	if !created {
-		t.Fatal("expected first scheduled run call to create a run")
-	}
-
-	if idx1 != 1 {
-		t.Fatalf("expected first scheduled run index 1, got %d", idx1)
-	}
-
-	runID2, idx2, created, err := runs.CreateScheduledRun(ctx, scheduleID, scheduledFor, jobID, 1, dal.RunAuditMetadata{})
-	if err != nil {
-		t.Fatalf("create scheduled run duplicate: %v", err)
-	}
-
-	if created {
-		t.Fatal("expected duplicate scheduled run call to reuse existing run")
-	}
-
-	if runID2 != runID1 || idx2 != idx1 {
-		t.Fatalf("expected duplicate to reuse run %s/%d, got %s/%d", runID1, idx1, runID2, idx2)
-	}
-
-	nextScheduledFor := scheduledFor.Add(time.Minute)
-	runID3, idx3, created, err := runs.CreateScheduledRun(ctx, scheduleID, nextScheduledFor, jobID, 1, dal.RunAuditMetadata{})
-	if err != nil {
-		t.Fatalf("create next scheduled run: %v", err)
-	}
-
-	if !created {
-		t.Fatal("expected next scheduled tick to create a run")
-	}
-
-	if runID3 == runID1 || idx3 != 2 {
-		t.Fatalf("expected new run index 2 for next tick, got run=%s index=%d", runID3, idx3)
-	}
-
-	var runCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
-		t.Fatalf("count job runs: %v", err)
-	}
-
-	if runCount != 2 {
-		t.Fatalf("expected two job_runs rows after duplicate and next tick, got %d", runCount)
-	}
-
-	var fireCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
-		t.Fatalf("count schedule fires: %v", err)
-	}
-
-	if fireCount != 2 {
-		t.Fatalf("expected two cron_schedule_fires rows, got %d", fireCount)
-	}
-}
-
 func TestRunsRepository_CreateScheduledSourceDefinitionRunIdempotentByScheduleTick(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -4849,6 +4775,67 @@ func TestSQLRepositories_CreateDefinitionAndRun_AndGetDefinitionVersion(t *testi
 
 	if segmentCount != 1 || executionCount != 1 {
 		t.Fatalf("expected one segment and one execution, got segments=%d executions=%d", segmentCount, executionCount)
+	}
+}
+
+func TestSQLRepositories_SourceRunDispatchUsesRepositoryNamespace(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-source-dispatch", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		NamespaceID:  ns.ID,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/tmp/source-repo",
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	runID, _, _, err := repos.CreateSourceDefinitionAndRunInCellWithAudit(ctx, "source-job", `{"id":"source-job","root":{"uses":"builtins/shell"}}`, dal.JobDefinitionSourceRecord{
+		RepositoryID:   "source-repo",
+		RequestedRef:   "main",
+		ResolvedCommit: "abc123",
+		DefinitionPath: ".vectis/jobs/source-job.json",
+		BlobSHA:        "blob123",
+	}, "", dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("CreateSourceDefinitionAndRunInCellWithAudit: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetPendingExecution: %v", err)
+	}
+
+	if dispatch.NamespacePath != "/team-source-dispatch" {
+		t.Fatalf("pending dispatch namespace path: got %q, want /team-source-dispatch", dispatch.NamespacePath)
+	}
+
+	byExecutionID, err := repos.Runs().GetExecutionDispatch(ctx, dispatch.ExecutionID)
+	if err != nil {
+		t.Fatalf("GetExecutionDispatch: %v", err)
+	}
+
+	if byExecutionID.NamespacePath != "/team-source-dispatch" {
+		t.Fatalf("execution dispatch namespace path: got %q, want /team-source-dispatch", byExecutionID.NamespacePath)
+	}
+
+	claimed, _ := claimPendingRunExecution(t, ctx, repos.Runs(), runID, "worker-a", time.Now().Add(time.Minute))
+	active, err := repos.Runs().GetActiveExecutionDispatch(ctx, runID, claimed.ExecutionID)
+	if err != nil {
+		t.Fatalf("GetActiveExecutionDispatch: %v", err)
+	}
+
+	if active.NamespacePath != "/team-source-dispatch" {
+		t.Fatalf("active dispatch namespace path: got %q, want /team-source-dispatch", active.NamespacePath)
 	}
 }
 

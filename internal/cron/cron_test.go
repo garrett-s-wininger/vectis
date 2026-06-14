@@ -32,13 +32,6 @@ func setupTestCronService(t *testing.T) (*cron.CronService, *mocks.MockLogger, *
 	return service, logger, queueService, db
 }
 
-func insertCronTestJob(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
-	t.Helper()
-	if err := dal.NewSQLRepositories(db).Jobs().Create(context.Background(), jobID, definitionJSON, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
-	}
-}
-
 func insertCronTestSchedule(t *testing.T, db *sql.DB, jobID, cronSpec string, nextRun time.Time) int64 {
 	t.Helper()
 
@@ -221,10 +214,8 @@ func TestCronService_GetReadySchedules_Empty(t *testing.T) {
 func TestCronService_GetReadySchedules_WithReadyJobs(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
-	insertCronTestJob(t, db, "test-job", `{"id": "test-job"}`)
-
 	pastTime := time.Now().Add(-24 * time.Hour)
-	insertCronTestSchedule(t, db, "test-job", "* * * * *", pastTime)
+	insertCronTestSourceSchedule(t, db, "test-job", "source-repo", "main", "", "* * * * *", pastTime)
 
 	schedules, err := service.GetReadySchedules(context.Background())
 	if err != nil {
@@ -242,15 +233,17 @@ func TestCronService_GetReadySchedules_WithReadyJobs(t *testing.T) {
 	if schedules[0].CronSpec != "* * * * *" {
 		t.Errorf("expected cron spec '* * * * *', got %s", schedules[0].CronSpec)
 	}
+
+	if schedules[0].SourceRepositoryID != "source-repo" {
+		t.Errorf("expected source repository 'source-repo', got %s", schedules[0].SourceRepositoryID)
+	}
 }
 
 func TestCronService_GetReadySchedules_FutureJobsNotIncluded(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
-	insertCronTestJob(t, db, "future-job", `{"id": "future-job"}`)
-
 	futureTime := time.Now().Add(1 * time.Hour)
-	insertCronTestSchedule(t, db, "future-job", "* * * * *", futureTime)
+	insertCronTestSourceSchedule(t, db, "future-job", "source-repo", "main", "", "* * * * *", futureTime)
 
 	schedules, err := service.GetReadySchedules(context.Background())
 	if err != nil {
@@ -262,42 +255,11 @@ func TestCronService_GetReadySchedules_FutureJobsNotIncluded(t *testing.T) {
 	}
 }
 
-func TestCronService_GetJobDefinition_Success(t *testing.T) {
-	service, _, _, db := setupTestCronService(t)
-
-	jobDef := `{"id": "test-job", "root": {"uses": "builtins/shell", "with": {"command": "echo hello"}}}`
-	insertCronTestJob(t, db, "test-job", jobDef)
-
-	job, err := service.GetJobDefinition(context.Background(), "test-job")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if job.GetId() != "test-job" {
-		t.Errorf("expected job ID 'test-job', got %s", job.GetId())
-	}
-}
-
-func TestCronService_GetJobDefinition_NotFound(t *testing.T) {
-	service, _, _, _ := setupTestCronService(t)
-
-	_, err := service.GetJobDefinition(context.Background(), "nonexistent-job")
-	if err == nil {
-		t.Error("expected error for nonexistent job")
-	}
-
-	if !strings.Contains(err.Error(), "job not found") {
-		t.Errorf("expected 'job not found' error, got: %v", err)
-	}
-}
-
 func TestCronService_ClaimAndCompleteSchedule(t *testing.T) {
 	service, _, _, db := setupTestCronService(t)
 
-	insertCronTestJob(t, db, "update-test", `{"id": "update-test"}`)
-
 	oldTime := time.Now().Add(-1 * time.Hour)
-	scheduleID := insertCronTestSchedule(t, db, "update-test", "* * * * *", oldTime)
+	scheduleID := insertCronTestSourceSchedule(t, db, "update-test", "source-repo", "main", "", "* * * * *", oldTime)
 
 	newTime := time.Now().Add(1 * time.Hour)
 	claimToken := "claim-1"
@@ -360,13 +322,10 @@ func TestCronService_ProcessSchedules_NoReadySchedules(t *testing.T) {
 	}
 }
 
-func TestCronService_ProcessSchedules_TriggerAndUpdate(t *testing.T) {
+func TestCronService_ProcessSchedulesRejectsLegacyScheduleWithoutSourceRepository(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 
-	jobDef := `{"id": "cron-job", "root": {"uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	insertCronTestJob(t, db, "cron-job", jobDef)
-
-	pastTime := time.Now().Add(-24 * time.Hour)
+	pastTime := time.Now().Add(-24 * time.Hour).Truncate(time.Second).UTC()
 	insertCronTestSchedule(t, db, "cron-job", "* * * * *", pastTime)
 
 	err := service.ProcessSchedules(context.Background())
@@ -375,37 +334,36 @@ func TestCronService_ProcessSchedules_TriggerAndUpdate(t *testing.T) {
 	}
 
 	jobs := queueService.GetJobs()
-	if len(jobs) != 1 {
-		t.Fatalf("expected 1 job enqueued, got %d", len(jobs))
-	}
-
-	if jobs[0].GetId() != "cron-job" {
-		t.Errorf("expected job ID 'cron-job', got %s", jobs[0].GetId())
+	if len(jobs) != 0 {
+		t.Fatalf("expected no job enqueued for legacy schedule, got %d", len(jobs))
 	}
 
 	nextRunStr := queryCronTestNextRun(t, db, "cron-job")
-	nextRun, _ := time.Parse(time.RFC3339, nextRunStr)
-
-	if !nextRun.After(pastTime) {
-		t.Errorf("expected next_run_at to be updated to future time, got %v", nextRun)
+	if nextRunStr != pastTime.Format(time.RFC3339) {
+		t.Fatalf("expected next_run_at to remain unchanged for legacy schedule, got %s", nextRunStr)
 	}
 
 	infoCalls := logger.GetInfoCalls()
 	hasTriggerMsg := false
-	hasSuccessMsg := false
 	for _, msg := range infoCalls {
 		if strings.Contains(msg, "Processing 1 schedule") {
 			hasTriggerMsg = true
-		}
-		if strings.Contains(msg, "Job cron-job triggered successfully") {
-			hasSuccessMsg = true
 		}
 	}
 	if !hasTriggerMsg {
 		t.Errorf("expected 'Processing 1 schedule' log, got: %v", infoCalls)
 	}
-	if !hasSuccessMsg {
-		t.Errorf("expected success log, got: %v", infoCalls)
+
+	errorCalls := logger.GetErrorCalls()
+	hasSourceRequired := false
+	for _, msg := range errorCalls {
+		if strings.Contains(msg, "Failed to trigger job") && strings.Contains(msg, "requires a source repository schedule") {
+			hasSourceRequired = true
+			break
+		}
+	}
+	if !hasSourceRequired {
+		t.Errorf("expected source repository schedule error log, got: %v", errorCalls)
 	}
 }
 
@@ -698,10 +656,8 @@ func TestCronService_ProcessSchedulesRejectsInvalidSourceScheduleReference(t *te
 func TestCronService_ProcessSchedules_InvalidCronSpec(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
 
-	insertCronTestJob(t, db, "invalid-cron-job", `{"id": "invalid-cron-job"}`)
-
 	pastTime := time.Now().Add(-24 * time.Hour)
-	insertCronTestSchedule(t, db, "invalid-cron-job", "invalid-spec", pastTime)
+	insertCronTestSourceSchedule(t, db, "invalid-cron-job", "source-repo", "main", "", "invalid-spec", pastTime)
 
 	err := service.ProcessSchedules(context.Background())
 	if err != nil {
@@ -729,15 +685,29 @@ func TestCronService_ProcessSchedules_InvalidCronSpec(t *testing.T) {
 
 func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 	service, logger, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
 
-	insertCronTestJob(t, db, "queue-error-job", `{"id": "queue-error-job"}`)
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
 
-	pastTime := time.Now().Add(-24 * time.Hour)
-	insertCronTestSchedule(t, db, "queue-error-job", "* * * * *", pastTime)
+	service.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		return &recordingCronDefinitionResolver{}, nil
+	})
+
+	pastTime := time.Now().Add(-24 * time.Hour).Truncate(time.Second).UTC()
+	insertCronTestSourceSchedule(t, db, "queue-error-job", "source-repo", "main", ".vectis/jobs/build.json", "* * * * *", pastTime)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
 
-	err := service.ProcessSchedules(context.Background())
+	err := service.ProcessSchedules(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -768,8 +738,7 @@ func TestCronService_ProcessSchedules_TimeNotMatching(t *testing.T) {
 	clock.SetNow(now)
 	service.SetClock(clock)
 
-	insertCronTestJob(t, db, "future-job", `{"id": "future-job"}`)
-	insertCronTestSchedule(t, db, "future-job", "0 0 * * *", now.Add(-1*time.Hour))
+	insertCronTestSourceSchedule(t, db, "future-job", "source-repo", "main", "", "0 0 * * *", now.Add(-1*time.Hour))
 
 	err := service.ProcessSchedules(context.Background())
 	if err != nil {
@@ -795,24 +764,49 @@ func TestCronService_ProcessSchedules_TimeNotMatching(t *testing.T) {
 	}
 }
 
-func TestCronService_TriggerJob_JobNotFound(t *testing.T) {
+func TestCronService_TriggerJobRequiresSourceSchedule(t *testing.T) {
 	service, _, _, _ := setupTestCronService(t)
 
-	err := service.TriggerJob(context.Background(), "nonexistent-job")
-	if err == nil {
-		t.Error("expected error for nonexistent job")
+	err := service.TriggerJob(context.Background(), "manual-job")
+	if err == nil || !strings.Contains(err.Error(), "requires a source repository schedule") {
+		t.Fatalf("expected source repository schedule error, got %v", err)
 	}
 }
 
-func TestCronService_TriggerJob_Success(t *testing.T) {
+func TestCronService_TriggerSchedule_SourceSuccess(t *testing.T) {
 	service, _, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
 
-	jobDef := `{"id": "trigger-test", "root": {"uses": "builtins/shell"}}`
-	insertCronTestJob(t, db, "trigger-test", jobDef)
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
 
-	err := service.TriggerJob(context.Background(), "trigger-test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	service.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		return &recordingCronDefinitionResolver{}, nil
+	})
+
+	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	scheduleID := insertCronTestSourceSchedule(t, db, "trigger-test", "source-repo", "main", ".vectis/jobs/trigger.json", "* * * * *", scheduledFor)
+	sched := cron.CronSchedule{
+		ID:                 scheduleID,
+		ScheduleID:         "manual-trigger",
+		JobID:              "trigger-test",
+		CronSpec:           "* * * * *",
+		NextRunAt:          scheduledFor,
+		SourceRepositoryID: "source-repo",
+		SourceRef:          "main",
+		SourcePath:         ".vectis/jobs/trigger.json",
+	}
+
+	if err := service.TriggerSchedule(ctx, sched); err != nil {
+		t.Fatalf("trigger source schedule: %v", err)
 	}
 
 	jobs := queueService.GetJobs()
@@ -843,7 +837,7 @@ func TestCronService_TriggerJob_Success(t *testing.T) {
 		t.Fatalf("unexpected envelope target: execution=%q segment=%q cell=%q", env.ExecutionID, env.SegmentID, env.CellID)
 	}
 
-	runRec, err := dal.NewSQLRepositories(db).Runs().GetRun(context.Background(), jobs[0].GetRunId())
+	runRec, err := repos.Runs().GetRun(ctx, jobs[0].GetRunId())
 	if err != nil {
 		t.Fatalf("get cron run: %v", err)
 	}
@@ -868,18 +862,33 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	clock.SetNow(time.Date(2026, 3, 21, 12, 9, 30, 0, time.UTC))
 	service.SetClock(clock)
 
-	jobDef := `{"id": "scheduled-idempotent", "root": {"uses": "builtins/shell"}}`
-	insertCronTestJob(t, db, "scheduled-idempotent", jobDef)
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	service.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		return &recordingCronDefinitionResolver{}, nil
+	})
 
 	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
-	scheduleID := insertCronTestSchedule(t, db, "scheduled-idempotent", "* * * * *", scheduledFor)
+	scheduleID := insertCronTestSourceSchedule(t, db, "scheduled-idempotent", "source-repo", "main", ".vectis/jobs/scheduled.json", "* * * * *", scheduledFor)
 
 	sched := cron.CronSchedule{
-		ID:         scheduleID,
-		ScheduleID: "nightly-build",
-		JobID:      "scheduled-idempotent",
-		CronSpec:   "* * * * *",
-		NextRunAt:  scheduledFor,
+		ID:                 scheduleID,
+		ScheduleID:         "nightly-build",
+		JobID:              "scheduled-idempotent",
+		CronSpec:           "* * * * *",
+		NextRunAt:          scheduledFor,
+		SourceRepositoryID: "source-repo",
+		SourceRef:          "main",
+		SourcePath:         ".vectis/jobs/scheduled.json",
 	}
 
 	if err := service.TriggerSchedule(ctx, sched); err != nil {
@@ -913,7 +922,7 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 		t.Fatalf("expected one job_runs row for duplicate scheduled tick, got %d", runCount)
 	}
 
-	runRec, err := dal.NewSQLRepositories(db).Runs().GetRun(ctx, runID)
+	runRec, err := repos.Runs().GetRun(ctx, runID)
 	if err != nil {
 		t.Fatalf("get scheduled run: %v", err)
 	}
@@ -924,6 +933,9 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 		"job_id":                 "scheduled-idempotent",
 		"next_run_at":            scheduledFor.Format(time.RFC3339Nano),
 		"schedule_id":            strconv.FormatInt(scheduleID, 10),
+		"source_path":            ".vectis/jobs/scheduled.json",
+		"source_ref":             "main",
+		"source_repository_id":   "source-repo",
 		"triggered":              clock.Now().UTC().Format(time.RFC3339Nano),
 	}
 
