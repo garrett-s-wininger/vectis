@@ -4,6 +4,10 @@ Use this page when you are designing backups, running a restore drill, or recove
 
 The safest recovery point is a matching set of database, queue, log, artifact, secret, TLS, and deployment config backups from the same time window. If you can only restore part of that set, Vectis can repair some queue handoff gaps, but it cannot recreate lost job definitions, auth records, audit rows, secrets, logs, or artifact blobs.
 
+For production-oriented deployments, this page is the required drill behind
+[Production Topology v1](../deployment/production-topology-v1.md) and
+[Production Config And Secrets Contract](../deployment/production-config-contract.md).
+
 ## Backup Inventory
 
 Back up the SQL database first and most carefully. It is the source of truth for durable Vectis state. Queue, log, artifact, and job secret state are still important; queue handoff gaps are easier to repair than missing logs, artifacts, or secret material.
@@ -36,6 +40,40 @@ Prefer backups that capture these pieces close together:
 For Postgres, use your database platform's online backup or snapshot mechanism. File-level backups of a live Postgres data directory are not enough unless the database platform documents that procedure as crash-consistent.
 
 For SQLite, stop Vectis or use a SQLite-safe backup process before copying the database file.
+
+## Production v1 Drill
+
+Run this drill before declaring a production v1 deployment ready, before major
+schema upgrades, and on a regular operations cadence.
+
+| Phase | Evidence to collect |
+| --- | --- |
+| Scope | Deployment name, Vectis version, topology, service instance IDs, queue/log/artifact shard IDs, database DSNs without secrets, and durable storage paths. |
+| Backup | Backup timestamp, database backup identifier, queue/log/artifact/secrets/TLS/config backup identifiers, and whether the backup set is same-window or intentionally partial. |
+| Restore target | Isolated restore environment or maintenance window, restored DNS/endpoint plan, and operator who approved traffic isolation. |
+| Migration | `vectis-cli database migrate` output for every restored database and resulting schema status. |
+| Service recovery | Service start order, health check output, and any services intentionally skipped. |
+| Data validation | Restored jobs/runs visible, restored logs readable, restored artifact blobs downloadable when expected, and secret-resolution smoke result when enabled. |
+| New work | A known-safe run triggered after restore reaches terminal status and streams logs. |
+| Repair | Reconciler outcomes for queued runs, DLQ state, and any manual repair actions. |
+| Observability | Fresh metrics, service logs, dashboards, and alert routing after restore. |
+| Exceptions | Missing backup pieces, data loss, rotated credentials, follow-up tickets, and whether production readiness is blocked. |
+
+Recommended drill flow:
+
+1. Pick a recent backup set and record the expected restore point.
+2. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
+3. Restore config, secrets, TLS material, and manifests before starting services.
+4. Restore PostgreSQL through the database platform's documented process.
+5. Restore queue persistence, log storage, artifact storage, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
+6. Run migrations against every restored database.
+7. Start services in dependency order.
+8. Run `vectis-cli health check --strict`.
+9. Run the restore smoke test below.
+10. Record evidence and update the backup, config, or runbook gaps found during the drill.
+
+Do not run retention cleanup during a restore drill until the restored deployment
+passes the smoke test and the operator has accepted the restore point.
 
 ## Restore Order
 
@@ -95,17 +133,30 @@ Use this for `vectis-local`, local development, single-node SQLite deployments, 
 
 For a local-only restore where queue persistence was not backed up, start the reconciler and wait for old queued runs to be redispatched before judging the queue as empty.
 
-## Postgres / Reference Deploy DR Runbook
+## Postgres / Production DR Runbook
 
 Use this for the reference Podman deployment and any production-like deployment backed by Postgres.
 
-1. Stop API, cell ingress, workers, worker-core, cron, reconciler, catalog, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder containers/processes.
-2. Restore Postgres from the database backup using the database platform's restore process.
-3. Restore or recreate the Podman deploy secrets and TLS volumes. If secrets are recreated instead of restored, update all generated DSNs and client credentials consistently.
-4. Restore queue persistence, log storage, artifact storage, job secret store, and log-forwarder spools from matching backups when available.
-5. Run `vectis-cli database migrate` against each restored Postgres DSN from the same host/network path used for deployment migrations.
-6. Start registry, queue, orchestrator, log, artifact, spiffe, secrets, cell ingress, API, worker-core, workers, cron, reconciler, catalog, and log-forwarder in dependency order.
-7. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
+1. Stop external trigger sources or block API traffic at the edge.
+2. Stop API, cell ingress, cron, reconciler, catalog, workers, worker-core, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder containers/processes.
+3. Restore or recreate deployment config, secrets, and TLS volumes. If secrets are recreated instead of restored, update all DSNs, trust bundles, client credentials, and service identity allowlists consistently.
+4. Restore Postgres from the database backup using the database platform's restore process.
+5. Restore queue persistence, log storage, artifact storage, job secret store, SPIFFE CA material, and log-forwarder spools from matching backups when available.
+6. Verify file ownership and permissions for restored volumes before services start.
+7. Run `vectis-cli database migrate` against each restored Postgres DSN from the same host/network path used for deployment migrations.
+8. Start registry, queue, orchestrator, log, artifact, spiffe, and secrets first.
+9. Start cell ingress and API after their dependencies are healthy.
+10. Start worker-core and workers.
+11. Start cron only when you are ready for scheduled work to resume.
+12. Start reconciler and catalog.
+13. Start log-forwarder where worker-host spooling is used.
+14. Run `vectis-cli health check --strict`.
+15. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
+
+If queue persistence was not restored, expect the reconciler to redispatch
+queued runs that still exist in the database. If log or artifact storage was not
+restored, mark that as data loss; Vectis cannot reconstruct those bytes from SQL
+metadata.
 
 ## Restore Smoke Test
 
@@ -115,12 +166,16 @@ Run this after every restore drill and after real disaster recovery:
 2. If auth is enabled, verify setup state and log in with an expected operator account or token.
 3. List jobs with `vectis-cli jobs list`.
 4. List recent runs for one restored job with `vectis-cli runs list <job-id>`.
-5. Trigger a small known-safe job.
-6. Confirm the run reaches a terminal status.
-7. Stream or fetch logs for the new run.
-8. Inspect queue/reconciler/worker metrics for retry exhaustion or stuck queued runs.
-9. Inspect dispatch events for the restored and newly triggered run.
-10. Confirm Prometheus, logs, and dashboards show fresh samples from the restored services.
+5. Fetch logs for one restored run when log storage was part of the backup set.
+6. Download or stat one restored artifact when artifact storage was part of the backup set.
+7. Trigger a small known-safe job.
+8. Confirm the run reaches a terminal status.
+9. Stream or fetch logs for the new run.
+10. List artifacts for the new run when the job produces artifacts.
+11. If secret resolution is enabled, trigger or replay a known secret-using smoke job and verify the run succeeds without exposing secret plaintext in logs.
+12. Inspect queue/reconciler/worker metrics for retry exhaustion or stuck queued runs.
+13. Inspect dispatch events for the restored and newly triggered run.
+14. Confirm Prometheus, logs, and dashboards show fresh samples from the restored services.
 
 `vectis-cli health check` automates the API-oriented part of this smoke test: API liveness, API readiness, auth-aware setup status, auth-aware local CLI token visibility, schema status, queue backlog, cron schedule backlog, reconciler recovery visibility, stuck queued runs, log reachability, audit drops/flush failures, and DB pool pressure. Keep the active run trigger/log verification and dashboard freshness checks in the manual drill.
 
@@ -130,8 +185,12 @@ Record these after a drill or real recovery:
 
 - Backup timestamp and restore timestamp.
 - Vectis release version.
+- Production topology shape and whether the restore target matched it.
 - Restored schema version and migration result.
 - Which backup pieces were restored and which were missing.
+- Service instance IDs and durable storage paths used after restore.
+- `vectis-cli health check --strict` result.
+- New smoke run ID and terminal status.
 - Any known data loss, especially missing logs, orphaned queue entries, or credentials that had to be rotated.
 - Smoke test result and any follow-up repair work.
 
@@ -144,3 +203,5 @@ Record these after a drill or real recovery:
 | Manual repair recipes | [Repair Runbooks](./repair-runbooks.md) |
 | Data retention and cleanup | [Retention And Storage Pressure](./retention.md) |
 | Secret handling during deploy and recovery | [Secrets And Redaction](../deployment/secrets-and-redaction.md) |
+| Production config and secrets | [Production Config And Secrets Contract](../deployment/production-config-contract.md) |
+| Production Linux deployment | [Production Linux Deployment](../deployment/production-linux.md) |

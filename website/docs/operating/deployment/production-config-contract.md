@@ -274,6 +274,11 @@ Retention must be an explicit operator policy. Either schedule
 retention aligned with security policy, and keep idempotency retention longer
 than realistic client retry windows.
 
+Run and record the
+[Production v1 backup/restore drill](../reliability/backup-restore.md#production-v1-drill)
+before production handoff and before releases whose rollback plan depends on
+database restore.
+
 ## Preflight Checklist
 
 Before starting production traffic, confirm:

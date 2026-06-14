@@ -243,7 +243,7 @@ documented independent restart contract.
 
 Before the deployment is handed to operators:
 
-- run and record a backup/restore drill;
+- run and record the [Production v1 backup/restore drill](../reliability/backup-restore.md#production-v1-drill);
 - define retention windows for runs, idempotency keys, audit rows, logs, and artifact blobs;
 - schedule or assign `vectis-cli retention cleanup`;
 - install alert rules for queue backlog, DLQ growth, reconciler failures, worker failure ratio, log append failures, artifact/storage pressure, audit drops, retry exhaustion, DB pool saturation, and API security rejection spikes;
