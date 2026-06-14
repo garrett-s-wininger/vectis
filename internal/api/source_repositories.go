@@ -2509,8 +2509,9 @@ func (s *APIServer) GetJobSourceDefinition(w http.ResponseWriter, r *http.Reques
 	}
 
 	file, err := store.ReadDefinitionFile(ctx, sourcepkg.DefinitionFileRequest{
-		Ref:  source.Source.ResolvedCommit,
-		Path: source.Source.DefinitionPath,
+		Revision: sourcepkg.Revision{Commit: source.Source.ResolvedCommit},
+		Path:     source.Source.DefinitionPath,
+		BlobSHA:  source.Source.BlobSHA,
 	})
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -3166,7 +3167,7 @@ func (s *APIServer) importSourceDefinitionFile(
 	ctx context.Context,
 	rec dal.SourceRepositoryRecord,
 	namespacePath string,
-	resolver sourcepkg.DefinitionResolver,
+	store sourcepkg.DefinitionStore,
 	listing sourcepkg.DefinitionFileListing,
 	file sourcepkg.DefinitionFile,
 	req sourceDefinitionsImportRequest,
@@ -3198,10 +3199,19 @@ func (s *APIServer) importSourceDefinitionFile(
 	}
 	seenJobIDs[jobID] = file.Path
 
-	loaded, err := resolver.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
-		Ref:  listing.Revision.Commit,
-		Path: file.Path,
+	sourceFile, err := store.ReadDefinitionFile(ctx, sourcepkg.DefinitionFileRequest{
+		Revision:  listing.Revision,
+		Path:      file.Path,
+		BlobSHA:   file.BlobSHA,
+		SizeBytes: file.SizeBytes,
 	})
+	if err != nil {
+		result.Status = "invalid"
+		result.Error = err.Error()
+		return result, nil
+	}
+
+	loaded, err := sourcepkg.ParseDefinitionFile(sourceFile, listing.RequestedRef, jobvalidation.Options{})
 	if err != nil {
 		result.Status = "invalid"
 		result.Error = err.Error()

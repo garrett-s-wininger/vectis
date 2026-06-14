@@ -99,8 +99,11 @@ type DefinitionFile struct {
 }
 
 type DefinitionFileRequest struct {
-	Ref  string
-	Path string
+	Ref       string
+	Revision  Revision
+	Path      string
+	BlobSHA   string
+	SizeBytes int64
 }
 
 type Revision struct {

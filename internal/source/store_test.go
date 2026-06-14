@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"vectis/internal/dal"
+	jobvalidation "vectis/internal/job/validation"
 )
 
 func TestGitDefinitionStoreFromRecordResolvesAndListsDefinitions(t *testing.T) {
@@ -55,6 +56,26 @@ func TestGitDefinitionStoreFromRecordResolvesAndListsDefinitions(t *testing.T) {
 
 	if file.Revision.Commit != commit || file.BlobSHA != blob || len(file.Content) == 0 {
 		t.Fatalf("raw definition file mismatch: %+v", file)
+	}
+
+	pinnedFile, err := store.ReadDefinitionFile(context.Background(), DefinitionFileRequest{
+		Revision:  listing.Revision,
+		Path:      listing.Files[0].Path,
+		BlobSHA:   listing.Files[0].BlobSHA,
+		SizeBytes: listing.Files[0].SizeBytes,
+	})
+
+	if err != nil {
+		t.Fatalf("ReadDefinitionFile pinned blob: %v", err)
+	}
+
+	parsed, err := ParseDefinitionFile(pinnedFile, listing.RequestedRef, jobvalidation.Options{})
+	if err != nil {
+		t.Fatalf("ParseDefinitionFile pinned blob: %v", err)
+	}
+
+	if parsed.Source.RequestedRef != "HEAD" || parsed.Source.Commit != commit || parsed.Source.BlobSHA != blob {
+		t.Fatalf("pinned definition provenance mismatch: %+v", parsed.Source)
 	}
 
 	loaded, err := store.ResolveDefinition(context.Background(), DefinitionRequest{

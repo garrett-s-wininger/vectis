@@ -170,37 +170,82 @@ func (g *GitCheckout) ResolveRevision(ctx context.Context, ref string) (Revision
 }
 
 func (g *GitCheckout) ReadFile(ctx context.Context, revision Revision, filePath string) (File, error) {
+	return g.readFileRequest(ctx, DefinitionFileRequest{
+		Revision: revision,
+		Path:     filePath,
+	})
+}
+
+func (g *GitCheckout) readDefinitionFile(ctx context.Context, req DefinitionFileRequest) (File, error) {
+	return g.readFileRequest(ctx, req)
+}
+
+func (g *GitCheckout) readFileRequest(ctx context.Context, req DefinitionFileRequest) (File, error) {
 	if err := g.validateCheckout(); err != nil {
 		return File{}, err
 	}
 
-	commit, err := normalizeCommit(revision.Commit)
+	cleanPath, err := normalizeTreePath(req.Path)
 	if err != nil {
 		return File{}, err
 	}
 
-	cleanPath, err := normalizeTreePath(filePath)
-	if err != nil {
-		return File{}, err
+	var commit string
+	if req.Revision.Valid() {
+		commit, err = normalizeCommit(req.Revision.Commit)
+		if err != nil {
+			return File{}, err
+		}
+	} else {
+		ref, err := normalizeRef(req.Ref)
+		if err != nil {
+			return File{}, err
+		}
+
+		commit, err = g.resolveCommit(ctx, ref)
+		if err != nil {
+			return File{}, fmt.Errorf("%w: revision %q", ErrNotFound, ref)
+		}
+		if commit == "" {
+			return File{}, fmt.Errorf("%w: revision %q resolved to an empty commit", ErrInvalidReference, ref)
+		}
 	}
 
-	blobSHA, err := g.resolveBlob(ctx, commit, cleanPath)
-	if err != nil {
-		return File{}, err
+	blobSHA := strings.TrimSpace(req.BlobSHA)
+	size := req.SizeBytes
+	if blobSHA != "" {
+		blobSHA, err = normalizeBlobSHA(blobSHA)
+		if err != nil {
+			return File{}, err
+		}
+		if size < 0 {
+			return File{}, fmt.Errorf("%w: %s has invalid size %d", ErrInvalidReference, cleanPath, size)
+		}
+	} else {
+		blobSHA, size, err = g.lookupFileBlob(ctx, commit, cleanPath)
+		if err != nil {
+			return File{}, err
+		}
 	}
 
-	size, err := g.blobSize(ctx, blobSHA)
-	if err != nil {
-		return File{}, err
-	}
-
-	if g.maxFileBytes > 0 && size > g.maxFileBytes {
-		return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, size, g.maxFileBytes)
+	if g.maxFileBytes > 0 {
+		if size <= 0 {
+			size, err = g.blobSize(ctx, blobSHA)
+			if err != nil {
+				return File{}, err
+			}
+		}
+		if size > g.maxFileBytes {
+			return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, size, g.maxFileBytes)
+		}
 	}
 
 	content, err := g.run(ctx, "cat-file", "-p", blobSHA)
 	if err != nil {
 		return File{}, fmt.Errorf("%w: read %s at %s", ErrNotFound, cleanPath, commit)
+	}
+	if g.maxFileBytes > 0 && int64(len(content)) > g.maxFileBytes {
+		return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(content), g.maxFileBytes)
 	}
 
 	return File{
@@ -655,27 +700,35 @@ func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, tre
 	return files, truncated, nextCursor, nil
 }
 
-func (g *GitCheckout) resolveBlob(ctx context.Context, commit, filePath string) (string, error) {
-	out, err := g.run(ctx, "rev-parse", "--verify", commit+":"+filePath)
+func (g *GitCheckout) lookupFileBlob(ctx context.Context, commit, filePath string) (string, int64, error) {
+	out, err := g.run(ctx, "--literal-pathspecs", "ls-tree", "-z", "--long", commit, "--", filePath)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s at %s", ErrNotFound, filePath, commit)
+		return "", 0, fmt.Errorf("%w: %s at %s", ErrNotFound, filePath, commit)
 	}
 
-	blobSHA := strings.TrimSpace(string(out))
-	if blobSHA == "" {
-		return "", fmt.Errorf("%w: %s at %s resolved to an empty object", ErrInvalidReference, filePath, commit)
+	for _, record := range bytes.Split(out, []byte{0}) {
+		entry, ok, err := parseTreeEntryRecord(record, "")
+		if err != nil {
+			return "", 0, err
+		}
+
+		if !ok || entry.Path != filePath {
+			continue
+		}
+
+		if entry.Type != "blob" {
+			return "", 0, fmt.Errorf("%w: %s at %s is not a file", ErrNotFound, filePath, commit)
+		}
+
+		blobSHA, err := normalizeBlobSHA(entry.ObjectSHA)
+		if err != nil {
+			return "", 0, err
+		}
+
+		return blobSHA, entry.SizeBytes, nil
 	}
 
-	typ, err := g.run(ctx, "cat-file", "-t", blobSHA)
-	if err != nil {
-		return "", fmt.Errorf("%w: object %s", ErrNotFound, blobSHA)
-	}
-
-	if strings.TrimSpace(string(typ)) != "blob" {
-		return "", fmt.Errorf("%w: %s at %s is not a file", ErrNotFound, filePath, commit)
-	}
-
-	return blobSHA, nil
+	return "", 0, fmt.Errorf("%w: %s at %s", ErrNotFound, filePath, commit)
 }
 
 func (g *GitCheckout) resolveCommit(ctx context.Context, ref string) (string, error) {
@@ -810,22 +863,35 @@ func normalizeRef(ref string) (string, error) {
 }
 
 func normalizeCommit(commit string) (string, error) {
-	commit = strings.TrimSpace(commit)
-	if commit == "" {
-		return "", fmt.Errorf("%w: commit is required", ErrInvalidReference)
+	return normalizeObjectID("commit", commit)
+}
+
+func normalizeBlobSHA(blobSHA string) (string, error) {
+	return normalizeObjectID("blob", blobSHA)
+}
+
+func normalizeObjectID(kind, value string) (string, error) {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = "object"
 	}
 
-	if len(commit) != 40 && len(commit) != 64 {
-		return "", fmt.Errorf("%w: commit %q is not a full object id", ErrInvalidReference, commit)
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("%w: %s is required", ErrInvalidReference, kind)
 	}
 
-	for _, r := range commit {
+	if len(value) != 40 && len(value) != 64 {
+		return "", fmt.Errorf("%w: %s %q is not a full object id", ErrInvalidReference, kind, value)
+	}
+
+	for _, r := range value {
 		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
-			return "", fmt.Errorf("%w: commit %q is not hexadecimal", ErrInvalidReference, commit)
+			return "", fmt.Errorf("%w: %s %q is not hexadecimal", ErrInvalidReference, kind, value)
 		}
 	}
 
-	return commit, nil
+	return value, nil
 }
 
 func normalizeBranchPrefix(prefix, remote string) (string, error) {

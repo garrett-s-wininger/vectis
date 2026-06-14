@@ -45,11 +45,16 @@ func NewGitDefinitionStore(checkout *GitCheckout) GitDefinitionStore {
 }
 
 func (s GitDefinitionStore) ResolveDefinition(ctx context.Context, req DefinitionRequest) (Definition, error) {
-	if s.Checkout == nil {
-		return Definition{}, fmt.Errorf("%w: checkout is required", ErrInvalidReference)
+	file, err := s.ReadDefinitionFile(ctx, DefinitionFileRequest{
+		Ref:  req.Ref,
+		Path: req.Path,
+	})
+
+	if err != nil {
+		return Definition{}, err
 	}
 
-	return LoadDefinition(ctx, s.Checkout, req)
+	return ParseDefinitionFile(file, req.Ref, req.Validation)
 }
 
 func (s GitDefinitionStore) ReadDefinitionFile(ctx context.Context, req DefinitionFileRequest) (File, error) {
@@ -57,7 +62,7 @@ func (s GitDefinitionStore) ReadDefinitionFile(ctx context.Context, req Definiti
 		return File{}, fmt.Errorf("%w: checkout is required", ErrInvalidReference)
 	}
 
-	return ReadDefinitionFile(ctx, s.Checkout, req)
+	return s.Checkout.readDefinitionFile(ctx, req)
 }
 
 func (s GitDefinitionStore) ListDefinitionFiles(ctx context.Context, opts ListDefinitionFilesOptions) (DefinitionFileListing, error) {
@@ -104,19 +109,29 @@ func ReadDefinitionFile(ctx context.Context, repo Repository, req DefinitionFile
 		return File{}, fmt.Errorf("%w: repository is required", ErrInvalidReference)
 	}
 
-	ref, err := normalizeRef(req.Ref)
-	if err != nil {
-		return File{}, err
-	}
-
 	filePath, err := normalizeTreePath(req.Path)
 	if err != nil {
 		return File{}, err
 	}
 
-	revision, err := repo.ResolveRevision(ctx, ref)
-	if err != nil {
-		return File{}, err
+	revision := req.Revision
+	if revision.Valid() {
+		commit, err := normalizeCommit(revision.Commit)
+		if err != nil {
+			return File{}, err
+		}
+
+		revision = Revision{Commit: commit}
+	} else {
+		ref, err := normalizeRef(req.Ref)
+		if err != nil {
+			return File{}, err
+		}
+
+		revision, err = repo.ResolveRevision(ctx, ref)
+		if err != nil {
+			return File{}, err
+		}
 	}
 
 	return repo.ReadFile(ctx, revision, filePath)
