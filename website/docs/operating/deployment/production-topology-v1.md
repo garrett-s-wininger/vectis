@@ -147,3 +147,4 @@ Before calling a production v1 deployment ready, confirm:
 | Backup and restore | [Backup And Restore](../reliability/backup-restore.md) |
 | Runbooks and alerts | [Runbooks And Alerts](../reliability/runbooks.md) |
 | Capacity envelope | [Capacity And Load Envelope](../capacity/capacity-load-envelope.md) |
+| Release production gate | [Releases And Upgrades](../../developing/releases.md#production-readiness-gate) |

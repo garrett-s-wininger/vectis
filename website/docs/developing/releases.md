@@ -4,7 +4,7 @@ Use this page when preparing a Vectis release or evaluating whether a deployment
 
 Maintainers use it to decide what evidence and release notes a release must include. Operators use the same release notes to decide whether an upgrade can roll, needs downtime, or needs a backup-and-restore rollback plan.
 
-Related policy lives in [Database Migrations](./migrations.md), [Capacity And Performance Checks](./performance/capacity-checks.md), and [Backup And Restore](../operating/reliability/backup-restore.md).
+Related policy lives in [Database Migrations](./migrations.md), [Capacity And Performance Checks](./performance/capacity-checks.md), [Production Topology v1](../operating/deployment/production-topology-v1.md), and [Backup And Restore](../operating/reliability/backup-restore.md).
 
 ## Versioning And Traceability
 
@@ -93,6 +93,33 @@ Schema changes must follow [Database Migrations](./migrations.md), including the
 13. Smoke test Postgres/reference upgrade when deploy or database behavior changed.
 14. Tag the release commit and publish artifacts from that tag.
 
+## Production Readiness Gate
+
+Use this gate before publishing a release as production-ready, or before telling
+operators a release is safe for a production-v1 deployment. If a release is
+developer-only, alpha-only, or intentionally not production-ready, say that in
+the release notes and list the missing gate items.
+
+| Gate | Evidence |
+| --- | --- |
+| Topology fit | Release notes state whether the release stays inside [Production Topology v1](../operating/deployment/production-topology-v1.md), changes that contract, or introduces an experimental shape. |
+| Artifact coverage | All required production-v1 binaries, containers, packages, or operator-supervised services are built from one commit and versioned together. Any Linux packaging gaps are called out. |
+| Config and secrets | New or changed config is documented in [Production Config And Secrets Contract](../operating/deployment/production-config-contract.md) or linked release notes, including secret-manager, TLS, identity, and allowed-host effects. |
+| Migrations | Schema changes satisfy [Database Migrations](./migrations.md), include old/new binary compatibility notes, and name the rollback path. |
+| Backup/restore | Release notes say whether a fresh backup is required before upgrade and whether rollback uses previous artifacts, database restore, roll-forward repair, or safe down migration. |
+| Deployment smoke | Linux package/artifact smoke and Postgres/reference smoke results are recorded when deployment behavior changed. |
+| VM/package lanes | VM-backed deploy/package lanes are run or explicitly waived with the reason when Linux install, package, worker isolation, or VM provider behavior changed. |
+| Monitoring | New, renamed, or removed metrics/health checks/alerts are documented, and [Production Monitoring Contract](../operating/reliability/production-monitoring.md) remains accurate. |
+| Retention | Any new durable data surface has retention behavior, cleanup safety, and backup expectations documented. |
+| Security | API auth, RBAC, TLS, service identity, secrets, redaction, worker isolation, and public surface changes are called out. |
+| Capacity | Capacity-sensitive changes cite benchmark or deployed-stack evidence, or explain why no new evidence was needed. |
+| Operator smoke | Upgrade smoke test reaches terminal job status, streams logs, and verifies artifacts/secrets when those features are in scope. |
+| Known risks | Release notes include unresolved production risks, manual verification steps, and any follow-up work required before wider rollout. |
+
+Production readiness does not require every experimental feature to be
+production-ready. It does require release notes to draw a clear line between the
+supported production-v1 path and anything outside it.
+
 ## SQLite / Local Upgrade Runbook
 
 1. Back up the SQLite database, queue persistence, log storage, secrets, and local TLS material if they matter for this environment.
@@ -106,13 +133,13 @@ Rollback usually means restoring the pre-upgrade backup and previous artifacts u
 
 ## Postgres / Reference Deploy Upgrade Runbook
 
-1. Back up Postgres and deployment secrets/TLS material.
+1. Back up Postgres, queue persistence, log storage, artifact storage, secret material, TLS material, and live config according to [Backup And Restore](../operating/reliability/backup-restore.md).
 2. Read release notes for required downtime, allowed skew, and migration rollback path.
 3. Stop cron and workers first if the release does not allow mixed execution.
 4. Run `vectis-cli database migrate` against the Postgres DSN.
 5. Roll registry, queue, orchestrator, log, artifact, spiffe, secrets, cell ingress, API, worker-core, workers, cron, reconciler, catalog, log-forwarder, and docs according to the release notes.
 6. Run the upgrade smoke test.
-7. Watch retry exhaustion, queued-run age, worker failures, and API readiness for at least one reconciler interval.
+7. Watch retry exhaustion, queued-run age workarounds, worker failures, log/artifact failures, DB pool pressure, and API readiness for at least one reconciler interval.
 
 Rollback depends on the migration note. Use previous artifacts alone only when the release notes state old binaries tolerate the migrated schema. Otherwise restore the database backup or apply the documented roll-forward repair.
 
@@ -148,6 +175,9 @@ Choose one, and document it in release notes:
 | --- | --- |
 | Schema compatibility and rollback | [Database Migrations](./migrations.md) |
 | Performance evidence for hot-path changes | [Capacity And Performance Checks](./performance/capacity-checks.md) |
+| Production topology gate | [Production Topology v1](../operating/deployment/production-topology-v1.md) |
+| Production config and secrets | [Production Config And Secrets Contract](../operating/deployment/production-config-contract.md) |
+| Production monitoring | [Production Monitoring Contract](../operating/reliability/production-monitoring.md) |
 | Operator capacity envelope | [Capacity And Load Envelope](../operating/capacity/capacity-load-envelope.md) |
 | Upgrade backup and restore planning | [Backup And Restore](../operating/reliability/backup-restore.md) |
 | Scaling and restart order | [Scaling And Restarts](../operating/deployment/scaling-and-restarts.md) |

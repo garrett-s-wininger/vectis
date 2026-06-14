@@ -79,6 +79,7 @@ For each release with schema changes, release notes must state:
 - Whether rolling upgrades with mixed binary versions are supported.
 - Whether downtime or a coordinated service stop is required.
 - The production rollback path: backup restore, roll-forward repair, or explicitly safe down migration.
+- Whether the release passes the production readiness migration gate in [Releases And Upgrades](./releases.md#production-readiness-gate).
 
 ## Review Checklist
 
