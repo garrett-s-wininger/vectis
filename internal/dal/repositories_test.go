@@ -3002,6 +3002,120 @@ func TestRunCatalogUpdater_AppliesExecutionUpdatesFromPlannedRows(t *testing.T) 
 	assertTaskAndAttemptStatus(t, db, succeeded.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 1)
 }
 
+func TestRunCatalogUpdater_IgnoresStaleCatalogStatusUpdates(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "team-catalog-stale-updates", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-catalog-stale-updates"
+	def := `{"id":"job-catalog-stale-updates","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	updater := repos.Runs()
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusRunning,
+	}); err != nil {
+		t.Fatalf("apply running execution update: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 1)
+	assertTaskAndAttemptStatus(t, db, dispatch.TaskID, 1, dal.TaskStatusRunning, dal.TaskStatusRunning, 1)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusAccepted,
+	}); err != nil {
+		t.Fatalf("apply stale accepted execution update: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusRunning, dal.SegmentStatusRunning, 1)
+	assertTaskAndAttemptStatus(t, db, dispatch.TaskID, 1, dal.TaskStatusRunning, dal.TaskStatusRunning, 1)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusSucceeded,
+	}); err != nil {
+		t.Fatalf("apply succeeded execution update: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertTaskAndAttemptStatus(t, db, dispatch.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 2)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusRunning,
+	}); err != nil {
+		t.Fatalf("apply stale running execution update after terminal: %v", err)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertTaskAndAttemptStatus(t, db, dispatch.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 2)
+
+	if err := updater.ApplyExecutionStatusUpdate(ctx, dal.ExecutionStatusUpdate{
+		ExecutionID: dispatch.ExecutionID,
+		Status:      dal.ExecutionStatusFailed,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("apply conflicting terminal execution update error = %v, want conflict", err)
+	}
+
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
+		RunID:  runID,
+		Status: dal.RunStatusRunning,
+	}); err != nil {
+		t.Fatalf("apply running run update: %v", err)
+	}
+
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
+		RunID:  runID,
+		Status: dal.RunStatusSucceeded,
+	}); err != nil {
+		t.Fatalf("apply succeeded run update: %v", err)
+	}
+
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
+		RunID:  runID,
+		Status: dal.RunStatusRunning,
+	}); err != nil {
+		t.Fatalf("apply stale running run update after terminal: %v", err)
+	}
+
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	if run.Status != dal.RunStatusSucceeded {
+		t.Fatalf("run status = %q, want %q", run.Status, dal.RunStatusSucceeded)
+	}
+
+	if err := updater.ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
+		RunID:       runID,
+		Status:      dal.RunStatusFailed,
+		FailureCode: dal.FailureCodeExecution,
+		Reason:      "late failure",
+	}); !dal.IsConflict(err) {
+		t.Fatalf("apply conflicting terminal run update error = %v, want conflict", err)
+	}
+}
+
 func TestRunsRepository_ExecutionTransitionsRejectInvalidTargets(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

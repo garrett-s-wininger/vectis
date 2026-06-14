@@ -33,17 +33,17 @@ func (r *SQLRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update Run
 
 	switch update.Status {
 	case RunStatusRunning:
-		return r.MarkRunRunning(ctx, runID)
+		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status})
 	case RunStatusSucceeded:
-		return r.MarkRunSucceeded(ctx, runID)
+		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status})
 	case RunStatusFailed:
-		return r.MarkRunFailed(ctx, runID, update.FailureCode, update.Reason)
+		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status, FailureCode: update.FailureCode, Reason: update.Reason})
 	case RunStatusCancelled:
-		return r.MarkRunCancelled(ctx, runID, update.Reason)
+		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason})
 	case RunStatusAborted:
-		return r.MarkRunAborted(ctx, runID, update.Reason)
+		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: RunStatusCancelled, Reason: update.Reason})
 	case RunStatusOrphaned:
-		return r.MarkRunOrphaned(ctx, runID, update.Reason)
+		return r.applyCatalogRunStatusUpdate(ctx, RunStatusUpdate{RunID: runID, Status: update.Status, Reason: update.Reason})
 	default:
 		return fmt.Errorf("%w: unsupported run status %s", ErrConflict, update.Status)
 	}
@@ -73,6 +73,98 @@ func (r *SQLRunsRepository) MarkRunRunning(ctx context.Context, runID string) er
 		"running", runID)
 
 	return normalizeSQLError(err)
+}
+
+func (r *SQLRunsRepository) applyCatalogRunStatusUpdate(ctx context.Context, update RunStatusUpdate) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	runID := strings.TrimSpace(update.RunID)
+	targetStatus := strings.TrimSpace(update.Status)
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&currentStatus); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	switch catalogRunStatusDecision(currentStatus, targetStatus) {
+	case statusTransitionNoop:
+		return tx.Commit()
+	case statusTransitionConflict:
+		return fmt.Errorf("%w: catalog run status %s cannot replace current status %s for run %s", ErrConflict, targetStatus, currentStatus, runID)
+	}
+
+	var res sql.Result
+	switch targetStatus {
+	case RunStatusRunning:
+		res, err = tx.ExecContext(ctx,
+			rebindQueryForPgx("UPDATE job_runs SET status = ?, orphan_reason = '', failure_code = '', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE run_id = ? AND status = ?"),
+			RunStatusRunning, runID, currentStatus)
+	case RunStatusSucceeded:
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
+			orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL,
+			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusSucceeded, runID, currentStatus)
+	case RunStatusFailed:
+		failureCode := update.FailureCode
+		if failureCode == "" {
+			failureCode = FailureCodeExecution
+		}
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
+			orphan_reason = '', lease_owner = NULL, lease_until = NULL,
+			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusFailed, failureCode, update.Reason, runID, currentStatus)
+	case RunStatusCancelled:
+		reason := update.Reason
+		if reason == "" {
+			reason = CancelReasonAPI
+		}
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
+			orphan_reason = '', lease_owner = NULL, lease_until = NULL, cancel_token = NULL,
+			cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusCancelled, reason, runID, currentStatus)
+	case RunStatusAborted:
+		reason := update.Reason
+		if reason == "" {
+			reason = CancelReasonAPI
+		}
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
+			orphan_reason = '', lease_owner = NULL, lease_until = NULL, cancel_token = NULL,
+			cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusCancelled, reason, runID, currentStatus)
+	case RunStatusOrphaned:
+		reason := update.Reason
+		if reason == "" {
+			reason = "unknown"
+		}
+		orphanReason := classifyOrphanReason(reason)
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, failure_reason = ?,
+			orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusOrphaned, reason, orphanReason, runID, currentStatus)
+	default:
+		return fmt.Errorf("%w: unsupported run status %s", ErrConflict, targetStatus)
+	}
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if err := requireSingleCatalogStatusUpdate(res, "run", runID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
@@ -3680,7 +3772,7 @@ func (r *SQLRunsRepository) markExecutionAccepted(ctx context.Context, execution
 }
 
 func (r *SQLRunsRepository) applyCatalogExecutionAccepted(ctx context.Context, executionID string) error {
-	return r.transitionExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, []string{ExecutionStatusPlanned, ExecutionStatusPending}, true, false, false)
+	return r.transitionCatalogExecution(ctx, executionID, ExecutionStatusAccepted, SegmentStatusAccepted, true, false, false)
 }
 
 func (r *SQLRunsRepository) MarkExecutionStarted(ctx context.Context, executionID string) error {
@@ -3688,7 +3780,7 @@ func (r *SQLRunsRepository) MarkExecutionStarted(ctx context.Context, executionI
 }
 
 func (r *SQLRunsRepository) applyCatalogExecutionStarted(ctx context.Context, executionID string) error {
-	return r.transitionExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted}, true, true, false)
+	return r.transitionCatalogExecution(ctx, executionID, ExecutionStatusRunning, SegmentStatusRunning, true, true, false)
 }
 
 func (r *SQLRunsRepository) markExecutionTerminal(ctx context.Context, executionID, status string) error {
@@ -3704,7 +3796,25 @@ func (r *SQLRunsRepository) applyCatalogExecutionTerminal(ctx context.Context, e
 		return fmt.Errorf("%w: unsupported terminal execution status %s", ErrConflict, status)
 	}
 
-	return r.transitionExecution(ctx, executionID, status, status, []string{ExecutionStatusPlanned, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, true, true)
+	return r.transitionCatalogExecution(ctx, executionID, status, status, true, true, true)
+}
+
+func (r *SQLRunsRepository) transitionCatalogExecution(
+	ctx context.Context,
+	executionID, targetStatus, targetSegmentStatus string,
+	markAccepted, markStarted, markFinished bool,
+) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := transitionExecutionTxWithDecision(ctx, tx, executionID, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished, catalogExecutionStatusDecision); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *SQLRunsRepository) transitionExecution(
@@ -3733,12 +3843,33 @@ func transitionExecutionTx(
 	allowedFrom []string,
 	markAccepted, markStarted, markFinished bool,
 ) (string, error) {
+	return transitionExecutionTxWithDecision(ctx, tx, executionID, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished, func(current, target string) statusTransitionDecision {
+		if current == target {
+			return statusTransitionNoop
+		}
+
+		if !statusIn(current, allowedFrom) {
+			return statusTransitionConflict
+		}
+
+		return statusTransitionApply
+	})
+}
+
+func transitionExecutionTxWithDecision(
+	ctx context.Context,
+	tx *sql.Tx,
+	executionID, targetStatus, targetSegmentStatus string,
+	markAccepted, markStarted, markFinished bool,
+	decisionFor func(current, target string) statusTransitionDecision,
+) (string, error) {
 	var segmentID string
 	var runID string
 	var taskID string
 	var taskAttemptID string
 	var attempt int
 	var currentStatus string
+
 	if err := tx.QueryRowContext(ctx,
 		rebindQueryForPgx("SELECT segment_id, run_id, task_id, task_attempt_id, attempt, status FROM segment_executions WHERE execution_id = ?"),
 		executionID,
@@ -3750,11 +3881,10 @@ func transitionExecutionTx(
 		return "", normalizeSQLError(err)
 	}
 
-	if currentStatus == targetStatus {
+	switch decisionFor(currentStatus, targetStatus) {
+	case statusTransitionNoop:
 		return taskID, nil
-	}
-
-	if !statusIn(currentStatus, allowedFrom) {
+	case statusTransitionConflict:
 		return "", fmt.Errorf("%w: execution %s status %s cannot transition to %s", ErrConflict, executionID, currentStatus, targetStatus)
 	}
 
@@ -3800,6 +3930,19 @@ func transitionExecutionTx(
 	}
 
 	return taskID, nil
+}
+
+func requireSingleCatalogStatusUpdate(res sql.Result, recordType, id string) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if n == 1 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: catalog %s status for %s changed concurrently", ErrConflict, recordType, id)
 }
 
 func transitionTaskAttemptTx(
