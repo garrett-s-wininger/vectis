@@ -254,13 +254,6 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			RateLimit: defaultLimits.General,
 		},
 		{
-			Pattern:   "POST /api/v1/source-repositories/{id}/definitions/import",
-			Handler:   http.HandlerFunc(s.ImportSourceRepositoryDefinitions),
-			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
-			Body:      jsonDocumentBody,
-			RateLimit: defaultLimits.General,
-		},
-		{
 			Pattern:   "POST /api/v1/source-repositories/{id}/definitions/resolve",
 			Handler:   http.HandlerFunc(s.ResolveSourceDefinition),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
@@ -356,34 +349,6 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Handler:   http.HandlerFunc(s.UpdateJobDefinition),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
 			Body:      jobDefinitionBody,
-			RateLimit: defaultLimits.General,
-		},
-		{
-			Pattern:   "GET /api/v1/jobs/{id}/source",
-			Handler:   http.HandlerFunc(s.GetJobSource),
-			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
-			Query:     routeQueryParams("version"),
-			RateLimit: defaultLimits.General,
-		},
-		{
-			Pattern:   "GET /api/v1/jobs/{id}/source/definition",
-			Handler:   http.HandlerFunc(s.GetJobSourceDefinition),
-			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},
-			Query:     routeQueryParams("version"),
-			RateLimit: defaultLimits.General,
-		},
-		{
-			Pattern:   "POST /api/v1/jobs/source/{id}",
-			Handler:   http.HandlerFunc(s.CreateJobFromSource),
-			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
-			Body:      jsonDocumentBody,
-			RateLimit: defaultLimits.General,
-		},
-		{
-			Pattern:   "PUT /api/v1/jobs/source/{id}",
-			Handler:   http.HandlerFunc(s.UpdateJobFromSource),
-			Auth:      routeAuthPolicy{Action: authz.ActionJobWrite},
-			Body:      jsonDocumentBody,
 			RateLimit: defaultLimits.General,
 		},
 		{

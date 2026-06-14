@@ -296,32 +296,21 @@ Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 ./bin/vectis-cli sources jobs vectis-local --ref main
 ```
 
-Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. When branch, tree, definition, job, or import output reaches its limit, non-JSON output prints a truncation notice; tree, definition, job, and import commands also print a `--cursor` value when another request can continue from the last returned path.
+Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. When branch, tree, definition, or job output reaches its limit, non-JSON output prints a truncation notice; tree, definition, and job commands also print a `--cursor` value when another request can continue from the last returned path.
 
-For hybrid or migration deployments that still use stored jobs, preview and import source definitions:
+Preview a source definition without storing it:
 
 ```sh
 ./bin/vectis-cli sources resolve vectis-local .vectis/jobs/build.json --ref main
-./bin/vectis-cli sources import vectis-local --ref main --dry-run
-./bin/vectis-cli sources import vectis-local --ref main --update-existing
 ```
-
-Create or update a specific stored job from a repository definition, then inspect the recorded source provenance:
-
-```sh
-./bin/vectis-cli jobs source create build vectis-local --ref main --namespace /
-./bin/vectis-cli jobs source update build vectis-local --ref main
-./bin/vectis-cli jobs source show build --version 1
-./bin/vectis-cli jobs source definition build --version 1
-```
-
-Pass a definition path as the third positional argument when a job does not use the default `.vectis/jobs/<job-id>.json` layout.
 
 Inspect a source-defined job definition at a specific ref:
 
 ```sh
 ./bin/vectis-cli sources show vectis-local build --ref main
 ```
+
+Pass `--path` when a job does not use the default `.vectis/jobs/<job-id>.json` layout.
 
 For a managed repository with `authoring_mode=local_commit`, write a definition back into source without creating a stored job row:
 
