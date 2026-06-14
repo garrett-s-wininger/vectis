@@ -95,6 +95,64 @@ func TestLoadManifestIncludesVectisCommon(t *testing.T) {
 	}
 }
 
+func TestLoadManifestIncludesVectisLocal(t *testing.T) {
+	manifest, err := LoadManifest(DefaultManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	localBinDir := t.TempDir()
+	for _, name := range []string{
+		"vectis-local",
+		"vectis-api",
+		"vectis-artifact",
+		"vectis-orchestrator",
+		"vectis-worker-core",
+		"vectis-secrets",
+	} {
+		writeTestFile(t, filepath.Join(localBinDir, name), "#!/bin/sh\n")
+	}
+
+	wrapper := filepath.Join(t.TempDir(), "vectis-local-wrapper")
+	writeTestFile(t, wrapper, "#!/bin/sh\nexec /usr/lib/vectis-local/bin/vectis-local \"$@\"\n")
+
+	pkg, err := manifest.resolve(BuildOptions{
+		PackageID: "vectis-local",
+		Version:   "v1.2.3",
+		Release:   "2",
+		Arch:      "arm64",
+		Inputs: map[string]string{
+			"vectis-local-wrapper":  wrapper,
+			"vectis-local-binaries": localBinDir,
+		},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if pkg.Name != "vectis-local" {
+		t.Fatalf("package name = %q", pkg.Name)
+	}
+
+	for _, depend := range []string{"vectis-cli", "ca-certificates"} {
+		if !containsString(pkg.Depends, depend) {
+			t.Fatalf("vectis-local dependencies missing %s: %v", depend, pkg.Depends)
+		}
+	}
+
+	requireResolvedFile(t, pkg, "/usr/bin/vectis-local", wrapper, 0o755)
+	requireResolvedFile(t, pkg, "/usr/lib/vectis-local/bin/vectis-local", filepath.Join(localBinDir, "vectis-local"), 0o755)
+	requireResolvedFile(t, pkg, "/usr/lib/vectis-local/bin/vectis-artifact", filepath.Join(localBinDir, "vectis-artifact"), 0o755)
+	requireResolvedFile(t, pkg, "/usr/lib/vectis-local/bin/vectis-worker-core", filepath.Join(localBinDir, "vectis-worker-core"), 0o755)
+
+	for _, file := range pkg.Files {
+		if strings.HasPrefix(file.Destination, "/usr/lib/systemd/") {
+			t.Fatalf("vectis-local package should not install systemd units: %+v", file)
+		}
+	}
+}
+
 func TestLoadManifestIncludesGeneratedServicePackage(t *testing.T) {
 	manifest, err := LoadManifest(DefaultManifestPath)
 	if err != nil {

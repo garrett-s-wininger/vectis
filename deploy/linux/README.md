@@ -25,8 +25,8 @@ The standalone units are Postgres-first. Set `VECTIS_DATABASE_DRIVER=pgx` and a
 real PostgreSQL DSN after copying the rendered `env/vectis.env.example` to
 `/etc/vectis/vectis.env`.
 The rendered artifact contract describes the standalone multi-service stack.
-Packaging may later add a `vectis-local` convenience unit, but that belongs to
-DEB/RPM packaging rather than this TOML-driven service inventory.
+The `vectis-local` DEB/RPM package is intentionally separate from this
+TOML-driven service inventory and does not install systemd units.
 
 ## Ownership Boundary
 

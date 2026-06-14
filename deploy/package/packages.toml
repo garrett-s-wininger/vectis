@@ -83,6 +83,32 @@ owner = "root"
 group = "root"
 
 [[package]]
+id = "vectis-local"
+name = "vectis-local"
+summary = "Self-contained local Vectis stack"
+description = """
+Vectis local installs a SQLite-capable local supervisor and private child
+binaries for running a single-host Vectis stack.
+"""
+depends = ["vectis-cli", "ca-certificates"]
+
+[[package.file]]
+id = "vectis-local-wrapper"
+source = "vectis-local-wrapper"
+destination = "/usr/bin/vectis-local"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-local-binaries"
+source = "vectis-local-binaries"
+destination = "/usr/lib/vectis-local/bin"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package]]
 id = "vectis-api"
 name = "vectis-api"
 summary = "Vectis API service"

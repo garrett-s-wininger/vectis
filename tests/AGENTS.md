@@ -71,6 +71,8 @@ Useful e2e controls:
 | `VECTIS_E2E_PACKAGE_CLI_RPM` | Path to a built `vectis-cli` RPM for package e2e testing. |
 | `VECTIS_E2E_PACKAGE_SERVICES_DEB` | Whitespace- or path-list-separated paths for built `vectis-common`, service, and `vectis-services` DEBs. |
 | `VECTIS_E2E_PACKAGE_SERVICES_RPM` | Whitespace- or path-list-separated paths for built `vectis-common`, service, and `vectis-services` RPMs. |
+| `VECTIS_E2E_PACKAGE_LOCAL_DEB` | Path to a native Linux CGO `vectis-local` DEB for package e2e testing. |
+| `VECTIS_E2E_PACKAGE_LOCAL_RPM` | Path to a native Linux CGO `vectis-local` RPM for package e2e testing. |
 | `VECTIS_E2E_PACKAGE_LINUX_PROVIDER` | Linux package VM provider; defaults to `auto` (currently Lima). |
 | `VECTIS_E2E_PACKAGE_LINUX_PROVIDER_PATH` | Override the VM provider command path, such as `limactl`. |
 | `VECTIS_E2E_PACKAGE_LINUX_INSTANCE` | Override the Linux package smoke VM instance name. |
