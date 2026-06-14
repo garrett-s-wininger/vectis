@@ -123,6 +123,7 @@ Production evidence: <link to completed evidence record or "not applicable">
 
 ### Smoke And Drill Evidence
 
+- `make release-local-validate`:
 - `make test-quick`:
 - Postgres integration, when required:
 - Linux package/artifact smoke:
@@ -157,9 +158,9 @@ Schema changes must follow [Database Migrations](./migrations.md), including the
 
 1. Confirm the tree is clean except intended release changes.
 2. Run `make proto` and verify generated files are committed when protos changed.
-3. Run `make test-quick`.
+3. Run `make release-local-validate` for the local release lane.
 4. Run `make test-postgres-integration` for any database, migration, DAL, queue, reconciler, auth, or deploy-sensitive change.
-5. Build all binaries with `make build`; this also embeds the docs site into `vectis-docs`.
+5. If the local release lane was skipped or failed before the build step, build all binaries with `make build`; this also embeds the docs site into `vectis-docs`.
 6. Build container images with the release tag.
 7. Verify `vectis-cli --version` and one daemon `--version` show the release version, commit, and build date.
 8. Review [Database Migrations](./migrations.md) requirements for every schema change.

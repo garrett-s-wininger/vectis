@@ -145,6 +145,13 @@ test-race:
 test-quick:
 	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/... ./sdk/... ./examples/... ./tools/...
 
+.PHONY: release-local-validate
+release-local-validate:
+	$(MAKE) test-quick
+	$(MAKE) deploy-artifacts-test
+	$(MAKE) test-package
+	$(MAKE) build
+
 .PHONY: test-fault
 test-fault:
 	go test -count=1 ./internal/faultinject
