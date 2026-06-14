@@ -98,6 +98,11 @@ type DefinitionFile struct {
 	SizeBytes int64
 }
 
+type DefinitionFileRequest struct {
+	Ref  string
+	Path string
+}
+
 type Revision struct {
 	Commit string
 }

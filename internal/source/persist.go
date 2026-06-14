@@ -12,9 +12,10 @@ import (
 type RepositoryFactory func(dal.SourceRepositoryRecord) (Repository, error)
 
 type DefinitionPersister struct {
-	Jobs          dal.SourceBackedJobsRepository
-	Sources       dal.SourcesRepository
-	NewRepository RepositoryFactory
+	Jobs                  dal.SourceBackedJobsRepository
+	Sources               dal.SourcesRepository
+	NewRepository         RepositoryFactory
+	NewDefinitionResolver DefinitionResolverFactory
 }
 
 type PersistDefinitionRequest struct {
@@ -107,17 +108,12 @@ func (p DefinitionPersister) load(ctx context.Context, req PersistDefinitionRequ
 		req.Ref = strings.TrimSpace(repoRec.DefaultRef)
 	}
 
-	factory := p.NewRepository
-	if factory == nil {
-		factory = NewRepositoryFromRecord
-	}
-
-	repo, err := factory(repoRec)
+	resolver, err := p.definitionResolver(repoRec)
 	if err != nil {
 		return Definition{}, dal.SourceRepositoryRecord{}, dal.JobDefinitionSourceRecord{}, err
 	}
 
-	loaded, err := LoadDefinition(ctx, repo, DefinitionRequest{
+	loaded, err := resolver.ResolveDefinition(ctx, DefinitionRequest{
 		Ref:        req.Ref,
 		Path:       req.Path,
 		Validation: req.Validation,
@@ -150,20 +146,23 @@ func normalizePersistDefinitionRequest(req PersistDefinitionRequest) PersistDefi
 	return req
 }
 
-func NewRepositoryFromRecord(rec dal.SourceRepositoryRecord) (Repository, error) {
-	switch strings.TrimSpace(rec.SourceKind) {
-	case dal.SourceKindLocalCheckout:
-		checkoutPath := strings.TrimSpace(rec.CheckoutPath)
-		if checkoutPath == "" {
-			return nil, fmt.Errorf("%w: checkout_path is required for %s", ErrInvalidReference, dal.SourceKindLocalCheckout)
-		}
-
-		if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
-			return NewManagedGitCheckout(checkoutPath), nil
-		}
-
-		return NewGitCheckout(checkoutPath), nil
-	default:
-		return nil, fmt.Errorf("%w: unsupported source_kind %q", ErrInvalidReference, rec.SourceKind)
+func (p DefinitionPersister) definitionResolver(rec dal.SourceRepositoryRecord) (DefinitionResolver, error) {
+	if p.NewDefinitionResolver != nil {
+		return p.NewDefinitionResolver(rec)
 	}
+
+	if p.NewRepository != nil {
+		repo, err := p.NewRepository(rec)
+		if err != nil {
+			return nil, err
+		}
+
+		return NewRepositoryDefinitionResolver(repo), nil
+	}
+
+	return NewDefinitionResolverFromRecord(rec)
+}
+
+func NewRepositoryFromRecord(rec dal.SourceRepositoryRecord) (Repository, error) {
+	return NewGitCheckoutFromRecord(rec)
 }
