@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -87,6 +88,30 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 	requireRecordedCommand(t, manager, []string{"sudo", "systemctl", "is-active", "--quiet", "vectis.target"})
 }
 
+func TestRunVMSmokeVerifyRequiresPreparedInstance(t *testing.T) {
+	manager := &recordingVMManager{exists: false}
+
+	_, err := RunVMSmokeVerify(context.Background(), VMSmokeOptions{
+		Manager:  manager,
+		Instance: "smoke-vm",
+	})
+	if err == nil {
+		t.Fatal("expected missing prepared VM error")
+	}
+
+	if !strings.Contains(err.Error(), "make vm-deploy-smoke-prepare") {
+		t.Fatalf("missing prepared VM error = %q, want prep target hint", err)
+	}
+
+	if manager.created {
+		t.Fatal("deploy smoke should not create a VM during verification")
+	}
+
+	if manager.started {
+		t.Fatal("deploy smoke should not start a missing VM")
+	}
+}
+
 func TestRunVMSmokeVerifyCleansGuestAfterFailure(t *testing.T) {
 	failCommand := []string{"sudo", "systemctl", "start", "vectis.target"}
 	manager := &recordingVMManager{exists: true, failCommand: failCommand}
@@ -117,6 +142,7 @@ func expectedSmokeTargetMemberUnits() []string {
 
 type recordingVMManager struct {
 	exists        bool
+	created       bool
 	started       bool
 	copiedLocal   string
 	copiedRemote  string
@@ -137,6 +163,7 @@ func (m *recordingVMManager) InstanceExists(context.Context, string) (bool, erro
 }
 
 func (m *recordingVMManager) Create(context.Context, string, string) error {
+	m.created = true
 	m.exists = true
 	return nil
 }

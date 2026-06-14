@@ -176,6 +176,14 @@ PACKAGE_LOCAL_APPS ?= local api artifact catalog cell-ingress cron docs log orch
 PACKAGE_LOCAL_ALLOW_CROSS_CGO ?= 0
 PACKAGE_LOCAL_MAKE ?= make
 PACKER ?= packer
+PACKER_DEPLOY_SMOKE_DIR ?= build/packer/deploy-smoke
+PACKER_DEPLOY_SMOKE_INSTANCE ?= vectis-deploy-smoke
+PACKER_DEPLOY_SMOKE_TEMPLATE ?= ubuntu-lts
+PACKER_DEPLOY_SMOKE_CPUS ?= 2
+PACKER_DEPLOY_SMOKE_MEMORY ?= 2
+PACKER_DEPLOY_SMOKE_DISK ?= 30
+PACKER_DEPLOY_SMOKE_STOP ?= true
+PACKER_DEPLOY_SMOKE_LIMA_BIN ?= limactl
 PACKER_PACKAGE_BUILDER_DIR ?= build/packer/package-builder
 PACKER_PACKAGE_BUILDER_INSTANCE ?= vectis-package-builder
 PACKER_PACKAGE_BUILDER_TEMPLATE ?= ubuntu-lts
@@ -207,6 +215,7 @@ PACKAGE_LOCAL_VM_CACHE_ROOT ?= $(PACKER_PACKAGE_BUILDER_CACHE_ROOT)
 PACKAGE_LOCAL_VM_KEEP ?= 0
 PACKAGE_LOCAL_VM_PRESERVE_ENV ?= 0
 PACKAGE_LOCAL_VM_GO ?= go
+packer_deploy_smoke_vars = -var 'instance=$(PACKER_DEPLOY_SMOKE_INSTANCE)' -var 'base_template=$(PACKER_DEPLOY_SMOKE_TEMPLATE)' -var 'cpus=$(PACKER_DEPLOY_SMOKE_CPUS)' -var 'memory=$(PACKER_DEPLOY_SMOKE_MEMORY)' -var 'disk=$(PACKER_DEPLOY_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_DEPLOY_SMOKE_STOP)' -var 'lima_bin=$(PACKER_DEPLOY_SMOKE_LIMA_BIN)'
 packer_package_builder_optional_sha = $(if $(strip $(PACKER_PACKAGE_BUILDER_GO_SHA256)),-var 'go_sha256=$(PACKER_PACKAGE_BUILDER_GO_SHA256)',)
 packer_package_builder_vars = -var 'instance=$(PACKER_PACKAGE_BUILDER_INSTANCE)' -var 'base_template=$(PACKER_PACKAGE_BUILDER_TEMPLATE)' -var 'go_version=$(PACKER_PACKAGE_BUILDER_GO_VERSION)' $(packer_package_builder_optional_sha) -var 'cpus=$(PACKER_PACKAGE_BUILDER_CPUS)' -var 'memory=$(PACKER_PACKAGE_BUILDER_MEMORY)' -var 'disk=$(PACKER_PACKAGE_BUILDER_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_BUILDER_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' -var 'workspace_root=$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' -var 'cache_root=$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)'
 packer_package_smoke_vars = -var 'profile=$(1)' -var 'instance=$(2)' -var 'base_template=$(3)' -var 'cpus=$(PACKER_PACKAGE_SMOKE_CPUS)' -var 'memory=$(PACKER_PACKAGE_SMOKE_MEMORY)' -var 'disk=$(PACKER_PACKAGE_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_SMOKE_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_SMOKE_LIMA_BIN)'
@@ -266,6 +275,24 @@ PACKAGE_SERVICES_DEB_TARGETS := $(addprefix package-services-deb-,$(PACKAGE_ARCH
 PACKAGE_SERVICES_RPM_TARGETS := $(addprefix package-services-rpm-,$(PACKAGE_ARCHES))
 
 .PRECIOUS: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli $(PACKAGE_SERVICE_BINARIES) $(PACKAGE_LOCAL_BINARIES) $(PACKAGE_LOCAL_WRAPPER)
+
+.PHONY: vm-deploy-smoke-validate
+vm-deploy-smoke-validate:
+	$(PACKER) validate $(packer_deploy_smoke_vars) $(PACKER_DEPLOY_SMOKE_DIR)
+
+.PHONY: vm-deploy-smoke-prepare
+vm-deploy-smoke-prepare:
+	$(PACKER) build $(packer_deploy_smoke_vars) $(PACKER_DEPLOY_SMOKE_DIR)
+
+.PHONY: vm-deploy-smoke-check
+vm-deploy-smoke-check:
+	@status=0; \
+	$(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false start $(PACKER_DEPLOY_SMOKE_INSTANCE) || status=$$?; \
+	if [ $$status -eq 0 ]; then \
+		$(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false shell $(PACKER_DEPLOY_SMOKE_INSTANCE) -- sh -lc 'set -eu; test "$$(cat /etc/vectis/deploy-smoke-profile)" = "systemd"; command -v systemctl >/dev/null; command -v systemd-analyze >/dev/null; command -v systemd-sysusers >/dev/null; command -v systemd-tmpfiles >/dev/null' || status=$$?; \
+	fi; \
+	case "$(PACKER_DEPLOY_SMOKE_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_DEPLOY_SMOKE_LIMA_BIN) --tty=false stop $(PACKER_DEPLOY_SMOKE_INSTANCE) || status=$$?;; esac; \
+	exit $$status
 
 .PHONY: vm-package-builder-validate
 vm-package-builder-validate:

@@ -73,19 +73,26 @@ make deploy-artifacts-render DEPLOY_LINUX_OUT=artifacts/deploy/linux
 When a supported backend is available, macOS developers can run the rendered
 artifacts through real Linux systemd without leaving the workstation. The
 platform layer selects the backend automatically; Lima is the first provider.
-This is an e2e test harness, not a user-facing deploy command:
+This is an e2e test harness, not a user-facing deploy command. Prepare the
+guest once with Packer, then run the e2e harness against that prepared VM:
 
 ```sh
+make vm-deploy-smoke-prepare
+make vm-deploy-smoke-check
 make test-e2e-deploy-linux
 ```
 
-The e2e harness creates or starts a Lima instance named `vectis-deploy-smoke` from the
-`ubuntu-lts` template, renders the Linux artifacts into a temporary local
-directory, copies them into the guest, installs them under `/etc/systemd/system`,
-`/etc/vectis`, `/usr/lib/sysusers.d`, and `/usr/lib/tmpfiles.d`, creates
-temporary Vectis stub binaries, and runs `systemd-analyze verify`,
-`systemd-sysusers`, `systemd-tmpfiles`, and `systemctl daemon-reload`. The file
-installation step is driven by the rendered `install/manifest.tsv`.
+By default, `make vm-deploy-smoke-prepare` prepares a Lima instance named
+`vectis-deploy-smoke` from the `ubuntu-lts` template, installs the systemd
+tooling needed by the harness, and writes `/etc/vectis/deploy-smoke-profile`.
+The e2e harness expects that prepared instance to exist; it does not create raw
+VMs from templates. During the test it starts the VM, renders the Linux
+artifacts into a temporary local directory, copies them into the guest, installs
+them under `/etc/systemd/system`, `/etc/vectis`, `/usr/lib/sysusers.d`, and
+`/usr/lib/tmpfiles.d`, creates temporary Vectis stub binaries, and runs
+`systemd-analyze verify`, `systemd-sysusers`, `systemd-tmpfiles`, and
+`systemctl daemon-reload`. The file installation step is driven by the rendered
+`install/manifest.tsv`.
 
 The harness installs marker-bearing stubs under `/usr/bin`, so cleanup can
 remove smoke files without claiming ownership of existing host binaries. It
@@ -100,7 +107,9 @@ The e2e target stops the deploy VM after the test unless
 
 Set `VECTIS_E2E_DEPLOY_LINUX_PROVIDER=lima` when you want to force a specific
 backend. Host operations run through `internal/platform` so additional backends
-can reuse the same render/install/verify/cleanup flow.
+can reuse the same render/install/verify/cleanup flow. Use
+`PACKER_DEPLOY_SMOKE_INSTANCE` and `VECTIS_E2E_DEPLOY_LINUX_INSTANCE` together
+when you want to prepare and test a non-default instance name.
 
 ## Manual Install Sketch
 

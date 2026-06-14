@@ -63,8 +63,7 @@ Useful e2e controls:
 | `VECTIS_E2E_ALLOW_IMAGE_PULL=true` | Skip local image preflight and let Podman pull missing `IfNotPresent` images. |
 | `VECTIS_E2E_DEPLOY_LINUX_PROVIDER` | Linux deploy VM provider; defaults to `auto` (currently Lima). |
 | `VECTIS_E2E_DEPLOY_LINUX_PROVIDER_PATH` | Override the VM provider command path, such as `limactl`. |
-| `VECTIS_E2E_DEPLOY_LINUX_INSTANCE` | Override the Linux deploy smoke VM instance name. |
-| `VECTIS_E2E_DEPLOY_LINUX_TEMPLATE` | Override the VM template used when creating the Linux deploy smoke instance. |
+| `VECTIS_E2E_DEPLOY_LINUX_INSTANCE` | Override the prepared Linux deploy smoke VM instance name. |
 | `VECTIS_E2E_DEPLOY_LINUX_TIMEOUT` | Timeout for the Linux deploy VM smoke; defaults to `10m`. |
 | `VECTIS_E2E_KEEP_DEPLOY_LINUX=true` | Leave Linux deploy smoke artifacts and the VM running after the test for debugging. |
 | `VECTIS_E2E_PACKAGE_CLI_DEB` | Path to a built `vectis-cli` DEB for package e2e testing. |
@@ -80,11 +79,12 @@ Useful e2e controls:
 | `VECTIS_E2E_PACKAGE_LINUX_TIMEOUT` | Timeout for the Linux package VM smoke; defaults to `10m`. |
 | `VECTIS_E2E_KEEP_PACKAGE_LINUX=true` | Leave the Linux package smoke VM running after the test for debugging. |
 
-Local package build controls used by `make package-local` before the e2e install
-lane runs:
+Prepared VM controls used by deploy and package lanes:
 
 | Variable | Meaning |
 |---|---|
+| `PACKER_DEPLOY_SMOKE_INSTANCE` | Prepared Linux deploy smoke VM; defaults to `vectis-deploy-smoke`. |
+| `PACKER_DEPLOY_SMOKE_TEMPLATE` | Lima template used for the prepared Linux deploy smoke VM; defaults to `ubuntu-lts`. |
 | `PACKER_PACKAGE_BUILDER_INSTANCE` | Prepared Linux package builder instance; defaults to `vectis-package-builder`. |
 | `PACKER_PACKAGE_BUILDER_TEMPLATE` | Lima template used by `make vm-package-builder-prepare`; defaults to `ubuntu-lts`. |
 | `PACKER_PACKAGE_BUILDER_GO_VERSION` | Go version installed into the prepared package builder; defaults to the root `go.mod` directive. |
@@ -95,6 +95,9 @@ lane runs:
 | `PACKER_PACKAGE_DEB_SMOKE_TEMPLATE` | Lima template used for the prepared DEB package smoke VM; defaults to `ubuntu-lts`. |
 | `PACKER_PACKAGE_RPM_SMOKE_INSTANCE` | Prepared RPM package smoke VM; defaults to `vectis-package-rpm-smoke`. |
 | `PACKER_PACKAGE_RPM_SMOKE_TEMPLATE` | Lima template used for the prepared RPM package smoke VM; defaults to `fedora`. |
+
+Local package build controls used by `make package-local` before the e2e install
+lane runs:
 
 | Variable | Meaning |
 |---|---|

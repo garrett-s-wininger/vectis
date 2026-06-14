@@ -31,7 +31,6 @@ func TestE2ELinuxDeploySmoke(t *testing.T) {
 	provider := envOrDefault("VECTIS_E2E_DEPLOY_LINUX_PROVIDER", defaultDeployLinuxProvider)
 	providerPath := strings.TrimSpace(os.Getenv("VECTIS_E2E_DEPLOY_LINUX_PROVIDER_PATH"))
 	instance := strings.TrimSpace(os.Getenv("VECTIS_E2E_DEPLOY_LINUX_INSTANCE"))
-	template := strings.TrimSpace(os.Getenv("VECTIS_E2E_DEPLOY_LINUX_TEMPLATE"))
 	timeout := deployLinuxTimeout(t)
 
 	requireDeployLinuxProvider(t, ctx, provider, providerPath)
@@ -41,7 +40,6 @@ func TestE2ELinuxDeploySmoke(t *testing.T) {
 		Provider:      provider,
 		ProviderPath:  providerPath,
 		Instance:      instance,
-		Template:      template,
 		KeepArtifacts: truthyEnv("VECTIS_E2E_KEEP_DEPLOY_LINUX"),
 		Stdout:        &stdout,
 		Stderr:        &stderr,

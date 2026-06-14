@@ -19,8 +19,9 @@ const (
 	vmSmokeMarkerSource      = "smoke/.vectis-linux-smoke"
 	vmSmokeMarkerDestination = "/etc/vectis/.vectis-linux-smoke"
 	vmSmokeBinDir            = "smoke/bin"
+	vmSmokeGuestProfile      = "systemd"
+	vmSmokeGuestProfilePath  = "/etc/vectis/deploy-smoke-profile"
 	defaultLimaInstance      = "vectis-deploy-smoke"
-	defaultLimaTemplate      = "ubuntu-lts"
 )
 
 type VMSmokeOptions struct {
@@ -28,7 +29,6 @@ type VMSmokeOptions struct {
 	Provider      string
 	ProviderPath  string
 	Instance      string
-	Template      string
 	ArtifactDir   string
 	ManifestPath  string
 	KeepArtifacts bool
@@ -40,7 +40,6 @@ type VMSmokeResult struct {
 	Status       string `json:"status"`
 	Provider     string `json:"provider,omitempty"`
 	Instance     string `json:"instance"`
-	Template     string `json:"template,omitempty"`
 	ArtifactDir  string `json:"artifact_dir,omitempty"`
 	ManifestPath string `json:"manifest_path,omitempty"`
 	Files        int    `json:"files,omitempty"`
@@ -65,14 +64,15 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 	}
 
 	if !exists {
-		vmSmokeLogf(opts.Stdout, "creating %s instance %s from template:%s", manager.Provider(), opts.Instance, opts.Template)
-		if err := manager.Create(ctx, opts.Instance, opts.Template); err != nil {
-			return VMSmokeResult{}, err
-		}
+		return VMSmokeResult{}, fmt.Errorf("deploy smoke VM %q does not exist; run make vm-deploy-smoke-prepare", opts.Instance)
 	}
 
 	vmSmokeLogf(opts.Stdout, "starting %s instance %s", manager.Provider(), opts.Instance)
 	if err := manager.Start(ctx, opts.Instance); err != nil {
+		return VMSmokeResult{}, err
+	}
+
+	if err := verifyPreparedVMSmokeGuest(ctx, opts); err != nil {
 		return VMSmokeResult{}, err
 	}
 
@@ -139,7 +139,6 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 		Status:       "verified",
 		Provider:     manager.Provider(),
 		Instance:     opts.Instance,
-		Template:     opts.Template,
 		ArtifactDir:  opts.ArtifactDir,
 		ManifestPath: renderResult.ManifestPath,
 		Files:        renderResult.Files,
@@ -244,10 +243,6 @@ func normalizeVMSmokeOptions(opts VMSmokeOptions) (VMSmokeOptions, error) {
 		opts.Instance = defaultVMSmokeInstance(opts.Provider)
 	}
 
-	if opts.Template == "" {
-		opts.Template = defaultVMSmokeTemplate(opts.Provider)
-	}
-
 	if opts.ManifestPath == "" {
 		opts.ManifestPath = DefaultManifestPath
 	}
@@ -278,13 +273,23 @@ func defaultVMSmokeInstance(provider string) string {
 	}
 }
 
-func defaultVMSmokeTemplate(provider string) string {
-	switch provider {
-	case platform.VirtualMachineProviderLima:
-		return defaultLimaTemplate
-	default:
-		return ""
+func verifyPreparedVMSmokeGuest(ctx context.Context, opts VMSmokeOptions) error {
+	checks := [][]string{
+		{"test", "-r", vmSmokeGuestProfilePath},
+		{"grep", "-qx", vmSmokeGuestProfile, vmSmokeGuestProfilePath},
+		{"systemctl", "--version"},
+		{"systemd-analyze", "--version"},
+		{"systemd-sysusers", "--version"},
+		{"systemd-tmpfiles", "--version"},
 	}
+
+	for _, check := range checks {
+		if err := opts.Manager.Shell(ctx, opts.Instance, nil, check...); err != nil {
+			return fmt.Errorf("deploy smoke VM %q is not prepared; run make vm-deploy-smoke-prepare: %w", opts.Instance, err)
+		}
+	}
+
+	return nil
 }
 
 func vmSmokeInstallPlan(manifestPath string) ([]InstallEntry, []string, error) {
