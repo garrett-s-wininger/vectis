@@ -55,7 +55,7 @@ func (s benchmarkStoreLogStream) Send(chunk *api.LogChunk) error {
 		Timestamp: time.Now(),
 		Stream:    chunk.GetStream(),
 		Sequence:  chunk.GetSequence(),
-		Data:      string(chunk.GetData()),
+		Data:      append([]byte(nil), chunk.GetData()...),
 		Completed: chunk.GetCompleted(),
 	}
 
