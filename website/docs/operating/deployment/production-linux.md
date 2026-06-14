@@ -8,7 +8,8 @@ Vectis owns the service artifact contract: binaries, unit names, environment
 file shape, system user, directories, and migration ordering. Operators still
 own host placement, live `/etc/vectis/*.env` files, secrets, TLS material,
 PostgreSQL, firewalls, service enablement, observability, backups, and retention
-scheduling.
+scheduling. The required production settings and secret inventory are summarized
+in [Production Config And Secrets Contract](./production-config-contract.md).
 
 ## Current Packaging Boundary
 
@@ -253,6 +254,7 @@ Before the deployment is handed to operators:
 | Topic | Document |
 | --- | --- |
 | Production topology | [Production Topology v1](./production-topology-v1.md) |
+| Config and secrets contract | [Production Config And Secrets Contract](./production-config-contract.md) |
 | Reference deployment posture | [Reference Deployment Posture](./reference-deployment-posture.md) |
 | Scaling and restarts | [Scaling And Restarts](./scaling-and-restarts.md) |
 | Configuration | [Configuration](../configuration.md) |

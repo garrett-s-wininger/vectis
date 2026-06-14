@@ -2,7 +2,7 @@
 
 This page is for people running Vectis: local developers, platform engineers, and operators wiring staging or production. It explains the settings you are most likely to touch, where defaults come from, and which knobs affect service discovery, storage, TLS, metrics, and authentication.
 
-For service roles and data flow, see [Architecture](../concepts/architecture.md). For multi-cell routing, see [Multi-Cell Operation](./multi-cell.md). For security posture, see [Security](../concepts/security.md). For startup and outage behavior, see [Failure Domains](../concepts/failure-domains.md). For terms such as job, run, queue, and dispatch, see [Glossary](../concepts/glossary.md).
+For service roles and data flow, see [Architecture](../concepts/architecture.md). For production-required setting groups and secret inventory, see [Production Config And Secrets Contract](./deployment/production-config-contract.md). For multi-cell routing, see [Multi-Cell Operation](./multi-cell.md). For security posture, see [Security](../concepts/security.md). For startup and outage behavior, see [Failure Domains](../concepts/failure-domains.md). For terms such as job, run, queue, and dispatch, see [Glossary](../concepts/glossary.md).
 
 ## How Configuration Resolves
 
@@ -522,6 +522,7 @@ Treat the reference deployment as a helpful starting point, not a production sec
 | Topic | Document |
 | --- | --- |
 | Components and flows | [Architecture](../concepts/architecture.md) |
+| Production config contract | [Production Config And Secrets Contract](./deployment/production-config-contract.md) |
 | Security posture | [Security](../concepts/security.md) |
 | Internal service trust | [Internal Service Trust](../concepts/internal-service-trust.md) |
 | Failure behavior and probes | [Failure Domains](../concepts/failure-domains.md) |
