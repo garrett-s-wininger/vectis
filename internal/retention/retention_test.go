@@ -116,6 +116,8 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id IN ('old-success-job', 'old-failed-job', 'old-aborted-job', 'orphan-job')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'queued-job'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'source-provenanced-job'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM job_definition_sources WHERE job_id = 'source-provenanced-job'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM idempotency_keys WHERE key = 'old-key'`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM idempotency_keys WHERE key = 'new-key'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'old.event'`, 0)
@@ -355,6 +357,45 @@ func seedRetentionRows(t *testing.T, db *sql.DB, now time.Time) {
 		`, jobID, old); err != nil {
 			t.Fatalf("insert job definition %s: %v", jobID, err)
 		}
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO source_repositories (repository_id, source_kind, checkout_path)
+		VALUES ('retention-source', 'local_checkout', '/work/retention-source')
+	`); err != nil {
+		t.Fatalf("insert source repository: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO job_definitions (job_id, version, definition_json, created_at)
+		VALUES ('source-provenanced-job', 1, '{}', ?)
+	`, old); err != nil {
+		t.Fatalf("insert source provenanced job definition: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO job_definition_sources (
+			job_id,
+			version,
+			repository_id,
+			requested_ref,
+			resolved_commit,
+			definition_path,
+			blob_sha,
+			created_at
+		)
+		VALUES (
+			'source-provenanced-job',
+			1,
+			'retention-source',
+			'main',
+			'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			'.vectis/jobs/source-provenanced-job.json',
+			'sha1:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			?
+		)
+	`, old); err != nil {
+		t.Fatalf("insert source provenance: %v", err)
 	}
 
 	if _, err := db.Exec(`

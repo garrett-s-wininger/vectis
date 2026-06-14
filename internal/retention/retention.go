@@ -174,10 +174,18 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 					WHERE job_runs.job_id = job_definitions.job_id
 						AND job_runs.definition_version = job_definitions.version
 				)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM job_definition_sources
+					WHERE job_definition_sources.job_id = job_definitions.job_id
+						AND job_definition_sources.version = job_definitions.version
+				)
 		`, sqlTimeParam(*report.Cutoffs.JobDefinitions))
+
 		if err != nil {
 			return Report{}, fmt.Errorf("delete orphaned job definitions: %w", err)
 		}
+
 		counts.JobDefinitions = deleted
 	}
 
@@ -367,7 +375,9 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 					WHERE job_runs.job_id = job_definitions.job_id
 						AND job_runs.definition_version = job_definitions.version
 		`
+
 		args := []any{sqlTimeParam(*cutoffs.JobDefinitions)}
+
 		if cutoffs.TerminalRuns != nil {
 			query += `
 						AND NOT (
@@ -378,7 +388,14 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 			`
 			args = append(args, sqlTimeParam(*cutoffs.TerminalRuns))
 		}
+
 		query += `
+				)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM job_definition_sources
+					WHERE job_definition_sources.job_id = job_definitions.job_id
+						AND job_definition_sources.version = job_definitions.version
 				)
 		`
 

@@ -258,7 +258,7 @@ Cleanup also protects:
 | Protection | Behavior |
 | --- | --- |
 | Active and repairable runs | Only terminal runs with `finished_at` older than the cutoff are eligible. |
-| Reusable job definition snapshots | Definitions still referenced by reusable jobs or historical runs are preserved. |
+| Source-backed definition snapshots | Definitions with recorded source provenance are preserved. |
 | Job definitions referenced by runs | Referenced definitions are preserved. |
 | Shared artifact blobs | A CAS blob is deleted only when no remaining SQL artifact manifest references its blob key. |
 | Active artifact storage | Apply-time blob pruning takes `artifact.lock` and refuses to delete while the artifact service owns the directory. |
