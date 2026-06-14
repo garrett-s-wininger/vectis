@@ -55,7 +55,7 @@ func TestService_Process_OrphanSweepError_Orchestration(t *testing.T) {
 	}
 }
 
-func TestService_Process_SkipsWhenNoStoredOrVersionedDefinition_Orchestration(t *testing.T) {
+func TestService_Process_SkipsWhenNoDefinitionSnapshot_Orchestration(t *testing.T) {
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
 	runsRepo := mocks.NewMockRunsRepository()
@@ -79,7 +79,7 @@ func TestService_Process_SkipsWhenNoStoredOrVersionedDefinition_Orchestration(t 
 	}
 }
 
-func TestService_Process_ReenqueuesViaJobDefinitionsWhenNotStored_Orchestration(t *testing.T) {
+func TestService_Process_ReenqueuesViaDefinitionSnapshot_Orchestration(t *testing.T) {
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
 	jobsRepo.Versions["ephemeral-id"] = map[int]string{

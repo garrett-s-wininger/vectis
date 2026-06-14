@@ -79,7 +79,7 @@ func (q *faultInjectQueue) Jobs() []*api.Job {
 	return out
 }
 
-func seedStoredJobAndRun(t *testing.T, db *sql.DB, jobID string) string {
+func seedDefinitionSnapshotAndRun(t *testing.T, db *sql.DB, jobID string) string {
 	t.Helper()
 
 	ctx := context.Background()
@@ -114,7 +114,7 @@ func fetchRunState(t *testing.T, ctx context.Context, db *sql.DB, runID string) 
 func TestService_Process_QueueDown_DoesNotTouchDispatched(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
-	runID := seedStoredJobAndRun(t, db, "job-fault-down")
+	runID := seedDefinitionSnapshotAndRun(t, db, "job-fault-down")
 
 	q := newFaultInjectQueue()
 	q.SetDown(errors.New("queue unavailable"))
@@ -146,7 +146,7 @@ func TestService_Process_QueueDown_DoesNotTouchDispatched(t *testing.T) {
 func TestService_Process_AfterQueueRecovery_ReenqueuesAndTouchesDispatched(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
-	runID := seedStoredJobAndRun(t, db, "job-fault-recover")
+	runID := seedDefinitionSnapshotAndRun(t, db, "job-fault-recover")
 
 	q := newFaultInjectQueue()
 	q.SetDown(errors.New("queue unavailable"))
@@ -290,7 +290,7 @@ func TestService_Process_TouchDispatchedFailureRetriesFrozenPayload(t *testing.T
 func TestService_Process_MinGapPreventsImmediateRedispatch(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
-	_ = seedStoredJobAndRun(t, db, "job-fault-gap")
+	_ = seedDefinitionSnapshotAndRun(t, db, "job-fault-gap")
 
 	q := newFaultInjectQueue()
 	clock := mocks.NewMockClock()
@@ -341,7 +341,7 @@ func (r *failOnceTouchRunsRepository) TouchDispatched(ctx context.Context, runID
 func TestService_Process_DuplicateDelivery_AllowsSingleClaimedExecution(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
-	runID := seedStoredJobAndRun(t, db, "job-fault-dup")
+	runID := seedDefinitionSnapshotAndRun(t, db, "job-fault-dup")
 
 	q := newFaultInjectQueue()
 	clock := mocks.NewMockClock()

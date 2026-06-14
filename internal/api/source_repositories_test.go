@@ -933,7 +933,7 @@ func TestAPIServer_DeleteSourceScheduleGuards(t *testing.T) {
 	assertAPIError(t, missingRec, http.StatusNotFound, "source_schedule_not_found")
 }
 
-func TestAPIServer_SourceBackedJobsDoNotRequireStoredRows(t *testing.T) {
+func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
 	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
@@ -945,11 +945,11 @@ func TestAPIServer_SourceBackedJobsDoNotRequireStoredRows(t *testing.T) {
 	handler := server.Handler()
 
 	jobBody := map[string]any{
-		"id": "stored-build",
+		"id": "source-build",
 		"root": map[string]any{
 			"id":   "root",
 			"uses": "builtins/shell",
-			"with": map[string]any{"command": "stored"},
+			"with": map[string]any{"command": "source"},
 		},
 	}
 

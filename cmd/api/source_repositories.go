@@ -630,13 +630,21 @@ func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (
 		logger.Info("Configured encryptedfs source repository credential resolver")
 	}
 
+	return sourceRepositoryCredentialResolverFromSecrets(provider), nil
+}
+
+func sourceRepositoryCredentialResolverFromSecrets(resolver secrets.Resolver) sourceRepositoryCredentialResolver {
+	if resolver == nil {
+		return nil
+	}
+
 	return func(ctx context.Context, rec dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
 		ref := strings.TrimSpace(rec.CredentialRef)
 		if ref == "" {
 			return sourcepkg.GitCredentials{}, nil
 		}
 
-		bundle, err := provider.Resolve(ctx, secrets.ResolveRequest{
+		bundle, err := resolver.Resolve(ctx, secrets.ResolveRequest{
 			Scope: secrets.ExecutionScope{
 				JobID: "source-repository:" + strings.TrimSpace(rec.RepositoryID),
 			},
@@ -660,7 +668,7 @@ func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (
 		}
 
 		return credentials, nil
-	}, nil
+	}
 }
 
 func configuredSourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string {

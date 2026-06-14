@@ -34,6 +34,21 @@ type recordingSourceSyncMetrics struct {
 	records []sourceSyncMetricRecord
 }
 
+type recordingSourceCredentialSecretsResolver struct {
+	req    secrets.ResolveRequest
+	bundle secrets.Bundle
+	err    error
+}
+
+func (r *recordingSourceCredentialSecretsResolver) Resolve(_ context.Context, req secrets.ResolveRequest) (secrets.Bundle, error) {
+	r.req = req
+	if r.err != nil {
+		return secrets.Bundle{}, r.err
+	}
+
+	return r.bundle, nil
+}
+
 func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -754,6 +769,45 @@ func TestConfiguredSourceRepositoryGitCredentialsRequireResolver(t *testing.T) {
 
 	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
 		t.Fatalf("unexpected credential status: %+v", status)
+	}
+}
+
+func TestSourceRepositoryCredentialResolverUsesSecretsResolver(t *testing.T) {
+	secretResolver := &recordingSourceCredentialSecretsResolver{
+		bundle: secrets.Bundle{
+			Files: []secrets.FileMaterial{{
+				ID:   "git-credential",
+				Data: []byte(`{"username":"oauth2","token":"ghp_private"}`),
+			}},
+		},
+	}
+
+	resolver := sourceRepositoryCredentialResolverFromSecrets(secretResolver)
+	if resolver == nil {
+		t.Fatal("expected credential resolver")
+	}
+
+	creds, err := resolver(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CredentialRef: "secret://git/private-repo",
+	})
+
+	if err != nil {
+		t.Fatalf("resolve source credential: %v", err)
+	}
+
+	if creds.Username != "oauth2" || creds.Password != "ghp_private" {
+		t.Fatalf("credentials = %+v, want oauth token material", creds)
+	}
+
+	if secretResolver.req.Scope.JobID != "source-repository:private-repo" {
+		t.Fatalf("scope job_id = %q, want source repository scope", secretResolver.req.Scope.JobID)
+	}
+
+	if len(secretResolver.req.Secrets) != 1 ||
+		secretResolver.req.Secrets[0].ID != "git-credential" ||
+		secretResolver.req.Secrets[0].Ref != "secret://git/private-repo" {
+		t.Fatalf("secret request = %+v", secretResolver.req.Secrets)
 	}
 }
 

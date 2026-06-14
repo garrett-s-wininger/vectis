@@ -30,7 +30,7 @@ By default, cleanup uses these windows:
 | Run dispatch events | follows terminal runs | Deletes dispatch events for runs being deleted. |
 | Artifact manifests | follows terminal runs | Deletes `run_artifacts` rows for runs being deleted. |
 | Task graph rows | follows terminal runs | Deletes task nodes, task attempts, run segments, and segment executions for runs being deleted. |
-| Ephemeral job definitions | 30 days | Deletes unreferenced `job_definitions` rows older than the cutoff. Stored-job definitions are preserved. |
+| Unreferenced job definition snapshots | 30 days | Deletes `job_definitions` rows older than the cutoff when no run or source provenance still references them. |
 | Idempotency keys | 24 hours | Deletes old idempotency records; retry deduplication is no longer guaranteed after the window. |
 | Audit log | 365 days | Deletes old audit rows and inserts a fresh `retention.cleanup` audit event when cleanup is applied. |
 | Durable run log files | disabled by default | Pass `--log-storage-dir` to prune local run log files for the terminal runs being deleted. |

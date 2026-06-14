@@ -194,7 +194,7 @@ Use this check when the question involves a real API, database, queue, orchestra
 
 1. Start a reference or staging stack with Postgres and durable log storage.
 2. Run `vectis-cli health check --strict`.
-3. Create one small stored shell job that is safe to run many times.
+3. Create one small source-backed shell job that is safe to run many times.
 4. Trigger a small warm-up batch and confirm each run reaches a terminal status.
 5. Trigger a measured burst of runs with idempotency keys.
 6. Increase workers in steps and record queued-to-running and running-to-terminal latency at each step.

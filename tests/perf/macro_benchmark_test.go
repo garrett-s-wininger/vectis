@@ -237,10 +237,10 @@ type macroLogBenchEnv struct {
 	macroBenchEnv
 	store   *logserver.LocalRunLogStore
 	logSink storeLogClient
-	job     storedMacroJob
+	job     macroJobSpec
 }
 
-type macroBenchEnvFactory func(*testing.B, []storedMacroJob) macroBenchEnv
+type macroBenchEnvFactory func(*testing.B, []macroJobSpec) macroBenchEnv
 
 type macroRunTimings struct {
 	runID                       string
@@ -492,8 +492,8 @@ func compactMacroSQL(query string) string {
 
 func BenchmarkMacro_APIQueueWorker_TriggerToTerminal(b *testing.B) {
 	ctx := context.Background()
-	macroJob := uniqueStoredMacroJob(noopMacroJob())
-	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []macroJobSpec{macroJob})
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
 
@@ -547,8 +547,8 @@ func runMacroConcurrentNoopTriggerToTerminalBenchmark(b *testing.B) {
 	workerCount := macroBenchmarkWorkers(b)
 
 	ctx := context.Background()
-	macroJob := uniqueStoredMacroJob(noopMacroJob())
-	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []macroJobSpec{macroJob})
 	totalRuns := b.N
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
@@ -639,8 +639,8 @@ func BenchmarkMacro_OrchestratorGRPCDB_CreateAttachLoadTouchQueuedRun(b *testing
 
 func benchmarkMacroDBCreateAttachTouchQueuedRunWithEnv(b *testing.B, newEnv macroBenchEnvFactory) {
 	ctx := context.Background()
-	macroJob := uniqueStoredMacroJob(noopMacroJob())
-	env := newEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newEnv(b, []macroJobSpec{macroJob})
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
 
@@ -801,24 +801,24 @@ func BenchmarkMacro_LogHeavy_TriggerToTerminalReplay(b *testing.B) {
 	}
 }
 
-type storedMacroJob struct {
+type macroJobSpec struct {
 	id      string
 	uses    string
 	with    map[string]string
 	command string
 }
 
-func noopMacroJob() storedMacroJob {
-	return storedMacroJob{id: "macro-noop", uses: "builtins/shell", with: map[string]string{"command": "true"}, command: "true"}
+func noopMacroJob() macroJobSpec {
+	return macroJobSpec{id: "macro-noop", uses: "builtins/shell", with: map[string]string{"command": "true"}, command: "true"}
 }
 
-func resultMacroJob() storedMacroJob {
-	return storedMacroJob{id: "macro-result", uses: "builtins/result", with: map[string]string{"success": "true"}}
+func resultMacroJob() macroJobSpec {
+	return macroJobSpec{id: "macro-result", uses: "builtins/result", with: map[string]string{"success": "true"}}
 }
 
-func logHeavyMacroJob(lines int) storedMacroJob {
+func logHeavyMacroJob(lines int) macroJobSpec {
 	command := fmt.Sprintf(`i=0; while [ "$i" -lt %d ]; do printf 'line-%%04d\n' "$i"; i=$((i + 1)); done`, lines)
-	return storedMacroJob{
+	return macroJobSpec{
 		id:      "macro-log-heavy",
 		uses:    "builtins/shell",
 		with:    map[string]string{"command": command},
@@ -826,12 +826,12 @@ func logHeavyMacroJob(lines int) storedMacroJob {
 	}
 }
 
-func uniqueStoredMacroJob(job storedMacroJob) storedMacroJob {
+func uniqueMacroJob(job macroJobSpec) macroJobSpec {
 	job.id = fmt.Sprintf("%s-%d", job.id, macroJobSequence.Add(1))
 	return job
 }
 
-func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
+func newMacroBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 	b.Helper()
 
 	dbConfig := macroDatabaseConfigFromEnv(b)
@@ -858,7 +858,7 @@ func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 
 	handler := server.Handler()
 	for _, j := range jobs {
-		seedStoredMacroJob(b, repos.Jobs(), j)
+		seedMacroJobSnapshot(b, repos.Jobs(), j)
 	}
 
 	job.SetLogSpoolDirForTest(b.TempDir())
@@ -875,7 +875,7 @@ func newMacroBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
 	}
 }
 
-func newMacroInProcessOrchestratorBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
+func newMacroInProcessOrchestratorBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 	b.Helper()
 
 	env := newMacroBenchEnv(b, jobs)
@@ -885,7 +885,7 @@ func newMacroInProcessOrchestratorBenchEnv(b *testing.B, jobs []storedMacroJob) 
 	return env
 }
 
-func newMacroGRPCOrchestratorBenchEnv(b *testing.B, jobs []storedMacroJob) macroBenchEnv {
+func newMacroGRPCOrchestratorBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 	b.Helper()
 
 	env := newMacroBenchEnv(b, jobs)
@@ -924,8 +924,8 @@ func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
 	b.Helper()
 
 	ctx := context.Background()
-	macroJob := uniqueStoredMacroJob(noopMacroJob())
-	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newMacroBenchEnv(b, []macroJobSpec{macroJob})
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
 
@@ -994,8 +994,8 @@ func runMacroWorkerClaimAckBenchmarkWithWorkersAndEnv(b *testing.B, workerCount 
 	b.Helper()
 
 	ctx := context.Background()
-	macroJob := uniqueStoredMacroJob(noopMacroJob())
-	env := newEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newEnv(b, []macroJobSpec{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
@@ -1045,7 +1045,7 @@ func runMacroWorkerClaimAckCompleteBenchmarkWithWorkers(b *testing.B, workerCoun
 func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
 	b *testing.B,
 	workerCount int,
-	macroJob storedMacroJob,
+	macroJob macroJobSpec,
 ) {
 	b.Helper()
 
@@ -1055,14 +1055,14 @@ func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(
 func runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(
 	b *testing.B,
 	workerCount int,
-	macroJob storedMacroJob,
+	macroJob macroJobSpec,
 	newEnv macroBenchEnvFactory,
 ) {
 	b.Helper()
 
 	ctx := context.Background()
-	macroJob = uniqueStoredMacroJob(macroJob)
-	env := newEnv(b, []storedMacroJob{macroJob})
+	macroJob = uniqueMacroJob(macroJob)
+	env := newEnv(b, []macroJobSpec{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
@@ -1113,8 +1113,8 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(b *testing.B, work
 	b.Helper()
 
 	ctx := context.Background()
-	macroJob := uniqueStoredMacroJob(noopMacroJob())
-	env := newEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(noopMacroJob())
+	env := newEnv(b, []macroJobSpec{macroJob})
 	preseedMacroQueuedRuns(b, ctx, env, macroJob, b.N)
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
@@ -1149,7 +1149,7 @@ func runMacroWorkerClaimAckFinalizeBenchmarkWithWorkersAndEnv(b *testing.B, work
 	b.ReportMetric(float64(b.N), "total_runs")
 }
 
-func preseedMacroQueuedRuns(b *testing.B, ctx context.Context, env macroBenchEnv, job storedMacroJob, total int) {
+func preseedMacroQueuedRuns(b *testing.B, ctx context.Context, env macroBenchEnv, job macroJobSpec, total int) {
 	b.Helper()
 
 	for i := 0; i < total; i++ {
@@ -1161,7 +1161,7 @@ func preseedMacroQueuedRunMeasured(
 	b *testing.B,
 	ctx context.Context,
 	env macroBenchEnv,
-	job storedMacroJob,
+	job macroJobSpec,
 	runIndex int,
 ) macroDBTimings {
 	b.Helper()
@@ -1204,7 +1204,7 @@ func preseedMacroQueuedRunMeasured(
 	return dbTimings
 }
 
-func macroJobRequest(job storedMacroJob, runID string) *apipb.JobRequest {
+func macroJobRequest(job macroJobSpec, runID string) *apipb.JobRequest {
 	rootID := "root"
 	uses := job.uses
 	if uses == "" {
@@ -1770,8 +1770,8 @@ func macroQueueAcceptedAt(req *apipb.JobRequest, fallback time.Time) time.Time {
 func newMacroLogBenchEnv(b *testing.B, lines int) macroLogBenchEnv {
 	b.Helper()
 
-	macroJob := uniqueStoredMacroJob(logHeavyMacroJob(lines))
-	env := newMacroBenchEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(logHeavyMacroJob(lines))
+	env := newMacroBenchEnv(b, []macroJobSpec{macroJob})
 	store, err := logserver.NewLocalRunLogStore(b.TempDir())
 	if err != nil {
 		b.Fatalf("create log store: %v", err)
@@ -1785,10 +1785,10 @@ func newMacroLogBenchEnv(b *testing.B, lines int) macroLogBenchEnv {
 	}
 }
 
-func seedStoredMacroJob(b *testing.B, jobs dal.JobsRepository, job storedMacroJob) {
+func seedMacroJobSnapshot(b *testing.B, jobs dal.JobsRepository, job macroJobSpec) {
 	b.Helper()
 
-	definition, err := storedMacroJobDefinition(job)
+	definition, err := macroJobDefinitionJSON(job)
 	if err != nil {
 		b.Fatalf("marshal benchmark job: %v", err)
 	}
@@ -1798,7 +1798,7 @@ func seedStoredMacroJob(b *testing.B, jobs dal.JobsRepository, job storedMacroJo
 	}
 }
 
-func storedMacroJobDefinition(job storedMacroJob) (string, error) {
+func macroJobDefinitionJSON(job macroJobSpec) (string, error) {
 	uses := job.uses
 	if uses == "" {
 		uses = "builtins/shell"

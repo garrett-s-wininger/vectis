@@ -5032,7 +5032,7 @@ func TestSchedulesRepository_ListSourceCronSchedules(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create source schedule repo-c: %v", err)
 	}
-	insertCronTriggerSpec(t, ctx, db, "stored-only", "* * * * *", nextRun)
+	insertCronTriggerSpec(t, ctx, db, "non-source-only", "* * * * *", nextRun)
 
 	rootSchedules, err := repos.Schedules().ListSourceCronSchedules(ctx, 1, "")
 	if err != nil {
@@ -5148,13 +5148,13 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 	}
 
 	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
-		ScheduleID: "stored-only",
-		JobID:      "stored",
+		ScheduleID: "non-source-only",
+		JobID:      "non-source",
 		CronSpec:   "30 * * * *",
 		NextRunAt:  nextRun,
 		Enabled:    true,
 	}); err != nil {
-		t.Fatalf("create source-only delete guard fixture: %v", err)
+		t.Fatalf("create non-source delete guard fixture: %v", err)
 	}
 
 	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "stale-source"); err != nil {
@@ -5174,12 +5174,12 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 		t.Fatalf("source trigger rows=%d, want 0", triggerRows)
 	}
 
-	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "stored-only"); err != nil {
-		t.Fatalf("source-only delete guard fixture should remain: %v", err)
+	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "non-source-only"); err != nil {
+		t.Fatalf("non-source delete guard fixture should remain: %v", err)
 	}
 
-	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "stored-only"); !dal.IsNotFound(err) {
-		t.Fatalf("deleting source-only delete guard fixture through source delete should be not found, got %v", err)
+	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "non-source-only"); !dal.IsNotFound(err) {
+		t.Fatalf("deleting non-source delete guard fixture through source delete should be not found, got %v", err)
 	}
 
 	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "missing"); !dal.IsNotFound(err) {
