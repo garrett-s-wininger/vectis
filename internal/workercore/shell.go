@@ -39,6 +39,10 @@ func (s *ShellServer) RegisterSession(session TaskSession) (func(), error) {
 		return nil, fmt.Errorf("worker core shell session id is required")
 	}
 
+	if session.LogClient() != nil && strings.TrimSpace(session.RunID()) == "" {
+		return nil, fmt.Errorf("worker core shell log session run_id is required")
+	}
+
 	s.mu.Lock()
 	if s.sessions == nil {
 		s.sessions = map[string]TaskSession{}
@@ -55,6 +59,7 @@ func (s *ShellServer) RegisterSession(session TaskSession) (func(), error) {
 
 func (s *ShellServer) StreamLogs(stream api.WorkerCoreShellService_StreamLogsServer) error {
 	var sessionID string
+	var session TaskSession
 	var logStream interface {
 		Send(*api.LogChunk) error
 		CloseSend() error
@@ -87,7 +92,7 @@ func (s *ShellServer) StreamLogs(stream api.WorkerCoreShellService_StreamLogsSer
 
 		if sessionID == "" {
 			sessionID = msgSessionID
-			session, err := s.session(sessionID)
+			session, err = s.session(sessionID)
 			if err != nil {
 				return err
 			}
@@ -104,10 +109,40 @@ func (s *ShellServer) StreamLogs(stream api.WorkerCoreShellService_StreamLogsSer
 			return status.Error(codes.InvalidArgument, "worker core log stream changed session_id")
 		}
 
+		if err := validateShellLogChunk(session, msg.GetChunk()); err != nil {
+			return err
+		}
+
 		if err := logStream.Send(msg.GetChunk()); err != nil {
 			return status.Errorf(codes.Unavailable, "forward shell log chunk: %v", err)
 		}
 	}
+}
+
+func validateShellLogChunk(session TaskSession, chunk *api.LogChunk) error {
+	if session == nil {
+		return status.Error(codes.FailedPrecondition, "worker core shell session is required")
+	}
+
+	if chunk == nil {
+		return status.Error(codes.InvalidArgument, "worker core log chunk is required")
+	}
+
+	wantRunID := strings.TrimSpace(session.RunID())
+	if wantRunID == "" {
+		return status.Error(codes.FailedPrecondition, "worker core shell session run_id is required")
+	}
+
+	gotRunID := strings.TrimSpace(chunk.GetRunId())
+	if gotRunID == "" {
+		return status.Error(codes.InvalidArgument, "worker core log chunk run_id is required")
+	}
+
+	if gotRunID != wantRunID {
+		return status.Errorf(codes.InvalidArgument, "worker core log chunk run_id %q does not match session run_id %q", gotRunID, wantRunID)
+	}
+
+	return nil
 }
 
 func (s *ShellServer) PublishArtifact(stream api.WorkerCoreShellService_PublishArtifactServer) error {

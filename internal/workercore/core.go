@@ -101,6 +101,7 @@ func normalizeTaskResultReason(reasonCode string, outcome api.RunOutcome) string
 // out-of-process core one narrow surface to map onto UDS/RPC calls.
 type TaskSession interface {
 	SessionID() string
+	RunID() string
 	ShellEndpoint() string
 	Logger() interfaces.Logger
 	LogClient() interfaces.LogClient
@@ -113,6 +114,7 @@ type TaskSession interface {
 
 type TaskSessionOptions struct {
 	SessionID         string
+	RunID             string
 	ShellEndpoint     string
 	Logger            interfaces.Logger
 	LogClient         interfaces.LogClient
@@ -124,8 +126,14 @@ type TaskSessionOptions struct {
 }
 
 func NewTaskSession(opts TaskSessionOptions) TaskSession {
+	runID := strings.TrimSpace(opts.RunID)
+	if runID == "" && opts.WorkloadIdentity != nil {
+		runID = opts.WorkloadIdentity.RunID
+	}
+
 	return taskSession{
 		sessionID:         opts.SessionID,
+		runID:             runID,
 		shellEndpoint:     opts.ShellEndpoint,
 		logger:            opts.Logger,
 		logClient:         opts.LogClient,
@@ -139,6 +147,7 @@ func NewTaskSession(opts TaskSessionOptions) TaskSession {
 
 type taskSession struct {
 	sessionID         string
+	runID             string
 	shellEndpoint     string
 	logger            interfaces.Logger
 	logClient         interfaces.LogClient
@@ -151,6 +160,10 @@ type taskSession struct {
 
 func (s taskSession) SessionID() string {
 	return s.sessionID
+}
+
+func (s taskSession) RunID() string {
+	return s.runID
 }
 
 func (s taskSession) ShellEndpoint() string {

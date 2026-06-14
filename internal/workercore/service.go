@@ -150,6 +150,7 @@ func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorker
 
 	taskSession := NewTaskSession(TaskSessionOptions{
 		SessionID:         sessionID,
+		RunID:             req.GetJob().GetRunId(),
 		ShellEndpoint:     shellEndpoint,
 		Logger:            s.logger,
 		LogClient:         logClient,

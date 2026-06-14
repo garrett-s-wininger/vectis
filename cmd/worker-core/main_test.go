@@ -82,8 +82,10 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	logClient := mocks.NewMockLogClient()
 	artifacts := &recordingProcessArtifactPublisher{}
 	sessionID := "execution-smoke"
+	runID := "run-worker-core-process-smoke"
 	unregister, err := shell.RegisterSession(workercore.NewTaskSession(workercore.TaskSessionOptions{
 		SessionID:         sessionID,
+		RunID:             runID,
 		ShellEndpoint:     workercore.UnixEndpoint(shellSocketPath),
 		Logger:            interfaces.NewLogger("worker-core-process-test"),
 		LogClient:         logClient,
@@ -96,7 +98,6 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	defer unregister()
 
 	jobID := "job-worker-core-process-smoke"
-	runID := "run-worker-core-process-smoke"
 	rootID := "root"
 	writeID := "write-artifact"
 	uploadID := "upload-artifact"

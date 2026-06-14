@@ -50,6 +50,7 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 
 	unregister, err := shell.RegisterSession(NewTaskSession(TaskSessionOptions{
 		SessionID:         "session-1",
+		RunID:             "run-1",
 		LogClient:         logClient,
 		Logger:            mocks.NewMockLogger(),
 		ArtifactPublisher: artifacts,
@@ -98,7 +99,7 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	defer cancel()
 
 	resp, err := service.ExecuteTask(ctx, &api.ExecuteWorkerCoreTaskRequest{
-		Job:     &api.Job{},
+		Job:     &api.Job{RunId: proto.String("run-1")},
 		TaskKey: proto.String(dal.RootTaskKey),
 		Session: &api.WorkerCoreTaskSession{
 			SessionId:        proto.String("session-1"),
@@ -127,6 +128,72 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 
 	if artifacts.name != "artifact" || artifacts.path != "artifact.txt" {
 		t.Fatalf("artifact request name/path = %q/%q", artifacts.name, artifacts.path)
+	}
+}
+
+func TestShellServerRejectsMismatchedLogChunkRun(t *testing.T) {
+	socketPath := socktest.ShortPath(t, "worker-core-shell.sock")
+	shell := NewShellServer()
+	server, listener, err := NewUnixShellServer(socketPath, shell)
+	if err != nil {
+		t.Fatalf("NewUnixShellServer: %v", err)
+	}
+	defer server.Stop()
+
+	go func() {
+		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+			t.Errorf("worker core shell server: %v", err)
+		}
+	}()
+
+	logClient := mocks.NewMockLogClient()
+	unregister, err := shell.RegisterSession(NewTaskSession(TaskSessionOptions{
+		SessionID: "session-1",
+		RunID:     "run-1",
+		LogClient: logClient,
+		Logger:    mocks.NewMockLogger(),
+	}))
+	if err != nil {
+		t.Fatalf("RegisterSession: %v", err)
+	}
+	defer unregister()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := dialUnixShell(ctx, UnixEndpoint(socketPath))
+	if err != nil {
+		t.Fatalf("dial shell: %v", err)
+	}
+	defer conn.Close()
+
+	stream, err := api.NewWorkerCoreShellServiceClient(conn).StreamLogs(ctx)
+	if err != nil {
+		t.Fatalf("StreamLogs: %v", err)
+	}
+
+	err = stream.Send(&api.WorkerCoreLogChunk{
+		SessionId: proto.String("session-1"),
+		Chunk: &api.LogChunk{
+			RunId: proto.String("run-2"),
+			Data:  []byte("wrong run"),
+		},
+	})
+
+	if err == nil {
+		_, err = stream.CloseAndRecv()
+	}
+
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("StreamLogs error = %v, want InvalidArgument", err)
+	}
+
+	if !strings.Contains(status.Convert(err).Message(), "run_id") {
+		t.Fatalf("StreamLogs error message = %q, want run_id", status.Convert(err).Message())
+	}
+
+	if chunks := logClient.GetChunks(); len(chunks) != 0 {
+		t.Fatalf("mismatched log chunk was forwarded: %+v", chunks)
 	}
 }
 

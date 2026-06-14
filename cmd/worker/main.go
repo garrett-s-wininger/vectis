@@ -2573,6 +2573,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 
 		execSessionOpts := workercore.TaskSessionOptions{
 			SessionID:        env.ExecutionID,
+			RunID:            env.RunID,
 			ShellEndpoint:    w.coreShellEndpoint,
 			LogClient:        w.logClient,
 			Logger:           w.logger,
