@@ -1477,22 +1477,26 @@ func listSourceJobs(cmd *cobra.Command, args []string) {
 func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs"
 	params := url.Values{}
-	if v := strings.TrimSpace(sourceJobsRef); v != "" {
-		params.Set("ref", v)
-	}
-	if v := strings.TrimSpace(sourceJobsPath); v != "" {
-		params.Set("path", v)
-	}
-	if sourceJobsLimit > 0 {
-		params.Set("limit", strconv.Itoa(sourceJobsLimit))
-	}
-	if v := strings.TrimSpace(sourceJobsCursor); v != "" {
-		params.Set("cursor", v)
-	}
-	if encoded := params.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
+	setTrimmedQueryParam(params, "ref", sourceJobsRef)
+	setTrimmedQueryParam(params, "path", sourceJobsPath)
+	setTrimmedQueryParam(params, "cursor", sourceJobsCursor)
+	setPositiveIntQueryParam(params, "limit", sourceJobsLimit)
 
+	return listSourceJobsPathWithOutput(out, appendQueryParams(path, params), sourceJobsQuiet)
+}
+
+func listSourceJobsFromJobsFacadeWithOutput(out io.Writer, opts jobListOptions) error {
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", opts.RepositoryID)
+	setTrimmedQueryParam(params, "ref", opts.Ref)
+	setTrimmedQueryParam(params, "path", opts.Path)
+	setTrimmedQueryParam(params, "cursor", opts.Cursor)
+	setPositiveIntQueryParam(params, "limit", opts.Limit)
+
+	return listSourceJobsPathWithOutput(out, appendQueryParams("/api/v1/jobs", params), opts.Quiet)
+}
+
+func listSourceJobsPathWithOutput(out io.Writer, path string, quiet bool) error {
 	req, err := newAPIRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create source jobs request: %w", err)
@@ -1510,20 +1514,20 @@ func listSourceJobsWithOutput(out io.Writer, repositoryID string) error {
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return fmt.Errorf("failed to parse source jobs response: %w", err)
 		}
-		return writeSourceJobsResult(out, result)
+		return writeSourceJobsResult(out, result, quiet)
 	case http.StatusNotFound:
-		return fmt.Errorf("source repository %q not found", repositoryID)
+		return fmt.Errorf("source repository or source jobs not found")
 	default:
 		return fmt.Errorf("unexpected status listing source jobs: %s", resp.Status)
 	}
 }
 
-func writeSourceJobsResult(out io.Writer, result sourceRepositoryJobsResult) error {
+func writeSourceJobsResult(out io.Writer, result sourceRepositoryJobsResult, quiet bool) error {
 	if outputIsJSON() {
 		return writeJSON(out, result)
 	}
 
-	if sourceJobsQuiet {
+	if quiet {
 		for _, job := range result.Jobs {
 			fmt.Fprintln(out, job.JobID)
 		}
@@ -1593,16 +1597,23 @@ func showSourceJob(cmd *cobra.Command, args []string) {
 func showSourceJobWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
 	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs/" + url.PathEscape(jobID) + "/definition"
 	params := url.Values{}
-	if v := strings.TrimSpace(sourceShowRef); v != "" {
-		params.Set("ref", v)
-	}
-	if v := strings.TrimSpace(sourceShowPath); v != "" {
-		params.Set("path", v)
-	}
-	if encoded := params.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
+	setTrimmedQueryParam(params, "ref", sourceShowRef)
+	setTrimmedQueryParam(params, "path", sourceShowPath)
 
+	return showSourceJobPathWithOutput(cmd, out, appendQueryParams(path, params), repositoryID, jobID)
+}
+
+func showSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	setTrimmedQueryParam(params, "ref", stringFlagValue(cmd, "ref"))
+	setTrimmedQueryParam(params, "path", stringFlagValue(cmd, "path"))
+
+	path := appendQueryParams("/api/v1/jobs/"+url.PathEscape(jobID), params)
+	return showSourceJobPathWithOutput(cmd, out, path, repositoryID, jobID)
+}
+
+func showSourceJobPathWithOutput(cmd *cobra.Command, out io.Writer, path, repositoryID, jobID string) error {
 	req, err := newAPIRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create source job definition request: %w", err)
@@ -1796,21 +1807,38 @@ func triggerSourceJob(cmd *cobra.Command, args []string) {
 }
 
 func triggerSourceJobWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
+	apiPath := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs/" + url.PathEscape(jobID) + "/trigger"
+	return triggerSourceJobPathWithOutput(cmd, out, apiPath, repositoryID, jobID, "", sourceTriggerRef, sourceTriggerPath, sourceTriggerCellID, sourceTriggerIdemKey)
+}
+
+func triggerSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
+	cellID, err := singleSourceTriggerCellIDFromCells(triggerCellIDs)
+	if err != nil {
+		return err
+	}
+
+	apiPath := "/api/v1/jobs/trigger/" + url.PathEscape(jobID)
+	return triggerSourceJobPathWithOutput(cmd, out, apiPath, repositoryID, jobID, repositoryID, stringFlagValue(cmd, "ref"), stringFlagValue(cmd, "path"), cellID, triggerIdemKey)
+}
+
+func triggerSourceJobPathWithOutput(cmd *cobra.Command, out io.Writer, apiPath, repositoryID, jobID, bodyRepositoryID, ref, definitionPath, cellID, idempotencyKey string) error {
 	body, err := json.Marshal(sourceTriggerRequest{
-		Ref:    strings.TrimSpace(sourceTriggerRef),
-		Path:   strings.TrimSpace(sourceTriggerPath),
-		CellID: strings.TrimSpace(sourceTriggerCellID),
+		RepositoryID: strings.TrimSpace(bodyRepositoryID),
+		Ref:          strings.TrimSpace(ref),
+		Path:         strings.TrimSpace(definitionPath),
+		CellID:       strings.TrimSpace(cellID),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to encode source trigger request: %w", err)
 	}
 
-	req, err := newAPIRequest(http.MethodPost, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/jobs/"+url.PathEscape(jobID)+"/trigger", bytes.NewReader(body))
+	req, err := newAPIRequest(http.MethodPost, apiPath, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create source trigger request: %w", err)
 	}
+
 	req.Header.Set("Content-Type", "application/json")
-	setIdempotencyHeader(req, sourceTriggerIdemKey)
+	setIdempotencyHeader(req, idempotencyKey)
 
 	resp, err := doAPIRequest(req)
 	if err != nil {
@@ -1846,9 +1874,16 @@ func triggerSourceJobWithOutput(cmd *cobra.Command, out io.Writer, repositoryID,
 }
 
 type sourceTriggerRequest struct {
-	Ref    string `json:"ref,omitempty"`
-	Path   string `json:"path,omitempty"`
-	CellID string `json:"cell_id,omitempty"`
+	RepositoryID string `json:"repository_id,omitempty"`
+	Ref          string `json:"ref,omitempty"`
+	Path         string `json:"path,omitempty"`
+	CellID       string `json:"cell_id,omitempty"`
+}
+
+func setPositiveIntQueryParam(params url.Values, key string, value int) {
+	if value > 0 {
+		params.Set(key, strconv.Itoa(value))
+	}
 }
 
 func emptyAsDash(s string) string {
@@ -1883,7 +1918,7 @@ func versionAsDash(version int) string {
 var sourcesCmd = &cobra.Command{
 	Use:     "sources",
 	Short:   "Work with source repositories",
-	Long:    `Register source repositories, inspect source-defined jobs, and trigger jobs directly from source.`,
+	Long:    `Register, sync, browse, and administer source repositories. Use jobs --repository for the primary source-backed job workflow.`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
 }

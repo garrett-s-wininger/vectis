@@ -65,6 +65,7 @@ var (
 	retentionArtifactAge        time.Duration
 	retentionArtifactDir        string
 	runListJobID                string
+	runListRepositoryID         string
 	runListLimit                int
 	runListCursor               int
 	runListCellID               string
@@ -155,7 +156,7 @@ var rootCmd = &cobra.Command{
 Commands are grouped around the thing you want to work with:
   actions    resolve and inspect action descriptors
   jobs       create, show, trigger, run, edit, and delete job definitions
-  sources    register source repositories and trigger source-defined jobs
+  sources    register, sync, browse, and administer source repositories
   runs       show run status, list tasks/artifacts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
   logs       stream run logs or follow future runs for a job
@@ -163,7 +164,7 @@ Commands are grouped around the thing you want to work with:
   auth       log in, log out, and manage API tokens`,
 	Example: `  vectis-cli jobs create build.json
   vectis-cli jobs trigger build-main --follow
-  vectis-cli sources trigger vectis build-main --ref main --follow
+  vectis-cli jobs trigger build-main --repository vectis --ref main --follow
   vectis-cli jobs list --format json
   vectis-cli runs list build-main
   vectis-cli runs show run-123

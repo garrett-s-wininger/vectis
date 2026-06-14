@@ -42,7 +42,7 @@ One-off runs, stored-job triggers, source-backed triggers, and replay requests a
 ```sh
 ./bin/vectis-cli jobs run job.json --idempotency-key "$(uuidgen)"
 ./bin/vectis-cli jobs trigger build-main --idempotency-key "$(uuidgen)"
-./bin/vectis-cli sources trigger vectis-local build-main --idempotency-key "$(uuidgen)"
+./bin/vectis-cli jobs trigger build-main --repository vectis-local --idempotency-key "$(uuidgen)"
 ./bin/vectis-cli runs replay <run-id> --idempotency-key "$(uuidgen)"
 ```
 

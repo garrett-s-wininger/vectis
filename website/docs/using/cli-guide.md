@@ -1,6 +1,6 @@
 # CLI Guide
 
-`vectis-cli` is the everyday way to talk to a Vectis API from a terminal. Use it to submit jobs, trigger stored jobs, follow logs, inspect runs, check health, and perform local/operator maintenance.
+`vectis-cli` is the everyday way to talk to a Vectis API from a terminal. Use it to submit jobs, trigger stored or source-backed jobs, follow logs, inspect runs, check health, and perform local/operator maintenance.
 
 This guide is task-based. For a compact command inventory, see [CLI Operational Coverage](../operating/reference/cli-operational-coverage.md).
 
@@ -166,7 +166,7 @@ For safe client retries after a network error, pass an idempotency key:
 ./bin/vectis-cli jobs run examples/sequenced.json --idempotency-key "$(uuidgen)"
 ```
 
-## Store And Trigger Jobs
+## List, Show, And Trigger Jobs
 
 Create a reusable stored job:
 
@@ -206,6 +206,23 @@ Trigger a stored job in specific execution cells:
 
 When more than one cell is targeted, the command prints one run per cell. Use `runs list <job-id>` or `runs show <run-id>` to inspect the global run catalog.
 
+For source-backed jobs, use the same jobs commands with `--repository`:
+
+```sh
+./bin/vectis-cli jobs list --repository vectis-local --ref main
+./bin/vectis-cli jobs show build --repository vectis-local --ref main
+./bin/vectis-cli jobs trigger build --repository vectis-local --ref main --follow
+```
+
+Pass `--path` when a source-backed job does not use the default `.vectis/jobs/<job-id>.json` layout. Source-backed triggers create a durable run and source provenance without creating a stored job row. They can target one execution cell with `--cell`.
+
+Inspect source-backed run history and follow future runs through the job-facing commands:
+
+```sh
+./bin/vectis-cli runs list build --repository vectis-local
+./bin/vectis-cli logs job build --repository vectis-local --follow
+```
+
 Edit a stored job in `$EDITOR`:
 
 ```sh
@@ -220,7 +237,7 @@ Delete a stored job:
 
 Deleting a job removes the stored definition and prevents future triggers. It does not erase historical runs.
 
-## Trigger Jobs From Source
+## Manage Source Repositories
 
 Register a source repository checkout:
 
@@ -285,7 +302,7 @@ Inspect source-control readiness, declaration counts, stale rows, sync summaries
 ./bin/vectis-cli sources overview
 ```
 
-Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
+Sync the repository, then inspect repository contents and triggerable job files under `.vectis/jobs`:
 
 ```sh
 ./bin/vectis-cli sources sync vectis-local
@@ -296,7 +313,7 @@ Sync the repository, then list triggerable jobs discovered under `.vectis/jobs`:
 ./bin/vectis-cli sources jobs vectis-local --ref main
 ```
 
-Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. When branch, tree, definition, or job output reaches its limit, non-JSON output prints a truncation notice; tree, definition, and job commands also print a `--cursor` value when another request can continue from the last returned path.
+Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. These are repository-scoped inspection commands; use `jobs list --repository vectis-local` for the user-facing job list. When branch, tree, definition, or job output reaches its limit, non-JSON output prints a truncation notice; tree, definition, and job commands also print a `--cursor` value when another request can continue from the last returned path.
 
 Preview a source definition without storing it:
 
@@ -304,7 +321,7 @@ Preview a source definition without storing it:
 ./bin/vectis-cli sources resolve vectis-local .vectis/jobs/build.json --ref main
 ```
 
-Inspect a source-defined job definition at a specific ref:
+Inspect a source-defined job definition at a specific ref through the explicit repository route:
 
 ```sh
 ./bin/vectis-cli sources show vectis-local build --ref main
@@ -322,23 +339,29 @@ For a managed repository with `authoring_mode=local_commit`, write a definition 
 Trigger a source-defined job without creating a stored job row:
 
 ```sh
+./bin/vectis-cli jobs trigger build --repository vectis-local --ref main --follow
+```
+
+The explicit repository trigger remains available for low-level repository-scoped tooling:
+
+```sh
 ./bin/vectis-cli sources trigger vectis-local build --ref main --follow
 ```
 
 List runs recorded for a source-defined job:
 
 ```sh
-./bin/vectis-cli sources runs vectis-local build
+./bin/vectis-cli runs list build --repository vectis-local
 ```
 
 Stream logs for the latest source-defined run, or for a specific source run:
 
 ```sh
-./bin/vectis-cli sources logs vectis-local build
+./bin/vectis-cli logs job build --repository vectis-local
 ./bin/vectis-cli sources logs vectis-local build <run-id>
 ```
 
-Use `sources trigger` with `source.stored_jobs_enabled=false` when the instance should run only repository-defined jobs.
+Use `jobs trigger --repository` with `source.stored_jobs_enabled=false` when the instance should run only repository-defined jobs.
 
 ## Inspect Runs
 

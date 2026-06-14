@@ -1051,16 +1051,29 @@ func runListRuns(cmd *cobra.Command, args []string) {
 	}
 
 	since, _ := cmd.Flags().GetString("since")
-	runCLIError(listRuns(jobID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
+	runCLIError(listRunsForRepository(jobID, runListRepositoryID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
 }
 
 func listRuns(jobID string, limit, cursor int, since string, cellID string, w io.Writer) error {
-	path := fmt.Sprintf("/api/v1/jobs/%s/runs", jobID)
-	return listRunsPath(path, limit, cursor, since, cellID, w)
+	return listRunsForRepository(jobID, "", limit, cursor, since, cellID, w)
+}
+
+func listRunsForRepository(jobID, repositoryID string, limit, cursor int, since string, cellID string, w io.Writer) error {
+	path := fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID))
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	return listRunsPathWithParams(path, params, limit, cursor, since, cellID, w)
 }
 
 func listRunsPath(path string, limit, cursor int, since string, cellID string, w io.Writer) error {
-	params := url.Values{}
+	return listRunsPathWithParams(path, nil, limit, cursor, since, cellID, w)
+}
+
+func listRunsPathWithParams(path string, params url.Values, limit, cursor int, since string, cellID string, w io.Writer) error {
+	if params == nil {
+		params = url.Values{}
+	}
+
 	if limit > 0 {
 		params.Set("limit", fmt.Sprintf("%d", limit))
 	}
@@ -1434,7 +1447,7 @@ var runCancelCmd = &cobra.Command{
 var runListCmd = &cobra.Command{
 	Use:   "list [job-id]",
 	Short: "List runs for a job",
-	Long: `List runs for a stored job, most recent first. Pass the job id as an argument or with --job.
+	Long: `List runs for a stored job, or pass --repository to list runs for a source-backed job by recorded source provenance. Pass the job id as an argument or with --job.
 
 Use --since to filter to runs created at or after a date. Use --limit to control page size.
 Use --cell to filter to runs owned by one execution cell.
@@ -1446,6 +1459,7 @@ to fetch the next page.`,
 
 func configureRunListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&runListJobID, "job", "", "Job ID to list runs for")
+	cmd.Flags().StringVar(&runListRepositoryID, "repository", "", "Source repository ID for source-backed job runs")
 	cmd.Flags().IntVar(&runListLimit, "limit", 0, "Max runs to return (default 50)")
 	cmd.Flags().IntVar(&runListCursor, "cursor", 0, "Continue listing after this result cursor")
 	cmd.Flags().StringVar(&runListCellID, "cell", "", "Only list runs owned by this execution cell")

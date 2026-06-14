@@ -223,10 +223,19 @@ func runLogStreamPath(path, runID string, filterStdout, filterStderr bool) error
 }
 
 func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
+	return runContinuousLogsForRepository(jobID, "", filterStdout, filterStderr)
+}
+
+func runContinuousLogsForRepository(jobID, repositoryID string, filterStdout, filterStderr bool) error {
+	label := "job " + jobID
+	if strings.TrimSpace(repositoryID) != "" {
+		label = "source job " + repositoryID + "/" + jobID
+	}
+
 	return runContinuousLogsPath(
-		"job "+jobID,
-		fmt.Sprintf("/api/v1/sse/jobs/%s/runs", url.PathEscape(jobID)),
-		fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID)),
+		label,
+		jobRunsSSEPath(jobID, repositoryID),
+		jobRunsPath(jobID, repositoryID),
 		func(ev jobRunEvent) error {
 			return runLogStream(ev.RunID, filterStdout, filterStderr)
 		},
@@ -242,6 +251,20 @@ func runContinuousSourceLogs(repositoryID, jobID string, filterStdout, filterStd
 			return runSourceLogStream(repositoryID, jobID, ev.RunID, filterStdout, filterStderr)
 		},
 	)
+}
+
+func jobRunsPath(jobID, repositoryID string) string {
+	path := fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID))
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	return appendQueryParams(path, params)
+}
+
+func jobRunsSSEPath(jobID, repositoryID string) string {
+	path := fmt.Sprintf("/api/v1/sse/jobs/%s/runs", url.PathEscape(jobID))
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	return appendQueryParams(path, params)
 }
 
 func runContinuousLogsPath(label, ssePath, runsPath string, streamRun func(jobRunEvent) error) error {
@@ -411,7 +434,11 @@ func decodeJobRuns(r io.Reader) ([]jobRunEvent, error) {
 }
 
 func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
-	return latestRunForJobPath(fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID)))
+	return latestRunForJobInRepository(jobID, "")
+}
+
+func latestRunForJobInRepository(jobID, repositoryID string) (jobRunEvent, bool, error) {
+	return latestRunForJobPath(jobRunsPath(jobID, repositoryID))
 }
 
 func latestRunForSourceJob(repositoryID, jobID string) (jobRunEvent, bool, error) {
@@ -520,11 +547,12 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 		runCLIError(err)
 	}
 
+	repositoryID := stringFlagValue(cmd, "repository")
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
 	filterStderr, _ := cmd.Flags().GetBool("stderr")
 	follow, _ := cmd.Flags().GetBool("follow")
 	if follow {
-		if err := runContinuousLogs(jobID, filterStdout, filterStderr); err != nil {
+		if err := runContinuousLogsForRepository(jobID, repositoryID, filterStdout, filterStderr); err != nil {
 			if err.Error() == "interrupted" {
 				return
 			}
@@ -535,17 +563,25 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	run, ok, err := latestRunForJob(jobID)
+	run, ok, err := latestRunForJobInRepository(jobID, repositoryID)
 	if err != nil {
 		runCLIError(err)
 	}
 
 	if !ok {
+		if repositoryID != "" {
+			runCLIError(fmt.Errorf("no runs found for source job %q/%q; use --follow to wait for future runs", repositoryID, jobID))
+		}
+
 		runCLIError(fmt.Errorf("no runs found for job %q; use --follow to wait for future runs", jobID))
 	}
 
 	if !outputIsJSON() {
-		fmt.Printf("Streaming latest run for job %s: %s\n", jobID, run.RunID)
+		if repositoryID != "" {
+			fmt.Printf("Streaming latest run for source job %s/%s: %s\n", repositoryID, jobID, run.RunID)
+		} else {
+			fmt.Printf("Streaming latest run for job %s: %s\n", jobID, run.RunID)
+		}
 	}
 
 	runCLIError(runLogStream(run.RunID, filterStdout, filterStderr))
@@ -554,7 +590,7 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 var logsCmd = &cobra.Command{
 	Use:     "logs",
 	Short:   "Stream logs for runs",
-	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run. Use "logs job" for the latest run of a job, or add --follow to wait for future runs. Use "-" as the id to read from stdin.`,
+	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run. Use "logs job" for the latest run of a job, add --repository for source-backed jobs, or add --follow to wait for future runs. Use "-" as the id to read from stdin.`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
 }
@@ -570,7 +606,7 @@ var logsRunCmd = &cobra.Command{
 var logsJobCmd = &cobra.Command{
 	Use:   "job [job-id]",
 	Short: "Stream logs for the latest run of a job",
-	Long:  `Stream logs for the latest run of a job. Add --follow to wait for each future run triggered after you connect. Argument is a job-id; use "-" to read from stdin.`,
+	Long:  `Stream logs for the latest run of a job. Add --repository for source-backed jobs, and add --follow to wait for each future run triggered after you connect. Argument is a job-id; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runLogsJob,
 }
@@ -582,4 +618,5 @@ func configureLogFilterFlags(cmd *cobra.Command) {
 
 func configureLogsJobFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "Wait for and stream future runs for this job")
+	cmd.Flags().String("repository", "", "Source repository ID for source-backed job logs")
 }

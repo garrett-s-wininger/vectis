@@ -233,6 +233,105 @@ func TestTriggerJob_sendsTargetCells(t *testing.T) {
 	}
 }
 
+func TestTriggerJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
+	oldCells := triggerCellIDs
+	oldKey := triggerIdemKey
+	triggerCellIDs = nil
+	triggerIdemKey = ""
+	t.Cleanup(func() {
+		triggerCellIDs = oldCells
+		triggerIdemKey = oldKey
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/trigger/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.Header.Get("Idempotency-Key"); got != "source-facade-key" {
+			t.Errorf("Idempotency-Key=%q", got)
+		}
+
+		var body sourceTriggerRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.RepositoryID != "vectis" || body.Ref != "feature/source" || body.Path != ".vectis/jobs/custom.json" || body.CellID != "pdx-b" {
+			t.Errorf("trigger body mismatch: %+v", body)
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":             "build",
+			"run_id":             "run-source",
+			"run_index":          7,
+			"definition_version": 1,
+			"definition_hash":    "hash",
+			"source":             map[string]any{"repository_id": "vectis", "requested_ref": "feature/source", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	configureJobTriggerFlags(cmd)
+	if err := cmd.Flags().Set("repository", "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("ref", "feature/source"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("path", ".vectis/jobs/custom.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("cell", "pdx-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("idempotency-key", "source-facade-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := triggerJobWithOutput(cmd, []string{"build"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := strings.TrimSpace(buf.String()); got != "run-source" {
+		t.Fatalf("output=%q, want run-source", got)
+	}
+}
+
+func TestTriggerJob_sourceRepositoryRejectsMultipleCells(t *testing.T) {
+	oldCells := triggerCellIDs
+	triggerCellIDs = nil
+	t.Cleanup(func() { triggerCellIDs = oldCells })
+
+	cmd := &cobra.Command{}
+	configureJobTriggerFlags(cmd)
+	if err := cmd.Flags().Set("repository", "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("cell", "iad-a"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("cell", "pdx-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := triggerJobWithOutput(cmd, []string{"build"}, io.Discard); err == nil {
+		t.Fatal("expected multiple source cells to be rejected")
+	}
+}
+
 func TestWriteTriggerJobResult_jsonOutputIncludesMultiCellRuns(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 
@@ -2957,7 +3056,7 @@ func TestListJobNames_tableOutput(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := listJobNames(&buf, false, 0, 0); err != nil {
+	if err := listJobNames(&buf, false, "", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2977,7 +3076,7 @@ func TestListJobNames_quietOutput(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := listJobNames(&buf, true, 0, 0); err != nil {
+	if err := listJobNames(&buf, true, "", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3008,7 +3107,7 @@ func TestListJobNames_jsonOutput(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := listJobNames(&buf, false, 7, 25); err != nil {
+	if err := listJobNames(&buf, false, "7", 25); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3034,6 +3133,116 @@ func TestListJobNames_jsonOutput(t *testing.T) {
 	}
 }
 
+func TestListJobs_sourceRepositoryUsesJobsFacade(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("repository_id") != "vectis" || q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs" || q.Get("limit") != "5" || q.Get("cursor") != ".vectis/jobs/previous.json" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":   "vectis",
+			"requested_ref":   "main",
+			"resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+			"path":            ".vectis/jobs",
+			"limit":           5,
+			"truncated":       true,
+			"next_cursor":     ".vectis/jobs/build.json",
+			"jobs": []map[string]any{
+				{
+					"job_id":   "build",
+					"path":     ".vectis/jobs/build.json",
+					"name":     "build.json",
+					"blob_sha": "abcdef0123456789abcdef0123456789abcdef01",
+					"source": map[string]any{
+						"repository_id":   "vectis",
+						"requested_ref":   "main",
+						"resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+						"path":            ".vectis/jobs/build.json",
+						"blob_sha":        "abcdef0123456789abcdef0123456789abcdef01",
+					},
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listJobsWithOutput(&buf, jobListOptions{
+		RepositoryID: "vectis",
+		Ref:          "main",
+		Path:         ".vectis/jobs",
+		Cursor:       ".vectis/jobs/previous.json",
+		Limit:        5,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "Continue with --cursor .vectis/jobs/build.json"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestShowJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("repository_id") != "vectis" || q.Get("ref") != "main" || q.Get("path") != ".vectis/jobs/custom.json" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"definition_hash": "sha256:def",
+			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"source":          map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	configureJobShowFlags(cmd)
+	if err := cmd.Flags().Set("repository", "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("ref", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Flags().Set("path", ".vectis/jobs/custom.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := showSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`"id": "build"`, `"uses": "builtins/shell"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestListJobNames_rejectsUnexpectedShape(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{
@@ -3041,7 +3250,7 @@ func TestListJobNames_rejectsUnexpectedShape(t *testing.T) {
 		})
 	})
 
-	if err := listJobNames(io.Discard, false, 0, 0); err == nil {
+	if err := listJobNames(io.Discard, false, "", 0); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -4013,6 +4222,47 @@ func TestListRuns_cellFilterAndTableOutput(t *testing.T) {
 	}
 }
 
+func TestListRuns_sourceRepositoryUsesJobsFacade(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/jobs/build/runs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		q := r.URL.Query()
+		if q.Get("repository_id") != "vectis" || q.Get("cell_id") != "pdx-b" || q.Get("since") != "2026-05-15" {
+			t.Errorf("query=%s", r.URL.RawQuery)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{
+					"run_id":      "run-source",
+					"run_index":   2,
+					"status":      "queued",
+					"owning_cell": "pdx-b",
+					"source":      map[string]any{"repository_id": "vectis"},
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listRunsForRepository("build", "vectis", 0, 0, "2026-05-15", "pdx-b", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"RUN ID", "run-source", "pdx-b"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestListRuns_jsonOutputIncludesOwningCell(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -4086,6 +4336,33 @@ func TestLatestRunForJob_paginatesToNewestRun(t *testing.T) {
 		t.Fatal("expected latest run")
 	}
 	if run.RunID != "run-2" || run.RunIndex != 2 {
+		t.Fatalf("unexpected latest run: %+v", run)
+	}
+}
+
+func TestLatestRunForJobInRepository_usesJobsFacade(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/build/runs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("repository_id"); got != "vectis" {
+			t.Errorf("repository_id=%q", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"run_id": "run-source", "run_index": 3}},
+		})
+	})
+
+	run, ok, err := latestRunForJobInRepository("build", "vectis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected latest run")
+	}
+	if run.RunID != "run-source" || run.RunIndex != 3 {
 		t.Fatalf("unexpected latest run: %+v", run)
 	}
 }

@@ -34,10 +34,32 @@ type jobRunCellResult struct {
 	CellID   string `json:"cell_id,omitempty"`
 }
 
+type jobListOptions struct {
+	RepositoryID string
+	Ref          string
+	Path         string
+	Cursor       string
+	Limit        int
+	Quiet        bool
+}
+
 func setIdempotencyHeader(req *http.Request, key string) {
 	if key = strings.TrimSpace(key); key != "" {
 		req.Header.Set("Idempotency-Key", key)
 	}
+}
+
+func stringFlagValue(cmd *cobra.Command, name string) string {
+	if cmd == nil {
+		return ""
+	}
+
+	value, err := cmd.Flags().GetString(name)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(value)
 }
 
 func triggerJob(cmd *cobra.Command, args []string) {
@@ -51,6 +73,10 @@ func triggerJobWithOutput(cmd *cobra.Command, args []string, out io.Writer) erro
 	}
 
 	jobID := args[0]
+	if repositoryID := stringFlagValue(cmd, "repository"); repositoryID != "" {
+		return triggerSourceJobFromJobsFacadeWithOutput(cmd, out, repositoryID, jobID)
+	}
+
 	body, err := triggerJobRequestBody(triggerCellIDs)
 	if err != nil {
 		return err
@@ -106,6 +132,23 @@ func triggerJobRequestBody(rawCellIDs []string) (io.Reader, error) {
 	}
 
 	return bytes.NewReader(body), nil
+}
+
+func singleSourceTriggerCellIDFromCells(rawCellIDs []string) (string, error) {
+	cellIDs, err := normalizeTriggerCellIDs(rawCellIDs)
+	if err != nil {
+		return "", err
+	}
+
+	if len(cellIDs) > 1 {
+		return "", fmt.Errorf("--cell may target only one execution cell with --repository")
+	}
+
+	if len(cellIDs) == 0 {
+		return "", nil
+	}
+
+	return cellIDs[0], nil
 }
 
 func normalizeTriggerCellIDs(rawCellIDs []string) ([]string, error) {
@@ -496,6 +539,11 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 	}
 
 	jobID := args[0]
+	if repositoryID := stringFlagValue(cmd, "repository"); repositoryID != "" {
+		runCLIError(showSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID))
+		return
+	}
+
 	body, statusCode, err := fetchJobDefinitionBody(jobID)
 	if err != nil {
 		runCLIError(err)
@@ -517,9 +565,16 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 
 func listJobs(cmd *cobra.Command, args []string) {
 	quiet, _ := cmd.Flags().GetBool("quiet")
-	cursor, _ := cmd.Flags().GetInt64("cursor")
+	cursor, _ := cmd.Flags().GetString("cursor")
 	limit, _ := cmd.Flags().GetInt("limit")
-	runCLIError(listJobNames(os.Stdout, quiet, cursor, limit))
+	runCLIError(listJobsWithOutput(os.Stdout, jobListOptions{
+		RepositoryID: stringFlagValue(cmd, "repository"),
+		Ref:          stringFlagValue(cmd, "ref"),
+		Path:         stringFlagValue(cmd, "path"),
+		Cursor:       cursor,
+		Limit:        limit,
+		Quiet:        quiet,
+	}))
 }
 
 func createJob(cmd *cobra.Command, args []string) {
@@ -638,11 +693,26 @@ func deleteJob(cmd *cobra.Command, args []string) {
 	}
 }
 
-func listJobNames(w io.Writer, quiet bool, cursor int64, limit int) error {
+func listJobsWithOutput(w io.Writer, opts jobListOptions) error {
+	if strings.TrimSpace(opts.RepositoryID) != "" {
+		return listSourceJobsFromJobsFacadeWithOutput(w, opts)
+	}
+
+	return listJobNames(w, opts.Quiet, opts.Cursor, opts.Limit)
+}
+
+func listJobNames(w io.Writer, quiet bool, cursor string, limit int) error {
 	path := "/api/v1/jobs"
 	params := url.Values{}
-	if cursor > 0 {
-		params.Set("cursor", strconv.FormatInt(cursor, 10))
+	if strings.TrimSpace(cursor) != "" {
+		cursorValue, err := strconv.ParseInt(strings.TrimSpace(cursor), 10, 64)
+		if err != nil || cursorValue < 0 {
+			return fmt.Errorf("--cursor must be a non-negative integer when listing stored jobs")
+		}
+
+		if cursorValue > 0 {
+			params.Set("cursor", strconv.FormatInt(cursorValue, 10))
+		}
 	}
 
 	if limit > 0 {
@@ -733,11 +803,12 @@ func listJobNames(w io.Writer, quiet bool, cursor int64, limit int) error {
 var jobsCmd = &cobra.Command{
 	Use:   "jobs",
 	Short: "Create, inspect, trigger, and run jobs",
-	Long: `Create stored jobs, trigger stored jobs, and submit one-off job definitions.
+	Long: `Create stored jobs, inspect and trigger source-backed jobs, and submit one-off job definitions.
 
 Common flows:
   vectis-cli jobs create build.json
   vectis-cli jobs trigger build-main --follow
+  vectis-cli jobs trigger build-main --repository vectis --ref main --follow
   vectis-cli jobs run scratch.json`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
@@ -745,10 +816,10 @@ Common flows:
 
 var triggerCmd = &cobra.Command{
 	Use:   "trigger [job-id]",
-	Short: "Trigger a stored job",
-	Long: `Trigger a stored job by its job-id. The job must exist in the database.
+	Short: "Trigger a reusable job",
+	Long: `Trigger a stored job by its job-id, or pass --repository to trigger a source-backed job through the jobs API facade.
 The API records the run and returns immediately (202 with run_id); enqueue to the queue happens in the background, so a down queue does not block this command.
-Use --cell repeatedly to fan out the stored job into named execution cells.`,
+Use --cell repeatedly to fan out a stored job into named execution cells. Source-backed triggers accept at most one --cell.`,
 	Args: cobra.ExactArgs(1),
 	Run:  triggerJob,
 }
@@ -773,8 +844,8 @@ var editCmd = &cobra.Command{
 
 var getCmd = &cobra.Command{
 	Use:   "show [job-id]",
-	Short: "Show a stored job definition",
-	Long:  `Fetch a stored job definition by its job-id and print it as JSON.`,
+	Short: "Show a job definition",
+	Long:  `Fetch a stored job definition by job-id, or pass --repository to resolve a source-backed job definition by ref and path.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   getJobDefinition,
 }
@@ -797,8 +868,8 @@ var deleteCmd = &cobra.Command{
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List stored jobs",
-	Long:  `Fetch stored jobs and print a compact table. Use --quiet to print only job IDs.`,
+	Short: "List reusable jobs",
+	Long:  `Fetch stored jobs by default, or pass --repository to list source-backed jobs discovered from a repository. Use --quiet to print only job IDs.`,
 	Args:  cobra.NoArgs,
 	Run:   listJobs,
 }
@@ -807,6 +878,9 @@ func configureJobTriggerFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs run <run-id>)")
 	cmd.Flags().StringArrayVar(&triggerCellIDs, "cell", nil, "Target execution cell; may be repeated")
 	cmd.Flags().StringVar(&triggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
+	cmd.Flags().String("repository", "", "Source repository ID for a source-backed job trigger")
+	cmd.Flags().String("ref", "", "Git ref for source-backed job trigger (default: repository default_ref or HEAD)")
+	cmd.Flags().String("path", "", "Definition file path override for source-backed job trigger")
 }
 
 func configureJobRunFlags(cmd *cobra.Command) {
@@ -817,6 +891,9 @@ func configureJobRunFlags(cmd *cobra.Command) {
 
 func configureJobShowFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("raw", false, "Print definition JSON without reformatting")
+	cmd.Flags().String("repository", "", "Source repository ID for a source-backed job definition")
+	cmd.Flags().String("ref", "", "Git ref for source-backed job definition (default: repository default_ref or HEAD)")
+	cmd.Flags().String("path", "", "Definition file path override for a source-backed job definition")
 }
 
 func configureJobCreateFlags(cmd *cobra.Command) {
@@ -829,6 +906,9 @@ func configureJobDeleteFlags(cmd *cobra.Command) {
 
 func configureJobListFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("quiet", "q", false, "Print only job IDs")
-	cmd.Flags().Int64("cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().String("cursor", "", "Continue listing after this result cursor")
 	cmd.Flags().Int("limit", 0, "Max jobs to return")
+	cmd.Flags().String("repository", "", "Source repository ID for source-backed jobs")
+	cmd.Flags().String("ref", "", "Git ref for source-backed jobs (default: repository default_ref or HEAD)")
+	cmd.Flags().String("path", "", "Definition directory path for source-backed jobs (default: .vectis/jobs)")
 }

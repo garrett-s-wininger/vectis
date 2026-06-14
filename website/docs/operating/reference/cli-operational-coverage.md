@@ -9,16 +9,16 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Area | Operator use | Commands |
 | --- | --- | --- |
 | Actions | Inspect configured action descriptors and resolve friendly names to digests for pinning. | `vectis-cli actions list`, `actions resolve`, `--ignore-policy` |
-| Jobs | Manage stored jobs and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `trigger --cell`, `run`, `run --cell` |
-| Runs | Inspect, cancel, retry, download artifacts, identify failed worker-controlled SVID/secret gates, or manually repair run state. | `vectis-cli runs list`, `runs list --cell`, `show`, `tasks`, `artifacts list`, `artifacts download`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
+| Jobs | Manage stored jobs, inspect/trigger source-backed jobs, and run one-off job files. | `vectis-cli jobs list`, `show`, `create`, `edit`, `delete`, `trigger`, `trigger --cell`, `trigger --repository`, `run`, `run --cell` |
+| Runs | Inspect, cancel, retry, download artifacts, identify failed worker-controlled SVID/secret gates, filter by repository or cell, or manually repair run state. | `vectis-cli runs list`, `runs list --repository`, `runs list --cell`, `show`, `tasks`, `artifacts list`, `artifacts download`, `cancel`, `retry`, `fail`, `repair mark-succeeded`, `mark-failed`, `mark-cancelled`, `mark-abandoned`, `mark-queued` |
 | Cells | Inspect execution cell readiness, routing, queued pressure, orchestrator-driven task progress, and catalog fan-in counts. | `vectis-cli cells status` |
-| Logs | Stream logs for one run or follow future runs for a job. | `vectis-cli logs run`, `logs job` |
+| Logs | Stream logs for one run or follow future runs for a job, including source-backed jobs. | `vectis-cli logs run`, `logs job`, `logs job --repository` |
 | Auth sessions | Log in and out for API-backed CLI use. | `vectis-cli auth login`, `logout` |
 | API tokens | Manage personal/API tokens through the auth API. | `vectis-cli auth tokens list`, `create`, `delete` |
 | Namespaces | Manage namespace hierarchy. | `vectis-cli namespaces list`, `show`, `create`, `delete` |
 | Users | Manage user accounts. | `vectis-cli users list`, `show`, `create`, `enable`, `disable`, `delete`, `change-password` |
 | Role bindings | Grant or revoke namespace roles. | `vectis-cli role-bindings list`, `grant`, `revoke` |
-| Source control | Register, sync, inspect, author, trigger, and clean up source-backed jobs and schedules. | `vectis-cli sources overview`, `list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
+| Source control | Register, sync, inspect, author, and clean up source repositories and schedules. | `vectis-cli sources overview`, `list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--format json`, `--strict` |
 | Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
 | Retention | Preview or apply cleanup for old durable records. | `vectis-cli retention cleanup --dry-run`, `--yes` |
@@ -44,7 +44,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Check source-only readiness | `vectis-cli health check --strict` |
 | List stale source repositories | `vectis-cli sources list --stale` |
 | List stale source schedules | `vectis-cli sources schedules --stale` |
-| Trigger a source-defined job | `vectis-cli sources trigger <repository-id> <job-id>` |
+| Trigger a source-defined job | `vectis-cli jobs trigger <job-id> --repository <repository-id>` |
 | Preview retention cleanup | `vectis-cli retention cleanup --dry-run` |
 | Apply database migrations | `vectis-cli database migrate` |
 
