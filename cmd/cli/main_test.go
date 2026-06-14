@@ -287,7 +287,7 @@ func TestPersistJobFromSource_sendsCreateRequestAndPrintsProvenance(t *testing.T
 		if body.Namespace != "/team-a" ||
 			body.RepositoryID != "vectis" ||
 			body.Ref != "main" ||
-			body.Path != ".vectis/jobs/build.json" {
+			body.Path != "" {
 			t.Errorf("create source body mismatch: %+v", body)
 		}
 
@@ -307,7 +307,7 @@ func TestPersistJobFromSource_sendsCreateRequestAndPrintsProvenance(t *testing.T
 	})
 
 	var buf bytes.Buffer
-	err := persistJobFromSourceWithOutput(&buf, http.MethodPost, "build", "vectis", ".vectis/jobs/build.json", "/team-a", "main")
+	err := persistJobFromSourceWithOutput(&buf, http.MethodPost, "build", "vectis", "", "/team-a", "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,6 +317,16 @@ func TestPersistJobFromSource_sendsCreateRequestAndPrintsProvenance(t *testing.T
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestOptionalJobSourcePath(t *testing.T) {
+	if got := optionalJobSourcePath([]string{"build", "vectis"}); got != "" {
+		t.Fatalf("two-argument source path: got %q, want empty", got)
+	}
+
+	if got := optionalJobSourcePath([]string{"build", "vectis", ".vectis/jobs/build.json"}); got != ".vectis/jobs/build.json" {
+		t.Fatalf("explicit source path: got %q", got)
 	}
 }
 

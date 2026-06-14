@@ -309,11 +309,13 @@ For hybrid or migration deployments that still use stored jobs, preview and impo
 Create or update a specific stored job from a repository definition, then inspect the recorded source provenance:
 
 ```sh
-./bin/vectis-cli jobs source create build vectis-local .vectis/jobs/build.json --ref main --namespace /
-./bin/vectis-cli jobs source update build vectis-local .vectis/jobs/build.json --ref main
+./bin/vectis-cli jobs source create build vectis-local --ref main --namespace /
+./bin/vectis-cli jobs source update build vectis-local --ref main
 ./bin/vectis-cli jobs source show build --version 1
 ./bin/vectis-cli jobs source definition build --version 1
 ```
+
+Pass a definition path as the third positional argument when a job does not use the default `.vectis/jobs/<job-id>.json` layout.
 
 Inspect a source-defined job definition at a specific ref:
 

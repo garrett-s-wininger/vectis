@@ -545,11 +545,19 @@ func getJobDefinition(cmd *cobra.Command, args []string) {
 }
 
 func createJobFromSource(cmd *cobra.Command, args []string) {
-	runCLIError(persistJobFromSourceWithOutput(os.Stdout, http.MethodPost, args[0], args[1], args[2], jobSourceCreateNamespace, jobSourceCreateRef))
+	runCLIError(persistJobFromSourceWithOutput(os.Stdout, http.MethodPost, args[0], args[1], optionalJobSourcePath(args), jobSourceCreateNamespace, jobSourceCreateRef))
 }
 
 func updateJobFromSource(cmd *cobra.Command, args []string) {
-	runCLIError(persistJobFromSourceWithOutput(os.Stdout, http.MethodPut, args[0], args[1], args[2], "", jobSourceUpdateRef))
+	runCLIError(persistJobFromSourceWithOutput(os.Stdout, http.MethodPut, args[0], args[1], optionalJobSourcePath(args), "", jobSourceUpdateRef))
+}
+
+func optionalJobSourcePath(args []string) string {
+	if len(args) < 3 {
+		return ""
+	}
+
+	return args[2]
 }
 
 func persistJobFromSourceWithOutput(out io.Writer, method, jobID, repositoryID, definitionPath, namespace, ref string) error {
@@ -1025,16 +1033,16 @@ var jobSourceCmd = &cobra.Command{
 var jobSourceCreateCmd = &cobra.Command{
 	Use:   "create [job-id] [repository-id] [definition-path]",
 	Short: "Create a stored job from source",
-	Long:  `Create a stored job definition from a registered source repository path and record the resolved source provenance.`,
-	Args:  cobra.ExactArgs(3),
+	Long:  `Create a stored job definition from a registered source repository and record the resolved source provenance. When definition-path is omitted, Vectis derives the default .vectis/jobs path from the job ID.`,
+	Args:  cobra.RangeArgs(2, 3),
 	Run:   createJobFromSource,
 }
 
 var jobSourceUpdateCmd = &cobra.Command{
 	Use:   "update [job-id] [repository-id] [definition-path]",
 	Short: "Update a stored job from source",
-	Long:  `Replace a stored job definition from a registered source repository path and record the resolved source provenance.`,
-	Args:  cobra.ExactArgs(3),
+	Long:  `Replace a stored job definition from a registered source repository and record the resolved source provenance. When definition-path is omitted, Vectis derives the default .vectis/jobs path from the job ID.`,
+	Args:  cobra.RangeArgs(2, 3),
 	Run:   updateJobFromSource,
 }
 
