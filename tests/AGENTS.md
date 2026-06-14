@@ -87,14 +87,21 @@ lane runs:
 
 | Variable | Meaning |
 |---|---|
+| `PACKER_PACKAGE_BUILDER_INSTANCE` | Prepared Linux package builder instance; defaults to `vectis-package-builder`. |
+| `PACKER_PACKAGE_BUILDER_TEMPLATE` | Lima template used by `make vm-package-builder-prepare`; defaults to `ubuntu-lts`. |
+| `PACKER_PACKAGE_BUILDER_GO_VERSION` | Go version installed into the prepared package builder; defaults to the root `go.mod` directive. |
+| `PACKER_PACKAGE_BUILDER_GO_SHA256` | Optional SHA-256 for the downloaded Go archive. |
+| `PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT` | Guest-side parent directory for writable package build workspaces. |
+| `PACKER_PACKAGE_BUILDER_CACHE_ROOT` | Guest-side parent directory for persistent Go build and module caches. |
+
+| Variable | Meaning |
+|---|---|
 | `PACKAGE_LOCAL_VM_PROVIDER` | Build VM provider for non-Linux hosts; defaults to `auto` (currently Lima). |
 | `PACKAGE_LOCAL_VM_PROVIDER_PATH` | Override the VM provider command path, such as `limactl`. |
-| `PACKAGE_LOCAL_VM_INSTANCE` | Override the local package build VM instance name. |
-| `PACKAGE_LOCAL_VM_TEMPLATE` | Override the VM template used when creating the local package build instance. |
+| `PACKAGE_LOCAL_VM_INSTANCE` | Override the local package build VM instance name; defaults to the prepared builder. |
 | `PACKAGE_LOCAL_VM_TIMEOUT` | Timeout for local package builds through the VM; defaults to `30m`. |
-| `PACKAGE_LOCAL_VM_WORKSPACE_ROOT` | Guest-side parent directory for writable local package build workspaces; defaults to `/tmp/vectis-package-local-workspaces`. |
+| `PACKAGE_LOCAL_VM_WORKSPACE_ROOT` | Guest-side parent directory for writable local package build workspaces; defaults to `/var/tmp/vectis-package-local-workspaces`. |
 | `PACKAGE_LOCAL_VM_CACHE_ROOT` | Guest-side parent directory for persistent Go build and module caches; defaults to `/var/tmp/vectis-package-local-cache`. |
-| `PACKAGE_LOCAL_VM_BOOTSTRAP=0` | Disable automatic apt-based build prerequisite installation in the local package build VM. |
 | `PACKAGE_LOCAL_VM_GO` | Go executable to use inside the local package build VM; defaults to `go`. |
 | `PACKAGE_LOCAL_VM_KEEP=1` | Leave the local package build VM running after the package build. |
 | `PACKAGE_LOCAL_ALLOW_CROSS_CGO=1` | Force the native build path on a non-Linux host with a working Linux CGO cross-toolchain. |

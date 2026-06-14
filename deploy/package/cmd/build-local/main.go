@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	defaultBuildVMProvider = platform.VirtualMachineProviderAuto
-	defaultBuildVMInstance = "vectis-package-local-build"
-	defaultBuildVMTemplate = "ubuntu-lts"
-	defaultBuildTimeout    = 30 * time.Minute
+	defaultBuildVMProvider  = platform.VirtualMachineProviderAuto
+	defaultBuildVMInstance  = "vectis-package-builder"
+	defaultBuildVMWorkspace = "/var/tmp/vectis-package-local-workspaces"
+	defaultBuildVMCacheRoot = "/var/tmp/vectis-package-local-cache"
+	defaultBuildTimeout     = 30 * time.Minute
 )
 
 type envFlags []string
@@ -34,12 +35,10 @@ type options struct {
 	Provider      string
 	ProviderPath  string
 	Instance      string
-	Template      string
 	Timeout       time.Duration
 	VMGo          string
 	VMWorkspace   string
 	VMCacheRoot   string
-	VMBootstrap   bool
 	AllowCrossCGO bool
 	KeepVM        bool
 	VMPreserveEnv bool
@@ -99,12 +98,10 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.Provider, "provider", opts.Provider, "VM provider for non-Linux hosts")
 	flags.StringVar(&opts.ProviderPath, "provider-path", opts.ProviderPath, "Path to the VM provider executable")
 	flags.StringVar(&opts.Instance, "instance", opts.Instance, "VM instance for non-Linux hosts")
-	flags.StringVar(&opts.Template, "template", opts.Template, "VM template used when creating the build instance")
 	flags.StringVar(&timeoutRaw, "timeout", timeoutRaw, "Overall build timeout")
 	flags.StringVar(&opts.VMGo, "vm-go", opts.VMGo, "Go executable to use inside the VM")
 	flags.StringVar(&opts.VMWorkspace, "vm-workspace-root", opts.VMWorkspace, "Guest directory for writable package build workspaces")
 	flags.StringVar(&opts.VMCacheRoot, "vm-cache-root", opts.VMCacheRoot, "Guest directory for persistent Go build and module caches")
-	flags.BoolVar(&opts.VMBootstrap, "vm-bootstrap", opts.VMBootstrap, "Install local package build prerequisites in apt-based VMs when missing")
 	flags.BoolVar(&opts.AllowCrossCGO, "allow-cross-cgo", opts.AllowCrossCGO, "Allow host builds even when the host is not Linux")
 	flags.BoolVar(&opts.KeepVM, "keep-vm", opts.KeepVM, "Leave the build VM running after completion")
 	flags.BoolVar(&opts.VMPreserveEnv, "vm-preserve-env", opts.VMPreserveEnv, "Preserve VM shell environment while applying explicit build env")
@@ -131,12 +128,10 @@ func defaultOptionsFromEnv() options {
 		Provider:      envOrDefault("PACKAGE_LOCAL_VM_PROVIDER", defaultBuildVMProvider),
 		ProviderPath:  strings.TrimSpace(os.Getenv("PACKAGE_LOCAL_VM_PROVIDER_PATH")),
 		Instance:      envOrDefault("PACKAGE_LOCAL_VM_INSTANCE", defaultBuildVMInstance),
-		Template:      envOrDefault("PACKAGE_LOCAL_VM_TEMPLATE", defaultBuildVMTemplate),
 		Timeout:       defaultBuildTimeout,
 		VMGo:          envOrDefault("PACKAGE_LOCAL_VM_GO", "go"),
-		VMWorkspace:   envOrDefault("PACKAGE_LOCAL_VM_WORKSPACE_ROOT", "/tmp/vectis-package-local-workspaces"),
-		VMCacheRoot:   envOrDefault("PACKAGE_LOCAL_VM_CACHE_ROOT", "/var/tmp/vectis-package-local-cache"),
-		VMBootstrap:   truthyDefault(os.Getenv("PACKAGE_LOCAL_VM_BOOTSTRAP"), true),
+		VMWorkspace:   envOrDefault("PACKAGE_LOCAL_VM_WORKSPACE_ROOT", defaultBuildVMWorkspace),
+		VMCacheRoot:   envOrDefault("PACKAGE_LOCAL_VM_CACHE_ROOT", defaultBuildVMCacheRoot),
 		AllowCrossCGO: truthy(os.Getenv("PACKAGE_LOCAL_ALLOW_CROSS_CGO")),
 		KeepVM:        truthy(os.Getenv("PACKAGE_LOCAL_VM_KEEP")),
 		VMPreserveEnv: truthy(os.Getenv("PACKAGE_LOCAL_VM_PRESERVE_ENV")),
@@ -185,11 +180,6 @@ func normalizeOptions(opts options) (options, error) {
 		opts.Instance = defaultBuildVMInstance
 	}
 
-	opts.Template = strings.TrimSpace(opts.Template)
-	if opts.Template == "" {
-		opts.Template = defaultBuildVMTemplate
-	}
-
 	opts.VMGo = strings.TrimSpace(opts.VMGo)
 	if opts.VMGo == "" {
 		opts.VMGo = "go"
@@ -197,12 +187,12 @@ func normalizeOptions(opts options) (options, error) {
 
 	opts.VMWorkspace = strings.TrimSpace(opts.VMWorkspace)
 	if opts.VMWorkspace == "" {
-		opts.VMWorkspace = "/tmp/vectis-package-local-workspaces"
+		opts.VMWorkspace = defaultBuildVMWorkspace
 	}
 
 	opts.VMCacheRoot = strings.TrimSpace(opts.VMCacheRoot)
 	if opts.VMCacheRoot == "" {
-		opts.VMCacheRoot = "/var/tmp/vectis-package-local-cache"
+		opts.VMCacheRoot = defaultBuildVMCacheRoot
 	}
 
 	if opts.Timeout <= 0 {
@@ -259,10 +249,7 @@ func runMakeInVM(ctx context.Context, opts options, target string, stdout, stder
 	}
 
 	if !exists {
-		fmt.Fprintf(stdout, "creating %s VM %q from template %q\n", manager.Provider(), opts.Instance, opts.Template)
-		if err := manager.Create(ctx, opts.Instance, opts.Template); err != nil {
-			return fmt.Errorf("create build VM %q: %w", opts.Instance, err)
-		}
+		return fmt.Errorf("build VM %q does not exist; run `make vm-package-builder-prepare` before building vectis-local packages", opts.Instance)
 	}
 
 	if err := manager.Start(ctx, opts.Instance); err != nil {
@@ -333,18 +320,7 @@ func runVMBuildCommand(ctx context.Context, opts options, target, guestWorkDir s
 
 	env := vmBuildEnv(opts.Env, opts.VMGo, opts.MakePath, opts.VMCacheRoot)
 	if err := runVMProcess(ctx, executor, "sh", []string{"-c", vmPreflightScript}, "", env, stdout, stderr); err != nil {
-		if !opts.VMBootstrap {
-			return fmt.Errorf("build VM %q is missing local package prerequisites (go, make, and a C compiler): %w", opts.Instance, err)
-		}
-
-		fmt.Fprintf(stdout, "bootstrapping local package build prerequisites in VM %q\n", opts.Instance)
-		if bootstrapErr := runVMProcess(ctx, executor, "sh", []string{"-c", vmBootstrapScript}, "", env, stdout, stderr); bootstrapErr != nil {
-			return fmt.Errorf("bootstrap build VM %q: %w", opts.Instance, bootstrapErr)
-		}
-
-		if preflightErr := runVMProcess(ctx, executor, "sh", []string{"-c", vmPreflightScript}, "", env, stdout, stderr); preflightErr != nil {
-			return fmt.Errorf("build VM %q is missing local package prerequisites after bootstrap: %w", opts.Instance, preflightErr)
-		}
+		return fmt.Errorf("build VM %q is missing local package prerequisites (go, make, and a C compiler); run `make vm-package-builder-prepare` before building vectis-local packages: %w", opts.Instance, err)
 	}
 
 	if err := runVMProcess(ctx, executor, opts.MakePath, []string{target}, guestWorkDir, env, stdout, stderr); err != nil {
@@ -497,7 +473,7 @@ func safeGuestName(raw string) string {
 func vmBuildEnv(extra []string, vmGo, makePath, cacheRoot string) []string {
 	cacheRoot = strings.TrimSpace(cacheRoot)
 	if cacheRoot == "" {
-		cacheRoot = "/var/tmp/vectis-package-local-cache"
+		cacheRoot = defaultBuildVMCacheRoot
 	}
 
 	env := []string{
@@ -558,15 +534,6 @@ if command -v cc >/dev/null || command -v gcc >/dev/null || command -v clang >/d
 fi
 echo "no C compiler found in build VM" >&2
 exit 1`
-
-const vmBootstrapScript = `set -eu
-if ! command -v apt-get >/dev/null; then
-	echo "automatic bootstrap currently supports apt-based Linux build VMs" >&2
-	exit 1
-fi
-sudo apt-get update
-sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates build-essential golang-go
-`
 
 const vmStageOutputScript = `set -eu
 out_dir=$1

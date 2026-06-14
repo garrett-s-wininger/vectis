@@ -47,6 +47,13 @@ native CGO package target directly, while macOS and other non-Linux hosts run
 that native target inside the configured platform VM provider. Lima is the
 default provider.
 
+On macOS, prepare the package builder before the first local package build:
+
+```sh
+make vm-package-builder-prepare
+make vm-package-builder-check
+```
+
 Then install-test it in the Linux VM lane with:
 
 ```sh
@@ -74,8 +81,7 @@ Useful VM knobs for local package builds:
 ```sh
 make package-local \
   PACKAGE_LOCAL_VM_PROVIDER=lima \
-  PACKAGE_LOCAL_VM_INSTANCE=vectis-package-local-build \
-  PACKAGE_LOCAL_VM_TEMPLATE=ubuntu-lts
+  PACKAGE_LOCAL_VM_INSTANCE=vectis-package-builder
 ```
 
 The dispatcher copies the worktree into a writable guest workspace under
@@ -83,9 +89,9 @@ The dispatcher copies the worktree into a writable guest workspace under
 so it does not require a writable host mount in Lima. Go build and module caches
 live under `PACKAGE_LOCAL_VM_CACHE_ROOT`, which defaults to `/var/tmp` so repeat
 VM builds can reuse downloads across boots. The build VM must have Go, `make`,
-and a C compiler installed. The dispatcher bootstraps those prerequisites by
-default for apt-based Linux guests; set `PACKAGE_LOCAL_VM_BOOTSTRAP=0` to require
-a pre-provisioned builder. Direct Linux-builder entrypoints are available as
+and a C compiler installed. The default path is a Packer-prepared builder named
+`vectis-package-builder`; run `make vm-package-builder-prepare` to create or
+refresh it. Direct Linux-builder entrypoints are available as
 `make package-local-native-deb`, `make package-local-native-rpm`, and
 `make package-local-native`.
 

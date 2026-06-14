@@ -5,8 +5,11 @@ states/
 
 # Outputs
 __pycache__/
+artifacts/packages/
 artifacts/perf/
 bin/
+build/packer/**/output-*/
+build/packer/**/packer_cache/
 
 # Docusaurus
 website/node_modules/

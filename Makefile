@@ -175,17 +175,30 @@ PACKAGE_LOCAL_ARCHES ?= $(PACKAGE_ARCH)
 PACKAGE_LOCAL_APPS ?= local api artifact catalog cell-ingress cron docs log orchestrator queue reconciler registry secrets worker worker-core
 PACKAGE_LOCAL_ALLOW_CROSS_CGO ?= 0
 PACKAGE_LOCAL_MAKE ?= make
+PACKER ?= packer
+PACKER_PACKAGE_BUILDER_DIR ?= build/packer/package-builder
+PACKER_PACKAGE_BUILDER_INSTANCE ?= vectis-package-builder
+PACKER_PACKAGE_BUILDER_TEMPLATE ?= ubuntu-lts
+PACKER_PACKAGE_BUILDER_GO_VERSION ?= $(GO_MOD_GO_VERSION)
+PACKER_PACKAGE_BUILDER_GO_SHA256 ?=
+PACKER_PACKAGE_BUILDER_CPUS ?= 4
+PACKER_PACKAGE_BUILDER_MEMORY ?= 4
+PACKER_PACKAGE_BUILDER_DISK ?= 60
+PACKER_PACKAGE_BUILDER_STOP ?= true
+PACKER_PACKAGE_BUILDER_LIMA_BIN ?= $(if $(PACKAGE_LOCAL_VM_PROVIDER_PATH),$(PACKAGE_LOCAL_VM_PROVIDER_PATH),limactl)
+PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT ?= /var/tmp/vectis-package-local-workspaces
+PACKER_PACKAGE_BUILDER_CACHE_ROOT ?= /var/tmp/vectis-package-local-cache
 PACKAGE_LOCAL_VM_PROVIDER ?= auto
 PACKAGE_LOCAL_VM_PROVIDER_PATH ?=
-PACKAGE_LOCAL_VM_INSTANCE ?= vectis-package-local-build
-PACKAGE_LOCAL_VM_TEMPLATE ?= ubuntu-lts
+PACKAGE_LOCAL_VM_INSTANCE ?= $(PACKER_PACKAGE_BUILDER_INSTANCE)
 PACKAGE_LOCAL_VM_TIMEOUT ?= 30m
-PACKAGE_LOCAL_VM_WORKSPACE_ROOT ?= /tmp/vectis-package-local-workspaces
-PACKAGE_LOCAL_VM_CACHE_ROOT ?= /var/tmp/vectis-package-local-cache
-PACKAGE_LOCAL_VM_BOOTSTRAP ?= 1
+PACKAGE_LOCAL_VM_WORKSPACE_ROOT ?= $(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)
+PACKAGE_LOCAL_VM_CACHE_ROOT ?= $(PACKER_PACKAGE_BUILDER_CACHE_ROOT)
 PACKAGE_LOCAL_VM_KEEP ?= 0
 PACKAGE_LOCAL_VM_PRESERVE_ENV ?= 0
 PACKAGE_LOCAL_VM_GO ?= go
+packer_package_builder_optional_sha = $(if $(strip $(PACKER_PACKAGE_BUILDER_GO_SHA256)),-var 'go_sha256=$(PACKER_PACKAGE_BUILDER_GO_SHA256)',)
+packer_package_builder_vars = -var 'instance=$(PACKER_PACKAGE_BUILDER_INSTANCE)' -var 'base_template=$(PACKER_PACKAGE_BUILDER_TEMPLATE)' -var 'go_version=$(PACKER_PACKAGE_BUILDER_GO_VERSION)' $(packer_package_builder_optional_sha) -var 'cpus=$(PACKER_PACKAGE_BUILDER_CPUS)' -var 'memory=$(PACKER_PACKAGE_BUILDER_MEMORY)' -var 'disk=$(PACKER_PACKAGE_BUILDER_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_BUILDER_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' -var 'workspace_root=$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' -var 'cache_root=$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)'
 package_deb_arch = $(if $(filter x86_64,$(1)),amd64,$(if $(filter aarch64,$(1)),arm64,$(if $(filter 386,$(1)),i386,$(1))))
 package_rpm_arch = $(if $(filter amd64,$(1)),x86_64,$(if $(filter arm64,$(1)),aarch64,$(1)))
 package_service_bins = $(addprefix $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-,$(PACKAGE_SERVICE_APPS))
@@ -195,7 +208,7 @@ package_common_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS)
 package_service_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS) --input vectis-$(2)=$(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-$(2)
 package_local_inputs = --input vectis-local-wrapper=$(PACKAGE_LOCAL_WRAPPER) --input vectis-local-binaries=$(call package_local_bin_dir,$(1))
 package_local_dispatch_env = --env 'PACKAGE_OUT=$(PACKAGE_OUT)' --env 'PACKAGE_BUILD_DIR=$(PACKAGE_BUILD_DIR)' --env 'PACKAGE_VERSION=$(PACKAGE_VERSION)' --env 'PACKAGE_RELEASE=$(PACKAGE_RELEASE)' --env 'PACKAGE_ARCH=$(2)' --env 'PACKAGE_LOCAL_ARCHES=$(2)' --env 'PACKAGE_LOCAL_APPS=$(PACKAGE_LOCAL_APPS)'
-package_local_dispatch = $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --template '$(PACKAGE_LOCAL_VM_TEMPLATE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-bootstrap=$(PACKAGE_LOCAL_VM_BOOTSTRAP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
+package_local_dispatch = $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
 package_common_deb_path = $(PACKAGE_OUT)/vectis-common_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
 package_common_rpm_path = $(PACKAGE_OUT)/vectis-common-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(1)).rpm
 package_service_deb_path = $(PACKAGE_OUT)/vectis-$(2)_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
@@ -242,6 +255,24 @@ PACKAGE_SERVICES_DEB_TARGETS := $(addprefix package-services-deb-,$(PACKAGE_ARCH
 PACKAGE_SERVICES_RPM_TARGETS := $(addprefix package-services-rpm-,$(PACKAGE_ARCHES))
 
 .PRECIOUS: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli $(PACKAGE_SERVICE_BINARIES) $(PACKAGE_LOCAL_BINARIES) $(PACKAGE_LOCAL_WRAPPER)
+
+.PHONY: vm-package-builder-validate
+vm-package-builder-validate:
+	$(PACKER) validate $(packer_package_builder_vars) $(PACKER_PACKAGE_BUILDER_DIR)
+
+.PHONY: vm-package-builder-prepare
+vm-package-builder-prepare:
+	$(PACKER) build $(packer_package_builder_vars) $(PACKER_PACKAGE_BUILDER_DIR)
+
+.PHONY: vm-package-builder-check
+vm-package-builder-check:
+	@status=0; \
+	$(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false start $(PACKER_PACKAGE_BUILDER_INSTANCE) || status=$$?; \
+	if [ $$status -eq 0 ]; then \
+		$(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false shell $(PACKER_PACKAGE_BUILDER_INSTANCE) -- sh -lc 'set -eu; PATH=/usr/local/go/bin:$$PATH; test "$$(go env GOVERSION)" = "go$(PACKER_PACKAGE_BUILDER_GO_VERSION)"; command -v make >/dev/null; command -v cc >/dev/null; test -d "$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)"; test -d "$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)"' || status=$$?; \
+	fi; \
+	case "$(PACKER_PACKAGE_BUILDER_STOP)" in 1|t|T|true|TRUE|y|Y|yes|YES|on|ON) $(PACKER_PACKAGE_BUILDER_LIMA_BIN) --tty=false stop $(PACKER_PACKAGE_BUILDER_INSTANCE) || status=$$?;; esac; \
+	exit $$status
 
 $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli: cmd/cli/main.go $(API) $(INTERNAL)
 	mkdir -p $(dir ${@})
