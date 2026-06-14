@@ -19,7 +19,7 @@ called production-ready.
 | Confirm config | `/etc/vectis/*.env` or platform config matches the [Production Environment Template](../deployment/production-env-template.md) and secret inventory. |
 | Confirm artifacts | Package, container, binary, systemd, and docs artifacts are built from one commit. |
 | Confirm migrations | `vectis-cli database migrate` has been run or explicitly declared unnecessary for every database. |
-| Confirm health | `vectis-cli health check --strict` passes or every warning has a named owner. |
+| Confirm health | `vectis-cli health check --strict` passes or every warning has a named owner; `vectis-cli health check --json` is saved as evidence. |
 | Confirm smoke | A known-safe job reaches terminal status, streams logs, and verifies artifacts/secrets when in scope. |
 | Confirm monitoring | Alerts, dashboards, service logs, host disk telemetry, and Postgres monitoring are visible. |
 | Confirm backup | The latest backup set covers database, queue, logs, artifacts, secrets, TLS, config, and observability customization. |
@@ -48,9 +48,11 @@ Use this for release rehearsals and planned production upgrades.
 9. Restart cron, reconciler, catalog, log-forwarder, and docs according to the
    deployment plan.
 10. Run `vectis-cli health check --strict`.
-11. Trigger a known-safe job, confirm terminal status, stream logs, verify
+11. Save `vectis-cli health check --json` output as the machine-readable health
+   evidence artifact.
+12. Trigger a known-safe job, confirm terminal status, stream logs, verify
    artifacts/secrets when in scope, and inspect dispatch events.
-12. Watch retry exhaustion, queue backlog, DLQ depth, worker failures, log and
+13. Watch retry exhaustion, queue backlog, DLQ depth, worker failures, log and
    artifact failures, DB pool pressure, and API security rejections for at least
    one reconciler interval.
 
@@ -87,11 +89,13 @@ Use this to exercise disaster recovery without waiting for an incident.
 7. Start cell ingress and API.
 8. Start worker-core, workers, cron, reconciler, catalog, and log-forwarder.
 9. Run `vectis-cli health check --strict`.
-10. Verify restored jobs/runs, restored logs, restored artifacts, and restored
+10. Save `vectis-cli health check --json` output as the machine-readable health
+    evidence artifact.
+11. Verify restored jobs/runs, restored logs, restored artifacts, and restored
     secret resolution when those backup pieces were included.
-11. Trigger a new known-safe job and verify terminal status, logs, dispatch
+12. Trigger a new known-safe job and verify terminal status, logs, dispatch
     events, and artifacts/secrets when in scope.
-12. Confirm fresh metrics, service logs, dashboards, and alert routing.
+13. Confirm fresh metrics, service logs, dashboards, and alert routing.
 
 Do not run retention cleanup against the restored environment until the smoke
 test passes and the restore point is accepted.
@@ -105,6 +109,7 @@ Every completed drill should capture:
 - start and finish timestamps;
 - commands run and links to raw output;
 - `vectis-cli health check --strict` result;
+- `vectis-cli health check --json` artifact;
 - smoke run ID, terminal status, and log/artifact/secret result;
 - backup identifiers and restore point when relevant;
 - service instance IDs and durable storage paths;

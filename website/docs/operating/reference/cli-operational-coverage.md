@@ -81,6 +81,10 @@ vectis-cli health check --json
 
 Failed checks always exit non-zero. Under `--strict`, warnings also cause a non-zero exit.
 
+For release gates and production drills, keep both outputs: `--strict` proves
+the pass/fail decision for the current gate, while `--json` preserves the
+machine-readable evidence needed for later audit or comparison.
+
 ## Related Docs
 
 | Need | Doc |

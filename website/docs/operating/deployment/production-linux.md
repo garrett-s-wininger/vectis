@@ -205,6 +205,7 @@ Run these before declaring the deployment ready:
 
 ```sh
 vectis-cli health check --strict
+vectis-cli health check --json > vectis-health-after-startup.json
 ```
 
 Then exercise the workflow:
@@ -216,9 +217,10 @@ Then exercise the workflow:
 5. Stream logs with `vectis-cli logs run <run-id>`.
 6. List run artifacts if the job produces any.
 7. Inspect dispatch events for the run.
-8. Confirm queue, reconciler, worker, log, artifact, audit, and database-pool metrics are fresh.
-9. Confirm host disk, PostgreSQL, and filesystem telemetry are visible outside Vectis.
-10. Confirm alert routing and runbook links are installed in the production telemetry system.
+8. Keep the JSON health output with deployment evidence.
+9. Confirm queue, reconciler, worker, log, artifact, audit, and database-pool metrics are fresh.
+10. Confirm host disk, PostgreSQL, and filesystem telemetry are visible outside Vectis.
+11. Confirm alert routing and runbook links are installed in the production telemetry system.
 
 ## Rollout And Restart Rules
 
@@ -231,7 +233,7 @@ For planned rollout:
 5. Restart queue, orchestrator, registry, log, and artifact during a quiet window when possible.
 6. Roll workers gradually and allow graceful drain.
 7. Keep the reconciler running, or restart it last.
-8. Run `vectis-cli health check --strict` and a smoke run afterward.
+8. Run `vectis-cli health check --strict`, save `vectis-cli health check --json`, and run a smoke run afterward.
 
 Worker termination windows should be long enough for ordinary job finalization.
 Abrupt worker death relies on leases, queue redelivery, and repair. Restart a

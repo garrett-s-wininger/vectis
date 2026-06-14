@@ -72,8 +72,9 @@ Recommended drill flow:
 6. Run migrations against every restored database.
 7. Start services in dependency order.
 8. Run `vectis-cli health check --strict`.
-9. Run the restore smoke test below.
-10. Record evidence and update the backup, config, or runbook gaps found during the drill.
+9. Save `vectis-cli health check --json` output as machine-readable evidence.
+10. Run the restore smoke test below.
+11. Record evidence and update the backup, config, or runbook gaps found during the drill.
 
 Do not run retention cleanup during a restore drill until the restored deployment
 passes the smoke test and the operator has accepted the restore point.
@@ -154,7 +155,8 @@ Use this for the reference Podman deployment and any production-like deployment 
 12. Start reconciler and catalog.
 13. Start log-forwarder where worker-host spooling is used.
 14. Run `vectis-cli health check --strict`.
-15. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
+15. Save `vectis-cli health check --json` output as machine-readable evidence.
+16. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
 
 If queue persistence was not restored, expect the reconciler to redispatch
 queued runs that still exist in the database. If log or artifact storage was not
@@ -193,6 +195,7 @@ Record these after a drill or real recovery:
 - Which backup pieces were restored and which were missing.
 - Service instance IDs and durable storage paths used after restore.
 - `vectis-cli health check --strict` result.
+- `vectis-cli health check --json` artifact.
 - New smoke run ID and terminal status.
 - Any known data loss, especially missing logs, orphaned queue entries, or credentials that had to be rotated.
 - Smoke test result and any follow-up repair work.

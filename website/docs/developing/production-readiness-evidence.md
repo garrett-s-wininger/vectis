@@ -109,7 +109,9 @@ and [Security](../concepts/security.md).
 | Area | Result | Evidence location |
 | --- | --- | --- |
 | `vectis-cli health check --strict` before upgrade |  |  |
+| `vectis-cli health check --json` before upgrade |  |  |
 | `vectis-cli health check --strict` after upgrade |  |  |
+| `vectis-cli health check --json` after upgrade |  |  |
 | API `/health/live` and `/health/ready` |  |  |
 | Reconciler running and repairing visibility |  |  |
 | Queue, log, and artifact shard storage checks |  |  |
@@ -122,6 +124,10 @@ and [Security](../concepts/security.md).
 For the backup/restore row, link the completed
 [Production v1 drill](../operating/reliability/backup-restore.md#production-v1-drill)
 or state why a fresh drill was not required for this release.
+
+Store the JSON health output as an artifact, not only pasted text. The JSON
+record preserves check IDs, status, severity, evidence, suggested action, and
+documentation links for later comparison.
 
 ## Capacity Evidence
 
