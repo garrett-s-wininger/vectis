@@ -8,6 +8,8 @@
 | `test-quick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1 -timeout=60s` — fast feedback |
 | `test-integration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
 | `test-e2e` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
+| `vm-status` | Prepared VM inventory | Read-only VM lane status; does not start stopped guests |
+| `vm-doctor` | Prepared VM health check | Starts stopped prepared guests long enough to verify markers and tooling, then stops any VM it started |
 | `test-postgres-integration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |
 | `test-race` | All packages | `-race` flag |
 | `fuzz-api-auth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
@@ -84,6 +86,8 @@ Prepared VM controls used by deploy and package lanes:
 | Variable | Meaning |
 |---|---|
 | `PACKER_VM_PREP_VERSION` | Shared prepared VM marker version checked by `vm-check` and VM e2e harnesses; defaults to `1`. |
+| `VM_PROVIDER` | Provider used by `vm-status` and `vm-doctor`; defaults to `auto` (currently Lima). |
+| `VM_DOCTOR_TIMEOUT` | Overall timeout for `vm-status` and `vm-doctor`; defaults to `10m`. |
 | `PACKER_DEPLOY_SMOKE_INSTANCE` | Prepared Linux deploy smoke VM; defaults to `vectis-deploy-smoke`. |
 | `PACKER_DEPLOY_SMOKE_TEMPLATE` | Lima template used for the prepared Linux deploy smoke VM; defaults to `ubuntu-lts`. |
 | `PACKER_PACKAGE_BUILDER_INSTANCE` | Prepared Linux package builder instance; defaults to `vectis-package-builder`. |

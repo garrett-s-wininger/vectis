@@ -177,6 +177,8 @@ PACKAGE_LOCAL_ALLOW_CROSS_CGO ?= 0
 PACKAGE_LOCAL_MAKE ?= make
 PACKER ?= packer
 PACKER_VM_PREP_VERSION ?= 1
+VM_PROVIDER ?= auto
+VM_DOCTOR_TIMEOUT ?= 10m
 PACKER_DEPLOY_SMOKE_DIR ?= build/packer/deploy-smoke
 PACKER_DEPLOY_SMOKE_INSTANCE ?= vectis-deploy-smoke
 PACKER_DEPLOY_SMOKE_TEMPLATE ?= ubuntu-lts
@@ -230,6 +232,7 @@ package_service_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS) --in
 package_local_inputs = --input vectis-local-wrapper=$(PACKAGE_LOCAL_WRAPPER) --input vectis-local-binaries=$(call package_local_bin_dir,$(1))
 package_local_dispatch_env = --env 'PACKAGE_OUT=$(PACKAGE_OUT)' --env 'PACKAGE_BUILD_DIR=$(PACKAGE_BUILD_DIR)' --env 'PACKAGE_VERSION=$(PACKAGE_VERSION)' --env 'PACKAGE_RELEASE=$(PACKAGE_RELEASE)' --env 'PACKAGE_ARCH=$(2)' --env 'PACKAGE_LOCAL_ARCHES=$(2)' --env 'PACKAGE_LOCAL_APPS=$(PACKAGE_LOCAL_APPS)'
 package_local_dispatch = PACKER_VM_PREP_VERSION='$(PACKER_VM_PREP_VERSION)' $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
+vm_doctor_args = --provider '$(VM_PROVIDER)' --timeout '$(VM_DOCTOR_TIMEOUT)' --packer '$(PACKER)' --prep-version '$(PACKER_VM_PREP_VERSION)' --deploy-lima-bin '$(PACKER_DEPLOY_SMOKE_LIMA_BIN)' --deploy-instance '$(PACKER_DEPLOY_SMOKE_INSTANCE)' --builder-lima-bin '$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' --builder-instance '$(PACKER_PACKAGE_BUILDER_INSTANCE)' --builder-go-version '$(PACKER_PACKAGE_BUILDER_GO_VERSION)' --builder-cache-root '$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)' --builder-workspace-root '$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' --smoke-lima-bin '$(PACKER_PACKAGE_SMOKE_LIMA_BIN)' --deb-smoke-instance '$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE)' --rpm-smoke-instance '$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE)'
 package_common_deb_path = $(PACKAGE_OUT)/vectis-common_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
 package_common_rpm_path = $(PACKAGE_OUT)/vectis-common-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(1)).rpm
 package_service_deb_path = $(PACKAGE_OUT)/vectis-$(2)_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
@@ -294,6 +297,14 @@ vm-check:
 	$(MAKE) vm-deploy-smoke-check
 	$(MAKE) vm-package-builder-check
 	$(MAKE) vm-package-smoke-check
+
+.PHONY: vm-status
+vm-status:
+	$(GO) run ./tools/vm-doctor --mode status $(vm_doctor_args)
+
+.PHONY: vm-doctor
+vm-doctor:
+	$(GO) run ./tools/vm-doctor --mode doctor $(vm_doctor_args)
 
 .PHONY: vm-deploy-smoke-validate
 vm-deploy-smoke-validate:

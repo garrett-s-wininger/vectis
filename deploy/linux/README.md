@@ -85,6 +85,11 @@ make test-e2e-deploy-linux
 `make vm-prepare` and `make vm-check` run this lane along with the package
 builder and package install smoke VMs.
 
+`make vm-status` reports whether the prepared deploy/package VMs exist and
+whether they are currently running without starting them. `make vm-doctor`
+starts stopped prepared VMs long enough to verify their marker files and guest
+tooling, then stops any VM it started.
+
 By default, `make vm-deploy-smoke-prepare` prepares a Lima instance named
 `vectis-deploy-smoke` from the `ubuntu-lts` template, installs the systemd
 tooling needed by the harness, and writes

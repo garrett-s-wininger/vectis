@@ -54,6 +54,19 @@ make vm-package-builder-prepare
 make vm-package-builder-check
 ```
 
+To inspect the prepared VM lanes without starting stopped guests, use:
+
+```sh
+make vm-status
+```
+
+To start stopped prepared guests long enough to verify markers and expected
+guest tools, use:
+
+```sh
+make vm-doctor
+```
+
 To prepare and check every VM-backed deploy/package lane in one pass, use:
 
 ```sh
