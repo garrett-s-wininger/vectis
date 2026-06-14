@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -269,6 +270,92 @@ func TestExecutionRepairService_EnqueuedReceiptWithLostQueueIsRecoveredByReconci
 	}
 }
 
+func TestExecutionRepairService_RepairRejectsHandoffRequestDrift(t *testing.T) {
+	ctx := context.Background()
+	req := validJobRequestForCell(t, "iad-a")
+
+	submission, err := cell.NewExecutionSubmission(req)
+	if err != nil {
+		t.Fatalf("NewExecutionSubmission: %v", err)
+	}
+
+	acceptance, err := executionAcceptance(submission)
+	if err != nil {
+		t.Fatalf("executionAcceptance: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*dal.CellExecutionQueueHandoff)
+		want   string
+	}{
+		{
+			name: "execution id",
+			mutate: func(h *dal.CellExecutionQueueHandoff) {
+				h.ExecutionID = "execution-other"
+			},
+			want: "execution_id",
+		},
+		{
+			name: "run id",
+			mutate: func(h *dal.CellExecutionQueueHandoff) {
+				h.RunID = "run-other"
+			},
+			want: "run_id",
+		},
+		{
+			name: "task identity",
+			mutate: func(h *dal.CellExecutionQueueHandoff) {
+				h.TaskAttemptID = "task-attempt-other"
+			},
+			want: "task_attempt_id",
+		},
+		{
+			name: "definition fingerprint",
+			mutate: func(h *dal.CellExecutionQueueHandoff) {
+				h.DefinitionHash = "sha256:other"
+			},
+			want: "definition_hash",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handoff := queueHandoffFromAcceptance(acceptance)
+			tt.mutate(&handoff)
+
+			store := &recordingAcceptanceStore{}
+			queue := mocks.NewMockQueueService()
+			svc := NewExecutionRepairService(store, queue, mocks.NewMockLogger(), mocks.NewMockClock())
+
+			err := svc.repairOne(ctx, handoff)
+			if err == nil {
+				t.Fatal("expected repair to reject mismatched handoff")
+			}
+
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("repair error = %q, want field %q", err.Error(), tt.want)
+			}
+
+			if got := len(queue.GetJobRequests()); got != 0 {
+				t.Fatalf("repair enqueued %d requests for mismatched handoff", got)
+			}
+
+			if store.enqueuedExecutionID != "" {
+				t.Fatalf("repair marked mismatched execution enqueued: %s", store.enqueuedExecutionID)
+			}
+
+			if store.failedExecutionID != handoff.ExecutionID {
+				t.Fatalf("failed execution id = %q, want %q", store.failedExecutionID, handoff.ExecutionID)
+			}
+
+			if !strings.Contains(store.failedMessage, tt.want) {
+				t.Fatalf("failed message = %q, want field %q", store.failedMessage, tt.want)
+			}
+		})
+	}
+}
+
 func assertReceiptEnqueued(t *testing.T, db *sql.DB, executionID string) {
 	t.Helper()
 
@@ -308,4 +395,24 @@ func (r *failOnceMarkEnqueuedAcceptancesRepository) MarkEnqueued(ctx context.Con
 	}
 
 	return r.CellExecutionAcceptancesRepository.MarkEnqueued(ctx, executionID, enqueuedAtUnixNano)
+}
+
+func queueHandoffFromAcceptance(acceptance dal.CellExecutionAcceptance) dal.CellExecutionQueueHandoff {
+	return dal.CellExecutionQueueHandoff{
+		ExecutionID:       acceptance.ExecutionID,
+		RunID:             acceptance.RunID,
+		JobID:             acceptance.JobID,
+		RunIndex:          acceptance.RunIndex,
+		TaskID:            acceptance.TaskID,
+		TaskKey:           acceptance.TaskKey,
+		TaskName:          acceptance.TaskName,
+		TaskAttemptID:     acceptance.TaskAttemptID,
+		SegmentID:         acceptance.SegmentID,
+		SegmentName:       acceptance.SegmentName,
+		CellID:            acceptance.CellID,
+		Attempt:           acceptance.Attempt,
+		DefinitionVersion: acceptance.DefinitionVersion,
+		DefinitionHash:    acceptance.DefinitionHash,
+		RequestJSON:       acceptance.RequestJSON,
+	}
 }

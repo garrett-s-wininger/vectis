@@ -446,6 +446,21 @@ func TestCellExecutionAcceptances_QueueHandoffMarkers(t *testing.T) {
 	if len(pending) != 1 || pending[0].ExecutionID != acceptance.ExecutionID || pending[0].RequestJSON != acceptance.RequestJSON {
 		t.Fatalf("pending handoffs: got %+v", pending)
 	}
+	if pending[0].RunID != acceptance.RunID ||
+		pending[0].JobID != acceptance.JobID ||
+		pending[0].RunIndex != acceptance.RunIndex ||
+		pending[0].TaskID != "run-repair:root" ||
+		pending[0].TaskKey != dal.RootTaskKey ||
+		pending[0].TaskName != dal.RootTaskKey ||
+		pending[0].TaskAttemptID != "run-repair:root:attempt:1" ||
+		pending[0].SegmentID != acceptance.SegmentID ||
+		pending[0].SegmentName != acceptance.SegmentName ||
+		pending[0].CellID != acceptance.CellID ||
+		pending[0].Attempt != acceptance.Attempt ||
+		pending[0].DefinitionVersion != acceptance.DefinitionVersion ||
+		pending[0].DefinitionHash != acceptance.DefinitionHash {
+		t.Fatalf("pending handoff identity mismatch: got %+v", pending[0])
+	}
 
 	failedAt := time.Now().UnixNano()
 	if err := repos.CellExecutionAcceptances().MarkEnqueueFailed(ctx, acceptance.ExecutionID, failedAt, "queue closed"); err != nil {

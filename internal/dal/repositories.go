@@ -283,10 +283,22 @@ type CellExecutionAcceptance struct {
 }
 
 type CellExecutionQueueHandoff struct {
-	ExecutionID     string
-	RunID           string
-	RequestJSON     string
-	EnqueueAttempts int
+	ExecutionID       string
+	RunID             string
+	JobID             string
+	RunIndex          int
+	TaskID            string
+	TaskKey           string
+	TaskName          string
+	TaskAttemptID     string
+	SegmentID         string
+	SegmentName       string
+	CellID            string
+	Attempt           int
+	DefinitionVersion int
+	DefinitionHash    string
+	RequestJSON       string
+	EnqueueAttempts   int
 }
 
 type CellExecutionAcceptancesRepository interface {

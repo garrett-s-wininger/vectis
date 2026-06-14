@@ -3,9 +3,11 @@ package cellingress
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
@@ -117,6 +119,11 @@ func (s *ExecutionRepairService) repairOne(ctx context.Context, handoff dal.Cell
 		return fmt.Errorf("decode accepted job request: %w", err)
 	}
 
+	if err := validateQueueHandoffRequest(handoff, &req); err != nil {
+		s.markFailed(ctx, handoff.ExecutionID, err)
+		return fmt.Errorf("validate accepted job request: %w", err)
+	}
+
 	if err := queueclient.EnqueueWithRetry(ctx, s.queue, &req, s.logger); err != nil {
 		s.markFailed(ctx, handoff.ExecutionID, err)
 		return fmt.Errorf("enqueue accepted execution: %w", err)
@@ -137,4 +144,87 @@ func (s *ExecutionRepairService) markFailed(ctx context.Context, executionID str
 	if err := s.acceptances.MarkEnqueueFailed(ctx, executionID, s.clock.Now().UnixNano(), cause.Error()); err != nil && s.logger != nil {
 		s.logger.Warn("cell execution repair failed to record enqueue failure for execution %s: %v", executionID, err)
 	}
+}
+
+func validateQueueHandoffRequest(handoff dal.CellExecutionQueueHandoff, req *api.JobRequest) error {
+	submission, err := cell.NewExecutionSubmission(req)
+	if err != nil {
+		return err
+	}
+
+	env := submission.Envelope
+	if err := matchHandoffString("execution_id", handoff.ExecutionID, env.ExecutionID); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("run_id", handoff.RunID, env.RunID); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("job_id", handoff.JobID, env.Job.GetId()); err != nil {
+		return err
+	}
+
+	if err := matchHandoffInt("run_index", handoff.RunIndex, env.RunIndex); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("task_id", handoff.TaskID, env.TaskID); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("task_key", handoff.TaskKey, env.TaskKey); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("task_attempt_id", handoff.TaskAttemptID, env.TaskAttemptID); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("segment_id", handoff.SegmentID, env.SegmentID); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("cell_id", handoff.CellID, env.CellID); err != nil {
+		return err
+	}
+
+	if err := matchHandoffInt("attempt", handoff.Attempt, env.TaskAttempt); err != nil {
+		return err
+	}
+
+	if err := matchHandoffInt("definition_version", handoff.DefinitionVersion, env.DefinitionVersion); err != nil {
+		return err
+	}
+
+	if err := matchHandoffString("definition_hash", handoff.DefinitionHash, env.DefinitionHash); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func matchHandoffString(field, stored, envelope string) error {
+	stored = strings.TrimSpace(stored)
+	if stored == "" {
+		return fmt.Errorf("cell execution repair handoff %s is required", field)
+	}
+
+	if stored != envelope {
+		return fmt.Errorf("cell execution repair handoff %s %q does not match request envelope %s %q", field, stored, field, envelope)
+	}
+
+	return nil
+}
+
+func matchHandoffInt(field string, stored, envelope int) error {
+	if stored <= 0 {
+		return fmt.Errorf("cell execution repair handoff %s must be positive", field)
+	}
+
+	if stored != envelope {
+		return fmt.Errorf("cell execution repair handoff %s %d does not match request envelope %s %d", field, stored, field, envelope)
+	}
+
+	return nil
 }

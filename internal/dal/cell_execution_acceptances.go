@@ -163,10 +163,27 @@ func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(ctx con
 
 	cellID := normalizeTargetCellID("", r.cellID)
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT ca.execution_id, ca.run_id, ep.payload_json, ca.enqueue_attempts
+		SELECT
+			ca.execution_id,
+			ca.run_id,
+			ca.job_id,
+			ca.run_index,
+			se.task_id,
+			rt.task_key,
+			rt.name,
+			se.task_attempt_id,
+			ca.segment_id,
+			ca.segment_name,
+			ca.cell_id,
+			ca.attempt,
+			ca.definition_version,
+			ca.definition_hash,
+			ep.payload_json,
+			ca.enqueue_attempts
 		FROM cell_execution_acceptances ca
 		JOIN execution_payloads ep ON ep.payload_hash = ca.execution_payload_hash
 		JOIN segment_executions se ON se.execution_id = ca.execution_id
+		JOIN run_tasks rt ON rt.task_id = se.task_id
 		WHERE ca.cell_id = ?
 			AND ca.enqueued_at IS NULL
 			AND se.status = ?
@@ -183,7 +200,24 @@ func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(ctx con
 	var out []CellExecutionQueueHandoff
 	for rows.Next() {
 		var rec CellExecutionQueueHandoff
-		if err := rows.Scan(&rec.ExecutionID, &rec.RunID, &rec.RequestJSON, &rec.EnqueueAttempts); err != nil {
+		if err := rows.Scan(
+			&rec.ExecutionID,
+			&rec.RunID,
+			&rec.JobID,
+			&rec.RunIndex,
+			&rec.TaskID,
+			&rec.TaskKey,
+			&rec.TaskName,
+			&rec.TaskAttemptID,
+			&rec.SegmentID,
+			&rec.SegmentName,
+			&rec.CellID,
+			&rec.Attempt,
+			&rec.DefinitionVersion,
+			&rec.DefinitionHash,
+			&rec.RequestJSON,
+			&rec.EnqueueAttempts,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
