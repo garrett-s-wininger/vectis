@@ -233,5 +233,16 @@ func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(w http.ResponseWrite
 	s.auditLog(ctx, audit.EventJobDeleted, actorID, 0, sourceDefinitionAuditMetadata(jobID, nsPath, rec.RepositoryID, "delete", deleted))
 
 	w.Header().Set("X-Vectis-Source-Commit", deleted.Commit)
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, sourceRepositoryJobDeleteResponse{
+		Status: "deleted",
+		JobID:  jobID,
+		Source: sourceProvenanceResponse{
+			RepositoryID:   rec.RepositoryID,
+			RequestedRef:   deleted.RequestedRef,
+			ResolvedCommit: deleted.Commit,
+			Path:           deleted.Path,
+			BlobSHA:        deleted.BlobSHA,
+		},
+		RepositorySync: sourceRepositorySyncRecordToResponse(rec),
+	})
 }

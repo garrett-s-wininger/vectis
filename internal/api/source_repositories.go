@@ -189,6 +189,7 @@ type sourceRepositoryJobsResponse struct {
 	Limit          int                                  `json:"limit"`
 	Truncated      bool                                 `json:"truncated"`
 	NextCursor     string                               `json:"next_cursor,omitempty"`
+	RepositorySync sourceRepositorySyncResponse         `json:"repository_sync"`
 	Jobs           []sourceRepositoryJobResponse        `json:"jobs"`
 	Invalid        []invalidSourceRepositoryJobResponse `json:"invalid,omitempty"`
 }
@@ -206,6 +207,7 @@ type sourceCronScheduleResponse struct {
 	ConfiguredRef  string                              `json:"configured_ref"`
 	ConfiguredPath string                              `json:"configured_path"`
 	Override       *sourceCronScheduleOverrideResponse `json:"override,omitempty"`
+	RepositorySync *sourceRepositorySyncResponse       `json:"repository_sync,omitempty"`
 	Declared       bool                                `json:"declared"`
 	Enabled        bool                                `json:"enabled"`
 }
@@ -234,10 +236,18 @@ type sourceCronSchedulesResponse struct {
 }
 
 type sourceRepositoryJobDefinitionResponse struct {
-	JobID          string                   `json:"job_id"`
-	DefinitionHash string                   `json:"definition_hash"`
-	Definition     json.RawMessage          `json:"definition"`
-	Source         sourceProvenanceResponse `json:"source"`
+	JobID          string                       `json:"job_id"`
+	DefinitionHash string                       `json:"definition_hash"`
+	Definition     json.RawMessage              `json:"definition"`
+	Source         sourceProvenanceResponse     `json:"source"`
+	RepositorySync sourceRepositorySyncResponse `json:"repository_sync"`
+}
+
+type sourceRepositoryJobDeleteResponse struct {
+	Status         string                       `json:"status"`
+	JobID          string                       `json:"job_id"`
+	Source         sourceProvenanceResponse     `json:"source"`
+	RepositorySync sourceRepositorySyncResponse `json:"repository_sync"`
 }
 
 type sourceDefinitionRequest struct {
@@ -293,12 +303,13 @@ type sourceProvenanceResponse struct {
 }
 
 type sourceJobTriggerResponse struct {
-	JobID             string                   `json:"job_id"`
-	RunID             string                   `json:"run_id"`
-	RunIndex          int                      `json:"run_index"`
-	DefinitionVersion int                      `json:"definition_version"`
-	DefinitionHash    string                   `json:"definition_hash"`
-	Source            sourceProvenanceResponse `json:"source"`
+	JobID             string                       `json:"job_id"`
+	RunID             string                       `json:"run_id"`
+	RunIndex          int                          `json:"run_index"`
+	DefinitionVersion int                          `json:"definition_version"`
+	DefinitionHash    string                       `json:"definition_hash"`
+	Source            sourceProvenanceResponse     `json:"source"`
+	RepositorySync    sourceRepositorySyncResponse `json:"repository_sync"`
 }
 
 type resolvedSourceDefinitionResponse struct {
@@ -633,9 +644,20 @@ func (s *APIServer) ListSourceSchedules(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	syncByRepositoryID, err := s.sourceRepositorySyncResponsesByID(ctx, ns.ID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error listing source repositories for schedule sync state: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, sourceCronSchedulesResponse{
 		Namespace: ns.Path,
-		Schedules: sourceCronScheduleRecordsToResponse(recs, ns.Path, declared),
+		Schedules: sourceCronScheduleRecordsToResponseWithSync(recs, ns.Path, declared, syncByRepositoryID),
 	})
 }
 
@@ -679,7 +701,9 @@ func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, sourceCronSchedulesResponse{
 		Namespace:    nsPath,
 		RepositoryID: rec.RepositoryID,
-		Schedules:    sourceCronScheduleRecordsToResponse(recs, nsPath, declared),
+		Schedules: sourceCronScheduleRecordsToResponseWithSync(recs, nsPath, declared, map[string]sourceRepositorySyncResponse{
+			rec.RepositoryID: sourceRepositorySyncRecordToResponse(rec),
+		}),
 	})
 }
 
@@ -1329,6 +1353,7 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 		Limit:          limit,
 		Truncated:      listing.Truncated,
 		NextCursor:     listing.NextCursor,
+		RepositorySync: sourceRepositorySyncRecordToResponse(rec),
 		Jobs:           jobs,
 		Invalid:        invalid,
 	})
@@ -1396,6 +1421,7 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 			Path:           loaded.Source.Path,
 			BlobSHA:        loaded.Source.BlobSHA,
 		},
+		RepositorySync: sourceRepositorySyncRecordToResponse(rec),
 	})
 }
 
@@ -1508,6 +1534,7 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 			Path:           written.Path,
 			BlobSHA:        written.BlobSHA,
 		},
+		RepositorySync: sourceRepositorySyncRecordToResponse(rec),
 	})
 }
 
@@ -1672,6 +1699,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		DefinitionVersion: definitionVersion,
 		DefinitionHash:    definitionHash,
 		Source:            sourceRecordToProvenance(sourceRec),
+		RepositorySync:    sourceRepositorySyncRecordToResponse(rec),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2394,15 +2422,23 @@ func sourceRepositoryIsDeclared(repositoryID string, declared map[string]struct{
 }
 
 func sourceCronScheduleRecordsToResponse(recs []dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}) []sourceCronScheduleResponse {
+	return sourceCronScheduleRecordsToResponseWithSync(recs, namespacePath, declared, nil)
+}
+
+func sourceCronScheduleRecordsToResponseWithSync(recs []dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}, syncByRepositoryID map[string]sourceRepositorySyncResponse) []sourceCronScheduleResponse {
 	resp := make([]sourceCronScheduleResponse, 0, len(recs))
 	for _, rec := range recs {
-		resp = append(resp, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
+		resp = append(resp, sourceCronScheduleRecordToResponseWithSync(rec, namespacePath, declared, syncByRepositoryID))
 	}
 
 	return resp
 }
 
 func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}) sourceCronScheduleResponse {
+	return sourceCronScheduleRecordToResponseWithSync(rec, namespacePath, declared, nil)
+}
+
+func sourceCronScheduleRecordToResponseWithSync(rec dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}, syncByRepositoryID map[string]sourceRepositorySyncResponse) sourceCronScheduleResponse {
 	effectiveRef := strings.TrimSpace(rec.SourceRef)
 	if ref := strings.TrimSpace(rec.SourceOverrideRef); ref != "" {
 		effectiveRef = ref
@@ -2446,7 +2482,30 @@ func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePat
 		}
 	}
 
+	if sync, ok := syncByRepositoryID[rec.SourceRepositoryID]; ok {
+		syncCopy := sync
+		resp.RepositorySync = &syncCopy
+	}
+
 	return resp
+}
+
+func (s *APIServer) sourceRepositorySyncResponsesByID(ctx context.Context, namespaceID int64) (map[string]sourceRepositorySyncResponse, error) {
+	if s.sources == nil {
+		return nil, nil
+	}
+
+	recs, err := s.sources.ListRepositories(ctx, namespaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make(map[string]sourceRepositorySyncResponse, len(recs))
+	for _, rec := range recs {
+		resp[rec.RepositoryID] = sourceRepositorySyncRecordToResponse(rec)
+	}
+
+	return resp, nil
 }
 
 func sourceCronScheduleDeclarationIDs() (map[string]struct{}, error) {

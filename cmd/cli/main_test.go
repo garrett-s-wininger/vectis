@@ -207,6 +207,7 @@ func TestTriggerJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 			"definition_version": 1,
 			"definition_hash":    "hash",
 			"source":             map[string]any{"repository_id": "vectis", "requested_ref": "feature/source", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
+			"repository_sync":    map[string]any{"status": "succeeded", "ref": "main"},
 		})
 	})
 
@@ -239,6 +240,64 @@ func TestTriggerJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 
 	if got := strings.TrimSpace(buf.String()); got != "run-source" {
 		t.Fatalf("output=%q, want run-source", got)
+	}
+}
+
+func TestTriggerJob_jsonOutputIncludesRepositorySync(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	oldCells := triggerCellIDs
+	oldKey := triggerIdemKey
+	triggerCellIDs = nil
+	triggerIdemKey = ""
+	t.Cleanup(func() {
+		triggerCellIDs = oldCells
+		triggerIdemKey = oldKey
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/trigger/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		var body sourceTriggerRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+
+		if body.RepositoryID != "vectis" {
+			t.Errorf("trigger body mismatch: %+v", body)
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":             "build",
+			"run_id":             "run-source",
+			"run_index":          7,
+			"definition_version": 1,
+			"definition_hash":    "hash",
+			"source":             map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/build.json"},
+			"repository_sync":    map[string]any{"status": "failed", "ref": "main"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	configureJobTriggerFlags(cmd)
+	if err := cmd.Flags().Set("repository", "vectis"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := triggerJobWithOutput(cmd, []string{"build"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result sourceTriggerResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.RepositorySync.Status != "failed" || result.RepositorySync.Ref != "main" {
+		t.Fatalf("unexpected repository sync JSON: %+v", result.RepositorySync)
 	}
 }
 
@@ -401,6 +460,11 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 			"limit":           5,
 			"truncated":       true,
 			"next_cursor":     ".vectis/jobs/build.json",
+			"repository_sync": map[string]any{
+				"status": "failed",
+				"ref":    "main",
+				"commit": "0123456789abcdef0123456789abcdef01234567",
+			},
 			"jobs": []map[string]any{
 				{
 					"job_id":   "build",
@@ -433,7 +497,7 @@ func TestListSourceJobs_sendsQueryAndPrintsJobs(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "INVALID PATH", ".vectis/jobs/bad name.json", "fedcba987654", "unsupported job_id segment", "Continue with --cursor .vectis/jobs/build.json"} {
+	for _, want := range []string{"JOB ID", "build", ".vectis/jobs/build.json", "0123456789ab", "abcdef012345", "INVALID PATH", ".vectis/jobs/bad name.json", "fedcba987654", "unsupported job_id segment", `Repository sync status for "vectis": failed`, "results may be stale", "Continue with --cursor .vectis/jobs/build.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -661,6 +725,11 @@ func TestListSourceSchedules_sendsNamespaceQueryAndPrintsSchedules(t *testing.T)
 						"reason":          "production hotfix",
 						"created_at_unix": 1770000000,
 					},
+					"repository_sync": map[string]any{
+						"status": "failed",
+						"ref":    "main",
+						"commit": "0123456789abcdef",
+					},
 					"enabled": true,
 				},
 			},
@@ -673,10 +742,80 @@ func TestListSourceSchedules_sendsNamespaceQueryAndPrintsSchedules(t *testing.T)
 	}
 
 	out := buf.String()
-	for _, want := range []string{"SCHEDULE", "DECLARED", "OVERRIDE", "nightly-build", "vectis", "build", "30 8 * * *", "2026-05-01T08:30:00Z", ".vectis/jobs/build.json (derived)", "ref=hotfix/build", "path=.vectis/jobs/build-hotfix.json", "reason=production hotfix", "true"} {
+	for _, want := range []string{"SCHEDULE", "DECLARED", "OVERRIDE", "nightly-build", "vectis", "build", "30 8 * * *", "2026-05-01T08:30:00Z", ".vectis/jobs/build.json (derived)", "ref=hotfix/build", "path=.vectis/jobs/build-hotfix.json", "reason=production hotfix", "true", "Repository sync status for \"vectis\": failed", "results may be stale"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestListSourceSchedules_jsonOutputIncludesRepositorySync(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	oldNamespace := sourceSchedulesNamespace
+	oldQuiet := sourceSchedulesQuiet
+	oldOverridesOnly := sourceSchedulesOverrideOnly
+	oldStaleOnly := sourceSchedulesStaleOnly
+	sourceSchedulesNamespace = "/team-a"
+	sourceSchedulesQuiet = false
+	sourceSchedulesOverrideOnly = false
+	sourceSchedulesStaleOnly = false
+	t.Cleanup(func() {
+		sourceSchedulesNamespace = oldNamespace
+		sourceSchedulesQuiet = oldQuiet
+		sourceSchedulesOverrideOnly = oldOverridesOnly
+		sourceSchedulesStaleOnly = oldStaleOnly
+	})
+
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		if r.URL.Path != "/api/v1/source-schedules" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"namespace": "/team-a",
+			"schedules": []map[string]any{
+				{
+					"schedule_id":     "nightly-build",
+					"repository_id":   "vectis",
+					"namespace":       "/team-a",
+					"job_id":          "build",
+					"cron_spec":       "30 8 * * *",
+					"next_run_at":     "2026-05-01T08:30:00Z",
+					"ref":             "main",
+					"path":            ".vectis/jobs/build.json",
+					"configured_ref":  "main",
+					"configured_path": "",
+					"declared":        true,
+					"repository_sync": map[string]any{
+						"status": "running",
+						"ref":    "main",
+						"commit": "0123456789abcdef",
+					},
+					"enabled": true,
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listSourceSchedulesWithOutput(&buf, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	var result sourceSchedulesResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("decode json output: %v", err)
+	}
+	if len(result.Schedules) != 1 ||
+		result.Schedules[0].RepositorySync == nil ||
+		result.Schedules[0].RepositorySync.Status != "running" ||
+		result.Schedules[0].RepositorySync.Ref != "main" ||
+		result.Schedules[0].RepositorySync.Commit != "0123456789abcdef" {
+		t.Fatalf("expected repository sync in JSON output, got %+v", result)
 	}
 }
 
@@ -3037,6 +3176,46 @@ func TestListJobs_sourceRepositoryUsesJobsFacade(t *testing.T) {
 	}
 }
 
+func TestListJobs_jsonOutputIncludesRepositorySync(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		if got := r.URL.Query().Get("repository_id"); got != "vectis" {
+			t.Errorf("repository_id=%q, want vectis", got)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"repository_id":   "vectis",
+			"requested_ref":   "main",
+			"resolved_commit": "0123456789abcdef0123456789abcdef01234567",
+			"path":            ".vectis/jobs",
+			"repository_sync": map[string]any{
+				"status": "running",
+				"ref":    "main",
+				"commit": "0123456789abcdef0123456789abcdef01234567",
+			},
+			"jobs": []map[string]any{},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := listJobsWithOutput(&buf, jobListOptions{RepositoryID: "vectis"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var result sourceRepositoryJobsResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.RepositorySync.Status != "running" || result.RepositorySync.Ref != "main" || result.RepositorySync.Commit == "" {
+		t.Fatalf("unexpected repository sync JSON: %+v", result.RepositorySync)
+	}
+}
+
 func TestShowJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -3084,6 +3263,40 @@ func TestShowJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestShowJob_jsonOutputIncludesRepositorySync(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/jobs/build" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"job_id":          "build",
+			"definition_hash": "sha256:def",
+			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"source":          map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/build.json"},
+			"repository_sync": map[string]any{"status": "failed", "ref": "main"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	configureJobShowFlags(cmd)
+
+	var buf bytes.Buffer
+	if err := showSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build"); err != nil {
+		t.Fatal(err)
+	}
+
+	var result sourceRepositoryJobDefinitionResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.RepositorySync.Status != "failed" || result.RepositorySync.Ref != "main" {
+		t.Fatalf("unexpected repository sync JSON: %+v", result.RepositorySync)
 	}
 }
 
@@ -3217,6 +3430,7 @@ func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 				"path":            ".vectis/jobs/build.json",
 				"blob_sha":        "fedcba9876543210fedcba9876543210fedcba98",
 			},
+			"repository_sync": map[string]any{"status": "failed", "ref": "main"},
 		})
 	})
 
@@ -3234,7 +3448,9 @@ func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if out := buf.String(); !strings.Contains(out, `Job "build" updated in source.`) || !strings.Contains(out, "commit=abcdef0123456789abcdef0123456789abcdef01") {
+	if out := buf.String(); !strings.Contains(out, `Job "build" updated in source.`) ||
+		!strings.Contains(out, "commit=abcdef0123456789abcdef0123456789abcdef01") ||
+		!strings.Contains(out, `Repository sync status for "vectis": failed`) {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
 }
@@ -3288,8 +3504,17 @@ func TestDeleteSourceJobFromJobsFacade_sendsAuthoringQuery(t *testing.T) {
 			t.Errorf("query=%s", r.URL.RawQuery)
 		}
 
-		w.Header().Set("X-Vectis-Source-Commit", "fedcba9876543210fedcba9876543210fedcba98")
-		w.WriteHeader(http.StatusNoContent)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "deleted",
+			"job_id": "build",
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "feature/delete",
+				"resolved_commit": "fedcba9876543210fedcba9876543210fedcba98",
+				"path":            ".vectis/jobs/custom.json",
+			},
+			"repository_sync": map[string]any{"status": "failed", "ref": "main"},
+		})
 	})
 
 	cmd := &cobra.Command{}
@@ -3311,10 +3536,51 @@ func TestDeleteSourceJobFromJobsFacade_sendsAuthoringQuery(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{`Job "build" deleted from source.`, "commit=fedcba9876543210fedcba9876543210fedcba98"} {
+	for _, want := range []string{`Job "build" deleted from source.`, "commit=fedcba9876543210fedcba9876543210fedcba98", "path=.vectis/jobs/custom.json", "requested_ref=feature/delete", "Repository sync status for \"vectis\": failed"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestDeleteSourceJobFromJobsFacade_jsonOutputIncludesRepositorySync(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "deleted",
+			"job_id": "build",
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"resolved_commit": "fedcba9876543210fedcba9876543210fedcba98",
+				"path":            ".vectis/jobs/build.json",
+			},
+			"repository_sync": map[string]any{"status": "running", "ref": "main"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	configureJobDeleteFlags(cmd)
+
+	var buf bytes.Buffer
+	if err := deleteSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build"); err != nil {
+		t.Fatal(err)
+	}
+
+	var result sourceRepositoryJobDeleteResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
+	}
+
+	if result.Status != "deleted" ||
+		result.JobID != "build" ||
+		result.Source.ResolvedCommit == "" ||
+		result.RepositorySync.Status != "running" ||
+		result.RepositorySync.Ref != "main" {
+		t.Fatalf("unexpected source delete JSON: %+v", result)
 	}
 }
 

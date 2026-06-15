@@ -561,13 +561,23 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/build?repository_id=managed-repo&expected_head="+updateResp.Source.ResolvedCommit+"&message=delete+build+through+jobs+facade", nil)
 	deleteRec := httptest.NewRecorder()
 	handler.ServeHTTP(deleteRec, deleteReq)
-	if deleteRec.Code != http.StatusNoContent {
+	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("delete source job facade: status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
 	}
 
-	deleteCommit := strings.TrimSpace(deleteRec.Header().Get("X-Vectis-Source-Commit"))
-	if deleteCommit == "" || deleteCommit == updateResp.Source.ResolvedCommit {
-		t.Fatalf("delete source commit header mismatch: %q update=%s", deleteCommit, updateResp.Source.ResolvedCommit)
+	deleteResp := decodeSourceRepositoryJobDeleteResponse(t, deleteRec)
+	deleteCommit := deleteResp.Source.ResolvedCommit
+	if deleteResp.JobID != "build" ||
+		deleteResp.Source.RepositoryID != "managed-repo" ||
+		deleteResp.Source.Path != ".vectis/jobs/build.json" ||
+		deleteResp.Source.ResolvedCommit == "" ||
+		deleteResp.Source.ResolvedCommit == updateResp.Source.ResolvedCommit ||
+		deleteResp.RepositorySync.Status != "succeeded" {
+		t.Fatalf("delete source job facade response mismatch: %+v update=%+v", deleteResp, updateResp)
+	}
+
+	if headerCommit := strings.TrimSpace(deleteRec.Header().Get("X-Vectis-Source-Commit")); headerCommit != deleteCommit {
+		t.Fatalf("delete source commit header mismatch: %q body=%s", headerCommit, deleteCommit)
 	}
 
 	readDeletedReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/build?repository_id=managed-repo&ref="+deleteCommit, nil)
@@ -647,6 +657,17 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		t.Fatalf("create source repository: %v", err)
 	}
 
+	if _, err := repos.Sources().UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:   "vectis-local",
+		Status:         dal.SourceSyncStatusFailed,
+		StartedAtUnix:  100,
+		FinishedAtUnix: 101,
+		Ref:            "main",
+		Error:          "fetch failed",
+	}); err != nil {
+		t.Fatalf("update source repository sync: %v", err)
+	}
+
 	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
 		RepositoryID: "other",
 		NamespaceID:  1,
@@ -703,8 +724,14 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 			PathDerived    bool   `json:"path_derived"`
 			ConfiguredRef  string `json:"configured_ref"`
 			ConfiguredPath string `json:"configured_path"`
-			Declared       bool   `json:"declared"`
-			Enabled        bool   `json:"enabled"`
+			RepositorySync *struct {
+				Status string `json:"status"`
+				Ref    string `json:"ref"`
+				Commit string `json:"commit"`
+				Error  string `json:"error"`
+			} `json:"repository_sync"`
+			Declared bool `json:"declared"`
+			Enabled  bool `json:"enabled"`
 		} `json:"schedules"`
 	}
 
@@ -720,6 +747,8 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		listResp.Schedules[0].RepositoryID != "other" ||
 		listResp.Schedules[0].Path != ".vectis/jobs/other.json" ||
 		listResp.Schedules[0].PathDerived ||
+		listResp.Schedules[0].RepositorySync == nil ||
+		listResp.Schedules[0].RepositorySync.Status != dal.SourceSyncStatusNever ||
 		listResp.Schedules[0].Declared ||
 		listResp.Schedules[0].Enabled {
 		t.Fatalf("first source schedule mismatch: %+v", listResp.Schedules[0])
@@ -736,6 +765,10 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		!listResp.Schedules[1].PathDerived ||
 		listResp.Schedules[1].ConfiguredRef != "main" ||
 		listResp.Schedules[1].ConfiguredPath != "" ||
+		listResp.Schedules[1].RepositorySync == nil ||
+		listResp.Schedules[1].RepositorySync.Status != dal.SourceSyncStatusFailed ||
+		listResp.Schedules[1].RepositorySync.Ref != "main" ||
+		listResp.Schedules[1].RepositorySync.Error != "fetch failed" ||
 		!listResp.Schedules[1].Declared ||
 		!listResp.Schedules[1].Enabled {
 		t.Fatalf("second source schedule mismatch: %+v", listResp.Schedules[1])
@@ -752,8 +785,12 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		Namespace    string `json:"namespace"`
 		RepositoryID string `json:"repository_id"`
 		Schedules    []struct {
-			ScheduleID string `json:"schedule_id"`
-			Declared   bool   `json:"declared"`
+			ScheduleID     string `json:"schedule_id"`
+			RepositorySync *struct {
+				Status string `json:"status"`
+				Ref    string `json:"ref"`
+			} `json:"repository_sync"`
+			Declared bool `json:"declared"`
 		} `json:"schedules"`
 	}
 
@@ -765,6 +802,9 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		repoResp.RepositoryID != "vectis-local" ||
 		len(repoResp.Schedules) != 1 ||
 		repoResp.Schedules[0].ScheduleID != "nightly-build" ||
+		repoResp.Schedules[0].RepositorySync == nil ||
+		repoResp.Schedules[0].RepositorySync.Status != dal.SourceSyncStatusFailed ||
+		repoResp.Schedules[0].RepositorySync.Ref != "main" ||
 		!repoResp.Schedules[0].Declared {
 		t.Fatalf("repository source schedules mismatch: %+v", repoResp)
 	}
@@ -772,17 +812,21 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	disableRec := doJSONRequest(t, handler, http.MethodPatch, "/api/v1/source-schedules/nightly-build", map[string]any{
 		"enabled": false,
 	})
+
 	if disableRec.Code != http.StatusOK {
 		t.Fatalf("disable source schedule: status=%d body=%s", disableRec.Code, disableRec.Body.String())
 	}
+
 	var disableResp struct {
 		ScheduleID string `json:"schedule_id"`
 		Declared   bool   `json:"declared"`
 		Enabled    bool   `json:"enabled"`
 	}
+
 	if err := json.NewDecoder(disableRec.Body).Decode(&disableResp); err != nil {
 		t.Fatalf("decode disable response: %v", err)
 	}
+
 	if disableResp.ScheduleID != "nightly-build" || !disableResp.Declared || disableResp.Enabled {
 		t.Fatalf("disable source schedule response mismatch: %+v", disableResp)
 	}
@@ -790,17 +834,21 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	enableRec := doJSONRequest(t, handler, http.MethodPatch, "/api/v1/source-schedules/nightly-build", map[string]any{
 		"enabled": true,
 	})
+
 	if enableRec.Code != http.StatusOK {
 		t.Fatalf("enable source schedule: status=%d body=%s", enableRec.Code, enableRec.Body.String())
 	}
+
 	var enableResp struct {
 		ScheduleID string `json:"schedule_id"`
 		Declared   bool   `json:"declared"`
 		Enabled    bool   `json:"enabled"`
 	}
+
 	if err := json.NewDecoder(enableRec.Body).Decode(&enableResp); err != nil {
 		t.Fatalf("decode enable response: %v", err)
 	}
+
 	if enableResp.ScheduleID != "nightly-build" || !enableResp.Declared || !enableResp.Enabled {
 		t.Fatalf("enable source schedule response mismatch: %+v", enableResp)
 	}
@@ -1102,8 +1150,11 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 	}
 
 	var jobsResp struct {
-		RepositoryID string `json:"repository_id"`
-		Jobs         []struct {
+		RepositoryID   string `json:"repository_id"`
+		RepositorySync struct {
+			Status string `json:"status"`
+		} `json:"repository_sync"`
+		Jobs []struct {
 			JobID  string `json:"job_id"`
 			Path   string `json:"path"`
 			Source struct {
@@ -1120,6 +1171,7 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 	}
 
 	if jobsResp.RepositoryID != "vectis-local" ||
+		jobsResp.RepositorySync.Status != "never" ||
 		len(jobsResp.Jobs) != 1 ||
 		jobsResp.Jobs[0].JobID != "build" ||
 		jobsResp.Jobs[0].Path != ".vectis/jobs/build.json" ||
@@ -1145,7 +1197,8 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 		triggerResp.Source.RepositoryID != "vectis-local" ||
 		triggerResp.Source.ResolvedCommit == "" ||
 		triggerResp.Source.Path != ".vectis/jobs/build.json" ||
-		triggerResp.Source.BlobSHA == "" {
+		triggerResp.Source.BlobSHA == "" ||
+		triggerResp.RepositorySync.Status != "never" {
 		t.Fatalf("source trigger response mismatch: %+v", triggerResp)
 	}
 
@@ -1841,7 +1894,8 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 		definitionResp.Source.RequestedRef != "HEAD" ||
 		definitionResp.Source.ResolvedCommit != commit ||
 		definitionResp.Source.Path != ".vectis/jobs/build.json" ||
-		definitionResp.Source.BlobSHA != buildBlob {
+		definitionResp.Source.BlobSHA != buildBlob ||
+		definitionResp.RepositorySync.Status != "never" {
 		t.Fatalf("source job definition response mismatch: %+v", definitionResp)
 	}
 
@@ -2403,7 +2457,8 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		writeResp.Source.ResolvedCommit == "" ||
 		writeResp.Source.ResolvedCommit == parent ||
 		writeResp.Source.Path != ".vectis/jobs/build.json" ||
-		writeResp.Source.BlobSHA == "" {
+		writeResp.Source.BlobSHA == "" ||
+		writeResp.RepositorySync.Status != "succeeded" {
 		t.Fatalf("put managed source job definition response mismatch: %+v parent=%s", writeResp, parent)
 	}
 
@@ -2517,7 +2572,8 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		triggerResp.Source.RequestedRef != "HEAD" ||
 		triggerResp.Source.ResolvedCommit != commit ||
 		triggerResp.Source.Path != ".vectis/jobs/build.json" ||
-		triggerResp.Source.BlobSHA != blob {
+		triggerResp.Source.BlobSHA != blob ||
+		triggerResp.RepositorySync.Status != "succeeded" {
 		t.Fatalf("source trigger response mismatch: %+v", triggerResp)
 	}
 
@@ -3163,6 +3219,9 @@ func decodeSourceJobTriggerResponse(t *testing.T, rec *httptest.ResponseRecorder
 		Path           string `json:"path"`
 		BlobSHA        string `json:"blob_sha"`
 	} `json:"source"`
+	RepositorySync struct {
+		Status string `json:"status"`
+	} `json:"repository_sync"`
 } {
 	t.Helper()
 
@@ -3179,6 +3238,9 @@ func decodeSourceJobTriggerResponse(t *testing.T, rec *httptest.ResponseRecorder
 			Path           string `json:"path"`
 			BlobSHA        string `json:"blob_sha"`
 		} `json:"source"`
+		RepositorySync struct {
+			Status string `json:"status"`
+		} `json:"repository_sync"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
@@ -3260,7 +3322,10 @@ func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseReco
 	Limit          int    `json:"limit"`
 	Truncated      bool   `json:"truncated"`
 	NextCursor     string `json:"next_cursor"`
-	Jobs           []struct {
+	RepositorySync struct {
+		Status string `json:"status"`
+	} `json:"repository_sync"`
+	Jobs []struct {
 		JobID   string `json:"job_id"`
 		Path    string `json:"path"`
 		Name    string `json:"name"`
@@ -3290,7 +3355,10 @@ func decodeSourceRepositoryJobsResponse(t *testing.T, rec *httptest.ResponseReco
 		Limit          int    `json:"limit"`
 		Truncated      bool   `json:"truncated"`
 		NextCursor     string `json:"next_cursor"`
-		Jobs           []struct {
+		RepositorySync struct {
+			Status string `json:"status"`
+		} `json:"repository_sync"`
+		Jobs []struct {
 			JobID   string `json:"job_id"`
 			Path    string `json:"path"`
 			Name    string `json:"name"`
@@ -3329,6 +3397,9 @@ func decodeSourceRepositoryJobDefinitionResponse(t *testing.T, rec *httptest.Res
 		Path           string `json:"path"`
 		BlobSHA        string `json:"blob_sha"`
 	} `json:"source"`
+	RepositorySync struct {
+		Status string `json:"status"`
+	} `json:"repository_sync"`
 } {
 	t.Helper()
 
@@ -3343,6 +3414,47 @@ func decodeSourceRepositoryJobDefinitionResponse(t *testing.T, rec *httptest.Res
 			Path           string `json:"path"`
 			BlobSHA        string `json:"blob_sha"`
 		} `json:"source"`
+		RepositorySync struct {
+			Status string `json:"status"`
+		} `json:"repository_sync"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+func decodeSourceRepositoryJobDeleteResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
+	Status string `json:"status"`
+	JobID  string `json:"job_id"`
+	Source struct {
+		RepositoryID   string `json:"repository_id"`
+		RequestedRef   string `json:"requested_ref"`
+		ResolvedCommit string `json:"resolved_commit"`
+		Path           string `json:"path"`
+		BlobSHA        string `json:"blob_sha"`
+	} `json:"source"`
+	RepositorySync struct {
+		Status string `json:"status"`
+	} `json:"repository_sync"`
+} {
+	t.Helper()
+
+	var out struct {
+		Status string `json:"status"`
+		JobID  string `json:"job_id"`
+		Source struct {
+			RepositoryID   string `json:"repository_id"`
+			RequestedRef   string `json:"requested_ref"`
+			ResolvedCommit string `json:"resolved_commit"`
+			Path           string `json:"path"`
+			BlobSHA        string `json:"blob_sha"`
+		} `json:"source"`
+		RepositorySync struct {
+			Status string `json:"status"`
+		} `json:"repository_sync"`
 	}
 
 	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {

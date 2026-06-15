@@ -189,6 +189,7 @@ Inspect source-backed run history and follow future runs through the job-facing 
 ```
 
 When source provenance is available, run lists include the source repository, definition path, and resolved commit so you can see which repository revision produced each run.
+Job list output also warns when the repository's last recorded sync is failed, running, or missing, so a stale checkout is visible before you trigger or edit a job.
 
 Edit a reusable job in `$EDITOR`:
 
@@ -232,6 +233,8 @@ List reconciled source schedules:
 ./bin/vectis-cli sources enable-schedule old-nightly
 ./bin/vectis-cli sources delete-schedule old-nightly --yes
 ```
+
+Schedule list output warns when a referenced repository has a failed, running, or missing sync so scheduled source risk is visible before the next fire time.
 
 Temporarily point a source schedule at a hotfix ref or definition path, then clear the override after the fix lands in the configured location:
 

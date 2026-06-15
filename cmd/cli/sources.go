@@ -200,25 +200,27 @@ type sourceRepositoryJobsResult struct {
 	Limit          int                                 `json:"limit"`
 	Truncated      bool                                `json:"truncated"`
 	NextCursor     string                              `json:"next_cursor,omitempty"`
+	RepositorySync sourceRepositorySyncInfo            `json:"repository_sync"`
 	Jobs           []sourceRepositoryJobSummary        `json:"jobs"`
 	Invalid        []invalidSourceRepositoryJobSummary `json:"invalid,omitempty"`
 }
 
 type sourceScheduleSummary struct {
-	ScheduleID     string                  `json:"schedule_id"`
-	RepositoryID   string                  `json:"repository_id"`
-	Namespace      string                  `json:"namespace"`
-	JobID          string                  `json:"job_id"`
-	CronSpec       string                  `json:"cron_spec"`
-	NextRunAt      string                  `json:"next_run_at"`
-	Ref            string                  `json:"ref,omitempty"`
-	Path           string                  `json:"path,omitempty"`
-	PathDerived    bool                    `json:"path_derived"`
-	ConfiguredRef  string                  `json:"configured_ref"`
-	ConfiguredPath string                  `json:"configured_path"`
-	Override       *sourceScheduleOverride `json:"override,omitempty"`
-	Declared       bool                    `json:"declared"`
-	Enabled        bool                    `json:"enabled"`
+	ScheduleID     string                    `json:"schedule_id"`
+	RepositoryID   string                    `json:"repository_id"`
+	Namespace      string                    `json:"namespace"`
+	JobID          string                    `json:"job_id"`
+	CronSpec       string                    `json:"cron_spec"`
+	NextRunAt      string                    `json:"next_run_at"`
+	Ref            string                    `json:"ref,omitempty"`
+	Path           string                    `json:"path,omitempty"`
+	PathDerived    bool                      `json:"path_derived"`
+	ConfiguredRef  string                    `json:"configured_ref"`
+	ConfiguredPath string                    `json:"configured_path"`
+	Override       *sourceScheduleOverride   `json:"override,omitempty"`
+	RepositorySync *sourceRepositorySyncInfo `json:"repository_sync,omitempty"`
+	Declared       bool                      `json:"declared"`
+	Enabled        bool                      `json:"enabled"`
 }
 
 type sourceScheduleOverride struct {
@@ -245,10 +247,11 @@ type sourceScheduleUpdateRequest struct {
 }
 
 type sourceRepositoryJobDefinitionResult struct {
-	JobID          string           `json:"job_id"`
-	DefinitionHash string           `json:"definition_hash"`
-	Definition     json.RawMessage  `json:"definition"`
-	Source         sourceProvenance `json:"source"`
+	JobID          string                   `json:"job_id"`
+	DefinitionHash string                   `json:"definition_hash"`
+	Definition     json.RawMessage          `json:"definition"`
+	Source         sourceProvenance         `json:"source"`
+	RepositorySync sourceRepositorySyncInfo `json:"repository_sync"`
 }
 
 type sourceRepositoryJobDefinitionWriteRequest struct {
@@ -269,12 +272,13 @@ type sourceProvenance struct {
 }
 
 type sourceTriggerResult struct {
-	JobID             string           `json:"job_id"`
-	RunID             string           `json:"run_id"`
-	RunIndex          int              `json:"run_index"`
-	DefinitionVersion int              `json:"definition_version"`
-	DefinitionHash    string           `json:"definition_hash"`
-	Source            sourceProvenance `json:"source"`
+	JobID             string                   `json:"job_id"`
+	RunID             string                   `json:"run_id"`
+	RunIndex          int                      `json:"run_index"`
+	DefinitionVersion int                      `json:"definition_version"`
+	DefinitionHash    string                   `json:"definition_hash"`
+	Source            sourceProvenance         `json:"source"`
+	RepositorySync    sourceRepositorySyncInfo `json:"repository_sync"`
 }
 
 func sourceOverview(cmd *cobra.Command, args []string) {
@@ -937,7 +941,36 @@ func writeSourceSchedulesResult(out io.Writer, result sourceSchedulesResult) err
 			schedule.Enabled,
 		)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	return writeSourceScheduleSyncNotices(out, result.Schedules)
+}
+
+func writeSourceScheduleSyncNotices(out io.Writer, schedules []sourceScheduleSummary) error {
+	seen := make(map[string]struct{})
+	for _, schedule := range schedules {
+		if schedule.RepositorySync == nil {
+			continue
+		}
+
+		repositoryID := strings.TrimSpace(schedule.RepositoryID)
+		if repositoryID == "" {
+			repositoryID = "-"
+		}
+
+		if _, ok := seen[repositoryID]; ok {
+			continue
+		}
+
+		seen[repositoryID] = struct{}{}
+
+		if err := writeSourceRepositorySyncNotice(out, repositoryID, *schedule.RepositorySync); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func sourceSchedulesWithOverrides(schedules []sourceScheduleSummary) []sourceScheduleSummary {
@@ -1551,7 +1584,7 @@ func writeSourceJobsResult(out io.Writer, result sourceRepositoryJobsResult, qui
 
 	if len(result.Jobs) == 0 && len(result.Invalid) == 0 {
 		fmt.Fprintln(out, "No source jobs found")
-		return nil
+		return writeSourceRepositorySyncNotice(out, result.RepositoryID, result.RepositorySync)
 	}
 
 	if len(result.Jobs) > 0 {
@@ -1588,7 +1621,46 @@ func writeSourceJobsResult(out io.Writer, result sourceRepositoryJobsResult, qui
 		}
 	}
 
+	if err := writeSourceRepositorySyncNotice(out, result.RepositoryID, result.RepositorySync); err != nil {
+		return err
+	}
+
 	return writeSourceTruncatedNotice(out, result.Truncated, result.Limit, result.NextCursor)
+}
+
+func writeSourceRepositorySyncNotice(out io.Writer, repositoryID string, sync sourceRepositorySyncInfo) error {
+	status := strings.TrimSpace(sync.Status)
+	if status == "" || status == "succeeded" {
+		return nil
+	}
+
+	repositoryID = strings.TrimSpace(repositoryID)
+	if repositoryID == "" {
+		repositoryID = "-"
+	}
+
+	parts := []string{fmt.Sprintf("Repository sync status for %q: %s", repositoryID, status)}
+	if ref := strings.TrimSpace(sync.Ref); ref != "" {
+		parts = append(parts, "ref="+ref)
+	}
+
+	if commit := shortSHA(sync.Commit); commit != "-" {
+		parts = append(parts, "commit="+commit)
+	}
+
+	switch status {
+	case "failed":
+		parts = append(parts, "results may be stale; run `vectis-cli sources sync "+repositoryID+"` to refresh or `vectis-cli sources get "+repositoryID+"` for details")
+	case "running":
+		parts = append(parts, "sync is still running; results reflect the currently available checkout")
+	case "never":
+		parts = append(parts, "no sync has completed yet; run `vectis-cli sources sync "+repositoryID+"` to refresh")
+	default:
+		parts = append(parts, "results reflect the currently available checkout")
+	}
+
+	_, err := fmt.Fprintln(out, strings.Join(parts, "; "))
+	return err
 }
 
 func writeSourceTruncatedNotice(out io.Writer, truncated bool, limit int, nextCursor string) error {

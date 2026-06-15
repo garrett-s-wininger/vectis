@@ -669,7 +669,39 @@ func writeJobsSourceAuthoringResult(out io.Writer, result sourceRepositoryJobDef
 		fmt.Fprintf(out, "requested_ref=%s\n", result.Source.RequestedRef)
 	}
 
-	return nil
+	return writeSourceRepositorySyncNotice(out, result.Source.RepositoryID, result.RepositorySync)
+}
+
+type sourceRepositoryJobDeleteResult struct {
+	Status         string                   `json:"status"`
+	JobID          string                   `json:"job_id"`
+	Source         sourceProvenance         `json:"source"`
+	RepositorySync sourceRepositorySyncInfo `json:"repository_sync"`
+}
+
+func writeJobsSourceDeleteResult(out io.Writer, result sourceRepositoryJobDeleteResult, fallbackRepositoryID, fallbackJobID string) error {
+	jobID := strings.TrimSpace(result.JobID)
+	if jobID == "" {
+		jobID = fallbackJobID
+	}
+
+	repositoryID := strings.TrimSpace(result.Source.RepositoryID)
+	if repositoryID == "" {
+		repositoryID = fallbackRepositoryID
+	}
+
+	fmt.Fprintf(out, "Job %q deleted from source.\n", jobID)
+	if commit := strings.TrimSpace(result.Source.ResolvedCommit); commit != "" {
+		fmt.Fprintf(out, "commit=%s\n", commit)
+	}
+	if path := strings.TrimSpace(result.Source.Path); path != "" {
+		fmt.Fprintf(out, "path=%s\n", path)
+	}
+	if ref := strings.TrimSpace(result.Source.RequestedRef); ref != "" {
+		fmt.Fprintf(out, "requested_ref=%s\n", ref)
+	}
+
+	return writeSourceRepositorySyncNotice(out, repositoryID, result.RepositorySync)
 }
 
 func deleteJob(cmd *cobra.Command, args []string) {
@@ -709,6 +741,17 @@ func deleteSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
+	case http.StatusOK:
+		var result sourceRepositoryJobDeleteResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse source job delete response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(out, result)
+		}
+
+		return writeJobsSourceDeleteResult(out, result, repositoryID, jobID)
 	case http.StatusNoContent:
 		commit := strings.TrimSpace(resp.Header.Get("X-Vectis-Source-Commit"))
 		if outputIsJSON() {
