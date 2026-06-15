@@ -10,7 +10,7 @@ You will usually see validation while using:
 - `PUT /api/v1/jobs/{id}`
 - `POST /api/v1/jobs/run`
 
-If you are new to the job format, we suggest you start with [Your First Job](./your-first-job.md). This page is the next stop when Vectis says a job is invalid.
+If you are new to the job format, we suggest you start with [Your First Job](./your-first-job.md). If you need a concise map of every field, use [Job Definition Reference](./job-definition-reference.md). This page is the next stop when Vectis says a job is invalid.
 
 ## The Smallest Valid Shape
 

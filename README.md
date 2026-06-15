@@ -84,6 +84,7 @@ The docs site is the best place to continue:
 | --- | --- |
 | [Getting Started](./website/docs/getting-started.md) | A slower walkthrough of the local stack and first run. |
 | [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
+| [Job Definition Reference](./website/docs/using/job-definition-reference.md) | Field-by-field job JSON shape, ports, inputs, secrets, limits, and built-in action settings. |
 | [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
 | [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
 | [API Error Code Reference](./website/docs/using/api-error-code-reference.md) | Stable API error codes, status meanings, and retry posture. |

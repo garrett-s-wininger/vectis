@@ -2,7 +2,7 @@
 
 This guide explains how to write the JSON job definitions that Vectis runs today. It is for people who have started a local Vectis stack and want to understand what they are submitting with `vectis-cli jobs run` or repository-backed `vectis-cli jobs create --repository`.
 
-If you have not run Vectis locally yet, start with [Getting Started](../getting-started.md).
+If you have not run Vectis locally yet, start with [Getting Started](../getting-started.md). If you want the compact field-by-field version instead of a walkthrough, keep [Job Definition Reference](./job-definition-reference.md) open beside this guide.
 
 ## The Smallest Useful Job
 
