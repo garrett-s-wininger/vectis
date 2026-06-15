@@ -4,6 +4,8 @@ This page describes the SQL schema Vectis installs through the embedded migratio
 
 Treat the database as application-owned state. Prefer the API, CLI, or documented repair commands for routine work. Direct SQL reads are useful for diagnosis; direct SQL writes should be limited to tested repair procedures.
 
+For lifecycle interpretation of run, task, execution, dispatch, and queue states, see the [Run, Task, And Queue State Reference](./run-state-reference.md).
+
 ## Scope And Conventions
 
 The current schema is installed by migration `001_initial` for both SQLite and Postgres. The table set is the same for both drivers, with type differences where each database has different native types.

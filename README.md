@@ -88,6 +88,7 @@ The docs site is the best place to continue:
 | [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
 | [OpenAPI Specification](./website/docs/using/openapi-specification.md) | Machine-readable v1 HTTP API contract. |
 | [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
+| [Run, Task, And Queue State Reference](./website/docs/operating/reference/run-state-reference.md) | Lifecycle states, queue delivery states, repair hints, and operator triage. |
 | [Database Schema](./website/docs/operating/reference/database-schema.md) | SQL tables, fields, constraints, indexes, and operational notes. |
 | [Metrics Catalog](./website/docs/operating/reference/metrics-catalog.md) | Prometheus metric names, labels, and operator interpretation. |
 | [Architecture](./website/docs/concepts/architecture.md) | The current component model and data flows. |

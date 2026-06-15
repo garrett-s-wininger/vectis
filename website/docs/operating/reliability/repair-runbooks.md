@@ -2,6 +2,8 @@
 
 These recipes are for operators responding to failed health checks, alerts, restore drills, stuck runs, or stuck task finalization.
 
+For the meaning of run statuses, task statuses, `next_action` hints, dispatch events, and queue delivery states, keep the [Run, Task, And Queue State Reference](../reference/run-state-reference.md) open while working these procedures.
+
 Start with the broad health check when the API is reachable:
 
 ```sh

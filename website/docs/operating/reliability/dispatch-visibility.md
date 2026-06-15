@@ -4,6 +4,8 @@ Use dispatch events when a run is queued but not starting, when queue handoff al
 
 Vectis records the run row before handing work to the queue. That keeps the run durable even if the producer, queue, network, or reconciler has trouble during handoff. Dispatch events are the audit trail for that handoff.
 
+For the broader lifecycle vocabulary around `queued`, `running`, `orphaned`, task continuations, and queue deliveries, see the [Run, Task, And Queue State Reference](../reference/run-state-reference.md).
+
 For the broader repair flow, see [Queued Runs Or Backlog](./repair-runbooks.md#queued-runs-or-backlog).
 
 ## What Dispatch Events Tell You
