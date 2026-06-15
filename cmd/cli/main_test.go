@@ -3526,6 +3526,47 @@ func TestGetRun_successIncludesAuditFields(t *testing.T) {
 	}
 }
 
+func TestGetRun_successIncludesSourceProvenance(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/runs/run-1" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"run_id":             "run-1",
+			"run_index":          3,
+			"status":             "queued",
+			"definition_version": 4,
+			"definition_hash":    "sha256:def",
+			"source": map[string]any{
+				"repository_id":   "vectis",
+				"requested_ref":   "main",
+				"resolved_commit": "abcdef0123456789abcdef0123456789abcdef01",
+				"path":            ".vectis/jobs/build.json",
+				"blob_sha":        "fedcba9876543210fedcba9876543210fedcba98",
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := getRun("run-1", &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"source_repository=vectis",
+		"source_ref=main",
+		"source_commit=abcdef0123456789abcdef0123456789abcdef01",
+		"source_path=.vectis/jobs/build.json",
+		"source_blob_sha=fedcba9876543210fedcba9876543210fedcba98",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestGetRun_successIncludesTaskCompletion(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/runs/run-1" {
@@ -4337,7 +4378,11 @@ func TestListRuns_sourceRepositoryUsesJobsFacade(t *testing.T) {
 					"run_index":   2,
 					"status":      "queued",
 					"owning_cell": "pdx-b",
-					"source":      map[string]any{"repository_id": "vectis"},
+					"source": map[string]any{
+						"repository_id":   "vectis",
+						"resolved_commit": "abcdef0123456789abcdef0123456789abcdef01",
+						"path":            ".vectis/jobs/build.json",
+					},
 				},
 			},
 		})
@@ -4349,7 +4394,7 @@ func TestListRuns_sourceRepositoryUsesJobsFacade(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"RUN ID", "run-source", "pdx-b"} {
+	for _, want := range []string{"RUN ID", "SOURCE", "PATH", "COMMIT", "run-source", "pdx-b", "vectis", ".vectis/jobs/build.json", "abcdef012345"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -4367,6 +4412,11 @@ func TestListRuns_jsonOutputIncludesOwningCell(t *testing.T) {
 					"status":                 "queued",
 					"owning_cell":            "pdx-b",
 					"execution_payload_hash": "sha256:payload",
+					"source": map[string]any{
+						"repository_id":   "vectis",
+						"resolved_commit": "abcdef0123456789abcdef0123456789abcdef01",
+						"path":            ".vectis/jobs/build.json",
+					},
 				},
 			},
 		})
@@ -4382,7 +4432,12 @@ func TestListRuns_jsonOutputIncludesOwningCell(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if len(result.Data) != 1 || result.Data[0].OwningCell != "pdx-b" || result.Data[0].ExecutionPayloadHash != "sha256:payload" {
+	if len(result.Data) != 1 ||
+		result.Data[0].OwningCell != "pdx-b" ||
+		result.Data[0].ExecutionPayloadHash != "sha256:payload" ||
+		result.Data[0].Source == nil ||
+		result.Data[0].Source.RepositoryID != "vectis" ||
+		result.Data[0].Source.Path != ".vectis/jobs/build.json" {
 		t.Fatalf("unexpected runs JSON: %+v", result)
 	}
 }

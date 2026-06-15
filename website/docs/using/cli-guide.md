@@ -188,6 +188,8 @@ Inspect source-backed run history and follow future runs through the job-facing 
 ./bin/vectis-cli logs job build --repository vectis-local --follow
 ```
 
+When source provenance is available, run lists include the source repository, definition path, and resolved commit so you can see which repository revision produced each run.
+
 Edit a reusable job in `$EDITOR`:
 
 ```sh
@@ -339,7 +341,7 @@ Show one run:
 ```
 
 The detail output includes `owning_cell` when the run belongs to a named execution cell.
-It also prints audit fields such as the definition hash, trigger invocation, requested cells, and frozen execution payload hash when those fields are available.
+It also prints audit fields such as the definition hash, source repository/path/commit, trigger invocation, requested cells, and frozen execution payload hash when those fields are available.
 When task records exist, the output includes a compact task completion summary.
 If the run failed during a worker-controlled SVID or secret-resolution gate, `runs show` prints `next_action=security_gate_failed`, a redacted `latest_failed_security_event`, and retry guidance to fix that gate before retrying or replaying.
 

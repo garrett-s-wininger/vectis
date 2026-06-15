@@ -31,6 +31,7 @@ type runDetail struct {
 	TaskCompletion            *taskCompletion            `json:"task_completion,omitempty"`
 	TaskDispatch              *taskDispatch              `json:"task_dispatch,omitempty"`
 	LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
+	Source                    *sourceProvenance          `json:"source,omitempty"`
 	RunAuditFields
 }
 
@@ -105,15 +106,16 @@ type runListResult struct {
 }
 
 type runListRow struct {
-	RunID         string  `json:"run_id"`
-	RunIndex      int     `json:"run_index"`
-	Status        string  `json:"status"`
-	CreatedAt     *string `json:"created_at,omitempty"`
-	StartedAt     *string `json:"started_at,omitempty"`
-	FinishedAt    *string `json:"finished_at,omitempty"`
-	FailureCode   *string `json:"failure_code,omitempty"`
-	FailureReason *string `json:"failure_reason,omitempty"`
-	OwningCell    string  `json:"owning_cell,omitempty"`
+	RunID         string            `json:"run_id"`
+	RunIndex      int               `json:"run_index"`
+	Status        string            `json:"status"`
+	CreatedAt     *string           `json:"created_at,omitempty"`
+	StartedAt     *string           `json:"started_at,omitempty"`
+	FinishedAt    *string           `json:"finished_at,omitempty"`
+	FailureCode   *string           `json:"failure_code,omitempty"`
+	FailureReason *string           `json:"failure_reason,omitempty"`
+	OwningCell    string            `json:"owning_cell,omitempty"`
+	Source        *sourceProvenance `json:"source,omitempty"`
 	RunAuditFields
 }
 
@@ -301,6 +303,7 @@ func getRun(runID string, w io.Writer) error {
 	}
 
 	writeRunAuditFields(w, run.RunAuditFields)
+	writeRunSourceProvenance(w, run.Source)
 	writeTaskCompletion(w, run.TaskCompletion)
 	writeLatestFailedSecurityEvent(w, run.LatestFailedSecurityEvent)
 
@@ -484,6 +487,41 @@ func writeRunAuditFields(w io.Writer, audit RunAuditFields) {
 	if strings.TrimSpace(audit.ExecutionPayloadHash) != "" {
 		fmt.Fprintf(w, "execution_payload_hash=%s\n", audit.ExecutionPayloadHash)
 	}
+}
+
+func writeRunSourceProvenance(w io.Writer, source *sourceProvenance) {
+	if !hasRunSourceProvenance(source) {
+		return
+	}
+
+	if strings.TrimSpace(source.RepositoryID) != "" {
+		fmt.Fprintf(w, "source_repository=%s\n", source.RepositoryID)
+	}
+
+	if strings.TrimSpace(source.RequestedRef) != "" {
+		fmt.Fprintf(w, "source_ref=%s\n", source.RequestedRef)
+	}
+
+	if strings.TrimSpace(source.ResolvedCommit) != "" {
+		fmt.Fprintf(w, "source_commit=%s\n", source.ResolvedCommit)
+	}
+
+	if strings.TrimSpace(source.Path) != "" {
+		fmt.Fprintf(w, "source_path=%s\n", source.Path)
+	}
+
+	if strings.TrimSpace(source.BlobSHA) != "" {
+		fmt.Fprintf(w, "source_blob_sha=%s\n", source.BlobSHA)
+	}
+}
+
+func hasRunSourceProvenance(source *sourceProvenance) bool {
+	return source != nil &&
+		(strings.TrimSpace(source.RepositoryID) != "" ||
+			strings.TrimSpace(source.RequestedRef) != "" ||
+			strings.TrimSpace(source.ResolvedCommit) != "" ||
+			strings.TrimSpace(source.Path) != "" ||
+			strings.TrimSpace(source.BlobSHA) != "")
 }
 
 func getRunExecutionPayload(runID string, w io.Writer) error {
@@ -1132,8 +1170,13 @@ func writeRunListResult(w io.Writer, result runListResult) error {
 		return nil
 	}
 
-	fmt.Fprintf(w, "%-20s %-5s %-12s %-12s %-24s %-24s %-24s\n",
-		"RUN ID", "INDEX", "CELL", "STATUS", "CREATED", "STARTED", "FINISHED")
+	includeSource := runListHasSourceProvenance(result.Data)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if includeSource {
+		fmt.Fprintln(tw, "RUN ID\tINDEX\tCELL\tSTATUS\tSOURCE\tPATH\tCOMMIT\tCREATED\tSTARTED\tFINISHED")
+	} else {
+		fmt.Fprintln(tw, "RUN ID\tINDEX\tCELL\tSTATUS\tCREATED\tSTARTED\tFINISHED")
+	}
 
 	for _, r := range result.Data {
 		created := "-"
@@ -1156,8 +1199,20 @@ func writeRunListResult(w io.Writer, result runListResult) error {
 			owningCell = "-"
 		}
 
-		fmt.Fprintf(w, "%-20s %-5d %-12s %-12s %-24s %-24s %-24s\n",
+		if includeSource {
+			sourceID, sourcePath, sourceCommit := runListSourceColumns(r.Source)
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.RunID, r.RunIndex, owningCell, r.Status, sourceID, sourcePath, sourceCommit, created, started, finished)
+
+			continue
+		}
+
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
 			r.RunID, r.RunIndex, owningCell, r.Status, created, started, finished)
+	}
+
+	if err := tw.Flush(); err != nil {
+		return err
 	}
 
 	if result.NextCursor != nil {
@@ -1165,6 +1220,28 @@ func writeRunListResult(w io.Writer, result runListResult) error {
 	}
 
 	return nil
+}
+
+func runListHasSourceProvenance(rows []runListRow) bool {
+	for _, row := range rows {
+		if hasRunSourceProvenance(row.Source) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func runListSourceColumns(source *sourceProvenance) (string, string, string) {
+	if !hasRunSourceProvenance(source) {
+		return "-", "-", "-"
+	}
+
+	repositoryID := textOrDash(source.RepositoryID)
+	path := textOrDash(source.Path)
+	commit := shortSHA(source.ResolvedCommit)
+
+	return repositoryID, path, commit
 }
 
 func forceFailRun(cmd *cobra.Command, args []string) {
