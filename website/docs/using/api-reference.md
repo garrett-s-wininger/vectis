@@ -301,9 +301,9 @@ List routes use `limit` and `cursor` query parameters where implemented. Paginat
 
 `GET /api/v1/jobs/{id}?repository_id=<repo>` resolves one source-backed job definition by job ID, optional `ref`, and optional `path` override. `repository_id` is required.
 
-`POST /api/v1/jobs` commits a source-backed job definition through repository authoring. The JSON body must include `repository_id` and accepts `job_id`, `ref`/`branch`, `path`, `message`, `expected_head`, and `job`.
+`POST /api/v1/jobs` commits a source-backed job definition through repository authoring. The JSON body must include `repository_id` and accepts `job_id`, `ref`/`branch`, `path`, `message`, `expected_head`, and `job`. A duplicate source path returns `409 source_definition_already_exists`; use `PUT /api/v1/jobs/{id}` to update it or choose another `job_id`/`path`.
 
-`PUT /api/v1/jobs/{id}` commits a source-backed definition update and accepts the same authoring fields as source create. The body or query must include `repository_id`. `DELETE /api/v1/jobs/{id}?repository_id=<repo>` commits a source-backed definition deletion; optional `ref`/`branch`, `path`, `message`, and `expected_head` query parameters control the delete commit.
+`PUT /api/v1/jobs/{id}` commits a source-backed definition update and accepts the same authoring fields as source create. The body or query must include `repository_id`. `DELETE /api/v1/jobs/{id}?repository_id=<repo>` commits a source-backed definition deletion; optional `ref`/`branch`, `path`, `message`, and `expected_head` query parameters control the delete commit. Authoring requires a managed repository with `authoring_mode: "local_commit"`; otherwise these routes return `409 source_authoring_unavailable`. When `expected_head` no longer matches the branch head, writes return `409 source_conflict`; refresh the branch head and retry with an updated `expected_head`.
 
 `GET /api/v1/jobs/{id}/runs?repository_id=<repo>` is backed by the global run catalog and scopes results to recorded source provenance for that repository and job ID. It returns summary run records from `job_runs`, including `owning_cell`, and accepts `after_index`, `since`, and `cell_id`/`owning_cell` filters.
 

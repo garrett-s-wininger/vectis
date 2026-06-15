@@ -212,6 +212,22 @@ func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, co
 	}
 }
 
+func assertAPIErrorDetail(t *testing.T, rec *httptest.ResponseRecorder, key, value string) {
+	t.Helper()
+
+	var body struct {
+		Details map[string]string `json:"details"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode api error details: %v; body=%s", err, rec.Body.String())
+	}
+
+	if got := body.Details[key]; got != value {
+		t.Fatalf("expected error detail %s=%q, got %q; body=%s", key, value, got, rec.Body.String())
+	}
+}
+
 func apiErrorValidationFields(t *testing.T, rec *httptest.ResponseRecorder) []struct {
 	Field   string `json:"field"`
 	Message string `json:"message"`

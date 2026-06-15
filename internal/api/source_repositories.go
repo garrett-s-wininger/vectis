@@ -2872,13 +2872,13 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 
 	switch {
 	case dal.IsConflict(err):
-		writeAPIError(w, http.StatusConflict, "source_job_conflict", "source job conflict", nil)
+		writeAPIError(w, http.StatusConflict, "source_job_conflict", "source job conflict", sourceDefinitionErrorDetails("job_version_conflict", "refresh the job definition and retry the source write"))
 	case errors.Is(err, sourcepkg.ErrAlreadyExists):
-		writeAPIError(w, http.StatusConflict, "source_definition_already_exists", "source definition already exists", nil)
+		writeAPIError(w, http.StatusConflict, "source_definition_already_exists", "source definition already exists", sourceDefinitionErrorDetails("definition_already_exists", "use PUT to update the existing source definition or choose a different job_id/path"))
 	case errors.Is(err, sourcepkg.ErrAuthoringUnavailable):
-		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", nil)
+		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", sourceDefinitionErrorDetails("authoring_unavailable", "enable local_commit authoring on a managed source repository or choose a writable repository"))
 	case errors.Is(err, sourcepkg.ErrConflict):
-		writeAPIError(w, http.StatusConflict, "source_conflict", "source conflict", nil)
+		writeAPIError(w, http.StatusConflict, "source_conflict", "source conflict", sourceDefinitionErrorDetails("stale_head", "refresh the branch head and retry with an updated expected_head"))
 	case dal.IsNotFound(err):
 		writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
 	case errors.Is(err, sourcepkg.ErrInvalidDefinition):
@@ -2893,4 +2893,13 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 		s.logger.Error("Source definition operation failed: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 	}
+}
+
+func sourceDefinitionErrorDetails(kind, retry string) map[string]string {
+	details := map[string]string{"kind": kind}
+	if retry != "" {
+		details["retry"] = retry
+	}
+
+	return details
 }

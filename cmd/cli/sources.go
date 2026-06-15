@@ -1701,9 +1701,9 @@ func writeSourceJobWithOutput(out io.Writer, repositoryID, jobID, source string)
 		}
 		return writeSourceJobDefinitionWriteResult(out, result)
 	case http.StatusBadRequest:
-		return fmt.Errorf("invalid source job definition")
+		return sourceJobDefinitionBadRequestError(resp, "invalid source job definition")
 	case http.StatusConflict:
-		return fmt.Errorf("source job definition write conflicted or source authoring is unavailable")
+		return sourceJobDefinitionConflictError(resp, "write", repositoryID, jobID)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
 	case http.StatusRequestEntityTooLarge:

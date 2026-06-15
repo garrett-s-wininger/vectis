@@ -114,9 +114,9 @@ When you get `idempotency_in_progress`, wait briefly and retry with the same key
 | `POST /api/v1/jobs/trigger/{id}` | Use `Idempotency-Key` for safe retries. |
 | `POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger` | Use `Idempotency-Key` for safe source-backed trigger retries. |
 | `POST /api/v1/runs/{id}/replay` | Use `Idempotency-Key` for safe retries. If you pass `cell_id`, retry with the same target cell. |
-| `POST /api/v1/jobs` | Retry only if `409 source_definition_already_exists` is acceptable as "already present in source." |
-| `PUT /api/v1/jobs/{id}` | Retrying the same body is generally safe because the route replaces the definition. |
-| `DELETE /api/v1/jobs/{id}` | Retry only if `404` is acceptable as "already deleted." |
+| `POST /api/v1/jobs` | Retry only if `409 source_definition_already_exists` is acceptable as "already present in source." Refresh and retry with a new `expected_head` after `409 source_conflict`. |
+| `PUT /api/v1/jobs/{id}` | Retrying the same body is generally safe because the route replaces the definition. Refresh and retry with a new `expected_head` after `409 source_conflict`. |
+| `DELETE /api/v1/jobs/{id}` | Retry only if `404` is acceptable as "already deleted." Refresh and retry with a new `expected_head` after `409 source_conflict`. |
 | `POST /api/v1/runs/{id}/cancel` | Retry while the run is still cancelable. Terminal runs may reject the request. |
 | `POST /api/v1/runs/{id}/force-fail` | Manual operator action. Do not retry blindly. |
 | `POST /api/v1/runs/{id}/force-requeue` | Manual repair action. Do not retry blindly because run state can change. |

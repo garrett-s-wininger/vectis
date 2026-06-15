@@ -581,9 +581,9 @@ func createSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 		}
 		return writeJobsSourceAuthoringResult(out, result, "stored")
 	case http.StatusBadRequest:
-		return fmt.Errorf("invalid source job definition")
+		return sourceJobDefinitionBadRequestError(resp, "invalid source job definition")
 	case http.StatusConflict:
-		return fmt.Errorf("source job definition write conflicted or source authoring is unavailable")
+		return sourceJobDefinitionConflictError(resp, "create", repositoryID, jobID)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
 	case http.StatusRequestEntityTooLarge:
@@ -621,9 +621,9 @@ func updateSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 		}
 		return writeJobsSourceAuthoringResult(out, result, "updated")
 	case http.StatusBadRequest:
-		return fmt.Errorf("invalid source job definition or id mismatch")
+		return sourceJobDefinitionBadRequestError(resp, "invalid source job definition or id mismatch")
 	case http.StatusConflict:
-		return fmt.Errorf("source job definition write conflicted or source authoring is unavailable")
+		return sourceJobDefinitionConflictError(resp, "update", repositoryID, jobID)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q or job %q not found", repositoryID, jobID)
 	case http.StatusRequestEntityTooLarge:
@@ -722,14 +722,64 @@ func deleteSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 		_, err = fmt.Fprintf(out, "Job %q deleted from source.\n", jobID)
 		return err
 	case http.StatusBadRequest:
-		return fmt.Errorf("invalid source job delete request")
+		return sourceJobDefinitionBadRequestError(resp, "invalid source job delete request")
 	case http.StatusConflict:
-		return fmt.Errorf("source job delete conflicted or source authoring is unavailable")
+		return sourceJobDefinitionConflictError(resp, "delete", repositoryID, jobID)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q or job %q not found", repositoryID, jobID)
 	default:
 		return fmt.Errorf("unexpected status deleting source job: %s", resp.Status)
 	}
+}
+
+func sourceJobDefinitionBadRequestError(resp *http.Response, fallback string) error {
+	apiErr, ok := readCLIAPIError(resp)
+	if !ok {
+		return fmt.Errorf("%s", fallback)
+	}
+
+	switch apiErr.Code {
+	case "job_id_mismatch":
+		return fmt.Errorf("job id mismatch between the command, request body, and source definition")
+	case "missing_job_id":
+		return fmt.Errorf("source job creation requires --job-id or an id field in the job definition")
+	case "missing_job_definition":
+		return fmt.Errorf("source job definition is required")
+	case "invalid_job_id":
+		return fmt.Errorf("job id cannot be mapped to a source definition path")
+	case "invalid_source_reference":
+		return fmt.Errorf("invalid source reference")
+	}
+
+	if apiErr.Message != "" {
+		return fmt.Errorf("%s: %s", fallback, apiErr.Message)
+	}
+
+	return fmt.Errorf("%s", fallback)
+}
+
+func sourceJobDefinitionConflictError(resp *http.Response, operation, repositoryID, jobID string) error {
+	apiErr, ok := readCLIAPIError(resp)
+	if !ok {
+		return fmt.Errorf("source job definition %s returned a conflict; refresh the branch head or verify repository authoring is enabled", operation)
+	}
+
+	switch apiErr.Code {
+	case "source_definition_already_exists":
+		return fmt.Errorf("source job definition for %q already exists in repository %q; use jobs edit to update it or choose a different job id/path", jobID, repositoryID)
+	case "source_authoring_unavailable":
+		return fmt.Errorf("source repository %q does not allow local definition authoring; enable authoring_mode=local_commit on a managed repository or choose a writable repository", repositoryID)
+	case "source_conflict":
+		return fmt.Errorf("source job definition %s for %q in repository %q conflicted because the branch head changed; refresh and retry with --expected-head", operation, jobID, repositoryID)
+	case "source_job_conflict":
+		return fmt.Errorf("source job definition %s for %q in repository %q conflicted while recording the definition; refresh the job definition and retry", operation, jobID, repositoryID)
+	}
+
+	if apiErr.Message != "" {
+		return fmt.Errorf("source job definition %s failed: %s", operation, apiErr.Message)
+	}
+
+	return fmt.Errorf("source job definition %s returned a conflict; refresh the branch head or verify repository authoring is enabled", operation)
 }
 
 func listJobsWithOutput(w io.Writer, opts jobListOptions) error {

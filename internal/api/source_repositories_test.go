@@ -512,6 +512,7 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	})
 
 	assertAPIError(t, duplicateCreateRec, http.StatusConflict, "source_definition_already_exists")
+	assertAPIErrorDetail(t, duplicateCreateRec, "kind", "definition_already_exists")
 
 	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/jobs/build", map[string]any{
 		"repository_id": "managed-repo",
@@ -2358,6 +2359,7 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 	})
 
 	assertAPIError(t, readOnlyRec, http.StatusConflict, "source_authoring_unavailable")
+	assertAPIErrorDetail(t, readOnlyRec, "kind", "authoring_unavailable")
 	enableAuthoringRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/managed-repo", map[string]any{
 		"authoring_mode": dal.SourceAuthoringModeLocalCommit,
 	})
@@ -2459,6 +2461,7 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 	})
 
 	assertAPIError(t, staleRec, http.StatusConflict, "source_conflict")
+	assertAPIErrorDetail(t, staleRec, "kind", "stale_head")
 }
 
 func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testing.T) {

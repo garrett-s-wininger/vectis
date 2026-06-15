@@ -3157,6 +3157,36 @@ func TestCreateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 	}
 }
 
+func TestCreateSourceJobFromJobsFacade_reportsAlreadyExists(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "source_definition_already_exists",
+			"message": "source definition already exists",
+			"details": map[string]string{"kind": "definition_already_exists"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell"}}`))
+	if err == nil {
+		t.Fatal("expected already exists error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{`"build"`, `"vectis"`, "already exists", "jobs edit"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected error to contain %q, got %q", want, msg)
+		}
+	}
+}
+
 func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
@@ -3209,6 +3239,36 @@ func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 	}
 }
 
+func TestUpdateSourceJobFromJobsFacade_reportsStaleHead(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "source_conflict",
+			"message": "source conflict",
+			"details": map[string]string{"kind": "stale_head"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell"}}`))
+	if err == nil {
+		t.Fatal("expected source conflict error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{"update", `"build"`, `"vectis"`, "branch head changed", "--expected-head"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected error to contain %q, got %q", want, msg)
+		}
+	}
+}
+
 func TestDeleteSourceJobFromJobsFacade_sendsAuthoringQuery(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
@@ -3254,6 +3314,36 @@ func TestDeleteSourceJobFromJobsFacade_sendsAuthoringQuery(t *testing.T) {
 	for _, want := range []string{`Job "build" deleted from source.`, "commit=fedcba9876543210fedcba9876543210fedcba98"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestDeleteSourceJobFromJobsFacade_reportsAuthoringUnavailable(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("method=%s", r.Method)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    "source_authoring_unavailable",
+			"message": "source repository does not support local definition authoring",
+			"details": map[string]string{"kind": "authoring_unavailable"},
+		})
+	})
+
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	err := deleteSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build")
+	if err == nil {
+		t.Fatal("expected authoring unavailable error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{`"vectis"`, "does not allow local definition authoring", "local_commit"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected error to contain %q, got %q", want, msg)
 		}
 	}
 }
