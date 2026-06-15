@@ -72,6 +72,7 @@ const sidebars = {
           label: 'Reference',
           items: [
             'operating/reference/run-state-reference',
+            'operating/reference/configuration-key-reference',
             'operating/reference/database-schema',
             'operating/reference/metrics-catalog',
             'operating/reference/cli-operational-coverage',

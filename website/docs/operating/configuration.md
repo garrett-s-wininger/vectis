@@ -1,8 +1,8 @@
 # Configuration
 
-This page is for people running Vectis: local developers, platform engineers, and operators wiring staging or production. It explains the settings you are most likely to touch, where defaults come from, and which knobs affect service discovery, storage, TLS, metrics, and authentication.
+This page is for people running Vectis: local developers, platform engineers, and operators wiring staging or production. It explains the settings you are most likely to touch and how the major configuration groups behave.
 
-For service roles and data flow, see [Architecture](../concepts/architecture.md). For production-required setting groups and secret inventory, see [Production Config And Secrets Contract](./deployment/production-config-contract.md). For multi-cell routing, see [Multi-Cell Operation](./multi-cell.md). For security posture, see [Security](../concepts/security.md). For startup and outage behavior, see [Failure Domains](../concepts/failure-domains.md). For terms such as job, run, queue, and dispatch, see [Glossary](../concepts/glossary.md).
+For a complete embedded defaults catalog, see [Configuration Key Reference](./reference/configuration-key-reference.md). For service roles and data flow, see [Architecture](../concepts/architecture.md). For production-required setting groups and secret inventory, see [Production Config And Secrets Contract](./deployment/production-config-contract.md). For multi-cell routing, see [Multi-Cell Operation](./multi-cell.md). For security posture, see [Security](../concepts/security.md). For startup and outage behavior, see [Failure Domains](../concepts/failure-domains.md). For terms such as job, run, queue, and dispatch, see [Glossary](../concepts/glossary.md).
 
 ## How Configuration Resolves
 
@@ -10,7 +10,7 @@ Vectis binaries start with embedded defaults from `internal/config/defaults.toml
 
 | Layer | What to know |
 | --- | --- |
-| Embedded defaults | Baseline host, port, discovery, database, TLS, metrics, and auth settings. |
+| Embedded defaults | Baseline host, port, discovery, database, TLS, metrics, and auth settings. See [Configuration Key Reference](./reference/configuration-key-reference.md) for the full key and default-value catalog. |
 | Environment variables | Main operator interface for services. Long-running services use a `VECTIS_<SERVICE>_...` prefix. |
 | Command-line flags | Available on selected binaries and override the same setting for that process. |
 
@@ -22,9 +22,9 @@ For service-scoped variables, take the service prefix, append the setting path w
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
 ```
 
-Some settings are global and intentionally do not use a service prefix, such as `VECTIS_CELL_ID`, `VECTIS_DATABASE_*`, `VECTIS_GLOBAL_DATABASE_DSN`, `VECTIS_CELL_DATABASE_DSN`, `VECTIS_GRPC_TLS_*`, `VECTIS_METRICS_TLS_*`, `VECTIS_DISPATCH_START_TTL`, `VECTIS_API_AUTH_*`, and `VECTIS_ACTION_REGISTRY_*`.
+Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dispatch TTL, API auth, and action registry policy use explicit global `VECTIS_*` names instead of only the service prefix. The common settings below call out the ones operators usually touch.
 
-`VECTIS_DISPATCH_START_TTL` sets how long a root or task execution may remain dispatchable before Vectis refuses to start it. The default is `24h`. Producers stamp the deadline into the execution envelope, queues drop expired deliveries instead of redelivering them, the worker refuses a database claim after the deadline, and the reconciler marks expired queued executions failed with failure code `dispatch_expired`.
+`VECTIS_DISPATCH_START_TTL` sets how long a root or task execution may remain dispatchable before Vectis refuses to start it. Producers stamp the deadline into the execution envelope, queues drop expired deliveries instead of redelivering them, the worker refuses a database claim after the deadline, and the reconciler marks expired queued executions failed with failure code `dispatch_expired`.
 
 ## Common Settings {#common-operator-settings}
 
@@ -199,7 +199,7 @@ Internal service identity allowlists are disabled by default. Configure them wit
 
 Short aliases such as `VECTIS_QUEUE_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_REGISTRY_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_LOG_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_ARTIFACT_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES`, `VECTIS_SECRETS_ALLOWED_CLIENT_IDENTITIES`, and `VECTIS_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES` are also accepted. Each configured identity must be a `spiffe://` URI with a trust domain and workload path. Any non-empty allowlist requires `VECTIS_GRPC_TLS_INSECURE=false` and `VECTIS_GRPC_TLS_CLIENT_CA_FILE` so the listener verifies client certificates before checking URI SANs.
 
-Worker artifact uploads are capped by `VECTIS_WORKER_ARTIFACT_MAX_BYTES` / `worker.artifact_max_bytes` / `--artifact-max-bytes`. The default is `1073741824` bytes (1 GiB), and `0` disables the worker-level cap. `builtins/upload-artifact` can set `max_bytes` to use a lower per-node limit, but it cannot raise an upload above the worker cap. Runs are also capped by `VECTIS_WORKER_ARTIFACT_MAX_RUN_BYTES` / `worker.artifact_max_run_bytes` / `--artifact-max-run-bytes`, default `10737418240` bytes (10 GiB), and `VECTIS_WORKER_ARTIFACT_MAX_COUNT` / `worker.artifact_max_count` / `--artifact-max-count`, default `1000`; set either to `0` to disable that per-run quota.
+Worker artifact uploads are capped by `VECTIS_WORKER_ARTIFACT_MAX_BYTES` / `worker.artifact_max_bytes` / `--artifact-max-bytes`. `builtins/upload-artifact` can set `max_bytes` to use a lower per-node limit, but it cannot raise an upload above the worker cap. Runs are also capped by `VECTIS_WORKER_ARTIFACT_MAX_RUN_BYTES` / `worker.artifact_max_run_bytes` / `--artifact-max-run-bytes` and `VECTIS_WORKER_ARTIFACT_MAX_COUNT` / `worker.artifact_max_count` / `--artifact-max-count`; set a cap to `0` to disable that quota. See [Configuration Key Reference](./reference/configuration-key-reference.md#worker) for shipped values.
 
 For job secret resolution, `vectis-secrets` performs its own per-execution authorization inside the secrets RPC. It verifies the caller's mTLS client certificate, derives the expected execution SPIFFE ID from the active execution record, and requires an exact match. Keep `service_identity.secrets_allowed_client_identities` empty unless you intentionally want an additional exact-match allowlist for known caller identities; a static worker service identity allowlist will block dynamic per-execution SVID callers.
 
@@ -209,7 +209,7 @@ Worker execution identity is disabled by default. Enable it when you want worker
 | --- | --- |
 | `VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED` / `worker.execution_identity.enabled` | Enables per-execution identity derivation. Jobs without an execution envelope fail closed when this is enabled. |
 | `VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN` / `worker.execution_identity.trust_domain` | SPIFFE trust domain used for derived execution IDs, such as `prod.example`. Required when enabled. |
-| `VECTIS_WORKER_EXECUTION_IDENTITY_PATH_TEMPLATE` / `worker.execution_identity.path_template` | Path template for derived execution IDs. Defaults to `/cell/{cell}/namespace/{namespace}/job/{job}/run/{run}/execution/{execution}`. |
+| `VECTIS_WORKER_EXECUTION_IDENTITY_PATH_TEMPLATE` / `worker.execution_identity.path_template` | Path template for derived execution IDs. |
 
 Supported template placeholders are `{cell}`, `{namespace}`, `{job}`, `{run}`, `{run_index}`, `{segment}`, `{execution}`, `{attempt}`, `{definition_version}`, and `{definition_hash}`. The derived identity is attached to Vectis' in-process action state and tracing. It is not exported to shell process environment variables. By itself, execution identity derivation does not fetch SPIFFE SVIDs; enable `worker.spiffe.enabled` to require the worker's Workload API source to return the exact derived ID before action code runs. Configure the same `worker.execution_identity.*` values on `vectis-secrets`; the broker uses those settings to derive the expected caller identity from the active execution row.
 
@@ -219,14 +219,14 @@ Worker SPIFFE integration is disabled by default. Enable it only when a SPIFFE W
 | --- | --- |
 | `VECTIS_WORKER_SPIFFE_ENABLED` / `worker.spiffe.enabled` | Enables worker-side SPIFFE Workload API integration and makes every execution acquire a matching X.509-SVID before action code runs. Requires `worker.execution_identity.enabled=true` and an explicit Workload API address. |
 | `VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS` / `worker.spiffe.workload_api_address` | SPIFFE Workload API address, such as `unix:///run/vectis/spiffe/workload.sock`. |
-| `VECTIS_WORKER_SPIFFE_FETCH_TIMEOUT` / `worker.spiffe.fetch_timeout` | Maximum time to wait for a Workload API SVID fetch during pre-action execution SVID acquisition. Defaults to `5s` and must be positive. |
+| `VECTIS_WORKER_SPIFFE_FETCH_TIMEOUT` / `worker.spiffe.fetch_timeout` | Maximum time to wait for a Workload API SVID fetch during pre-action execution SVID acquisition; must be positive. |
 | `VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED` / `worker.spiffe.registration.enabled` | Enables worker-controlled SPIFFE Entry API registration before the worker fetches the execution SVID. Requires `worker.spiffe.enabled=true`. |
 | `VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS` / `worker.spiffe.registration.server_address` | SPIFFE Entry API Unix socket address, such as `unix:///run/vectis/spiffe/registration.sock`. The first implementation only supports local `unix:///...` addresses. |
 | `VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID` / `worker.spiffe.registration.parent_id` | Parent SPIFFE ID for execution registration entries, usually the attested worker node or agent identity. |
 | `VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS` / `worker.spiffe.registration.selectors` | Trusted workload selectors in `type:value` form, for example `unix:uid:1000` or `k8s:sa:vectis:worker`. Values may contain additional `:` characters. |
-| `VECTIS_WORKER_SPIFFE_REGISTRATION_X509_SVID_TTL` / `worker.spiffe.registration.x509_svid_ttl` | Optional X.509-SVID TTL to set on created SPIFFE entries. Defaults to `0s`, which leaves the SPIFFE authority default in effect. |
-| `VECTIS_WORKER_SPIFFE_REGISTRATION_MIN_TTL` / `worker.spiffe.registration.min_ttl` | Optional minimum accepted lifetime for generated registration intents. Defaults to `0s`. |
-| `VECTIS_WORKER_SPIFFE_REGISTRATION_MAX_TTL` / `worker.spiffe.registration.max_ttl` | Optional maximum accepted lifetime for generated registration intents. Defaults to `0s`. |
+| `VECTIS_WORKER_SPIFFE_REGISTRATION_X509_SVID_TTL` / `worker.spiffe.registration.x509_svid_ttl` | Optional X.509-SVID TTL to set on created SPIFFE entries. |
+| `VECTIS_WORKER_SPIFFE_REGISTRATION_MIN_TTL` / `worker.spiffe.registration.min_ttl` | Optional minimum accepted lifetime for generated registration intents. |
+| `VECTIS_WORKER_SPIFFE_REGISTRATION_MAX_TTL` / `worker.spiffe.registration.max_ttl` | Optional maximum accepted lifetime for generated registration intents. |
 
 Execution SVID acquisition happens inside Vectis-controlled worker code. When a task declares secrets, the worker uses the matched X.509-SVID as the gRPC client certificate for the `vectis-secrets` resolution call. Vectis does not export the Workload API socket, SVID, private key, derived SPIFFE ID, SPIFFE Entry API socket, or registration authority credentials to shell commands. When `worker.spiffe.registration.enabled=true`, the worker creates or renews a SPIFFE entry before fetching the execution SVID and releases only entries it created or previously tagged with Vectis' deterministic registration hint. Pre-existing operator-managed entries can satisfy SVID acquisition but are not updated or deleted by Vectis. Workers emit `vectis_worker_spiffe_svid_checks_total` with fixed `outcome` and `reason` labels for the SVID gate.
 
@@ -281,13 +281,13 @@ Use `vectis-cli actions resolve <uses>` to see the descriptor and digest for a f
 
 For security removals, do not only delete the manifest. Leave a descriptor tombstone with the original digest and `status = "revoked"` or `status = "purged"`. Default validation and execution policy blocks those statuses, while `vectis-cli actions list --ignore-policy` and `vectis-cli actions resolve <uses> --ignore-policy` let operators inspect the tombstone reason.
 
-API sessions and rate-limit buckets use the API cache backend. The default is `api.cache.backend = "database"`, which stores shared state in the configured SQL database so multiple API replicas see the same sessions and enforce one rate-limit budget. Set `api.cache.backend = "memory"` or `VECTIS_API_CACHE_BACKEND=memory` only when per-process sessions and limits are acceptable; memory mode cleans expired entries but still logs a warning when API auth is enabled because sessions and limits are not shared across replicas. Login sessions have an absolute expiry from `api.session.ttl` / `VECTIS_API_SESSION_TTL` and an idle expiry from `api.session.idle_ttl` / `VECTIS_API_SESSION_IDLE_TTL`; the defaults are `168h` and `24h`. Browser session cookies use only host-only `Secure` `__Host-vectis_session` and `__Host-vectis_csrf` names with `Path=/`; the session cookie is HttpOnly, both cookies are SameSite=Lax, and Vectis does not issue or accept unprefixed fallback names. Browser cookie auth requires HTTPS or local TLS. When API auth is enabled behind an HTTPS ingress, edge proxy, or load balancer, set `api.session.cookie_secure = true` / `VECTIS_API_SESSION_COOKIE_SECURE=true` explicitly as the deployment's browser-facing HTTPS assertion; trusted proxy CIDRs still let Vectis trust `X-Forwarded-Proto` / `Forwarded: proto=https` for request-aware behavior, but they do not satisfy startup secure-cookie validation. Use `api.session.allow_insecure_cookies = true` / `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` only for local HTTP workflows that use bearer API tokens or login `return_token`; it does not make Vectis issue insecure browser cookies. Duplicate or malformed `Origin`, CORS preflight, `Sec-Fetch-*`, `X-Forwarded-*`, `X-Real-IP`, and `Forwarded` headers are rejected before browser request checks. Browser Fetch Metadata must describe API-style requests, not document navigations or subresource loads. Browser-marked cross-site requests without `Origin` are rejected before route handling; cross-site requests with `Origin` must pass CORS. Cookie-authenticated requests with `Sec-Fetch-Site: cross-site` are rejected, including safe reads; unsafe cookie-authenticated requests also require `X-CSRF-Token` and an `Origin` or `Referer` matching the browser-facing scheme, host, and port.
+API sessions and rate-limit buckets use the API cache backend. Database cache mode stores shared state in SQL so multiple API replicas see the same sessions and enforce one rate-limit budget. Set `api.cache.backend = "memory"` or `VECTIS_API_CACHE_BACKEND=memory` only when per-process sessions and limits are acceptable; memory mode cleans expired entries but still logs a warning when API auth is enabled because sessions and limits are not shared across replicas. Login sessions have configurable absolute and idle expiries through `api.session.ttl` / `VECTIS_API_SESSION_TTL` and `api.session.idle_ttl` / `VECTIS_API_SESSION_IDLE_TTL`. Browser session cookies use only host-only `Secure` `__Host-vectis_session` and `__Host-vectis_csrf` names with `Path=/`; the session cookie is HttpOnly, both cookies are SameSite=Lax, and Vectis does not issue or accept unprefixed fallback names. Browser cookie auth requires HTTPS or local TLS. When API auth is enabled behind an HTTPS ingress, edge proxy, or load balancer, set `api.session.cookie_secure = true` / `VECTIS_API_SESSION_COOKIE_SECURE=true` explicitly as the deployment's browser-facing HTTPS assertion; trusted proxy CIDRs still let Vectis trust `X-Forwarded-Proto` / `Forwarded: proto=https` for request-aware behavior, but they do not satisfy startup secure-cookie validation. Use `api.session.allow_insecure_cookies = true` / `VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES=true` only for local HTTP workflows that use bearer API tokens or login `return_token`; it does not make Vectis issue insecure browser cookies. Duplicate or malformed `Origin`, CORS preflight, `Sec-Fetch-*`, `X-Forwarded-*`, `X-Real-IP`, and `Forwarded` headers are rejected before browser request checks. Browser Fetch Metadata must describe API-style requests, not document navigations or subresource loads. Browser-marked cross-site requests without `Origin` are rejected before route handling; cross-site requests with `Origin` must pass CORS. Cookie-authenticated requests with `Sec-Fetch-Site: cross-site` are rejected, including safe reads; unsafe cookie-authenticated requests also require `X-CSRF-Token` and an `Origin` or `Referer` matching the browser-facing scheme, host, and port.
 
 The API can serve browser-facing HTTPS directly with `--tls-cert-file` and `--tls-key-file`, or with `VECTIS_API_TLS_CERT_FILE` / `VECTIS_API_TLS_KEY_FILE`. `VECTIS_API_TLS_RELOAD_INTERVAL` enables polling reloads for rotated files. This is separate from internal gRPC TLS and metrics TLS.
 
 `vectis-docs` accepts the same shape through `--tls-cert-file`, `--tls-key-file`, and `--tls-reload-interval`, or `VECTIS_DOCS_TLS_CERT_FILE`, `VECTIS_DOCS_TLS_KEY_FILE`, and `VECTIS_DOCS_TLS_RELOAD_INTERVAL`.
 
-API and docs responses set browser hardening headers by default, including `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cross-Origin-Embedder-Policy`, `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, `X-Download-Options`, and Content Security Policy. `Strict-Transport-Security` is sent on direct HTTPS API/docs/metrics/cell-ingress requests; API responses behind a TLS-terminating proxy also send it when trusted proxy CIDRs allow Vectis to trust the forwarded original scheme. API HSTS defaults to `max-age=31536000`; set `api.hsts.max_age_seconds` / `VECTIS_API_HSTS_MAX_AGE_SECONDS`, `api.hsts.include_subdomains` / `VECTIS_API_HSTS_INCLUDE_SUBDOMAINS`, and `api.hsts.preload` / `VECTIS_API_HSTS_PRELOAD` to tune it. `preload=true` is rejected unless `include_subdomains=true` and `max_age_seconds >= 31536000`, because preload policies are intentionally sticky in browsers. The docs CSP allows same-origin script/style assets but does not allow inline scripts, inline styles, or inline event handlers. Protected API routes default to `Cache-Control: no-store` unless a streaming handler explicitly manages cache headers. Setup and login routes also explicitly set `no-store`, including validation and rate-limit failures before handler logic. The docs server rejects untrusted Host headers and non-`GET`/`HEAD` methods before static file handling. Docs static file serving disables directory listings, hides dotfile paths, and rejects symlinks in a configured local docs directory when they resolve outside the docs root.
+API and docs responses set browser hardening headers by default, including `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cross-Origin-Embedder-Policy`, `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, `X-Download-Options`, and Content Security Policy. `Strict-Transport-Security` is sent on direct HTTPS API/docs/metrics/cell-ingress requests; API responses behind a TLS-terminating proxy also send it when trusted proxy CIDRs allow Vectis to trust the forwarded original scheme. Tune API HSTS with `api.hsts.max_age_seconds` / `VECTIS_API_HSTS_MAX_AGE_SECONDS`, `api.hsts.include_subdomains` / `VECTIS_API_HSTS_INCLUDE_SUBDOMAINS`, and `api.hsts.preload` / `VECTIS_API_HSTS_PRELOAD`. `preload=true` is rejected unless `include_subdomains=true` and `max_age_seconds >= 31536000`, because preload policies are intentionally sticky in browsers. The docs CSP allows same-origin script/style assets but does not allow inline scripts, inline styles, or inline event handlers. Protected API routes default to `Cache-Control: no-store` unless a streaming handler explicitly manages cache headers. Setup and login routes also explicitly set `no-store`, including validation and rate-limit failures before handler logic. The docs server rejects untrusted Host headers and non-`GET`/`HEAD` methods before static file handling. Docs static file serving disables directory listings, hides dotfile paths, and rejects symlinks in a configured local docs directory when they resolve outside the docs root.
 
 Successful logout clears the Vectis session cookies and sends `Clear-Site-Data: "cache", "storage"` to remove browser-local origin data. Vectis does not use the `cookies` directive for that header because it can clear cookies for the same domain and subdomains; logout clears only the Vectis auth cookies explicitly.
 
@@ -305,7 +305,7 @@ HTTP servers for the API, docs, cell ingress, and metrics endpoints cap request 
 
 Per-service metrics servers bind to `localhost` by default and only serve `GET`/`HEAD /metrics` with a trusted Host header and no request body; other paths, methods, or Host headers are rejected before the Prometheus handler runs. Dedicated metrics listeners enforce Prometheus text or OpenMetrics-compatible `Accept` values. Set the relevant service's `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST` only when a trusted scraper needs off-host access, and pair that with `VECTIS_METRICS_ALLOWED_HOSTS` or `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS`. Metrics responses use baseline security headers and `Cache-Control: no-store` because metrics can disclose operational state.
 
-API rate limits have embedded defaults for auth, token, and general routes. The shipped limit keys live under `api.rate_limit.*`. The defaults are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape.
+API rate-limit keys live under `api.rate_limit.*`. The shipped values are intended to protect the built-in auth surface from accidental or hostile bursts; tune them only when you understand the expected traffic shape. See [Configuration Key Reference](./reference/configuration-key-reference.md#api) for the current values.
 
 When the API runs behind a trusted reverse proxy, configure forwarded client IP and original scheme handling separately. Vectis expects the proxy that connects directly to the API to overwrite untrusted forwarding headers into one sanitized shape; duplicate or ambiguous forwarded headers are rejected before route handling. See [Trusted Proxy Headers](./deployment/trusted-proxy-client-ip.md).
 
@@ -337,12 +337,12 @@ For migration policy and rollback planning, see [Database Migrations](../develop
 
 When `VECTIS_DATABASE_DRIVER=pgx`, each DB-using process applies these `database/sql` pool settings after opening the database. SQLite ignores this block.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `VECTIS_DATABASE_PGX_MAX_OPEN_CONNS` | `25` | Maximum open connections per process. |
-| `VECTIS_DATABASE_PGX_MAX_IDLE_CONNS` | `10` | Maximum idle connections per process, clamped to max open. |
-| `VECTIS_DATABASE_PGX_CONN_MAX_LIFETIME` | `1h` | Maximum lifetime of a connection. |
-| `VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME` | `15m` | Maximum idle time before a connection is closed. |
+| Variable | Purpose |
+| --- | --- |
+| `VECTIS_DATABASE_PGX_MAX_OPEN_CONNS` | Maximum open connections per process. |
+| `VECTIS_DATABASE_PGX_MAX_IDLE_CONNS` | Maximum idle connections per process, clamped to max open. |
+| `VECTIS_DATABASE_PGX_CONN_MAX_LIFETIME` | Maximum lifetime of a connection. |
+| `VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME` | Maximum idle time before a connection is closed. |
 
 These limits are per process. When you run multiple APIs, workers, cron, reconciler, and catalog instances, add the limits together when sizing Postgres.
 
@@ -441,21 +441,21 @@ Queue instance IDs must be unique among active queue processes registered in the
 
 When registry discovery is used, multiple `vectis-log` instances may register as run shards. Each log shard needs one stable `VECTIS_LOG_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-log` derives a stable ID from the system hostname and log gRPC port. DB-aware clients record the chosen shard in `job_runs.log_shard_id` and route future reads/writes for that run back to the assigned shard. When a worker sends logs through a local `vectis-log-forwarder`, it stamps the assigned shard into the socket/spool protocol so the DB-free forwarder preserves the same route. Unassigned runs fall back to deterministic `run_id` hashing. Keep instance IDs and storage directories stable across restarts. If two active log processes point at the same storage directory, the second log process refuses to start.
 
-`VECTIS_LOG_STORAGE_DIR` / `--storage-dir` stores durable run log files. If omitted, the log service uses `$XDG_DATA_HOME/vectis/log/<instance-id>`. `VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard advertises `read_only` for new runs and refuses the first append for a run that does not already have a log file; stored logs remain readable, and existing assigned run files can continue to receive appends. Set the value to `0` to disable the threshold.
+`VECTIS_LOG_STORAGE_DIR` / `--storage-dir` stores durable run log files. If omitted, the log service uses `$XDG_DATA_HOME/vectis/log/<instance-id>`. `VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` controls the free-space floor. Below that threshold, the shard advertises `read_only` for new runs and refuses the first append for a run that does not already have a log file; stored logs remain readable, and existing assigned run files can continue to receive appends. Set the value to `0` to disable the threshold.
 
 When registry discovery is used, multiple `vectis-artifact` instances may register as independent content-addressed blob shards. Each artifact shard needs one stable `VECTIS_ARTIFACT_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-artifact` derives a stable ID from the system hostname and artifact gRPC port. Keep instance IDs and storage directories stable across restarts. If two active artifact processes point at the same storage directory, the second artifact process refuses to start.
 
-`VECTIS_ARTIFACT_STORAGE_DIR` / `--storage-dir` stores durable content-addressed blobs. If omitted, the artifact service uses `$XDG_DATA_HOME/vectis/artifact/<instance-id>`. `VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` defaults to `1073741824` (1 GiB). Below that threshold, the shard advertises `read_only` for new blobs and rejects uploads for blobs it does not already have; existing stored blobs remain readable. Set the value to `0` to disable the threshold. Worker-originated upload and run quotas are controlled separately with `VECTIS_WORKER_ARTIFACT_MAX_*`.
+`VECTIS_ARTIFACT_STORAGE_DIR` / `--storage-dir` stores durable content-addressed blobs. If omitted, the artifact service uses `$XDG_DATA_HOME/vectis/artifact/<instance-id>`. `VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES` / `--storage-read-only-min-free-bytes` controls the free-space floor. Below that threshold, the shard advertises `read_only` for new blobs and rejects uploads for blobs it does not already have; existing stored blobs remain readable. Set the value to `0` to disable the threshold. Worker-originated upload and run quotas are controlled separately with `VECTIS_WORKER_ARTIFACT_MAX_*`.
 
 Artifact service metrics include local CAS pressure gauges: `vectis_artifact_storage_blobs`, `vectis_artifact_storage_bytes`, `vectis_artifact_storage_free_bytes`, `vectis_artifact_storage_free_inodes`, and `vectis_artifact_storage_new_blob_writable`.
 
-Discovery timing defaults include resolver refresh `10s`, poll timeout `5s`, error refresh `2s`, and registration heartbeat `45s`.
+Discovery timing keys live under `discovery.*`; see [Configuration Key Reference](./reference/configuration-key-reference.md#discovery-cell-ingress-and-service-identity) for shipped values.
 
 For failure behavior with and without registry, see [Failure Domains](../concepts/failure-domains.md#registry-down).
 
 ## Worker Execution Backend
 
-`vectis-worker` owns queue claims, leases, cancellation, finalization, logs, artifacts, and policy gates. By default it delegates action execution to `vectis-worker-core` over a Unix domain socket. `vectis-worker-core` defaults to the `host` execution backend. In that mode, built-in actions execute as child processes on the worker-core host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
+`vectis-worker` owns queue claims, leases, cancellation, finalization, logs, artifacts, and policy gates. It delegates action execution to `vectis-worker-core` over a Unix domain socket. With the `host` execution backend, built-in actions execute as child processes on the worker-core host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
 
 Jobs can declare `default_isolation: "host"` or `default_isolation: "vm"` as the default for their action tree. Individual nodes can declare `isolation: "host"` or `isolation: "vm"` to override that default. Nodes that omit `isolation` inherit the nearest parent `builtins/sequence` isolation, then the job default, then the worker backend default. A worker must have a matching provider for the effective isolation level; Vectis does not silently fall back from `vm` to `host`.
 
@@ -473,10 +473,10 @@ Equivalent environment variables:
 
 | Variable / key | Purpose |
 | --- | --- |
-| `VECTIS_WORKER_CORE_EXECUTION_BACKEND` | `host` by default, or `lima` to run action commands through `limactl shell`. |
+| `VECTIS_WORKER_CORE_EXECUTION_BACKEND` | `host` or `lima` to run action commands through `limactl shell`. |
 | `VECTIS_WORKER_CORE_WORKSPACE_ROOT` | Parent directory for automatically-created run workspaces. For Lima, set this to a path that exists and is writable inside the guest. Empty uses the host OS temp directory. |
 | `VECTIS_WORKER_CORE_LIMA_INSTANCE` | Required Lima instance name for the `lima` backend. |
-| `VECTIS_WORKER_CORE_LIMA_PATH` | Path to `limactl`; defaults to `limactl` from `PATH`. |
+| `VECTIS_WORKER_CORE_LIMA_PATH` | Path to `limactl`. |
 | `VECTIS_WORKER_CORE_LIMA_GUEST_WORKSPACE_ROOT` | Optional guest-side parent directory for Lima workspaces, such as `/tmp/vectis-workspaces`. When set, commands for the same run use the same guest workspace even if the host workspace mount is read-only. |
 | `VECTIS_WORKER_CORE_LIMA_START` | Passes `--start` to `limactl shell` before each command. It starts an existing instance; it does not create or configure one. |
 | `VECTIS_WORKER_CORE_LIMA_PRESERVE_ENV` | Passes `--preserve-env` to `limactl shell`. Off by default to avoid leaking host environment variables into the guest. |
@@ -531,9 +531,11 @@ Treat database files, queue persistence, log storage, deployment secrets, and TL
 
 `vectis-cli local reset --dry-run` shows which local Vectis config, data, cache, token, TLS, deployment-secret, and configured local durable paths would be removed. `vectis-cli local reset --yes` removes those local paths, including non-default `VECTIS_QUEUE_PERSISTENCE_DIR`, `VECTIS_LOG_STORAGE_DIR`, `VECTIS_LOG_FORWARDER_SPOOL_DIR`, and `VECTIS_ARTIFACT_STORAGE_DIR` values when they are set; it does not stop running services or remove container volumes.
 
-## Default Ports
+## Port Quick Map
 
-| Surface | Default port |
+The complete embedded port defaults are listed by key in [Configuration Key Reference](./reference/configuration-key-reference.md). This table is the quick operator map for the common local surfaces.
+
+| Surface | Port |
 | --- | --- |
 | API HTTP and API `/metrics` | `8080` |
 | Queue gRPC | `8081` |
@@ -574,6 +576,7 @@ Treat the reference deployment as a helpful starting point, not a production sec
 
 | Topic | Document |
 | --- | --- |
+| Embedded defaults catalog | [Configuration Key Reference](./reference/configuration-key-reference.md) |
 | Components and flows | [Architecture](../concepts/architecture.md) |
 | Production config contract | [Production Config And Secrets Contract](./deployment/production-config-contract.md) |
 | Security posture | [Security](../concepts/security.md) |

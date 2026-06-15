@@ -10,7 +10,9 @@ drop-ins, Nomad variables, Ansible roles, or any other production configuration
 source. For a concrete systemd environment-file starting point, see the
 [Production Environment Template](./production-env-template.md). For the
 operator-facing hardening checklist, see
-[Production Security Checklist](./production-security-checklist.md).
+[Production Security Checklist](./production-security-checklist.md). For the
+complete embedded defaults catalog, see
+[Configuration Key Reference](../reference/configuration-key-reference.md).
 
 ## Ownership Model
 
