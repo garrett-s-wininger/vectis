@@ -62,6 +62,14 @@ Useful e2e controls:
 | `VECTIS_E2E_LOCAL` | Override the host local supervisor binary path; defaults to `bin/vectis-local`. |
 | `VECTIS_E2E_REQUIRE=true` | Fail instead of skip when prerequisites are missing. |
 | `VECTIS_E2E_KEEP_LOCAL=true` | Leave `vectis-local` running after the local e2e for debugging. |
+| `VECTIS_E2E_ENVELOPE=true` | Run the opt-in local deployment envelope test in addition to the smoke; it drives concurrent canonical E2E runs through `vectis-local`. |
+| `VECTIS_E2E_ENVELOPE_RUNS` | Number of canonical E2E runs in the local envelope test (default `20`). |
+| `VECTIS_E2E_ENVELOPE_TRIGGER_CLIENTS` | Concurrent trigger clients for the local envelope test (default `4`). |
+| `VECTIS_E2E_ENVELOPE_STATUS_READERS` | Concurrent `/api/v1/runs/{id}` readers during the local envelope test (default `4`). |
+| `VECTIS_E2E_ENVELOPE_STATUS_READS_PER_RUN` | Status reads enqueued per triggered run during the local envelope test (default `2`). |
+| `VECTIS_E2E_ENVELOPE_LOG_REPLAY_RUNS` | Number of terminal runs to replay logs for during the local envelope test (default `5`). |
+| `VECTIS_E2E_ENVELOPE_ARTIFACT_DOWNLOAD_RUNS` | Number of terminal runs to download both canonical artifacts for during the local envelope test (default `5`). |
+| `VECTIS_E2E_ENVELOPE_MIN_RUNS_PER_SECOND` | Optional failing lower bound for local envelope throughput; unset or `0` records only. |
 | `VECTIS_E2E_PODMAN_RESET=true` | Allow the Podman e2e to remove and recreate the fixed `vectis` pod/volumes. |
 | `VECTIS_E2E_KEEP_PODMAN=true` | Leave the Podman stack up after the test for debugging. |
 | `VECTIS_E2E_ALLOW_IMAGE_PULL=true` | Skip local image preflight and let Podman pull missing `IfNotPresent` images. |

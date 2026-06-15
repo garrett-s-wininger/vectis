@@ -1,7 +1,10 @@
 package database
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
+	"time"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -86,6 +89,118 @@ func TestOpenDB_Sqlite_DoesNotApplyPgxPool(t *testing.T) {
 
 	if got := db.Stats().MaxOpenConnections; got != 0 {
 		t.Fatalf("sqlite MaxOpenConnections should stay default 0, got %d", got)
+	}
+}
+
+func TestSQLiteDSNWithDefaults(t *testing.T) {
+	tests := []struct {
+		name string
+		dsn  string
+		want string
+	}{
+		{
+			name: "plain file path",
+			dsn:  "/tmp/vectis.db",
+			want: "/tmp/vectis.db?_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
+		},
+		{
+			name: "preserves existing query",
+			dsn:  "file:/tmp/vectis.db?cache=shared",
+			want: "file:/tmp/vectis.db?cache=shared&_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
+		},
+		{
+			name: "preserves configured busy timeout",
+			dsn:  "/tmp/vectis.db?_busy_timeout=250",
+			want: "/tmp/vectis.db?_busy_timeout=250&_journal_mode=WAL&_txlock=immediate",
+		},
+		{
+			name: "preserves configured journal mode",
+			dsn:  "/tmp/vectis.db?_journal_mode=DELETE",
+			want: "/tmp/vectis.db?_journal_mode=DELETE&_busy_timeout=10000&_txlock=immediate",
+		},
+		{
+			name: "preserves configured txlock",
+			dsn:  "/tmp/vectis.db?_txlock=deferred",
+			want: "/tmp/vectis.db?_txlock=deferred&_busy_timeout=10000&_journal_mode=WAL",
+		},
+		{
+			name: "leaves memory database alone",
+			dsn:  ":memory:",
+			want: ":memory:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sqliteDSNWithDefaults(tt.dsn); got != tt.want {
+				t.Fatalf("sqliteDSNWithDefaults(%q): want %q, got %q", tt.dsn, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestOpenDB_SqliteQueuesConcurrentWriteTransactions(t *testing.T) {
+	t.Setenv(EnvDatabaseDriver, "sqlite3")
+
+	db, err := OpenDB(filepath.Join(t.TempDir(), "vectis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(2)
+
+	if _, err := db.Exec(`CREATE TABLE writes (id INTEGER PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	tx1, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin tx1: %v", err)
+	}
+	defer tx1.Rollback()
+	if _, err := tx1.Exec(`INSERT INTO writes (value) VALUES ('first')`); err != nil {
+		t.Fatalf("insert tx1: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		tx2, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer tx2.Rollback()
+
+		if _, err := tx2.ExecContext(ctx, `INSERT INTO writes (value) VALUES ('second')`); err != nil {
+			errCh <- err
+			return
+		}
+		errCh <- tx2.Commit()
+	}()
+
+	<-started
+	select {
+	case err := <-errCh:
+		t.Fatalf("second write transaction completed before first commit: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if err := tx1.Commit(); err != nil {
+		t.Fatalf("commit tx1: %v", err)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("second write transaction: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second write transaction did not complete after first commit")
 	}
 }
 

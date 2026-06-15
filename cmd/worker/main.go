@@ -623,6 +623,10 @@ func (w *worker) executionUsesHotStateOnly(env *cell.ExecutionEnvelope) bool {
 		!w.executionChoreographer().RequiresDurableTaskRows()
 }
 
+func executionNeedsDurableSecretClaim(job *api.Job, env *cell.ExecutionEnvelope) bool {
+	return job != nil && env != nil && len(secrets.ReferencesForTask(job, env.TaskKey)) > 0
+}
+
 func (w *worker) executionDefersStartedPersistence(env *cell.ExecutionEnvelope) bool {
 	return env != nil &&
 		!w.executionChoreographer().RequiresDurableTaskRows()
@@ -1077,7 +1081,7 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		return observability.WorkerOutcomeFailed
 	}
 
-	executionClaimToken, executionClaimed, executionStarted, executionClaimErr := w.tryClaimExecution(ctx, executionEnvelope, leaseUntil)
+	executionClaimToken, executionClaimed, executionStarted, executionClaimErr := w.tryClaimExecution(ctx, job, executionEnvelope, leaseUntil)
 	if executionClaimErr != nil {
 		span.SetStatus(otelcodes.Error, "claim execution")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
@@ -1200,10 +1204,23 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 		return nil
 	}
 
-	if w.executionChoreographer().RequiresDurableTaskRows() && w.store != nil && env.TaskKey == dal.RootTaskKey {
+	if w.store == nil {
+		return nil
+	}
+
+	materializeFullPlan := w.executionChoreographer().RequiresDurableTaskRows() && env.TaskKey == dal.RootTaskKey
+	materializeSecretPath := w.executionUsesHotStateOnly(env) && executionNeedsDurableSecretClaim(j, env)
+	if materializeFullPlan || materializeSecretPath {
 		plan, err := job.PlanTaskExecutions(j)
 		if err != nil {
 			return err
+		}
+
+		if materializeSecretPath && !materializeFullPlan {
+			plan, err = taskPlanPathTo(plan, env.TaskKey)
+			if err != nil {
+				return err
+			}
 		}
 
 		if _, err := job.EnsurePlannedTaskExecutions(w.runCtx, w.store, env.RunID, plan, env.CellID); err != nil {
@@ -1219,6 +1236,52 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 
 	trace.SpanFromContext(ctx).AddEvent("orchestrator.run.loaded")
 	return nil
+}
+
+func taskPlanPathTo(plan []job.TaskPlanEntry, taskKey string) ([]job.TaskPlanEntry, error) {
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" || taskKey == dal.RootTaskKey {
+		return nil, nil
+	}
+
+	entriesByKey := make(map[string]job.TaskPlanEntry, len(plan))
+	for _, entry := range plan {
+		entriesByKey[entry.TaskKey] = entry
+	}
+
+	var out []job.TaskPlanEntry
+	visiting := map[string]bool{}
+	visited := map[string]bool{}
+	var visit func(string) error
+	visit = func(key string) error {
+		key = strings.TrimSpace(key)
+		if key == "" || key == dal.RootTaskKey || visited[key] {
+			return nil
+		}
+		if visiting[key] {
+			return fmt.Errorf("task plan contains a cycle at %q", key)
+		}
+
+		entry, ok := entriesByKey[key]
+		if !ok {
+			return fmt.Errorf("task %q is not in the materialization plan", key)
+		}
+
+		visiting[key] = true
+		if err := visit(entry.ParentTaskKey); err != nil {
+			return err
+		}
+		visiting[key] = false
+		visited[key] = true
+		out = append(out, entry)
+		return nil
+	}
+
+	if err := visit(taskKey); err != nil {
+		return nil, err
+	}
+
+	return out, nil
 }
 
 func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, j *api.Job, executionClaim *executionClaimState, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
@@ -1923,6 +1986,7 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, j *
 	}
 
 	w.recordExecutionCatalogEvent(ctx, env, status)
+	w.recordTerminalExecutionSnapshotCatalogEvent(ctx, result, failureCode, reason)
 	w.recordRunCatalogEventForExecutionFinalization(result, failureCode, reason)
 	trace.SpanFromContext(ctx).AddEvent("execution.finalized", trace.WithAttributes(
 		append(
@@ -2119,6 +2183,28 @@ func (w *worker) recordRunCatalogEventForExecutionFinalization(result dal.Execut
 	}
 }
 
+func (w *worker) recordTerminalExecutionSnapshotCatalogEvent(ctx context.Context, result dal.ExecutionFinalizationResult, failureCode, reason string) {
+	if !isTerminalFinalizationOutcome(result.Outcome) || len(result.Executions) == 0 {
+		return
+	}
+
+	update := dal.TerminalExecutionSnapshotUpdate{
+		RunID:       result.RunID,
+		Outcome:     result.Outcome,
+		FailureCode: failureCode,
+		Reason:      reason,
+		Executions:  result.Executions,
+	}
+	if err := w.catalog.RecordTerminalExecutionSnapshot(w.runCtx, update); err != nil {
+		w.noteDBError(err)
+		w.logger.Warn("Record catalog terminal snapshot event for run %s failed: %v", result.RunID, err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return
+	}
+
+	w.noteDBRecovered()
+}
+
 func (w *worker) ackDelivery(deliveryID string) error {
 	if deliveryID == "" {
 		return nil
@@ -2306,7 +2392,7 @@ func (s *executionClaimState) set(token string) {
 	s.mu.Unlock()
 }
 
-func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool, bool, error) {
+func (w *worker) tryClaimExecution(ctx context.Context, job *api.Job, executionEnvelope *cell.ExecutionEnvelope, leaseUntil time.Time) (string, bool, bool, error) {
 	if executionEnvelope == nil {
 		return "", false, false, nil
 	}
@@ -2327,7 +2413,7 @@ func (w *worker) tryClaimExecution(ctx context.Context, executionEnvelope *cell.
 		return "", false, false, nil
 	}
 
-	if err := w.mirrorExecutionClaim(ctx, executionEnvelope, claim.ClaimToken, leaseUntil); err != nil {
+	if err := w.mirrorExecutionClaim(ctx, job, executionEnvelope, claim.ClaimToken, leaseUntil); err != nil {
 		w.logger.Warn("MirrorExecutionClaim %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
 		span.RecordError(err)
 		span.AddEvent("execution.claim.mirror_error", trace.WithAttributes(attribute.String("error", err.Error())))
@@ -2366,7 +2452,7 @@ func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.J
 		return false, fmt.Errorf("%w: execution %s was not claimable after orchestrator recovery", dal.ErrConflict, env.ExecutionID)
 	}
 
-	if err := w.mirrorExecutionClaim(ctx, env, claim.ClaimToken, leaseUntil); err != nil {
+	if err := w.mirrorExecutionClaim(ctx, j, env, claim.ClaimToken, leaseUntil); err != nil {
 		return false, fmt.Errorf("mirror recovered execution claim: %w", err)
 	}
 
@@ -2378,12 +2464,12 @@ func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.J
 	return true, nil
 }
 
-func (w *worker) mirrorExecutionClaim(ctx context.Context, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
+func (w *worker) mirrorExecutionClaim(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
 	if w.store == nil || env == nil {
 		return nil
 	}
 
-	if w.executionUsesHotStateOnly(env) {
+	if w.executionUsesHotStateOnly(env) && !executionNeedsDurableSecretClaim(job, env) {
 		trace.SpanFromContext(ctx).AddEvent("execution.claim.mirror_skipped_hot_state", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 		return nil
 	}
@@ -2429,12 +2515,12 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, env *cell.ExecutionEn
 	return lastErr
 }
 
-func (w *worker) renewMirroredExecutionClaim(ctx context.Context, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
+func (w *worker) renewMirroredExecutionClaim(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
 	if w.store == nil || env == nil || strings.TrimSpace(claimToken) == "" {
 		return nil
 	}
 
-	if w.executionUsesHotStateOnly(env) {
+	if w.executionUsesHotStateOnly(env) && !executionNeedsDurableSecretClaim(job, env) {
 		return nil
 	}
 
@@ -3116,7 +3202,7 @@ func (w *worker) leaseRenewalLoop(
 					continue
 				}
 
-				if err := w.renewMirroredExecutionClaim(execCtx, executionEnvelope, claimToken, next); err != nil {
+				if err := w.renewMirroredExecutionClaim(execCtx, j, executionEnvelope, claimToken, next); err != nil {
 					renewFailed = true
 					w.logger.Warn("Execution %s: mirrored lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 					continue

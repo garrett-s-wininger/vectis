@@ -166,6 +166,190 @@ func TestWorkerPublishRunHotStateOwner_OnlyForOrchestratorRuns(t *testing.T) {
 	}
 }
 
+func TestWorkerMirrorsHotStateSecretExecutionClaim(t *testing.T) {
+	ctx := context.Background()
+	leaseUntil := time.Now().Add(time.Minute).UTC()
+	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
+	secretJob := &api.Job{
+		Secrets: []*api.SecretReference{{
+			Id:       workerStrp("token"),
+			Ref:      workerStrp("encryptedfs://team/token"),
+			TaskKeys: []string{"secret-lane"},
+			Delivery: &api.SecretDelivery{
+				Type: &fileType,
+				Path: workerStrp("token"),
+			},
+		}},
+	}
+
+	secretEnv := &cell.ExecutionEnvelope{
+		RunID:       "run-secret",
+		TaskID:      "run-secret:secret-lane",
+		TaskKey:     "secret-lane",
+		ExecutionID: "execution-secret",
+		CellID:      "local",
+	}
+
+	secretStore := &mocks.MockRunsRepository{}
+	secretWorker := &worker{
+		runCtx:        context.Background(),
+		workerID:      "worker-secret",
+		choreographer: newLocalOrchestratorChoreographer(t),
+		store:         secretStore,
+	}
+
+	if err := secretWorker.mirrorExecutionClaim(ctx, secretJob, secretEnv, "claim-secret", leaseUntil); err != nil {
+		t.Fatalf("mirror secret execution claim: %v", err)
+	}
+
+	if secretStore.LastMirroredExecID != "execution-secret" || secretStore.LastMirroredToken != "claim-secret" {
+		t.Fatalf("secret execution mirror = id %q token %q", secretStore.LastMirroredExecID, secretStore.LastMirroredToken)
+	}
+
+	if err := secretWorker.renewMirroredExecutionClaim(ctx, secretJob, secretEnv, "claim-secret", leaseUntil.Add(time.Minute)); err != nil {
+		t.Fatalf("renew secret mirrored claim: %v", err)
+	}
+
+	if secretStore.LastExecutionRenewID != "execution-secret" {
+		t.Fatalf("secret execution renew id = %q, want execution-secret", secretStore.LastExecutionRenewID)
+	}
+
+	plainStore := &mocks.MockRunsRepository{}
+	plainWorker := &worker{
+		runCtx:        context.Background(),
+		workerID:      "worker-plain",
+		choreographer: newLocalOrchestratorChoreographer(t),
+		store:         plainStore,
+	}
+
+	plainEnv := &cell.ExecutionEnvelope{
+		RunID:       "run-plain",
+		TaskID:      "run-plain:plain-lane",
+		TaskKey:     "plain-lane",
+		ExecutionID: "execution-plain",
+		CellID:      "local",
+	}
+
+	if err := plainWorker.mirrorExecutionClaim(ctx, &api.Job{}, plainEnv, "claim-plain", leaseUntil); err != nil {
+		t.Fatalf("mirror plain execution claim: %v", err)
+	}
+
+	if plainStore.LastMirroredExecID != "" {
+		t.Fatalf("plain hot-state execution should not mirror, got %q", plainStore.LastMirroredExecID)
+	}
+
+	if err := plainWorker.renewMirroredExecutionClaim(ctx, &api.Job{}, plainEnv, "claim-plain", leaseUntil.Add(time.Minute)); err != nil {
+		t.Fatalf("renew plain mirrored claim: %v", err)
+	}
+
+	if plainStore.LastExecutionRenewID != "" {
+		t.Fatalf("plain hot-state execution should not renew mirror, got %q", plainStore.LastExecutionRenewID)
+	}
+}
+
+func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	ns, err := repos.Namespaces().Create(ctx, "worker-secret-path", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-worker-secret-path"
+	def := `{"id":"job-worker-secret-path","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	sequence := "builtins/sequence"
+	parallel := "builtins/parallel"
+	shell := "builtins/shell"
+	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
+	j := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Secrets: []*api.SecretReference{{
+			Id:       workerStrp("token"),
+			Ref:      workerStrp("encryptedfs://team/token"),
+			TaskKeys: []string{"secret-lane"},
+			Delivery: &api.SecretDelivery{
+				Type: &fileType,
+				Path: workerStrp("token"),
+			},
+		}},
+		Root: &api.Node{
+			Id:   workerStrp("root-control"),
+			Uses: &sequence,
+			Ports: map[string]*api.NodePort{
+				"steps": {
+					Nodes: []*api.Node{{
+						Id:   workerStrp("fanout-control"),
+						Uses: &parallel,
+						Ports: map[string]*api.NodePort{
+							"branches": {
+								Nodes: []*api.Node{
+									{Id: workerStrp("secret-lane"), Uses: &shell, With: map[string]string{"command": "echo secret"}},
+									{Id: workerStrp("plain-lane"), Uses: &shell, With: map[string]string{"command": "echo plain"}},
+								},
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	env := &cell.ExecutionEnvelope{
+		RunID:       runID,
+		TaskID:      runID + ":secret-lane",
+		TaskKey:     "secret-lane",
+		ExecutionID: runID + ":secret-lane:attempt:1:execution",
+		CellID:      "local",
+	}
+	w := &worker{
+		runCtx:        context.Background(),
+		workerID:      "worker-secret-path",
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+	}
+
+	if err := w.prepareRunForExecution(ctx, j, env, time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("prepare secret execution: %v", err)
+	}
+
+	for _, taskKey := range []string{"fanout-control", "secret-lane"} {
+		var rows int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, taskKey).Scan(&rows); err != nil {
+			t.Fatalf("count task %s: %v", taskKey, err)
+		}
+
+		if rows != 1 {
+			t.Fatalf("task %s rows = %d, want 1", taskKey, rows)
+		}
+	}
+
+	var plainRows int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, "plain-lane").Scan(&plainRows); err != nil {
+		t.Fatalf("count plain task: %v", err)
+	}
+
+	if plainRows != 0 {
+		t.Fatalf("plain hot-state sibling rows = %d, want 0", plainRows)
+	}
+
+	if err := runs.MirrorExecutionClaim(ctx, env.ExecutionID, "worker-secret-path", "claim-secret", time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("mirror prepared secret claim: %v", err)
+	}
+}
+
 type errorWorkerCore struct {
 	err error
 }
@@ -1220,7 +1404,7 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 		catalog:       cell.NewCatalogEventPublisher("local", catalogEvents),
 	}
 
-	firstToken, claimed, _, err := w.tryClaimExecution(ctx, env, time.Now().Add(-time.Minute))
+	firstToken, claimed, _, err := w.tryClaimExecution(ctx, j, env, time.Now().Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("first claim execution: %v", err)
 	}
@@ -1229,7 +1413,7 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 		t.Fatalf("expected first execution claim, claimed=%v token=%q", claimed, firstToken)
 	}
 
-	secondToken, claimed, _, err := w.tryClaimExecution(ctx, env, time.Now().Add(time.Minute))
+	secondToken, claimed, _, err := w.tryClaimExecution(ctx, j, env, time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatalf("second claim execution: %v", err)
 	}
@@ -2267,6 +2451,22 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	}
 	if runStatus != dal.RunStatusSucceeded {
 		t.Fatalf("run durable state after terminal snapshot: got %q, want %q", runStatus, dal.RunStatusSucceeded)
+	}
+
+	events, err := repos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list catalog events: %v", err)
+	}
+
+	var terminalSnapshotEvents int
+	for _, event := range events {
+		if event.EventType == cell.CatalogEventTypeTerminalSnapshot && event.EventKey == cell.CatalogTerminalSnapshotEventKey(runID) {
+			terminalSnapshotEvents++
+		}
+	}
+
+	if terminalSnapshotEvents != 1 {
+		t.Fatalf("terminal snapshot catalog events: got %d in %+v, want 1", terminalSnapshotEvents, events)
 	}
 }
 

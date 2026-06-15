@@ -136,6 +136,7 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 
 	dataHome := t.TempDir()
 	env := commandEnv(map[string]string{
+		"PATH":            filepath.Join(root, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"XDG_DATA_HOME":   dataHome,
 		"XDG_RUNTIME_DIR": shortTempDir(t, "vectis-e2e-runtime-*"),
 		"VECTIS_ACTION_REGISTRY_ALLOWED_NAMESPACES":  "",
@@ -678,6 +679,10 @@ func waitForRunTaskCompletionSucceeded(t *testing.T, root string, env []string, 
 		}
 
 		time.Sleep(200 * time.Millisecond)
+	}
+
+	if last.TaskCompletion != nil {
+		t.Fatalf("run %s task completion did not converge within %s; status=%s completion=%+v err=%v", runID, timeout, last.Status, *last.TaskCompletion, lastErr)
 	}
 
 	t.Fatalf("run %s task completion did not converge within %s; last=%+v err=%v", runID, timeout, last, lastErr)

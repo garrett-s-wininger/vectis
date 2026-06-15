@@ -29,6 +29,11 @@ func (u *recordingCatalogUpdater) ApplyExecutionStatusUpdate(ctx context.Context
 	return u.errIfNeeded()
 }
 
+func (u *recordingCatalogUpdater) ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+	u.calls = append(u.calls, "terminal-snapshot:"+update.RunID+":"+string(update.Outcome))
+	return u.errIfNeeded()
+}
+
 func (u *recordingCatalogUpdater) errIfNeeded() error {
 	if u.failAt > 0 && len(u.calls) == u.failAt {
 		return fmt.Errorf("forced update failure")
@@ -203,13 +208,29 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 		t.Fatalf("RecordExecutionSecurity: %v", err)
 	}
 
+	if err := publisher.RecordTerminalExecutionSnapshot(ctx, dal.TerminalExecutionSnapshotUpdate{
+		RunID:   "run-1",
+		Outcome: dal.ExecutionFinalizationOutcomeRunSucceeded,
+		Executions: []dal.TaskExecutionSnapshot{{
+			Record: dal.TaskExecutionRecord{
+				RunID:       "run-1",
+				TaskID:      "run-1:root",
+				TaskKey:     dal.RootTaskKey,
+				ExecutionID: "execution-1",
+			},
+			Status: dal.ExecutionStatusSucceeded,
+		}},
+	}); err != nil {
+		t.Fatalf("RecordTerminalExecutionSnapshot: %v", err)
+	}
+
 	records, err := repos.CatalogEvents().ListPending(ctx, 10)
 	if err != nil {
 		t.Fatalf("ListPending: %v", err)
 	}
 
-	if len(records) != 4 {
-		t.Fatalf("pending records: got %d, want 4", len(records))
+	if len(records) != 5 {
+		t.Fatalf("pending records: got %d, want 5", len(records))
 	}
 
 	if records[0].SourceCell != "iad-a" || records[0].EventKey != "run:run-1:running" || records[0].EventType != CatalogEventTypeRunStatus {
@@ -226,6 +247,10 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 
 	if records[3].SourceCell != "iad-a" || !strings.HasPrefix(records[3].EventKey, "security:run-1:") || records[3].EventType != CatalogEventTypeExecutionSecurity {
 		t.Fatalf("unexpected security event: %+v", records[3])
+	}
+
+	if records[4].SourceCell != "iad-a" || records[4].EventKey != "run:run-1:terminal-snapshot" || records[4].EventType != CatalogEventTypeTerminalSnapshot {
+		t.Fatalf("unexpected terminal snapshot event: %+v", records[4])
 	}
 }
 
@@ -407,6 +432,125 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T)
 
 	if rec.Path != create.Path || rec.BlobKey != create.BlobKey || rec.ArtifactShardID != create.ArtifactShardID {
 		t.Fatalf("artifact manifest mismatch: %+v", rec)
+	}
+}
+
+func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	ctx := context.Background()
+
+	_, err := repos.Namespaces().Create(ctx, "team-catalog-terminal-snapshot", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-catalog-terminal-snapshot"
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-terminal-snapshot","root":{"uses":"builtins/shell"}}`); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	root, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending root: %v", err)
+	}
+
+	childTaskID := runID + ":child"
+	childAttemptID := childTaskID + ":attempt:1"
+	childExecutionID := childAttemptID + ":execution"
+	update := dal.TerminalExecutionSnapshotUpdate{
+		RunID:   runID,
+		Outcome: dal.ExecutionFinalizationOutcomeRunSucceeded,
+		Executions: []dal.TaskExecutionSnapshot{
+			{
+				Record: dal.TaskExecutionRecord{
+					RunID:         runID,
+					TaskID:        root.TaskID,
+					TaskKey:       dal.RootTaskKey,
+					Name:          dal.RootTaskKey,
+					TaskAttemptID: root.TaskAttemptID,
+					SegmentID:     root.SegmentID,
+					SegmentName:   root.SegmentName,
+					ExecutionID:   root.ExecutionID,
+					CellID:        "iad-a",
+					Attempt:       1,
+				},
+				Status:             dal.ExecutionStatusSucceeded,
+				AcceptedAtUnixNano: 10,
+				StartedAtUnixNano:  20,
+				FinishedAtUnixNano: 30,
+			},
+			{
+				Record: dal.TaskExecutionRecord{
+					RunID:         runID,
+					TaskID:        childTaskID,
+					ParentTaskID:  root.TaskID,
+					TaskKey:       "child",
+					Name:          "child",
+					TaskAttemptID: childAttemptID,
+					SegmentID:     childTaskID + ":segment",
+					SegmentName:   "child",
+					ExecutionID:   childExecutionID,
+					CellID:        "iad-a",
+					Attempt:       1,
+				},
+				Status:             dal.ExecutionStatusSucceeded,
+				AcceptedAtUnixNano: 40,
+				StartedAtUnixNano:  50,
+				FinishedAtUnixNano: 60,
+			},
+		},
+	}
+
+	payload, err := json.Marshal(update)
+	if err != nil {
+		t.Fatalf("marshal terminal snapshot event: %v", err)
+	}
+
+	if _, _, err := repos.CatalogEvents().Record(ctx, "iad-a", CatalogTerminalSnapshotEventKey(runID), CatalogEventTypeTerminalSnapshot, payload); err != nil {
+		t.Fatalf("record terminal snapshot event: %v", err)
+	}
+
+	processor := NewCatalogInboxProcessor(repos.CatalogEvents(), repos.Runs())
+	result, err := processor.ProcessPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ProcessPending: %v", err)
+	}
+
+	if result.Read != 1 || result.Applied != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+
+	summary, err := repos.Runs().GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run task completion: %v", err)
+	}
+
+	if summary.Total != 2 || summary.Succeeded != 2 || summary.Incomplete != 0 || summary.TerminalFailed != 0 {
+		t.Fatalf("completion after terminal snapshot event: %+v", summary)
+	}
+
+	tasks, _, err := repos.Runs().ListRunTasks(ctx, runID, 0, 10)
+	if err != nil {
+		t.Fatalf("list run tasks: %v", err)
+	}
+
+	var child *dal.TaskRecord
+	for i := range tasks {
+		if tasks[i].TaskKey == "child" {
+			child = &tasks[i]
+			break
+		}
+	}
+
+	if child == nil || child.Status != dal.TaskStatusSucceeded || len(child.Attempts) != 1 || child.Attempts[0].ExecutionStatus != dal.ExecutionStatusSucceeded {
+
+		t.Fatalf("child final fact after terminal snapshot event: child=%+v tasks=%+v", child, tasks)
 	}
 }
 

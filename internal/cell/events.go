@@ -18,6 +18,7 @@ const (
 	CatalogEventTypeExecutionStatus   = "execution.status"
 	CatalogEventTypeArtifactRecord    = "artifact.record"
 	CatalogEventTypeExecutionSecurity = "execution.security"
+	CatalogEventTypeTerminalSnapshot  = "execution.terminal_snapshot"
 )
 
 type CatalogEvent struct {
@@ -26,6 +27,7 @@ type CatalogEvent struct {
 	ExecutionStatus   *dal.ExecutionStatusUpdate
 	Artifact          *dal.ArtifactCreate
 	ExecutionSecurity *dal.RecordExecutionSecurityEventParams
+	TerminalSnapshot  *dal.TerminalExecutionSnapshotUpdate
 }
 
 type CatalogEventConsumer struct {
@@ -34,6 +36,10 @@ type CatalogEventConsumer struct {
 	securityEvents interface {
 		RecordExecutionSecurityEvent(ctx context.Context, event dal.RecordExecutionSecurityEventParams) error
 	}
+}
+
+type terminalSnapshotCatalogUpdater interface {
+	ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error
 }
 
 type CatalogEventPublisher struct {
@@ -157,6 +163,23 @@ func (p CatalogEventPublisher) RecordExecutionSecurity(ctx context.Context, even
 	return p.record(ctx, event.EventKey, CatalogEventTypeExecutionSecurity, payload)
 }
 
+func (p CatalogEventPublisher) RecordTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+	if p.events == nil {
+		return nil
+	}
+
+	payload, err := json.Marshal(update)
+	if err != nil {
+		return fmt.Errorf("marshal terminal execution snapshot catalog event: %w", err)
+	}
+
+	if strings.TrimSpace(update.RunID) == "" || strings.TrimSpace(string(update.Outcome)) == "" || len(update.Executions) == 0 {
+		return fmt.Errorf("%w: run_id, outcome, and executions are required", ErrInvalidCatalogEvent)
+	}
+
+	return p.record(ctx, CatalogTerminalSnapshotEventKey(update.RunID), CatalogEventTypeTerminalSnapshot, payload)
+}
+
 func (p CatalogEventPublisher) record(ctx context.Context, eventKey, eventType string, payload []byte) error {
 	sourceCellID := strings.TrimSpace(p.sourceCellID)
 	if sourceCellID == "" {
@@ -177,6 +200,10 @@ func CatalogExecutionStatusEventKey(executionID, status string) string {
 
 func CatalogArtifactEventKey(runID, name string) string {
 	return "artifact:" + strings.TrimSpace(runID) + ":" + strings.TrimSpace(name)
+}
+
+func CatalogTerminalSnapshotEventKey(runID string) string {
+	return "run:" + strings.TrimSpace(runID) + ":terminal-snapshot"
 }
 
 func (p CatalogInboxProcessor) ProcessPending(ctx context.Context, limit int) (CatalogInboxProcessResult, error) {
@@ -261,6 +288,13 @@ func CatalogEventFromRecord(rec dal.CatalogEventRecord) (CatalogEvent, error) {
 		}
 
 		event.ExecutionSecurity = &securityEvent
+	case CatalogEventTypeTerminalSnapshot:
+		var update dal.TerminalExecutionSnapshotUpdate
+		if err := json.Unmarshal(rec.Payload, &update); err != nil {
+			return CatalogEvent{}, fmt.Errorf("%w: decode terminal execution snapshot payload: %v", ErrInvalidCatalogEvent, err)
+		}
+
+		event.TerminalSnapshot = &update
 	default:
 		return CatalogEvent{}, fmt.Errorf("%w: unsupported event type %q", ErrInvalidCatalogEvent, rec.EventType)
 	}
@@ -297,6 +331,15 @@ func (c CatalogEventConsumer) Apply(ctx context.Context, event CatalogEvent) err
 
 	if event.ExecutionStatus != nil {
 		return c.updater.ApplyExecutionStatusUpdate(ctx, *event.ExecutionStatus)
+	}
+
+	if event.TerminalSnapshot != nil {
+		updater, ok := c.updater.(terminalSnapshotCatalogUpdater)
+		if !ok {
+			return errors.New("terminal snapshot catalog updater is required")
+		}
+
+		return updater.ApplyTerminalExecutionSnapshot(ctx, *event.TerminalSnapshot)
 	}
 
 	if event.Artifact != nil {
@@ -338,6 +381,10 @@ func (e CatalogEvent) Validate() error {
 		if strings.TrimSpace(e.ExecutionSecurity.RunID) == "" || strings.TrimSpace(e.ExecutionSecurity.EventType) == "" || strings.TrimSpace(e.ExecutionSecurity.Outcome) == "" {
 			return fmt.Errorf("%w: execution security run_id, event_type, and outcome are required", ErrInvalidCatalogEvent)
 		}
+	}
+
+	if e.TerminalSnapshot != nil {
+		updateCount++
 	}
 
 	if updateCount != 1 {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +33,8 @@ const (
 
 	schemaWaitDeadline     = 5 * time.Minute
 	schemaWaitPollInterval = 750 * time.Millisecond
+
+	sqliteBusyTimeoutMillis = 10000
 )
 
 type Role string
@@ -84,6 +88,8 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create data directory: %w", err)
 		}
+
+		dbPath = sqliteDSNWithDefaults(dbPath)
 	}
 
 	db, err := sql.Open(driver, dbPath)
@@ -99,6 +105,51 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func sqliteDSNWithDefaults(dsn string) string {
+	if dsn == "" || dsn == ":memory:" {
+		return dsn
+	}
+
+	dsn = sqliteDSNWithParam(dsn, "_busy_timeout", strconv.Itoa(sqliteBusyTimeoutMillis))
+	dsn = sqliteDSNWithParam(dsn, "_journal_mode", "WAL")
+	return sqliteDSNWithParam(dsn, "_txlock", "immediate")
+}
+
+func sqliteDSNWithParam(dsn, key, value string) string {
+	if sqliteDSNHasParam(dsn, key) {
+		return dsn
+	}
+
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+
+	return dsn + sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+}
+
+func sqliteDSNHasParam(dsn, key string) bool {
+	_, rawQuery, ok := strings.Cut(dsn, "?")
+	if !ok {
+		return false
+	}
+
+	values, err := url.ParseQuery(rawQuery)
+	if err == nil {
+		_, ok = values[key]
+		return ok
+	}
+
+	for part := range strings.SplitSeq(rawQuery, "&") {
+		name, _, _ := strings.Cut(part, "=")
+		if name == key {
+			return true
+		}
+	}
+
+	return false
 }
 
 func OpenReadyDB(log interfaces.Logger) (*sql.DB, string, error) {
