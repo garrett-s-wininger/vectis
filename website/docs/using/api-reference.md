@@ -6,6 +6,8 @@ This page covers the shipped v1 REST surface. gRPC contracts live in `api/proto/
 
 For client generators and gateway policy tooling, use the machine-readable [OpenAPI Specification](./openapi-specification.md).
 
+For the role matrix and token-scope behavior behind the route `Auth action` column, see [Authorization Reference](../operating/reference/authorization-reference.md).
+
 ## When To Use The API
 
 Use the HTTP API when you want to:

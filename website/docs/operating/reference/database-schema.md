@@ -76,6 +76,8 @@ Other common enumerations:
 | `role_bindings.role` | `viewer`, `trigger`, `operator`, `admin` |
 | `api_token_scopes.action` | `job:read`, `job:write`, `run:trigger`, `run:read`, `run:operator`, `admin:*`, `user:admin`, `api:any` |
 
+For role meanings, action scope, and token-scope behavior, see [Authorization Reference](./authorization-reference.md).
+
 ## Relationship Map
 
 ```mermaid

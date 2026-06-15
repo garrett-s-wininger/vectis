@@ -90,6 +90,7 @@ The docs site is the best place to continue:
 | [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
 | [Configuration Key Reference](./website/docs/operating/reference/configuration-key-reference.md) | Embedded defaults, config paths, and env-only runtime knobs. |
 | [Run, Task, And Queue State Reference](./website/docs/operating/reference/run-state-reference.md) | Lifecycle states, queue delivery states, repair hints, and operator triage. |
+| [Authorization Reference](./website/docs/operating/reference/authorization-reference.md) | API auth actions, namespace roles, token scopes, and route families. |
 | [Audit Event Catalog](./website/docs/operating/reference/audit-event-catalog.md) | Audit event names, metadata fields, durability defaults, and operator signals. |
 | [Database Schema](./website/docs/operating/reference/database-schema.md) | SQL tables, fields, constraints, indexes, and operational notes. |
 | [Metrics Catalog](./website/docs/operating/reference/metrics-catalog.md) | Prometheus metric names, labels, and operator interpretation. |

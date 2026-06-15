@@ -55,6 +55,8 @@ API errors use a stable JSON envelope with a `code` value such as `setup_require
 | `hierarchical_rbac` | You want the normal multi-user model. | Namespace-scoped RBAC with inherited permissions. Roles are `viewer`, `trigger`, `operator`, and `admin`; inheritance can stop at a namespace with `break_inheritance`. |
 | `authenticated_full` | You want a simple authenticated demo or trusted single-team deployment. | Any authenticated principal may perform non-setup actions. |
 
+For the full action catalog, role matrix, token-scope rules, and route-family mapping, see [Authorization Reference](../operating/reference/authorization-reference.md).
+
 The CLI exposes routine auth and admin flows such as login, logout, token management, users, namespaces, role bindings, and health checks. See [CLI Guide](../using/cli-guide.md).
 
 ## Internal Service Traffic

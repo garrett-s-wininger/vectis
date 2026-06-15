@@ -495,7 +495,7 @@ Grant a role:
 ./bin/vectis-cli role-bindings grant <namespace-id> <user-id> viewer
 ```
 
-Roles are documented with the auth model in [Security Posture](../concepts/security.md).
+Roles, actions, and scoped API tokens are documented in [Authorization Reference](../operating/reference/authorization-reference.md).
 
 ## Local Development Cleanup
 

@@ -73,6 +73,7 @@ const sidebars = {
           items: [
             'operating/reference/run-state-reference',
             'operating/reference/configuration-key-reference',
+            'operating/reference/authorization-reference',
             'operating/reference/audit-event-catalog',
             'operating/reference/database-schema',
             'operating/reference/metrics-catalog',
