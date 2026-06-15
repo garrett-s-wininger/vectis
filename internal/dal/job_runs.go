@@ -801,10 +801,16 @@ func applyTerminalRunStatusUpdateTx(ctx context.Context, tx *sql.Tx, update RunS
 }
 
 func execBatchedValuesTx(ctx context.Context, tx *sql.Tx, prefix string, rows [][]any, suffix string) error {
+	_, err := execBatchedValuesRowsAffectedTx(ctx, tx, prefix, rows, suffix)
+	return err
+}
+
+func execBatchedValuesRowsAffectedTx(ctx context.Context, tx *sql.Tx, prefix string, rows [][]any, suffix string) (int, error) {
 	if len(rows) == 0 {
-		return nil
+		return 0, nil
 	}
 
+	var total int64
 	for start := 0; start < len(rows); start += terminalSnapshotBatchRows {
 		end := min(start+terminalSnapshotBatchRows, len(rows))
 		batch := rows[start:end]
@@ -826,12 +832,17 @@ func execBatchedValuesTx(ctx context.Context, tx *sql.Tx, prefix string, rows []
 
 		query.WriteString(suffix)
 
-		if _, err := tx.ExecContext(ctx, rebindQueryForPgx(query.String()), args...); err != nil {
-			return normalizeSQLError(err)
+		result, err := tx.ExecContext(ctx, rebindQueryForPgx(query.String()), args...)
+		if err != nil {
+			return 0, normalizeSQLError(err)
+		}
+
+		if affected, err := result.RowsAffected(); err == nil {
+			total += affected
 		}
 	}
 
-	return nil
+	return int(total), nil
 }
 
 func questionPlaceholders(n int) string {
@@ -2925,6 +2936,60 @@ func (r *SQLRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, crea
 	return r.ensureTaskExecution(ctx, create, TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned)
 }
 
+func (r *SQLRunsRepository) EnsurePlannedTaskExecutionsBatch(ctx context.Context, creates []TaskExecutionCreate) ([]TaskExecutionRecord, int, error) {
+	if len(creates) == 0 {
+		return nil, 0, nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := plannedTaskExecutionBatchRowsTx(ctx, tx, creates, r.currentCellID())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	taskCreated, err := insertPlannedTaskBatchTasksTx(ctx, tx, rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	attemptCreated, err := insertPlannedTaskBatchAttemptsTx(ctx, tx, rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	segmentCreated, err := insertPlannedTaskBatchSegmentsTx(ctx, tx, rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	executionCreated, err := insertPlannedTaskBatchExecutionsTx(ctx, tx, rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if taskCreated != len(rows) || attemptCreated != len(rows) || segmentCreated != len(rows) || executionCreated != len(rows) {
+		if err := verifyPlannedTaskExecutionBatchRowsTx(ctx, tx, rows); err != nil {
+			return nil, 0, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, 0, err
+	}
+
+	records := make([]TaskExecutionRecord, len(rows))
+	for i, row := range rows {
+		records[i] = row.Record
+	}
+
+	return records, executionCreated, nil
+}
+
 func (r *SQLRunsRepository) EnsurePendingTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error) {
 	return r.ensureTaskExecution(ctx, create, TaskStatusPending, SegmentStatusPending, ExecutionStatusPending)
 }
@@ -3942,6 +4007,318 @@ func ensureTaskExecutionTx(ctx context.Context, tx *sql.Tx, create TaskExecution
 		CellID:        cellID,
 		Attempt:       attempt,
 	}, created, nil
+}
+
+type plannedTaskExecutionBatchRow struct {
+	Create                TaskExecutionCreate
+	Record                TaskExecutionRecord
+	SpecHash              string
+	StartDeadlineUnixNano int64
+}
+
+func plannedTaskExecutionBatchRowsTx(ctx context.Context, tx *sql.Tx, creates []TaskExecutionCreate, fallbackCellID string) ([]plannedTaskExecutionBatchRow, error) {
+	normalized := make([]TaskExecutionCreate, 0, len(creates))
+	runID := ""
+	seenTasks := make(map[string]struct{}, len(creates))
+	for _, create := range creates {
+		n, err := normalizeTaskExecutionCreate(create)
+		if err != nil {
+			return nil, err
+		}
+
+		if runID == "" {
+			runID = n.RunID
+		} else if n.RunID != runID {
+			return nil, fmt.Errorf("%w: batch contains multiple runs", ErrConflict)
+		}
+
+		taskID := taskIDForKey(n.RunID, n.TaskKey)
+		if _, ok := seenTasks[taskID]; ok {
+			return nil, fmt.Errorf("%w: duplicate task %s in batch", ErrConflict, taskID)
+		}
+
+		seenTasks[taskID] = struct{}{}
+		normalized = append(normalized, n)
+	}
+
+	var owningCell string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"), runID).Scan(&owningCell); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return nil, normalizeSQLError(err)
+	}
+
+	if strings.TrimSpace(owningCell) == "" {
+		owningCell = fallbackCellID
+	}
+
+	knownTaskIDs := make(map[string]struct{}, len(normalized)+1)
+	knownTaskIDs[rootTaskID(runID)] = struct{}{}
+	for _, n := range normalized {
+		knownTaskIDs[taskIDForKey(n.RunID, n.TaskKey)] = struct{}{}
+	}
+
+	missingParentIDs := make([]string, 0)
+	missingParentSeen := map[string]struct{}{}
+	for _, n := range normalized {
+		parentTaskID := n.ParentTaskID
+		if parentTaskID == "" {
+			parentTaskID = rootTaskID(n.RunID)
+		}
+
+		if _, ok := knownTaskIDs[parentTaskID]; ok {
+			continue
+		}
+
+		if _, ok := missingParentSeen[parentTaskID]; ok {
+			continue
+		}
+
+		missingParentSeen[parentTaskID] = struct{}{}
+		missingParentIDs = append(missingParentIDs, parentTaskID)
+	}
+
+	if err := verifyBatchParentTasksTx(ctx, tx, runID, missingParentIDs); err != nil {
+		return nil, err
+	}
+
+	rows := make([]plannedTaskExecutionBatchRow, 0, len(normalized))
+	for _, n := range normalized {
+		parentTaskID := n.ParentTaskID
+		if parentTaskID == "" {
+			parentTaskID = rootTaskID(n.RunID)
+		}
+
+		cellID := normalizeTargetCellID(n.TargetCellID, owningCell)
+		taskID := taskIDForKey(n.RunID, n.TaskKey)
+		attempt := 1
+		attemptID := taskAttemptID(taskID, attempt)
+		segmentID := taskSegmentID(taskID)
+		executionID := taskExecutionID(attemptID)
+		rows = append(rows, plannedTaskExecutionBatchRow{
+			Create:                n,
+			SpecHash:              n.SpecHash,
+			StartDeadlineUnixNano: n.StartDeadlineUnixNano,
+			Record: TaskExecutionRecord{
+				RunID:         n.RunID,
+				TaskID:        taskID,
+				ParentTaskID:  parentTaskID,
+				TaskKey:       n.TaskKey,
+				Name:          n.Name,
+				TaskAttemptID: attemptID,
+				SegmentID:     segmentID,
+				SegmentName:   n.Name,
+				ExecutionID:   executionID,
+				CellID:        cellID,
+				Attempt:       attempt,
+			},
+		})
+	}
+
+	return rows, nil
+}
+
+func verifyBatchParentTasksTx(ctx context.Context, tx *sql.Tx, runID string, parentTaskIDs []string) error {
+	if len(parentTaskIDs) == 0 {
+		return nil
+	}
+
+	found := make(map[string]string, len(parentTaskIDs))
+	for start := 0; start < len(parentTaskIDs); start += terminalSnapshotBatchRows {
+		end := min(start+terminalSnapshotBatchRows, len(parentTaskIDs))
+		chunk := parentTaskIDs[start:end]
+		rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
+			SELECT task_id, run_id
+			FROM run_tasks
+			WHERE task_id IN (`+questionPlaceholders(len(chunk))+`)
+		`), stringsToAny(chunk)...)
+
+		if err != nil {
+			return normalizeSQLError(err)
+		}
+
+		for rows.Next() {
+			var taskID, taskRunID string
+			if err := rows.Scan(&taskID, &taskRunID); err != nil {
+				_ = rows.Close()
+				return normalizeSQLError(err)
+			}
+
+			found[taskID] = taskRunID
+		}
+
+		if err := rows.Close(); err != nil {
+			return normalizeSQLError(err)
+		}
+
+		if err := rows.Err(); err != nil {
+			return normalizeSQLError(err)
+		}
+	}
+
+	for _, parentTaskID := range parentTaskIDs {
+		parentRunID, ok := found[parentTaskID]
+		if !ok {
+			return fmt.Errorf("%w: parent task %s", ErrNotFound, parentTaskID)
+		}
+
+		if parentRunID != runID {
+			return fmt.Errorf("%w: parent task %s belongs to run %s", ErrConflict, parentTaskID, parentRunID)
+		}
+	}
+
+	return nil
+}
+
+func insertPlannedTaskBatchTasksTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) (int, error) {
+	rowTaskIDs := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		rowTaskIDs[row.Record.TaskID] = struct{}{}
+	}
+
+	insertedParentIDs := make(map[string]struct{}, len(rows)+1)
+	for _, row := range rows {
+		if _, parentInBatch := rowTaskIDs[row.Record.ParentTaskID]; !parentInBatch {
+			insertedParentIDs[row.Record.ParentTaskID] = struct{}{}
+		}
+	}
+
+	var created int
+	chunk := make([]plannedTaskExecutionBatchRow, 0, len(rows))
+	flush := func() error {
+		if len(chunk) == 0 {
+			return nil
+		}
+
+		values := make([][]any, 0, len(chunk))
+		for _, row := range chunk {
+			values = append(values, []any{
+				row.Record.TaskID,
+				row.Record.RunID,
+				row.Record.ParentTaskID,
+				row.Record.TaskKey,
+				row.Record.Name,
+				TaskStatusPlanned,
+				row.SpecHash,
+			})
+		}
+
+		n, err := execBatchedValuesRowsAffectedTx(ctx, tx, `
+			INSERT INTO run_tasks (task_id, run_id, parent_task_id, task_key, name, status, spec_hash)
+			VALUES `, values, `
+			ON CONFLICT(task_id) DO NOTHING
+		`)
+
+		if err != nil {
+			return err
+		}
+
+		created += n
+		for _, row := range chunk {
+			insertedParentIDs[row.Record.TaskID] = struct{}{}
+		}
+
+		chunk = chunk[:0]
+		return nil
+	}
+
+	for _, row := range rows {
+		if _, ok := insertedParentIDs[row.Record.ParentTaskID]; !ok {
+			if err := flush(); err != nil {
+				return 0, err
+			}
+		}
+
+		if _, ok := insertedParentIDs[row.Record.ParentTaskID]; !ok {
+			return 0, fmt.Errorf("%w: parent task %s has not been materialized", ErrNotFound, row.Record.ParentTaskID)
+		}
+
+		chunk = append(chunk, row)
+	}
+
+	if err := flush(); err != nil {
+		return 0, err
+	}
+
+	return created, nil
+}
+
+func insertPlannedTaskBatchAttemptsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) (int, error) {
+	values := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, []any{
+			row.Record.TaskAttemptID,
+			row.Record.TaskID,
+			row.Record.RunID,
+			row.Record.CellID,
+			TaskStatusPlanned,
+			row.Record.Attempt,
+		})
+	}
+
+	return execBatchedValuesRowsAffectedTx(ctx, tx, `
+		INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt)
+		VALUES `, values, `
+		ON CONFLICT(task_id, attempt) DO NOTHING
+	`)
+}
+
+func insertPlannedTaskBatchSegmentsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) (int, error) {
+	values := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, []any{
+			row.Record.SegmentID,
+			row.Record.RunID,
+			row.Record.SegmentName,
+			SegmentStatusPlanned,
+		})
+	}
+
+	return execBatchedValuesRowsAffectedTx(ctx, tx, `
+		INSERT INTO run_segments (segment_id, run_id, name, status)
+		VALUES `, values, `
+		ON CONFLICT(segment_id) DO NOTHING
+	`)
+}
+
+func insertPlannedTaskBatchExecutionsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) (int, error) {
+	values := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		values = append(values, []any{
+			row.Record.ExecutionID,
+			row.Record.SegmentID,
+			row.Record.RunID,
+			row.Record.TaskID,
+			row.Record.TaskAttemptID,
+			row.Record.CellID,
+			ExecutionStatusPlanned,
+			row.Record.Attempt,
+			nullableInt64(row.StartDeadlineUnixNano),
+		})
+	}
+
+	return execBatchedValuesRowsAffectedTx(ctx, tx, `
+		INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano)
+		VALUES `, values, `
+		ON CONFLICT(task_attempt_id) DO NOTHING
+	`)
+}
+
+func verifyPlannedTaskExecutionBatchRowsTx(ctx context.Context, tx *sql.Tx, rows []plannedTaskExecutionBatchRow) error {
+	for _, row := range rows {
+		rec, _, err := ensureTaskExecutionTx(ctx, tx, row.Create, TaskStatusPlanned, SegmentStatusPlanned, ExecutionStatusPlanned)
+		if err != nil {
+			return err
+		}
+
+		if rec != row.Record {
+			return fmt.Errorf("%w: execution %s has different payload", ErrConflict, row.Record.ExecutionID)
+		}
+	}
+
+	return nil
 }
 
 func normalizeTaskExecutionCreate(create TaskExecutionCreate) (TaskExecutionCreate, error) {

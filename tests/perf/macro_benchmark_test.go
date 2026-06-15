@@ -1029,6 +1029,14 @@ func BenchmarkMacro_DB_EnsurePlannedFanoutTasks(b *testing.B) {
 	}
 }
 
+func BenchmarkMacro_DB_EnsurePlannedFanoutTasksBatch(b *testing.B) {
+	for _, width := range macroBenchmarkFanoutWidths(b) {
+		b.Run(fmt.Sprintf("children_%03d", width), func(b *testing.B) {
+			benchmarkMacroDBEnsurePlannedFanoutTasksBatchWithEnv(b, width, newMacroBenchEnv)
+		})
+	}
+}
+
 func BenchmarkMacro_DB_MarkExecutionStarted(b *testing.B) {
 	benchmarkMacroDBMarkExecutionStartedWithEnv(b, newMacroBenchEnv)
 }
@@ -1131,6 +1139,49 @@ func benchmarkMacroDBEnsurePlannedFanoutTasksWithEnv(b *testing.B, width int, ne
 				createdTasks++
 			}
 		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "runs/s")
+		b.ReportMetric(float64(createdTasks)/elapsed.Seconds(), "planned_tasks/s")
+	}
+
+	b.ReportMetric(float64(width), "fanout_width")
+	b.ReportMetric(float64(createdTasks), "planned_tasks")
+}
+
+func benchmarkMacroDBEnsurePlannedFanoutTasksBatchWithEnv(b *testing.B, width int, newEnv macroBenchEnvFactory) {
+	if width <= 0 {
+		b.Fatal("fanout width must be positive")
+	}
+
+	ctx := context.Background()
+	macroJob := uniqueStoredMacroJob(shallowFanoutResultMacroJob(b, width))
+	env := newEnv(b, []storedMacroJob{macroJob})
+	jobs := make([]*apipb.Job, b.N)
+	for i := 0; i < b.N; i++ {
+		runID := createMacroDBBenchmarkRun(b, ctx, env, macroJob.id, i+1)
+		jobs[i] = macroJobRequest(b, macroJob, runID).GetJob()
+	}
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	createdTasks := 0
+	for i := 0; i < b.N; i++ {
+		result, err := job.EnsureJobTaskExecutionsWithActions(ctx, env.runs, jobs[i], dal.DefaultCellID, env.actionResolver)
+		if err != nil {
+			b.Fatalf("ensure planned fanout tasks for run %s: %v", jobs[i].GetRunId(), err)
+		}
+		createdTasks += result.Created
 	}
 
 	elapsed := time.Since(start)

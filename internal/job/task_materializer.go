@@ -15,6 +15,10 @@ type TaskMaterializationResult struct {
 	Created int
 }
 
+type plannedTaskExecutionBatcher interface {
+	EnsurePlannedTaskExecutionsBatch(ctx context.Context, creates []dal.TaskExecutionCreate) ([]dal.TaskExecutionRecord, int, error)
+}
+
 func EnsureJobTaskExecutions(ctx context.Context, runs dal.RunsRepository, job *api.Job, targetCellID string) (TaskMaterializationResult, error) {
 	return EnsureJobTaskExecutionsWithActions(ctx, runs, job, targetCellID, nil)
 }
@@ -59,6 +63,8 @@ func EnsurePlannedTaskExecutions(ctx context.Context, runs dal.RunsRepository, r
 		Tasks: make([]dal.TaskExecutionRecord, 0, len(plan)),
 	}
 
+	creates := make([]dal.TaskExecutionCreate, 0, len(plan))
+
 	for _, entry := range plan {
 		parentKey := strings.TrimSpace(entry.ParentTaskKey)
 		if parentKey == "" {
@@ -70,20 +76,38 @@ func EnsurePlannedTaskExecutions(ctx context.Context, runs dal.RunsRepository, r
 			return TaskMaterializationResult{}, fmt.Errorf("task %q parent %q has not been materialized", entry.TaskKey, parentKey)
 		}
 
-		rec, created, err := runs.EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		create := dal.TaskExecutionCreate{
 			RunID:        runID,
 			ParentTaskID: parentTaskID,
 			TaskKey:      entry.TaskKey,
 			Name:         entry.Name,
 			SpecHash:     entry.SpecHash,
 			TargetCellID: targetCellID,
-		})
+		}
+
+		creates = append(creates, create)
+		taskIDsByKey[entry.TaskKey] = runID + ":" + entry.TaskKey
+	}
+
+	if batcher, ok := runs.(plannedTaskExecutionBatcher); ok {
+		records, created, err := batcher.EnsurePlannedTaskExecutionsBatch(ctx, creates)
+		if err != nil {
+			return TaskMaterializationResult{}, err
+		}
+
+		return TaskMaterializationResult{
+			Tasks:   records,
+			Created: created,
+		}, nil
+	}
+
+	for _, create := range creates {
+		rec, created, err := runs.EnsurePlannedTaskExecution(ctx, create)
 
 		if err != nil {
 			return TaskMaterializationResult{}, err
 		}
 
-		taskIDsByKey[entry.TaskKey] = rec.TaskID
 		result.Tasks = append(result.Tasks, rec)
 		if created {
 			result.Created++
