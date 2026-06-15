@@ -297,6 +297,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		artifactMaxCount:            config.WorkerArtifactMaxCount(),
 		retryMetrics:                retryMetrics,
 		choreographer:               newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
+		hotStateOwnerID:             hotStateOwnerID(config.CellID()),
+		hotStateOwnerEpoch:          workerID,
 		secretResolverForWorkload:   secretResolverForWorkload,
 		catalog:                     cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:                     workerMetrics,
@@ -516,6 +518,8 @@ type worker struct {
 	artifactMaxCount            int64
 	retryMetrics                backoff.RetryMetrics
 	choreographer               executionChoreographer
+	hotStateOwnerID             string
+	hotStateOwnerEpoch          string
 	secretResolver              secrets.Resolver
 	secretResolverForWorkload   secretResolverFactory
 	catalog                     cell.CatalogEventPublisher
@@ -617,6 +621,74 @@ func (w *worker) executionUsesHotStateOnly(env *cell.ExecutionEnvelope) bool {
 	return env != nil &&
 		env.TaskKey != dal.RootTaskKey &&
 		!w.executionChoreographer().RequiresDurableTaskRows()
+}
+
+func (w *worker) executionDefersStartedPersistence(env *cell.ExecutionEnvelope) bool {
+	return env != nil &&
+		!w.executionChoreographer().RequiresDurableTaskRows()
+}
+
+func hotStateOwnerID(cellID string) string {
+	if pinned := strings.TrimSpace(config.PinnedOrchestratorAddress()); pinned != "" {
+		return "orchestrator:pinned:" + pinned
+	}
+
+	cellID = strings.TrimSpace(cellID)
+	if cellID == "" {
+		cellID = dal.DefaultCellID
+	}
+
+	return "orchestrator:registry:" + cellID
+}
+
+func (w *worker) publishRunHotStateOwner(ctx context.Context, env *cell.ExecutionEnvelope, leaseUntil time.Time) error {
+	if w.store == nil ||
+		env == nil ||
+		w.executionChoreographer().RequiresDurableTaskRows() {
+		return nil
+	}
+
+	cellID := strings.TrimSpace(env.CellID)
+	if cellID == "" {
+		cellID = strings.TrimSpace(w.cellID)
+	}
+	if cellID == "" {
+		cellID = dal.DefaultCellID
+	}
+
+	ownerID := strings.TrimSpace(w.hotStateOwnerID)
+	if ownerID == "" {
+		ownerID = hotStateOwnerID(cellID)
+	}
+
+	ownerEpoch := strings.TrimSpace(w.hotStateOwnerEpoch)
+	if ownerEpoch == "" {
+		ownerEpoch = strings.TrimSpace(w.workerID)
+	}
+	if ownerEpoch == "" {
+		ownerEpoch = "unknown"
+	}
+
+	if err := w.store.UpsertRunHotStateOwner(w.runCtx, dal.RunHotStateOwnerUpdate{
+		RunID:      env.RunID,
+		CellID:     cellID,
+		OwnerID:    ownerID,
+		OwnerEpoch: ownerEpoch,
+		LeaseUntil: leaseUntil,
+	}); err != nil {
+		w.noteDBError(err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return err
+	}
+
+	w.noteDBRecovered()
+	trace.SpanFromContext(ctx).AddEvent("run.hot_state_owner.published", trace.WithAttributes(
+		attribute.String("run.id", env.RunID),
+		attribute.String("cell.id", cellID),
+		attribute.String("vectis.hot_state.owner_id", ownerID),
+		attribute.String("vectis.hot_state.owner_epoch", ownerEpoch),
+	))
+	return nil
 }
 
 type missingExecutionChoreographer struct{}
@@ -991,7 +1063,7 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		return observability.WorkerOutcomeFailed
 	}
 
-	if err := w.prepareRunForExecution(ctx, job, executionEnvelope); err != nil {
+	if err := w.prepareRunForExecution(ctx, job, executionEnvelope, leaseUntil); err != nil {
 		span.SetStatus(otelcodes.Error, "prepare run")
 		span.RecordError(err)
 		w.logger.Error("Failed to prepare run %s for orchestrator execution: %v", runID, err)
@@ -1053,6 +1125,19 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		return observability.WorkerOutcomeSkippedUnclaimed
 	}
 
+	if err := w.publishRunHotStateOwner(ctx, executionEnvelope, leaseUntil); err != nil {
+		span.SetStatus(otelcodes.Error, "publish run hot-state owner")
+		w.logger.Error("Failed to publish run %s hot-state owner: %v", runID, err)
+		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+		if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
+			w.logger.Error("Failed to mark run %s orphaned after hot-state owner publish failure: %v", runID, markErr)
+			span.RecordError(markErr)
+		}
+
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+		return observability.WorkerOutcomeFailed
+	}
+
 	w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning})
 	if executionStarted {
 		w.recordExecutionStarted(ctx, executionEnvelope)
@@ -1110,7 +1195,7 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 	return w.finalizeSucceededTaskRunByExecutionClaim(ctx, job, jobID, runID, executionClaim, executionEnvelope)
 }
 
-func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope) error {
+func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, leaseUntil time.Time) error {
 	if j == nil || env == nil {
 		return nil
 	}
@@ -1786,7 +1871,7 @@ func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEn
 		return
 	}
 
-	if w.executionUsesHotStateOnly(env) {
+	if w.executionDefersStartedPersistence(env) {
 		w.recordExecutionStarted(ctx, env)
 		return
 	}

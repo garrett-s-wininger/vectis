@@ -141,6 +141,10 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, 
 		return err
 	}
 
+	if err := clearRunHotStateOwnerTx(ctx, tx, runUpdate.RunID); err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
@@ -963,7 +967,11 @@ func (r *SQLRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) 
 		cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
 	`), "succeeded", runID)
 
-	return normalizeSQLError(err)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return r.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, failureCode, reason string) error {
@@ -977,7 +985,11 @@ func (r *SQLRunsRepository) MarkRunFailed(ctx context.Context, runID, failureCod
 		cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
 	`), "failed", failureCode, reason, runID)
 
-	return normalizeSQLError(err)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return r.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (r *SQLRunsRepository) MarkRunAborted(ctx context.Context, runID, reason string) error {
@@ -999,7 +1011,11 @@ func (r *SQLRunsRepository) MarkRunCancelled(ctx context.Context, runID, reason 
 		cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
 	`), RunStatusCancelled, reason, runID)
 
-	return normalizeSQLError(err)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return r.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (r *SQLRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error {
@@ -1068,7 +1084,7 @@ func (r *SQLRunsRepository) repairMarkTerminal(ctx context.Context, runID, statu
 	}
 
 	if n == 1 {
-		return nil
+		return r.ClearRunHotStateOwner(ctx, runID)
 	}
 
 	var current string
@@ -1102,7 +1118,11 @@ func (r *SQLRunsRepository) MarkRunOrphaned(ctx context.Context, runID, reason s
 		orphan_reason = ?, failure_code = '', lease_owner = NULL, lease_until = NULL WHERE run_id = ?
 	`), RunStatusOrphaned, reason, orphanReason, runID)
 
-	return normalizeSQLError(err)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return r.ClearRunHotStateOwner(ctx, runID)
 }
 
 func classifyOrphanReason(reason string) string {
@@ -1429,6 +1449,10 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 		}
 
 		if n == 1 {
+			if err := r.ClearRunHotStateOwner(ctx, runID); err != nil {
+				return nil, err
+			}
+
 			out = append(out, runID)
 		}
 	}
@@ -2125,6 +2149,101 @@ func (r *SQLRunsRepository) GetExecutionPayloadByHash(ctx context.Context, paylo
 	}
 
 	return rec, nil
+}
+
+func (r *SQLRunsRepository) UpsertRunHotStateOwner(ctx context.Context, update RunHotStateOwnerUpdate) error {
+	update.RunID = strings.TrimSpace(update.RunID)
+	update.CellID = strings.TrimSpace(update.CellID)
+	update.OwnerID = strings.TrimSpace(update.OwnerID)
+	update.OwnerEpoch = strings.TrimSpace(update.OwnerEpoch)
+	if update.RunID == "" || update.CellID == "" || update.OwnerID == "" || update.OwnerEpoch == "" || update.LeaseUntil.IsZero() {
+		return fmt.Errorf("%w: run_id, cell_id, owner_id, owner_epoch, and lease_until are required", ErrConflict)
+	}
+
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO run_hot_state_owners (
+			run_id,
+			cell_id,
+			owner_id,
+			owner_epoch,
+			lease_until,
+			last_sequence,
+			created_at,
+			updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(run_id) DO UPDATE SET
+			cell_id = excluded.cell_id,
+			owner_id = excluded.owner_id,
+			owner_epoch = excluded.owner_epoch,
+			lease_until = excluded.lease_until,
+			last_sequence = excluded.last_sequence,
+			updated_at = CURRENT_TIMESTAMP
+	`),
+		update.RunID,
+		update.CellID,
+		update.OwnerID,
+		update.OwnerEpoch,
+		update.LeaseUntil.UTC().Unix(),
+		update.LastSequence,
+	)
+
+	return normalizeSQLError(err)
+}
+
+func (r *SQLRunsRepository) ClearRunHotStateOwner(ctx context.Context, runID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := clearRunHotStateOwnerTx(ctx, tx, runID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func clearRunHotStateOwnerTx(ctx context.Context, tx *sql.Tx, runID string) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil
+	}
+
+	_, err := tx.ExecContext(ctx, rebindQueryForPgx("DELETE FROM run_hot_state_owners WHERE run_id = ?"), runID)
+	return normalizeSQLError(err)
+}
+
+func (r *SQLRunsRepository) GetRunHotStateOwner(ctx context.Context, runID string) (RunHotStateOwnerRecord, bool, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return RunHotStateOwnerRecord{}, false, nil
+	}
+
+	var rec RunHotStateOwnerRecord
+	var leaseUntil int64
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT run_id, cell_id, owner_id, owner_epoch, lease_until, last_sequence
+		FROM run_hot_state_owners
+		WHERE run_id = ?
+	`), runID).Scan(
+		&rec.RunID,
+		&rec.CellID,
+		&rec.OwnerID,
+		&rec.OwnerEpoch,
+		&leaseUntil,
+		&rec.LastSequence,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return RunHotStateOwnerRecord{}, false, nil
+		}
+
+		return RunHotStateOwnerRecord{}, false, normalizeSQLError(err)
+	}
+
+	rec.LeaseUntil = time.Unix(leaseUntil, 0).UTC()
+	return rec, true, nil
 }
 
 func nullableString(value string) any {
@@ -4329,7 +4448,7 @@ func markRunFailedForExpiredDispatchTx(ctx context.Context, tx *sql.Tx, runID, r
 		return fmt.Errorf("%w: run %s cannot be failed after dispatch expiry", ErrConflict, runID)
 	}
 
-	return nil
+	return clearRunHotStateOwnerTx(ctx, tx, runID)
 }
 
 func startDeadlineExpiredForClaim(status string, startDeadline sql.NullInt64, now time.Time) bool {
@@ -4928,7 +5047,7 @@ func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCo
 		return fmt.Errorf("%w: run %s cannot be finalized from active status", ErrConflict, runID)
 	}
 
-	return nil
+	return clearRunHotStateOwnerTx(ctx, tx, runID)
 }
 
 func (r *SQLRunsRepository) markExecutionAccepted(ctx context.Context, executionID string) error {

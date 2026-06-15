@@ -263,6 +263,7 @@ type macroDBTimings struct {
 	tryClaimExecution         int64
 	markExecutionStarted      int64
 	finalizeExecution         int64
+	hotStateOwner             int64
 	choreographyLoadRun       int64
 	choreographyClaimAndStart int64
 	choreographyFinalize      int64
@@ -2458,6 +2459,25 @@ func loadDequeuedMacroRun(ctx context.Context, env macroBenchEnv, jobReq *apipb.
 	return macroDBTimings{choreographyLoadRun: time.Since(started).Nanoseconds()}, nil
 }
 
+func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID string, leaseUntil time.Time) error {
+	if env.choreo.DBBacked() {
+		return nil
+	}
+
+	ownerID := "orchestrator:macro"
+	if _, ok := env.choreo.(macroGRPCOrchestratorChoreography); ok {
+		ownerID = "orchestrator:macro-grpc"
+	}
+
+	return env.runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      runID,
+		CellID:     dal.DefaultCellID,
+		OwnerID:    ownerID,
+		OwnerEpoch: "macro",
+		LeaseUntil: leaseUntil,
+	})
+}
+
 func finishDequeuedMacroJob(
 	ctx context.Context,
 	env macroBenchEnv,
@@ -2510,15 +2530,27 @@ func finishDequeuedMacroJob(
 		return macroRunTimings{}, fmt.Errorf("execution %s was not claimed", executionEnvelope.ExecutionID)
 	}
 
+	if !env.choreo.DBBacked() {
+		ownerStarted := time.Now()
+		if err := publishMacroHotStateOwner(ctx, env, runID, time.Now().Add(dal.DefaultLeaseTTL)); err != nil {
+			return macroRunTimings{}, fmt.Errorf("publish hot-state owner for run %s: %w", runID, err)
+		}
+		dbTimings.hotStateOwner = time.Since(ownerStarted).Nanoseconds()
+	}
+
 	logDone := make(chan job.LogStreamWaiter, 1)
 	exec := job.NewExecutor()
 	exec.TestLogStreamHook = logDone
-	markStartedAt := time.Now()
-	if err := env.runs.MarkExecutionStarted(ctx, executionEnvelope.ExecutionID); err != nil {
-		return macroRunTimings{}, fmt.Errorf("mark execution started %s: %w", executionEnvelope.ExecutionID, err)
+
+	if env.choreo.DBBacked() {
+		markStartedAt := time.Now()
+		if err := env.runs.MarkExecutionStarted(ctx, executionEnvelope.ExecutionID); err != nil {
+			return macroRunTimings{}, fmt.Errorf("mark execution started %s: %w", executionEnvelope.ExecutionID, err)
+		}
+
+		dbTimings.markExecutionStarted = time.Since(markStartedAt).Nanoseconds()
 	}
 
-	dbTimings.markExecutionStarted = time.Since(markStartedAt).Nanoseconds()
 	if err := exec.ExecuteTask(ctx, queuedJob, executionEnvelope.TaskKey, logSink, env.log); err != nil {
 		_, _ = env.choreo.CompleteExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, err.Error())
 		return macroRunTimings{}, fmt.Errorf("execute task %s: %w", queuedJob.GetId(), err)
@@ -2751,6 +2783,10 @@ func reportMacroDBTimingMetrics(b *testing.B, values []macroDBTimings) {
 		return v.finalizeExecution
 	})
 
+	reportMacroDBTimingMetric(b, "db_hot_state_owner", values, func(v macroDBTimings) int64 {
+		return v.hotStateOwner
+	})
+
 	reportMacroDBTimingMetric(b, "db_total", values, macroDBTimingTotal)
 
 	reportMacroDBTimingMetric(b, "choreography_load_run", values, func(v macroDBTimings) int64 {
@@ -2792,7 +2828,8 @@ func macroDBTimingTotal(value macroDBTimings) int64 {
 		value.touchDispatched +
 		value.tryClaimExecution +
 		value.markExecutionStarted +
-		value.finalizeExecution
+		value.finalizeExecution +
+		value.hotStateOwner
 }
 
 func macroChoreographyTimingTotal(value macroDBTimings) int64 {

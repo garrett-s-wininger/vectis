@@ -714,6 +714,24 @@ type ExecutionClaimResult struct {
 	ExecutionID            string
 }
 
+type RunHotStateOwnerUpdate struct {
+	RunID        string
+	CellID       string
+	OwnerID      string
+	OwnerEpoch   string
+	LeaseUntil   time.Time
+	LastSequence int64
+}
+
+type RunHotStateOwnerRecord struct {
+	RunID        string
+	CellID       string
+	OwnerID      string
+	OwnerEpoch   string
+	LeaseUntil   time.Time
+	LastSequence int64
+}
+
 type RunCatalogUpdater interface {
 	ApplyRunStatusUpdate(ctx context.Context, update RunStatusUpdate) error
 	ApplyExecutionStatusUpdate(ctx context.Context, update ExecutionStatusUpdate) error
@@ -752,6 +770,9 @@ type RunsRepository interface {
 	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
 	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
+	UpsertRunHotStateOwner(ctx context.Context, update RunHotStateOwnerUpdate) error
+	ClearRunHotStateOwner(ctx context.Context, runID string) error
+	GetRunHotStateOwner(ctx context.Context, runID string) (RunHotStateOwnerRecord, bool, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
 	RecordExecutionSecurityEvent(ctx context.Context, event RecordExecutionSecurityEventParams) error

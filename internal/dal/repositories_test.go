@@ -2877,6 +2877,16 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 		t.Fatalf("get root pending execution: %v", err)
 	}
 
+	if err := repos.Runs().UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      runID,
+		CellID:     "local",
+		OwnerID:    "orchestrator:registry:local",
+		OwnerEpoch: "worker-terminal-snapshot",
+		LeaseUntil: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert hot-state owner: %v", err)
+	}
+
 	childTaskID := runID + ":child"
 	childAttemptID := childTaskID + ":attempt:1"
 	childExecutionID := childAttemptID + ":execution"
@@ -2981,6 +2991,74 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 
 	if run.Status != dal.RunStatusSucceeded {
 		t.Fatalf("run status: got %q, want %q", run.Status, dal.RunStatusSucceeded)
+	}
+
+	if owner, found, err := repos.Runs().GetRunHotStateOwner(ctx, runID); err != nil || found {
+		t.Fatalf("hot-state owner after terminal snapshot: found=%v owner=%+v err=%v", found, owner, err)
+	}
+}
+
+func TestRunsRepository_RunHotStateOwnerUpsertGetClear(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	runID, _, err := repos.Runs().CreateRun(ctx, "job-hot-state-owner", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	firstLease := time.Now().Add(time.Minute).UTC()
+	if err := repos.Runs().UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:        runID,
+		CellID:       "iad-a",
+		OwnerID:      "orchestrator:pinned:127.0.0.1:8085",
+		OwnerEpoch:   "epoch-1",
+		LeaseUntil:   firstLease,
+		LastSequence: 7,
+	}); err != nil {
+		t.Fatalf("upsert owner: %v", err)
+	}
+
+	owner, found, err := repos.Runs().GetRunHotStateOwner(ctx, runID)
+	if err != nil {
+		t.Fatalf("get owner: %v", err)
+	}
+	if !found {
+		t.Fatal("expected hot-state owner")
+	}
+	if owner.RunID != runID || owner.CellID != "iad-a" || owner.OwnerID != "orchestrator:pinned:127.0.0.1:8085" ||
+		owner.OwnerEpoch != "epoch-1" || owner.LastSequence != 7 || owner.LeaseUntil.Unix() != firstLease.Unix() {
+		t.Fatalf("owner after first upsert: %+v", owner)
+	}
+
+	secondLease := time.Now().Add(2 * time.Minute).UTC()
+	if err := repos.Runs().UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:        runID,
+		CellID:       "iad-b",
+		OwnerID:      "orchestrator:registry:iad-b",
+		OwnerEpoch:   "epoch-2",
+		LeaseUntil:   secondLease,
+		LastSequence: 9,
+	}); err != nil {
+		t.Fatalf("second upsert owner: %v", err)
+	}
+
+	owner, found, err = repos.Runs().GetRunHotStateOwner(ctx, runID)
+	if err != nil {
+		t.Fatalf("get second owner: %v", err)
+	}
+	if !found || owner.CellID != "iad-b" || owner.OwnerID != "orchestrator:registry:iad-b" ||
+		owner.OwnerEpoch != "epoch-2" || owner.LastSequence != 9 || owner.LeaseUntil.Unix() != secondLease.Unix() {
+		t.Fatalf("owner after second upsert: found=%v owner=%+v", found, owner)
+	}
+
+	if err := repos.Runs().ClearRunHotStateOwner(ctx, runID); err != nil {
+		t.Fatalf("clear owner: %v", err)
+	}
+
+	if owner, found, err := repos.Runs().GetRunHotStateOwner(ctx, runID); err != nil || found {
+		t.Fatalf("owner after clear: found=%v owner=%+v err=%v", found, owner, err)
 	}
 }
 

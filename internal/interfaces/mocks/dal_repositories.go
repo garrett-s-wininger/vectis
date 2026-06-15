@@ -154,6 +154,7 @@ type MockRunsRepository struct {
 	LogShardErr                   error
 	EnsureExecutionDeadlineErr    error
 	ExpireQueuedExecutionsErr     error
+	HotStateOwnerErr              error
 
 	CountByStatusResult         int64
 	CountByStatusByCellResult   []dal.RunCountByCell
@@ -192,6 +193,8 @@ type MockRunsRepository struct {
 	PendingExecutions      []dal.ExecutionDispatchRecord
 	ExecutionDispatches    map[string]dal.ExecutionDispatchRecord
 	ExpiredExecutions      []dal.ExpiredExecution
+	HotStateOwner          dal.RunHotStateOwnerRecord
+	HotStateOwnerFound     bool
 
 	TouchedRunIDs        []string
 	ExecutionTransitions []string
@@ -232,6 +235,8 @@ type MockRunsRepository struct {
 	LastRunStatusUpdate    dal.RunStatusUpdate
 	LastExecStatusUpdate   dal.ExecutionStatusUpdate
 	LastTerminalSnapshot   dal.TerminalExecutionSnapshotUpdate
+	LastHotStateOwner      dal.RunHotStateOwnerUpdate
+	ClearedHotStateRunIDs  []string
 }
 
 func NewMockRunsRepository() *MockRunsRepository {
@@ -302,23 +307,43 @@ func (m *MockRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upd
 }
 
 func (m *MockRunsRepository) MarkRunSucceeded(ctx context.Context, runID string) error {
-	return m.MarkRunSuccessErr
+	if m.MarkRunSuccessErr != nil {
+		return m.MarkRunSuccessErr
+	}
+
+	return m.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (m *MockRunsRepository) MarkRunFailed(ctx context.Context, runID, failureCode, reason string) error {
-	return m.MarkRunFailedErr
+	if m.MarkRunFailedErr != nil {
+		return m.MarkRunFailedErr
+	}
+
+	return m.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (m *MockRunsRepository) MarkRunCancelled(ctx context.Context, runID, reason string) error {
-	return m.MarkRunCancelledErr
+	if m.MarkRunCancelledErr != nil {
+		return m.MarkRunCancelledErr
+	}
+
+	return m.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (m *MockRunsRepository) MarkRunAborted(ctx context.Context, runID, reason string) error {
-	return m.MarkRunAbortedErr
+	if m.MarkRunAbortedErr != nil {
+		return m.MarkRunAbortedErr
+	}
+
+	return m.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (m *MockRunsRepository) MarkRunOrphaned(ctx context.Context, runID, reason string) error {
-	return m.MarkRunOrphanedErr
+	if m.MarkRunOrphanedErr != nil {
+		return m.MarkRunOrphanedErr
+	}
+
+	return m.ClearRunHotStateOwner(ctx, runID)
 }
 
 func (m *MockRunsRepository) RepairMarkRunSucceeded(ctx context.Context, runID, reason string) error {
@@ -604,6 +629,57 @@ func (m *MockRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payl
 	}
 
 	return dal.ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload %s", dal.ErrNotFound, payloadHash)
+}
+
+func (m *MockRunsRepository) UpsertRunHotStateOwner(ctx context.Context, update dal.RunHotStateOwnerUpdate) error {
+	if m.HotStateOwnerErr != nil {
+		return m.HotStateOwnerErr
+	}
+
+	m.mu.Lock()
+	m.LastHotStateOwner = update
+	m.HotStateOwner = dal.RunHotStateOwnerRecord{
+		RunID:        update.RunID,
+		CellID:       update.CellID,
+		OwnerID:      update.OwnerID,
+		OwnerEpoch:   update.OwnerEpoch,
+		LeaseUntil:   update.LeaseUntil,
+		LastSequence: update.LastSequence,
+	}
+	m.HotStateOwnerFound = true
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *MockRunsRepository) ClearRunHotStateOwner(ctx context.Context, runID string) error {
+	if m.HotStateOwnerErr != nil {
+		return m.HotStateOwnerErr
+	}
+
+	m.mu.Lock()
+	m.ClearedHotStateRunIDs = append(m.ClearedHotStateRunIDs, runID)
+	if m.HotStateOwner.RunID == runID {
+		m.HotStateOwner = dal.RunHotStateOwnerRecord{}
+		m.HotStateOwnerFound = false
+	}
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *MockRunsRepository) GetRunHotStateOwner(ctx context.Context, runID string) (dal.RunHotStateOwnerRecord, bool, error) {
+	if m.HotStateOwnerErr != nil {
+		return dal.RunHotStateOwnerRecord{}, false, m.HotStateOwnerErr
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.HotStateOwnerFound || m.HotStateOwner.RunID != runID {
+		return dal.RunHotStateOwnerRecord{}, false, nil
+	}
+
+	return m.HotStateOwner, true, nil
 }
 
 func (m *MockRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source dal.JobDefinitionSourceRecord, audit dal.RunAuditMetadata) (string, int, int, bool, error) {
@@ -1104,7 +1180,7 @@ func (m *MockRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context,
 		return m.TerminalSnapshotErr
 	}
 
-	return nil
+	return m.ClearRunHotStateOwner(ctx, update.RunID)
 }
 
 func (m *MockRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, taskID string) (dal.TaskExecutionRecord, bool, error) {

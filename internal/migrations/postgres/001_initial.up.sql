@@ -94,6 +94,20 @@ CREATE TABLE job_runs (
 CREATE INDEX idx_job_runs_job_id_run_index ON job_runs (job_id, run_index DESC);
 CREATE INDEX idx_job_runs_replay_of_run_id ON job_runs (replay_of_run_id);
 
+CREATE TABLE run_hot_state_owners (
+    run_id TEXT PRIMARY KEY REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    cell_id TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    owner_epoch TEXT NOT NULL,
+    lease_until BIGINT NOT NULL,
+    last_sequence BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_run_hot_state_owners_lease_until ON run_hot_state_owners(lease_until);
+CREATE INDEX idx_run_hot_state_owners_cell_owner ON run_hot_state_owners(cell_id, owner_id);
+
 CREATE TABLE run_tasks (
     id BIGSERIAL PRIMARY KEY,
     task_id TEXT UNIQUE NOT NULL,

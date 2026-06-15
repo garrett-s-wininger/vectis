@@ -65,6 +65,107 @@ func testWorkerCore(executor *job.Executor) workercore.Core {
 	return workercore.NewExecutorCore(executor)
 }
 
+func TestWorkerMarkExecutionStarted_DefersDurableStartForOrchestratorRuns(t *testing.T) {
+	ctx := context.Background()
+	env := &cell.ExecutionEnvelope{
+		RunID:       "run-root",
+		TaskID:      "run-root:root",
+		TaskKey:     dal.RootTaskKey,
+		ExecutionID: "execution-root",
+	}
+
+	store := &mocks.MockRunsRepository{}
+	w := &worker{
+		runCtx:        context.Background(),
+		choreographer: newLocalOrchestratorChoreographer(t),
+		store:         store,
+		catalog:       cell.NewCatalogEventPublisher("local", nil),
+	}
+
+	w.markExecutionStarted(ctx, env)
+
+	if len(store.ExecutionTransitions) != 0 {
+		t.Fatalf("orchestrator root start durable transitions: got %+v, want none", store.ExecutionTransitions)
+	}
+}
+
+func TestWorkerMarkExecutionStarted_PersistsDurableStartForSQLRuns(t *testing.T) {
+	ctx := context.Background()
+	env := &cell.ExecutionEnvelope{
+		RunID:       "run-root",
+		TaskID:      "run-root:root",
+		TaskKey:     dal.RootTaskKey,
+		ExecutionID: "execution-root",
+	}
+
+	store := &mocks.MockRunsRepository{}
+	w := &worker{
+		runCtx:        context.Background(),
+		choreographer: sqlExecutionChoreographer{runs: store},
+		store:         store,
+		catalog:       cell.NewCatalogEventPublisher("local", nil),
+	}
+
+	w.markExecutionStarted(ctx, env)
+
+	want := []string{"execution-root:" + dal.ExecutionStatusRunning}
+	if fmt.Sprint(store.ExecutionTransitions) != fmt.Sprint(want) {
+		t.Fatalf("SQL durable start transitions: got %+v, want %+v", store.ExecutionTransitions, want)
+	}
+}
+
+func TestWorkerPublishRunHotStateOwner_OnlyForOrchestratorRuns(t *testing.T) {
+	ctx := context.Background()
+	leaseUntil := time.Now().Add(time.Minute).UTC()
+	env := &cell.ExecutionEnvelope{
+		RunID:       "run-hot",
+		TaskID:      "run-hot:root",
+		TaskKey:     dal.RootTaskKey,
+		ExecutionID: "execution-hot",
+		CellID:      "iad-a",
+	}
+
+	store := &mocks.MockRunsRepository{}
+	orchestratorWorker := &worker{
+		runCtx:             context.Background(),
+		workerID:           "worker-hot",
+		cellID:             "iad-a",
+		choreographer:      newLocalOrchestratorChoreographer(t),
+		store:              store,
+		hotStateOwnerID:    "orchestrator:registry:iad-a",
+		hotStateOwnerEpoch: "epoch-hot",
+	}
+
+	if err := orchestratorWorker.publishRunHotStateOwner(ctx, env, leaseUntil); err != nil {
+		t.Fatalf("publish orchestrator owner: %v", err)
+	}
+
+	if store.LastHotStateOwner.RunID != env.RunID ||
+		store.LastHotStateOwner.CellID != "iad-a" ||
+		store.LastHotStateOwner.OwnerID != "orchestrator:registry:iad-a" ||
+		store.LastHotStateOwner.OwnerEpoch != "epoch-hot" ||
+		!store.LastHotStateOwner.LeaseUntil.Equal(leaseUntil) {
+		t.Fatalf("hot-state owner update: %+v", store.LastHotStateOwner)
+	}
+
+	sqlStore := &mocks.MockRunsRepository{}
+	sqlWorker := &worker{
+		runCtx:        context.Background(),
+		workerID:      "worker-sql",
+		cellID:        "iad-a",
+		choreographer: sqlExecutionChoreographer{runs: sqlStore},
+		store:         sqlStore,
+	}
+
+	if err := sqlWorker.publishRunHotStateOwner(ctx, env, leaseUntil); err != nil {
+		t.Fatalf("publish SQL owner: %v", err)
+	}
+
+	if sqlStore.LastHotStateOwner.RunID != "" {
+		t.Fatalf("SQL-backed worker should not publish hot-state owner, got %+v", sqlStore.LastHotStateOwner)
+	}
+}
+
 type errorWorkerCore struct {
 	err error
 }
