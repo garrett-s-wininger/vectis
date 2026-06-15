@@ -168,6 +168,7 @@ Tune all thresholds to your traffic, worker count, retention plan, and recovery 
 | --- | --- |
 | Monitoring ownership and dashboards | [Production Monitoring Contract](../reliability/production-monitoring.md) |
 | Starter alert rules | [prometheus-examples.yml](../../alerts/prometheus-examples.yml) |
+| Audit event names and durability defaults | [Audit Event Catalog](./audit-event-catalog.md) |
 | Health check IDs | [Health Check Catalog](./health-check-catalog.md) |
 | First-response runbooks | [Runbooks And Alerts](../reliability/runbooks.md) |
 | Repair procedures | [Repair Runbooks](../reliability/repair-runbooks.md) |

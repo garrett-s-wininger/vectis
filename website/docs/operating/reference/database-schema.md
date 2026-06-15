@@ -226,6 +226,8 @@ Stores API audit events.
 
 Constraints and indexes: `actor_id` references `local_users(id)`; indexes on `event_type`, `actor_id`, `target_id`, and `created_at`.
 
+For the current event names, metadata keys, and default durability policy, see [Audit Event Catalog](./audit-event-catalog.md).
+
 ### `api_rate_limit_buckets`
 
 Stores distributed API rate-limit token buckets.
