@@ -538,8 +538,9 @@ These commands are useful, but they change durable state or deployment state. Us
 | Start or replace the Podman HA profile | `./bin/vectis-cli deploy podman --profile ha up` |
 | Show Podman deployment status | `./bin/vectis-cli deploy podman status` |
 | Stop the Podman deployment | `./bin/vectis-cli deploy podman down` |
+| Render the Kubernetes reference manifest | `./bin/vectis-cli deploy kubernetes render --output artifacts/deploy/kubernetes/vectis.yaml` |
 
-For operational context, see [Configuration](../operating/configuration.md), [Retention And Storage Pressure](../operating/reliability/retention.md), and [Reference Deployment Posture](../operating/deployment/reference-deployment-posture.md).
+For operational context, see [Configuration](../operating/configuration.md), [Retention And Storage Pressure](../operating/reliability/retention.md), [Reference Deployment Posture](../operating/deployment/reference-deployment-posture.md), and [Kubernetes Reference Deployment](../operating/deployment/kubernetes.md).
 
 ## Good Daily Loop
 

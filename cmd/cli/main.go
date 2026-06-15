@@ -461,11 +461,24 @@ func init() {
 	deployPodmanCmd.AddCommand(deployPodmanUpCmd)
 	deployPodmanCmd.AddCommand(deployPodmanDownCmd)
 	deployPodmanCmd.AddCommand(deployPodmanStatusCmd)
+
 	deployLinuxCmd.PersistentFlags().StringVar(&linuxManifestPath, "manifest", linuxManifestPath, "Path to the Linux deploy services TOML manifest")
 	deployLinuxRenderCmd.Flags().StringVarP(&linuxRenderOut, "output", "o", linuxRenderOut, "Directory where rendered Linux artifacts are written")
 	deployLinuxCmd.AddCommand(deployLinuxRenderCmd)
+
+	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesManifestPath, "manifest", kubernetesManifestPath, "Path to the Kubernetes manifest template")
+	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesNamespace, "namespace", kubernetesNamespace, "Kubernetes namespace to render")
+	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesImageRegistry, "image-registry", kubernetesImageRegistry, "Optional image registry prefix for Vectis component images")
+	deployKubernetesCmd.PersistentFlags().StringVar(&kubernetesImageTag, "image-tag", kubernetesImageTag, "Image tag for Vectis component images")
+	deployKubernetesRenderCmd.Flags().StringVarP(&kubernetesRenderOut, "output", "o", kubernetesRenderOut, "Rendered manifest output path, or '-' for stdout")
+	deployKubernetesRenderCmd.Flags().StringVar(&kubernetesPostgresPassword, "postgres-password", kubernetesPostgresPassword, "Postgres password embedded in the rendered Secret")
+	deployKubernetesRenderCmd.Flags().StringVar(&kubernetesBootstrapToken, "bootstrap-token", kubernetesBootstrapToken, "API bootstrap token embedded in the rendered Secret")
+	deployKubernetesRenderCmd.Flags().StringVar(&kubernetesEncryptedFSKey, "encryptedfs-key", kubernetesEncryptedFSKey, "EncryptedFS key embedded in the rendered Secret")
+	deployKubernetesCmd.AddCommand(deployKubernetesRenderCmd)
+
 	deployCmd.AddCommand(deployPodmanCmd)
 	deployCmd.AddCommand(deployLinuxCmd)
+	deployCmd.AddCommand(deployKubernetesCmd)
 	rootCmd.AddCommand(deployCmd)
 
 	configureResetFlags(resetCmd)

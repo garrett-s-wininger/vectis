@@ -35,6 +35,7 @@ Vectis is a self-hosted orchestrator for generic job graphs and CI/CD-style work
 | Event reactions | Add durable run and definition reactions outside the job DAG, starting with a local notification action that tests can assert before external transports and job-chaining targets ship. |
 | Lifecycle, recovery, and auditability | Work through the [Lifecycle, Recovery, And Auditability Tranche](./lifecycle-recovery-auditability.md): bounded daemon shutdown, startup/readiness contracts, backup inventory and restore evidence, and stronger audit review surfaces. |
 | Worker safety | Continue the [worker execution containment provider](../architecture-decisions/0009-worker-execution-containment-providers.md) path: job and action-level `host`/`vm` selection with the Lima command backend first, then profile-aware placement, container profiles, and disposable VM profiles for stronger isolation. |
+| Kubernetes deployment | Grow the initial single-cell reference manifest into a validated cluster lane: apply, readiness, canonical run, logs, artifacts, worker scale, pod kill recovery, then mTLS/SPIFFE and cell ingress. |
 | Secrets | Harden the shipped SPIFFE-authenticated encryptedfs broker, secret mounts, worker-side resolution, authorization, audit, and redaction hooks before adding external providers. |
 | Federation | Defer until single-cell behavior is boring. Future federation should use a gateway over distributed Vectis cells, not one shared global database. |
 
@@ -103,7 +104,7 @@ Before a major user-facing feature, answer yes to:
 These are not required before the next useful feature, but they remain part of the broader direction:
 
 - OIDC and LDAP integration.
-- Kubernetes-native manifests beyond the Podman reference.
+- Production-grade Kubernetes variants beyond the initial single-cell reference manifest.
 - Autoscaling workers.
 - Frontend SPA.
 - Plugin or hook catalog.
