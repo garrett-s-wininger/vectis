@@ -50,6 +50,8 @@ const (
 	envMacroFanoutWidths         = "VECTIS_PERF_FANOUT_WIDTHS"
 	envMacroPGStatStatements     = "VECTIS_PERF_PG_STAT_STATEMENTS"
 	envMacroPGStatStatementsOut  = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
+	envMacroStatusReadClients    = "VECTIS_PERF_STATUS_READ_CLIENTS"
+	envMacroStatusReadsPerRun    = "VECTIS_PERF_STATUS_READS_PER_RUN"
 
 	macroPGStatStatementsTopLimit = 12
 	macroPGStatQueryMaxLen        = 240
@@ -275,6 +277,24 @@ type macroTriggerInfo struct {
 	httpAcceptedAt time.Time
 }
 
+type macroStatusReadMode string
+
+const (
+	macroStatusReadAPI           macroStatusReadMode = "api"
+	macroStatusReadHotOwnerProbe macroStatusReadMode = "hot_owner_probe"
+)
+
+type macroStatusReadJob struct {
+	runID string
+}
+
+type macroStatusReadResult struct {
+	latency      int64
+	ownerChecked bool
+	ownerFound   bool
+	err          error
+}
+
 func macroBenchmarkEnvInt(b *testing.B, name string, defaultValue int) int {
 	b.Helper()
 
@@ -297,6 +317,14 @@ func macroBenchmarkTriggerClients(b *testing.B) int {
 
 func macroBenchmarkWorkers(b *testing.B) int {
 	return macroBenchmarkEnvInt(b, "VECTIS_PERF_WORKERS", defaultMacroWorkers)
+}
+
+func macroBenchmarkStatusReadClients(b *testing.B) int {
+	return macroBenchmarkOptionalEnvInt(b, envMacroStatusReadClients, defaultMacroTriggerClients)
+}
+
+func macroBenchmarkStatusReadsPerRun(b *testing.B) int {
+	return macroBenchmarkOptionalEnvInt(b, envMacroStatusReadsPerRun, 4)
 }
 
 func macroBenchmarkFanoutWidths(b *testing.B) []int {
@@ -616,6 +644,14 @@ func BenchmarkMacro_OrchestratorGRPCConcurrentNoop_TriggerToTerminal(b *testing.
 	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv)
 }
 
+func BenchmarkMacro_OrchestratorGRPCConcurrentNoop_TriggerToTerminalWithAPIStatusReads(b *testing.B) {
+	runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(b, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv, macroStatusReadAPI)
+}
+
+func BenchmarkMacro_OrchestratorGRPCConcurrentNoop_TriggerToTerminalWithHotOwnerStatusReads(b *testing.B) {
+	runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(b, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv, macroStatusReadHotOwnerProbe)
+}
+
 func BenchmarkMacro_ResultActionConcurrent_TriggerToTerminal(b *testing.B) {
 	runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b, resultMacroJob(), newMacroBenchEnv)
 }
@@ -709,6 +745,122 @@ func runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, mac
 	b.ReportMetric(float64(totalRuns), "total_runs")
 }
 
+func runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(
+	b *testing.B,
+	macroJob storedMacroJob,
+	newEnv macroBenchEnvFactory,
+	readMode macroStatusReadMode,
+) {
+	b.Helper()
+
+	triggerClients := macroBenchmarkTriggerClients(b)
+	workerCount := macroBenchmarkWorkers(b)
+	statusReadClients := macroBenchmarkStatusReadClients(b)
+	statusReadsPerRun := macroBenchmarkStatusReadsPerRun(b)
+
+	ctx := context.Background()
+	macroJob = uniqueStoredMacroJob(macroJob)
+	env := newEnv(b, []storedMacroJob{macroJob})
+	totalRuns := b.N
+	totalStatusReads := totalRuns * statusReadsPerRun
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	triggerRegistry := newMacroTriggerRegistry(totalRuns)
+	statusReadJobs := make(chan macroStatusReadJob, totalStatusReads)
+	statusReadResults := make(chan macroStatusReadResult, totalStatusReads)
+	var closeStatusReadJobs sync.Once
+	closeStatusJobs := func() {
+		closeStatusReadJobs.Do(func() { close(statusReadJobs) })
+	}
+	workCtx, cancel := context.WithCancel(ctx)
+	waitReaders := startMacroStatusReaders(workCtx, env, readMode, statusReadClients, statusReadJobs, statusReadResults)
+	resultCh := make(chan macroWorkerResult, totalRuns)
+	waitWorkers := startMacroWorkers(workCtx, env, triggerRegistry, workerCount, resultCh)
+	defer func() {
+		cancel()
+		closeStatusJobs()
+		waitReaders()
+		waitWorkers()
+	}()
+
+	workStart := time.Now()
+	_, triggerDuration := triggerMacroBurst(b, ctx, env.handler, macroJob.id, triggerClients, totalRuns, func(info macroTriggerInfo) {
+		triggerRegistry.add(info)
+		for i := 0; i < statusReadsPerRun; i++ {
+			statusReadJobs <- macroStatusReadJob{runID: info.runID}
+		}
+	})
+	closeStatusJobs()
+	triggerDone := time.Now()
+	results := collectMacroWorkerResults(b, resultCh, totalRuns)
+	terminalDone := time.Now()
+	statusReadSamples, ownerHits, ownerMisses := collectMacroStatusReadResults(b, statusReadResults, totalStatusReads)
+	statusReadsDone := time.Now()
+
+	b.StopTimer()
+	cancel()
+	waitReaders()
+	waitWorkers()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), totalRuns)
+
+	acceptedToQueueSamples := make([]int64, 0, len(results))
+	queueToDequeuedSamples := make([]int64, 0, len(results))
+	dequeuedToClaimedSamples := make([]int64, 0, len(results))
+	claimedToTerminalSamples := make([]int64, 0, len(results))
+	acceptedToTerminalSamples := make([]int64, 0, len(results))
+	triggerToTerminalSamples := make([]int64, 0, len(results))
+	logFlushSamples := make([]int64, 0, len(results))
+	dbTimingSamples := make([]macroDBTimings, 0, len(results))
+
+	for _, timings := range results {
+		acceptedToQueueSamples = append(acceptedToQueueSamples, timings.httpAcceptedToQueueAccepted)
+		queueToDequeuedSamples = append(queueToDequeuedSamples, timings.queueAcceptedToDequeued)
+		dequeuedToClaimedSamples = append(dequeuedToClaimedSamples, timings.dequeuedToClaimed)
+		claimedToTerminalSamples = append(claimedToTerminalSamples, timings.claimedToTerminal)
+		acceptedToTerminalSamples = append(acceptedToTerminalSamples, timings.acceptedToTerminal)
+		triggerToTerminalSamples = append(triggerToTerminalSamples, timings.triggerToTerminal)
+		logFlushSamples = append(logFlushSamples, timings.logFlush)
+		dbTimingSamples = append(dbTimingSamples, timings.db)
+	}
+
+	reportLatencyMetrics(b, "accepted_to_queue", acceptedToQueueSamples)
+	reportLatencyMetrics(b, "queue_to_dequeued", queueToDequeuedSamples)
+	reportLatencyMetrics(b, "dequeued_to_claimed", dequeuedToClaimedSamples)
+	reportLatencyMetrics(b, "claimed_to_terminal", claimedToTerminalSamples)
+	reportLatencyMetrics(b, "accepted_to_terminal", acceptedToTerminalSamples)
+	reportLatencyMetrics(b, "trigger_to_terminal", triggerToTerminalSamples)
+	reportLatencyMetrics(b, "log_flush", logFlushSamples)
+	reportLatencyMetrics(b, "status_read", statusReadSamples)
+	reportMacroDBTimingMetrics(b, dbTimingSamples)
+
+	if triggerDuration > 0 {
+		b.ReportMetric(float64(totalRuns)/triggerDuration.Seconds(), "accepted_requests/s")
+	}
+	if terminalDuration := terminalDone.Sub(workStart); terminalDuration > 0 {
+		b.ReportMetric(float64(totalRuns)/terminalDuration.Seconds(), "terminal_runs/s")
+	}
+	if statusReadDuration := statusReadsDone.Sub(workStart); statusReadDuration > 0 {
+		b.ReportMetric(float64(totalStatusReads)/statusReadDuration.Seconds(), "status_reads/s")
+	}
+
+	b.ReportMetric(float64(triggerDone.Sub(workStart))/float64(time.Millisecond), "trigger_burst_ms")
+	b.ReportMetric(float64(terminalDone.Sub(triggerDone))/float64(time.Millisecond), "terminal_drain_ms")
+	b.ReportMetric(float64(statusReadsDone.Sub(workStart))/float64(time.Millisecond), "mixed_workload_ms")
+	b.ReportMetric(float64(triggerClients), "trigger_clients")
+	b.ReportMetric(float64(workerCount), "worker_count")
+	b.ReportMetric(float64(statusReadClients), "status_read_clients")
+	b.ReportMetric(float64(statusReadsPerRun), "status_reads/run")
+	b.ReportMetric(float64(totalStatusReads), "total_status_reads")
+	b.ReportMetric(float64(ownerHits), "status_hot_owner_hits")
+	b.ReportMetric(float64(ownerMisses), "status_hot_owner_misses")
+	b.ReportMetric(float64(totalRuns), "total_runs")
+}
+
 func BenchmarkMacro_APITriggerToQueued(b *testing.B) {
 	runMacroAPITriggerToQueuedBenchmark(b)
 }
@@ -727,6 +879,26 @@ func BenchmarkMacro_DB_EnsurePlannedFanoutTasks(b *testing.B) {
 
 func BenchmarkMacro_DB_MarkExecutionStarted(b *testing.B) {
 	benchmarkMacroDBMarkExecutionStartedWithEnv(b, newMacroBenchEnv)
+}
+
+func BenchmarkMacro_DB_GetRun(b *testing.B) {
+	benchmarkMacroDBGetRunWithEnv(b, newMacroBenchEnv)
+}
+
+func BenchmarkMacro_DB_GetRunHotStateOwner(b *testing.B) {
+	benchmarkMacroDBGetRunHotStateOwnerWithEnv(b, true, newMacroBenchEnv)
+}
+
+func BenchmarkMacro_DB_GetRunHotStateOwnerMissing(b *testing.B) {
+	benchmarkMacroDBGetRunHotStateOwnerWithEnv(b, false, newMacroBenchEnv)
+}
+
+func BenchmarkMacro_DB_GetRunWithHotStateOwnerLookup(b *testing.B) {
+	benchmarkMacroDBGetRunWithHotStateOwnerLookupWithEnv(b, true, newMacroBenchEnv)
+}
+
+func BenchmarkMacro_DB_GetRunAfterMissingHotStateOwnerLookup(b *testing.B) {
+	benchmarkMacroDBGetRunWithHotStateOwnerLookupWithEnv(b, false, newMacroBenchEnv)
 }
 
 func BenchmarkMacro_DB_CompleteExecutionAndFinalizeRoot(b *testing.B) {
@@ -854,6 +1026,142 @@ func benchmarkMacroDBMarkExecutionStartedWithEnv(b *testing.B, newEnv macroBench
 	}
 
 	b.ReportMetric(float64(b.N), "total_executions")
+}
+
+func benchmarkMacroDBGetRunWithEnv(b *testing.B, newEnv macroBenchEnvFactory) {
+	ctx := context.Background()
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newEnv(b, []storedMacroJob{macroJob})
+	runID := createMacroDBBenchmarkRun(b, ctx, env, macroJob.id, 1)
+	getRunSamples := make([]int64, 0, b.N)
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		getRunStarted := time.Now()
+		rec, err := env.runs.GetRun(ctx, runID)
+		getRunSamples = append(getRunSamples, time.Since(getRunStarted).Nanoseconds())
+		if err != nil {
+			b.Fatalf("get run %s: %v", runID, err)
+		}
+		if rec.RunID != runID {
+			b.Fatalf("run id=%q, want %q", rec.RunID, runID)
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+	reportLatencyMetrics(b, "db_get_run", getRunSamples)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "reads/s")
+	}
+	b.ReportMetric(float64(b.N), "total_reads")
+}
+
+func benchmarkMacroDBGetRunHotStateOwnerWithEnv(b *testing.B, present bool, newEnv macroBenchEnvFactory) {
+	ctx := context.Background()
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newEnv(b, []storedMacroJob{macroJob})
+	runID := createMacroDBBenchmarkRun(b, ctx, env, macroJob.id, 1)
+	if present {
+		seedMacroRunHotStateOwner(b, ctx, env.runs, runID)
+	}
+	ownerLookupSamples := make([]int64, 0, b.N)
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		lookupStarted := time.Now()
+		owner, found, err := env.runs.GetRunHotStateOwner(ctx, runID)
+		ownerLookupSamples = append(ownerLookupSamples, time.Since(lookupStarted).Nanoseconds())
+		if err != nil {
+			b.Fatalf("get hot-state owner for run %s: %v", runID, err)
+		}
+		if found != present {
+			b.Fatalf("hot-state owner found=%t, want %t", found, present)
+		}
+		if present && owner.RunID != runID {
+			b.Fatalf("owner run id=%q, want %q", owner.RunID, runID)
+		}
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+	reportLatencyMetrics(b, "db_hot_owner_lookup", ownerLookupSamples)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "lookups/s")
+	}
+	b.ReportMetric(float64(b.N), "total_lookups")
+}
+
+func benchmarkMacroDBGetRunWithHotStateOwnerLookupWithEnv(b *testing.B, present bool, newEnv macroBenchEnvFactory) {
+	ctx := context.Background()
+	macroJob := uniqueStoredMacroJob(noopMacroJob())
+	env := newEnv(b, []storedMacroJob{macroJob})
+	runID := createMacroDBBenchmarkRun(b, ctx, env, macroJob.id, 1)
+	if present {
+		seedMacroRunHotStateOwner(b, ctx, env.runs, runID)
+	}
+	ownerLookupSamples := make([]int64, 0, b.N)
+	getRunSamples := make([]int64, 0, b.N)
+	totalSamples := make([]int64, 0, b.N)
+
+	b.ReportAllocs()
+	statsEnabled := resetMacroDBStats(b, env)
+	dbStatsStart := env.db.Stats()
+	b.ResetTimer()
+	start := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		totalStarted := time.Now()
+		lookupStarted := time.Now()
+		_, found, err := env.runs.GetRunHotStateOwner(ctx, runID)
+		ownerLookupSamples = append(ownerLookupSamples, time.Since(lookupStarted).Nanoseconds())
+		if err != nil {
+			b.Fatalf("get hot-state owner for run %s: %v", runID, err)
+		}
+		if found != present {
+			b.Fatalf("hot-state owner found=%t, want %t", found, present)
+		}
+
+		getRunStarted := time.Now()
+		rec, err := env.runs.GetRun(ctx, runID)
+		getRunSamples = append(getRunSamples, time.Since(getRunStarted).Nanoseconds())
+		if err != nil {
+			b.Fatalf("get run %s: %v", runID, err)
+		}
+		if rec.RunID != runID {
+			b.Fatalf("run id=%q, want %q", rec.RunID, runID)
+		}
+		totalSamples = append(totalSamples, time.Since(totalStarted).Nanoseconds())
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+	reportMacroDBStats(b, env, statsEnabled)
+	reportMacroDBPoolMetrics(b, dbStatsStart, env.db.Stats(), b.N)
+	reportLatencyMetrics(b, "db_hot_owner_lookup", ownerLookupSamples)
+	reportLatencyMetrics(b, "db_get_run", getRunSamples)
+	reportLatencyMetrics(b, "db_read_total", totalSamples)
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "reads/s")
+	}
+	b.ReportMetric(float64(b.N), "total_reads")
 }
 
 func benchmarkMacroDBCompleteExecutionAndFinalizeRootWithEnv(b *testing.B, newEnv macroBenchEnvFactory) {
@@ -1497,6 +1805,21 @@ func createMacroDBBenchmarkRun(b *testing.B, ctx context.Context, env macroBench
 	}
 
 	return runID
+}
+
+func seedMacroRunHotStateOwner(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) {
+	b.Helper()
+
+	if err := runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:        runID,
+		CellID:       dal.DefaultCellID,
+		OwnerID:      "orchestrator:macro-read-benchmark",
+		OwnerEpoch:   "macro-read-benchmark",
+		LeaseUntil:   time.Now().Add(dal.DefaultLeaseTTL),
+		LastSequence: 42,
+	}); err != nil {
+		b.Fatalf("seed hot-state owner for run %s: %v", runID, err)
+	}
 }
 
 func prepareMacroDBClaimedRootExecution(b *testing.B, ctx context.Context, env macroBenchEnv, jobID string, runIndex int) macroDBClaimedExecution {
@@ -2372,6 +2695,88 @@ func startMacroWorkers(
 	return wg.Wait
 }
 
+func startMacroStatusReaders(
+	ctx context.Context,
+	env macroBenchEnv,
+	mode macroStatusReadMode,
+	clients int,
+	jobs <-chan macroStatusReadJob,
+	results chan<- macroStatusReadResult,
+) func() {
+	if clients <= 0 {
+		clients = 1
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < clients; i++ {
+		wg.Go(func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case job, ok := <-jobs:
+					if !ok {
+						return
+					}
+
+					started := time.Now()
+					ownerChecked, ownerFound, err := runMacroStatusRead(ctx, env, mode, job.runID)
+					sendMacroStatusReadResult(ctx, results, macroStatusReadResult{
+						latency:      time.Since(started).Nanoseconds(),
+						ownerChecked: ownerChecked,
+						ownerFound:   ownerFound,
+						err:          err,
+					})
+					if err != nil {
+						return
+					}
+				}
+			}
+		})
+	}
+
+	return wg.Wait
+}
+
+func runMacroStatusRead(ctx context.Context, env macroBenchEnv, mode macroStatusReadMode, runID string) (bool, bool, error) {
+	switch mode {
+	case macroStatusReadAPI:
+		return false, false, runMacroAPIStatusRead(ctx, env, runID)
+	case macroStatusReadHotOwnerProbe:
+		return runMacroHotOwnerProbeStatusRead(ctx, env, runID)
+	default:
+		return false, false, fmt.Errorf("unknown macro status read mode %q", mode)
+	}
+}
+
+func runMacroAPIStatusRead(ctx context.Context, env macroBenchEnv, runID string) error {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil).WithContext(ctx)
+	env.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		return fmt.Errorf("get run status=%d: %s", rec.Code, rec.Body.String())
+	}
+
+	return nil
+}
+
+func runMacroHotOwnerProbeStatusRead(ctx context.Context, env macroBenchEnv, runID string) (bool, bool, error) {
+	_, ownerFound, err := env.runs.GetRunHotStateOwner(ctx, runID)
+	if err != nil {
+		return true, false, fmt.Errorf("get hot-state owner for run %s: %w", runID, err)
+	}
+
+	rec, err := env.runs.GetRun(ctx, runID)
+	if err != nil {
+		return true, ownerFound, fmt.Errorf("get run %s: %w", runID, err)
+	}
+	if rec.RunID != runID {
+		return true, ownerFound, fmt.Errorf("run id=%q, want %q", rec.RunID, runID)
+	}
+
+	return true, ownerFound, nil
+}
+
 func collectMacroWorkerResults(
 	b *testing.B,
 	resultCh <-chan macroWorkerResult,
@@ -2399,9 +2804,52 @@ func collectMacroWorkerResults(
 	return results
 }
 
+func collectMacroStatusReadResults(
+	b *testing.B,
+	resultCh <-chan macroStatusReadResult,
+	total int,
+) ([]int64, int, int) {
+	b.Helper()
+
+	samples := make([]int64, 0, total)
+	ownerHits := 0
+	ownerMisses := 0
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	for len(samples) < total {
+		select {
+		case result := <-resultCh:
+			if result.err != nil {
+				b.Fatalf("status read: %v", result.err)
+			}
+
+			samples = append(samples, result.latency)
+			if result.ownerChecked {
+				if result.ownerFound {
+					ownerHits++
+				} else {
+					ownerMisses++
+				}
+			}
+		case <-timeout.C:
+			b.Fatalf("timed out collecting status reads: got %d of %d results", len(samples), total)
+		}
+	}
+
+	return samples, ownerHits, ownerMisses
+}
+
 type macroWorkerResult struct {
 	timings macroRunTimings
 	err     error
+}
+
+func sendMacroStatusReadResult(ctx context.Context, ch chan<- macroStatusReadResult, result macroStatusReadResult) {
+	select {
+	case ch <- result:
+	case <-ctx.Done():
+	}
 }
 
 func sendMacroWorkerResult(ctx context.Context, ch chan<- macroWorkerResult, result macroWorkerResult) {

@@ -348,6 +348,122 @@ func BenchmarkDAL_RunRead_GetRun(b *testing.B) {
 	}
 }
 
+func BenchmarkDAL_RunRead_GetRunHotStateOwner(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkRepos(b)
+	jobID := "bench-run-hot-state-owner"
+	seedBenchmarkJob(b, ctx, repos, jobID)
+	runs := repos.Runs()
+	runID := createBenchmarkRun(b, ctx, runs, jobID, 1)
+	seedBenchmarkRunHotStateOwner(b, ctx, runs, runID)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		owner, found, err := runs.GetRunHotStateOwner(ctx, runID)
+		if err != nil {
+			b.Fatalf("get hot-state owner: %v", err)
+		}
+
+		if !found {
+			b.Fatalf("hot-state owner for run %q was not found", runID)
+		}
+
+		if owner.RunID != runID {
+			b.Fatalf("owner run id=%q, want %q", owner.RunID, runID)
+		}
+	}
+}
+
+func BenchmarkDAL_RunRead_GetRunHotStateOwnerMissing(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkRepos(b)
+	jobID := "bench-run-hot-state-owner-missing"
+	seedBenchmarkJob(b, ctx, repos, jobID)
+	runs := repos.Runs()
+	runID := createBenchmarkRun(b, ctx, runs, jobID, 1)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, found, err := runs.GetRunHotStateOwner(ctx, runID)
+		if err != nil {
+			b.Fatalf("get missing hot-state owner: %v", err)
+		}
+
+		if found {
+			b.Fatalf("hot-state owner for run %q was found", runID)
+		}
+	}
+}
+
+func BenchmarkDAL_RunRead_GetRunWithHotStateOwnerLookup(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkRepos(b)
+	runID := seedBenchmarkRunReadLiveTasks(b, ctx, repos, 5000)
+	runs := repos.Runs()
+	seedBenchmarkRunHotStateOwner(b, ctx, runs, runID)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		rec, err := runs.GetRun(ctx, runID)
+		if err != nil {
+			b.Fatalf("get run: %v", err)
+		}
+
+		if rec.RunID != runID {
+			b.Fatalf("run id=%q, want %q", rec.RunID, runID)
+		}
+
+		owner, found, err := runs.GetRunHotStateOwner(ctx, runID)
+		if err != nil {
+			b.Fatalf("get hot-state owner: %v", err)
+		}
+
+		if !found {
+			b.Fatalf("hot-state owner for run %q was not found", runID)
+		}
+
+		if owner.RunID != runID {
+			b.Fatalf("owner run id=%q, want %q", owner.RunID, runID)
+		}
+	}
+}
+
+func BenchmarkDAL_RunRead_GetRunAfterMissingHotStateOwnerLookup(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkRepos(b)
+	runID := seedBenchmarkRunReadLiveTasks(b, ctx, repos, 5000)
+	runs := repos.Runs()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, found, err := runs.GetRunHotStateOwner(ctx, runID)
+		if err != nil {
+			b.Fatalf("get missing hot-state owner: %v", err)
+		}
+
+		if found {
+			b.Fatalf("hot-state owner for run %q was found", runID)
+		}
+
+		rec, err := runs.GetRun(ctx, runID)
+		if err != nil {
+			b.Fatalf("get run: %v", err)
+		}
+
+		if rec.RunID != runID {
+			b.Fatalf("run id=%q, want %q", rec.RunID, runID)
+		}
+	}
+}
+
 func BenchmarkDAL_RunRead_GetRunTaskCompletion(b *testing.B) {
 	for _, mode := range []string{"live", "final_facts"} {
 		for _, childTasks := range []int{10, 100, 1000, 5000} {
@@ -441,6 +557,21 @@ func seedBenchmarkRunReadLiveTasks(b *testing.B, ctx context.Context, repos *dal
 	}
 
 	return runID
+}
+
+func seedBenchmarkRunHotStateOwner(b *testing.B, ctx context.Context, runs dal.RunsRepository, runID string) {
+	b.Helper()
+
+	if err := runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:        runID,
+		CellID:       dal.DefaultCellID,
+		OwnerID:      "orchestrator:benchmark",
+		OwnerEpoch:   "benchmark",
+		LeaseUntil:   time.Now().Add(dal.DefaultLeaseTTL),
+		LastSequence: 42,
+	}); err != nil {
+		b.Fatalf("seed hot-state owner for run %s: %v", runID, err)
+	}
 }
 
 func seedBenchmarkRunReadFinalFacts(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, childTasks int) string {
