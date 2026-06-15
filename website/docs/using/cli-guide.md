@@ -381,6 +381,8 @@ Download an artifact by name:
 
 Use `--output -` only when you want raw artifact bytes on stdout, for example in a pipeline.
 
+For upload fields, manifest fields, API routes, and operator storage notes, see [Artifacts](./artifacts.md).
+
 Show the frozen execution payload captured for a run:
 
 ```sh

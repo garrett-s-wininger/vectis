@@ -581,8 +581,8 @@ Stores artifact manifests. Blob bytes live in the artifact service CAS, not in S
 | `size_bytes` | Artifact size; constrained to be non-negative. |
 | `artifact_shard_id` | Artifact service shard that owns the blob. |
 | `metadata_json` | Optional producer metadata. |
-| `created_at` | Unix-second creation time. |
-| `updated_at` | Unix-second last update time. |
+| `created_at` | Unix-nanosecond creation time. |
+| `updated_at` | Unix-nanosecond last update time. |
 
 Constraints and indexes: `run_id` references `job_runs(run_id)` with cascade delete; task, attempt, and execution references use `ON DELETE SET NULL`; `size_bytes >= 0`; unique `(run_id, name)`; indexes on `(run_id, id)`, `blob_key`, `(artifact_shard_id, id)`, `(run_id, task_id, id)`, `(run_id, task_attempt_id, id)`, and `(run_id, execution_id, id)`.
 

@@ -238,11 +238,10 @@ That workspace is not a security sandbox. Host execution still shares the worker
 Vectis does not currently ship:
 
 - a projects API
-- an artifacts API
+- a public artifact upload API
 - profile-aware scheduling for mixed host, container, or disposable VM worker pools
 - shared-storage active/active queue or log clustering
 - multi-site federation
-- an OpenAPI artifact
 
 Those may appear in roadmap docs, but they are not part of the shipped architecture described here.
 
