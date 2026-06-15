@@ -4,6 +4,8 @@ The Vectis HTTP API is for scripts, dashboards, operators, and integrations that
 
 This page covers the shipped v1 REST surface. gRPC contracts live in `api/proto/`, and generated Go lives in `api/gen/go/`. Compatibility rules for REST, gRPC, CLI JSON, configuration, and schema changes are in [Compatibility](../concepts/compatibility.md).
 
+For client generators and gateway policy tooling, use the machine-readable [OpenAPI Specification](./openapi-specification.md).
+
 ## When To Use The API
 
 Use the HTTP API when you want to:

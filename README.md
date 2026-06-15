@@ -86,7 +86,9 @@ The docs site is the best place to continue:
 | [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
 | [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
 | [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
+| [OpenAPI Specification](./website/docs/using/openapi-specification.md) | Machine-readable v1 HTTP API contract. |
 | [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
+| [Database Schema](./website/docs/operating/reference/database-schema.md) | SQL tables, fields, constraints, indexes, and operational notes. |
 | [Architecture](./website/docs/concepts/architecture.md) | The current component model and data flows. |
 | [Security](./website/docs/concepts/security.md) | Trust boundaries, auth, tokens, RBAC, and deployment cautions. |
 | [Planning](./website/docs/developing/roadmap/planning.md) | Product direction, deferred work, and future federation notes. |

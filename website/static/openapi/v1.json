@@ -1,0 +1,2819 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vectis HTTP API",
+    "version": "v1",
+    "description": "Machine-readable contract for the shipped Vectis v1 HTTP API. Authentication can be disabled for local deployments; protected operations document bearer-token security because that is the production posture."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Default local vectis-api listener"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health"
+    },
+    {
+      "name": "Operations"
+    },
+    {
+      "name": "Jobs"
+    },
+    {
+      "name": "Runs"
+    },
+    {
+      "name": "Artifacts"
+    },
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Users"
+    },
+    {
+      "name": "Namespaces"
+    }
+  ],
+  "paths": {
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "summary": "Read API Prometheus metrics when the metrics handler is enabled",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "getHealthLive",
+        "summary": "Check API liveness",
+        "tags": [
+          "Health"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "API process is live"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getHealthReady",
+        "summary": "Check API readiness",
+        "tags": [
+          "Health"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "API is ready for traffic"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "operationId": "getVersion",
+        "summary": "Read API build and cell version information",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "description": "Version information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/schema/status": {
+      "get": {
+        "operationId": "getSchemaStatus",
+        "summary": "Read database migration status",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "description": "Schema status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaStatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/reconciler/heartbeat": {
+      "get": {
+        "operationId": "getReconcilerHeartbeat",
+        "summary": "Read reconciler heartbeat state",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/audit/drops": {
+      "get": {
+        "operationId": "getAuditDrops",
+        "summary": "Read dropped audit event count",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/db/pool-stats": {
+      "get": {
+        "operationId": "getDBPoolStats",
+        "summary": "Read database connection pool statistics",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/queue/backlog": {
+      "get": {
+        "operationId": "getQueueBacklog",
+        "summary": "Read queued-run backlog state",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/reconciler/stuck-runs": {
+      "get": {
+        "operationId": "getStuckRuns",
+        "summary": "Read stuck-run and repair visibility",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/log/reachable": {
+      "get": {
+        "operationId": "getLogReachable",
+        "summary": "Check API connectivity to the log service",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/audit/flush-failures": {
+      "get": {
+        "operationId": "getAuditFlushFailures",
+        "summary": "Read audit flush failure count",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/cron/status": {
+      "get": {
+        "operationId": "getCronStatus",
+        "summary": "Read cron schedule health and backlog state",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/status": {
+      "get": {
+        "operationId": "getCatalogStatus",
+        "summary": "Read catalog inbox health",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/cells/status": {
+      "get": {
+        "operationId": "getCellsStatus",
+        "summary": "Read cell ingress, dispatch, and catalog status",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/cells/{cell_id}/catalog-events": {
+      "post": {
+        "operationId": "postCellCatalogEvent",
+        "summary": "Submit a cell catalog event",
+        "tags": [
+          "Operations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CellID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/GenericJSON"
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/JSONAccepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs": {
+      "get": {
+        "operationId": "listJobs",
+        "summary": "List stored jobs",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedJSON"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createJob",
+        "summary": "Create a stored job",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JobDefinition"
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/JSONCreated"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}": {
+      "get": {
+        "operationId": "getJob",
+        "summary": "Get a stored job",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          },
+          {
+            "$ref": "#/components/parameters/Version"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateJobDefinition",
+        "summary": "Update a stored job definition",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JobDefinition"
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteJob",
+        "summary": "Delete a stored job",
+        "tags": [
+          "Jobs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/run": {
+      "post": {
+        "operationId": "runJobDefinition",
+        "summary": "Run an ephemeral job definition",
+        "tags": [
+          "Jobs",
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:trigger",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/JobDefinition"
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/TriggerAccepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/trigger/{id}": {
+      "post": {
+        "operationId": "triggerJob",
+        "summary": "Trigger a stored job",
+        "tags": [
+          "Jobs",
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:trigger",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/TriggerOptions"
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/TriggerAccepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}/runs": {
+      "get": {
+        "operationId": "listJobRuns",
+        "summary": "List runs for a job",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          },
+          {
+            "$ref": "#/components/parameters/AfterIndex"
+          },
+          {
+            "$ref": "#/components/parameters/CellIDQuery"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/OwningCell"
+          },
+          {
+            "$ref": "#/components/parameters/Since"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedJSON"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/sse/jobs/{id}/runs": {
+      "get": {
+        "operationId": "streamJobRuns",
+        "summary": "Stream run updates for a job",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/JobID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EventStream"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}": {
+      "get": {
+        "operationId": "getRun",
+        "summary": "Get a run",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/tasks": {
+      "get": {
+        "operationId": "listRunTasks",
+        "summary": "List tasks for a run",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedJSON"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/artifacts": {
+      "get": {
+        "operationId": "listRunArtifacts",
+        "summary": "List artifacts for a run",
+        "tags": [
+          "Artifacts"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/ExecutionIDQuery"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/TaskAttemptIDQuery"
+          },
+          {
+            "$ref": "#/components/parameters/TaskIDQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedJSON"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/artifacts/{name}": {
+      "get": {
+        "operationId": "getRunArtifact",
+        "summary": "Get an artifact manifest",
+        "tags": [
+          "Artifacts"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          },
+          {
+            "$ref": "#/components/parameters/ArtifactName"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/artifacts/{name}/download": {
+      "get": {
+        "operationId": "downloadRunArtifact",
+        "summary": "Download artifact bytes",
+        "tags": [
+          "Artifacts"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          },
+          {
+            "$ref": "#/components/parameters/ArtifactName"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact content",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/execution-payload": {
+      "get": {
+        "operationId": "getRunExecutionPayload",
+        "summary": "Read the captured execution payload for operator repair",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/replay": {
+      "post": {
+        "operationId": "replayRun",
+        "summary": "Replay a completed run",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ReplayOptions"
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/JSONAccepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/cancel": {
+      "post": {
+        "operationId": "cancelRun",
+        "summary": "Request run cancellation",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "202": {
+            "$ref": "#/components/responses/JSONAccepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/repair/mark-succeeded": {
+      "post": {
+        "operationId": "repairMarkRunSucceeded",
+        "summary": "Repair a run by marking it succeeded",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RepairReason"
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/repair/mark-failed": {
+      "post": {
+        "operationId": "repairMarkRunFailed",
+        "summary": "Repair a run by marking it failed",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RepairReason"
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/repair/mark-cancelled": {
+      "post": {
+        "operationId": "repairMarkRunCancelled",
+        "summary": "Repair a run by marking it cancelled",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RepairReason"
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/repair/mark-abandoned": {
+      "post": {
+        "operationId": "repairMarkRunAbandoned",
+        "summary": "Repair a run by marking it abandoned",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RepairReason"
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/repair/mark-queued": {
+      "post": {
+        "operationId": "repairMarkRunQueued",
+        "summary": "Repair a run by requeueing it",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RepairReason"
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/force-fail": {
+      "post": {
+        "operationId": "forceFailRun",
+        "summary": "Force a run to failed",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RepairReason"
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/force-requeue": {
+      "post": {
+        "operationId": "forceRequeueRun",
+        "summary": "Force a run back to queued",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:operator",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/logs": {
+      "get": {
+        "operationId": "streamRunLogs",
+        "summary": "Stream logs for a run",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RunID"
+          },
+          {
+            "$ref": "#/components/parameters/ReplayLimit"
+          },
+          {
+            "$ref": "#/components/parameters/SinceSequence"
+          },
+          {
+            "$ref": "#/components/parameters/Tail"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EventStream"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/setup/status": {
+      "get": {
+        "operationId": "getSetupStatus",
+        "summary": "Read setup state",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "x-vectis-auth-action": "setup:status",
+        "responses": {
+          "200": {
+            "description": "Setup status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/setup/complete": {
+      "post": {
+        "operationId": "completeSetup",
+        "summary": "Complete initial setup and create the first admin",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "x-vectis-auth-action": "setup:complete",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupCompleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Initial admin created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupCompleteResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "Create a login session",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "Delete the current login session",
+        "tags": [
+          "Auth"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "api:any",
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "operationId": "listTokens",
+        "summary": "List API tokens",
+        "tags": [
+          "Auth"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "api:any",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserIDQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TokenResponse"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createToken",
+        "summary": "Create an API token",
+        "tags": [
+          "Auth"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "api:any",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTokenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token created. The raw token appears only in this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTokenResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/tokens/{id}": {
+      "delete": {
+        "operationId": "deleteToken",
+        "summary": "Delete an API token",
+        "tags": [
+          "Auth"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "api:any",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/users/change-password": {
+      "post": {
+        "operationId": "changePassword",
+        "summary": "Change the current user's password",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "api:any",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "listUsers",
+        "summary": "List local users",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "responses": {
+          "200": {
+            "description": "Local users",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserResponse"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createUser",
+        "summary": "Create a local user",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUserResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}": {
+      "get": {
+        "operationId": "getUser",
+        "summary": "Get a local user",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Local user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateUser",
+        "summary": "Update a local user",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteUser",
+        "summary": "Delete a local user",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/namespaces": {
+      "get": {
+        "operationId": "listNamespaces",
+        "summary": "List visible namespaces",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "description": "Namespaces",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NamespaceResponse"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createNamespace",
+        "summary": "Create a namespace",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNamespaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Namespace created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/namespaces/{id}": {
+      "get": {
+        "operationId": "getNamespace",
+        "summary": "Get a namespace",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteNamespace",
+        "summary": "Delete a namespace",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/namespaces/{id}/bindings": {
+      "get": {
+        "operationId": "listNamespaceBindings",
+        "summary": "List namespace role bindings",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role bindings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BindingResponse"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createNamespaceBinding",
+        "summary": "Create a namespace role binding",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBindingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Role binding created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindingResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/namespaces/{id}/bindings/{user_id}": {
+      "delete": {
+        "operationId": "deleteNamespaceBinding",
+        "summary": "Delete a namespace role binding",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          },
+          {
+            "$ref": "#/components/parameters/UserID"
+          },
+          {
+            "$ref": "#/components/parameters/Role"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "parameters": {
+      "NumericID": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      },
+      "JobID": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "RunID": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "CellID": {
+        "name": "cell_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "UserID": {
+        "name": "user_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      },
+      "ArtifactName": {
+        "name": "name",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "Version": {
+        "name": "version",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "AfterIndex": {
+        "name": "after_index",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "CellIDQuery": {
+        "name": "cell_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "OwningCell": {
+        "name": "owning_cell",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Since": {
+        "name": "since",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ExecutionIDQuery": {
+        "name": "execution_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "TaskAttemptIDQuery": {
+        "name": "task_attempt_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "TaskIDQuery": {
+        "name": "task_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ReplayLimit": {
+        "name": "replay_limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "SinceSequence": {
+        "name": "since_sequence",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        }
+      },
+      "Tail": {
+        "name": "tail",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "UserIDQuery": {
+        "name": "user_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      },
+      "Role": {
+        "name": "role",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Role"
+        }
+      }
+    },
+    "requestBodies": {
+      "GenericJSON": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenericObject"
+            }
+          }
+        }
+      },
+      "JobDefinition": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/JobDefinitionRequest"
+            }
+          }
+        }
+      },
+      "TriggerOptions": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TriggerOptions"
+            }
+          }
+        }
+      },
+      "ReplayOptions": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReplayOptions"
+            }
+          }
+        }
+      },
+      "RepairReason": {
+        "required": false,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RepairReason"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "JSONOK": {
+        "description": "JSON response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenericObject"
+            }
+          }
+        }
+      },
+      "JSONCreated": {
+        "description": "Resource created",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenericObject"
+            }
+          }
+        }
+      },
+      "JSONAccepted": {
+        "description": "Request accepted",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenericObject"
+            }
+          }
+        }
+      },
+      "TriggerAccepted": {
+        "description": "Run creation accepted",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TriggerJobResponse"
+            }
+          }
+        }
+      },
+      "PaginatedJSON": {
+        "description": "Paginated JSON response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PaginatedResponse"
+            }
+          }
+        }
+      },
+      "NoContent": {
+        "description": "No response body"
+      },
+      "EventStream": {
+        "description": "Server-sent event stream",
+        "content": {
+          "text/event-stream": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Vectis API error envelope",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/APIError"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "GenericObject": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "APIError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "VersionResponse": {
+        "type": "object",
+        "required": [
+          "version",
+          "commit",
+          "build_date",
+          "cell_id"
+        ],
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "build_date": {
+            "type": "string"
+          },
+          "cell_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SchemaStatusResponse": {
+        "type": "object",
+        "required": [
+          "current_version",
+          "has_schema"
+        ],
+        "properties": {
+          "current_version": {
+            "type": "integer"
+          },
+          "has_schema": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupStatusResponse": {
+        "type": "object",
+        "required": [
+          "setup_complete",
+          "auth_enabled"
+        ],
+        "properties": {
+          "setup_complete": {
+            "type": "boolean"
+          },
+          "auth_enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupCompleteRequest": {
+        "type": "object",
+        "required": [
+          "bootstrap_token",
+          "admin_username",
+          "admin_password"
+        ],
+        "properties": {
+          "bootstrap_token": {
+            "type": "string"
+          },
+          "admin_username": {
+            "type": "string"
+          },
+          "admin_password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 8
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupCompleteResponse": {
+        "type": "object",
+        "required": [
+          "api_token",
+          "username"
+        ],
+        "properties": {
+          "api_token": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "return_token": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginResponse": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "csrf_token": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "JobDefinition": {
+        "type": "object",
+        "description": "Vectis job definition. See Job Definition Validation for the detailed authoring contract.",
+        "additionalProperties": true
+      },
+      "JobDefinitionRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/JobDefinition"
+          },
+          {
+            "type": "object",
+            "required": [
+              "job"
+            ],
+            "properties": {
+              "namespace": {
+                "type": "string"
+              },
+              "job": {
+                "$ref": "#/components/schemas/JobDefinition"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "TriggerOptions": {
+        "type": "object",
+        "properties": {
+          "cell_id": {
+            "type": "string"
+          },
+          "target_cell_id": {
+            "type": "string"
+          },
+          "cell_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_cell_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReplayOptions": {
+        "type": "object",
+        "properties": {
+          "cell_id": {
+            "type": "string"
+          },
+          "target_cell_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RepairReason": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "failure_code": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "TriggerJobResponse": {
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "run_index": {
+            "type": "integer"
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "run_id",
+                "run_index"
+              ],
+              "properties": {
+                "run_id": {
+                  "type": "string"
+                },
+                "run_index": {
+                  "type": "integer"
+                },
+                "cell_id": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "PaginatedResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GenericObject"
+            }
+          },
+          "next_cursor": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": true
+      },
+      "TokenScopeRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/AuthAction"
+          },
+          "namespace_path": {
+            "type": "string"
+          },
+          "propagate": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateTokenRequest": {
+        "type": "object",
+        "required": [
+          "label",
+          "expires_in"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "string",
+            "enum": [
+              "1w",
+              "1m",
+              "3m",
+              "6m",
+              "1y",
+              "never"
+            ]
+          },
+          "user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenScopeRequest"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TokenResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateTokenResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TokenResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "token"
+            ],
+            "properties": {
+              "token": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "format": "password"
+          },
+          "new_password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 8
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "required": [
+          "username"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 8
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateUserRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UserResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "enabled",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "username": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateUserResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/UserResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "initial_password": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "CreateNamespaceRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NamespaceResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "path",
+          "break_inheritance"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "path": {
+            "type": "string"
+          },
+          "break_inheritance": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateBindingRequest": {
+        "type": "object",
+        "required": [
+          "local_user_id",
+          "role"
+        ],
+        "properties": {
+          "local_user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BindingResponse": {
+        "type": "object",
+        "required": [
+          "local_user_id",
+          "role"
+        ],
+        "properties": {
+          "local_user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "viewer",
+          "trigger",
+          "operator",
+          "admin"
+        ]
+      },
+      "AuthAction": {
+        "type": "string",
+        "enum": [
+          "job:read",
+          "job:write",
+          "run:trigger",
+          "run:read",
+          "run:operator",
+          "admin:*",
+          "user:admin",
+          "api:any"
+        ]
+      }
+    }
+  }
+}

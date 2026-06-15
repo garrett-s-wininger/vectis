@@ -20,6 +20,7 @@ const sidebars = {
         'using/your-first-job',
         'using/cli-guide',
         'using/api-reference',
+        'using/openapi-specification',
         'using/job-validation',
         'using/log-streaming',
         'using/idempotency-and-retries',
@@ -70,6 +71,7 @@ const sidebars = {
           type: 'category',
           label: 'Reference',
           items: [
+            'operating/reference/database-schema',
             'operating/reference/cli-operational-coverage',
             'operating/reference/health-check-catalog',
           ],
