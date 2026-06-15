@@ -235,6 +235,15 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 		t.Fatalf("run requested cells: got %+v", runRec.RequestedCells)
 	}
 
+	payloadHashByRun, err := repos.Runs().GetExecutionPayloadHashForRun(ctx, created[0].RunID)
+	if err != nil {
+		t.Fatalf("get payload hash by run: %v", err)
+	}
+
+	if payloadHashByRun != payloadHash1 {
+		t.Fatalf("payload hash by run: got %q want %q", payloadHashByRun, payloadHash1)
+	}
+
 	payloadByRun, err := repos.Runs().GetExecutionPayloadForRun(ctx, created[0].RunID)
 	if err != nil {
 		t.Fatalf("get payload by run: %v", err)

@@ -608,6 +608,23 @@ func (m *MockRunsRepository) GetExecutionPayloadForRun(ctx context.Context, runI
 	return dal.ExecutionPayloadRecord{}, fmt.Errorf("%w: execution payload for run %s", dal.ErrNotFound, runID)
 }
 
+func (m *MockRunsRepository) GetExecutionPayloadHashForRun(ctx context.Context, runID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.ExecutionPayloads != nil {
+		if rec, ok := m.ExecutionPayloads[runID]; ok && strings.TrimSpace(rec.PayloadHash) != "" {
+			return strings.TrimSpace(rec.PayloadHash), nil
+		}
+	}
+
+	if payloadJSON, ok := m.RecordedPayloads[runID]; ok {
+		return dal.ExecutionPayloadHash(payloadJSON), nil
+	}
+
+	return "", fmt.Errorf("%w: execution payload for run %s", dal.ErrNotFound, runID)
+}
+
 func (m *MockRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (dal.ExecutionPayloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

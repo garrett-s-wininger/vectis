@@ -275,15 +275,10 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-secret-path", nil)
-	if err != nil {
-		t.Fatalf("create namespace: %v", err)
-	}
-
 	jobID := "job-worker-secret-path"
 	def := `{"id":"job-worker-secret-path","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create job definition: %v", err)
 	}
 
 	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
@@ -1702,8 +1697,25 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("queued child envelope mismatch: got %+v", env)
 	}
 
+	if got := reqs[0].GetMetadata()[cell.ExecutionPayloadHashMetadataKey]; got == "" {
+		t.Fatal("queued child missing execution payload hash")
+	}
+
+	if got := reqs[0].GetJob().GetRoot().GetId(); got != childID {
+		t.Fatalf("queued child should carry compact task root %q, got %q", childID, got)
+	}
+
 	if env.Metadata["traceparent"] != "trace-a" {
 		t.Fatalf("queued child trace metadata: got %q, want trace-a", env.Metadata["traceparent"])
+	}
+
+	w.handleJob(reqs[0])
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status after child: %v", err)
+	}
+
+	if runStatus != dal.RunStatusSucceeded {
+		t.Fatalf("run status after compact child: got %q, want %q", runStatus, dal.RunStatusSucceeded)
 	}
 
 	var taskRows int
@@ -1712,7 +1724,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	if taskRows != 1 {
-		t.Fatalf("run task rows after orchestrator fanout: got %d, want root row only", taskRows)
+		t.Fatalf("run task rows after compact orchestrator fanout: got %d, want root row only", taskRows)
 	}
 }
 

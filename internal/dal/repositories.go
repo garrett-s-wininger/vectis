@@ -768,6 +768,7 @@ type RunsRepository interface {
 	CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error)
 	ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error)
 	RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (payloadHash string, recordedPayloadJSON string, err error)
+	GetExecutionPayloadHashForRun(ctx context.Context, runID string) (string, error)
 	GetExecutionPayloadForRun(ctx context.Context, runID string) (ExecutionPayloadRecord, error)
 	GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error)
 	UpsertRunHotStateOwner(ctx context.Context, update RunHotStateOwnerUpdate) error

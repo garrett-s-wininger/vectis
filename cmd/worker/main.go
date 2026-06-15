@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	api "vectis/api/gen/go"
@@ -46,6 +47,7 @@ import (
 	"vectis/internal/secrets"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
+	"vectis/internal/taskgraph"
 	"vectis/internal/taskreduce"
 	"vectis/internal/utils"
 	"vectis/internal/workercore"
@@ -518,6 +520,8 @@ type worker struct {
 	artifactMaxCount            int64
 	retryMetrics                backoff.RetryMetrics
 	choreographer               executionChoreographer
+	payloadMu                   sync.Mutex
+	payloadJobs                 map[string]*api.Job
 	hotStateOwnerID             string
 	hotStateOwnerEpoch          string
 	secretResolver              secrets.Resolver
@@ -948,6 +952,14 @@ func (w *worker) sleepDBBackoff() error {
 
 func (w *worker) handleJob(jobReq *api.JobRequest) {
 	jobCtx := observability.ExtractJobTraceContext(w.runCtx, jobReq)
+	start := w.now()
+	var err error
+	jobReq, err = w.hydrateJobRequest(jobCtx, jobReq)
+	if err != nil {
+		w.handleJobHydrationError(jobCtx, jobReq, err, start)
+		return
+	}
+
 	job := jobReq.GetJob()
 	if job == nil {
 		w.logger.Error("Dequeued empty job request")
@@ -982,7 +994,6 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 
 	span.AddEvent("queue.long_poll.delivered")
 
-	start := w.now()
 	if w.metrics != nil {
 		w.metrics.RecordJobReceived(consumeCtx)
 	}
@@ -1028,6 +1039,140 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 	w.setLifecyclePhase(observability.WorkerPhaseIdle)
 	if w.metrics != nil {
 		w.metrics.RecordJobFinished(jobCtx, observability.WorkerOutcomeMalformed, w.now().Sub(start))
+	}
+}
+
+func (w *worker) hydrateJobRequest(ctx context.Context, req *api.JobRequest) (*api.JobRequest, error) {
+	if req == nil {
+		return nil, nil
+	}
+
+	payloadHash := strings.TrimSpace(req.GetMetadata()[cell.ExecutionPayloadHashMetadataKey])
+	if payloadHash == "" {
+		return req, nil
+	}
+
+	if fullJob, ok := w.cachedExecutionPayloadJob(payloadHash); ok {
+		if err := applyQueuedJobIdentity(payloadHash, fullJob, req.GetJob()); err != nil {
+			return req, err
+		}
+
+		req.Job = fullJob
+		trace.SpanFromContext(ctx).AddEvent("execution.payload.hydrated", trace.WithAttributes(
+			attribute.String("vectis.execution.payload_hash", payloadHash),
+			attribute.Bool("vectis.execution.payload_cache_hit", true),
+		))
+
+		return req, nil
+	}
+
+	if w.store == nil {
+		return req, fmt.Errorf("execution payload hash %s present but runs repository is not configured", payloadHash)
+	}
+
+	payload, err := w.store.GetExecutionPayloadByHash(w.runCtx, payloadHash)
+	if err != nil {
+		w.noteDBError(err)
+		return req, fmt.Errorf("load execution payload %s: %w", payloadHash, err)
+	}
+
+	var recorded api.JobRequest
+	if err := protojson.Unmarshal([]byte(payload.PayloadJSON), &recorded); err != nil {
+		return req, fmt.Errorf("parse execution payload %s: %w", payloadHash, err)
+	}
+
+	fullJob := cloneJobForWorker(recorded.GetJob())
+	if fullJob == nil {
+		return req, fmt.Errorf("execution payload %s is missing job", payloadHash)
+	}
+
+	w.cacheExecutionPayloadJob(payloadHash, fullJob)
+
+	if err := applyQueuedJobIdentity(payloadHash, fullJob, req.GetJob()); err != nil {
+		return req, err
+	}
+
+	req.Job = fullJob
+	w.noteDBRecovered()
+	trace.SpanFromContext(ctx).AddEvent("execution.payload.hydrated", trace.WithAttributes(
+		attribute.String("vectis.execution.payload_hash", payloadHash),
+		attribute.Bool("vectis.execution.payload_cache_hit", false),
+	))
+
+	return req, nil
+}
+
+func (w *worker) cachedExecutionPayloadJob(payloadHash string) (*api.Job, bool) {
+	w.payloadMu.Lock()
+	if w.payloadJobs == nil {
+		w.payloadMu.Unlock()
+		return nil, false
+	}
+
+	job := w.payloadJobs[payloadHash]
+	w.payloadMu.Unlock()
+
+	if job == nil {
+		return nil, false
+	}
+
+	return cloneJobForWorker(job), true
+}
+
+func (w *worker) cacheExecutionPayloadJob(payloadHash string, job *api.Job) {
+	if job == nil {
+		return
+	}
+
+	w.payloadMu.Lock()
+	defer w.payloadMu.Unlock()
+
+	if w.payloadJobs == nil {
+		w.payloadJobs = make(map[string]*api.Job)
+	}
+
+	w.payloadJobs[payloadHash] = cloneJobForWorker(job)
+}
+
+func applyQueuedJobIdentity(payloadHash string, fullJob *api.Job, currentJob *api.Job) error {
+	if currentJob == nil {
+		return nil
+	}
+	if jobID := strings.TrimSpace(currentJob.GetId()); jobID != "" && fullJob.GetId() != jobID {
+		return fmt.Errorf("execution payload %s job_id=%q does not match queued job_id=%q", payloadHash, fullJob.GetId(), jobID)
+	}
+	if runID := strings.TrimSpace(currentJob.GetRunId()); runID != "" {
+		fullJob.RunId = &runID
+	}
+	if deliveryID := strings.TrimSpace(currentJob.GetDeliveryId()); deliveryID != "" {
+		fullJob.DeliveryId = &deliveryID
+	}
+	return nil
+}
+
+func (w *worker) handleJobHydrationError(ctx context.Context, jobReq *api.JobRequest, err error, started time.Time) {
+	w.logger.Error("Failed to hydrate compact queue delivery: %v", err)
+	job := jobReq.GetJob()
+	runID := job.GetRunId()
+	deliveryID := job.GetDeliveryId()
+
+	if runID != "" {
+		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+		if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
+			w.logger.Error("Failed to mark run %s orphaned after hydration failure: %v", runID, markErr)
+		}
+	}
+
+	if deliveryID != "" {
+		w.setLifecyclePhase(observability.WorkerPhaseAcking)
+		if ackErr := w.ackDeliveryWithRetry(ctx, deliveryID); ackErr != nil {
+			w.logger.Error("Ack delivery %s failed after hydration failure: %v", deliveryID, ackErr.err)
+		}
+	}
+
+	w.setLifecyclePhase(observability.WorkerPhaseIdle)
+	if w.metrics != nil {
+		w.metrics.RecordJobFinished(ctx, observability.WorkerOutcomeFailed, w.now().Sub(started))
 	}
 }
 
@@ -1494,6 +1639,7 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 		trace.SpanFromContext(ctx).RecordError(persistErr)
 	}
 
+	payloadHash := w.executionPayloadHashForContinuation(ctx, source.RunID)
 	enqueued := 0
 	failed := 0
 	for _, child := range result.Children {
@@ -1501,9 +1647,25 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 			continue
 		}
 
+		childJob := cloneJobForWorker(j)
+		metadata := cloneMetadataForWorker(source.Metadata)
+		if payloadHash != "" {
+			var err error
+			childJob, err = compactJobForWorker(j, child.TaskKey)
+			if err != nil {
+				return enqueued > 0, err
+			}
+
+			if metadata == nil {
+				metadata = map[string]string{}
+			}
+
+			metadata[cell.ExecutionPayloadHashMetadataKey] = payloadHash
+		}
+
 		req := &api.JobRequest{
-			Job:      cloneJobForWorker(j),
-			Metadata: cloneMetadataForWorker(source.Metadata),
+			Job:      childJob,
+			Metadata: metadata,
 		}
 
 		dispatch, err := w.prepareContinuationDispatch(ctx, j, source, child)
@@ -1594,6 +1756,24 @@ func (w *worker) persistTaskContinuation(ctx context.Context, source *cell.Execu
 	return true, nil
 }
 
+func (w *worker) executionPayloadHashForContinuation(ctx context.Context, runID string) string {
+	if w.store == nil {
+		return ""
+	}
+
+	payloadHash, err := w.store.GetExecutionPayloadHashForRun(w.runCtx, runID)
+	if err != nil {
+		if !errors.Is(err, dal.ErrNotFound) {
+			w.noteDBError(err)
+			trace.SpanFromContext(ctx).RecordError(err)
+		}
+		return ""
+	}
+
+	w.noteDBRecovered()
+	return strings.TrimSpace(payloadHash)
+}
+
 func cloneMetadataForWorker(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
@@ -1635,6 +1815,51 @@ func (w *worker) prepareContinuationDispatch(ctx context.Context, j *api.Job, so
 	}
 	dispatch.StartDeadlineUnixNano = deadline
 	return dispatch, nil
+}
+
+func compactJobForWorker(j *api.Job, taskKey string) (*api.Job, error) {
+	if j == nil {
+		return nil, fmt.Errorf("job is required")
+	}
+
+	node := findNodeForWorker(j.GetRoot(), taskKey)
+	if node == nil {
+		return nil, fmt.Errorf("task node %q not found for compact continuation", taskKey)
+	}
+
+	root, ok := proto.Clone(node).(*api.Node)
+	if !ok || root == nil {
+		return nil, fmt.Errorf("clone task node %q", taskKey)
+	}
+
+	jobID := j.GetId()
+	runID := j.GetRunId()
+	compact := &api.Job{
+		Id:               &jobID,
+		RunId:            &runID,
+		Root:             root,
+		DefaultIsolation: j.DefaultIsolation,
+	}
+	if deliveryID := strings.TrimSpace(j.GetDeliveryId()); deliveryID != "" {
+		compact.DeliveryId = &deliveryID
+	}
+	return compact, nil
+}
+
+func findNodeForWorker(node *api.Node, taskKey string) *api.Node {
+	taskKey = strings.TrimSpace(taskKey)
+	if node == nil || taskKey == "" {
+		return nil
+	}
+	if strings.TrimSpace(node.GetId()) == taskKey {
+		return node
+	}
+	for _, child := range taskgraph.AllChildren(node) {
+		if found := findNodeForWorker(child, taskKey); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 func executionDispatchRecordFromTaskExecution(j *api.Job, source *cell.ExecutionEnvelope, rec dal.TaskExecutionRecord) dal.ExecutionDispatchRecord {

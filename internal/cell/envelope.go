@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	ExecutionEnvelopeVersion     = 1
-	ExecutionEnvelopeMetadataKey = "vectis.execution_envelope"
-	ExecutionTaskKeyMetadataKey  = "vectis.execution_task_key"
+	ExecutionEnvelopeVersion        = 1
+	ExecutionEnvelopeMetadataKey    = "vectis.execution_envelope"
+	ExecutionTaskKeyMetadataKey     = "vectis.execution_task_key"
+	ExecutionPayloadHashMetadataKey = "vectis.execution_payload_hash"
 )
 
 type ExecutionEnvelope struct {

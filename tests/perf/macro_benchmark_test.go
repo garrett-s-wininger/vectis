@@ -101,6 +101,12 @@ type macroBenchEnv struct {
 	artifactPublisher action.ArtifactPublisher
 	actionResolver    actionregistry.Resolver
 	actionLocks       []actionregistry.ActionLock
+	payloadCache      *macroPayloadCache
+}
+
+type macroPayloadCache struct {
+	mu   sync.Mutex
+	jobs map[string]*apipb.Job
 }
 
 type macroWorkerQueue interface {
@@ -1858,6 +1864,7 @@ func newMacroBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 		artifactPublisher: artifactPublisher,
 		actionResolver:    actionResolver,
 		actionLocks:       actionLocks,
+		payloadCache:      &macroPayloadCache{jobs: make(map[string]*apipb.Job)},
 	}
 }
 
@@ -3336,20 +3343,38 @@ func enqueueMacroContinuationExecutions(
 		return 0, fmt.Errorf("missing source execution envelope")
 	}
 
+	if len(result.children) == 0 {
+		return 0, nil
+	}
+
 	jobDef := sourceReq.GetJob()
 	if jobDef == nil {
 		return 0, fmt.Errorf("source job is required")
 	}
 
+	payloadHash := macroExecutionPayloadHashForContinuation(ctx, env, source.RunID)
 	enqueued := 0
 	for _, child := range result.children {
 		if child.ExecutionID == "" {
 			continue
 		}
 
+		childJob := macroCloneJob(jobDef)
+		metadata := macroCloneStringMap(source.Metadata)
+		if payloadHash != "" {
+			childJob, err = macroCompactJobForTask(jobDef, child.TaskKey)
+			if err != nil {
+				return enqueued, err
+			}
+			if metadata == nil {
+				metadata = map[string]string{}
+			}
+			metadata[cell.ExecutionPayloadHashMetadataKey] = payloadHash
+		}
+
 		req := &apipb.JobRequest{
-			Job:      macroCloneJob(jobDef),
-			Metadata: macroCloneStringMap(source.Metadata),
+			Job:      childJob,
+			Metadata: metadata,
 		}
 
 		dispatch := macroExecutionDispatchRecordFromTaskExecution(jobDef, source, child)
@@ -3365,6 +3390,60 @@ func enqueueMacroContinuationExecutions(
 	}
 
 	return enqueued, nil
+}
+
+func macroExecutionPayloadHashForContinuation(ctx context.Context, env macroBenchEnv, runID string) string {
+	payloadHash, err := env.runs.GetExecutionPayloadHashForRun(ctx, runID)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(payloadHash)
+}
+
+func macroCompactJobForTask(j *apipb.Job, taskKey string) (*apipb.Job, error) {
+	if j == nil {
+		return nil, fmt.Errorf("job is required")
+	}
+
+	node := macroFindNodeByID(j.GetRoot(), taskKey)
+	if node == nil {
+		return nil, fmt.Errorf("task node %q not found for compact continuation", taskKey)
+	}
+
+	root, ok := proto.Clone(node).(*apipb.Node)
+	if !ok || root == nil {
+		return nil, fmt.Errorf("clone task node %q", taskKey)
+	}
+
+	jobID := j.GetId()
+	runID := j.GetRunId()
+	compact := &apipb.Job{
+		Id:               &jobID,
+		RunId:            &runID,
+		Root:             root,
+		DefaultIsolation: j.DefaultIsolation,
+	}
+	if deliveryID := strings.TrimSpace(j.GetDeliveryId()); deliveryID != "" {
+		compact.DeliveryId = &deliveryID
+	}
+	return compact, nil
+}
+
+func macroFindNodeByID(node *apipb.Node, taskKey string) *apipb.Node {
+	taskKey = strings.TrimSpace(taskKey)
+	if node == nil || taskKey == "" {
+		return nil
+	}
+	if strings.TrimSpace(node.GetId()) == taskKey {
+		return node
+	}
+	for _, child := range taskgraph.AllChildren(node) {
+		if found := macroFindNodeByID(child, taskKey); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 func macroExecutionDispatchRecordFromTaskExecution(j *apipb.Job, source *cell.ExecutionEnvelope, rec dal.TaskExecutionRecord) dal.ExecutionDispatchRecord {
@@ -3680,6 +3759,11 @@ func finishDequeuedMacroExecution(
 	logSink interfaces.LogClient,
 ) (macroExecutionResult, error) {
 	var dbTimings macroDBTimings
+	jobReq, err := hydrateMacroJobRequest(ctx, env, jobReq)
+	if err != nil {
+		return macroExecutionResult{}, err
+	}
+
 	queuedJob := jobReq.GetJob()
 	if queuedJob.GetRunId() != info.runID {
 		return macroExecutionResult{}, fmt.Errorf("dequeued run_id=%q, want %q", queuedJob.GetRunId(), info.runID)
@@ -3786,6 +3870,93 @@ func finishDequeuedMacroExecution(
 		children:  finalized.Children,
 		activated: finalized.Activated,
 	}, nil
+}
+
+func hydrateMacroJobRequest(ctx context.Context, env macroBenchEnv, req *apipb.JobRequest) (*apipb.JobRequest, error) {
+	if req == nil {
+		return nil, nil
+	}
+
+	payloadHash := strings.TrimSpace(req.GetMetadata()[cell.ExecutionPayloadHashMetadataKey])
+	if payloadHash == "" {
+		return req, nil
+	}
+
+	if fullJob, ok := env.cachedMacroPayloadJob(payloadHash); ok {
+		if err := applyMacroQueuedJobIdentity(payloadHash, fullJob, req.GetJob()); err != nil {
+			return req, err
+		}
+		req.Job = fullJob
+		return req, nil
+	}
+
+	payload, err := env.runs.GetExecutionPayloadByHash(ctx, payloadHash)
+	if err != nil {
+		return req, fmt.Errorf("load execution payload %s: %w", payloadHash, err)
+	}
+
+	var recorded apipb.JobRequest
+	if err := protojson.Unmarshal([]byte(payload.PayloadJSON), &recorded); err != nil {
+		return req, fmt.Errorf("parse execution payload %s: %w", payloadHash, err)
+	}
+
+	fullJob := macroCloneJob(recorded.GetJob())
+	if fullJob == nil {
+		return req, fmt.Errorf("execution payload %s is missing job", payloadHash)
+	}
+	env.cacheMacroPayloadJob(payloadHash, fullJob)
+
+	if err := applyMacroQueuedJobIdentity(payloadHash, fullJob, req.GetJob()); err != nil {
+		return req, err
+	}
+
+	req.Job = fullJob
+	return req, nil
+}
+
+func (env macroBenchEnv) cachedMacroPayloadJob(payloadHash string) (*apipb.Job, bool) {
+	if env.payloadCache == nil {
+		return nil, false
+	}
+
+	env.payloadCache.mu.Lock()
+	job := env.payloadCache.jobs[payloadHash]
+	env.payloadCache.mu.Unlock()
+
+	if job == nil {
+		return nil, false
+	}
+	return macroCloneJob(job), true
+}
+
+func (env macroBenchEnv) cacheMacroPayloadJob(payloadHash string, job *apipb.Job) {
+	if env.payloadCache == nil || job == nil {
+		return
+	}
+
+	env.payloadCache.mu.Lock()
+	defer env.payloadCache.mu.Unlock()
+
+	if env.payloadCache.jobs == nil {
+		env.payloadCache.jobs = make(map[string]*apipb.Job)
+	}
+	env.payloadCache.jobs[payloadHash] = macroCloneJob(job)
+}
+
+func applyMacroQueuedJobIdentity(payloadHash string, fullJob *apipb.Job, currentJob *apipb.Job) error {
+	if currentJob == nil {
+		return nil
+	}
+	if jobID := strings.TrimSpace(currentJob.GetId()); jobID != "" && fullJob.GetId() != jobID {
+		return fmt.Errorf("execution payload %s job_id=%q does not match queued job_id=%q", payloadHash, fullJob.GetId(), jobID)
+	}
+	if runID := strings.TrimSpace(currentJob.GetRunId()); runID != "" {
+		fullJob.RunId = &runID
+	}
+	if deliveryID := strings.TrimSpace(currentJob.GetDeliveryId()); deliveryID != "" {
+		fullJob.DeliveryId = &deliveryID
+	}
+	return nil
 }
 
 func finishDequeuedMacroJob(

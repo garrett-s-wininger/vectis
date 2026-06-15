@@ -2128,6 +2128,33 @@ func (r *SQLRunsRepository) GetExecutionPayloadForRun(ctx context.Context, runID
 	return rec, nil
 }
 
+func (r *SQLRunsRepository) GetExecutionPayloadHashForRun(ctx context.Context, runID string) (string, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return "", fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	var payloadHash string
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT execution_payload_hash
+		FROM job_runs
+		WHERE run_id = ?
+	`), runID).Scan(&payloadHash); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return "", normalizeSQLError(err)
+	}
+
+	payloadHash = strings.TrimSpace(payloadHash)
+	if payloadHash == "" {
+		return "", fmt.Errorf("%w: execution payload for run %s", ErrNotFound, runID)
+	}
+
+	return payloadHash, nil
+}
+
 func (r *SQLRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (ExecutionPayloadRecord, error) {
 	payloadHash = strings.TrimSpace(payloadHash)
 	if payloadHash == "" {
