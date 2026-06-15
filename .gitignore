@@ -6,6 +6,7 @@ states/
 # Outputs
 __pycache__/
 .tools/
+artifacts/deploy/
 artifacts/packages/
 artifacts/perf/
 artifacts/release-readiness/

@@ -23,6 +23,8 @@ data:
   VECTIS_LOG_FORMAT: json
   VECTIS_LOG_DIR: /var/log/vectis
   VECTIS_API_SERVER_LOG_FORMAT: json
+  VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED: "true"
+  VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN: vectis.internal
   VECTIS_API_ALLOWED_HOSTS: "localhost,127.0.0.1,vectis-api,vectis-api.{{ .Namespace }}.svc,vectis-api.{{ .Namespace }}.svc.cluster.local"
   VECTIS_DOCS_ALLOWED_HOSTS: "localhost,127.0.0.1,vectis-docs,vectis-docs.{{ .Namespace }}.svc,vectis-docs.{{ .Namespace }}.svc.cluster.local"
 ---
@@ -174,7 +176,7 @@ spec:
                   key: POSTGRES_PASSWORD
           volumeMounts:
             - name: postgres-data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/postgresql
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "vectis", "-d", "vectis"]
@@ -706,6 +708,8 @@ spec:
           env:
             - name: VECTIS_API_SERVER_HOST
               value: 0.0.0.0
+            - name: VECTIS_API_SERVER_PORT
+              value: "8080"
             - name: VECTIS_DATABASE_DSN
               valueFrom:
                 secretKeyRef:
@@ -786,6 +790,8 @@ spec:
           env:
             - name: VECTIS_DOCS_HOST
               value: 0.0.0.0
+            - name: VECTIS_DOCS_PORT
+              value: "8088"
           readinessProbe:
             httpGet:
               path: /health/live

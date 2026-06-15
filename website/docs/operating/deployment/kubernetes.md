@@ -16,6 +16,39 @@ For local development from source:
 make deploy-kubernetes-render
 ```
 
+For local cluster validation, use kind as the cluster provider and choose the
+container runtime with Make variables:
+
+```sh
+make k8s-kind-up
+make k8s-kind-load-images
+make k8s-kind-apply
+make k8s-kind-smoke
+```
+
+The generic `k8s-*` aliases dispatch through `K8S_PROVIDER`, which defaults to
+`kind`. The kind lane defaults to Podman because the rest of the reference
+container tooling already uses Podman:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `K8S_PROVIDER` | `kind` | Provider used by generic `k8s-*` aliases. |
+| `K8S_CLUSTER` | `vectis` | Local cluster name. |
+| `K8S_NAMESPACE` | `vectis` | Namespace rendered into the manifest. |
+| `K8S_IMAGE_REGISTRY` | `localhost` | Local image registry/name prefix rendered for kind and used when tagging images. |
+| `K8S_IMAGE_TAG` | `dev-local` | Local image tag built and loaded into kind. |
+| `CONTAINER_CMD` | `podman` | Runtime command used to build and save images. |
+| `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
+| `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; set `auto` for kind autodetection. |
+| `KUBECTL` | `kubectl` | Kubernetes client command. |
+| `KUBECONFIG` | unset | Optional kubeconfig path for isolated local clusters. |
+
+Docker or Docker-compatible Colima profiles can use the same targets:
+
+```sh
+make k8s-kind-validate CONTAINER_CMD=docker KIND_PROVIDER=docker
+```
+
 The first manifest is a single-cell deployment. It includes Postgres, registry,
 queue, orchestrator, log, artifact, secrets, API, docs, cron, reconciler,
 catalog, and a worker pod that runs `vectis-worker` beside

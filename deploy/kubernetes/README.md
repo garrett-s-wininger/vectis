@@ -17,6 +17,44 @@ Or:
 make deploy-kubernetes-render
 ```
 
+For local cluster validation, the repo treats kind as the Kubernetes provider
+and keeps the container runtime configurable. The defaults match the existing
+Podman-based build posture:
+
+```sh
+make k8s-kind-up
+make k8s-kind-load-images
+make k8s-kind-apply
+make k8s-kind-smoke
+```
+
+The local contract is:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `K8S_PROVIDER` | `kind` | Dispatch target for generic `k8s-*` aliases. |
+| `K8S_CLUSTER` | `vectis` | Local cluster name. |
+| `K8S_NAMESPACE` | `vectis` | Namespace rendered into the manifest. |
+| `K8S_IMAGE_REGISTRY` | `localhost` | Local image registry/name prefix rendered for kind and used when tagging images. |
+| `K8S_IMAGE_TAG` | `dev-local` | Tag used for images loaded into kind. |
+| `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
+| `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
+| `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
+| `KUBECTL` | `kubectl` | Kubernetes client used for apply, rollout, and smoke checks. |
+| `KUBECONFIG` | unset | Optional kubeconfig path for isolated local clusters. |
+
+For Docker or a Docker-compatible Colima profile:
+
+```sh
+make k8s-kind-validate CONTAINER_CMD=docker KIND_PROVIDER=docker
+```
+
+For nerdctl-backed setups:
+
+```sh
+make k8s-kind-validate CONTAINER_CMD=nerdctl KIND_PROVIDER=nerdctl
+```
+
 The default manifest creates:
 
 - a `vectis` namespace;
@@ -40,7 +78,7 @@ it as a production security baseline. The next Kubernetes slices should add:
 Build local component images before loading or pushing them to a cluster:
 
 ```sh
-make images-components
+make k8s-kind-build-images
 ```
 
 Use `--image-registry` and `--image-tag` when rendering manifests for an image

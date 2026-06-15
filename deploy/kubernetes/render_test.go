@@ -34,6 +34,10 @@ func TestRenderDefaultManifestContract(t *testing.T) {
 		"VECTIS_WORKER_REGISTER_WITH_REGISTRY",
 		"VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES",
 		"VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES",
+		"VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED",
+		"mountPath: /var/lib/postgresql",
+		"VECTIS_API_SERVER_PORT",
+		"VECTIS_DOCS_PORT",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("manifest missing %q", want)

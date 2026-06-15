@@ -20,6 +20,16 @@ deploy/podman/*
 !deploy/podman/assets.go
 !deploy/podman/kube-spec.yaml.tmpl
 !deploy/podman/grafana-configmaps.gen.yaml
+!deploy/kubernetes/
+deploy/kubernetes/*
+!deploy/kubernetes/assets.go
+!deploy/kubernetes/render.go
+!deploy/kubernetes/manifests.yaml.tmpl
+!deploy/linux/
+deploy/linux/*
+!deploy/linux/artifacts.go
+!deploy/linux/vm_smoke.go
+!deploy/linux/services.toml
 docs/
 LICENSE
 states/
