@@ -86,6 +86,7 @@ The docs site is the best place to continue:
 | [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
 | [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
 | [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
+| [API Error Code Reference](./website/docs/using/api-error-code-reference.md) | Stable API error codes, status meanings, and retry posture. |
 | [OpenAPI Specification](./website/docs/using/openapi-specification.md) | Machine-readable v1 HTTP API contract. |
 | [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
 | [Configuration Key Reference](./website/docs/operating/reference/configuration-key-reference.md) | Embedded defaults, config paths, and env-only runtime knobs. |

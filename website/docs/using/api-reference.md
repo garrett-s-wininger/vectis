@@ -4,7 +4,7 @@ The Vectis HTTP API is for scripts, dashboards, operators, and integrations that
 
 This page covers the shipped v1 REST surface. gRPC contracts live in `api/proto/`, and generated Go lives in `api/gen/go/`. Compatibility rules for REST, gRPC, CLI JSON, configuration, and schema changes are in [Compatibility](../concepts/compatibility.md).
 
-For client generators and gateway policy tooling, use the machine-readable [OpenAPI Specification](./openapi-specification.md).
+For client generators and gateway policy tooling, use the machine-readable [OpenAPI Specification](./openapi-specification.md). For the complete machine-readable error `code` catalog, see [API Error Code Reference](./api-error-code-reference.md).
 
 For the role matrix and token-scope behavior behind the route `Auth action` column, see [Authorization Reference](../operating/reference/authorization-reference.md).
 
@@ -248,6 +248,8 @@ Common status meanings:
 | `503` | Database, auth persistence, queue, or setup state is not ready. |
 
 Common v1 error codes:
+
+This table highlights high-frequency codes. The full catalog, including subsystem-specific job, run, artifact, log, catalog, and RBAC codes, lives in [API Error Code Reference](./api-error-code-reference.md).
 
 | Code | Typical status | Meaning |
 | --- | --- | --- |

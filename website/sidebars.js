@@ -20,6 +20,7 @@ const sidebars = {
         'using/your-first-job',
         'using/cli-guide',
         'using/api-reference',
+        'using/api-error-code-reference',
         'using/openapi-specification',
         'using/job-validation',
         'using/log-streaming',

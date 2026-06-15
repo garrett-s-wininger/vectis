@@ -4,7 +4,7 @@ Vectis publishes a machine-readable OpenAPI 3.0 specification for the v1 HTTP AP
 
 [Download `openapi/v1.json`](/openapi/v1.json)
 
-The spec is intended for API client generation, integration review, gateway policy checks, and quick route discovery. It covers the current shipped REST surface, including health checks, operational diagnostics, jobs, runs, artifacts, setup, login, token management, users, namespaces, and role bindings.
+The spec is intended for API client generation, integration review, gateway policy checks, and quick route discovery. It covers the current shipped REST surface, including health checks, operational diagnostics, jobs, runs, artifacts, setup, login, token management, users, namespaces, and role bindings. Pair it with [API Error Code Reference](./api-error-code-reference.md) when clients need exact retry and triage behavior for API error `code` values.
 
 ## Current Coverage
 

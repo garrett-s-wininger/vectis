@@ -44,7 +44,7 @@ Browser-facing API and docs responses include baseline security headers: `X-Cont
 
 Browser cross-origin API access is closed by default. Same-origin `Origin` headers, matching the browser-facing scheme, host, and port, are allowed without CORS response headers. Cross-origin browser requests are rejected before route handling unless the operator allows the exact origin with `api.cors.allowed_origins` / `VECTIS_API_CORS_ALLOWED_ORIGINS`; only exact `https://` origins are accepted for non-local frontends. Exact `http://` origins are limited to loopback or localhost development. Wildcard credentialed CORS is not supported.
 
-API errors use a stable JSON envelope with a `code` value such as `setup_required`, `authentication_required`, `authorization_denied`, or `auth_unavailable`. Integrations should key off those codes. The public route and error contract lives in [API Reference](../using/api-reference.md).
+API errors use a stable JSON envelope with a `code` value such as `setup_required`, `authentication_required`, `authorization_denied`, or `auth_unavailable`. Integrations should key off those codes. The public route contract lives in [API Reference](../using/api-reference.md), and the complete code catalog lives in [API Error Code Reference](../using/api-error-code-reference.md).
 
 ## Authorization
 
