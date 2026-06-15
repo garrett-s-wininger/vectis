@@ -90,6 +90,7 @@ The docs site is the best place to continue:
 | [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
 | [API Error Code Reference](./website/docs/using/api-error-code-reference.md) | Stable API error codes, status meanings, and retry posture. |
 | [OpenAPI Specification](./website/docs/using/openapi-specification.md) | Machine-readable v1 HTTP API contract. |
+| [SSE And Streaming Reference](./website/docs/using/streaming-reference.md) | SSE routes, payloads, replay controls, reconnect behavior, and proxy notes. |
 | [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
 | [Configuration Key Reference](./website/docs/operating/reference/configuration-key-reference.md) | Embedded defaults, config paths, and env-only runtime knobs. |
 | [Run, Task, And Queue State Reference](./website/docs/operating/reference/run-state-reference.md) | Lifecycle states, queue delivery states, repair hints, and operator triage. |

@@ -26,6 +26,7 @@ const sidebars = {
         'using/openapi-specification',
         'using/job-validation',
         'using/log-streaming',
+        'using/streaming-reference',
         'using/idempotency-and-retries',
       ],
     },

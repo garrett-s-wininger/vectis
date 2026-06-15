@@ -2,6 +2,8 @@
 
 Vectis streams logs while a run is executing and can replay logs that have already been written. Most people should start with the CLI; use the HTTP API when you are building an integration or dashboard.
 
+For the exact SSE payloads, replay limits, reconnect cursors, and proxy notes, see [SSE And Streaming Reference](./streaming-reference.md).
+
 ## Follow One Run
 
 If you already have a run ID, stream its logs with:
@@ -90,6 +92,8 @@ Each event has a JSON payload:
 ```
 
 The `stream` value identifies stdout, stderr, or control events. The `sequence` value is scoped to one run.
+
+For the full route contract, including `Last-Event-ID`, `tail`, `replay_limit`, and completion control messages, see [SSE And Streaming Reference](./streaming-reference.md).
 
 ## Replay And Reconnect
 

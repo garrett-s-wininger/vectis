@@ -108,7 +108,7 @@ The reference pod exposes API and docs listeners directly on host ports. Before 
 | Overwrite forwarded headers at the proxy | Vectis rejects duplicate or malformed `X-Forwarded-*`, `X-Real-IP`, and `Forwarded` headers before route handling. |
 | Block direct client access to the API listener around the proxy | Otherwise clients can bypass edge TLS, access controls, and forwarding-header sanitization. |
 | Keep API and edge header limits at or below 32 KiB | Oversized headers should be rejected before they consume Vectis handler resources. |
-| Preserve streaming for logs and run SSE routes | Disable response buffering and use long enough read timeouts for `/api/v1/sse/...` and `/api/v1/runs/.../logs`. |
+| Preserve streaming for logs and run SSE routes | Disable response buffering and use long enough read timeouts for `/api/v1/sse/...` and `/api/v1/runs/.../logs`; see [SSE And Streaming Reference](../../using/streaming-reference.md). |
 
 Apply the same HTTPS and access-control decision to the docs listener if it is published outside an operator-only network.
 
