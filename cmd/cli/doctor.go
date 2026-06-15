@@ -179,7 +179,7 @@ var doctorTextGroups = []doctorTextGroup{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
 	}},
 	{Name: "Source Control", Items: []doctorTextItem{
-		{ID: "source.mode", Label: "Source mode"},
+		{ID: "source.mode", Label: "Config-as-code"},
 		{ID: "source.repositories.sync", Label: "Repository sync"},
 		{ID: "source.repositories.declared", Label: "Repository declarations"},
 		{ID: "source.schedules.declared", Label: "Schedule declarations"},
@@ -1163,7 +1163,7 @@ func doctorLoadSourceSchedulesPath(path string) ([]sourceScheduleSummary, string
 
 func doctorSourceMode(status doctorSourceStatus, statusLoadError string) doctorCheck {
 	const id = "source.mode"
-	title := "Source mode healthy"
+	title := "Config-as-code healthy"
 	doc := "website/docs/operating/reference/health-check-catalog.md"
 
 	if statusLoadError != "" {
@@ -1172,15 +1172,15 @@ func doctorSourceMode(status doctorSourceStatus, statusLoadError string) doctorC
 
 	evidence := formatDoctorSourceModeEvidence(status)
 	if !status.RepositoriesConfigured {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source mode is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring", DocLink: doc}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "config-as-code is missing source repository persistence", Evidence: evidence, SuggestedAction: "Check API database wiring", DocLink: doc}
 	}
 
 	enabled := status.Repositories.Enabled
 	if enabled == 0 {
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source mode has no enabled source repositories", Evidence: evidence, SuggestedAction: "Declare or enable a source repository", DocLink: doc}
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "config-as-code has no enabled source repositories", Evidence: evidence, SuggestedAction: "Declare or enable a source repository", DocLink: doc}
 	}
 
-	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source mode ready: %d enabled source repositories", enabled), Evidence: evidence, DocLink: doc}
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("config-as-code ready: %d enabled source repositories", enabled), Evidence: evidence, DocLink: doc}
 }
 
 func formatDoctorSourceModeEvidence(status doctorSourceStatus) string {

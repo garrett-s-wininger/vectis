@@ -13,6 +13,7 @@ var (
 	ErrInvalidDefinition    = errors.New("invalid source definition")
 	ErrAuthoringUnavailable = errors.New("source authoring unavailable")
 	ErrConflict             = errors.New("source conflict")
+	ErrAlreadyExists        = errors.New("source already exists")
 	ErrNotFound             = errors.New("source not found")
 	ErrTooLarge             = errors.New("source file too large")
 )
@@ -131,6 +132,7 @@ type CommitFileOptions struct {
 	Content      []byte
 	Message      string
 	ExpectedHead string
+	CreateOnly   bool
 }
 
 type DeleteFileOptions struct {

@@ -360,7 +360,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/source-repositories/{id}/refs/branches` | List branch refs from the repository checkout with optional `prefix` and `limit` query parameters | `job:read` | general | `200` JSON branches |
 | GET | `/api/v1/source-repositories/{id}/tree` | List tree entries from a repository ref with optional `path`, `recursive`, and `limit` query parameters | `job:read` | general | `200` JSON tree entries |
 | GET | `/api/v1/source-repositories/{id}/definitions` | Discover JSON job definition files from a repository ref without loading file contents | `job:read` | general | `200` JSON definition files |
-| GET | `/api/v1/source-repositories/{id}/jobs` | List triggerable source-only jobs derived from repository definition paths | `job:read` | general | `200` JSON source jobs |
+| GET | `/api/v1/source-repositories/{id}/jobs` | List triggerable config-as-code jobs derived from repository definition paths | `job:read` | general | `200` JSON source jobs |
 | POST | `/api/v1/source-repositories/{id}/definitions/resolve` | Resolve and validate one job definition from a repository ref and path without storing it | `job:read` | general | `200` JSON definition |
 | GET | `/api/v1/source-repositories/{id}/jobs/{job_id}/definition` | Resolve and validate one source repository job definition by job id, optional ref, and optional path override | `job:read` | general | `200` JSON definition |
 | PUT | `/api/v1/source-repositories/{id}/jobs/{job_id}/definition` | Commit a source job definition into a managed checkout | `job:write` | general | `200` JSON definition |

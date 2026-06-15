@@ -203,6 +203,17 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected stale expected head conflict, got %v", err)
 	}
+
+	_, err = checkout.CommitFile(context.Background(), CommitFileOptions{
+		Ref:        branch,
+		Path:       ".vectis/jobs/build.json",
+		Content:    []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`),
+		CreateOnly: true,
+	})
+
+	if !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("expected create-only existing definition conflict, got %v", err)
+	}
 }
 
 func TestGitCheckoutDeleteFileUpdatesBranchWithoutCheckout(t *testing.T) {

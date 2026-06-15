@@ -35,7 +35,7 @@ Some settings are global and intentionally do not use a service prefix, such as 
 | Expose local API and docs from a dev host | `VECTIS_DOCS_ALLOWED_HOSTS=<dev-host> vectis-local --host 0.0.0.0` |
 | Add local execution cells for routing tests | `vectis-local --cell pdx-b --cell sjc-c` |
 | Run a local multi-instance HA exercise cell | `vectis-local --profile ha` or `VECTIS_LOCAL_PROFILE=ha` |
-| Run local source-only jobs from a checkout | `vectis-local --source-only --source-repository vectis-local=/path/to/repo` |
+| Run local config-as-code jobs from a checkout | `vectis-local --config-as-code --source-repository vectis-local=/path/to/repo` |
 | Run a local SPIFFE secret-resolution smoke test | `vectis-local --spiffe-trust-domain vectis.internal` |
 | Run the Podman HA reference profile | `vectis-cli deploy podman --profile ha up` |
 | Set the execution cell identity | `VECTIS_CELL_ID=local` |
@@ -115,7 +115,7 @@ Each schedule entry accepts `schedule_id`, `repository_id`, `job_id`, `cron_spec
 
 For production hotfixes, operators can set a temporary source schedule override with `PUT /api/v1/source-schedules/{schedule_id}/override` or `vectis-cli sources override`. Overrides can replace the configured ref, path, or both until the fix lands in the declared repository location. Config reconciliation preserves the active override; clear it explicitly with `DELETE /api/v1/source-schedules/{schedule_id}/override` or `vectis-cli sources clear-override` to return future runs to the configured ref/path.
 
-For source-only deployments, declare at least one source repository and use `GET /api/v1/source/status` or `vectis-cli health check` to verify that the API reports source repository persistence configured and at least one enabled source repository available for reusable job triggers and source schedules. For local development, `vectis-local --source-only --source-repository vectis-local=/path/to/repo` sets the API source repository environment for you and enables startup sync for the declared checkout.
+For config-as-code deployments, declare at least one source repository and use `GET /api/v1/source/status` or `vectis-cli health check` to verify that the API reports source repository persistence configured and at least one enabled source repository available for reusable job triggers and source schedules. For local development, `vectis-local --config-as-code --source-repository vectis-local=/path/to/repo` sets the API source repository environment for you and enables startup sync for the declared checkout.
 
 ## Service Prefixes
 
@@ -139,7 +139,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
-| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`, `--source-only`, `--source-repository`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
+| `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`, `--config-as-code`, `--source-repository`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
 | `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.

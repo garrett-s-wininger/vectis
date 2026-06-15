@@ -197,7 +197,7 @@ var retentionCleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "Prune old terminal runs and related durable records",
 	Long: `Prune old terminal run rows, artifact manifests, task graph rows, dispatch events,
-orphaned ephemeral job definitions, idempotency keys, audit log rows, and optionally
+unreferenced job definition snapshots, idempotency keys, audit log rows, and optionally
 local durable run log files and unreferenced artifact blobs.
 
 The command is destructive. Use --dry-run first, then pass --yes to apply.`,

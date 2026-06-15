@@ -251,6 +251,7 @@ type sourceRepositoryJobDefinitionWriteRequest struct {
 	Message      string          `json:"message"`
 	ExpectedHead string          `json:"expected_head"`
 	Definition   json.RawMessage `json:"definition"`
+	CreateOnly   bool            `json:"create_only,omitempty"`
 }
 
 type sourceJobTriggerRequest struct {
@@ -1458,6 +1459,7 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		DefinitionJSON: string(definitionJSON),
 		Message:        req.Message,
 		ExpectedHead:   req.ExpectedHead,
+		CreateOnly:     req.CreateOnly,
 	})
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
@@ -2853,6 +2855,8 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 	switch {
 	case dal.IsConflict(err):
 		writeAPIError(w, http.StatusConflict, "source_job_conflict", "source job conflict", nil)
+	case errors.Is(err, sourcepkg.ErrAlreadyExists):
+		writeAPIError(w, http.StatusConflict, "source_definition_already_exists", "source definition already exists", nil)
 	case errors.Is(err, sourcepkg.ErrAuthoringUnavailable):
 		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", nil)
 	case errors.Is(err, sourcepkg.ErrConflict):

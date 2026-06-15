@@ -66,7 +66,7 @@ func sourceJobRepositoryIDFromTriggerBody(w http.ResponseWriter, r *http.Request
 	return strings.TrimSpace(req.RepositoryID), true
 }
 
-func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(w http.ResponseWriter, r *http.Request, body []byte, fallbackJobID string) bool {
+func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(w http.ResponseWriter, r *http.Request, body []byte, fallbackJobID string, createOnly bool) bool {
 	trimmed := bytes.TrimSpace(body)
 
 	var req sourceJobDefinitionFacadeRequest
@@ -137,6 +137,7 @@ func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(w http.ResponseWriter
 		Message:      firstNonEmpty(req.Message, q.Get("message")),
 		ExpectedHead: firstNonEmpty(req.ExpectedHead, q.Get("expected_head")),
 		Definition:   json.RawMessage(definition),
+		CreateOnly:   createOnly,
 	}
 	payload, err := json.Marshal(writeReq)
 	if err != nil {

@@ -693,7 +693,7 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, "") {
+	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, "", true) {
 		return
 	}
 
@@ -1136,7 +1136,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, jobID) {
+	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, jobID, false) {
 		return
 	}
 

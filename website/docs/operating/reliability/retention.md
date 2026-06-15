@@ -2,7 +2,7 @@
 
 Use this page when Vectis SQL storage is growing, when you are setting a cleanup policy, or when a health check or alert points at old retained records.
 
-Vectis keeps durable SQL state for runs, artifact manifests, dispatch visibility, ephemeral job definitions, idempotency keys, and audit events. Operators should prune old data deliberately, after checking backups and previewing exactly what cleanup will delete.
+Vectis keeps durable SQL state for runs, artifact manifests, dispatch visibility, unreferenced job definition snapshots, idempotency keys, and audit events. Operators should prune old data deliberately, after checking backups and previewing exactly what cleanup will delete.
 
 ## What Cleanup Does
 

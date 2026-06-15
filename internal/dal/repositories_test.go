@@ -5032,7 +5032,7 @@ func TestSchedulesRepository_ListSourceCronSchedules(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create source schedule repo-c: %v", err)
 	}
-	insertCronTriggerSpec(t, ctx, db, "non-source-only", "* * * * *", nextRun)
+	insertCronTriggerSpec(t, ctx, db, "non-source-schedule", "* * * * *", nextRun)
 
 	rootSchedules, err := repos.Schedules().ListSourceCronSchedules(ctx, 1, "")
 	if err != nil {
@@ -5148,7 +5148,7 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 	}
 
 	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
-		ScheduleID: "non-source-only",
+		ScheduleID: "non-source-schedule",
 		JobID:      "non-source",
 		CronSpec:   "30 * * * *",
 		NextRunAt:  nextRun,
@@ -5174,11 +5174,11 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 		t.Fatalf("source trigger rows=%d, want 0", triggerRows)
 	}
 
-	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "non-source-only"); err != nil {
+	if _, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "non-source-schedule"); err != nil {
 		t.Fatalf("non-source delete guard fixture should remain: %v", err)
 	}
 
-	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "non-source-only"); !dal.IsNotFound(err) {
+	if err := repos.Schedules().DeleteSourceCronSchedule(ctx, "non-source-schedule"); !dal.IsNotFound(err) {
 		t.Fatalf("deleting non-source delete guard fixture through source delete should be not found, got %v", err)
 	}
 

@@ -1924,7 +1924,7 @@ var sourcesCmd = &cobra.Command{
 var sourcesOverviewCmd = &cobra.Command{
 	Use:   "overview",
 	Short: "Show source-control readiness",
-	Long:  `Show source mode, persistence wiring, declaration counts, and persisted repository and schedule summaries.`,
+	Long:  `Show config-as-code source wiring, declaration counts, and persisted repository and schedule summaries.`,
 	Args:  cobra.NoArgs,
 	Run:   sourceOverview,
 }

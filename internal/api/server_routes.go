@@ -138,7 +138,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		{
 			Pattern: "GET /api/v1/source/status",
 			Handler: http.HandlerFunc(s.GetSourceStatus),
-			// public route: source-only clients need to discover source-mode capabilities before authentication is configured.
+			// public route: config-as-code clients need to discover source capabilities before authentication is configured.
 			Auth: routeAuthPolicy{mode: routeAuthPublic},
 		},
 		{

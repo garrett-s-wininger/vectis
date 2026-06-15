@@ -4773,8 +4773,8 @@ func TestDoctor_success(t *testing.T) {
 		"OK    Cell event inbox",
 		"catalog inbox ok: 0 pending",
 		"Source Control",
-		"OK    Source mode",
-		"source mode ready: 1 enabled source repositories",
+		"OK    Config-as-code",
+		"config-as-code ready: 1 enabled source repositories",
 		"OK    Repository sync",
 		"source repository sync ok: 1 enabled",
 		"OK    Repository declarations",
@@ -5398,12 +5398,12 @@ func TestDoctor_sourceModeWarnsWhenNoEnabledRepositories(t *testing.T) {
 
 	check := doctorSourceMode(status, "")
 	if check.Status != doctorWarn {
-		t.Fatalf("expected source-only warning, got %#v", check)
+		t.Fatalf("expected config-as-code warning, got %#v", check)
 	}
 
-	for _, want := range []string{"source mode has no enabled source repositories", "repositories=1", "enabled_repositories=0", "disabled_repositories=1"} {
+	for _, want := range []string{"config-as-code has no enabled source repositories", "repositories=1", "enabled_repositories=0", "disabled_repositories=1"} {
 		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
-			t.Fatalf("expected source mode check to contain %q, got %#v", want, check)
+			t.Fatalf("expected config-as-code check to contain %q, got %#v", want, check)
 		}
 	}
 }

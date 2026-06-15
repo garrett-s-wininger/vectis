@@ -41,7 +41,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Stream logs for a run | `vectis-cli logs run <run-id>` |
 | Inspect source-control readiness | `vectis-cli sources overview` |
 | Inspect source repository health | `vectis-cli sources status <repository-id>` |
-| Check source-only readiness | `vectis-cli health check --strict` |
+| Check config-as-code readiness | `vectis-cli health check --strict` |
 | List stale source repositories | `vectis-cli sources list --stale` |
 | List stale source schedules | `vectis-cli sources schedules --stale` |
 | Trigger a source-defined job | `vectis-cli jobs trigger <job-id> --repository <repository-id>` |

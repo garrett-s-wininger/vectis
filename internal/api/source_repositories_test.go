@@ -495,6 +495,21 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		t.Fatalf("created job command mismatch: %+v", createdJob.GetRoot().GetWith())
 	}
 
+	duplicateCreateRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs", map[string]any{
+		"repository_id": "managed-repo",
+		"job_id":        "build",
+		"message":       "duplicate build through jobs facade",
+		"job": map[string]any{
+			"root": map[string]any{
+				"id":   "root",
+				"uses": "builtins/shell",
+				"with": map[string]any{"command": "duplicate"},
+			},
+		},
+	})
+
+	assertAPIError(t, duplicateCreateRec, http.StatusConflict, "source_definition_already_exists")
+
 	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/jobs/build", map[string]any{
 		"repository_id": "managed-repo",
 		"expected_head": createResp.Source.ResolvedCommit,

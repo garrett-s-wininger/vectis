@@ -290,6 +290,12 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 		}
 	}
 
+	if opts.CreateOnly {
+		if _, err := g.run(ctx, "cat-file", "-e", parent+":"+cleanPath); err == nil {
+			return FileCommit{}, fmt.Errorf("%w: %s at %s", ErrAlreadyExists, cleanPath, parent)
+		}
+	}
+
 	message := strings.TrimSpace(opts.Message)
 	if message == "" {
 		message = "Update " + cleanPath

@@ -199,7 +199,7 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 	assertRunArtifact(t, root, env, cli, run.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
 }
 
-func TestE2ELocalSourceOnlyTriggerSmoke(t *testing.T) {
+func TestE2ELocalConfigAsCodeTriggerSmoke(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("vectis-local e2e process cleanup uses Unix signals")
 	}
@@ -213,7 +213,7 @@ func TestE2ELocalSourceOnlyTriggerSmoke(t *testing.T) {
 	requireGit(t)
 	requireLocalPortsAvailable(t, localSmokePorts)
 
-	sourceRepo := createSourceOnlySmokeRepo(t, root)
+	sourceRepo := createConfigAsCodeSmokeRepo(t, root)
 	dataHome := t.TempDir()
 	env := commandEnv(map[string]string{
 		"XDG_DATA_HOME":   dataHome,
@@ -229,7 +229,7 @@ func TestE2ELocalSourceOnlyTriggerSmoke(t *testing.T) {
 		"VECTIS_LOCAL_GRPC_INSECURE":                            "false",
 		"VECTIS_LOCAL_HTTP_TLS":                                 "off",
 		"VECTIS_LOCAL_DOCS_ENABLED":                             "false",
-		"VECTIS_LOCAL_SOURCE_ONLY":                              "",
+		"VECTIS_LOCAL_CONFIG_AS_CODE":                           "",
 		"VECTIS_LOCAL_SOURCE_REPOSITORIES":                      "",
 		"VECTIS_SOURCE_REPOSITORIES":                            "",
 		"VECTIS_SOURCE_STORED_JOBS_ENABLED":                     "",
@@ -240,7 +240,7 @@ func TestE2ELocalSourceOnlyTriggerSmoke(t *testing.T) {
 		"VECTIS_WORKER_EXECUTION_BACKEND":                       "host",
 	})
 
-	proc := startVectisLocal(t, root, env, local, "--source-only", "--source-repository", "vectis-local="+sourceRepo)
+	proc := startVectisLocal(t, root, env, local, "--config-as-code", "--source-repository", "vectis-local="+sourceRepo)
 	if !truthyEnv("VECTIS_E2E_KEEP_LOCAL") {
 		t.Cleanup(func() { stopVectisLocal(t, proc) })
 	}
@@ -383,11 +383,11 @@ func requireGit(t *testing.T) {
 	t.Helper()
 
 	if _, err := exec.LookPath("git"); err != nil {
-		skipOrFatal(t, "git binary is not available; source-only e2e smoke requires git")
+		skipOrFatal(t, "git binary is not available; config-as-code e2e smoke requires git")
 	}
 }
 
-func createSourceOnlySmokeRepo(t *testing.T, root string) string {
+func createConfigAsCodeSmokeRepo(t *testing.T, root string) string {
 	t.Helper()
 
 	repo := filepath.Join(t.TempDir(), "source-repo")
@@ -418,7 +418,7 @@ func createSourceOnlySmokeRepo(t *testing.T, root string) string {
 	git("config", "user.email", "vectis-e2e@example.invalid")
 	git("config", "user.name", "Vectis E2E")
 	git("add", ".vectis/jobs/"+canonicalJobID+".json")
-	git("commit", "-m", "Add source-only smoke job")
+	git("commit", "-m", "Add config-as-code smoke job")
 
 	return repo
 }

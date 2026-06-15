@@ -20,6 +20,7 @@ type WriteDefinitionRequest struct {
 	DefinitionJSON string
 	Message        string
 	ExpectedHead   string
+	CreateOnly     bool
 }
 
 type DeleteDefinitionRequest struct {
@@ -132,6 +133,7 @@ func (a LocalCommitDefinitionAuthor) WriteDefinition(ctx context.Context, req Wr
 		Content:      []byte(req.DefinitionJSON),
 		Message:      req.Message,
 		ExpectedHead: req.ExpectedHead,
+		CreateOnly:   req.CreateOnly,
 	})
 
 	if err != nil {

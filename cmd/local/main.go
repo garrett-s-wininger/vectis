@@ -938,6 +938,10 @@ func apiEnv() ([]string, error) {
 func localSourceRepositoryDeclarations() ([]config.SourceRepositoryDeclaration, error) {
 	values := localSourceRepositorySpecs()
 	if len(values) == 0 {
+		if viper.GetBool("config_as_code") {
+			return nil, fmt.Errorf("config-as-code requires one or more --source-repository repository_id=checkout_path flags")
+		}
+
 		return nil, nil
 	}
 
@@ -1774,9 +1778,9 @@ Use --cell repeatedly to add extra local execution cells over the default cell
 from VECTIS_CELL_ID. Extra cells are intended for local multi-cell routing tests
 and use per-cell SQLite databases, queues, secrets roots, ingress endpoints, and workers.
 
-Use --source-only with one or more --source-repository repository_id=checkout_path
-flags to start a local source-defined-jobs instance without hand-authoring the
-JSON source repository environment.
+Use --config-as-code with one or more --source-repository repository_id=checkout_path
+flags to start a local config-as-code instance without hand-authoring the JSON
+source repository environment.
 
 Use --profile=ha to start a local multi-instance exercise cell with multiple
 registries, queue shards, log shards, artifact shards, API replicas, worker-core,
@@ -1818,7 +1822,7 @@ func init() {
 	rootCmd.PersistentFlags().Bool("docs", true, "Start the local docs site")
 	rootCmd.PersistentFlags().Int("docs-port", 8088, "HTTP port for the local docs site")
 	rootCmd.PersistentFlags().String("docs-dir", "", "Directory containing a docs build to serve instead of embedded docs")
-	rootCmd.PersistentFlags().Bool("source-only", false, "Configure the local API server for source-backed reusable jobs")
+	rootCmd.PersistentFlags().Bool("config-as-code", false, "Configure the local API server for config-as-code reusable jobs")
 	rootCmd.PersistentFlags().StringArray("source-repository", nil, "Declare a local source repository as repository_id=checkout_path; may be repeated")
 	rootCmd.PersistentFlags().StringArray("cell", nil, "Additional local execution cell ID to start; may be repeated")
 	rootCmd.PersistentFlags().String("spiffe-dir", "", "Directory for local vectis-spiffe authority data")
@@ -1841,7 +1845,7 @@ func init() {
 	_ = viper.BindPFlag("docs_enabled", rootCmd.PersistentFlags().Lookup("docs"))
 	_ = viper.BindPFlag("docs_port", rootCmd.PersistentFlags().Lookup("docs-port"))
 	_ = viper.BindPFlag("docs_dir", rootCmd.PersistentFlags().Lookup("docs-dir"))
-	_ = viper.BindPFlag("source_only", rootCmd.PersistentFlags().Lookup("source-only"))
+	_ = viper.BindPFlag("config_as_code", rootCmd.PersistentFlags().Lookup("config-as-code"))
 	_ = viper.BindPFlag("source_repositories", rootCmd.PersistentFlags().Lookup("source-repository"))
 	_ = viper.BindPFlag("cells", rootCmd.PersistentFlags().Lookup("cell"))
 	_ = viper.BindPFlag("spiffe_dir", rootCmd.PersistentFlags().Lookup("spiffe-dir"))
@@ -1862,7 +1866,7 @@ func init() {
 	_ = viper.BindEnv("docs_enabled", "VECTIS_LOCAL_DOCS_ENABLED")
 	_ = viper.BindEnv("docs_port", "VECTIS_LOCAL_DOCS_PORT")
 	_ = viper.BindEnv("docs_dir", "VECTIS_LOCAL_DOCS_DIR")
-	_ = viper.BindEnv("source_only", "VECTIS_LOCAL_SOURCE_ONLY")
+	_ = viper.BindEnv("config_as_code", "VECTIS_LOCAL_CONFIG_AS_CODE")
 	_ = viper.BindEnv("source_repositories", "VECTIS_LOCAL_SOURCE_REPOSITORIES")
 	_ = viper.BindEnv("cells", "VECTIS_LOCAL_CELLS")
 	_ = viper.BindEnv("spiffe_dir", "VECTIS_LOCAL_SPIFFE_DIR")

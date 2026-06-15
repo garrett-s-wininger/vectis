@@ -474,11 +474,11 @@ func TestValidLocalHTTPSTLSMode(t *testing.T) {
 	}
 }
 
-func TestAPIEnvSourceOnlyRepositories(t *testing.T) {
+func TestAPIEnvConfigAsCodeRepositories(t *testing.T) {
 	resetLocalTestConfig(t)
 	t.Setenv("VECTIS_LOCAL_SOURCE_REPOSITORIES", "")
 	viper.Set("host", "127.0.0.1")
-	viper.Set("source_only", true)
+	viper.Set("config_as_code", true)
 
 	tmp := t.TempDir()
 	repoDir := filepath.Join(tmp, "repo")
@@ -534,6 +534,16 @@ func TestAPIEnvSourceOnlyRepositories(t *testing.T) {
 
 	if repos[1].RepositoryID != "relative" || repos[1].CheckoutPath != relativeRepo {
 		t.Fatalf("relative source repository mismatch: %+v", repos[1])
+	}
+}
+
+func TestAPIEnvConfigAsCodeRequiresRepository(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_LOCAL_SOURCE_REPOSITORIES", "")
+	viper.Set("config_as_code", true)
+
+	if _, err := apiEnv(); err == nil || !strings.Contains(err.Error(), "config-as-code requires") {
+		t.Fatalf("expected config-as-code repository error, got %v", err)
 	}
 }
 
