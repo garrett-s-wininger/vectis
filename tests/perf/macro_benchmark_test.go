@@ -57,6 +57,7 @@ const (
 	envMacroDatabaseMaxOpenConns = "VECTIS_PERF_DATABASE_MAX_OPEN_CONNS"
 	envMacroDatabaseMaxIdleConns = "VECTIS_PERF_DATABASE_MAX_IDLE_CONNS"
 	envMacroFanoutWidths         = "VECTIS_PERF_FANOUT_WIDTHS"
+	envMacroWorkerCounts         = "VECTIS_PERF_WORKER_COUNTS"
 	envMacroPGStatStatements     = "VECTIS_PERF_PG_STAT_STATEMENTS"
 	envMacroPGStatStatementsOut  = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
 	envMacroStatusReadClients    = "VECTIS_PERF_STATUS_READ_CLIENTS"
@@ -342,32 +343,44 @@ func macroBenchmarkStatusReadsPerRun(b *testing.B) int {
 func macroBenchmarkFanoutWidths(b *testing.B) []int {
 	b.Helper()
 
-	raw := os.Getenv(envMacroFanoutWidths)
+	return macroBenchmarkEnvIntList(b, envMacroFanoutWidths, []int{1, 10, 100})
+}
+
+func macroBenchmarkWorkerCounts(b *testing.B) []int {
+	b.Helper()
+
+	return macroBenchmarkEnvIntList(b, envMacroWorkerCounts, []int{1, 2, 4, 8, 16})
+}
+
+func macroBenchmarkEnvIntList(b *testing.B, name string, defaultValues []int) []int {
+	b.Helper()
+
+	raw := os.Getenv(name)
 	if strings.TrimSpace(raw) == "" {
-		return []int{1, 10, 100}
+		return append([]int(nil), defaultValues...)
 	}
 
 	parts := strings.Split(raw, ",")
-	widths := make([]int, 0, len(parts))
+	values := make([]int, 0, len(parts))
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
 
-		width, err := strconv.Atoi(part)
-		if err != nil || width <= 0 {
-			b.Fatalf("%s must be a comma-separated list of positive integers, got %q", envMacroFanoutWidths, raw)
+		value, err := strconv.Atoi(part)
+		if err != nil || value <= 0 {
+			b.Fatalf("%s must be a comma-separated list of positive integers, got %q", name, raw)
 		}
 
-		widths = append(widths, width)
+		values = append(values, value)
 	}
 
-	if len(widths) == 0 {
-		b.Fatalf("%s must include at least one positive integer, got %q", envMacroFanoutWidths, raw)
+	if len(values) == 0 {
+		b.Fatalf("%s must include at least one positive integer, got %q", name, raw)
 	}
 
-	return widths
+	return values
 }
 
 type macroDatabaseConfig struct {
@@ -682,6 +695,14 @@ func BenchmarkMacro_OrchestratorGRPCConcurrentE2ECanonicalLocal_TriggerToTermina
 
 func BenchmarkMacro_OrchestratorGRPCConcurrentE2ECanonicalDistributed_TriggerToTerminal(b *testing.B) {
 	runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b, e2eCanonicalDistributedMacroJob(b), newMacroGRPCOrchestratorBenchEnv)
+}
+
+func BenchmarkMacro_OrchestratorGRPCConcurrentShallowFanoutResult_TriggerToTerminal(b *testing.B) {
+	for _, width := range macroBenchmarkFanoutWidths(b) {
+		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
+			runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b, shallowFanoutResultMacroJob(b, width), newMacroGRPCOrchestratorBenchEnv)
+		})
+	}
 }
 
 func runMacroConcurrentTriggerToTerminalBenchmarkWithJobAndEnv(b *testing.B, macroJob macroJobSpec, newEnv macroBenchEnvFactory) {
@@ -1424,7 +1445,7 @@ func BenchmarkMacro_OrchestratorGRPCWorkerClaimAckFinalize(b *testing.B) {
 }
 
 func BenchmarkMacro_WorkerScale_ClaimAckComplete(b *testing.B) {
-	for _, workers := range []int{1, 2, 4, 8, 16} {
+	for _, workers := range macroBenchmarkWorkerCounts(b) {
 		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
 			runMacroWorkerClaimAckCompleteBenchmarkWithWorkers(b, workers)
 		})
@@ -1432,7 +1453,7 @@ func BenchmarkMacro_WorkerScale_ClaimAckComplete(b *testing.B) {
 }
 
 func BenchmarkMacro_OrchestratorWorkerScale_ClaimAckComplete(b *testing.B) {
-	for _, workers := range []int{1, 2, 4, 8, 16} {
+	for _, workers := range macroBenchmarkWorkerCounts(b) {
 		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
 			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, workers, noopMacroJob(), newMacroInProcessOrchestratorBenchEnv)
 		})
@@ -1440,7 +1461,7 @@ func BenchmarkMacro_OrchestratorWorkerScale_ClaimAckComplete(b *testing.B) {
 }
 
 func BenchmarkMacro_OrchestratorGRPCWorkerScale_ClaimAckComplete(b *testing.B) {
-	for _, workers := range []int{1, 2, 4, 8, 16} {
+	for _, workers := range macroBenchmarkWorkerCounts(b) {
 		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
 			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersJobAndEnv(b, workers, noopMacroJob(), newMacroGRPCOrchestratorBenchEnv)
 		})
@@ -1448,7 +1469,7 @@ func BenchmarkMacro_OrchestratorGRPCWorkerScale_ClaimAckComplete(b *testing.B) {
 }
 
 func BenchmarkMacro_WorkerScale_ResultActionClaimAckComplete(b *testing.B) {
-	for _, workers := range []int{1, 2, 4, 8, 16} {
+	for _, workers := range macroBenchmarkWorkerCounts(b) {
 		b.Run(fmt.Sprintf("workers_%02d", workers), func(b *testing.B) {
 			runMacroWorkerClaimAckCompleteBenchmarkWithWorkersAndJob(b, workers, resultMacroJob())
 		})
@@ -1579,6 +1600,77 @@ func e2eCanonicalMacroJob(b *testing.B, localFanout bool) macroJobSpec {
 		artifactPublisher: &macroArtifactPublisher{},
 		actionResolver:    resolver,
 		actionLocks:       locks,
+	}
+}
+
+func shallowFanoutResultMacroJob(b *testing.B, width int) macroJobSpec {
+	b.Helper()
+	if width <= 0 {
+		b.Fatalf("shallow fanout width must be positive, got %d", width)
+	}
+
+	jobID := fmt.Sprintf("macro-shallow-fanout-result-%d", width)
+	resultUses := "builtins/result"
+	sequenceUses := "builtins/sequence"
+	parallelUses := "builtins/parallel"
+	setupID := "setup"
+	fanoutID := "fanout"
+	successWith := map[string]string{"success": "true"}
+	localWith := map[string]string{"execution": "local"}
+	distributedWith := map[string]string{"execution": "distributed"}
+
+	branches := make([]*apipb.Node, 0, width)
+	for i := 0; i < width; i++ {
+		nodeID := fmt.Sprintf("branch-%05d", i)
+		branches = append(branches, &apipb.Node{
+			Id:   &nodeID,
+			Uses: &resultUses,
+			With: successWith,
+		})
+	}
+
+	def := &apipb.Job{
+		Id: &jobID,
+		Root: &apipb.Node{
+			Id:   macroString("root-control"),
+			Uses: &sequenceUses,
+			With: localWith,
+			Ports: map[string]*apipb.NodePort{
+				"steps": {
+					Nodes: []*apipb.Node{
+						{
+							Id:   &setupID,
+							Uses: &resultUses,
+							With: successWith,
+						},
+						{
+							Id:   &fanoutID,
+							Uses: &parallelUses,
+							With: distributedWith,
+							Ports: map[string]*apipb.NodePort{
+								"branches": {Nodes: branches},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	plan, err := taskgraph.PlanTaskBoundaries(def, dal.RootTaskKey)
+	if err != nil {
+		b.Fatalf("plan shallow fanout result job: %v", err)
+	}
+
+	body, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(def)
+	if err != nil {
+		b.Fatalf("marshal shallow fanout result job: %v", err)
+	}
+
+	return macroJobSpec{
+		id:             jobID,
+		definitionJSON: string(body),
+		expectedTasks:  1 + len(plan.Entries),
 	}
 }
 
@@ -3540,7 +3632,7 @@ func loadDequeuedMacroRun(ctx context.Context, env macroBenchEnv, jobReq *apipb.
 	return macroDBTimings{choreographyLoadRun: time.Since(started).Nanoseconds()}, nil
 }
 
-func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID string, leaseUntil time.Time) error {
+func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID, taskKey string, leaseUntil time.Time) error {
 	if env.choreo.DBBacked() {
 		return nil
 	}
@@ -3550,6 +3642,17 @@ func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID str
 		ownerID = "orchestrator:macro-grpc"
 	}
 
+	if taskKey != dal.RootTaskKey {
+		owner, found, err := env.runs.GetRunHotStateOwner(ctx, runID)
+		if err != nil {
+			return err
+		}
+
+		if found && macroRunHotStateOwnerFresh(owner, ownerID, time.Now().UTC()) {
+			return nil
+		}
+	}
+
 	return env.runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
 		RunID:      runID,
 		CellID:     dal.DefaultCellID,
@@ -3557,6 +3660,14 @@ func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID str
 		OwnerEpoch: "macro",
 		LeaseUntil: leaseUntil,
 	})
+}
+
+func macroRunHotStateOwnerFresh(owner dal.RunHotStateOwnerRecord, ownerID string, now time.Time) bool {
+	if strings.TrimSpace(owner.OwnerID) != strings.TrimSpace(ownerID) {
+		return false
+	}
+
+	return owner.LeaseUntil.After(now.Add(dal.DefaultLeaseTTL / 2))
 }
 
 func finishDequeuedMacroExecution(
@@ -3609,7 +3720,7 @@ func finishDequeuedMacroExecution(
 
 	if !env.choreo.DBBacked() {
 		ownerStarted := time.Now()
-		if err := publishMacroHotStateOwner(ctx, env, runID, time.Now().Add(dal.DefaultLeaseTTL)); err != nil {
+		if err := publishMacroHotStateOwner(ctx, env, runID, executionEnvelope.TaskKey, time.Now().Add(dal.DefaultLeaseTTL)); err != nil {
 			return macroExecutionResult{}, fmt.Errorf("publish hot-state owner for run %s: %w", runID, err)
 		}
 

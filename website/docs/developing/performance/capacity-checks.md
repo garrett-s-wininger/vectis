@@ -109,6 +109,8 @@ Useful knobs:
 | `VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT` | harness-generated | Optional direct `go test` output file for Postgres top-query lines. |
 | `VECTIS_PERF_TRIGGER_CLIENTS` | `4` | Concurrent trigger clients used by macro trigger-to-terminal benchmarks. |
 | `VECTIS_PERF_WORKERS` | `4` | Concurrent worker loops used by macro worker and trigger-to-terminal benchmarks. |
+| `VECTIS_PERF_WORKER_COUNTS` | `1,2,4,8,16` | Comma-separated worker counts used by worker-scale macro benchmarks. |
+| `VECTIS_PERF_FANOUT_WIDTHS` | `1,10,100` | Comma-separated fanout widths used by fanout and shallow distributed DAG macro benchmarks. |
 | `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
 | `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
 | `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
@@ -177,6 +179,16 @@ For worker scaling checks, either set `VECTIS_PERF_WORKERS` on a normal macro ru
 
 ```sh
 VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ClaimAckComplete make perf SUITE=macro
+```
+
+Set `VECTIS_PERF_WORKER_COUNTS` to sweep larger worker counts. To probe single-cell runnable-slot saturation without subprocess overhead, use the shallow distributed result-action DAG and set `VECTIS_PERF_FANOUT_WIDTHS` to the branch counts under test:
+
+```sh
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_OrchestratorGRPCConcurrentShallowFanoutResult_TriggerToTerminal \
+VECTIS_PERF_FANOUT_WIDTHS=100,500,1000 \
+VECTIS_PERF_WORKERS=128 \
+VECTIS_PERF_BENCHTIME=1x \
+make perf SUITE=macro
 ```
 
 Use the result action checks when you want to remove subprocess creation from the macro workload and isolate worker, database, queue, and log-flush overhead:

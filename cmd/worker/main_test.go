@@ -116,7 +116,7 @@ func TestWorkerMarkExecutionStarted_PersistsDurableStartForSQLRuns(t *testing.T)
 
 func TestWorkerPublishRunHotStateOwner_OnlyForOrchestratorRuns(t *testing.T) {
 	ctx := context.Background()
-	leaseUntil := time.Now().Add(time.Minute).UTC()
+	leaseUntil := time.Now().Add(dal.DefaultLeaseTTL).UTC()
 	env := &cell.ExecutionEnvelope{
 		RunID:       "run-hot",
 		TaskID:      "run-hot:root",
@@ -146,6 +146,28 @@ func TestWorkerPublishRunHotStateOwner_OnlyForOrchestratorRuns(t *testing.T) {
 		store.LastHotStateOwner.OwnerEpoch != "epoch-hot" ||
 		!store.LastHotStateOwner.LeaseUntil.Equal(leaseUntil) {
 		t.Fatalf("hot-state owner update: %+v", store.LastHotStateOwner)
+	}
+
+	childEnv := *env
+	childEnv.TaskID = "run-hot:child"
+	childEnv.TaskKey = "child"
+	childEnv.ExecutionID = "execution-child"
+	store.LastHotStateOwner = dal.RunHotStateOwnerUpdate{}
+	if err := orchestratorWorker.publishRunHotStateOwner(ctx, &childEnv, leaseUntil); err != nil {
+		t.Fatalf("publish fresh child owner: %v", err)
+	}
+
+	if store.LastHotStateOwner.RunID != "" {
+		t.Fatalf("fresh child owner should not republish, got %+v", store.LastHotStateOwner)
+	}
+
+	store.HotStateOwner.LeaseUntil = time.Now().Add(time.Minute).UTC()
+	if err := orchestratorWorker.publishRunHotStateOwner(ctx, &childEnv, leaseUntil); err != nil {
+		t.Fatalf("renew stale child owner: %v", err)
+	}
+
+	if store.LastHotStateOwner.RunID != env.RunID {
+		t.Fatalf("stale child owner should renew, got %+v", store.LastHotStateOwner)
 	}
 
 	sqlStore := &mocks.MockRunsRepository{}

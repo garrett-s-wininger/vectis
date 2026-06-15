@@ -673,6 +673,26 @@ func (w *worker) publishRunHotStateOwner(ctx context.Context, env *cell.Executio
 		ownerEpoch = "unknown"
 	}
 
+	if env.TaskKey != dal.RootTaskKey {
+		owner, found, err := w.store.GetRunHotStateOwner(w.runCtx, env.RunID)
+		if err != nil {
+			w.noteDBError(err)
+			trace.SpanFromContext(ctx).RecordError(err)
+			return err
+		}
+
+		if found && runHotStateOwnerFresh(owner, ownerID, w.now().UTC()) {
+			w.noteDBRecovered()
+			trace.SpanFromContext(ctx).AddEvent("run.hot_state_owner.publish_skipped", trace.WithAttributes(
+				attribute.String("run.id", env.RunID),
+				attribute.String("cell.id", cellID),
+				attribute.String("vectis.hot_state.owner_id", ownerID),
+			))
+
+			return nil
+		}
+	}
+
 	if err := w.store.UpsertRunHotStateOwner(w.runCtx, dal.RunHotStateOwnerUpdate{
 		RunID:      env.RunID,
 		CellID:     cellID,
@@ -693,6 +713,14 @@ func (w *worker) publishRunHotStateOwner(ctx context.Context, env *cell.Executio
 		attribute.String("vectis.hot_state.owner_epoch", ownerEpoch),
 	))
 	return nil
+}
+
+func runHotStateOwnerFresh(owner dal.RunHotStateOwnerRecord, ownerID string, now time.Time) bool {
+	if strings.TrimSpace(owner.OwnerID) != strings.TrimSpace(ownerID) {
+		return false
+	}
+
+	return owner.LeaseUntil.After(now.Add(dal.DefaultLeaseTTL / 2))
 }
 
 type missingExecutionChoreographer struct{}
