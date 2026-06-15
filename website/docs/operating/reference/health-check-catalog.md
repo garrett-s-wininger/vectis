@@ -92,7 +92,7 @@ When `cells.ingress` warns, `evidence` includes each observed cell and ingress s
 
 When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes source-cell inbox pressure for cells with pending or failed events, for example `sources=iad-a:p=2/f=1,pdx-b:p=101/f=0`. Failed catalog security events can delay the global view of a worker-controlled SVID or secret-resolution denial, so use `vectis-cli runs show <run-id>` and `vectis-cli runs tasks <run-id>` against the owning cell when the global catalog looks stale.
 
-When `source.repositories.sync` warns, `evidence` includes repository counts and affected repository IDs after the detailed repository fetch, for example `repositories=3 enabled=3 failed=1 running=1 failed_repositories=vectis stale_running_repositories=infra`.
+When `source.repositories.sync` warns, `evidence` includes repository counts and affected repository IDs after the detailed repository fetch, for example `repositories=3 enabled=3 failed=1 running=1 failed_repositories=vectis stale_running_repositories=infra`. Credential-resolution failures are reported as repository IDs in `credential_failed_repositories`; raw secret refs and provider errors are not included in health evidence.
 
 When `source.mode` warns, `evidence` includes source-mode booleans and aggregate counts from source status, for example `repositories_configured=true declared_repositories=1 repositories=1 enabled_repositories=0`.
 

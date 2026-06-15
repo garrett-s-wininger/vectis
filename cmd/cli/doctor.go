@@ -1213,6 +1213,7 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 
 	var enabled, disabled, succeeded, failed, running, never, unknown int
 	failedRepositories := make([]string, 0)
+	credentialFailedRepositories := make([]string, 0)
 	staleRunningRepositories := make([]string, 0)
 	unknownStatusRepositories := make([]string, 0)
 	staleBeforeUnix := time.Now().Add(-config.SourceSyncRunningTimeout()).Unix()
@@ -1235,6 +1236,9 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 		case "failed":
 			failed++
 			failedRepositories = append(failedRepositories, repo.RepositoryID)
+			if sourceRepositorySyncCredentialFailure(repo.Sync.Error) {
+				credentialFailedRepositories = append(credentialFailedRepositories, repo.RepositoryID)
+			}
 		case "running":
 			running++
 			if repo.Sync.LastStartedAtUnix > 0 && repo.Sync.LastStartedAtUnix <= staleBeforeUnix {
@@ -1248,11 +1252,15 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 		}
 	}
 
-	evidence := formatDoctorSourceRepositorySyncEvidence(len(repositories), enabled, disabled, succeeded, failed, running, never, unknown, failedRepositories, staleRunningRepositories, unknownStatusRepositories)
+	evidence := formatDoctorSourceRepositorySyncEvidence(len(repositories), enabled, disabled, succeeded, failed, running, never, unknown, failedRepositories, credentialFailedRepositories, staleRunningRepositories, unknownStatusRepositories)
 	if len(failedRepositories) > 0 || len(staleRunningRepositories) > 0 || len(unknownStatusRepositories) > 0 {
 		problems := make([]string, 0, 3)
 		if len(failedRepositories) > 0 {
 			problems = append(problems, fmt.Sprintf("%d failed", len(failedRepositories)))
+		}
+
+		if len(credentialFailedRepositories) > 0 {
+			problems = append(problems, fmt.Sprintf("%d credential resolution failed", len(credentialFailedRepositories)))
 		}
 
 		if len(staleRunningRepositories) > 0 {
@@ -1263,7 +1271,12 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 			problems = append(problems, fmt.Sprintf("%d unknown status", len(unknownStatusRepositories)))
 		}
 
-		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source repository sync needs attention: " + strings.Join(problems, ", "), Evidence: evidence, SuggestedAction: "Run vectis-cli sources status <repository-id> or retry vectis-cli sources sync <repository-id>", DocLink: doc}
+		suggestedAction := "Run vectis-cli sources status <repository-id> or retry vectis-cli sources sync <repository-id>"
+		if len(credentialFailedRepositories) > 0 {
+			suggestedAction = "Run vectis-cli sources status <repository-id>, verify credential_ref and source credential resolver configuration, then retry vectis-cli sources sync <repository-id>"
+		}
+
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source repository sync needs attention: " + strings.Join(problems, ", "), Evidence: evidence, SuggestedAction: suggestedAction, DocLink: doc}
 	}
 
 	if enabled == 0 {
@@ -1271,6 +1284,14 @@ func doctorSourceRepositorySync(repositories []sourceRepositorySummary, loadErro
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repository sync ok: %d enabled", enabled), Evidence: evidence, DocLink: doc}
+}
+
+func sourceRepositorySyncCredentialFailure(syncError string) bool {
+	errText := strings.ToLower(strings.TrimSpace(syncError))
+	return strings.HasPrefix(errText, "git_credentials_unavailable:") ||
+		strings.Contains(errText, "credential_ref is configured but source credential resolver is not configured") ||
+		strings.Contains(errText, "resolve source repository credential") ||
+		strings.Contains(errText, "parse source repository credential")
 }
 
 func doctorSourceRepositorySyncFromStatus(status doctorSourceStatus, statusLoadError string) doctorCheck {
@@ -1298,6 +1319,7 @@ func doctorSourceRepositorySyncFromStatus(status doctorSourceStatus, statusLoadE
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 
 	if status.Repositories.Enabled == 0 {
@@ -1307,7 +1329,7 @@ func doctorSourceRepositorySyncFromStatus(status doctorSourceStatus, statusLoadE
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("source repository sync ok: %d enabled", status.Repositories.Enabled), Evidence: evidence, DocLink: doc}
 }
 
-func formatDoctorSourceRepositorySyncEvidence(total, enabled, disabled, succeeded, failed, running, never, unknown int, failedRepositories, staleRunningRepositories, unknownStatusRepositories []string) string {
+func formatDoctorSourceRepositorySyncEvidence(total, enabled, disabled, succeeded, failed, running, never, unknown int, failedRepositories, credentialFailedRepositories, staleRunningRepositories, unknownStatusRepositories []string) string {
 	parts := []string{
 		fmt.Sprintf("repositories=%d", total),
 		fmt.Sprintf("enabled=%d", enabled),
@@ -1329,6 +1351,7 @@ func formatDoctorSourceRepositorySyncEvidence(total, enabled, disabled, succeede
 	}
 
 	appendRepositoryList("failed_repositories", failedRepositories)
+	appendRepositoryList("credential_failed_repositories", credentialFailedRepositories)
 	appendRepositoryList("stale_running_repositories", staleRunningRepositories)
 	appendRepositoryList("unknown_status_repositories", unknownStatusRepositories)
 

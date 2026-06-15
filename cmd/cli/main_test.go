@@ -5356,6 +5356,11 @@ func TestDoctor_sourceRepositorySyncWarnsForFailedAndStaleRunning(t *testing.T) 
 			Sync:         sourceRepositorySyncInfo{Status: "failed", Error: "credential detail should stay out of evidence"},
 		},
 		{
+			RepositoryID: "credential-repo",
+			Enabled:      true,
+			Sync:         sourceRepositorySyncInfo{Status: "failed", Error: `git_credentials_unavailable: resolve source repository credential "credential-repo": secret://git/private missing`},
+		},
+		{
 			RepositoryID: "stale-repo",
 			Enabled:      true,
 			Sync:         sourceRepositorySyncInfo{Status: "running", LastStartedAtUnix: time.Now().Add(-2 * time.Minute).Unix()},
@@ -5376,14 +5381,18 @@ func TestDoctor_sourceRepositorySyncWarnsForFailedAndStaleRunning(t *testing.T) 
 		t.Fatalf("expected source repository sync warning, got %#v", check)
 	}
 
-	for _, want := range []string{"1 failed", "1 running past timeout", "failed_repositories=failed-repo", "stale_running_repositories=stale-repo", "disabled=1"} {
+	for _, want := range []string{"2 failed", "1 credential resolution failed", "1 running past timeout", "failed_repositories=credential-repo,failed-repo", "credential_failed_repositories=credential-repo", "stale_running_repositories=stale-repo", "disabled=1"} {
 		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
 			t.Fatalf("expected source repository sync check to contain %q, got %#v", want, check)
 		}
 	}
 
-	if strings.Contains(check.Evidence, "credential detail") {
+	if strings.Contains(check.Evidence, "credential detail") || strings.Contains(check.Evidence, "secret://") {
 		t.Fatalf("expected sync error details to stay out of health evidence, got %q", check.Evidence)
+	}
+
+	if !strings.Contains(check.SuggestedAction, "credential_ref") {
+		t.Fatalf("expected credential-aware suggested action, got %q", check.SuggestedAction)
 	}
 }
 
