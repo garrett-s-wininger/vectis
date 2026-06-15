@@ -14,6 +14,7 @@ func TestPolicy_DurabilityFor_Defaults(t *testing.T) {
 		EventRunForceRequeued:        DurabilityDurableBestEffort,
 		EventSourceRepositoryCreated: DurabilityDurableBestEffort,
 		EventSourceRepositoryUpdated: DurabilityDurableBestEffort,
+		EventSourceRepositoryDeleted: DurabilityDurableBestEffort,
 	}
 
 	for eventType, want := range tests {

@@ -90,6 +90,7 @@ type sourceRepositoryStatusResult struct {
 	CheckoutMode       string                     `json:"checkout_mode"`
 	AuthoringMode      string                     `json:"authoring_mode"`
 	Authoring          sourceAuthoringSummary     `json:"authoring"`
+	CredentialRef      string                     `json:"credential_ref,omitempty"`
 	CheckoutPath       string                     `json:"checkout_path,omitempty"`
 	PathExists         bool                       `json:"path_exists"`
 	PathIsDirectory    bool                       `json:"path_is_directory"`
@@ -772,40 +773,56 @@ func writeSourceStatusResult(out io.Writer, result sourceRepositoryStatusResult)
 	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(result.CheckoutMode))
 	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(result.AuthoringMode))
 	fmt.Fprintf(out, "write_definitions=%t\n", result.Authoring.WriteDefinitions)
+
 	if strings.TrimSpace(result.Authoring.Reason) != "" {
 		fmt.Fprintf(out, "authoring_reason=%s\n", result.Authoring.Reason)
 	}
+
+	if strings.TrimSpace(result.CredentialRef) != "" {
+		fmt.Fprintf(out, "credential_ref=%s\n", result.CredentialRef)
+	}
+
 	if strings.TrimSpace(result.CheckoutPath) != "" {
 		fmt.Fprintf(out, "checkout_path=%s\n", result.CheckoutPath)
 	}
+
 	fmt.Fprintf(out, "path_exists=%t\n", result.PathExists)
 	fmt.Fprintf(out, "path_is_directory=%t\n", result.PathIsDirectory)
 	fmt.Fprintf(out, "git_repository=%t\n", result.GitRepository)
+
 	if strings.TrimSpace(result.WorkTreePath) != "" {
 		fmt.Fprintf(out, "work_tree_path=%s\n", result.WorkTreePath)
 	}
+
 	if strings.TrimSpace(result.HeadRef) != "" {
 		fmt.Fprintf(out, "head_ref=%s\n", result.HeadRef)
 	}
+
 	if strings.TrimSpace(result.DefaultRef) != "" {
 		fmt.Fprintf(out, "default_ref=%s\n", result.DefaultRef)
 		fmt.Fprintf(out, "default_ref_resolved=%t\n", result.DefaultRefResolved)
 	}
+
 	if strings.TrimSpace(result.ResolvedCommit) != "" {
 		fmt.Fprintf(out, "resolved_commit=%s\n", result.ResolvedCommit)
 	}
+
 	if strings.TrimSpace(result.Sync.Status) != "" {
 		fmt.Fprintf(out, "sync_status=%s\n", result.Sync.Status)
 	}
+
 	if strings.TrimSpace(result.Sync.Ref) != "" {
 		fmt.Fprintf(out, "sync_ref=%s\n", result.Sync.Ref)
 	}
+
 	if strings.TrimSpace(result.Sync.Commit) != "" {
 		fmt.Fprintf(out, "sync_commit=%s\n", result.Sync.Commit)
 	}
+
 	if strings.TrimSpace(result.Sync.Error) != "" {
 		fmt.Fprintf(out, "sync_error=%s\n", result.Sync.Error)
 	}
+
 	if result.Error != nil {
 		fmt.Fprintf(out, "error_code=%s\n", result.Error.Code)
 		fmt.Fprintf(out, "error_message=%s\n", result.Error.Message)

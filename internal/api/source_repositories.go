@@ -83,6 +83,7 @@ type sourceRepositoryStatusResponse struct {
 	CheckoutMode       string                       `json:"checkout_mode"`
 	AuthoringMode      string                       `json:"authoring_mode"`
 	Authoring          sourceRepositoryAuthoring    `json:"authoring"`
+	CredentialRef      string                       `json:"credential_ref,omitempty"`
 	CheckoutPath       string                       `json:"checkout_path,omitempty"`
 	PathExists         bool                         `json:"path_exists"`
 	PathIsDirectory    bool                         `json:"path_is_directory"`
@@ -252,6 +253,28 @@ type sourceRepositoryJobDefinitionWriteRequest struct {
 	ExpectedHead string          `json:"expected_head"`
 	Definition   json.RawMessage `json:"definition"`
 	CreateOnly   bool            `json:"create_only,omitempty"`
+}
+
+func sourceDefinitionAuditEvent(createOnly bool) (eventType string, operation string) {
+	if createOnly {
+		return audit.EventJobCreated, "create"
+	}
+
+	return audit.EventJobUpdated, "update"
+}
+
+func sourceDefinitionAuditMetadata(jobID, namespace, repositoryID, operation string, written sourcepkg.WrittenDefinition) map[string]any {
+	return map[string]any{
+		"job_id":               jobID,
+		"namespace":            namespace,
+		"repository_id":        repositoryID,
+		"source_operation":     operation,
+		"source_ref":           written.RequestedRef,
+		"source_path":          written.Path,
+		"source_commit":        written.Commit,
+		"source_parent_commit": written.ParentCommit,
+		"source_blob_sha":      written.BlobSHA,
+	}
 }
 
 type sourceJobTriggerRequest struct {
@@ -1471,14 +1494,8 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
-		"job_id":        jobID,
-		"namespace":     nsPath,
-		"repository_id": rec.RepositoryID,
-		"source_ref":    written.RequestedRef,
-		"source_path":   written.Path,
-		"source_commit": written.Commit,
-	})
+	eventType, operation := sourceDefinitionAuditEvent(req.CreateOnly)
+	s.auditLog(ctx, eventType, actorID, 0, sourceDefinitionAuditMetadata(jobID, nsPath, rec.RepositoryID, operation, written))
 
 	writeJSON(w, http.StatusOK, sourceRepositoryJobDefinitionResponse{
 		JobID:          jobID,
@@ -2473,6 +2490,7 @@ func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec da
 		CheckoutMode:  rec.CheckoutMode,
 		AuthoringMode: rec.AuthoringMode,
 		Authoring:     s.sourceRepositoryAuthoringFromRecord(rec),
+		CredentialRef: rec.CredentialRef,
 		Sync:          sourceRepositorySyncRecordToResponse(rec),
 	}
 

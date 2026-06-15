@@ -278,7 +278,7 @@ Sync the repository, then inspect repository contents and triggerable job files 
 ./bin/vectis-cli sources jobs vectis-local --ref main
 ```
 
-Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. These are repository-scoped inspection commands; use `jobs list --repository vectis-local` for the user-facing job list. When branch, tree, definition, or job output reaches its limit, non-JSON output prints a truncation notice; tree, definition, and job commands also print a `--cursor` value when another request can continue from the last returned path.
+Use `sources status` to see checkout health, default-ref resolution, sync evidence, and any configured `credential_ref`. Use `sources definitions` to inspect candidate JSON files without reading file contents, and `sources jobs` to see the triggerable job IDs derived from those paths. These are repository-scoped inspection commands; use `jobs list --repository vectis-local` for the user-facing job list. When branch, tree, definition, or job output reaches its limit, non-JSON output prints a truncation notice; tree, definition, and job commands also print a `--cursor` value when another request can continue from the last returned path.
 
 Preview a source definition without storing it:
 

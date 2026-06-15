@@ -16,6 +16,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/api/audit"
 	"vectis/internal/dal"
 
 	"github.com/spf13/viper"
@@ -418,6 +419,8 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	viper.Set("source.checkout_root", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
+	auditor := &sourceJobAuditCapturer{}
+	server.SetAuditor(auditor)
 	repos := dal.NewSQLRepositories(db)
 	handler := server.Handler()
 	remotePath := initAPIGitRepo(t)
@@ -570,6 +573,56 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	readDeletedRec := httptest.NewRecorder()
 	handler.ServeHTTP(readDeletedRec, readDeletedReq)
 	assertAPIError(t, readDeletedRec, http.StatusNotFound, "source_not_found")
+
+	events := sourceJobAuditEvents(auditor.events, "build")
+	wantTypes := []string{audit.EventJobCreated, audit.EventJobUpdated, audit.EventJobDeleted}
+	wantOperations := []string{"create", "update", "delete"}
+	wantCommits := []string{createResp.Source.ResolvedCommit, updateResp.Source.ResolvedCommit, deleteCommit}
+	wantParents := []string{parent, createResp.Source.ResolvedCommit, updateResp.Source.ResolvedCommit}
+	wantBlobs := []string{createResp.Source.BlobSHA, updateResp.Source.BlobSHA, ""}
+	if len(events) != len(wantTypes) {
+		t.Fatalf("source job audit event count: got %d want %d events=%+v", len(events), len(wantTypes), events)
+	}
+
+	for i, event := range events {
+		if event.Type != wantTypes[i] {
+			t.Fatalf("source job audit event %d type: got %s want %s", i, event.Type, wantTypes[i])
+		}
+
+		metadata := event.Metadata
+		if metadata["job_id"] != "build" ||
+			metadata["namespace"] != "/" ||
+			metadata["repository_id"] != "managed-repo" ||
+			metadata["source_operation"] != wantOperations[i] ||
+			metadata["source_path"] != ".vectis/jobs/build.json" ||
+			metadata["source_commit"] != wantCommits[i] ||
+			metadata["source_parent_commit"] != wantParents[i] ||
+			metadata["source_blob_sha"] != wantBlobs[i] {
+			t.Fatalf("source job audit event %d metadata mismatch: %+v", i, metadata)
+		}
+	}
+}
+
+type sourceJobAuditCapturer struct {
+	events []audit.Event
+}
+
+func (a *sourceJobAuditCapturer) Log(_ context.Context, event audit.Event) error {
+	a.events = append(a.events, event)
+	return nil
+}
+
+func sourceJobAuditEvents(events []audit.Event, jobID string) []audit.Event {
+	out := make([]audit.Event, 0, len(events))
+	for _, event := range events {
+		if event.Metadata == nil || event.Metadata["job_id"] != jobID {
+			continue
+		}
+
+		out = append(out, event)
+	}
+
+	return out
 }
 
 func TestAPIServer_ListSourceSchedules(t *testing.T) {
@@ -2911,6 +2964,26 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		updateResp.Sync.Status != dal.SourceSyncStatusNever ||
 		updateResp.Enabled {
 		t.Fatalf("update response mismatch: %+v", updateResp)
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/vectis-local/status", nil)
+	statusRec := httptest.NewRecorder()
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("get source repository status: status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+
+	var statusResp struct {
+		RepositoryID  string `json:"repository_id"`
+		CredentialRef string `json:"credential_ref"`
+	}
+
+	if err := json.NewDecoder(statusRec.Body).Decode(&statusResp); err != nil {
+		t.Fatalf("decode source repository status: %v", err)
+	}
+
+	if statusResp.RepositoryID != "vectis-local" || statusResp.CredentialRef != "secret://git/vectis" {
+		t.Fatalf("status credential response mismatch: %+v", statusResp)
 	}
 
 	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/vectis-local/definitions/resolve", map[string]any{

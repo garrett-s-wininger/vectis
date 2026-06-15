@@ -1282,6 +1282,7 @@ func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 			"checkout_mode":        "managed",
 			"authoring_mode":       "local_commit",
 			"authoring":            map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
+			"credential_ref":       "git-creds",
 			"checkout_path":        "/srv/vectis/source",
 			"path_exists":          true,
 			"path_is_directory":    true,
@@ -1301,7 +1302,7 @@ func TestShowSourceStatus_sendsRequestAndPrintsStatus(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "status=ready", "declared=true", "checkout_mode=managed", "write_definitions=true", "default_ref=main", "resolved_commit=0123456789abcdef", "sync_status=succeeded"} {
+	for _, want := range []string{"repository_id=vectis", "status=ready", "declared=true", "checkout_mode=managed", "write_definitions=true", "credential_ref=git-creds", "default_ref=main", "resolved_commit=0123456789abcdef", "sync_status=succeeded"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
