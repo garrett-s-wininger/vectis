@@ -979,10 +979,22 @@ func TestCronServiceFault_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 	service.SetQueueClient(queueService)
 	service.SetClock(clock)
 	service.SetClaimTTL(time.Minute)
+	service.SetSources(repos.Sources())
+	if _, err := repos.Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
 
-	jobDef := `{"id": "scheduled-complete-fault", "root": {"uses": "builtins/shell"}}`
-	insertCronTestJob(t, db, "scheduled-complete-fault", jobDef)
-	scheduleID := insertCronTestSchedule(t, db, "scheduled-complete-fault", "* * * * *", now)
+	service.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		return &recordingCronDefinitionResolver{}, nil
+	})
+
+	scheduleID := insertCronTestSourceSchedule(t, db, "scheduled-complete-fault", "source-repo", "main", ".vectis/jobs/scheduled-complete-fault.json", "* * * * *", now)
 
 	if err := service.ProcessSchedules(context.Background()); err != nil {
 		t.Fatalf("process schedules with injected complete failure: %v", err)
@@ -990,7 +1002,7 @@ func TestCronServiceFault_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 
 	jobs := queueService.GetJobs()
 	if len(jobs) != 1 {
-		t.Fatalf("expected first trigger to enqueue one job, got %d", len(jobs))
+		t.Fatalf("expected first trigger to enqueue one job, got %d; errors=%v", len(jobs), logger.GetErrorCalls())
 	}
 
 	runID := jobs[0].GetRunId()
@@ -1055,10 +1067,21 @@ func TestCronServiceRestoreSkew_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *
 	clock.SetNow(now)
 	service.SetClock(clock)
 	service.SetClaimTTL(time.Minute)
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+	service.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		return &recordingCronDefinitionResolver{}, nil
+	})
 
-	jobDef := `{"id": "scheduled-claim-restore", "root": {"uses": "builtins/shell"}}`
-	insertCronTestJob(t, db, "scheduled-claim-restore", jobDef)
-	scheduleID := insertCronTestSchedule(t, db, "scheduled-claim-restore", "* * * * *", now)
+	scheduleID := insertCronTestSourceSchedule(t, db, "scheduled-claim-restore", "source-repo", "main", ".vectis/jobs/scheduled-claim-restore.json", "* * * * *", now)
 
 	claimed, err := service.ClaimDue(ctx, scheduleID, now, "crashed-before-trigger", now.Add(time.Minute), now)
 	if err != nil {

@@ -5160,7 +5160,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  24 passed, 0 warnings, 0 failed",
+		"Overall: PASS  25 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5277,7 +5277,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  22 passed, 2 warnings, 0 failed",
+		"Overall: WARN  23 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5339,7 +5339,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  24 passed, 0 warnings, 0 failed",
+		"Overall: PASS  25 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5398,7 +5398,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  23 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  24 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5457,12 +5457,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 24 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 25 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 24 {
-		t.Fatalf("expected 24 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 25 {
+		t.Fatalf("expected 25 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5505,6 +5505,8 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"queued": 0})
 		case "/api/v1/reconciler/stuck-runs":
 			_ = json.NewEncoder(w).Encode(map[string]any{"stuck": 0})
+		case "/api/v1/cron/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_count": 0, "due_count": 0, "claimed_count": 0})
 		case "/api/v1/cells/status":
 			_ = json.NewEncoder(w).Encode(map[string]any{"cells": []map[string]any{}})
 		case "/api/v1/log/reachable":
@@ -5535,7 +5537,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 24 || len(report.Checks) != 24 {
+	if report.Status != doctorOK || report.Passed != 25 || len(report.Checks) != 25 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5599,8 +5601,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 24 {
-		t.Fatalf("expected 24 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 25 {
+		t.Fatalf("expected 25 checks, got %d", len(report.Checks))
 	}
 }
 

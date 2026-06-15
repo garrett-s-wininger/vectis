@@ -1403,15 +1403,15 @@ func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailu
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-task-fanout-repair", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-task-fanout-repair", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-task-fanout-repair"
 	def := `{"id":"job-worker-task-fanout-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
@@ -2457,15 +2457,15 @@ func TestWorkerRunTaskExecution_MirroredExpiredDispatchDoesNotOrphan(t *testing.
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-expired-mirror", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-expired-mirror", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-expired-mirror"
 	def := `{"id":"job-worker-expired-mirror","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo should-not-run"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	created, err := runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{"local"}, dal.RunAuditMetadata{
@@ -2780,15 +2780,15 @@ func TestWorkerRunTaskExecution_DurableFinalizationSurvivesCatalogRecordFailure(
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-durable-finalize-catalog-failure", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-durable-finalize-catalog-failure", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-durable-finalize-catalog-failure"
 	def := `{"id":"job-worker-durable-finalize-catalog-failure","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo durable"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
@@ -2854,15 +2854,15 @@ func TestWorkerRunTaskExecution_DurableFinalizationFailurePreventsSuccess(t *tes
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	runs := repos.Runs()
 
-	ns, err := repos.Namespaces().Create(ctx, "worker-durable-finalize-required", nil)
+	_, err := repos.Namespaces().Create(ctx, "worker-durable-finalize-required", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-worker-durable-finalize-required"
 	def := `{"id":"job-worker-durable-finalize-required","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo durable-required"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)

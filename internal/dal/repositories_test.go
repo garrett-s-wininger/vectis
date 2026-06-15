@@ -1955,14 +1955,14 @@ func TestRunsRepository_MirrorExecutionClaimExpiresPastStartDeadline(t *testing.
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-execution-deadline-mirror", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-execution-deadline-mirror", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-execution-deadline-mirror"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-execution-deadline-mirror","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-mirror","root":{"uses":"builtins/shell"}}`); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	deadline := time.Now().Add(-time.Second).UnixNano()
@@ -2936,15 +2936,15 @@ func TestRunCatalogUpdater_IgnoresStaleCatalogStatusUpdates(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-catalog-stale-updates", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-catalog-stale-updates", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-catalog-stale-updates"
 	def := `{"id":"job-catalog-stale-updates","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
@@ -4922,8 +4922,8 @@ func TestSchedulesRepository_CronScheduleSummary(t *testing.T) {
 	schedules := repos.Schedules()
 	ctx := context.Background()
 
-	if err := jobs.Create(ctx, "cron-summary-job", `{"id":"cron-summary-job"}`, 1); err != nil {
-		t.Fatalf("create stored job: %v", err)
+	if err := jobs.CreateDefinitionSnapshot(ctx, "cron-summary-job", `{"id":"cron-summary-job"}`); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)

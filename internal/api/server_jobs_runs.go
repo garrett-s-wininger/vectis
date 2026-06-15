@@ -788,7 +788,7 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		msg := err.Error()
 
 		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
-		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeFailedEnqueue)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedEnqueue)
 		return
 	}
 

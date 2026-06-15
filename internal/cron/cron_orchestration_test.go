@@ -43,13 +43,22 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	clock.SetNow(time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC))
 
 	jobs := mocks.NewMockJobsRepository()
+	loaded, err := (&recordingCronDefinitionResolver{}).ResolveDefinition(context.Background(), sourcepkg.DefinitionRequest{
+		Ref:  "main",
+		Path: ".vectis/jobs/job-1.json",
+	})
+
+	if err != nil {
+		t.Fatalf("resolve test definition: %v", err)
+	}
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"
 	runs.CreateRunIndex = 1
+	runs.CreateRunCreated = true
 	runs.PendingExecution = dal.ExecutionDispatchRecord{
-		DefinitionVersion: 4,
-		DefinitionHash:    dal.DefinitionHash(definition),
+		DefinitionVersion: 1,
+		DefinitionHash:    dal.DefinitionHash(loaded.DefinitionJSON),
 	}
 
 	schedules := mocks.NewMockSchedulesRepository()
@@ -75,7 +84,7 @@ func TestCronService_ProcessSchedules_OrchestrationUsesRepos(t *testing.T) {
 	}
 
 	if len(queue.GetJobs()) != 1 {
-		t.Fatalf("expected one enqueued job, got %d", len(queue.GetJobs()))
+		t.Fatalf("expected one enqueued job, got %d; errors=%v", len(queue.GetJobs()), logger.GetErrorCalls())
 	}
 
 	lastCreateJobID, lastDefVersion := runs.SnapshotLastCreate()

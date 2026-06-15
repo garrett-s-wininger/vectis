@@ -197,7 +197,7 @@ func TestService_Process_TouchDispatchedFailureRetriesFrozenPayload(t *testing.T
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	jobID := "job-touch-dispatched-fault"
-	runID := seedStoredJobAndRun(t, db, jobID)
+	runID := seedDefinitionSnapshotAndRun(t, db, jobID)
 
 	q := newFaultInjectQueue()
 	clock := mocks.NewMockClock()

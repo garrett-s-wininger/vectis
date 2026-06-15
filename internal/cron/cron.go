@@ -25,8 +25,6 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
 	sourcepkg "vectis/internal/source"
-
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type CronSchedule struct {

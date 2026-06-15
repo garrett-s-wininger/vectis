@@ -86,8 +86,8 @@ func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 	jobID := "job-task-continuation-repair"
 	jobDef := `{"id":"job-task-continuation-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child-a","uses":"builtins/shell","with":{"command":"echo a"}},{"id":"child-b","uses":"builtins/shell","with":{"command":"echo b"}}]}}`
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	if err := repos.Jobs().Create(ctx, jobID, jobDef, 1); err != nil {
-		t.Fatalf("insert stored job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
 	}
 
 	runs := repos.Runs()

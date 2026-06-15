@@ -44,6 +44,12 @@ func insertDefinitionSnapshotForTest(t *testing.T, db *sql.DB, jobID, definition
 	}
 }
 
+func insertStoredJobForTest(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
+	t.Helper()
+
+	insertDefinitionSnapshotForTest(t, db, jobID, definitionJSON)
+}
+
 func insertSourceJobForTest(t *testing.T, db *sql.DB, repositoryID, jobID, definitionJSON string) string {
 	t.Helper()
 
@@ -677,15 +683,15 @@ func TestAPIServer_GetStuckRunsIncludesTaskContinuationPending(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-stuck-task-continuation", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-stuck-task-continuation", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-stuck-task-continuation"
 	def := `{"id":"job-stuck-task-continuation","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
@@ -960,14 +966,14 @@ func TestAPIServer_GetCronStatusIncludesDueAndClaimedSchedules(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
 
-	ns, err := repos.Namespaces().Create(ctx, "team-cron-status", nil)
+	_, err := repos.Namespaces().Create(ctx, "team-cron-status", nil)
 	if err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 
 	jobID := "job-cron-status"
-	if err := repos.Jobs().Create(ctx, jobID, `{"id":"job-cron-status","root":{"uses":"builtins/shell"}}`, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-cron-status","root":{"uses":"builtins/shell"}}`); err != nil {
+		t.Fatalf("create definition snapshot: %v", err)
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
@@ -1621,11 +1627,14 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-replay-idempotent-crash"
+	repositoryID := "repo-replay-idempotent-crash"
 	key := "replay-key-crash"
 	definitionJSON := `{"id": "job-replay-idempotent-crash", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo replay"}}}`
-	insertStoredJobForTest(t, db, jobID, definitionJSON)
+	insertSourceJobForTest(t, db, repositoryID, jobID, definitionJSON)
+	triggerBody := `{"repository_id":"` + repositoryID + `","ref":"HEAD"}`
 
-	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
+	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(triggerBody))
+	triggerReq.Header.Set("Content-Type", "application/json")
 	triggerReq.SetPathValue("id", jobID)
 	triggerRec := httptest.NewRecorder()
 	server.TriggerJob(triggerRec, triggerReq)
@@ -1778,16 +1787,18 @@ func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	}
 }
 
-func TestAPIServer_TriggerJob_IdempotencyCrashRecoveryReplaysInvocationRuns(t *testing.T) {
+func TestAPIServer_TriggerJob_IdempotencyReplaysSourceTriggerResponse(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	jobID := "job-idempotent-crash"
+	repositoryID := "repo-idempotent-crash"
 	key := "trigger-key-crash"
-	scope := "trigger:" + jobID + ":anonymous"
+	scope := "source-trigger:" + repositoryID + ":" + jobID + ":anonymous"
 	jobDef := `{"id": "job-idempotent-crash", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
-	insertStoredJobForTest(t, db, jobID, jobDef)
+	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
-	body := []byte(`{"cell_ids":["iad-a","pdx-b"]}`)
+	body := []byte(`{"repository_id":"` + repositoryID + `","ref":"HEAD","cell_id":"iad-a"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", jobID)
 	req.Header.Set("Idempotency-Key", key)
 	rec := httptest.NewRecorder()
@@ -1796,12 +1807,8 @@ func TestAPIServer_TriggerJob_IdempotencyCrashRecoveryReplaysInvocationRuns(t *t
 		t.Fatalf("first trigger: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
 	}
 
-	resourceType, _ := clearIdempotencyResponseForAPITest(t, db, scope, key)
-	if resourceType != "trigger_invocation" {
-		t.Fatalf("idempotency resource type: got %q, want trigger_invocation", resourceType)
-	}
-
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, bytes.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
 	req2.SetPathValue("id", jobID)
 	req2.Header.Set("Idempotency-Key", key)
 	rec2 := httptest.NewRecorder()
@@ -1821,8 +1828,8 @@ func TestAPIServer_TriggerJob_IdempotencyCrashRecoveryReplaysInvocationRuns(t *t
 		t.Fatalf("count runs: %v", err)
 	}
 
-	if runCount != 2 {
-		t.Fatalf("expected original two run rows after recovery, got %d", runCount)
+	if runCount != 1 {
+		t.Fatalf("expected one run row after idempotency replay, got %d", runCount)
 	}
 }
 

@@ -21,7 +21,7 @@ func TestService_Process_RestoreSkewRepopulatesLostQueueFromFrozenSQLPayload(t *
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	jobID := "job-restore-skew"
-	runID := seedStoredJobAndRun(t, db, jobID)
+	runID := seedDefinitionSnapshotAndRun(t, db, jobID)
 
 	queueDir := t.TempDir()
 	clock := mocks.NewMockClock()
@@ -121,7 +121,7 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	jobID := "job-restore-skew-inflight"
-	runID := seedStoredJobAndRun(t, db, jobID)
+	runID := seedDefinitionSnapshotAndRun(t, db, jobID)
 
 	queueDir := t.TempDir()
 	clock := mocks.NewMockClock()
@@ -261,7 +261,7 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	jobID := "job-restore-skew-claimed"
-	runID := seedStoredJobAndRun(t, db, jobID)
+	runID := seedDefinitionSnapshotAndRun(t, db, jobID)
 
 	queueDir := t.TempDir()
 	clock := mocks.NewMockClock()
