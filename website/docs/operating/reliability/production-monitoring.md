@@ -29,6 +29,9 @@ Scrape the API plus every enabled dedicated metrics listener from a trusted
 monitoring network. Metrics endpoints are private operational surfaces, not
 public APIs.
 
+For exact metric names, labels, and interpretation, see the
+[Metrics Catalog](../reference/metrics-catalog.md).
+
 | Area | Required signals |
 | --- | --- |
 | API readiness | API liveness/readiness, HTTP 5xx/429 rate from edge or access logs, API security rejection metrics, audit drop/flush metrics, and DB pool gauges. |
@@ -137,6 +140,7 @@ Before declaring monitoring production-ready:
 | --- | --- |
 | First response and alerts | [Runbooks And Alerts](./runbooks.md) |
 | Alert examples | [prometheus-examples.yml](../../alerts/prometheus-examples.yml) |
+| Metric names and labels | [Metrics Catalog](../reference/metrics-catalog.md) |
 | Production config contract | [Production Config And Secrets Contract](../deployment/production-config-contract.md) |
 | Production topology | [Production Topology v1](../deployment/production-topology-v1.md) |
 | Health check catalog | [Health Check Catalog](../reference/health-check-catalog.md) |

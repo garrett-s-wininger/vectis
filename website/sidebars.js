@@ -72,6 +72,7 @@ const sidebars = {
           label: 'Reference',
           items: [
             'operating/reference/database-schema',
+            'operating/reference/metrics-catalog',
             'operating/reference/cli-operational-coverage',
             'operating/reference/health-check-catalog',
           ],
