@@ -91,6 +91,14 @@ Known `auth.failure` reasons include `invalid_session`, `invalid_token`, `token_
 | `run.force_requeued` | `durable_best_effort` | A legacy or force-requeue repair path requeues a run. | `target_id` is empty. Metadata includes `run_id` and `namespace`. |
 | `run.cancelled` | `durable_best_effort` | A run cancellation request is recorded. | `target_id` is empty. Metadata includes `run_id`, `namespace`, and `delivery`, which is `worker_control` for fast-path delivery or `pending` for stored cancellation. |
 
+## Source Repository Events
+
+| Event | Default durability | Emitted when | Target and metadata |
+| --- | --- | --- | --- |
+| `source_repository.created` | `durable_best_effort` | A source repository registration is created. | `target_id` is empty. Metadata includes `repository_id`, `namespace`, and `source_kind`. |
+| `source_repository.updated` | `durable_best_effort` | A source repository registration is updated. | `target_id` is empty. Metadata includes `repository_id`, `namespace`, `source_kind`, and `enabled`. |
+| `source_repository.deleted` | `durable_best_effort` | A source repository registration is deleted. | `target_id` is empty. Metadata includes `repository_id`, `namespace`, and `source_kind`. |
+
 ## Related Docs
 
 | Need | Doc |

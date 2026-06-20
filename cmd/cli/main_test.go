@@ -5100,6 +5100,7 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 func withHealthyDoctorFilesystemStats(t *testing.T) {
 	t.Helper()
 	withCleanDoctorAPIEdgeEnv(t)
+	withCleanDoctorMetricsEnv(t)
 
 	old := doctorFilesystemStats
 	doctorFilesystemStats = func(path string) (doctorFSStats, error) {
@@ -5136,6 +5137,40 @@ func withCleanDoctorAPIEdgeEnv(t *testing.T) {
 		"VECTIS_API_SESSION_IDLE_TTL",
 		"VECTIS_API_SESSION_COOKIE_SECURE",
 		"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES",
+	} {
+		t.Setenv(name, "")
+	}
+}
+
+func withCleanDoctorMetricsEnv(t *testing.T) {
+	t.Helper()
+
+	for _, name := range []string{
+		"VECTIS_METRICS_TLS_INSECURE",
+		"VECTIS_METRICS_TLS_CERT_FILE",
+		"VECTIS_METRICS_TLS_KEY_FILE",
+		"VECTIS_METRICS_TLS_RELOAD_INTERVAL",
+		"VECTIS_METRICS_ALLOWED_HOSTS",
+		"VECTIS_QUEUE_METRICS_HOST",
+		"VECTIS_QUEUE_METRICS_ALLOWED_HOSTS",
+		"VECTIS_ORCHESTRATOR_METRICS_HOST",
+		"VECTIS_ORCHESTRATOR_METRICS_ALLOWED_HOSTS",
+		"VECTIS_WORKER_METRICS_HOST",
+		"VECTIS_WORKER_METRICS_ALLOWED_HOSTS",
+		"VECTIS_LOG_METRICS_HOST",
+		"VECTIS_LOG_METRICS_ALLOWED_HOSTS",
+		"VECTIS_ARTIFACT_METRICS_HOST",
+		"VECTIS_ARTIFACT_METRICS_ALLOWED_HOSTS",
+		"VECTIS_LOG_FORWARDER_METRICS_HOST",
+		"VECTIS_LOG_FORWARDER_METRICS_ALLOWED_HOSTS",
+		"VECTIS_SECRETS_METRICS_HOST",
+		"VECTIS_SECRETS_METRICS_ALLOWED_HOSTS",
+		"VECTIS_RECONCILER_METRICS_HOST",
+		"VECTIS_RECONCILER_METRICS_ALLOWED_HOSTS",
+		"VECTIS_CATALOG_METRICS_HOST",
+		"VECTIS_CATALOG_METRICS_ALLOWED_HOSTS",
+		"VECTIS_CELL_INGRESS_METRICS_HOST",
+		"VECTIS_CELL_INGRESS_METRICS_ALLOWED_HOSTS",
 	} {
 		t.Setenv(name, "")
 	}
@@ -5192,7 +5227,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  33 passed, 0 warnings, 0 failed",
+		"Overall: PASS  34 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5220,6 +5255,8 @@ func TestDoctor_success(t *testing.T) {
 		"OK    Workspace filesystem",
 		"Internal Trust",
 		"OK    Service identity",
+		"Metrics",
+		"OK    Listeners",
 		"Catalog",
 		"OK    Cell event inbox",
 		"catalog inbox ok: 0 pending",
@@ -5320,7 +5357,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  31 passed, 2 warnings, 0 failed",
+		"Overall: WARN  32 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5382,7 +5419,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  33 passed, 0 warnings, 0 failed",
+		"Overall: PASS  34 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5441,7 +5478,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  32 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  33 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5500,12 +5537,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 33 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 34 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 33 {
-		t.Fatalf("expected 33 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 34 {
+		t.Fatalf("expected 34 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5580,7 +5617,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 33 || len(report.Checks) != 33 {
+	if report.Status != doctorOK || report.Passed != 34 || len(report.Checks) != 34 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5644,8 +5681,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 33 {
-		t.Fatalf("expected 33 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 34 {
+		t.Fatalf("expected 34 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -6039,6 +6076,97 @@ func TestDoctorServiceIdentityConfig_warnsWithoutMTLSPrerequisites(t *testing.T)
 		if !strings.Contains(check.Summary, want) {
 			t.Fatalf("expected summary to contain %q, got %q", want, check.Summary)
 		}
+	}
+}
+
+func TestDoctorMetricsListenersConfig_noLocalConfigPasses(t *testing.T) {
+	withCleanDoctorMetricsEnv(t)
+
+	check := doctorMetricsListenersConfig()
+	if check.Status != doctorOK {
+		t.Fatalf("expected metrics listener check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{
+		"local_config_visible=false",
+		"configured_binds=0",
+		"off_host_binds=0",
+		"allowed_host_lists=0",
+	} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorMetricsListenersConfig_validOffHostBindWithAllowedHosts(t *testing.T) {
+	withCleanDoctorMetricsEnv(t)
+	t.Setenv("VECTIS_QUEUE_METRICS_HOST", "0.0.0.0")
+	t.Setenv("VECTIS_METRICS_ALLOWED_HOSTS", "prometheus.internal")
+
+	check := doctorMetricsListenersConfig()
+	if check.Status != doctorOK {
+		t.Fatalf("expected metrics listener check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{
+		"local_config_visible=true",
+		"configured_binds=1",
+		"off_host_binds=1",
+		"allowed_host_lists=1",
+	} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+
+	for _, leaked := range []string{"0.0.0.0", "prometheus.internal"} {
+		if strings.Contains(check.Evidence, leaked) {
+			t.Fatalf("metrics listener evidence leaked %q: %q", leaked, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorMetricsListenersConfig_warnsForOffHostBindWithoutAllowedHosts(t *testing.T) {
+	withCleanDoctorMetricsEnv(t)
+	t.Setenv("VECTIS_QUEUE_METRICS_HOST", "0.0.0.0")
+
+	check := doctorMetricsListenersConfig()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected metrics listener check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "VECTIS_METRICS_ALLOWED_HOSTS") {
+		t.Fatalf("expected allowed hosts summary, got %q", check.Summary)
+	}
+}
+
+func TestDoctorMetricsListenersConfig_warnsForInvalidAllowedHost(t *testing.T) {
+	withCleanDoctorMetricsEnv(t)
+	t.Setenv("VECTIS_METRICS_ALLOWED_HOSTS", "https://metrics.example")
+
+	check := doctorMetricsListenersConfig()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected metrics listener check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "global metrics allowed Hosts are invalid") {
+		t.Fatalf("expected invalid allowed hosts summary, got %q", check.Summary)
+	}
+}
+
+func TestDoctorMetricsListenersConfig_warnsForMissingTLSPair(t *testing.T) {
+	withCleanDoctorMetricsEnv(t)
+	t.Setenv("VECTIS_METRICS_TLS_INSECURE", "false")
+
+	check := doctorMetricsListenersConfig()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected metrics listener check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "metrics TLS config is invalid") ||
+		!strings.Contains(check.Summary, "cert_file and key_file") {
+		t.Fatalf("expected metrics TLS summary, got %q", check.Summary)
 	}
 }
 

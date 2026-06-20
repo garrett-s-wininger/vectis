@@ -9,7 +9,9 @@ Vectis does not use WebSockets for these routes.
 | Route | Purpose | Auth | Replay |
 | --- | --- | --- | --- |
 | `GET /api/v1/sse/jobs/{id}/runs` | Subscribe to future run-created events for one stored job. | `run:read` | No SSE replay; pair with `GET /api/v1/jobs/{id}/runs?after_index=<n>` for durable catch-up. |
+| `GET /api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs` | Subscribe to future run-created events for one source repository job. | `run:read` | No SSE replay; pair with `GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs?after_index=<n>` for durable catch-up. |
 | `GET /api/v1/runs/{id}/logs` | Stream and replay log chunks for one run. | `run:read` | Yes, with `since_sequence`, `Last-Event-ID`, `tail`, and `replay_limit`. |
+| `GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs` | Stream and replay log chunks for a source repository job run. | `run:read` | Yes, with `since_sequence`, `Last-Event-ID`, `tail`, and `replay_limit`. |
 
 Clients should send the `Accept` header with `text/event-stream`. Compatible wildcards such as `*/*` also pass response negotiation, but explicit SSE accepts are clearer for API clients and proxies.
 
@@ -33,7 +35,7 @@ Job-run streams also send `: keep-alive` comments every 30 seconds. SSE clients 
 
 ## Job Run Events
 
-`GET /api/v1/sse/jobs/{id}/runs` emits unnamed SSE `data:` events. The payload is a JSON object:
+`GET /api/v1/sse/jobs/{id}/runs` and `GET /api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs` emit unnamed SSE `data:` events. The payload is a JSON object:
 
 ```text
 data: {"run_id":"run-123","run_index":7}
@@ -57,7 +59,7 @@ That is the same shape the CLI uses for `vectis-cli logs job <job-id>`: list run
 
 ## Run Log Events
 
-`GET /api/v1/runs/{id}/logs` emits unnamed SSE `data:` events. Normal log chunks include an SSE `id` equal to the run-local `sequence`:
+`GET /api/v1/runs/{id}/logs` and `GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs` emit unnamed SSE `data:` events. Normal log chunks include an SSE `id` equal to the run-local `sequence`:
 
 ```text
 id: 12
@@ -151,7 +153,7 @@ After a stream is established, network, proxy, API, or log-service interruptions
 
 ## Proxy And Security Notes
 
-Disable response buffering and use long enough read timeouts for `/api/v1/sse/...` and `/api/v1/runs/.../logs`. Vectis sends `X-Accel-Buffering: no`, but edge proxies and load balancers still need streaming-friendly settings.
+Disable response buffering and use long enough read timeouts for `/api/v1/sse/...`, `/api/v1/runs/.../logs`, and `/api/v1/source-repositories/.../logs`. Vectis sends `X-Accel-Buffering: no`, but edge proxies and load balancers still need streaming-friendly settings.
 
 SSE routes require `run:read`. Namespace-hidden jobs and runs are returned as `job_not_found` or `run_not_found` so route behavior does not reveal hidden resources.
 

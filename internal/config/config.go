@@ -157,6 +157,7 @@ type QueueDefaults struct {
 
 type OrchestratorDefaults struct {
 	Port                 int    `toml:"port"`
+	MetricsHost          string `toml:"metrics_host"`
 	MetricsPort          int    `toml:"metrics_port"`
 	Shards               int    `toml:"shards"`
 	RegistryAddress      string `toml:"registry.address"`
@@ -463,6 +464,7 @@ func validateDefaults(d Defaults) {
 	}
 
 	validatePort(d.Orchestrator.Port, "orchestrator.port")
+	validateHost(d.Orchestrator.MetricsHost, "orchestrator.metrics_host")
 	validatePort(d.Orchestrator.MetricsPort, "orchestrator.metrics_port")
 	if d.Orchestrator.MetricsPort == d.Orchestrator.Port {
 		panic("config defaults: orchestrator.metrics_port must differ from orchestrator.port")
@@ -961,6 +963,10 @@ func WorkerMetricsHost() string {
 
 func OrchestratorMetricsPort() int {
 	return MustDefaults().Orchestrator.MetricsPort
+}
+
+func OrchestratorMetricsHost() string {
+	return metricsHost("metrics_host", "orchestrator.metrics_host", MustDefaults().Orchestrator.MetricsHost)
 }
 
 func OrchestratorShards() int {
@@ -2190,6 +2196,10 @@ func OrchestratorMetricsEffectiveListenPort() int {
 		return p
 	}
 	return OrchestratorMetricsPort()
+}
+
+func OrchestratorMetricsListenAddr() string {
+	return metricsListenAddr(OrchestratorMetricsHost(), OrchestratorMetricsEffectiveListenPort())
 }
 
 // WorkerMetricsEffectiveListenPort returns the HTTP /metrics listen port for vectis-worker.

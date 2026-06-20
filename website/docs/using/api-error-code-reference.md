@@ -161,6 +161,50 @@ Most API failures use this JSON envelope:
 | `source_run_not_replayable` | `409` | Source run cannot be replayed from its current status. |
 | `streaming_unsupported` | `500` | Handler expected a streaming response writer but it was unavailable. |
 
+## Source Repositories And Config-As-Code
+
+| Code | Typical status | Meaning |
+| --- | --- | --- |
+| `incompatible_authoring_mode` | `400` | Requested source authoring mode cannot be used with the repository checkout mode. |
+| `invalid_job_id` | `400` | Job ID cannot be mapped to a valid source definition path. |
+| `invalid_recursive` | `400` | Source tree `recursive` query value is not a boolean. |
+| `invalid_repository_id` | `400` | Repository ID cannot be used to derive a managed checkout path. |
+| `invalid_run_definition` | `500` | Captured source run definition is invalid. |
+| `invalid_source_reference` | `400` | Source ref, branch, path, expected head, or related source selector is invalid. |
+| `invalid_source_schedule_override` | `400` | Source schedule override update is invalid. |
+| `invalid_source_schedule_update` | `400` | Source schedule enable/disable update is invalid. |
+| `missing_checkout_path` | `400` | External checkout repository registration omitted `checkout_path`. |
+| `missing_job_definition` | `400` | Source authoring request omitted the job definition payload. |
+| `missing_repository_id` | `400` | Reusable source-backed job route omitted `repository_id`. |
+| `missing_run_id` | `400` | Source repository run-log route omitted `run_id`. |
+| `missing_schedule_id` | `400` | Source schedule route omitted `schedule_id`. |
+| `missing_source_schedule_enabled` | `400` | Source schedule patch omitted `enabled`. |
+| `missing_source_schedule_override` | `400` | Source schedule override omitted both `ref` and `path`. |
+| `repository_id_mismatch` | `400` | Repository ID in the request body does not match the route or query. |
+| `run_definition_not_found` | `404` | Frozen run definition snapshot is missing. |
+| `schedules_not_configured` | `503` | Source schedule storage is not configured. |
+| `source_authoring_unavailable` | `409` | Source repository does not support the requested local definition write. |
+| `source_conflict` | `409` | Source write conflicted with the current branch head or repository state. |
+| `source_definition_already_exists` | `409` | A source definition already exists at the target path. |
+| `source_file_too_large` | `413` | Source definition file exceeds the route size limit. |
+| `source_job_conflict` | `409` | Source job write conflicted with another stored job or source mapping. |
+| `source_not_found` | `404` | Source ref, tree entry, or definition path was not found. |
+| `source_repositories_not_configured` | `503` | Source repository storage is not configured. |
+| `source_repository_conflict` | `409` | Source repository registration conflicts with an existing checkout path or repository. |
+| `source_repository_declared` | `409` | Source repository is still declared in current config and cannot be deleted directly. |
+| `source_repository_disabled` | `409` | Source repository is disabled for the requested operation. |
+| `source_repository_in_use` | `409` | Source repository still has schedules or recorded source provenance. |
+| `source_repository_not_found` | `404` | Source repository does not exist or is hidden by namespace authorization. |
+| `source_run_lister_not_configured` | `503` | Source-backed run listing storage is not configured. |
+| `source_run_starter_not_configured` | `503` | Source-backed run creation storage is not configured. |
+| `source_schedule_declared` | `409` | Source schedule is still declared in current config. |
+| `source_schedule_enabled` | `409` | Source schedule must be disabled before deletion. |
+| `source_schedule_not_found` | `404` | Source schedule does not exist. |
+| `source_schedule_override_active` | `409` | Source schedule override must be cleared before deletion. |
+| `unsupported_authoring_mode` | `400` | Source repository authoring mode is unsupported. |
+| `unsupported_checkout_mode` | `400` | Source repository checkout mode is unsupported. |
+| `unsupported_source_kind` | `400` | Source repository kind is unsupported. |
+
 ## Catalog, Cells, And Infrastructure
 
 | Code | Typical status | Meaning |

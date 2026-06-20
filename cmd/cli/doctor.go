@@ -106,6 +106,7 @@ func doctor(w io.Writer) error {
 		doctorWorkerSPIFFEConfig(),
 		doctorWorkerWorkspaceFilesystem(),
 		doctorServiceIdentityConfig(),
+		doctorMetricsListenersConfig(),
 		doctorTLSFiles(),
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
@@ -195,6 +196,9 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Internal Trust", Items: []doctorTextItem{
 		{ID: "service.identity.config", Label: "Service identity"},
+	}},
+	{Name: "Metrics", Items: []doctorTextItem{
+		{ID: "metrics.listeners.config", Label: "Listeners"},
 	}},
 	{Name: "Catalog", Items: []doctorTextItem{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
@@ -2441,6 +2445,257 @@ func doctorBindServiceIdentityEnv() {
 
 func doctorViperString(key string) string {
 	return strings.TrimSpace(viper.GetString(key))
+}
+
+func doctorMetricsListenersConfig() doctorCheck {
+	const id = "metrics.listeners.config"
+	title := "Dedicated metrics listeners valid"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	doctorBindMetricsEnv()
+
+	localVisible := doctorMetricsEnvVisible()
+	surfaces := doctorMetricsSurfaces()
+	evidence := doctorMetricsEvidence{
+		LocalConfigVisible: localVisible,
+		TLSEnabled:         !config.MetricsTLSInsecure(),
+		TLSCertConfigured:  doctorViperString("metrics_tls.cert_file") != "",
+		TLSKeyConfigured:   doctorViperString("metrics_tls.key_file") != "",
+	}
+
+	var problems []string
+	if err := config.ValidateMetricsTLS(); err != nil {
+		problems = append(problems, fmt.Sprintf("metrics TLS config is invalid: %v", err))
+	}
+
+	globalAllowed, globalAllowedConfigured := envValue("VECTIS_METRICS_ALLOWED_HOSTS")
+	if globalAllowedConfigured {
+		evidence.AllowedHostLists++
+		if err := doctorValidateMetricsAllowedHosts(globalAllowed); err != nil {
+			problems = append(problems, fmt.Sprintf("global metrics allowed Hosts are invalid: %v", err))
+		}
+	}
+
+	for _, surface := range surfaces {
+		host, hostConfigured := envValue(surface.hostEnv)
+		if !hostConfigured {
+			host = surface.defaultHost
+		} else {
+			evidence.ConfiguredBinds++
+			if err := doctorValidateMetricsBindHost(host); err != nil {
+				problems = append(problems, fmt.Sprintf("%s metrics host is invalid: %v", surface.label, err))
+			}
+		}
+
+		_, allowedConfigured := envValue(surface.allowedEnv)
+		if allowedConfigured {
+			evidence.AllowedHostLists++
+			allowed, _ := envValue(surface.allowedEnv)
+			if err := doctorValidateMetricsAllowedHosts(allowed); err != nil {
+				problems = append(problems, fmt.Sprintf("%s metrics allowed Hosts are invalid: %v", surface.label, err))
+			}
+		}
+
+		if doctorMetricsHostOffHost(host) {
+			evidence.OffHostBinds++
+			if !globalAllowedConfigured && !allowedConfigured {
+				problems = append(problems, fmt.Sprintf("%s metrics binds off localhost without VECTIS_METRICS_ALLOWED_HOSTS or %s", surface.label, surface.allowedEnv))
+			}
+		}
+	}
+
+	if len(problems) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence.String(), SuggestedAction: "Check VECTIS_METRICS_TLS_*, VECTIS_METRICS_ALLOWED_HOSTS, service metrics hosts, and service-specific metrics allowed Hosts", DocLink: doc}
+	}
+
+	if !localVisible {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "dedicated metrics listener config is not visible in this shell", Evidence: evidence.String(), DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "dedicated metrics listener config is valid", Evidence: evidence.String(), DocLink: doc}
+}
+
+type doctorMetricsSurface struct {
+	label       string
+	hostEnv     string
+	allowedEnv  string
+	defaultHost string
+}
+
+func doctorMetricsSurfaces() []doctorMetricsSurface {
+	return []doctorMetricsSurface{
+		{label: "queue", hostEnv: "VECTIS_QUEUE_METRICS_HOST", allowedEnv: "VECTIS_QUEUE_METRICS_ALLOWED_HOSTS", defaultHost: config.QueueMetricsHost()},
+		{label: "orchestrator", hostEnv: "VECTIS_ORCHESTRATOR_METRICS_HOST", allowedEnv: "VECTIS_ORCHESTRATOR_METRICS_ALLOWED_HOSTS", defaultHost: config.OrchestratorMetricsHost()},
+		{label: "worker", hostEnv: "VECTIS_WORKER_METRICS_HOST", allowedEnv: "VECTIS_WORKER_METRICS_ALLOWED_HOSTS", defaultHost: config.WorkerMetricsHost()},
+		{label: "log", hostEnv: "VECTIS_LOG_METRICS_HOST", allowedEnv: "VECTIS_LOG_METRICS_ALLOWED_HOSTS", defaultHost: config.LogMetricsHost()},
+		{label: "artifact", hostEnv: "VECTIS_ARTIFACT_METRICS_HOST", allowedEnv: "VECTIS_ARTIFACT_METRICS_ALLOWED_HOSTS", defaultHost: config.ArtifactMetricsHost()},
+		{label: "log-forwarder", hostEnv: "VECTIS_LOG_FORWARDER_METRICS_HOST", allowedEnv: "VECTIS_LOG_FORWARDER_METRICS_ALLOWED_HOSTS", defaultHost: config.LogForwarderMetricsHost()},
+		{label: "secrets", hostEnv: "VECTIS_SECRETS_METRICS_HOST", allowedEnv: "VECTIS_SECRETS_METRICS_ALLOWED_HOSTS", defaultHost: config.SecretsMetricsHost()},
+		{label: "reconciler", hostEnv: "VECTIS_RECONCILER_METRICS_HOST", allowedEnv: "VECTIS_RECONCILER_METRICS_ALLOWED_HOSTS", defaultHost: config.ReconcilerMetricsHost()},
+		{label: "catalog", hostEnv: "VECTIS_CATALOG_METRICS_HOST", allowedEnv: "VECTIS_CATALOG_METRICS_ALLOWED_HOSTS", defaultHost: config.CatalogMetricsHost()},
+		{label: "cell-ingress", hostEnv: "VECTIS_CELL_INGRESS_METRICS_HOST", allowedEnv: "VECTIS_CELL_INGRESS_METRICS_ALLOWED_HOSTS", defaultHost: config.CellIngressMetricsHost()},
+	}
+}
+
+type doctorMetricsEvidence struct {
+	LocalConfigVisible bool
+	TLSEnabled         bool
+	TLSCertConfigured  bool
+	TLSKeyConfigured   bool
+	ConfiguredBinds    int
+	OffHostBinds       int
+	AllowedHostLists   int
+}
+
+func (e doctorMetricsEvidence) String() string {
+	return strings.Join([]string{
+		fmt.Sprintf("local_config_visible=%t", e.LocalConfigVisible),
+		fmt.Sprintf("tls_enabled=%t", e.TLSEnabled),
+		fmt.Sprintf("tls_cert_configured=%t", e.TLSCertConfigured),
+		fmt.Sprintf("tls_key_configured=%t", e.TLSKeyConfigured),
+		fmt.Sprintf("configured_binds=%d", e.ConfiguredBinds),
+		fmt.Sprintf("off_host_binds=%d", e.OffHostBinds),
+		fmt.Sprintf("allowed_host_lists=%d", e.AllowedHostLists),
+	}, " ")
+}
+
+func doctorBindMetricsEnv() {
+	for _, binding := range []struct {
+		key      string
+		envNames []string
+	}{
+		{key: "metrics_tls.insecure", envNames: []string{"VECTIS_METRICS_TLS_INSECURE"}},
+		{key: "metrics_tls.cert_file", envNames: []string{"VECTIS_METRICS_TLS_CERT_FILE"}},
+		{key: "metrics_tls.key_file", envNames: []string{"VECTIS_METRICS_TLS_KEY_FILE"}},
+		{key: "metrics_tls.reload_interval", envNames: []string{"VECTIS_METRICS_TLS_RELOAD_INTERVAL"}},
+	} {
+		_ = viper.BindEnv(append([]string{binding.key}, binding.envNames...)...)
+	}
+}
+
+func doctorMetricsEnvVisible() bool {
+	names := []string{
+		"VECTIS_METRICS_TLS_INSECURE",
+		"VECTIS_METRICS_TLS_CERT_FILE",
+		"VECTIS_METRICS_TLS_KEY_FILE",
+		"VECTIS_METRICS_TLS_RELOAD_INTERVAL",
+		"VECTIS_METRICS_ALLOWED_HOSTS",
+	}
+	for _, surface := range doctorMetricsSurfaces() {
+		names = append(names, surface.hostEnv, surface.allowedEnv)
+	}
+
+	return anyEnvSet(names...)
+}
+
+func doctorValidateMetricsBindHost(host string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("host must not be empty")
+	}
+
+	if strings.Contains(host, "://") || strings.ContainsAny(host, "/?#@") || strings.ContainsFunc(host, isDoctorHostSpaceOrControl) {
+		return fmt.Errorf("invalid host %q", host)
+	}
+
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return fmt.Errorf("host must not include a port")
+	}
+
+	return nil
+}
+
+func doctorValidateMetricsAllowedHosts(raw string) error {
+	hosts := doctorSplitCommaNonEmpty(raw)
+	if len(hosts) == 0 {
+		return fmt.Errorf("allowed host list must not be empty")
+	}
+
+	for _, host := range hosts {
+		if err := doctorValidateAllowedHost(host); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func doctorSplitCommaNonEmpty(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+
+	return out
+}
+
+func doctorValidateAllowedHost(raw string) error {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return fmt.Errorf("host must not be empty")
+	}
+
+	if value == "*" || strings.Contains(value, "*") {
+		return fmt.Errorf("wildcard hosts are not allowed")
+	}
+
+	if strings.Contains(value, "://") || strings.ContainsAny(value, "/?#@") || strings.ContainsFunc(value, isDoctorHostSpaceOrControl) {
+		return fmt.Errorf("invalid host %q", raw)
+	}
+
+	host := value
+	port := ""
+	if h, p, err := net.SplitHostPort(value); err == nil {
+		host = h
+		port = p
+	} else if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		host = strings.Trim(value, "[]")
+	}
+
+	host = strings.TrimSuffix(strings.Trim(host, "[]"), ".")
+	if host == "" {
+		return fmt.Errorf("host must not be empty")
+	}
+
+	if strings.Contains(host, ":") && net.ParseIP(host) == nil {
+		return fmt.Errorf("invalid host %q", raw)
+	}
+
+	if port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n <= 0 || n > 65535 {
+			return fmt.Errorf("invalid port in host %q", raw)
+		}
+	}
+
+	return nil
+}
+
+func doctorMetricsHostOffHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+
+	return !ip.IsLoopback()
+}
+
+func isDoctorHostSpaceOrControl(r rune) bool {
+	return r <= ' ' || r == 0x7f
 }
 
 func doctorTLSFiles() doctorCheck {

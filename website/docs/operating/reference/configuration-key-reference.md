@@ -68,6 +68,7 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | `queue.register_with_registry` | `true` | Registers queue with the registry when discovery is enabled. |
 | `queue.advertise_address` | `""` | Queue address advertised through registry; empty derives from listener context. |
 | `orchestrator.port` | `8087` | Orchestrator gRPC port. |
+| `orchestrator.metrics_host` | `localhost` | Orchestrator metrics bind host. |
 | `orchestrator.metrics_port` | `9090` | Orchestrator metrics port. |
 | `orchestrator.shards` | `0` | Number of task-state shards; `0` lets the service choose its default. |
 | `orchestrator.register_with_registry` | `true` | Registers orchestrator with the registry when discovery is enabled. |
@@ -156,6 +157,19 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | `database.pgx_pool.conn_max_idle_time` | `15m` | Maximum Postgres idle connection lifetime. |
 
 Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one shared `VECTIS_DATABASE_DSN` or role-specific `VECTIS_GLOBAL_DATABASE_DSN` and `VECTIS_CELL_DATABASE_DSN`.
+
+## Source Control
+
+| Key | Default | Operator note |
+| --- | --- | --- |
+| `source.checkout_root` | `{{data_home}}/vectis/source-checkouts` | Managed source checkout root. |
+| `source.sync_configured_repositories_on_startup` | `false` | Sync enabled configured repositories during API startup. |
+| `source.sync_configured_repositories_interval` | `0s` | Background refresh interval for enabled configured repositories; `0s` disables periodic sync. |
+| `source.sync_configured_repositories_max_concurrency` | `1` | Maximum concurrent configured-repository syncs. |
+| `source.sync_configured_repositories_failure_backoff` | `5m` | Delay before retrying repositories with recent failed syncs. |
+| `source.sync_running_timeout` | `15m` | Timeout for a single source repository sync reservation. |
+| `source.repositories` | `[]` | Static source repository declarations. |
+| `source.schedules` | `[]` | Static source-backed schedule declarations. |
 
 ## Worker
 

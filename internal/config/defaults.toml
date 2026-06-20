@@ -74,6 +74,7 @@ advertise_address = ""
 
 [orchestrator]
 port = 8087
+metrics_host = "localhost"
 metrics_port = 9090
 shards = 0
 register_with_registry = true

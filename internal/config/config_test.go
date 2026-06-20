@@ -295,6 +295,7 @@ func TestMetricsListenAddressesDefaultToLocalhost(t *testing.T) {
 		addr string
 	}{
 		{name: "queue", host: d.Queue.MetricsHost, addr: QueueMetricsListenAddr()},
+		{name: "orchestrator", host: d.Orchestrator.MetricsHost, addr: OrchestratorMetricsListenAddr()},
 		{name: "log", host: d.Log.MetricsHost, addr: LogMetricsListenAddr()},
 		{name: "artifact", host: d.Artifact.MetricsHost, addr: ArtifactMetricsListenAddr()},
 		{name: "worker", host: d.Worker.MetricsHost, addr: WorkerMetricsListenAddr()},
@@ -307,10 +308,11 @@ func TestMetricsListenAddressesDefaultToLocalhost(t *testing.T) {
 	}
 
 	wantAddr := map[string]string{
-		"queue":    "localhost:9081",
-		"log":      "localhost:9083",
-		"artifact": "localhost:9089",
-		"worker":   "localhost:9082",
+		"queue":        "localhost:9081",
+		"orchestrator": "localhost:9090",
+		"log":          "localhost:9083",
+		"artifact":     "localhost:9089",
+		"worker":       "localhost:9082",
 	}
 
 	for _, tc := range cases {

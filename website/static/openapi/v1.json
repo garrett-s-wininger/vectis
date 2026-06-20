@@ -35,6 +35,9 @@
     },
     {
       "name": "Namespaces"
+    },
+    {
+      "name": "Source"
     }
   ],
   "paths": {
@@ -367,6 +370,605 @@
         "responses": {
           "200": {
             "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source/status": {
+      "get": {
+        "operationId": "getSourceStatus",
+        "summary": "Read source-mode capabilities and declaration summaries",
+        "tags": [
+          "Source"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-schedules": {
+      "get": {
+        "operationId": "listSourceSchedules",
+        "summary": "List source-backed schedules",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-schedules/{schedule_id}": {
+      "patch": {
+        "operationId": "patchSourceSchedule",
+        "summary": "Enable or disable a source-backed schedule",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSourceSchedule",
+        "summary": "Delete a stale disabled source-backed schedule",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-schedules/{schedule_id}/override": {
+      "put": {
+        "operationId": "putSourceScheduleOverride",
+        "summary": "Set a temporary source schedule override",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSourceScheduleOverride",
+        "summary": "Clear a source schedule override",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories": {
+      "get": {
+        "operationId": "listSourceRepositories",
+        "summary": "List source repositories",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSourceRepository",
+        "summary": "Register a source repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "201": {
+            "description": "Source repository created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}": {
+      "get": {
+        "operationId": "getSourceRepository",
+        "summary": "Get a source repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateSourceRepository",
+        "summary": "Update a source repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSourceRepository",
+        "summary": "Delete an unused source repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/sync": {
+      "post": {
+        "operationId": "syncSourceRepository",
+        "summary": "Sync a source repository checkout",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "202": {
+            "description": "Source repository sync already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/status": {
+      "get": {
+        "operationId": "getSourceRepositoryStatus",
+        "summary": "Read source repository checkout status",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/schedules": {
+      "get": {
+        "operationId": "listSourceRepositorySchedules",
+        "summary": "List source-backed schedules for a repository",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/refs/branches": {
+      "get": {
+        "operationId": "listSourceRepositoryBranches",
+        "summary": "List source repository branches",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/tree": {
+      "get": {
+        "operationId": "listSourceRepositoryTree",
+        "summary": "List source repository tree entries",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/definitions": {
+      "get": {
+        "operationId": "listSourceRepositoryDefinitions",
+        "summary": "List candidate source job definitions",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs": {
+      "get": {
+        "operationId": "listSourceRepositoryJobs",
+        "summary": "List source repository jobs",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/definitions/resolve": {
+      "post": {
+        "operationId": "resolveSourceDefinition",
+        "summary": "Resolve a source job definition",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs/{job_id}/definition": {
+      "get": {
+        "operationId": "getSourceRepositoryJobDefinition",
+        "summary": "Get a source repository job definition",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "putSourceRepositoryJobDefinition",
+        "summary": "Commit a source repository job definition",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "job:write",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs/{job_id}/runs": {
+      "get": {
+        "operationId": "getSourceRepositoryJobRuns",
+        "summary": "List runs for a source repository job",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": {
+      "get": {
+        "operationId": "getSourceRepositoryJobRunLogs",
+        "summary": "Stream logs for a source repository job run",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/source-repositories/{id}/jobs/{job_id}/trigger": {
+      "post": {
+        "operationId": "triggerSourceRepositoryJob",
+        "summary": "Trigger a source repository job",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:trigger",
+        "responses": {
+          "202": {
+            "description": "Run accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs": {
+      "get": {
+        "operationId": "sseSourceRepositoryJobRuns",
+        "summary": "Stream run events for a source repository job",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Error"
@@ -728,6 +1330,29 @@
             "$ref": "#/components/parameters/RunID"
           }
         ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/JSONOK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/definition": {
+      "get": {
+        "operationId": "getRunDefinition",
+        "summary": "Get the frozen run definition snapshot",
+        "tags": [
+          "Source"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
         "responses": {
           "200": {
             "$ref": "#/components/responses/JSONOK"

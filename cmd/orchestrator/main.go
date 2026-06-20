@@ -68,9 +68,7 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	grpcServer := grpc.NewServer(srvOpts...)
 	orchestrator.RegisterOrchestratorService(grpcServer, service, logger)
 
-	metricsPort := config.OrchestratorMetricsEffectiveListenPort()
-	metricsAddr := fmt.Sprintf(":%d", metricsPort)
-	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Orchestrator", logger)
+	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, config.OrchestratorMetricsListenAddr(), "Orchestrator", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
 	}
@@ -122,14 +120,17 @@ func defaultOrchestratorInstanceID(port int) string {
 func init() {
 	cli.ConfigureVersion(rootCmd)
 	viper.SetDefault("port", config.OrchestratorPort())
+	viper.SetDefault("metrics_host", config.OrchestratorMetricsHost())
 	viper.SetDefault("metrics_port", config.OrchestratorMetricsPort())
 	viper.SetDefault("shards", config.OrchestratorShards())
 
 	rootCmd.PersistentFlags().Int("port", config.OrchestratorPort(), "Port for the orchestrator gRPC service")
+	rootCmd.PersistentFlags().String("metrics-host", config.OrchestratorMetricsHost(), "Host/interface for Prometheus /metrics")
 	rootCmd.PersistentFlags().Int("metrics-port", config.OrchestratorMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().Int("shards", config.OrchestratorShards(), "Number of run ownership shards; 0 uses GOMAXPROCS")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("shards", rootCmd.PersistentFlags().Lookup("shards"))
 	_ = viper.BindEnv("orchestrator.register_with_registry", "VECTIS_ORCHESTRATOR_REGISTER_WITH_REGISTRY")

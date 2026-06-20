@@ -10,7 +10,7 @@ Scrape only from trusted monitoring networks. Metrics expose operational shape a
 
 | Binary | Metrics surface | Vectis-specific families |
 | --- | --- | --- |
-| `vectis-api` | API listener `GET /metrics` when metrics are enabled | API enqueue, dispatch events, API security rejections, audit durability, SQL pool, retention storage, retry, log routing |
+| `vectis-api` | API listener `GET /metrics` when metrics are enabled | API enqueue, dispatch events, API security rejections, audit durability, source repository sync, SQL pool, retention storage, retry, log routing |
 | `vectis-queue` | Dedicated metrics listener | Queue counters and gauges |
 | `vectis-worker` | Dedicated metrics listener | Worker execution, lifecycle, DB state, SPIFFE SVID checks, SQL pool, retry, log routing, task reduce/finalize |
 | `vectis-log` | Dedicated metrics listener | Log ingest, durable append failures, in-memory drops, subscriber drops |
@@ -45,6 +45,13 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `db_client_connections_in_use` | Gauge | none | Connections currently executing a query. | Sustained high values plus pool waits/readiness failures indicate DB pressure. |
 | `vectis_storage_records` | Gauge | `surface` | Durable SQL row counts by retention surface. Surfaces include `active_runs`, `terminal_runs`, `run_dispatch_events`, `run_artifacts`, `run_tasks`, `task_attempts`, `run_segments`, `segment_executions`, `job_definitions`, `idempotency_keys`, and `audit_log`. | Use for retention sizing and task graph growth. |
 | `vectis_storage_oldest_record_age_seconds` | Gauge | `surface` | Age of the oldest retained record for surfaces with age tracking: `terminal_runs`, `job_definitions`, `idempotency_keys`, and `audit_log`. | Alert when retained data exceeds policy or backup/cleanup expectations. |
+
+## Source Repository Sync
+
+| Metric | Type | Labels | Meaning | Operator use |
+| --- | --- | --- | --- | --- |
+| `vectis_source_repository_syncs_total` | Counter | `trigger`, `source_kind`, `checkout_mode`, `outcome`, `reason` | Source repository sync attempts. `trigger` identifies startup, background, or explicit API sync paths; `outcome` is success or failure-oriented, with `reason` carrying a bounded failure class. | Alert on unexpected failures before scheduled source-backed jobs depend on fresh checkout state. |
+| `vectis_source_repository_sync_duration_seconds` | Histogram | `trigger`, `source_kind`, `checkout_mode`, `outcome`, `reason` | Wall time spent handling source repository sync attempts. | Track slow checkout probes, fetches, and managed-clone latency. |
 
 ## Queue
 
