@@ -167,6 +167,8 @@ export function UsersPageHarness() {
         };
       }}
       onDeleteUser={(userID) => setData((current) => deleteMockUser(current, userID))}
+      onOpenUser={() => undefined}
+      onOpenUsers={() => undefined}
       onUpdateUserStatus={(userID, status) => setData((current) => updateMockUserStatus(current, userID, status))}
       users={data.users}
     />

@@ -740,7 +740,10 @@ function RouteContent({
         <UsersPage
           onCreateUser={onCreateUser}
           onDeleteUser={onDeleteUser}
+          onOpenUser={(userID) => navigateTo(`/users/${encodeURIComponent(userID)}`)}
+          onOpenUsers={() => navigateTo("/users")}
           onUpdateUserStatus={onUpdateUserStatus}
+          selectedUserID={route.userID}
           users={consoleData.users}
         />
       );

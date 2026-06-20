@@ -24,6 +24,7 @@ export type AppRoute = {
   pathname: string;
   runJobName?: string;
   runID?: string;
+  userID?: string;
 };
 
 export const primaryNavItems: NavEntry[] = [
@@ -101,7 +102,15 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
     return { kind: "jobs", activeHref: "/jobs", pathname };
   }
 
-  if (pathname === "/users" || pathname.startsWith("/users/")) {
+  if (pathname.startsWith("/users/")) {
+    const userID = pathname.slice("/users/".length);
+
+    if (userID) {
+      return { kind: "users", activeHref: "/users", pathname, userID };
+    }
+  }
+
+  if (pathname === "/users") {
     return { kind: "users", activeHref: "/users", pathname };
   }
 

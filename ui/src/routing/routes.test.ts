@@ -52,6 +52,13 @@ describe("routes", () => {
     });
   });
 
+  it("extracts user detail routes", () => {
+    expect(routeFromPath("/users/7")).toMatchObject({
+      kind: "users",
+      userID: "7"
+    });
+  });
+
   it("keeps malformed namespace routes in the namespace surface", () => {
     expect(routeFromPath("/namespaces/missing")).toMatchObject({
       activeHref: "/namespaces",

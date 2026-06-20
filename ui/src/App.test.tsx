@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
 
 describe("App", () => {
@@ -255,24 +255,46 @@ describe("App", () => {
     expect(await screen.findByText("taylor")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Initial Password" })).toBeInTheDocument();
     expect(screen.getByText("mock-generated-password")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Disable taylor" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Disable taylor" }));
+    fireEvent.click(screen.getByRole("button", { name: "View taylor" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "taylor" })).toBeInTheDocument();
 
-    expect(await screen.findByRole("button", { name: "Activate taylor" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    expect(await screen.findByRole("button", { name: "Activate" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove taylor" }));
-    expect(screen.getByRole("dialog", { name: "Remove User" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
+    const deleteDialog = screen.getByRole("dialog", { name: "Remove User" });
+    expect(deleteDialog).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog", { name: "Remove User" })).not.toBeInTheDocument();
-    expect(screen.getByText("taylor")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "taylor" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove taylor" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Remove User" })).getByRole("button", { name: "Remove User" }));
 
     await waitFor(() => {
       expect(screen.queryByText("taylor")).not.toBeInTheDocument();
     });
+  });
+
+  it("opens and exits user detail routes", async () => {
+    window.history.replaceState(null, "", "/users");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Users" });
+
+    fireEvent.click(screen.getByRole("button", { name: "View mira" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "mira" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/users/user-mira");
+
+    fireEvent.click(screen.getByRole("button", { name: "Users" }));
+
+    expect(await screen.findByRole("heading", { name: "Users" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/users");
   });
 
   it("triggers a mock job run and shows it in runs", async () => {

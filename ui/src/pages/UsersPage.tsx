@@ -9,19 +9,33 @@ import { MetricCard } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { CreatedUserCredential } from "../data/consoleDataSource";
-import type { AssignableUserRole, NewUser, User, UserRole, UserStatus } from "../domain/console";
+import type { AssignableUserRole, NewUser, User, UserStatus } from "../domain/console";
 import { userRoleOptions } from "../domain/consoleOptions";
-import { EmptyStateRail, ResourceStatus, ResourceTitle, TableActions } from "./shared";
+import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle, TableActions } from "./shared";
+import { UserDetailPage } from "./users/UserDetailPage";
+import { UserModals } from "./users/UserModals";
+import { roleTone } from "./users/UserPresentation";
 import styles from "./UsersPage.module.css";
 
 type UsersPageProps = {
   onCreateUser: (input: NewUser) => Promise<CreatedUserCredential | undefined> | CreatedUserCredential | undefined;
   onDeleteUser: (userID: string) => Promise<void> | void;
+  onOpenUser: (userID: string) => void;
+  onOpenUsers: () => void;
   onUpdateUserStatus: (userID: string, status: UserStatus) => Promise<void> | void;
+  selectedUserID?: string;
   users: User[];
 };
 
-export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, users }: UsersPageProps) {
+export function UsersPage({
+  onCreateUser,
+  onDeleteUser,
+  onOpenUser,
+  onOpenUsers,
+  onUpdateUserStatus,
+  selectedUserID,
+  users
+}: UsersPageProps) {
   const [credential, setCredential] = useState<CreatedUserCredential | null>(null);
   const [credentialCopyState, setCredentialCopyState] = useState<"copied" | "idle">("idle");
   const [isCreating, setIsCreating] = useState(false);
@@ -65,6 +79,9 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
     try {
       await onDeleteUser(pendingDeleteUser.id);
       setPendingDeleteUser(null);
+      if (pendingDeleteUser.id === selectedUserID) {
+        onOpenUsers();
+      }
     } catch {
       // The app-level action alert owns the visible error; keep the dialog open for retry or cancel.
     }
@@ -72,6 +89,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
 
   const canCopyCredential = hasSecureClipboard();
   const userStats = summarizeUsers(users);
+  const selectedUser = selectedUserID ? users.find((user) => user.id === selectedUserID) : null;
 
   const columns: DataTableColumn<User>[] = [
     {
@@ -101,28 +119,52 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
       header: "Actions",
       cell: (user) => (
         <TableActions className={styles.userActions}>
-          <Button
-            aria-label={user.status === "active" ? `Disable ${user.username}` : `Activate ${user.username}`}
-            className={styles.userActionButton}
-            onClick={() => onUpdateUserStatus(user.id, user.status === "active" ? "disabled" : "active")}
-            variant="quiet"
-          >
-            {user.status === "active" ? "Disable" : "Activate"}
-          </Button>
-          <Button
-            aria-label={`Remove ${user.username}`}
-            className={styles.userActionButton}
-            disabled={user.username === "admin"}
-            onClick={() => setPendingDeleteUser(user)}
-            variant="quiet"
-          >
-            Remove
+          <Button aria-label={`View ${user.username}`} className={styles.userActionButton} onClick={() => onOpenUser(user.id)} variant="quiet">
+            View
           </Button>
         </TableActions>
       ),
-      width: "128px"
+      width: "92px"
     }
   ];
+
+  if (selectedUserID && !selectedUser) {
+    return (
+      <PageMissingState
+        actionLabel="View Users"
+        breadcrumbs={userMissingBreadcrumbItems()}
+        description="This user is no longer available, or the route points to an account that does not exist."
+        label="User location"
+        onAction={onOpenUsers}
+        panelDescription="Return to the users index to choose an active account."
+        panelEyebrow="Missing User"
+        panelTitle="No User Found"
+        title="User Not Found"
+      />
+    );
+  }
+
+  if (selectedUser) {
+    return (
+      <UserDetailPage
+        onBack={onOpenUsers}
+        onRemoveUser={setPendingDeleteUser}
+        onUpdateUserStatus={onUpdateUserStatus}
+        user={selectedUser}
+      >
+        <UserModals
+          canCopyCredential={canCopyCredential}
+          credential={credential}
+          credentialCopyState={credentialCopyState}
+          onConfirmDeleteUser={handleConfirmDeleteUser}
+          onCopyCredential={handleCopyCredential}
+          onDismissCredential={() => setCredential(null)}
+          onDismissDeleteUser={() => setPendingDeleteUser(null)}
+          pendingDeleteUser={pendingDeleteUser}
+        />
+      </UserDetailPage>
+    );
+  }
 
   return (
     <>
@@ -216,65 +258,22 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
           </EmptyStateRail>
         )}
       </div>
-      {credential ? (
-        <div className={styles.modalOverlay} role="presentation">
-          <section
-            aria-labelledby="new-user-credential-title"
-            aria-modal="true"
-            className={`${styles.credentialPanel} polished-panel`}
-            role="dialog"
-          >
-            <div className={styles.modalCopy}>
-              <p className="eyebrow">One-Time Credential</p>
-              <h2 id="new-user-credential-title">Initial Password</h2>
-              <p>Share this password with {credential.username}. It will not be shown again after you leave this page.</p>
-            </div>
-            <div className={styles.credentialField}>
-              <div className={styles.credentialValue} aria-label={`Initial password for ${credential.username}`}>
-                {credential.password}
-              </div>
-              <Button
-                aria-label={`Copy initial password for ${credential.username}`}
-                disabled={!canCopyCredential}
-                onClick={handleCopyCredential}
-                type="button"
-                variant="quiet"
-              >
-                {credentialCopyState === "copied" ? "Copied" : "Copy"}
-              </Button>
-            </div>
-            <Button onClick={() => setCredential(null)} type="button" variant="quiet">
-              Dismiss
-            </Button>
-          </section>
-        </div>
-      ) : null}
-      {pendingDeleteUser ? (
-        <div className={styles.modalOverlay} role="presentation">
-          <section
-            aria-labelledby="remove-user-title"
-            aria-modal="true"
-            className={`${styles.confirmPanel} polished-panel`}
-            role="dialog"
-          >
-            <div className={styles.modalCopy}>
-              <p className="eyebrow">Remove</p>
-              <h2 id="remove-user-title">Remove User</h2>
-              <p>Remove {pendingDeleteUser.username}? This cannot be undone.</p>
-            </div>
-            <div className={styles.formActions}>
-              <Button onClick={() => setPendingDeleteUser(null)} type="button" variant="quiet">
-                Cancel
-              </Button>
-              <Button onClick={handleConfirmDeleteUser} type="button" variant="danger">
-                Remove User
-              </Button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <UserModals
+        canCopyCredential={canCopyCredential}
+        credential={credential}
+        credentialCopyState={credentialCopyState}
+        onConfirmDeleteUser={handleConfirmDeleteUser}
+        onCopyCredential={handleCopyCredential}
+        onDismissCredential={() => setCredential(null)}
+        onDismissDeleteUser={() => setPendingDeleteUser(null)}
+        pendingDeleteUser={pendingDeleteUser}
+      />
     </>
   );
+}
+
+function userMissingBreadcrumbItems() {
+  return [{ label: "Root" }, { label: "Users" }, { current: true, label: "Missing" }];
 }
 
 function hasSecureClipboard() {
@@ -290,20 +289,4 @@ function summarizeUsers(users: User[]) {
     }),
     { active: 0, disabled: 0, total: 0 }
   );
-}
-
-function roleTone(role: UserRole) {
-  if (role === "Admin") {
-    return "active";
-  }
-
-  if (role === "Operator") {
-    return "enabled";
-  }
-
-  if (role === "Unassigned") {
-    return "disabled";
-  }
-
-  return "paused";
 }
