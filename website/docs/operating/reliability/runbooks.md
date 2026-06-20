@@ -57,6 +57,7 @@ That command shows status, dispatch events, and the latest failed worker-control
 | Source control | Config-as-code readiness, managed checkout filesystem pressure, source repository sync status, stale enabled source repositories and schedules, and active schedule overrides. |
 | Logs | API-to-log-service gRPC reachability and log-forwarder socket presence/private permissions when the local socket path is visible. |
 | Worker | Worker-core and worker shell Unix socket presence, private permissions, SPIFFE config/socket checks, and worker-core workspace filesystem health when local paths are visible. |
+| Internal trust | Service identity allowlist syntax and mTLS prerequisite checks when local env is visible. |
 | Audit | Dropped audit events and flush failures. |
 | Secrets | Encryptedfs root and key-file pairing, readability, permissions, and key format when local paths are visible. |
 | Database pool | API-visible `database/sql` pool pressure. |

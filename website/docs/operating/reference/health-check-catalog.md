@@ -82,6 +82,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `log.forwarder.socket` | warning | Local `VECTIS_LOG_FORWARDER_SOCKET` path | The log-forwarder socket path is not configured in the current shell, or the configured path is absolute, present, a Unix socket, and private to its owner. | Check `vectis-log-forwarder` service state, socket ownership, and runtime directory permissions. |
 | `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
 | `secrets.encryptedfs.files` | warning | Local `VECTIS_SECRETS_ENCRYPTEDFS_ROOT` and `VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE` paths | Encryptedfs is disabled, or both paths are configured, the root exists and is writable, the key file is regular and private, and the key parses as a valid encryptedfs key. | Check encryptedfs secret root/key mounts, ownership, permissions, and backup placement. |
+| `service.identity.config` | warning | Local `VECTIS_SERVICE_IDENTITY_*_ALLOWED_*` settings, short alias allowlists, and `VECTIS_GRPC_TLS_*` settings | Service identity allowlists are unset, or every configured identity is a valid exact `spiffe://` URI and mTLS listener verification is configured with gRPC TLS, server cert/key, and client CA material. | Check service identity allowlists and internal gRPC TLS/mTLS material. |
 | `tls.files` | warning | Local `VECTIS_GRPC_TLS_*` and `VECTIS_METRICS_TLS_*` paths | TLS is disabled, or configured cert/key/CA files are readable, parseable, not expired or within 14 days of expiry, and certificate/key pairs match. | Check TLS env vars, mounted files, certificate expiry, and key pairing. |
 | `queue.persistence.filesystem` | warning | Local `VECTIS_QUEUE_PERSISTENCE_DIR` or default per-shard data path | Queue persistence directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move queue persistence to a larger writable volume. |
 | `log.storage.filesystem` | warning | Local `VECTIS_LOG_STORAGE_DIR` or default data path | Durable log storage directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move log storage to a larger writable volume. |
@@ -131,6 +132,12 @@ When `source.schedules.overrides` warns, `evidence` includes the schedule IDs wi
 When `secrets.encryptedfs.files` warns, `evidence` includes only local paths,
 for example `root=/var/lib/vectis/secrets/encryptedfs key_file=/etc/vectis/secrets/encryptedfs.key`.
 It does not list secret refs, envelope filenames, plaintext, or key material.
+
+When `service.identity.config` warns, `evidence` includes allowlist and identity
+counts plus mTLS prerequisite booleans, for example `allowlists=2 identities=3
+grpc_tls_insecure=true server_cert_configured=false server_key_configured=false
+client_ca_configured=false queue=2 orchestrator=1`. It does not list SPIFFE
+IDs, certificate contents, or private key material.
 
 ## How To Respond
 

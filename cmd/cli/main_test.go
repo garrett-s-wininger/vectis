@@ -5162,7 +5162,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  31 passed, 0 warnings, 0 failed",
+		"Overall: PASS  32 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5187,6 +5187,8 @@ func TestDoctor_success(t *testing.T) {
 		"OK    Core sockets",
 		"OK    SPIFFE config",
 		"OK    Workspace filesystem",
+		"Internal Trust",
+		"OK    Service identity",
 		"Catalog",
 		"OK    Cell event inbox",
 		"catalog inbox ok: 0 pending",
@@ -5287,7 +5289,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  29 passed, 2 warnings, 0 failed",
+		"Overall: WARN  30 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5349,7 +5351,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  31 passed, 0 warnings, 0 failed",
+		"Overall: PASS  32 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5408,7 +5410,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  30 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  31 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5467,12 +5469,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 31 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 32 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 31 {
-		t.Fatalf("expected 31 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 32 {
+		t.Fatalf("expected 32 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5547,7 +5549,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 31 || len(report.Checks) != 31 {
+	if report.Status != doctorOK || report.Passed != 32 || len(report.Checks) != 32 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5611,8 +5613,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 31 {
-		t.Fatalf("expected 31 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 32 {
+		t.Fatalf("expected 32 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -5837,6 +5839,81 @@ func TestDoctorWorkerWorkspaceFilesystem_limaWarnsWithoutGuestRoot(t *testing.T)
 
 	if !strings.Contains(check.Summary, "guest workspace root is not configured") {
 		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
+func TestDoctorServiceIdentityConfig_unconfiguredPasses(t *testing.T) {
+	check := doctorServiceIdentityConfig()
+	if check.Status != doctorOK {
+		t.Fatalf("expected service identity check to pass, got %#v", check)
+	}
+
+	if !strings.Contains(check.Evidence, "allowlists=0") || !strings.Contains(check.Evidence, "identities=0") {
+		t.Fatalf("expected empty allowlist evidence, got %q", check.Evidence)
+	}
+}
+
+func TestDoctorServiceIdentityConfig_validMTLSBackedAllowlists(t *testing.T) {
+	certFile, keyFile := writeTestCertificate(t, time.Now().Add(30*24*time.Hour))
+	t.Setenv("VECTIS_GRPC_TLS_INSECURE", "false")
+	t.Setenv("VECTIS_GRPC_TLS_CERT_FILE", certFile)
+	t.Setenv("VECTIS_GRPC_TLS_KEY_FILE", keyFile)
+	t.Setenv("VECTIS_GRPC_TLS_CLIENT_CA_FILE", certFile)
+	t.Setenv("VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES", "spiffe://prod.example/vectis/api,spiffe://prod.example/vectis/worker")
+	t.Setenv("VECTIS_SERVICE_IDENTITY_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES", "spiffe://prod.example/vectis/worker")
+	t.Setenv("VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES", "spiffe://prod.example/vectis/api")
+
+	check := doctorServiceIdentityConfig()
+	if check.Status != doctorOK {
+		t.Fatalf("expected service identity check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{
+		"allowlists=3",
+		"identities=4",
+		"grpc_tls_insecure=false",
+		"server_cert_configured=true",
+		"server_key_configured=true",
+		"client_ca_configured=true",
+		"queue=2",
+		"orchestrator=1",
+		"cell_ingress=1",
+	} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorServiceIdentityConfig_warnsForInvalidSPIFFEID(t *testing.T) {
+	t.Setenv("VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES", "https://prod.example/vectis/api")
+
+	check := doctorServiceIdentityConfig()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected service identity check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "spiffe://") {
+		t.Fatalf("expected SPIFFE validation summary, got %q", check.Summary)
+	}
+}
+
+func TestDoctorServiceIdentityConfig_warnsWithoutMTLSPrerequisites(t *testing.T) {
+	t.Setenv("VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES", "spiffe://prod.example/vectis/api")
+
+	check := doctorServiceIdentityConfig()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected service identity check to warn, got %#v", check)
+	}
+
+	for _, want := range []string{
+		"VECTIS_GRPC_TLS_INSECURE=false",
+		"VECTIS_GRPC_TLS_CERT_FILE",
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE",
+	} {
+		if !strings.Contains(check.Summary, want) {
+			t.Fatalf("expected summary to contain %q, got %q", want, check.Summary)
+		}
 	}
 }
 

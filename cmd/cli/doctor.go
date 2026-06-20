@@ -20,6 +20,7 @@ import (
 	"time"
 	"vectis/internal/config"
 	secretstore "vectis/internal/secrets"
+	"vectis/internal/serviceidentity"
 	"vectis/internal/utils"
 	"vectis/internal/workercore"
 )
@@ -102,6 +103,7 @@ func doctor(w io.Writer) error {
 		doctorWorkerCoreSockets(),
 		doctorWorkerSPIFFEConfig(),
 		doctorWorkerWorkspaceFilesystem(),
+		doctorServiceIdentityConfig(),
 		doctorTLSFiles(),
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
@@ -187,6 +189,9 @@ var doctorTextGroups = []doctorTextGroup{
 		{ID: "worker.core.sockets", Label: "Core sockets"},
 		{ID: "worker.spiffe.config", Label: "SPIFFE config"},
 		{ID: "worker.workspace.filesystem", Label: "Workspace filesystem"},
+	}},
+	{Name: "Internal Trust", Items: []doctorTextItem{
+		{ID: "service.identity.config", Label: "Service identity"},
 	}},
 	{Name: "Catalog", Items: []doctorTextItem{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
@@ -2160,6 +2165,129 @@ func (e doctorWorkerWorkspaceEvidence) String() string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func doctorServiceIdentityConfig() doctorCheck {
+	const id = "service.identity.config"
+	title := "Service identity allowlists valid"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	doctorBindServiceIdentityEnv()
+
+	allowlists := doctorServiceIdentityAllowlists()
+	counts := make(map[string]int, len(allowlists))
+	var problems []string
+	configuredAllowlists := 0
+	identityCount := 0
+	for _, allowlist := range allowlists {
+		if len(allowlist.identities) == 0 {
+			continue
+		}
+
+		configuredAllowlists++
+		counts[allowlist.evidenceLabel] = len(allowlist.identities)
+		identityCount += len(allowlist.identities)
+
+		normalized, err := serviceidentity.NormalizeSPIFFEAllowlist(allowlist.identities)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s allowlist is invalid: %v", allowlist.label, err))
+			continue
+		}
+
+		counts[allowlist.evidenceLabel] = len(normalized)
+		identityCount += len(normalized) - len(allowlist.identities)
+	}
+
+	evidence := formatDoctorServiceIdentityEvidence(counts, configuredAllowlists, identityCount)
+	if configuredAllowlists == 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "service identity allowlists are not configured", Evidence: evidence, DocLink: doc}
+	}
+
+	if config.GRPCTLSInsecure() {
+		problems = append(problems, "service identity allowlists require VECTIS_GRPC_TLS_INSECURE=false")
+	}
+
+	if doctorViperString("grpc_tls.cert_file") == "" || doctorViperString("grpc_tls.key_file") == "" {
+		problems = append(problems, "service identity allowlists require VECTIS_GRPC_TLS_CERT_FILE and VECTIS_GRPC_TLS_KEY_FILE")
+	}
+
+	if doctorViperString("grpc_tls.client_ca_file") == "" {
+		problems = append(problems, "service identity allowlists require VECTIS_GRPC_TLS_CLIENT_CA_FILE")
+	}
+
+	if len(problems) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check VECTIS_SERVICE_IDENTITY_* allowlists and VECTIS_GRPC_TLS_* mTLS settings", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("service identity allowlists valid for %d listener roles", configuredAllowlists), Evidence: evidence, DocLink: doc}
+}
+
+type doctorServiceIdentityAllowlist struct {
+	label         string
+	evidenceLabel string
+	identities    []string
+}
+
+func doctorServiceIdentityAllowlists() []doctorServiceIdentityAllowlist {
+	return []doctorServiceIdentityAllowlist{
+		{label: "registry", evidenceLabel: "registry", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleRegistry)},
+		{label: "queue", evidenceLabel: "queue", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleQueue)},
+		{label: "log", evidenceLabel: "log", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleLog)},
+		{label: "artifact", evidenceLabel: "artifact", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleArtifact)},
+		{label: "orchestrator", evidenceLabel: "orchestrator", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleOrchestrator)},
+		{label: "worker control", evidenceLabel: "worker_control", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleWorkerControl)},
+		{label: "secrets", evidenceLabel: "secrets", identities: config.ServiceIdentityAllowedClientIdentities(config.ServiceIdentityRoleSecrets)},
+		{label: "cell ingress", evidenceLabel: "cell_ingress", identities: config.CellIngressAllowedProducerIdentities()},
+	}
+}
+
+func formatDoctorServiceIdentityEvidence(counts map[string]int, configuredAllowlists, identityCount int) string {
+	parts := []string{
+		fmt.Sprintf("allowlists=%d", configuredAllowlists),
+		fmt.Sprintf("identities=%d", identityCount),
+		fmt.Sprintf("grpc_tls_insecure=%t", config.GRPCTLSInsecure()),
+		fmt.Sprintf("server_cert_configured=%t", doctorViperString("grpc_tls.cert_file") != ""),
+		fmt.Sprintf("server_key_configured=%t", doctorViperString("grpc_tls.key_file") != ""),
+		fmt.Sprintf("client_ca_configured=%t", doctorViperString("grpc_tls.client_ca_file") != ""),
+	}
+
+	labels := make([]string, 0, len(counts))
+	for label := range counts {
+		labels = append(labels, label)
+	}
+
+	sort.Strings(labels)
+	for _, label := range labels {
+		parts = append(parts, fmt.Sprintf("%s=%d", label, counts[label]))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func doctorBindServiceIdentityEnv() {
+	for _, binding := range []struct {
+		key      string
+		envNames []string
+	}{
+		{key: "grpc_tls.insecure", envNames: []string{"VECTIS_GRPC_TLS_INSECURE"}},
+		{key: "grpc_tls.cert_file", envNames: []string{"VECTIS_GRPC_TLS_CERT_FILE"}},
+		{key: "grpc_tls.key_file", envNames: []string{"VECTIS_GRPC_TLS_KEY_FILE"}},
+		{key: "grpc_tls.client_ca_file", envNames: []string{"VECTIS_GRPC_TLS_CLIENT_CA_FILE"}},
+		{key: "service_identity.registry_allowed_client_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_REGISTRY_ALLOWED_CLIENT_IDENTITIES", "VECTIS_REGISTRY_ALLOWED_CLIENT_IDENTITIES"}},
+		{key: "service_identity.queue_allowed_client_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES", "VECTIS_QUEUE_ALLOWED_CLIENT_IDENTITIES"}},
+		{key: "service_identity.log_allowed_client_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES", "VECTIS_LOG_ALLOWED_CLIENT_IDENTITIES"}},
+		{key: "service_identity.artifact_allowed_client_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_ARTIFACT_ALLOWED_CLIENT_IDENTITIES", "VECTIS_ARTIFACT_ALLOWED_CLIENT_IDENTITIES"}},
+		{key: "service_identity.orchestrator_allowed_client_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES", "VECTIS_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES"}},
+		{key: "service_identity.worker_control_allowed_client_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES", "VECTIS_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES"}},
+		{key: "service_identity.secrets_allowed_client_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_SECRETS_ALLOWED_CLIENT_IDENTITIES", "VECTIS_SECRETS_ALLOWED_CLIENT_IDENTITIES"}},
+		{key: "service_identity.cell_ingress_allowed_producer_identities", envNames: []string{"VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES", "VECTIS_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES"}},
+	} {
+		_ = viper.BindEnv(append([]string{binding.key}, binding.envNames...)...)
+	}
+}
+
+func doctorViperString(key string) string {
+	return strings.TrimSpace(viper.GetString(key))
 }
 
 func doctorTLSFiles() doctorCheck {
