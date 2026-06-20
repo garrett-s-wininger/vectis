@@ -7,6 +7,7 @@ export type { BreadcrumbItem } from "./navigation/BreadcrumbTrail";
 export { DataTable } from "./data/DataTable";
 export type { DataTableColumn } from "./data/DataTable";
 export { EmptyStatePanel } from "./feedback/EmptyStatePanel";
+export { ErrorAlert } from "./feedback/ErrorAlert";
 export { FilterBar } from "./navigation/FilterBar";
 export { FormError } from "./feedback/FormError";
 export { FormField } from "./primitives/FormField";

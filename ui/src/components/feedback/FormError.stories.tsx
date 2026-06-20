@@ -17,7 +17,8 @@ export const Default: Story = {};
 
 export const PageAlert: Story = {
   args: {
-    message: "Unable to trigger job. The saved definition could not be enqueued."
+    message: "Unable to trigger job. The saved definition could not be enqueued.",
+    title: "Action Failed"
   },
   decorators: [
     (Story) => (

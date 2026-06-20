@@ -1,17 +1,10 @@
-import styles from "./FormError.module.css";
+import { ErrorAlert } from "./ErrorAlert";
 
 type FormErrorProps = {
   message?: string;
+  title?: string;
 };
 
-export function FormError({ message }: FormErrorProps) {
-  if (!message) {
-    return null;
-  }
-
-  return (
-    <p className={styles.root} role="alert">
-      {message}
-    </p>
-  );
+export function FormError({ message, title }: FormErrorProps) {
+  return <ErrorAlert message={message} title={title} />;
 }

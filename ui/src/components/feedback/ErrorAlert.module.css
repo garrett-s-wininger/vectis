@@ -11,7 +11,24 @@
     0 1px 0 rgb(255 255 255 / 70%),
     0 12px 28px rgb(124 44 32 / 8%);
   color: var(--status-danger-text-dark);
-  font-weight: var(--font-weight-medium);
+  display: grid;
+  gap: var(--space-2xs);
   margin: 0;
   padding: var(--space-md) var(--space-lg) var(--space-md) var(--space-xl);
+}
+
+.title {
+  color: var(--status-danger-text-dark);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-strong);
+  line-height: var(--line-height-compact);
+  margin: 0;
+}
+
+.message {
+  color: var(--status-danger-text-dark);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-compact);
+  margin: 0;
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Clock, Code2, FileText, History, Server, User, Zap } from "lucide-react";
 import {
   BreadcrumbTrail,
+  ErrorAlert,
   OperationalFact,
   PageHeader,
   StatusBadge,
@@ -160,7 +161,7 @@ function RunLogs({ run }: { run: RunListItem }) {
   const logLines =
     visibleLogState.entries.length > 0
       ? formatRunLogEntries(visibleLogState.entries)
-      : fallbackLogLines(run, visibleLogState.error);
+      : runLogLines(run);
 
   return (
     <section
@@ -173,6 +174,7 @@ function RunLogs({ run }: { run: RunListItem }) {
           <p>Worker output and dispatch messages for this run.</p>
         </div>
       </div>
+      <ErrorAlert message={visibleLogState.error} title="Log Stream Unavailable" />
       <pre className={`code-block ${styles.logs}`}>{logLines.join("\n")}</pre>
     </section>
   );
@@ -180,14 +182,6 @@ function RunLogs({ run }: { run: RunListItem }) {
 
 function formatRunLogEntries(entries: RunLogEntry[]) {
   return entries.map((entry) => (entry.stream === "stderr" ? `[stderr] ${entry.data}` : entry.data));
-}
-
-function fallbackLogLines(run: RunListItem, logError: string) {
-  if (logError) {
-    return [logError];
-  }
-
-  return runLogLines(run);
 }
 
 function RunTimeline({ run }: { run: RunListItem }) {

@@ -6,6 +6,7 @@ import { completeSetup, loadUIContext, login, logout } from "./api/auth";
 import { Button } from "./components";
 import { AppShell } from "./components";
 import { AppState } from "./components";
+import { ErrorAlert } from "./components";
 import { FormError } from "./components";
 import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
@@ -148,7 +149,7 @@ export function App() {
       })
       .catch((error: unknown) => {
         if (!ignore) {
-          setConsoleError(error instanceof Error ? error.message : "Unable to load console data.");
+          setConsoleError(errorMessage(error, "Unable to load console data."));
         }
       });
 
@@ -209,7 +210,7 @@ export function App() {
             return;
           }
 
-          const message = error instanceof Error ? error.message : "Unable to load run.";
+          const message = errorMessage(error, "Unable to load run.");
           if (message !== "Run not found.") {
             setConsoleError(message);
           } else {
@@ -242,7 +243,7 @@ export function App() {
       setAuthEnabled(true);
       navigateAfterAuth();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Setup failed");
+      setFormError(errorMessage(error, "Setup failed"));
     } finally {
       setSubmitting(false);
     }
@@ -263,7 +264,7 @@ export function App() {
       setAuthEnabled(true);
       navigateAfterAuth();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Login failed");
+      setFormError(errorMessage(error, "Login failed"));
     } finally {
       setSubmitting(false);
     }
@@ -291,7 +292,7 @@ export function App() {
       setConsoleError("");
       setActionError("");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create namespace.";
+      const message = errorMessage(error, "Unable to create namespace.");
       setActionError(message);
       throw new Error(message, { cause: error });
     }
@@ -303,7 +304,7 @@ export function App() {
       setConsoleError("");
       setActionError("");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create job.";
+      const message = errorMessage(error, "Unable to create job.");
       setActionError(message);
       throw new Error(message, { cause: error });
     }
@@ -315,7 +316,7 @@ export function App() {
       setConsoleError("");
       setActionError("");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update job.";
+      const message = errorMessage(error, "Unable to update job.");
       setActionError(message);
       throw new Error(message, { cause: error });
     }
@@ -329,7 +330,7 @@ export function App() {
       setConsoleError("");
       setActionError("");
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to delete namespace.");
+      setActionError(errorMessage(error, "Unable to delete namespace."));
       return;
     }
 
@@ -348,7 +349,7 @@ export function App() {
       setConsoleError("");
       setActionError("");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update namespace.";
+      const message = errorMessage(error, "Unable to update namespace.");
       setActionError(message);
 
       throw new Error(message, { cause: error });
@@ -361,7 +362,7 @@ export function App() {
       setConsoleError("");
       setActionError("");
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to trigger job.");
+      setActionError(errorMessage(error, "Unable to trigger job."));
     }
   }
 
@@ -384,7 +385,7 @@ export function App() {
         navigateTo(`/runs/${runID}`);
       }
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to submit run.");
+      setActionError(errorMessage(error, "Unable to submit run."));
     }
   }
 
@@ -767,7 +768,7 @@ function PageWithActionAlert({ actionError, children }: { actionError: string; c
     <>
       {actionError ? (
         <div className="app-alert-rail">
-          <FormError message={actionError} />
+          <ErrorAlert message={actionError} title="Action Failed" />
         </div>
       ) : null}
       {children}
@@ -777,6 +778,10 @@ function PageWithActionAlert({ actionError, children }: { actionError: string; c
 
 function navigateAfterAuth() {
   navigateTo(safeNextPath() ?? "/");
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function jobConfigPath(jobID: string, route: AppRoute) {
