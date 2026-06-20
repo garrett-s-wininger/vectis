@@ -55,6 +55,28 @@ func TestNamespacesRepository_Create_rootLevel(t *testing.T) {
 	}
 }
 
+func TestNamespacesRepository_CreateWithDescription(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLNamespacesRepository(db)
+	ctx := context.Background()
+
+	rec, err := repo.CreateWithDescription(ctx, "described", "  Definitions owned by platform.  ", nil)
+	if err != nil {
+		t.Fatalf("create with description failed: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("get by id failed: %v", err)
+	}
+
+	if got.Description != "Definitions owned by platform." {
+		t.Fatalf("expected trimmed description, got %q", got.Description)
+	}
+}
+
 func TestNamespacesRepository_Create_invalidName(t *testing.T) {
 	t.Parallel()
 

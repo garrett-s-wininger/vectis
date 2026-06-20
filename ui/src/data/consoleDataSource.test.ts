@@ -23,6 +23,7 @@ describe("console data source", () => {
             id: 1,
             name: "/",
             path: "/",
+            description: "Default namespace boundary.",
             break_inheritance: false
           }
         ])
@@ -71,6 +72,7 @@ describe("console data source", () => {
         id: 1,
         name: "/",
         path: "/",
+        description: "Default namespace boundary.",
         breakInheritance: false,
         role: "Admin"
       }
@@ -178,6 +180,88 @@ describe("console data source", () => {
             id: "database-vacuum"
           }
         })
+      })
+    );
+  });
+
+  it("creates namespaces through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 2, name: "platform", path: "/platform", break_inheritance: false }))
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            id: 1,
+            name: "/",
+            path: "/",
+            break_inheritance: false
+          },
+          {
+            id: 2,
+            name: "platform",
+            path: "/platform",
+            description: "Platform-owned definitions.",
+            parent_id: 1,
+            break_inheritance: false
+          }
+        ])
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    const data = await createConsoleDataSource().createNamespace({
+      description: "Platform-owned definitions.",
+      name: "platform",
+      parentID: 1
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/namespaces",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "platform",
+          description: "Platform-owned definitions.",
+          parent_id: 1
+        })
+      })
+    );
+
+    expect(data.namespaces[1]).toMatchObject({
+      description: "Platform-owned definitions.",
+      name: "platform",
+      parentID: 1,
+      path: "/platform"
+    });
+  });
+
+  it("deletes namespaces through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            id: 1,
+            name: "/",
+            path: "/",
+            break_inheritance: false
+          }
+        ])
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await createConsoleDataSource().deleteNamespace(2);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/namespaces/2",
+      expect.objectContaining({
+        method: "DELETE"
       })
     );
   });

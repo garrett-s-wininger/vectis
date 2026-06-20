@@ -33,6 +33,10 @@ func (m *mockNamespacesRepo) Create(ctx context.Context, name string, parentID *
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockNamespacesRepo) CreateWithDescription(ctx context.Context, name, description string, parentID *int64) (*dal.NamespaceRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m *mockNamespacesRepo) GetByID(ctx context.Context, id int64) (*dal.NamespaceRecord, error) {
 	for _, rec := range m.records {
 		if rec.ID == id {

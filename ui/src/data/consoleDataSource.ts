@@ -1,9 +1,11 @@
 import type { RunListItem, RunStatus } from "../components";
-import type { ConsoleData, Job, Namespace, NewEphemeralRun, NewJob, UpdateJob } from "../domain/console";
+import type { ConsoleData, Job, Namespace, NewEphemeralRun, NewJob, NewNamespace, UpdateJob } from "../domain/console";
 import { requestJSON, requestNoContent } from "../api/client";
 import {
   createMockConsoleDataSnapshot,
   createMockJob,
+  createMockNamespace,
+  deleteMockNamespace,
   scopeMockConsoleData,
   submitMockEphemeralRun,
   triggerMockRun,
@@ -25,6 +27,7 @@ type APIJob = {
 
 type APINamespace = {
   break_inheritance: boolean;
+  description?: string;
   id: number;
   name: string;
   parent_id?: number;
@@ -52,6 +55,8 @@ type APIEphemeralRunResponse = {
 
 export type ConsoleDataSource = {
   createJob(input: NewJob): Promise<ConsoleData>;
+  createNamespace(input: NewNamespace): Promise<ConsoleData>;
+  deleteNamespace(namespaceID: number): Promise<ConsoleData>;
   loadConsole(): Promise<ConsoleData>;
   loadRun(runID: string): Promise<RunListItem>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
@@ -83,6 +88,14 @@ function createMockConsoleDataSource(): ConsoleDataSource {
   return {
     async createJob(input) {
       data = createMockJob(data, input);
+      return cloneConsoleData(data);
+    },
+    async createNamespace(input) {
+      data = createMockNamespace(data, input);
+      return cloneConsoleData(data);
+    },
+    async deleteNamespace(namespaceID) {
+      data = deleteMockNamespace(data, namespaceID);
       return cloneConsoleData(data);
     },
     async loadConsole() {
@@ -122,6 +135,25 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
           namespace: input.namespacePath,
           job: definition
         })
+      });
+
+      return loadAPIConsoleData();
+    },
+    async createNamespace(input) {
+      await requestJSON<APINamespace>("/api/v1/namespaces", {
+        method: "POST",
+        body: JSON.stringify({
+          name: input.name,
+          description: input.description,
+          parent_id: input.parentID
+        })
+      });
+
+      return loadAPIConsoleData();
+    },
+    async deleteNamespace(namespaceID) {
+      await requestNoContent(`/api/v1/namespaces/${namespaceID}`, {
+        method: "DELETE"
       });
 
       return loadAPIConsoleData();
@@ -215,6 +247,7 @@ function apiNamespaceToConsoleNamespace(namespace: APINamespace): Namespace {
   return {
     id: namespace.id,
     name: namespace.name,
+    description: namespace.description || undefined,
     parentID: namespace.parent_id,
     path: namespace.path,
     breakInheritance: namespace.break_inheritance,

@@ -2,6 +2,7 @@ CREATE TABLE namespaces (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     global_id TEXT UNIQUE,
     name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     parent_id INTEGER REFERENCES namespaces(id),
     path TEXT UNIQUE NOT NULL,
     break_inheritance INTEGER NOT NULL DEFAULT 0 CHECK (break_inheritance IN (0, 1)),
@@ -9,8 +10,19 @@ CREATE TABLE namespaces (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO namespaces (id, global_id, name, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', '/', 0, 'local');
+INSERT INTO namespaces (id, global_id, name, description, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', 'Default namespace boundary.', '/', 0, 'local');
 INSERT INTO namespaces (id, global_id, name, parent_id, path, break_inheritance, home_cell) VALUES (2, 'namespace-ephemeral', 'ephemeral', 1, '/ephemeral', 0, 'local');
+
+CREATE TABLE stored_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    global_id TEXT UNIQUE,
+    job_id TEXT UNIQUE NOT NULL,
+    namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
+    current_version INTEGER NOT NULL DEFAULT 1,
+    home_cell TEXT NOT NULL DEFAULT 'local',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE job_triggers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

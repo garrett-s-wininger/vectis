@@ -10,19 +10,16 @@ import { FormError } from "./components";
 import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource } from "./data/consoleDataSource";
-import type { NewJob, UpdateJob } from "./domain/console";
+import type { NewJob, NewNamespace, UpdateJob } from "./domain/console";
 import {
   canDeleteMockNamespace,
-  createMockNamespace,
   createMockUser,
-  deleteMockNamespace,
   deleteMockUser,
   nextMockRunID,
   scopeMockConsoleData,
   updateMockUserStatus,
   type MockConsoleData,
   type MockUserStatus,
-  type NewMockNamespace,
   type NewMockUser
 } from "./mocks/consoleData";
 import { HealthPage } from "./pages/HealthPage";
@@ -272,8 +269,16 @@ export function App() {
     updateConsoleData((data) => deleteMockUser(data, userID));
   }
 
-  function handleCreateNamespace(input: NewMockNamespace) {
-    updateConsoleData((data) => createMockNamespace(data, input));
+  async function handleCreateNamespace(input: NewNamespace) {
+    try {
+      setConsoleData(await consoleDataSource.createNamespace(input));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create namespace.";
+      setActionError(message);
+      throw new Error(message, { cause: error });
+    }
   }
 
   async function handleCreateJob(input: NewJob) {
@@ -300,10 +305,17 @@ export function App() {
     }
   }
 
-  function handleDeleteNamespace(namespaceID: number) {
+  async function handleDeleteNamespace(namespaceID: number) {
     const namespacePath = consoleData?.namespaces.find((namespace) => namespace.id === namespaceID)?.path;
 
-    updateConsoleData((data) => deleteMockNamespace(data, namespaceID));
+    try {
+      setConsoleData(await consoleDataSource.deleteNamespace(namespaceID));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to delete namespace.");
+      return;
+    }
 
     if (namespacePath === selectedNamespacePath) {
       setSelectedNamespacePath("/");
@@ -569,9 +581,9 @@ function RouteContent({
   missingRunID: string | null;
   namespacePath: string;
   onCreateJob: (input: NewJob) => Promise<void> | void;
-  onCreateNamespace: (input: NewMockNamespace) => void;
+  onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
   onCreateUser: (input: NewMockUser) => void;
-  onDeleteNamespace: (namespaceID: number) => void;
+  onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
   onDeleteUser: (userID: string) => void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
   onTriggerRun: (jobID: string) => void;

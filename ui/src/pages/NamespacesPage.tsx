@@ -14,8 +14,8 @@ import styles from "./NamespacesPage.module.css";
 type NamespacesPageProps = {
   canDeleteNamespace: (namespaceID: number) => boolean;
   namespaces: Namespace[];
-  onCreateNamespace: (input: NewNamespace) => void;
-  onDeleteNamespace: (namespaceID: number) => void;
+  onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
+  onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
 };
 
 export function NamespacesPage({
@@ -31,13 +31,13 @@ export function NamespacesPage({
     parentID: 1
   });
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!values.name.trim()) {
       return;
     }
 
-    onCreateNamespace(values);
+    await onCreateNamespace(values);
     setValues({ description: "", name: "", parentID: values.parentID });
     setIsCreating(false);
   }

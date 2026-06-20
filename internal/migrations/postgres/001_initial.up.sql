@@ -2,6 +2,7 @@ CREATE TABLE namespaces (
     id BIGSERIAL PRIMARY KEY,
     global_id TEXT UNIQUE,
     name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     parent_id BIGINT REFERENCES namespaces(id),
     path TEXT UNIQUE NOT NULL,
     break_inheritance BOOLEAN NOT NULL DEFAULT false,
@@ -9,9 +10,20 @@ CREATE TABLE namespaces (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO namespaces (id, global_id, name, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', '/', false, 'local');
+INSERT INTO namespaces (id, global_id, name, description, path, break_inheritance, home_cell) VALUES (1, 'namespace-root', 'root', 'Default namespace boundary.', '/', false, 'local');
 INSERT INTO namespaces (id, global_id, name, parent_id, path, break_inheritance, home_cell) VALUES (2, 'namespace-ephemeral', 'ephemeral', 1, '/ephemeral', false, 'local');
 SELECT setval(pg_get_serial_sequence('namespaces', 'id'), (SELECT MAX(id) FROM namespaces));
+
+CREATE TABLE stored_jobs (
+    id BIGSERIAL PRIMARY KEY,
+    global_id TEXT UNIQUE,
+    job_id TEXT UNIQUE NOT NULL,
+    namespace_id BIGINT NOT NULL DEFAULT 1 REFERENCES namespaces(id),
+    current_version INTEGER NOT NULL DEFAULT 1,
+    home_cell TEXT NOT NULL DEFAULT 'local',
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE job_triggers (
     id BIGSERIAL PRIMARY KEY,

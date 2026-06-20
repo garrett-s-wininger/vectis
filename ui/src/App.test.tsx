@@ -507,7 +507,9 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete /sandbox" }));
 
-    expect(screen.queryByRole("button", { name: "Delete /sandbox" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Delete /sandbox" })).not.toBeInTheDocument();
+    });
   });
 
   it("logs out and returns to login", async () => {

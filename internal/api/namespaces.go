@@ -11,13 +11,15 @@ import (
 )
 
 type createNamespaceRequest struct {
-	Name     string `json:"name"`
-	ParentID *int64 `json:"parent_id,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ParentID    *int64 `json:"parent_id,omitempty"`
 }
 
 type namespaceResponse struct {
 	ID               int64  `json:"id"`
 	Name             string `json:"name"`
+	Description      string `json:"description"`
 	ParentID         *int64 `json:"parent_id,omitempty"`
 	Path             string `json:"path"`
 	BreakInheritance bool   `json:"break_inheritance"`
@@ -27,6 +29,7 @@ func namespaceRecordToResponse(rec *dal.NamespaceRecord) namespaceResponse {
 	return namespaceResponse{
 		ID:               rec.ID,
 		Name:             rec.Name,
+		Description:      rec.Description,
 		ParentID:         rec.ParentID,
 		Path:             rec.Path,
 		BreakInheritance: rec.BreakInheritance,
@@ -87,7 +90,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := s.namespaces.Create(ctx, req.Name, req.ParentID)
+	rec, err := s.namespaces.CreateWithDescription(ctx, req.Name, req.Description, req.ParentID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -115,9 +118,10 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auditLog(ctx, audit.EventNamespaceCreated, actorID, rec.ID, map[string]any{
-		"name":      rec.Name,
-		"parent_id": req.ParentID,
-		"path":      rec.Path,
+		"name":        rec.Name,
+		"description": rec.Description,
+		"parent_id":   req.ParentID,
+		"path":        rec.Path,
 	})
 
 	resp := namespaceRecordToResponse(rec)

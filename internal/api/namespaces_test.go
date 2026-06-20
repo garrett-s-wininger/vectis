@@ -17,7 +17,7 @@ func TestCreateNamespace_Success(t *testing.T) {
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
 
-	body := []byte(`{"name": "team-a"}`)
+	body := []byte(`{"name": "team-a", "description": "Team A delivery boundary."}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	rec := httptest.NewRecorder()
@@ -41,6 +41,10 @@ func TestCreateNamespace_Success(t *testing.T) {
 		t.Fatalf("expected path /team-a, got %v", resp["path"])
 	}
 
+	if resp["description"] != "Team A delivery boundary." {
+		t.Fatalf("expected description, got %v", resp["description"])
+	}
+
 	// Verify it's in the database
 	ns, err := repos.Namespaces().GetByPath(ctx, "/team-a")
 	if err != nil {
@@ -49,6 +53,10 @@ func TestCreateNamespace_Success(t *testing.T) {
 
 	if ns.Name != "team-a" {
 		t.Fatalf("expected name team-a, got %s", ns.Name)
+	}
+
+	if ns.Description != "Team A delivery boundary." {
+		t.Fatalf("expected description, got %s", ns.Description)
 	}
 }
 
