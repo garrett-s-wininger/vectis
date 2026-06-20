@@ -18,7 +18,11 @@ data:
   VECTIS_CELL_ID: local
   VECTIS_DATABASE_DRIVER: pgx
   VECTIS_DISCOVERY_REGISTRY_ADDRESS: vectis-registry:8082
-  VECTIS_GRPC_TLS_INSECURE: "true"
+  VECTIS_GRPC_TLS_INSECURE: "false"
+  VECTIS_GRPC_TLS_CA_FILE: /run/vectis/grpc-tls/ca.pem
+  VECTIS_GRPC_TLS_CERT_FILE: /run/vectis/grpc-tls/server.pem
+  VECTIS_GRPC_TLS_KEY_FILE: /run/vectis/grpc-tls/server-key.pem
+  VECTIS_GRPC_TLS_SERVER_NAME: vectis.internal
   VECTIS_METRICS_TLS_INSECURE: "true"
   VECTIS_LOG_FORMAT: json
   VECTIS_LOG_DIR: /var/log/vectis
@@ -43,6 +47,23 @@ stringData:
   VECTIS_DATABASE_DSN: {{ yamlQuote .DatabaseDSN }}
   VECTIS_API_AUTH_BOOTSTRAP_TOKEN: {{ yamlQuote .BootstrapToken }}
   encryptedfs.key: {{ yamlQuote .EncryptedFSKey }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vectis-grpc-tls
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/part-of: vectis
+type: Opaque
+stringData:
+  ca.pem: {{ yamlQuote .GRPCCA }}
+  server.pem: {{ yamlQuote .GRPCServerCert }}
+  server-key.pem: {{ yamlQuote .GRPCServerKey }}
+  client-ca-bundle.pem: {{ yamlQuote .GRPCClientCABundle }}
+  spiffe-ca.pem: {{ yamlQuote .SPIFFECA }}
+  spiffe-ca-key.pem: {{ yamlQuote .SPIFFECAKey }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -241,16 +262,24 @@ spec:
           envFrom:
             - configMapRef:
                 name: vectis-env
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
-            grpc:
+            tcpSocket:
               port: 8082
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
-            grpc:
+            tcpSocket:
               port: 8082
             initialDelaySeconds: 10
             periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -313,13 +342,16 @@ spec:
           volumeMounts:
             - name: queue-data
               mountPath: /data/vectis/queue
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
-            grpc:
+            tcpSocket:
               port: 8081
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
-            grpc:
+            tcpSocket:
               port: 8081
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -327,6 +359,9 @@ spec:
         - name: queue-data
           persistentVolumeClaim:
             claimName: vectis-queue-data
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -379,16 +414,24 @@ spec:
           env:
             - name: VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS
               value: vectis-orchestrator:8087
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
-            grpc:
+            tcpSocket:
               port: 8087
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
-            grpc:
+            tcpSocket:
               port: 8087
             initialDelaySeconds: 10
             periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -451,13 +494,16 @@ spec:
           volumeMounts:
             - name: log-data
               mountPath: /data/vectis/log
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
-            grpc:
+            tcpSocket:
               port: 8083
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
-            grpc:
+            tcpSocket:
               port: 8083
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -465,6 +511,9 @@ spec:
         - name: log-data
           persistentVolumeClaim:
             claimName: vectis-log-data
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -527,13 +576,16 @@ spec:
           volumeMounts:
             - name: artifact-data
               mountPath: /data/vectis/artifact
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
-            grpc:
+            tcpSocket:
               port: 8086
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
-            grpc:
+            tcpSocket:
               port: 8086
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -541,6 +593,9 @@ spec:
         - name: artifact-data
           persistentVolumeClaim:
             claimName: vectis-artifact-data
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -595,6 +650,10 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
       containers:
         - name: secrets
           image: {{ image "secrets" }}
@@ -617,19 +676,24 @@ spec:
               value: /run/vectis/secrets/encryptedfs.key
             - name: VECTIS_SECRETS_POLICY_ALLOW
               value: "namespace=*;job=*;task=*;ref=encryptedfs://*"
+            - name: VECTIS_GRPC_TLS_CLIENT_CA_FILE
+              value: /run/vectis/grpc-tls/client-ca-bundle.pem
           volumeMounts:
             - name: secrets-data
               mountPath: /data/vectis/secrets
             - name: secrets-key
               mountPath: /run/vectis/secrets
               readOnly: true
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
-            grpc:
+            tcpSocket:
               port: 8090
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
-            grpc:
+            tcpSocket:
               port: 8090
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -643,6 +707,9 @@ spec:
             items:
               - key: encryptedfs.key
                 path: encryptedfs.key
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -696,6 +763,10 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
       containers:
         - name: api
           image: {{ image "api" }}
@@ -721,6 +792,10 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_API_AUTH_BOOTSTRAP_TOKEN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health/ready
@@ -739,6 +814,10 @@ spec:
                   value: localhost
             initialDelaySeconds: 10
             periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: v1
 kind: Service
@@ -793,6 +872,10 @@ spec:
               value: 0.0.0.0
             - name: VECTIS_DOCS_PORT
               value: "8088"
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health/live
@@ -811,6 +894,10 @@ spec:
                   value: localhost
             initialDelaySeconds: 10
             periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -847,6 +934,10 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
       containers:
         - name: cron
           image: {{ image "cron" }}
@@ -864,6 +955,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -900,6 +999,10 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
       containers:
         - name: reconciler
           image: {{ image "reconciler" }}
@@ -913,6 +1016,14 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -949,6 +1060,10 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
       containers:
         - name: catalog
           image: {{ image "catalog" }}
@@ -962,6 +1077,14 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -998,7 +1121,41 @@ spec:
                 secretKeyRef:
                   name: vectis-secrets
                   key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+        - name: spiffe-seed
+          image: {{ image "worker" }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /data/vectis/spiffe
+              cp /seed/spiffe-ca.pem /data/vectis/spiffe/ca.pem
+              cp /seed/spiffe-ca-key.pem /data/vectis/spiffe/ca-key.pem
+              chmod 600 /data/vectis/spiffe/ca-key.pem
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /seed
+              readOnly: true
+            - name: spiffe-data
+              mountPath: /data/vectis/spiffe
       containers:
+        - name: spiffe
+          image: {{ image "spiffe" }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --trust-domain=vectis.internal
+            - --data-dir=/data/vectis/spiffe
+            - --runtime-dir=/run/vectis/spiffe
+            - --selector=unix:uid:0
+          volumeMounts:
+            - name: spiffe-data
+              mountPath: /data/vectis/spiffe
+            - name: spiffe-run
+              mountPath: /run/vectis/spiffe
         - name: worker-core
           image: {{ image "worker-core" }}
           imagePullPolicy: IfNotPresent
@@ -1015,9 +1172,20 @@ spec:
               mountPath: /run/vectis/worker-core
             - name: worker-workspace
               mountPath: /workspace
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
         - name: worker
           image: {{ image "worker" }}
           imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              until [ -S /run/vectis/spiffe/workload.sock ] && [ -S /run/vectis/spiffe/registration.sock ]; do
+                sleep 0.2
+              done
+              exec /usr/local/bin/vectis-worker
           ports:
             - name: control
               containerPort: 9084
@@ -1038,13 +1206,37 @@ spec:
               value: vectis-secrets:8090
             - name: VECTIS_WORKER_REGISTER_WITH_REGISTRY
               value: "false"
+            - name: VECTIS_WORKER_SPIFFE_ENABLED
+              value: "true"
+            - name: VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS
+              value: unix:///run/vectis/spiffe/workload.sock
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED
+              value: "true"
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS
+              value: unix:///run/vectis/spiffe/registration.sock
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID
+              value: spiffe://vectis.internal/vectis-spiffe/agent/local
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS
+              value: unix:uid:0
           volumeMounts:
             - name: worker-core-sockets
               mountPath: /run/vectis/worker-core
             - name: worker-workspace
               mountPath: /workspace
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+            - name: spiffe-run
+              mountPath: /run/vectis/spiffe
       volumes:
         - name: worker-core-sockets
           emptyDir: {}
         - name: worker-workspace
           emptyDir: {}
+        - name: spiffe-data
+          emptyDir: {}
+        - name: spiffe-run
+          emptyDir: {}
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls

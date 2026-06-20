@@ -28,11 +28,19 @@ func TestRenderDefaultManifestContract(t *testing.T) {
 		"name: vectis-log",
 		"name: vectis-artifact",
 		"name: vectis-secrets",
+		"name: vectis-grpc-tls",
 		"name: vectis-api",
 		"name: vectis-worker",
 		"VECTIS_DISCOVERY_REGISTRY_ADDRESS: vectis-registry:8082",
+		"VECTIS_GRPC_TLS_INSECURE: \"false\"",
+		"VECTIS_GRPC_TLS_CA_FILE: /run/vectis/grpc-tls/ca.pem",
+		"VECTIS_GRPC_TLS_SERVER_NAME: vectis.internal",
 		"VECTIS_ACTION_REGISTRY_LOCAL_ROOTS: /app/examples/actions",
 		"VECTIS_WORKER_REGISTER_WITH_REGISTRY",
+		"VECTIS_WORKER_SPIFFE_ENABLED",
+		"VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS",
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE",
+		"name: spiffe",
 		"VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES",
 		"VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES",
 		"VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED",
@@ -46,7 +54,7 @@ func TestRenderDefaultManifestContract(t *testing.T) {
 	}
 
 	if strings.Contains(text, "vectis-cell-ingress") {
-		t.Fatalf("simple Kubernetes manifest should not expose cell ingress before mTLS is configured")
+		t.Fatalf("simple Kubernetes manifest should not expose cell ingress")
 	}
 }
 
@@ -81,26 +89,60 @@ func TestRenderHonorsImageAndSecretOptions(t *testing.T) {
 }
 
 func TestKubernetesSmokeJobContract(t *testing.T) {
-	b, err := os.ReadFile("../../examples/e2e-kubernetes.json")
+	b, err := os.ReadFile("../../examples/e2e-canonical.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	text := string(b)
 	for _, want := range []string{
-		`"id": "e2e-kubernetes-smoke"`,
+		`"id": "e2e-canonical-smoke"`,
+		`"ref": "encryptedfs://team/smoke-token"`,
 		`"uses": "examples/flaky-once@v1"`,
 		`"name": "e2e-smoke-report"`,
 		`"name": "e2e-registry-retry"`,
+		"canonical-control-%s",
+		"canonical-secret-%s",
+		"canonical-artifact-%s",
 		"canonical-fanout-%s",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke job missing %q", want)
 		}
 	}
+}
 
-	if strings.Contains(text, `"secrets"`) || strings.Contains(text, "canonical-secret-ok") {
-		t.Fatal("Kubernetes smoke job should not require secrets before the manifest has mTLS/SPIFFE")
+func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{})
+	if opts.JobPath != DefaultSmokeJobPath {
+		t.Fatalf("job path = %q", opts.JobPath)
+	}
+
+	if opts.CLIImage != DefaultSmokeCLIImage {
+		t.Fatalf("cli image = %q", opts.CLIImage)
+	}
+
+	if !smokeSeedSecretEnabled(opts) {
+		t.Fatal("secret seeding should be enabled by default")
+	}
+}
+
+func TestSmokeSeedManifestMountsSecretStore(t *testing.T) {
+	manifest := smokeSeedManifest("vectis-smoke-seed-test", "localhost/vectis-cli:dev-local")
+	for _, want := range []string{
+		"kind: Secret",
+		"kind: Job",
+		"claimName: vectis-secrets-data",
+		"encryptedfs://team/smoke-token",
+		"image: \"localhost/vectis-cli:dev-local\"",
+		"mountPath: /data/vectis/secrets",
+		"mountPath: /run/vectis/secrets",
+		"mountPath: /run/vectis/smoke",
+		"--from-file",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q: %s", want, manifest)
+		}
 	}
 }
 

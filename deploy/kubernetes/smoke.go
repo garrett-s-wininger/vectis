@@ -19,13 +19,19 @@ import (
 )
 
 const (
-	DefaultSmokeContext  = "kind-vectis"
-	DefaultSmokeJobPath  = "examples/e2e-kubernetes.json"
-	DefaultSmokeAPIPort  = 18080
-	DefaultSmokeWait     = 180 * time.Second
-	smokeAPIServiceName  = "service/vectis-api"
-	smokeAPIRemotePort   = 8080
-	smokeHTTPClientDelay = 30 * time.Second
+	DefaultSmokeContext    = "kind-vectis"
+	DefaultSmokeJobPath    = "examples/e2e-canonical.json"
+	DefaultSmokeCLIImage   = "localhost/vectis-cli:dev-local"
+	DefaultSmokeSeedSecret = true
+	DefaultSmokeAPIPort    = 18080
+	DefaultSmokeWait       = 180 * time.Second
+	smokeAPIServiceName    = "service/vectis-api"
+	smokeAPIRemotePort     = 8080
+	smokeHTTPClientDelay   = 30 * time.Second
+	smokeSecretRef         = "encryptedfs://team/smoke-token"
+	smokeSecretPlaintext   = "spiffe-secret"
+	smokeSecretRoot        = "/data/vectis/secrets/encryptedfs"
+	smokeSecretKeyFile     = "/run/vectis/secrets/encryptedfs.key"
 )
 
 type SmokeOptions struct {
@@ -33,6 +39,8 @@ type SmokeOptions struct {
 	Context      string
 	Namespace    string
 	JobPath      string
+	CLIImage     string
+	SeedSecret   *bool
 	APILocalPort int
 	Wait         time.Duration
 	APIToken     string
@@ -93,6 +101,17 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	}
 
 	out := opts.Stdout
+	if smokeSeedSecretEnabled(opts) {
+		fmt.Fprintf(out, "Seeding %s with %s\n", smokeSecretRef, opts.CLIImage)
+		seedCtx, seedCancel := context.WithTimeout(ctx, opts.Wait)
+		err := seedSmokeSecret(seedCtx, opts)
+		seedCancel()
+
+		if err != nil {
+			return SmokeResult{}, err
+		}
+	}
+
 	fmt.Fprintf(out, "Starting API port-forward on 127.0.0.1:%d\n", opts.APILocalPort)
 	pf, err := startSmokeAPIPortForward(ctx, opts)
 	if err != nil {
@@ -122,6 +141,9 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 		"canonical-artifact-written",
 		"canonical-fanout-ok",
 		"canonical-registry-retry-succeeded",
+	}
+	if smokeSeedSecretEnabled(opts) {
+		markers = append(markers, "canonical-secret-ok")
 	}
 	fmt.Fprintln(out, "Verifying run logs")
 	logCtx, logCancel := context.WithTimeout(ctx, opts.Wait)
@@ -156,25 +178,41 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	if opts.Kubectl == "" {
 		opts.Kubectl = "kubectl"
 	}
+
 	opts.Context = strings.TrimSpace(opts.Context)
 	opts.Namespace = strings.TrimSpace(opts.Namespace)
 	if opts.Namespace == "" {
 		opts.Namespace = DefaultNamespace
 	}
+
 	opts.JobPath = strings.TrimSpace(opts.JobPath)
 	if opts.JobPath == "" {
 		opts.JobPath = DefaultSmokeJobPath
 	}
+
+	opts.CLIImage = strings.TrimSpace(opts.CLIImage)
+	if opts.CLIImage == "" {
+		opts.CLIImage = DefaultSmokeCLIImage
+	}
+
+	if opts.SeedSecret == nil {
+		seedSecret := DefaultSmokeSeedSecret
+		opts.SeedSecret = &seedSecret
+	}
+
 	if opts.APILocalPort == 0 {
 		opts.APILocalPort = DefaultSmokeAPIPort
 	}
+
 	if opts.Wait == 0 {
 		opts.Wait = DefaultSmokeWait
 	}
+
 	opts.APIToken = strings.TrimSpace(opts.APIToken)
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
 	}
+
 	return opts
 }
 
@@ -182,19 +220,173 @@ func validateSmokeOptions(opts SmokeOptions) error {
 	if opts.Kubectl == "" {
 		return fmt.Errorf("kubectl command is required")
 	}
+
 	if opts.Namespace == "" {
 		return fmt.Errorf("namespace is required")
 	}
+
 	if opts.JobPath == "" {
 		return fmt.Errorf("job path is required")
 	}
+
+	if smokeSeedSecretEnabled(opts) && opts.CLIImage == "" {
+		return fmt.Errorf("cli image is required when secret seeding is enabled")
+	}
+
 	if opts.APILocalPort <= 0 || opts.APILocalPort > 65535 {
 		return fmt.Errorf("api local port must be between 1 and 65535")
 	}
+
 	if opts.Wait <= 0 {
 		return fmt.Errorf("wait must be > 0")
 	}
+
 	return nil
+}
+
+func smokeSeedSecretEnabled(opts SmokeOptions) bool {
+	return opts.SeedSecret != nil && *opts.SeedSecret
+}
+
+func seedSmokeSecret(ctx context.Context, opts SmokeOptions) error {
+	name := fmt.Sprintf("vectis-smoke-seed-%d", time.Now().UnixNano())
+	manifest := smokeSeedManifest(name, opts.CLIImage)
+
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(manifest), "apply", "-f", "-")
+	if err != nil {
+		return fmt.Errorf("apply smoke seed job: %w: %s%s", err, stdout, stderr)
+	}
+	defer cleanupSmokeSeedResources(opts, name)
+
+	waitTimeout := opts.Wait.String()
+	stdout, stderr, err = runSmokeKubectl(ctx, opts, nil, "wait", "--for=condition=complete", "job/"+name, "--timeout", waitTimeout)
+	if err != nil {
+		logs, logErr := smokeSeedJobLogs(ctx, opts, name)
+		if logErr != nil {
+			return fmt.Errorf("wait for smoke seed job: %w: %s%s; fetch logs: %v", err, stdout, stderr, logErr)
+		}
+
+		return fmt.Errorf("wait for smoke seed job: %w: %s%s%s", err, stdout, stderr, logs)
+	}
+
+	logs, err := smokeSeedJobLogs(ctx, opts, name)
+	if err != nil {
+		return fmt.Errorf("fetch smoke seed logs: %w", err)
+	}
+
+	if text := strings.TrimSpace(logs); text != "" {
+		fmt.Fprintln(opts.Stdout, text)
+	}
+
+	return nil
+}
+
+func smokeSeedManifest(name, image string) string {
+	return fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: %s
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: smoke-seed
+type: Opaque
+stringData:
+  plaintext: %s
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: %s
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: smoke-seed
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 60
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: smoke-seed
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: %s
+          imagePullPolicy: IfNotPresent
+          args:
+            - secrets
+            - encryptedfs
+            - put
+            - %s
+            - --root
+            - %s
+            - --key-file
+            - %s
+            - --from-file
+            - /run/vectis/smoke/plaintext
+            - --force
+          volumeMounts:
+            - name: secrets-data
+              mountPath: /data/vectis/secrets
+            - name: secrets-key
+              mountPath: /run/vectis/secrets
+              readOnly: true
+            - name: smoke-plaintext
+              mountPath: /run/vectis/smoke
+              readOnly: true
+      volumes:
+        - name: secrets-data
+          persistentVolumeClaim:
+            claimName: vectis-secrets-data
+        - name: secrets-key
+          secret:
+            secretName: vectis-secrets
+            items:
+              - key: encryptedfs.key
+                path: encryptedfs.key
+        - name: smoke-plaintext
+          secret:
+            secretName: %s
+            items:
+              - key: plaintext
+                path: plaintext
+`, name, yamlQuote(smokeSecretPlaintext), name, yamlQuote(image), yamlQuote(smokeSecretRef), yamlQuote(smokeSecretRoot), yamlQuote(smokeSecretKeyFile), name)
+}
+
+func smokeSeedJobLogs(ctx context.Context, opts SmokeOptions, name string) (string, error) {
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "logs", "job/"+name)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s%s", err, stdout, stderr)
+	}
+
+	return stdout + stderr, nil
+}
+
+func cleanupSmokeSeedResources(opts SmokeOptions, name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, _, _ = runSmokeKubectl(ctx, opts, nil, "delete", "job/"+name, "secret/"+name, "--ignore-not-found")
+}
+
+func runSmokeKubectl(ctx context.Context, opts SmokeOptions, stdin io.Reader, args ...string) (string, string, error) {
+	kubectlArgs := []string{}
+	if opts.Context != "" {
+		kubectlArgs = append(kubectlArgs, "--context", opts.Context)
+	}
+
+	kubectlArgs = append(kubectlArgs, "-n", opts.Namespace)
+	kubectlArgs = append(kubectlArgs, args...)
+
+	cmd := exec.CommandContext(ctx, opts.Kubectl, kubectlArgs...) // #nosec G204 -- kubectl path and args are smoke-harness controlled.
+	cmd.Stdin = stdin
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	return stdout.String(), stderr.String(), err
 }
 
 func startSmokeAPIPortForward(ctx context.Context, opts SmokeOptions) (*smokePortForward, error) {
@@ -203,6 +395,7 @@ func startSmokeAPIPortForward(ctx context.Context, opts SmokeOptions) (*smokePor
 	if opts.Context != "" {
 		args = append(args, "--context", opts.Context)
 	}
+
 	args = append(args,
 		"-n", opts.Namespace,
 		"port-forward",
@@ -217,6 +410,7 @@ func startSmokeAPIPortForward(ctx context.Context, opts SmokeOptions) (*smokePor
 		cancel()
 		return nil, err
 	}
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
@@ -267,6 +461,7 @@ func startSmokeAPIPortForward(ctx context.Context, opts SmokeOptions) (*smokePor
 			if err != nil {
 				return nil, fmt.Errorf("API port-forward failed: %w: %s", err, strings.TrimSpace(output.String()))
 			}
+
 			return nil, fmt.Errorf("API port-forward exited before becoming ready: %s", strings.TrimSpace(output.String()))
 		case <-readyCtx.Done():
 			cancel()
@@ -280,9 +475,11 @@ func (p *smokePortForward) stop() {
 		return
 	}
 	p.cancel()
+
 	if p.done == nil {
 		return
 	}
+
 	select {
 	case <-p.done:
 	case <-time.After(5 * time.Second):
@@ -292,6 +489,7 @@ func (p *smokePortForward) stop() {
 func (b *smokeLineBuffer) add(line string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	b.buf.WriteString(line)
 	b.buf.WriteByte('\n')
 }
@@ -299,6 +497,7 @@ func (b *smokeLineBuffer) add(line string) {
 func (b *smokeLineBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	return b.buf.String()
 }
 
@@ -312,8 +511,8 @@ func submitSmokeJob(client *http.Client, baseURL string, opts SmokeOptions) (smo
 	if err != nil {
 		return smokeJobRunResult{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
 
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
 		return smokeJobRunResult{}, fmt.Errorf("submit smoke job: %w", err)
@@ -328,9 +527,11 @@ func submitSmokeJob(client *http.Client, baseURL string, opts SmokeOptions) (smo
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return smokeJobRunResult{}, fmt.Errorf("parse smoke job response: %w", err)
 	}
+
 	if strings.TrimSpace(result.RunID) == "" {
 		return smokeJobRunResult{}, fmt.Errorf("smoke job response missing run_id")
 	}
+
 	return result, nil
 }
 
@@ -343,6 +544,7 @@ func waitForSmokeRun(ctx context.Context, client *http.Client, baseURL, token, r
 		if err != nil {
 			return smokeRunDetail{}, err
 		}
+
 		fmt.Fprintf(out, "run_id=%s status=%s\n", detail.RunID, detail.Status)
 
 		switch strings.ToLower(strings.TrimSpace(detail.Status)) {
@@ -380,6 +582,7 @@ func fetchSmokeRunDetail(client *http.Client, baseURL, token, runID string) (smo
 	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
 		return smokeRunDetail{}, fmt.Errorf("parse run %s: %w", runID, err)
 	}
+
 	return detail, nil
 }
 
@@ -388,6 +591,7 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Accept", "text/event-stream")
 	req = req.WithContext(ctx)
 
@@ -412,6 +616,7 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 			if err == io.EOF || ctx.Err() != nil {
 				return missingSmokeLogMarkers(markers, seen)
 			}
+
 			return err
 		}
 
@@ -420,6 +625,7 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 			if after, ok := strings.CutPrefix(line, "data:"); ok {
 				dataBuf.WriteString(strings.TrimSpace(after))
 			}
+
 			continue
 		}
 
@@ -439,11 +645,13 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 		if strings.TrimSpace(lineText) != "" {
 			fmt.Fprintln(out, lineText)
 		}
+
 		for _, marker := range markers {
 			if !strings.HasPrefix(lineText, "$ ") && strings.Contains(lineText, marker) {
 				seen[marker] = true
 			}
 		}
+
 		if len(seen) == len(markers) {
 			return nil
 		}
@@ -456,9 +664,11 @@ func smokeLogEntryDisplayText(entry smokeLogEntry) string {
 			Event  string `json:"event"`
 			Status string `json:"status,omitempty"`
 		}
+
 		if err := json.Unmarshal([]byte(entry.Data), &meta); err != nil {
 			return ""
 		}
+
 		switch meta.Event {
 		case "start":
 			return "run started"
@@ -466,6 +676,7 @@ func smokeLogEntryDisplayText(entry smokeLogEntry) string {
 			if meta.Status != "" {
 				return "run completed: " + meta.Status
 			}
+
 			return "run completed"
 		default:
 			return ""
@@ -475,6 +686,7 @@ func smokeLogEntryDisplayText(entry smokeLogEntry) string {
 	if entry.Stream == int(api.Stream_STREAM_STDERR.Number()) {
 		return "[stderr] " + entry.Data
 	}
+
 	return entry.Data
 }
 
@@ -485,9 +697,11 @@ func missingSmokeLogMarkers(markers []string, seen map[string]bool) error {
 			missing = append(missing, marker)
 		}
 	}
+
 	if len(missing) == 0 {
 		return nil
 	}
+
 	return fmt.Errorf("run logs missing markers: %s", strings.Join(missing, ", "))
 }
 
@@ -507,15 +721,18 @@ func verifySmokeArtifacts(client *http.Client, baseURL, token, runID string) ([]
 		if err != nil {
 			return nil, err
 		}
+
 		text := string(body)
 		if check.exact != "" && text != check.exact {
 			return nil, fmt.Errorf("artifact %s content mismatch", check.name)
 		}
+
 		for _, want := range check.contains {
 			if !strings.Contains(text, want) {
 				return nil, fmt.Errorf("artifact %s missing %q", check.name, want)
 			}
 		}
+
 		out = append(out, SmokeArtifactCheck{Name: check.name, Bytes: len(body)})
 	}
 
@@ -530,9 +747,11 @@ func downloadSmokeArtifact(client *http.Client, baseURL, token, runID, name stri
 		token,
 		nil,
 	)
+
 	if err != nil {
 		return nil, err
 	}
+
 	req.Header.Set("Accept", "*/*")
 
 	resp, err := client.Do(req)
@@ -553,9 +772,11 @@ func newSmokeAPIRequest(method, baseURL, path, token string, body io.Reader) (*h
 	if err != nil {
 		return nil, err
 	}
+
 	if token = strings.TrimSpace(token); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+
 	return req, nil
 }
 
@@ -564,6 +785,7 @@ func smokeUnexpectedStatus(action string, resp *http.Response) error {
 	if detail := strings.TrimSpace(string(body)); detail != "" {
 		return fmt.Errorf("%s failed: %s: %s", action, resp.Status, detail)
 	}
+
 	return fmt.Errorf("%s failed: %s", action, resp.Status)
 }
 
@@ -571,5 +793,6 @@ func smokeJobID(run smokeJobRunResult) string {
 	if strings.TrimSpace(run.JobID) != "" {
 		return strings.TrimSpace(run.JobID)
 	}
+
 	return strings.TrimSpace(run.ID)
 }

@@ -2,13 +2,22 @@ package kubernetes
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 )
 
 const (
@@ -42,13 +51,19 @@ type RenderResult struct {
 }
 
 type templateData struct {
-	Namespace        string
-	ImageRegistry    string
-	ImageTag         string
-	PostgresPassword string
-	BootstrapToken   string
-	EncryptedFSKey   string
-	DatabaseDSN      string
+	Namespace          string
+	ImageRegistry      string
+	ImageTag           string
+	PostgresPassword   string
+	BootstrapToken     string
+	EncryptedFSKey     string
+	DatabaseDSN        string
+	GRPCCA             string
+	GRPCServerCert     string
+	GRPCServerKey      string
+	GRPCClientCABundle string
+	SPIFFECA           string
+	SPIFFECAKey        string
 }
 
 func Render(opts RenderOptions) ([]byte, RenderResult, error) {
@@ -65,14 +80,25 @@ func Render(opts RenderOptions) ([]byte, RenderResult, error) {
 		return nil, RenderResult{}, err
 	}
 
+	pki, err := generateDevPKI(opts.Namespace)
+	if err != nil {
+		return nil, RenderResult{}, err
+	}
+
 	data := templateData{
-		Namespace:        opts.Namespace,
-		ImageRegistry:    opts.ImageRegistry,
-		ImageTag:         opts.ImageTag,
-		PostgresPassword: opts.PostgresPassword,
-		BootstrapToken:   opts.BootstrapToken,
-		EncryptedFSKey:   opts.EncryptedFSKey,
-		DatabaseDSN:      postgresDSN(opts.PostgresPassword),
+		Namespace:          opts.Namespace,
+		ImageRegistry:      opts.ImageRegistry,
+		ImageTag:           opts.ImageTag,
+		PostgresPassword:   opts.PostgresPassword,
+		BootstrapToken:     opts.BootstrapToken,
+		EncryptedFSKey:     opts.EncryptedFSKey,
+		DatabaseDSN:        postgresDSN(opts.PostgresPassword),
+		GRPCCA:             string(pki.grpcCA),
+		GRPCServerCert:     string(pki.grpcServerCert),
+		GRPCServerKey:      string(pki.grpcServerKey),
+		GRPCClientCABundle: string(bytes.Join([][]byte{pki.grpcCA, pki.spiffeCA}, nil)),
+		SPIFFECA:           string(pki.spiffeCA),
+		SPIFFECAKey:        string(pki.spiffeCAKey),
 	}
 
 	tmpl, err := template.New("kubernetes-manifest").
@@ -178,4 +204,166 @@ func yamlQuote(s string) string {
 func postgresDSN(password string) string {
 	user := url.UserPassword("vectis", password).String()
 	return fmt.Sprintf("postgres://%s@vectis-postgres:5432/vectis?sslmode=disable", user)
+}
+
+type devPKI struct {
+	grpcCA         []byte
+	grpcServerCert []byte
+	grpcServerKey  []byte
+	spiffeCA       []byte
+	spiffeCAKey    []byte
+}
+
+func generateDevPKI(namespace string) (devPKI, error) {
+	grpcCA, grpcCAKey, grpcCAPEM, _, err := generateDevCA("Vectis Kubernetes gRPC Dev CA", nil)
+	if err != nil {
+		return devPKI{}, err
+	}
+
+	serverCert, serverKey, err := generateDevServerCert(grpcCA, grpcCAKey, namespace)
+	if err != nil {
+		return devPKI{}, err
+	}
+
+	spiffeURI, err := url.Parse("spiffe://vectis.internal")
+	if err != nil {
+		return devPKI{}, err
+	}
+
+	_, _, spiffeCAPEM, spiffeKeyPEM, err := generateDevCA("Vectis Kubernetes SPIFFE Dev CA", []*url.URL{spiffeURI})
+	if err != nil {
+		return devPKI{}, err
+	}
+
+	return devPKI{
+		grpcCA:         grpcCAPEM,
+		grpcServerCert: serverCert,
+		grpcServerKey:  serverKey,
+		spiffeCA:       spiffeCAPEM,
+		spiffeCAKey:    spiffeKeyPEM,
+	}, nil
+}
+
+func generateDevCA(commonName string, uris []*url.URL) (*x509.Certificate, *ecdsa.PrivateKey, []byte, []byte, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("generate dev CA key: %w", err)
+	}
+
+	serial, err := randomCertificateSerial()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	now := time.Now().UTC()
+	template := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		URIs:                  uris,
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("generate dev CA certificate: %w", err)
+	}
+
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("parse generated dev CA certificate: %w", err)
+	}
+
+	keyPEM, err := encodePrivateKeyPEM(key)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	return cert, key, encodeCertificatePEM(der), keyPEM, nil
+}
+
+func generateDevServerCert(ca *x509.Certificate, caKey *ecdsa.PrivateKey, namespace string) ([]byte, []byte, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate dev server key: %w", err)
+	}
+
+	serial, err := randomCertificateSerial()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ns := strings.TrimSpace(namespace)
+	if ns == "" {
+		ns = DefaultNamespace
+	}
+
+	dnsNames := []string{
+		"vectis.internal",
+		"localhost",
+		"vectis-registry",
+		"vectis-queue",
+		"vectis-orchestrator",
+		"vectis-log",
+		"vectis-artifact",
+		"vectis-secrets",
+	}
+
+	for _, service := range []string{"registry", "queue", "orchestrator", "log", "artifact", "secrets"} {
+		base := "vectis-" + service
+		dnsNames = append(dnsNames,
+			base+"."+ns+".svc",
+			base+"."+ns+".svc.cluster.local",
+		)
+	}
+
+	now := time.Now().UTC()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "vectis.internal"},
+		NotBefore:    now.Add(-time.Minute),
+		NotAfter:     now.Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     dnsNames,
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, ca, key.Public(), caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate dev server certificate: %w", err)
+	}
+
+	keyPEM, err := encodePrivateKeyPEM(key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return encodeCertificatePEM(der), keyPEM, nil
+}
+
+func encodeCertificatePEM(der []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func encodePrivateKeyPEM(key *ecdsa.PrivateKey) ([]byte, error) {
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal private key: %w", err)
+	}
+
+	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil
+}
+
+func randomCertificateSerial() (*big.Int, error) {
+	limit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, limit)
+	if err != nil {
+		return nil, fmt.Errorf("generate certificate serial: %w", err)
+	}
+
+	return serial, nil
 }

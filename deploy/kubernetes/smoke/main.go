@@ -15,11 +15,14 @@ import (
 func main() {
 	var opts kubernetesdeploy.SmokeOptions
 	var outputJSON bool
+	seedSecret := kubernetesdeploy.DefaultSmokeSeedSecret
 
 	flag.StringVar(&opts.Kubectl, "kubectl", "kubectl", "kubectl command path")
 	flag.StringVar(&opts.Context, "context", kubernetesdeploy.DefaultSmokeContext, "Kubernetes context to use; empty uses kubectl's current context")
 	flag.StringVar(&opts.Namespace, "namespace", kubernetesdeploy.DefaultNamespace, "Kubernetes namespace")
 	flag.StringVar(&opts.JobPath, "job", kubernetesdeploy.DefaultSmokeJobPath, "Kubernetes smoke job definition path")
+	flag.StringVar(&opts.CLIImage, "cli-image", kubernetesdeploy.DefaultSmokeCLIImage, "vectis-cli image used to seed smoke secrets")
+	flag.BoolVar(&seedSecret, "seed-secret", kubernetesdeploy.DefaultSmokeSeedSecret, "Seed the canonical encryptedfs smoke secret before submitting the job")
 	flag.IntVar(&opts.APILocalPort, "api-local-port", kubernetesdeploy.DefaultSmokeAPIPort, "Local port used for the API port-forward")
 	flag.DurationVar(&opts.Wait, "wait", kubernetesdeploy.DefaultSmokeWait, "Maximum time to wait for each smoke phase")
 	flag.StringVar(&opts.APIToken, "api-token", os.Getenv("VECTIS_API_TOKEN"), "Optional API bearer token")
@@ -29,6 +32,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	opts.SeedSecret = &seedSecret
 	opts.Stdout = os.Stdout
 	result, err := kubernetesdeploy.RunSmoke(ctx, opts)
 	if err != nil {
