@@ -163,7 +163,7 @@ func (c macroInProcessOrchestratorChoreography) LoadRun(ctx context.Context, req
 		return err
 	}
 
-	_, err = c.service.LoadRun(ctx, spec)
+	_, err = c.service.LoadRunWithOptions(ctx, spec, orchestrator.LoadRunOptions{OmitPending: true})
 	return err
 }
 
@@ -201,10 +201,11 @@ func (c macroGRPCOrchestratorChoreography) LoadRun(ctx context.Context, req *api
 	}
 
 	_, err = c.client.LoadRun(ctx, &apipb.LoadRunRequest{
-		RunId:  macroString(spec.RunID),
-		Root:   macroTaskExecutionToProto(spec.Root),
-		CellId: macroString(spec.CellID),
-		Tasks:  tasks,
+		RunId:       macroString(spec.RunID),
+		Root:        macroTaskExecutionToProto(spec.Root),
+		CellId:      macroString(spec.CellID),
+		Tasks:       tasks,
+		OmitPending: macroBool(true),
 	})
 	return err
 }
@@ -2427,6 +2428,10 @@ func macroInt64(v int64) *int64 {
 	return &v
 }
 
+func macroBool(v bool) *bool {
+	return &v
+}
+
 func macroInt32(v int32) *int32 {
 	return &v
 }
@@ -3410,7 +3415,7 @@ func enqueueMacroContinuationExecutions(
 			continue
 		}
 
-		childJob := macroCloneJob(jobDef)
+		var childJob *apipb.Job
 		metadata := macroCloneStringMap(source.Metadata)
 		if payloadHash != "" {
 			childJob, err = macroCompactJobForTask(jobDef, child.TaskKey)
@@ -3421,6 +3426,8 @@ func enqueueMacroContinuationExecutions(
 				metadata = map[string]string{}
 			}
 			metadata[cell.ExecutionPayloadHashMetadataKey] = payloadHash
+		} else {
+			childJob = macroCloneJob(jobDef)
 		}
 
 		req := &apipb.JobRequest{
@@ -3489,8 +3496,33 @@ func macroFindNodeByID(node *apipb.Node, taskKey string) *apipb.Node {
 	if strings.TrimSpace(node.GetId()) == taskKey {
 		return node
 	}
-	for _, child := range taskgraph.AllChildren(node) {
-		if found := macroFindNodeByID(child, taskKey); found != nil {
+
+	for _, child := range node.GetSteps() {
+		if found := macroFindChildNodeByID(child, taskKey); found != nil {
+			return found
+		}
+	}
+
+	for _, port := range node.GetPorts() {
+		for _, child := range port.GetNodes() {
+			if found := macroFindChildNodeByID(child, taskKey); found != nil {
+				return found
+			}
+		}
+	}
+
+	return nil
+}
+
+func macroFindChildNodeByID(node *apipb.Node, taskKey string) *apipb.Node {
+	if node == nil {
+		return nil
+	}
+	if strings.TrimSpace(node.GetId()) == taskKey {
+		return node
+	}
+	if len(node.GetSteps()) > 0 || len(node.GetPorts()) > 0 {
+		if found := macroFindNodeByID(node, taskKey); found != nil {
 			return found
 		}
 	}
@@ -3530,6 +3562,21 @@ func macroCloneJob(j *apipb.Job) *apipb.Job {
 	}
 
 	return cloned
+}
+
+func macroCloneCachedExecutionPayloadJob(j *apipb.Job) *apipb.Job {
+	if j == nil {
+		return nil
+	}
+
+	return &apipb.Job{
+		Id:               j.Id,
+		RunId:            j.RunId,
+		Root:             j.Root,
+		DeliveryId:       j.DeliveryId,
+		DefaultIsolation: j.DefaultIsolation,
+		Secrets:          append([]*apipb.SecretReference(nil), j.GetSecrets()...),
+	}
 }
 
 func macroCloneStringMap(in map[string]string) map[string]string {
@@ -3977,7 +4024,7 @@ func (env macroBenchEnv) cachedMacroPayloadJob(payloadHash string) (*apipb.Job, 
 	if job == nil {
 		return nil, false
 	}
-	return macroCloneJob(job), true
+	return macroCloneCachedExecutionPayloadJob(job), true
 }
 
 func (env macroBenchEnv) cacheMacroPayloadJob(payloadHash string, job *apipb.Job) {

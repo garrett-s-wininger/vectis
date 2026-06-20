@@ -53,11 +53,12 @@ func (c grpcExecutionChoreographer) LoadRun(ctx context.Context, job *api.Job, e
 	}
 
 	_, err = c.client.LoadRun(ctx, &api.LoadRunRequest{
-		RunId:      stringPtr(spec.RunID),
-		Root:       taskExecutionToProto(spec.Root),
-		CellId:     stringPtr(spec.CellID),
-		Tasks:      tasks,
-		Executions: taskExecutionSnapshotsToProto(snapshots),
+		RunId:       stringPtr(spec.RunID),
+		Root:        taskExecutionToProto(spec.Root),
+		CellId:      stringPtr(spec.CellID),
+		Tasks:       tasks,
+		Executions:  taskExecutionSnapshotsToProto(snapshots),
+		OmitPending: boolPtr(true),
 	})
 
 	return err
@@ -238,6 +239,10 @@ func stringPtr(v string) *string {
 }
 
 func int64Ptr(v int64) *int64 {
+	return &v
+}
+
+func boolPtr(v bool) *bool {
 	return &v
 }
 

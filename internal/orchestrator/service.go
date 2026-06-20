@@ -60,6 +60,10 @@ type LoadResult struct {
 	Summary dal.RunTaskCompletion
 }
 
+type LoadRunOptions struct {
+	OmitPending bool
+}
+
 type shard struct {
 	commands chan command
 }
@@ -161,6 +165,10 @@ func (s *Service) Close() {
 }
 
 func (s *Service) LoadRun(ctx context.Context, spec RunSpec) (LoadResult, error) {
+	return s.LoadRunWithOptions(ctx, spec, LoadRunOptions{})
+}
+
+func (s *Service) LoadRunWithOptions(ctx context.Context, spec RunSpec, opts LoadRunOptions) (LoadResult, error) {
 	spec.RunID = strings.TrimSpace(spec.RunID)
 	if spec.RunID == "" {
 		return LoadResult{}, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
@@ -173,7 +181,7 @@ func (s *Service) LoadRun(ctx context.Context, spec RunSpec) (LoadResult, error)
 					return LoadResult{}, err
 				}
 			}
-			return run.loadResult(s.clock.Now()), nil
+			return run.loadResult(s.clock.Now(), opts), nil
 		}
 
 		run, err := buildRunState(spec)
@@ -182,7 +190,7 @@ func (s *Service) LoadRun(ctx context.Context, spec RunSpec) (LoadResult, error)
 		}
 
 		state.runs[spec.RunID] = run
-		return run.loadResult(s.clock.Now()), nil
+		return run.loadResult(s.clock.Now(), opts), nil
 	})
 
 	if err != nil {
@@ -863,16 +871,21 @@ func executionStatusRank(status string) int {
 	}
 }
 
-func (r *runState) loadResult(now time.Time) LoadResult {
+func (r *runState) loadResult(now time.Time, opts LoadRunOptions) LoadResult {
 	var root dal.TaskExecutionRecord
 	if task := r.tasks[dal.RootTaskKey]; task != nil {
 		root = task.record
 	}
 
+	var pending []dal.TaskExecutionRecord
+	if !opts.OmitPending {
+		pending = r.pendingRecords(now, 0)
+	}
+
 	return LoadResult{
 		RunID:   r.runID,
 		Root:    root,
-		Pending: r.pendingRecords(now, 0),
+		Pending: pending,
 		Summary: r.summary,
 	}
 }

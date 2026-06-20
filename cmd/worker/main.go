@@ -47,7 +47,6 @@ import (
 	"vectis/internal/secrets"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
-	"vectis/internal/taskgraph"
 	"vectis/internal/taskreduce"
 	"vectis/internal/utils"
 	"vectis/internal/workercore"
@@ -1116,7 +1115,7 @@ func (w *worker) cachedExecutionPayloadJob(payloadHash string) (*api.Job, bool) 
 		return nil, false
 	}
 
-	return cloneJobForWorker(job), true
+	return cloneCachedExecutionPayloadJobForWorker(job), true
 }
 
 func (w *worker) cacheExecutionPayloadJob(payloadHash string, job *api.Job) {
@@ -1647,7 +1646,7 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 			continue
 		}
 
-		childJob := cloneJobForWorker(j)
+		var childJob *api.Job
 		metadata := cloneMetadataForWorker(source.Metadata)
 		if payloadHash != "" {
 			var err error
@@ -1661,6 +1660,8 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 			}
 
 			metadata[cell.ExecutionPayloadHashMetadataKey] = payloadHash
+		} else {
+			childJob = cloneJobForWorker(j)
 		}
 
 		req := &api.JobRequest{
@@ -1854,8 +1855,33 @@ func findNodeForWorker(node *api.Node, taskKey string) *api.Node {
 	if strings.TrimSpace(node.GetId()) == taskKey {
 		return node
 	}
-	for _, child := range taskgraph.AllChildren(node) {
-		if found := findNodeForWorker(child, taskKey); found != nil {
+
+	for _, child := range node.GetSteps() {
+		if found := findChildNodeForWorker(child, taskKey); found != nil {
+			return found
+		}
+	}
+
+	for _, port := range node.GetPorts() {
+		for _, child := range port.GetNodes() {
+			if found := findChildNodeForWorker(child, taskKey); found != nil {
+				return found
+			}
+		}
+	}
+
+	return nil
+}
+
+func findChildNodeForWorker(node *api.Node, taskKey string) *api.Node {
+	if node == nil {
+		return nil
+	}
+	if strings.TrimSpace(node.GetId()) == taskKey {
+		return node
+	}
+	if len(node.GetSteps()) > 0 || len(node.GetPorts()) > 0 {
+		if found := findNodeForWorker(node, taskKey); found != nil {
 			return found
 		}
 	}
@@ -1895,6 +1921,21 @@ func cloneJobForWorker(j *api.Job) *api.Job {
 	}
 
 	return cloned
+}
+
+func cloneCachedExecutionPayloadJobForWorker(j *api.Job) *api.Job {
+	if j == nil {
+		return nil
+	}
+
+	return &api.Job{
+		Id:               j.Id,
+		RunId:            j.RunId,
+		Root:             j.Root,
+		DeliveryId:       j.DeliveryId,
+		DefaultIsolation: j.DefaultIsolation,
+		Secrets:          append([]*api.SecretReference(nil), j.GetSecrets()...),
+	}
 }
 
 func (w *worker) recordTaskReduceDecision(ctx context.Context, decision taskreduce.Decision, err error) {

@@ -336,6 +336,7 @@ type LoadRunRequest struct {
 	Tasks         []*OrchestratorTaskSpec      `protobuf:"bytes,3,rep,name=tasks" json:"tasks,omitempty"`
 	Root          *OrchestratorTaskExecution   `protobuf:"bytes,4,opt,name=root" json:"root,omitempty"`
 	Executions    []*OrchestratorTaskExecution `protobuf:"bytes,5,rep,name=executions" json:"executions,omitempty"`
+	OmitPending   *bool                        `protobuf:"varint,6,opt,name=omit_pending,json=omitPending" json:"omit_pending,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -403,6 +404,13 @@ func (x *LoadRunRequest) GetExecutions() []*OrchestratorTaskExecution {
 		return x.Executions
 	}
 	return nil
+}
+
+func (x *LoadRunRequest) GetOmitPending() bool {
+	if x != nil && x.OmitPending != nil {
+		return *x.OmitPending
+	}
+	return false
 }
 
 type LoadRunResponse struct {
@@ -1045,7 +1053,7 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x0fterminal_failed\x18\x04 \x01(\x05R\x0eterminalFailed\x12\x1e\n" +
 	"\n" +
 	"incomplete\x18\x05 \x01(\x05R\n" +
-	"incomplete\"\xd9\x01\n" +
+	"incomplete\"\xfc\x01\n" +
 	"\x0eLoadRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x17\n" +
 	"\acell_id\x18\x02 \x01(\tR\x06cellId\x12+\n" +
@@ -1053,7 +1061,8 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x04root\x18\x04 \x01(\v2\x1a.OrchestratorTaskExecutionR\x04root\x12:\n" +
 	"\n" +
 	"executions\x18\x05 \x03(\v2\x1a.OrchestratorTaskExecutionR\n" +
-	"executions\"\xc8\x01\n" +
+	"executions\x12!\n" +
+	"\fomit_pending\x18\x06 \x01(\bR\vomitPending\"\xc8\x01\n" +
 	"\x0fLoadRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12.\n" +
 	"\x04root\x18\x02 \x01(\v2\x1a.OrchestratorTaskExecutionR\x04root\x124\n" +

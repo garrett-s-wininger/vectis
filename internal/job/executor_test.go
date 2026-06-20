@@ -51,11 +51,16 @@ func executeAndWaitWithOptions(t *testing.T, executor *job.Executor, testJob *ap
 
 func executeTaskAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, taskKey string, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
 	t.Helper()
+	return executeTaskAndWaitWithOptions(t, executor, testJob, taskKey, mockLogClient, mockLogger, job.ExecuteOptions{})
+}
+
+func executeTaskAndWaitWithOptions(t *testing.T, executor *job.Executor, testJob *api.Job, taskKey string, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger, opts job.ExecuteOptions) error {
+	t.Helper()
 	streamCh := make(chan job.LogStreamWaiter, 1)
 	executor.TestLogStreamHook = streamCh
 	defer func() { executor.TestLogStreamHook = nil }()
 
-	err := executor.ExecuteTask(context.Background(), testJob, taskKey, mockLogClient, mockLogger)
+	err := executor.ExecuteTaskWithOptions(context.Background(), testJob, taskKey, mockLogClient, mockLogger, opts)
 
 	select {
 	case stream := <-streamCh:
@@ -363,6 +368,55 @@ func TestExecutor_ExecuteTask_ExecutesSelectedNodeOnly(t *testing.T) {
 
 	chunks := logChunkStrings(mockLogClient.GetChunks())
 	assertLogContains(t, chunks, "Starting task execution: test-job-task-selected task second")
+	assertLogContains(t, chunks, "task-second-marker")
+	assertLogNotContains(t, chunks, "task-first-marker")
+}
+
+func TestExecutor_ExecuteTask_VerifiesActionLockWithOriginalNodePath(t *testing.T) {
+	executor := job.NewExecutor()
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	testJob := &api.Job{
+		Id:    executorStrp("test-job-task-lock-path"),
+		RunId: executorStrp("test-run-task-lock-path"),
+		Root: &api.Node{
+			Id:   executorStrp("root-node"),
+			Uses: executorStrp("builtins/sequence"),
+			Steps: []*api.Node{
+				{
+					Id:   executorStrp("first"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo task-first-marker"},
+				},
+				{
+					Id:   executorStrp("second"),
+					Uses: executorStrp("builtins/shell"),
+					With: map[string]string{"command": "echo task-second-marker"},
+				},
+			},
+		},
+	}
+
+	descriptor, err := builtins.NewRegistry().ResolveDescriptor("builtins/shell")
+	if err != nil {
+		t.Fatalf("ResolveDescriptor: %v", err)
+	}
+
+	err = executeTaskAndWaitWithOptions(t, executor, testJob, "second", mockLogClient, mockLogger, job.ExecuteOptions{
+		ActionLocks: []actionregistry.ActionLock{{
+			NodeID:     "second",
+			NodePath:   "root.steps[1]",
+			Uses:       "builtins/shell",
+			Descriptor: descriptor,
+		}},
+	})
+
+	if err != nil {
+		t.Fatalf("expected task lock to verify with original node path, got %v", err)
+	}
+
+	chunks := logChunkStrings(mockLogClient.GetChunks())
 	assertLogContains(t, chunks, "task-second-marker")
 	assertLogNotContains(t, chunks, "task-first-marker")
 }

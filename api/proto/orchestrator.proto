@@ -44,6 +44,7 @@ message LoadRunRequest {
     repeated OrchestratorTaskSpec tasks = 3;
     OrchestratorTaskExecution root = 4;
     repeated OrchestratorTaskExecution executions = 5;
+    bool omit_pending = 6;
 }
 
 message LoadRunResponse {

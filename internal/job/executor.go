@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -197,9 +199,10 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	}
 
 	node := job.GetRoot()
+	nodePath := "root"
 	ports := taskgraph.ChildPorts(node)
 	if taskScoped {
-		node, err = findTaskNode(job, taskKey)
+		node, nodePath, err = findTaskNode(job, taskKey)
 		if err != nil {
 			return err
 		}
@@ -320,7 +323,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		LogStream:               logStream,
 		Resolver:                actionResolver,
 		Verifier:                actionVerifier,
-		NodePaths:               executionNodePaths(job.GetRoot()),
+		NodePaths:               executionNodePathsForScope(job.GetRoot(), node, nodePath, ports, taskScoped),
 		Workload:                opts.WorkloadIdentity,
 		ProcessExecutor:         processExecutor,
 		ProcessExecutorResolver: e,
@@ -462,6 +465,26 @@ func executionNodePaths(root *api.Node) map[*api.Node]string {
 	return paths
 }
 
+func executionNodePathsForScope(root, node *api.Node, nodePath string, ports map[string][]*api.Node, taskScoped bool) map[*api.Node]string {
+	if !taskScoped {
+		return executionNodePaths(root)
+	}
+
+	paths := map[*api.Node]string{}
+	if node == nil {
+		return paths
+	}
+
+	path := strings.TrimSpace(nodePath)
+	if path == "" {
+		path = strings.TrimSpace(node.GetId())
+	}
+
+	paths[node] = path
+	collectExecutionNodePathsForPorts(paths, node, path, ports)
+	return paths
+}
+
 func collectExecutionNodePaths(paths map[*api.Node]string, node *api.Node, path string) {
 	if node == nil {
 		return
@@ -473,39 +496,126 @@ func collectExecutionNodePaths(paths map[*api.Node]string, node *api.Node, path 
 	}
 }
 
-func findTaskNode(job *api.Job, taskKey string) (*api.Node, error) {
-	taskKey = strings.TrimSpace(taskKey)
-	if taskKey == "" {
-		return nil, fmt.Errorf("task key is required")
+func collectExecutionNodePathsForPorts(paths map[*api.Node]string, node *api.Node, path string, ports map[string][]*api.Node) {
+	if node == nil || len(ports) == 0 {
+		return
 	}
 
-	if taskKey == dal.RootTaskKey {
-		return job.GetRoot(), nil
-	}
+	for _, ref := range taskgraph.ChildRefs(node, path) {
+		if !portsContainNode(ports, ref.PortName, ref.Node) {
+			continue
+		}
 
-	if node := findNodeByID(job.GetRoot(), taskKey); node != nil {
-		return node, nil
+		collectExecutionNodePaths(paths, ref.Node, ref.Path)
 	}
-
-	return nil, fmt.Errorf("task node %q not found", taskKey)
 }
 
-func findNodeByID(node *api.Node, id string) *api.Node {
-	if node == nil {
-		return nil
-	}
-
-	if strings.TrimSpace(node.GetId()) == id {
-		return node
-	}
-
-	for _, child := range taskgraph.AllChildren(node) {
-		if found := findNodeByID(child, id); found != nil {
-			return found
+func portsContainNode(ports map[string][]*api.Node, portName string, node *api.Node) bool {
+	for _, candidate := range ports[portName] {
+		if candidate == node {
+			return true
 		}
 	}
 
-	return nil
+	return false
+}
+
+func findTaskNode(job *api.Job, taskKey string) (*api.Node, string, error) {
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" {
+		return nil, "", fmt.Errorf("task key is required")
+	}
+
+	if taskKey == dal.RootTaskKey {
+		return job.GetRoot(), "root", nil
+	}
+
+	if node, path := findNodeByID(job.GetRoot(), taskKey, "root"); node != nil {
+		return node, path, nil
+	}
+
+	return nil, "", fmt.Errorf("task node %q not found", taskKey)
+}
+
+func findNodeByID(node *api.Node, id, path string) (*api.Node, string) {
+	if node == nil {
+		return nil, ""
+	}
+
+	if strings.TrimSpace(node.GetId()) == id {
+		return node, path
+	}
+
+	for i, child := range node.GetSteps() {
+		if child == nil {
+			continue
+		}
+
+		if strings.TrimSpace(child.GetId()) == id {
+			return child, stepNodePath(path, i)
+		}
+
+		if nodeHasChildren(child) {
+			if found, foundPath := findNodeByID(child, id, stepNodePath(path, i)); found != nil {
+				return found, foundPath
+			}
+		}
+	}
+
+	for _, portName := range sortedNodePortNames(node) {
+		nodes := taskgraph.ExplicitPortChildren(node, portName)
+		for i, child := range nodes {
+			if child == nil {
+				continue
+			}
+
+			if strings.TrimSpace(child.GetId()) == id {
+				return child, portNodePath(path, portName, i)
+			}
+
+			if nodeHasChildren(child) {
+				if found, foundPath := findNodeByID(child, id, portNodePath(path, portName, i)); found != nil {
+					return found, foundPath
+				}
+			}
+		}
+	}
+
+	return nil, ""
+}
+
+func nodeHasChildren(node *api.Node) bool {
+	return node != nil && (len(node.GetSteps()) > 0 || len(node.GetPorts()) > 0)
+}
+
+func sortedNodePortNames(node *api.Node) []string {
+	if node == nil || len(node.GetPorts()) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(node.GetPorts()))
+	for name := range node.GetPorts() {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+	return names
+}
+
+func stepNodePath(parentPath string, index int) string {
+	return childNodePath(parentPath, "steps["+strconv.Itoa(index)+"]")
+}
+
+func portNodePath(parentPath, portName string, index int) string {
+	return childNodePath(parentPath, "ports."+portName+".nodes["+strconv.Itoa(index)+"]")
+}
+
+func childNodePath(parentPath, suffix string) string {
+	if parentPath == "" {
+		return suffix
+	}
+
+	return parentPath + "." + suffix
 }
 
 func sendLog(state *action.ExecutionState, streamType api.Stream, message string) {

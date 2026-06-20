@@ -38,13 +38,16 @@ func (s *grpcServer) LoadRun(ctx context.Context, req *api.LoadRunRequest) (*api
 		return nil, status.Error(codes.InvalidArgument, "load run request is required")
 	}
 
-	result, err := s.service.LoadRun(ctx, RunSpec{
+	result, err := s.service.LoadRunWithOptions(ctx, RunSpec{
 		RunID:      req.GetRunId(),
 		Root:       taskExecutionFromProto(req.GetRoot()),
 		CellID:     req.GetCellId(),
 		Tasks:      taskSpecsFromProto(req.GetTasks()),
 		Executions: taskExecutionSnapshotsFromProto(req.GetExecutions()),
+	}, LoadRunOptions{
+		OmitPending: req.GetOmitPending(),
 	})
+
 	if err != nil {
 		return nil, grpcError(err)
 	}

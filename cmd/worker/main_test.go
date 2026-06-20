@@ -1589,6 +1589,72 @@ func TestWorkerRunClaimedJob_SPIFFEEnabledRejectsMissingSVIDBeforeAction(t *test
 	}
 }
 
+func TestWorkerHydrateJobRequest_CachedPayloadKeepsDeliveryIdentityIsolated(t *testing.T) {
+	payloadHash := "sha256:payload"
+	jobID := "job-cached-payload"
+	rootID := "root"
+	runOne := "run-one"
+	runTwo := "run-two"
+	deliveryOne := "delivery-one"
+	deliveryTwo := "delivery-two"
+
+	w := &worker{
+		ctx:    context.Background(),
+		runCtx: context.Background(),
+		payloadJobs: map[string]*api.Job{
+			payloadHash: {
+				Id:   &jobID,
+				Root: &api.Node{Id: &rootID},
+			},
+		},
+	}
+
+	first, err := w.hydrateJobRequest(context.Background(), &api.JobRequest{
+		Job: &api.Job{
+			Id:         &jobID,
+			RunId:      &runOne,
+			DeliveryId: &deliveryOne,
+		},
+		Metadata: map[string]string{cell.ExecutionPayloadHashMetadataKey: payloadHash},
+	})
+	if err != nil {
+		t.Fatalf("hydrate first delivery: %v", err)
+	}
+
+	second, err := w.hydrateJobRequest(context.Background(), &api.JobRequest{
+		Job: &api.Job{
+			Id:         &jobID,
+			RunId:      &runTwo,
+			DeliveryId: &deliveryTwo,
+		},
+		Metadata: map[string]string{cell.ExecutionPayloadHashMetadataKey: payloadHash},
+	})
+	if err != nil {
+		t.Fatalf("hydrate second delivery: %v", err)
+	}
+
+	if got := first.GetJob().GetRunId(); got != runOne {
+		t.Fatalf("first hydrated run_id: got %q, want %q", got, runOne)
+	}
+	if got := first.GetJob().GetDeliveryId(); got != deliveryOne {
+		t.Fatalf("first hydrated delivery_id: got %q, want %q", got, deliveryOne)
+	}
+	if got := second.GetJob().GetRunId(); got != runTwo {
+		t.Fatalf("second hydrated run_id: got %q, want %q", got, runTwo)
+	}
+	if got := second.GetJob().GetDeliveryId(); got != deliveryTwo {
+		t.Fatalf("second hydrated delivery_id: got %q, want %q", got, deliveryTwo)
+	}
+
+	cached := w.payloadJobs[payloadHash]
+	if got := cached.GetRunId(); got != "" {
+		t.Fatalf("cached payload run_id mutated: got %q", got)
+	}
+	if got := cached.GetDeliveryId(); got != "" {
+		t.Fatalf("cached payload delivery_id mutated: got %q", got)
+	}
+}
+
 func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
