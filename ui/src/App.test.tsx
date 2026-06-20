@@ -240,6 +240,8 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Users" });
 
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "taylor" }
     });
@@ -248,9 +250,11 @@ describe("App", () => {
       target: { value: "Operator" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Add user" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add User" }));
 
     expect(await screen.findByText("taylor")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Initial Password" })).toBeInTheDocument();
+    expect(screen.getByText("mock-generated-password")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disable taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Disable taylor" }));

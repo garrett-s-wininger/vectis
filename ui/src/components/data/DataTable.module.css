@@ -210,12 +210,17 @@
   }
 
   .root td {
+    align-self: start;
     border-bottom: 0;
     display: grid;
     gap: var(--space-xs);
     height: auto;
     padding: 0 var(--space-xl);
     text-align: left;
+  }
+
+  .root td:last-child {
+    padding-bottom: var(--space-xl);
   }
 
   .root td:first-child,

@@ -73,13 +73,24 @@ type APIUser = {
   created_at?: string;
   enabled: boolean;
   id: number;
+  initial_password?: string;
   username: string;
+};
+
+export type CreatedUserCredential = {
+  password: string;
+  username: string;
+};
+
+export type CreateUserResult = {
+  credential?: CreatedUserCredential;
+  users: User[];
 };
 
 export type ConsoleDataSource = {
   createJob(input: NewJob): Promise<ConsoleData>;
   createNamespace(input: NewNamespace): Promise<ConsoleData>;
-  createUser(input: NewUser): Promise<User[]>;
+  createUser(input: NewUser): Promise<CreateUserResult>;
   deleteNamespace(namespaceID: number): Promise<ConsoleData>;
   deleteUser(userID: string): Promise<User[]>;
   loadConsole(): Promise<ConsoleData>;
@@ -123,7 +134,13 @@ function createMockConsoleDataSource(): ConsoleDataSource {
     },
     async createUser(input) {
       data = createMockUser(data, input);
-      return cloneConsoleData(data).users;
+      return {
+        credential: {
+          password: "mock-generated-password",
+          username: input.username.trim()
+        },
+        users: cloneConsoleData(data).users
+      };
     },
     async deleteNamespace(namespaceID) {
       data = deleteMockNamespace(data, namespaceID);
@@ -195,14 +212,22 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       return loadAPIConsoleData();
     },
     async createUser(input) {
-      await requestJSON<APIUser>("/api/v1/users", {
+      const createdUser = await requestJSON<APIUser>("/api/v1/users", {
         method: "POST",
         body: JSON.stringify({
           username: input.username
         })
       });
 
-      return loadAPIUsers();
+      return {
+        credential: createdUser.initial_password
+          ? {
+              password: createdUser.initial_password,
+              username: createdUser.username
+            }
+          : undefined,
+        users: await loadAPIUsers()
+      };
     },
     async deleteNamespace(namespaceID) {
       await requestNoContent(`/api/v1/namespaces/${namespaceID}`, {

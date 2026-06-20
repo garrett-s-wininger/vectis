@@ -159,7 +159,13 @@ export function UsersPageHarness() {
 
   return (
     <UsersPage
-      onCreateUser={(input) => setData((current) => createMockUser(current, input))}
+      onCreateUser={(input) => {
+        setData((current) => createMockUser(current, input));
+        return {
+          password: "mock-generated-password",
+          username: input.username.trim()
+        };
+      }}
       onDeleteUser={(userID) => setData((current) => deleteMockUser(current, userID))}
       onUpdateUserStatus={(userID, status) => setData((current) => updateMockUserStatus(current, userID, status))}
       users={data.users}

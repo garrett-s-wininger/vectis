@@ -10,7 +10,7 @@ import { ErrorAlert } from "./components";
 import { FormError } from "./components";
 import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
-import { createConsoleDataSource } from "./data/consoleDataSource";
+import { createConsoleDataSource, type CreatedUserCredential } from "./data/consoleDataSource";
 import type { NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
 import type { NewUser, UserStatus } from "./domain/console";
 import {
@@ -268,12 +268,15 @@ export function App() {
 
   async function handleCreateUser(input: NewUser) {
     try {
-      const users = await consoleDataSourceRef.current.createUser(input);
-      setConsoleData((data) => (data ? { ...data, users } : data));
+      const result = await consoleDataSourceRef.current.createUser(input);
+      setConsoleData((data) => (data ? { ...data, users: result.users } : data));
       setConsoleError("");
       setActionError("");
+
+      return result.credential;
     } catch (error) {
       setActionError(errorMessage(error, "Unable to create user."));
+      throw error;
     }
   }
 
@@ -636,7 +639,7 @@ function RouteContent({
   namespacePath: string;
   onCreateJob: (input: NewJob) => Promise<void> | void;
   onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
-  onCreateUser: (input: NewUser) => Promise<void> | void;
+  onCreateUser: (input: NewUser) => Promise<CreatedUserCredential | undefined> | CreatedUserCredential | undefined;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
   onDeleteUser: (userID: string) => Promise<void> | void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;

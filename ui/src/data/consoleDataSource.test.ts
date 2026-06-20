@@ -499,10 +499,17 @@ describe("console data source", () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ id: 12, username: "taylor", enabled: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 12,
+          username: "taylor",
+          enabled: true,
+          initial_password: "generated-secret"
+        })
+      )
       .mockResolvedValueOnce(jsonResponse([{ id: 12, username: "taylor", enabled: true }]));
 
-    const users = await createConsoleDataSource().createUser({
+    const result = await createConsoleDataSource().createUser({
       username: "taylor",
       role: "Viewer"
     });
@@ -519,7 +526,11 @@ describe("console data source", () => {
     );
 
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/users", expect.any(Object));
-    expect(users[0]).toMatchObject({
+    expect(result.credential).toEqual({
+      password: "generated-secret",
+      username: "taylor"
+    });
+    expect(result.users[0]).toMatchObject({
       id: "12",
       username: "taylor",
       status: "active"
