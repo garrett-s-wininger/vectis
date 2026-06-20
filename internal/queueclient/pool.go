@@ -2,6 +2,7 @@ package queueclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sort"
@@ -20,7 +21,9 @@ import (
 	"vectis/internal/resolver"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/status"
 )
 
 const defaultDequeuePollBaseInterval = 250 * time.Millisecond
@@ -705,19 +708,13 @@ func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empt
 func (p *queuePool) dequeue(ctx context.Context) (*api.JobRequest, error) {
 	emptyAttempts := 0
 	for {
-		req, err := p.tryDequeue(ctx)
-		if err != nil || req != nil {
-			return req, err
-		}
-
 		delay := backoff.ExponentialDelay(p.opts.DequeuePollBaseInterval, emptyAttempts, p.opts.DequeuePollMaxInterval)
 		delay = jitterDequeuePollDelay(delay, p.opts.DequeuePollJitterRatio)
 		emptyAttempts++
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
+		req, err := p.blockingDequeue(ctx, delay)
+		if err != nil || req != nil {
+			return req, err
 		}
 	}
 }
@@ -746,6 +743,111 @@ func proportionalLowerBoundJitter(delay time.Duration, ratio, sample float64) ti
 	delayNanos := float64(delay)
 	minNanos := delayNanos * (1 - ratio)
 	return time.Duration(minNanos + (delayNanos-minNanos)*sample)
+}
+
+func (p *queuePool) blockingDequeue(ctx context.Context, wait time.Duration) (*api.JobRequest, error) {
+	if wait <= 0 {
+		return p.tryDequeue(ctx)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+
+	req, err := p.blockingDequeueOnce(waitCtx)
+	if err == nil {
+		return req, nil
+	}
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	if isDequeueWaitTimeout(err) {
+		return nil, nil
+	}
+
+	return nil, err
+}
+
+func (p *queuePool) blockingDequeueOnce(ctx context.Context) (*api.JobRequest, error) {
+	endpoints := p.snapshotActiveEndpoints()
+	if len(endpoints) == 0 {
+		if err := p.refresh(ctx); err != nil {
+			return nil, err
+		}
+
+		endpoints = p.snapshotActiveEndpoints()
+	}
+
+	endpoints, start := p.rotatedActiveEndpointsFrom(endpoints)
+	var lastErr error
+	sawReachable := false
+	attempts := len(endpoints)
+	if p.opts.DequeueConnectionLimit > 0 && attempts > p.opts.DequeueConnectionLimit {
+		attempts = p.opts.DequeueConnectionLimit
+	}
+
+	for offset := range attempts {
+		ep := endpoints[(start+offset)%len(endpoints)]
+		ep, err := p.ensureEndpointConnected(ctx, ep)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if p.opts.DequeueConnectionLimit == 1 {
+			p.disconnectConnectedEndpointsExcept(ep.id)
+		}
+
+		req, err := p.blockingDequeueEndpoint(ctx, ep)
+		if err == nil {
+			sawReachable = true
+			if req != nil && req.GetJob() != nil {
+				if p.opts.DequeueConnectionLimit == 1 && len(endpoints) > 1 {
+					p.recordDequeueSuccessEndpoint(ep.id)
+				}
+
+				return req, nil
+			}
+
+			if p.opts.DequeueConnectionLimit == 1 && len(endpoints) > 1 {
+				p.clearDequeueStickyEndpoint(ep.id)
+			}
+
+			continue
+		}
+
+		if isDequeueWaitTimeout(err) {
+			if p.opts.DequeueConnectionLimit == 1 && len(endpoints) > 1 {
+				p.clearDequeueStickyEndpoint(ep.id)
+			}
+
+			return nil, err
+		}
+
+		lastErr = err
+		if IsTransientRPCError(err) {
+			if p.opts.DequeueConnectionLimit == 1 && len(endpoints) > 1 {
+				p.clearDequeueStickyEndpoint(ep.id)
+			}
+
+			if rerr := p.reconnectEndpoint(ctx, ep.id); rerr != nil {
+				p.logger.Debug("queue pool reconnect to %s failed: %v", ep.id, rerr)
+			}
+
+			continue
+		}
+	}
+
+	if !sawReachable && lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, nil
+}
+
+func isDequeueWaitTimeout(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded
 }
 
 func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
@@ -819,6 +921,10 @@ func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
 
 func (p *queuePool) tryDequeueEndpoint(ctx context.Context, ep *queuePoolEndpoint) (*api.JobRequest, error) {
 	return ep.client.TryDequeue(ctx, p.dequeueRequest)
+}
+
+func (p *queuePool) blockingDequeueEndpoint(ctx context.Context, ep *queuePoolEndpoint) (*api.JobRequest, error) {
+	return ep.client.Dequeue(ctx, p.dequeueRequest)
 }
 
 func (p *queuePool) ack(ctx context.Context, deliveryID string) error {

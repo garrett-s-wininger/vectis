@@ -456,7 +456,7 @@ func runQueuePoolGRPCIdleDequeuePolling(b *testing.B, shardCount, workers int, p
 	}()
 
 	var measured time.Duration
-	var emptyTryDequeueRPCs int64
+	var emptyDequeueRPCs int64
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -509,17 +509,17 @@ func runQueuePoolGRPCIdleDequeuePolling(b *testing.B, shardCount, workers int, p
 		}
 
 		afterRPCs := measureGRPCBenchmarkQueueRPCs(shards)
-		emptyTryDequeueRPCs += afterRPCs - beforeRPCs
+		emptyDequeueRPCs += afterRPCs - beforeRPCs
 		measured += iterationMeasured
 	}
 
 	if measured > 0 {
-		b.ReportMetric(float64(emptyTryDequeueRPCs)/measured.Seconds(), "empty_try_dequeue_rpcs/s")
+		b.ReportMetric(float64(emptyDequeueRPCs)/measured.Seconds(), "empty_dequeue_rpcs/s")
 		b.ReportMetric(float64(workers*int(b.N))/measured.Seconds(), "idle_workers/s")
 	}
 
 	if workers > 0 && b.N > 0 {
-		b.ReportMetric(float64(emptyTryDequeueRPCs)/float64(workers*int(b.N)), "empty_try_dequeue_rpcs_per_worker")
+		b.ReportMetric(float64(emptyDequeueRPCs)/float64(workers*int(b.N)), "empty_dequeue_rpcs_per_worker")
 	}
 
 	b.ReportMetric(float64(shardCount), "shards")

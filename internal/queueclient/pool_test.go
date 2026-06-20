@@ -20,6 +20,9 @@ type fakeQueueServiceClient struct {
 	enqueues           int
 	enqueueErrs        []error
 	acks               []string
+	dequeueErrs        []error
+	dequeueJobs        []*api.JobRequest
+	dequeueRequests    []*api.DequeueRequest
 	tryErrs            []error
 	tryJobs            []*api.JobRequest
 	tryDequeueRequests []*api.DequeueRequest
@@ -38,13 +41,22 @@ func (f *fakeQueueServiceClient) Enqueue(context.Context, *api.JobRequest, ...gr
 	return &api.Empty{}, nil
 }
 
-func (f *fakeQueueServiceClient) Dequeue(context.Context, *api.DequeueRequest, ...grpc.CallOption) (*api.JobRequest, error) {
-	if len(f.tryJobs) == 0 {
+func (f *fakeQueueServiceClient) Dequeue(_ context.Context, req *api.DequeueRequest, _ ...grpc.CallOption) (*api.JobRequest, error) {
+	f.dequeueRequests = append(f.dequeueRequests, req)
+	if len(f.dequeueErrs) > 0 {
+		err := f.dequeueErrs[0]
+		f.dequeueErrs = f.dequeueErrs[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if len(f.dequeueJobs) == 0 {
 		return nil, nil
 	}
 
-	job := f.tryJobs[0]
-	f.tryJobs = f.tryJobs[1:]
+	job := f.dequeueJobs[0]
+	f.dequeueJobs = f.dequeueJobs[1:]
 	return job, nil
 }
 
@@ -232,6 +244,55 @@ func TestQueuePoolTryDequeueReturnsErrorWhenAllShardsUnavailable(t *testing.T) {
 
 	if _, err := p.tryDequeue(context.Background()); err == nil {
 		t.Fatal("expected error when all queue shards are unavailable")
+	}
+}
+
+func TestQueuePoolDequeueUsesBoundedBlockingDequeue(t *testing.T) {
+	jobID := "job-blocking-dequeue"
+	a := &fakeQueueServiceClient{
+		dequeueJobs: []*api.JobRequest{{Job: &api.Job{Id: &jobID}}},
+	}
+
+	p := newFakeQueuePool(map[string]*fakeQueueServiceClient{"a": a})
+	p.opts.DequeuePollBaseInterval = time.Second
+	p.opts.DequeuePollMaxInterval = time.Second
+
+	got, err := p.dequeue(context.Background())
+	if err != nil {
+		t.Fatalf("dequeue: %v", err)
+	}
+
+	if got.GetJob().GetId() != jobID {
+		t.Fatalf("dequeue got %+v, want job %s", got.GetJob(), jobID)
+	}
+
+	if len(a.tryDequeueRequests) != 0 {
+		t.Fatalf("expected no immediate try dequeue, got %d", len(a.tryDequeueRequests))
+	}
+
+	if len(a.dequeueRequests) != 1 {
+		t.Fatalf("expected one blocking dequeue, got %d", len(a.dequeueRequests))
+	}
+}
+
+func TestQueuePoolBlockingDequeueTimeoutReturnsEmpty(t *testing.T) {
+	a := &fakeQueueServiceClient{
+		dequeueErrs: []error{context.DeadlineExceeded},
+	}
+
+	p := newFakeQueuePool(map[string]*fakeQueueServiceClient{"a": a})
+
+	got, err := p.blockingDequeue(context.Background(), time.Second)
+	if err != nil {
+		t.Fatalf("blocking dequeue timeout should be treated as empty: %v", err)
+	}
+
+	if got != nil {
+		t.Fatalf("blocking dequeue timeout got job %+v, want nil", got.GetJob())
+	}
+
+	if len(a.dequeueRequests) != 1 {
+		t.Fatalf("expected one blocking dequeue, got %d", len(a.dequeueRequests))
 	}
 }
 
