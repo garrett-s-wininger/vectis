@@ -55,6 +55,7 @@ the waiver in [Known Risks And Waivers](#known-risks-and-waivers).
 | Check | Result | Evidence location |
 | --- | --- | --- |
 | `make release-readiness-report` |  |  |
+| Docs dependency audit |  |  |
 | `make release-local-validate` |  |  |
 | `make test-quick` |  |  |
 | Postgres integration tests, when required |  |  |

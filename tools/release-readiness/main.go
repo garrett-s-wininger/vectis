@@ -151,6 +151,21 @@ type artifactRecord struct {
 	SHA256 string `json:"sha256"`
 }
 
+type npmAuditReport struct {
+	Metadata struct {
+		Vulnerabilities npmAuditCounts `json:"vulnerabilities"`
+	} `json:"metadata"`
+}
+
+type npmAuditCounts struct {
+	Info     int `json:"info"`
+	Low      int `json:"low"`
+	Moderate int `json:"moderate"`
+	High     int `json:"high"`
+	Critical int `json:"critical"`
+	Total    int `json:"total"`
+}
+
 type commandExecutor func(ctx context.Context, cwd string, command []string, log io.Writer) (int, error)
 
 func main() {
@@ -272,9 +287,9 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 func checkProfiles() map[string]string {
 	return map[string]string{
 		"metadata":  "metadata",
-		"local":     "git-clean,release-local",
-		"candidate": "git-clean,release-local,postgres-integration,package-linux",
-		"full":      "git-clean,release-local,postgres-integration,package-linux,perf-macro,vm-e2e",
+		"local":     "git-clean,docs-npm-audit,release-local",
+		"candidate": "git-clean,docs-npm-audit,release-local,postgres-integration,package-linux",
+		"full":      "git-clean,docs-npm-audit,release-local,postgres-integration,package-linux,perf-macro,vm-e2e",
 	}
 }
 
@@ -290,6 +305,12 @@ func availableChecks() map[string]checkSpec {
 			ID:          "metadata",
 			Title:       "Collect release metadata",
 			Description: "Records git/toolchain identity and artifact checksums without running a command.",
+		},
+		"docs-npm-audit": {
+			ID:          "docs-npm-audit",
+			Title:       "Docs dependency audit",
+			Description: "Runs `npm audit --json` for the docs site and fails on high or critical findings.",
+			Internal:    "docs-npm-audit",
 		},
 		"release-local": {
 			ID:          "release-local",
@@ -683,9 +704,72 @@ func runInternalCheck(name, cwd string, log io.Writer) (string, string) {
 		}
 
 		return statusPassed, ""
+	case "docs-npm-audit":
+		return runDocsNpmAudit(cwd, log)
 	default:
 		return statusFailed, fmt.Sprintf("unknown internal check %q", name)
 	}
+}
+
+func runDocsNpmAudit(cwd string, log io.Writer) (string, string) {
+	websiteDir := filepath.Join(cwd, "website")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "npm", "audit", "--json")
+	cmd.Dir = websiteDir
+	cmd.Env = os.Environ()
+
+	fmt.Fprintln(log, "$ cd website && npm audit --json")
+	raw, err := cmd.CombinedOutput()
+	if len(raw) > 0 {
+		fmt.Fprintln(log, string(raw))
+	}
+
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return statusFailed, "npm audit timed out after 2m"
+	}
+
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return statusFailed, fmt.Sprintf("npm audit failed: %v", err)
+		}
+	}
+
+	counts, err := parseNpmAuditCounts(raw)
+	if err != nil {
+		return statusFailed, err.Error()
+	}
+
+	return npmAuditStatus(counts)
+}
+
+func parseNpmAuditCounts(raw []byte) (npmAuditCounts, error) {
+	var audit npmAuditReport
+	if err := json.Unmarshal(raw, &audit); err != nil {
+		return npmAuditCounts{}, fmt.Errorf("parse npm audit JSON: %w", err)
+	}
+
+	return audit.Metadata.Vulnerabilities, nil
+}
+
+func npmAuditStatus(counts npmAuditCounts) (string, string) {
+	reason := fmt.Sprintf(
+		"critical=%d high=%d moderate=%d low=%d info=%d total=%d",
+		counts.Critical,
+		counts.High,
+		counts.Moderate,
+		counts.Low,
+		counts.Info,
+		counts.Total,
+	)
+
+	if counts.Critical > 0 || counts.High > 0 {
+		return statusFailed, "npm audit high/critical findings: " + reason
+	}
+
+	return statusPassed, reason
 }
 
 func finishCheck(result *checkResult, start time.Time) {

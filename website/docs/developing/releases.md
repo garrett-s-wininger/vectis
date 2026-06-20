@@ -172,15 +172,17 @@ The target runs `tools/release-readiness` and writes a bundle under
 - `checksums.txt`: SHA-256 inventory for discovered release artifacts.
 - `logs/*.log`: stdout/stderr for each selected command check.
 
-The default `local` profile is `git-clean,release-local`, which verifies that
-the worktree is clean and then runs `make release-local-validate`. Select
+The default `local` profile is `git-clean,docs-npm-audit,release-local`, which
+verifies that the worktree is clean, records the docs dependency audit posture,
+and then runs `make release-local-validate`. The npm audit gate fails on high
+or critical findings while preserving lower-severity counts in the report. Select
 heavier profiles or explicit checks when the release touches more surfaces:
 
 ```sh
 make release-readiness-report RELEASE_READINESS_PROFILE=candidate
 
 make release-readiness-report \
-  RELEASE_READINESS_CHECKS=git-clean,release-local,postgres-integration,package-linux \
+  RELEASE_READINESS_CHECKS=git-clean,docs-npm-audit,release-local,postgres-integration,package-linux \
   RELEASE_READINESS_ARGS='--artifact-roots bin,artifacts/packages,artifacts/deploy,website/static/openapi/v1.json'
 ```
 

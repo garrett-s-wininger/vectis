@@ -147,15 +147,23 @@ func TestDefaultChecksIncludeCleanTreeGate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var found bool
+	var foundGitClean, foundNpmAudit bool
 	for _, check := range checks {
 		if check.ID == "git-clean" {
-			found = true
+			foundGitClean = true
+		}
+
+		if check.ID == "docs-npm-audit" {
+			foundNpmAudit = true
 		}
 	}
 
-	if !found {
+	if !foundGitClean {
 		t.Fatalf("default checks %+v do not include git-clean", checks)
+	}
+
+	if !foundNpmAudit {
+		t.Fatalf("default checks %+v do not include docs-npm-audit", checks)
 	}
 }
 
@@ -315,5 +323,54 @@ func TestGitStatusIsDirty(t *testing.T) {
 
 	if !gitStatusIsDirty("## main\n?? tools/release-readiness/") {
 		t.Fatal("untracked file should be dirty")
+	}
+}
+
+func TestNpmAuditStatusAllowsModerates(t *testing.T) {
+	raw := []byte(`{
+		"metadata": {
+			"vulnerabilities": {
+				"info": 0,
+				"low": 0,
+				"moderate": 23,
+				"high": 0,
+				"critical": 0,
+				"total": 23
+			}
+		}
+	}`)
+
+	counts, err := parseNpmAuditCounts(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, reason := npmAuditStatus(counts)
+	if status != statusPassed {
+		t.Fatalf("status = %q, want %q", status, statusPassed)
+	}
+
+	if !strings.Contains(reason, "moderate=23") {
+		t.Fatalf("reason %q does not include moderate count", reason)
+	}
+}
+
+func TestNpmAuditStatusFailsHighOrCritical(t *testing.T) {
+	status, reason := npmAuditStatus(npmAuditCounts{High: 1, Total: 1})
+	if status != statusFailed {
+		t.Fatalf("high status = %q, want %q", status, statusFailed)
+	}
+
+	if !strings.Contains(reason, "high=1") {
+		t.Fatalf("high reason = %q", reason)
+	}
+
+	status, reason = npmAuditStatus(npmAuditCounts{Critical: 1, Total: 1})
+	if status != statusFailed {
+		t.Fatalf("critical status = %q, want %q", status, statusFailed)
+	}
+
+	if !strings.Contains(reason, "critical=1") {
+		t.Fatalf("critical reason = %q", reason)
 	}
 }
