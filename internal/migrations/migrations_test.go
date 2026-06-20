@@ -97,6 +97,51 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableMissing(t, db, "job_definition_sources")
 }
 
+func TestSQLiteMigrations_RunDeleteCascadesThroughTaskGraph(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+
+	if err := migrations.Run(db, "sqlite3"); err != nil {
+		t.Fatalf("run up migrations: %v", err)
+	}
+
+	statements := []string{
+		`INSERT INTO job_runs (run_id, job_id, run_index, status, definition_hash) VALUES ('run-cascade', 'job-cascade', 1, 'queued', 'hash')`,
+		`INSERT INTO run_tasks (task_id, run_id, task_key, name, status) VALUES ('task-cascade', 'run-cascade', 'root', 'root', 'pending')`,
+		`INSERT INTO task_attempts (attempt_id, task_id, run_id, cell_id, status, attempt) VALUES ('attempt-cascade', 'task-cascade', 'run-cascade', 'local', 'pending', 1)`,
+		`INSERT INTO run_segments (segment_id, run_id, name, status) VALUES ('segment-cascade', 'run-cascade', 'root', 'pending')`,
+		`INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt) VALUES ('execution-cascade', 'segment-cascade', 'run-cascade', 'task-cascade', 'attempt-cascade', 'local', 'pending', 1)`,
+		`DELETE FROM job_runs WHERE run_id = 'run-cascade'`,
+	}
+
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("exec %q: %v", stmt, err)
+		}
+	}
+
+	for _, table := range []string{"run_tasks", "task_attempts", "run_segments", "segment_executions"} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+
+		if count != 0 {
+			t.Fatalf("expected %s rows to cascade away, got %d", table, count)
+		}
+	}
+}
+
 func readMigrationVersions(t *testing.T, backend string) map[string]map[string]string {
 	t.Helper()
 

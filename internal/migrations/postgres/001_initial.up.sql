@@ -87,7 +87,7 @@ CREATE TABLE job_runs (
     definition_hash TEXT NOT NULL DEFAULT '',
     owning_cell TEXT NOT NULL DEFAULT 'local',
     replay_of_run_id TEXT REFERENCES job_runs(run_id),
-    trigger_invocation_id TEXT REFERENCES trigger_invocations(invocation_id),
+    trigger_invocation_id TEXT,
     execution_payload_hash TEXT NOT NULL DEFAULT ''
 );
 
@@ -130,7 +130,7 @@ CREATE TABLE task_attempts (
     id BIGSERIAL PRIMARY KEY,
     attempt_id TEXT UNIQUE NOT NULL,
     task_id TEXT NOT NULL REFERENCES run_tasks(task_id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL,
     cell_id TEXT NOT NULL,
     attempt INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -165,7 +165,7 @@ CREATE TABLE segment_executions (
     id BIGSERIAL PRIMARY KEY,
     execution_id TEXT UNIQUE NOT NULL,
     segment_id TEXT NOT NULL REFERENCES run_segments(segment_id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL,
     task_id TEXT NOT NULL REFERENCES run_tasks(task_id) ON DELETE CASCADE,
     task_attempt_id TEXT NOT NULL REFERENCES task_attempts(attempt_id) ON DELETE CASCADE,
     cell_id TEXT NOT NULL,
