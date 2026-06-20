@@ -49,6 +49,8 @@ SUITE ?= queue
 PERF_ARGS ?=
 PERF_BIN ?= $(OUT_DIR)/vectis-perf
 PERF_SOURCES := $(shell find scripts/perf -name '*.go' 2>/dev/null)
+RELEASE_READINESS_CHECKS ?= git-clean,release-local
+RELEASE_READINESS_ARGS ?=
 
 .PHONY: all
 all: build
@@ -151,6 +153,10 @@ release-local-validate:
 	$(MAKE) deploy-artifacts-test
 	$(MAKE) test-package
 	$(MAKE) build
+
+.PHONY: release-readiness-report
+release-readiness-report:
+	$(GO) run ./tools/release-readiness --checks "$(RELEASE_READINESS_CHECKS)" $(RELEASE_READINESS_ARGS)
 
 .PHONY: test-fault
 test-fault:
@@ -604,6 +610,7 @@ fuzz-api-auth:
 clean:
 	rm -rf artifacts/perf/
 	rm -rf artifacts/deploy/
+	rm -rf artifacts/release-readiness/
 	rm -rf ${OUT_DIR}
 	rm -rf formal/tla/*_TTrace_*
 	rm -rf states/

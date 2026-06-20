@@ -123,6 +123,7 @@ Production evidence: <link to completed evidence record or "not applicable">
 
 ### Smoke And Drill Evidence
 
+- Readiness report:
 - `make release-local-validate`:
 - `make test-quick`:
 - Postgres integration, when required:
@@ -154,11 +155,50 @@ Production evidence: <link to completed evidence record or "not applicable">
 
 Schema changes must follow [Database Migrations](./migrations.md), including the production rollback note for each release. Capacity-sensitive changes should follow [Capacity And Performance Checks](./performance/capacity-checks.md).
 
+## Release Readiness Report
+
+Use the readiness report when preparing a release candidate:
+
+```sh
+make release-readiness-report
+```
+
+The target runs `tools/release-readiness` and writes a bundle under
+`artifacts/release-readiness/<run>/`:
+
+- `summary.json`: machine-readable release identity, check results, artifact
+  checksums, and skip or waiver state.
+- `report.md`: maintainer-facing summary suitable for review or release notes.
+- `checksums.txt`: SHA-256 inventory for discovered release artifacts.
+- `logs/*.log`: stdout/stderr for each selected command check.
+
+The default check set is `git-clean,release-local`, which verifies that the
+worktree is clean and then runs `make release-local-validate`. Select heavier
+lanes explicitly:
+
+```sh
+make release-readiness-report \
+  RELEASE_READINESS_CHECKS=git-clean,release-local,postgres-integration,package-linux
+```
+
+Use skips for unavailable local infrastructure and waivers for deliberately
+accepted release risk:
+
+```sh
+make release-readiness-report \
+  RELEASE_READINESS_CHECKS=git-clean,release-local,postgres-integration,vm-e2e \
+  RELEASE_READINESS_ARGS='--skip postgres-integration="no local Postgres" --waive vm-e2e="no prepared RPM guest; DEB smoke covered"'
+```
+
+Add `RELEASE_READINESS_ARGS='--strict'` when skipped or waived selected checks
+should fail the run. Use `go run ./tools/release-readiness --list-checks` to
+list available checks.
+
 ## Maintainer Release Checklist
 
 1. Confirm the tree is clean except intended release changes.
 2. Run `make proto` and verify generated files are committed when protos changed.
-3. Run `make release-local-validate` for the local release lane.
+3. Run `make release-readiness-report` for the local release lane and keep the generated bundle with the release notes.
 4. Run `make test-postgres-integration` for any database, migration, DAL, queue, reconciler, auth, or deploy-sensitive change.
 5. If the local release lane was skipped or failed before the build step, build all binaries with `make build`; this also embeds the docs site into `vectis-docs`.
 6. Build container images with the release tag.

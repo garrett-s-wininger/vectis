@@ -42,7 +42,7 @@ Minimum command evidence:
 ```sh
 git status --short
 git rev-parse HEAD
-make release-local-validate
+make release-readiness-report
 make package-linux
 vectis-cli --version
 ```
@@ -54,6 +54,7 @@ the waiver in [Known Risks And Waivers](#known-risks-and-waivers).
 
 | Check | Result | Evidence location |
 | --- | --- | --- |
+| `make release-readiness-report` |  |  |
 | `make release-local-validate` |  |  |
 | `make test-quick` |  |  |
 | Postgres integration tests, when required |  |  |
