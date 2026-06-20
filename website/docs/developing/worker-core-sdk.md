@@ -98,7 +98,9 @@ if err != nil {
 return server.Serve(listener)
 ```
 
-The repository includes a minimal runnable example in `examples/worker-core-external`.
+The repository includes a minimal runnable example in
+`examples/worker-core-external` and a Kubernetes Job-backed executable-task
+provider in `examples/worker-core-kubernetes`.
 
 ## Conformance
 
