@@ -40,7 +40,7 @@ type RunListProps = {
   runs: RunListItem[];
 };
 
-export function RunList({ emptyMessage = "No runs found.", hideJobName, onSelectRun, title, runs }: RunListProps) {
+export function RunList({ emptyMessage = "No runs match the current filters.", hideJobName, onSelectRun, title, runs }: RunListProps) {
   return (
     <section className={`${styles.root} polished-panel polished-panel--accent-top`} aria-labelledby="run-list-title">
       <div className={styles.header}>

@@ -1,5 +1,5 @@
 import { BreadcrumbTrail, Button, EmptyStatePanel, PageHeader, type BreadcrumbItem } from "../../components";
-import styles from "./PageMissingState.module.css";
+import { EmptyStateRail } from "./EmptyStateRail";
 
 type PageMissingStateProps = {
   actionLabel: string;
@@ -31,7 +31,7 @@ export function PageMissingState({
         navigation={<BreadcrumbTrail items={breadcrumbs} label={label} />}
         title={title}
       />
-      <div className={styles.rail}>
+      <EmptyStateRail>
         <EmptyStatePanel
           actions={
             <Button onClick={onAction} type="button" variant="quiet">
@@ -42,7 +42,7 @@ export function PageMissingState({
           eyebrow={panelEyebrow}
           title={panelTitle}
         />
-      </div>
+      </EmptyStateRail>
     </>
   );
 }

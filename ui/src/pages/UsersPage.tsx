@@ -102,7 +102,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
         />
         <Button type="submit">Add user</Button>
       </form>
-      <DataTable columns={columns} emptyMessage="No users loaded." getRowKey={(user) => user.id} rows={users} />
+      <DataTable columns={columns} emptyMessage="No users yet." getRowKey={(user) => user.id} rows={users} />
     </>
   );
 }

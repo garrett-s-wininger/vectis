@@ -167,13 +167,21 @@ export function RunsPage({
         }
       />
       <RunList
-        emptyMessage="No runs found."
+        emptyMessage={runEmptyMessage(runs.length, filteredRuns.length)}
         onSelectRun={onSelectRun}
         title={runListTitle(status, source)}
         runs={filteredRuns}
       />
     </>
   );
+}
+
+function runEmptyMessage(totalRuns: number, filteredRuns: number) {
+  if (filteredRuns > 0) {
+    return "";
+  }
+
+  return totalRuns > 0 ? "No runs match the current filters." : "No runs yet.";
 }
 
 function runListTitle(status: RunFilter, source: SourceFilter) {

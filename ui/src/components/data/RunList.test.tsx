@@ -84,6 +84,6 @@ describe("RunList", () => {
   it("renders an empty state when no runs are present", () => {
     render(<RunList title="Recent failures" runs={[]} />);
 
-    expect(screen.getByText("No runs found.")).toBeInTheDocument();
+    expect(screen.getByText("No runs match the current filters.")).toBeInTheDocument();
   });
 });

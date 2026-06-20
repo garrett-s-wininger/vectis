@@ -8,7 +8,7 @@ import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { Job, Namespace, NewNamespace, UpdateNamespace } from "../domain/console";
-import { PageMissingState, ResourceStatus, ResourceTitle, TableActions } from "./shared";
+import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle, TableActions } from "./shared";
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {
@@ -237,27 +237,29 @@ export function NamespacesPage({
         {namespaces.length > 0 ? (
           <DataTable
             columns={columns}
-            emptyMessage="No namespaces loaded."
+            emptyMessage="No namespaces found."
             getRowKey={(namespace) => String(namespace.id)}
             rows={namespaces}
           />
         ) : (
-          <EmptyStatePanel
-            actions={
-              <Button
-                onClick={() => {
-                  setValues({ description: "Definitions for a team or product area.", name: "team-a", parentID: 1 });
-                  setIsCreating(true);
-                }}
-                variant="quiet"
-              >
-                Fill Example
-              </Button>
-            }
-            description="Create a namespace to give jobs and access policies a first boundary."
-            eyebrow="No Namespaces"
-            title="Start With a Boundary"
-          />
+          <EmptyStateRail>
+            <EmptyStatePanel
+              actions={
+                <Button
+                  onClick={() => {
+                    setValues({ description: "Definitions for a team or product area.", name: "team-a", parentID: 1 });
+                    setIsCreating(true);
+                  }}
+                  variant="quiet"
+                >
+                  Fill Example
+                </Button>
+              }
+              description="Create a namespace to give jobs and access policies a first boundary."
+              eyebrow="No Namespaces"
+              title="Start With a Boundary"
+            />
+          </EmptyStateRail>
         )}
       </div>
     </>
@@ -418,7 +420,7 @@ function NamespaceDetail({
           </div>
           <DataTable
             columns={jobColumns}
-            emptyMessage="No jobs are stored directly in this namespace."
+            emptyMessage="No stored jobs in this namespace."
             getRowKey={(job) => job.id}
             rows={namespaceJobs}
           />

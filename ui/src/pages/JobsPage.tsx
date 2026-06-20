@@ -10,8 +10,7 @@ import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEdito
 import { JobWorkspace } from "./jobs/JobWorkspace";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
 import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
-import { PageMissingState } from "./shared";
-import styles from "./jobs/JobsPage.module.css";
+import { EmptyStateRail, PageMissingState } from "./shared";
 import { RoutedJobEditor } from "./jobs/RoutedJobEditor";
 
 type ActiveJobEditorMode = JobEditorMode | null;
@@ -164,7 +163,7 @@ export function JobsPage({
         />
       ) : null}
       {!editorMode && jobs.length === 0 ? (
-        <div className={styles.emptyStateRail}>
+        <EmptyStateRail>
           <EmptyStatePanel
             actions={<Button onClick={onOpenCreate}>Create</Button>}
             description="Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later."
@@ -172,7 +171,7 @@ export function JobsPage({
             title="Create One Today"
             titleID="jobs-empty-title"
           />
-        </div>
+        </EmptyStateRail>
       ) : null}
       {!editorMode && jobs.length > 0 ? (
         <JobWorkspace

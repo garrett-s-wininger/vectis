@@ -75,7 +75,7 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
           />
         ))}
       </div>
-      <DataTable columns={columns} emptyMessage="No cells loaded." getRowKey={(cell) => cell.id} rows={cells} />
+      <DataTable columns={columns} emptyMessage="No cells registered." getRowKey={(cell) => cell.id} rows={cells} />
       {selectedCell ? <DashboardPage cell={selectedCell} /> : null}
     </>
   );
