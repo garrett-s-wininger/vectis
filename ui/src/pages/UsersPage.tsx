@@ -9,7 +9,7 @@ import { MetricCard } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { CreatedUserCredential } from "../data/consoleDataSource";
-import type { NewUser, User, UserRole, UserStatus } from "../domain/console";
+import type { AssignableUserRole, NewUser, User, UserRole, UserStatus } from "../domain/console";
 import { userRoleOptions } from "../domain/consoleOptions";
 import { EmptyStateRail, ResourceStatus, ResourceTitle, TableActions } from "./shared";
 import styles from "./UsersPage.module.css";
@@ -25,6 +25,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
   const [credential, setCredential] = useState<CreatedUserCredential | null>(null);
   const [credentialCopyState, setCredentialCopyState] = useState<"copied" | "idle">("idle");
   const [isCreating, setIsCreating] = useState(false);
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null);
   const [values, setValues] = useState<NewUser>({
     username: "",
     role: "Viewer"
@@ -54,6 +55,19 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
 
     await navigator.clipboard.writeText(credential.password);
     setCredentialCopyState("copied");
+  }
+
+  async function handleConfirmDeleteUser() {
+    if (!pendingDeleteUser) {
+      return;
+    }
+
+    try {
+      await onDeleteUser(pendingDeleteUser.id);
+      setPendingDeleteUser(null);
+    } catch {
+      // The app-level action alert owns the visible error; keep the dialog open for retry or cancel.
+    }
   }
 
   const canCopyCredential = hasSecureClipboard();
@@ -99,7 +113,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
             aria-label={`Remove ${user.username}`}
             className={styles.userActionButton}
             disabled={user.username === "admin"}
-            onClick={() => onDeleteUser(user.id)}
+            onClick={() => setPendingDeleteUser(user)}
             variant="quiet"
           >
             Remove
@@ -156,7 +170,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
                 onChange={(event) =>
                   setValues({
                     ...values,
-                    role: event.target.value as UserRole
+                    role: event.target.value as AssignableUserRole
                   })
                 }
                 options={userRoleOptions}
@@ -203,14 +217,14 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
         )}
       </div>
       {credential ? (
-        <div className={styles.credentialOverlay} role="presentation">
+        <div className={styles.modalOverlay} role="presentation">
           <section
             aria-labelledby="new-user-credential-title"
             aria-modal="true"
             className={`${styles.credentialPanel} polished-panel`}
             role="dialog"
           >
-            <div className={styles.credentialCopy}>
+            <div className={styles.modalCopy}>
               <p className="eyebrow">One-Time Credential</p>
               <h2 id="new-user-credential-title">Initial Password</h2>
               <p>Share this password with {credential.username}. It will not be shown again after you leave this page.</p>
@@ -232,6 +246,30 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
             <Button onClick={() => setCredential(null)} type="button" variant="quiet">
               Dismiss
             </Button>
+          </section>
+        </div>
+      ) : null}
+      {pendingDeleteUser ? (
+        <div className={styles.modalOverlay} role="presentation">
+          <section
+            aria-labelledby="remove-user-title"
+            aria-modal="true"
+            className={`${styles.confirmPanel} polished-panel`}
+            role="dialog"
+          >
+            <div className={styles.modalCopy}>
+              <p className="eyebrow">Remove</p>
+              <h2 id="remove-user-title">Remove User</h2>
+              <p>Remove {pendingDeleteUser.username}? This cannot be undone.</p>
+            </div>
+            <div className={styles.formActions}>
+              <Button onClick={() => setPendingDeleteUser(null)} type="button" variant="quiet">
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmDeleteUser} type="button" variant="danger">
+                Remove User
+              </Button>
+            </div>
           </section>
         </div>
       ) : null}
@@ -261,6 +299,10 @@ function roleTone(role: UserRole) {
 
   if (role === "Operator") {
     return "enabled";
+  }
+
+  if (role === "Unassigned") {
+    return "disabled";
   }
 
   return "paused";

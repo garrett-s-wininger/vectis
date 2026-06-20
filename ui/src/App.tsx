@@ -299,6 +299,7 @@ export function App() {
       setActionError("");
     } catch (error) {
       setActionError(errorMessage(error, "Unable to delete user."));
+      throw error;
     }
   }
 

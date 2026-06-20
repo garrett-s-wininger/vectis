@@ -359,7 +359,7 @@ function apiUserToConsoleUser(user: APIUser): User {
   return {
     id: String(user.id),
     username: user.username,
-    role: "Admin",
+    role: "Unassigned",
     status: user.enabled ? "active" : "disabled",
     lastSeen: user.created_at ? `Created ${formatDate(user.created_at)}` : "Created date unavailable",
     tokens: 0

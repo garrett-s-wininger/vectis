@@ -1,5 +1,5 @@
 import type { RunListItem, RunStatus } from "../components";
-import type { CellStatus, UserRole } from "./console";
+import type { AssignableUserRole, CellStatus } from "./console";
 
 export type RunFilter = RunStatus | "all";
 export type SourceFilter = NonNullable<RunListItem["source"]> | "all";
@@ -75,7 +75,7 @@ export const runSourceOptions = Object.entries(runSourceLabels).map(([value, lab
   value
 }));
 
-export const userRoleOptions: { label: string; value: UserRole }[] = [
+export const userRoleOptions: { label: string; value: AssignableUserRole }[] = [
   { label: "Admin", value: "Admin" },
   { label: "Operator", value: "Operator" },
   { label: "Viewer", value: "Viewer" }

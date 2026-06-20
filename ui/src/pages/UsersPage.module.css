@@ -6,7 +6,8 @@
 
 .summary,
 .createPanel,
-.credentialPanel {
+.credentialPanel,
+.confirmPanel {
   box-sizing: border-box;
   width: 100%;
 }
@@ -27,7 +28,8 @@
 
 .summary h2,
 .createPanel h2,
-.credentialPanel h2 {
+.credentialPanel h2,
+.confirmPanel h2 {
   color: var(--text-primary);
   font-size: var(--font-size-3xl);
   line-height: var(--line-height-heading);
@@ -36,7 +38,8 @@
 
 .summary p,
 .createPanel p,
-.credentialPanel p {
+.credentialPanel p,
+.confirmPanel p {
   color: var(--text-subtle);
   margin: 0;
   max-width: 64ch;
@@ -59,7 +62,8 @@
   gap: var(--space-sm);
 }
 
-.credentialPanel {
+.credentialPanel,
+.confirmPanel {
   align-items: stretch;
   display: grid;
   gap: var(--space-lg);
@@ -69,12 +73,12 @@
   width: 100%;
 }
 
-.credentialCopy {
+.modalCopy {
   display: grid;
   gap: var(--space-sm);
 }
 
-.credentialOverlay {
+.modalOverlay {
   align-items: center;
   background: rgb(10 18 22 / 32%);
   display: flex;

@@ -116,7 +116,7 @@ describe("console data source", () => {
     expect(data.users[0]).toMatchObject({
       id: "7",
       username: "root",
-      role: "Admin",
+      role: "Unassigned",
       status: "active",
       tokens: 0
     });

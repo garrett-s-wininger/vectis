@@ -70,7 +70,8 @@ export type Namespace = {
   role: NamespaceRole;
 };
 
-export type UserRole = "Admin" | "Operator" | "Viewer";
+export type AssignableUserRole = "Admin" | "Operator" | "Viewer";
+export type UserRole = AssignableUserRole | "Unassigned";
 export type UserStatus = "active" | "disabled";
 
 export type User = {
@@ -84,7 +85,7 @@ export type User = {
 
 export type NewUser = {
   username: string;
-  role: UserRole;
+  role: AssignableUserRole;
 };
 
 export type NewNamespace = {

@@ -262,6 +262,13 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Activate taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove taylor" }));
+    expect(screen.getByRole("dialog", { name: "Remove User" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Remove User" })).not.toBeInTheDocument();
+    expect(screen.getByText("taylor")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove taylor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
 
     await waitFor(() => {
       expect(screen.queryByText("taylor")).not.toBeInTheDocument();
