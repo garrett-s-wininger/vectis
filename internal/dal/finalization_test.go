@@ -106,3 +106,39 @@ func TestValidateMirroredExecutionFinalization(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMirroredExecutionFinalizationTargetAllowsAggregateDrift(t *testing.T) {
+	primary := dal.ExecutionFinalizationResult{
+		ExecutionID: "execution-1",
+		RunID:       "run-1",
+		Outcome:     dal.ExecutionFinalizationOutcomeWaiting,
+		Summary: dal.RunTaskCompletion{
+			RunID:      "run-1",
+			Total:      4,
+			Succeeded:  2,
+			Incomplete: 2,
+		},
+	}
+
+	mirror := primary
+	mirror.Outcome = dal.ExecutionFinalizationOutcomeContinued
+	mirror.Summary.Succeeded = 3
+	mirror.Summary.Incomplete = 1
+	mirror.Activated = 1
+	mirror.Children = []dal.TaskExecutionRecord{{RunID: "run-1", ExecutionID: "execution-child"}}
+
+	if err := dal.ValidateMirroredExecutionFinalizationTarget(primary, mirror); err != nil {
+		t.Fatalf("target validator should allow aggregate drift: %v", err)
+	}
+
+	mirror.ExecutionID = "execution-2"
+	if err := dal.ValidateMirroredExecutionFinalizationTarget(primary, mirror); err == nil || !strings.Contains(err.Error(), "execution") {
+		t.Fatalf("target validator execution error = %v, want execution mismatch", err)
+	}
+
+	mirror = primary
+	mirror.RunID = "run-2"
+	if err := dal.ValidateMirroredExecutionFinalizationTarget(primary, mirror); err == nil || !strings.Contains(err.Error(), "run") {
+		t.Fatalf("target validator run error = %v, want run mismatch", err)
+	}
+}

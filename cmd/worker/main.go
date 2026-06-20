@@ -3020,7 +3020,7 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.
 		return dal.ExecutionFinalizationResult{}, err
 	}
 
-	if err := dal.ValidateMirroredExecutionFinalization(result, durable); err != nil {
+	if err := dal.ValidateMirroredExecutionFinalizationTarget(result, durable); err != nil {
 		return dal.ExecutionFinalizationResult{}, err
 	}
 

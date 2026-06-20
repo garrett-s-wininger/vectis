@@ -2,13 +2,21 @@ package dal
 
 import "fmt"
 
-func ValidateMirroredExecutionFinalization(primary, mirror ExecutionFinalizationResult) error {
+func ValidateMirroredExecutionFinalizationTarget(primary, mirror ExecutionFinalizationResult) error {
 	if primary.ExecutionID != mirror.ExecutionID {
 		return fmt.Errorf("execution finalization mismatch: primary execution %q mirror execution %q", primary.ExecutionID, mirror.ExecutionID)
 	}
 
 	if primary.RunID != mirror.RunID {
 		return fmt.Errorf("execution finalization mismatch: primary run %q mirror run %q", primary.RunID, mirror.RunID)
+	}
+
+	return nil
+}
+
+func ValidateMirroredExecutionFinalization(primary, mirror ExecutionFinalizationResult) error {
+	if err := ValidateMirroredExecutionFinalizationTarget(primary, mirror); err != nil {
+		return err
 	}
 
 	if primary.Outcome != mirror.Outcome {

@@ -136,6 +136,28 @@ func TestKubernetesCancelSmokeJobContract(t *testing.T) {
 	}
 }
 
+func TestKubernetesScaleSmokeJobContract(t *testing.T) {
+	b, err := os.ReadFile("../../examples/e2e-kubernetes-scale.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(b)
+	for _, want := range []string{
+		`"id": "e2e-kubernetes-scale-smoke"`,
+		`"id": "fanout-control"`,
+		`"execution": "distributed"`,
+		"scale-branch-a-started",
+		"scale-branch-b-started",
+		"scale-branch-c-started",
+		"sleep 25",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("scale smoke job missing %q", want)
+		}
+	}
+}
+
 func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 	opts := normalizeSmokeOptions(SmokeOptions{})
 	if opts.JobPath != DefaultSmokeJobPath {
@@ -144,6 +166,18 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 
 	if opts.CancelJobPath != DefaultSmokeCancelJobPath {
 		t.Fatalf("cancel job path = %q", opts.CancelJobPath)
+	}
+
+	if opts.ScaleJobPath != DefaultSmokeScaleJobPath {
+		t.Fatalf("scale job path = %q", opts.ScaleJobPath)
+	}
+
+	if opts.ScaleWorkerReplicas != DefaultSmokeScaleWorkerReplicas {
+		t.Fatalf("scale worker replicas = %d", opts.ScaleWorkerReplicas)
+	}
+
+	if opts.ScaleMinWorkers != DefaultSmokeScaleMinWorkers {
+		t.Fatalf("scale min workers = %d", opts.ScaleMinWorkers)
 	}
 
 	if opts.CLIImage != DefaultSmokeCLIImage {

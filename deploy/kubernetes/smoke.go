@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,46 +21,55 @@ import (
 )
 
 const (
-	DefaultSmokeContext       = "kind-vectis"
-	DefaultSmokeJobPath       = "examples/e2e-canonical.json"
-	DefaultSmokeCancelJobPath = "examples/e2e-kubernetes-cancel.json"
-	DefaultSmokeCLIImage      = "localhost/vectis-cli:dev-local"
-	DefaultSmokeSeedSecret    = true
-	DefaultSmokeAPIPort       = 18080
-	DefaultSmokeWait          = 180 * time.Second
-	smokeAPIServiceName       = "service/vectis-api"
-	smokeAPIRemotePort        = 8080
-	smokeHTTPClientDelay      = 30 * time.Second
-	smokeSecretRef            = "encryptedfs://team/smoke-token"
-	smokeSecretPlaintext      = "spiffe-secret"
-	smokeSecretRoot           = "/data/vectis/secrets/encryptedfs"
-	smokeSecretKeyFile        = "/run/vectis/secrets/encryptedfs.key"
+	DefaultSmokeContext             = "kind-vectis"
+	DefaultSmokeJobPath             = "examples/e2e-canonical.json"
+	DefaultSmokeCancelJobPath       = "examples/e2e-kubernetes-cancel.json"
+	DefaultSmokeScaleJobPath        = "examples/e2e-kubernetes-scale.json"
+	DefaultSmokeScaleWorkerReplicas = 3
+	DefaultSmokeScaleMinWorkers     = 2
+	DefaultSmokeCLIImage            = "localhost/vectis-cli:dev-local"
+	DefaultSmokeSeedSecret          = true
+	DefaultSmokeAPIPort             = 18080
+	DefaultSmokeWait                = 180 * time.Second
+	smokeAPIServiceName             = "service/vectis-api"
+	smokeAPIRemotePort              = 8080
+	smokeWorkerDeploymentName       = "deployment/vectis-worker"
+	smokeHTTPClientDelay            = 30 * time.Second
+	smokeSecretRef                  = "encryptedfs://team/smoke-token"
+	smokeSecretPlaintext            = "spiffe-secret"
+	smokeSecretRoot                 = "/data/vectis/secrets/encryptedfs"
+	smokeSecretKeyFile              = "/run/vectis/secrets/encryptedfs.key"
 )
 
 type SmokeOptions struct {
-	Kubectl       string
-	Context       string
-	Namespace     string
-	JobPath       string
-	CancelJobPath string
-	CancelOnly    bool
-	CLIImage      string
-	SeedSecret    *bool
-	APILocalPort  int
-	Wait          time.Duration
-	APIToken      string
-	Stdout        io.Writer
+	Kubectl             string
+	Context             string
+	Namespace           string
+	JobPath             string
+	CancelJobPath       string
+	ScaleJobPath        string
+	CancelOnly          bool
+	ScaleOnly           bool
+	ScaleWorkerReplicas int
+	ScaleMinWorkers     int
+	CLIImage            string
+	SeedSecret          *bool
+	APILocalPort        int
+	Wait                time.Duration
+	APIToken            string
+	Stdout              io.Writer
 }
 
 type SmokeResult struct {
-	Status    string               `json:"status"`
-	Context   string               `json:"context,omitempty"`
-	Namespace string               `json:"namespace"`
-	JobPath   string               `json:"job_path"`
-	JobID     string               `json:"job_id,omitempty"`
-	RunID     string               `json:"run_id"`
-	RunStatus string               `json:"run_status"`
-	Artifacts []SmokeArtifactCheck `json:"artifacts"`
+	Status       string               `json:"status"`
+	Context      string               `json:"context,omitempty"`
+	Namespace    string               `json:"namespace"`
+	JobPath      string               `json:"job_path"`
+	JobID        string               `json:"job_id,omitempty"`
+	RunID        string               `json:"run_id"`
+	RunStatus    string               `json:"run_status"`
+	WorkerOwners []string             `json:"worker_owners,omitempty"`
+	Artifacts    []SmokeArtifactCheck `json:"artifacts"`
 }
 
 type SmokeArtifactCheck struct {
@@ -83,6 +94,26 @@ type smokeLogEntry struct {
 	Data   string `json:"data"`
 }
 
+type smokeDeployment struct {
+	Spec struct {
+		Replicas *int `json:"replicas"`
+	} `json:"spec"`
+}
+
+type smokeRunTasksResponse struct {
+	Data []smokeRunTask `json:"data"`
+}
+
+type smokeRunTask struct {
+	TaskKey  string                `json:"task_key"`
+	Attempts []smokeRunTaskAttempt `json:"attempts"`
+}
+
+type smokeRunTaskAttempt struct {
+	ExecutionStatus string  `json:"execution_status"`
+	LeaseOwner      *string `json:"lease_owner,omitempty"`
+}
+
 type smokePortForward struct {
 	cancel context.CancelFunc
 	done   <-chan error
@@ -101,6 +132,9 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	opts = normalizeSmokeOptions(opts)
 	if opts.CancelOnly {
 		return runCancelSmoke(ctx, opts)
+	}
+	if opts.ScaleOnly {
+		return runScaleSmoke(ctx, opts)
 	}
 
 	if err := validateSmokeOptions(opts); err != nil {
@@ -243,6 +277,103 @@ func runCancelSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	return result, nil
 }
 
+func runScaleSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
+	if err := validateSmokeOptions(opts); err != nil {
+		return SmokeResult{}, err
+	}
+
+	if strings.TrimSpace(opts.ScaleJobPath) == "" {
+		return SmokeResult{}, fmt.Errorf("scale job path is required")
+	}
+
+	if opts.ScaleWorkerReplicas < 2 {
+		return SmokeResult{}, fmt.Errorf("scale worker replicas must be >= 2")
+	}
+
+	if opts.ScaleMinWorkers < 2 {
+		return SmokeResult{}, fmt.Errorf("scale min workers must be >= 2")
+	}
+
+	if opts.ScaleMinWorkers > opts.ScaleWorkerReplicas {
+		return SmokeResult{}, fmt.Errorf("scale min workers must be <= scale worker replicas")
+	}
+
+	out := opts.Stdout
+	scaleCtx, scaleCancel := context.WithTimeout(ctx, opts.Wait)
+	originalReplicas, err := currentSmokeWorkerReplicas(scaleCtx, opts)
+	scaleCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	restore := false
+	if originalReplicas != opts.ScaleWorkerReplicas {
+		fmt.Fprintf(out, "Scaling %s from %d to %d replicas\n", smokeWorkerDeploymentName, originalReplicas, opts.ScaleWorkerReplicas)
+		scaleCtx, scaleCancel = context.WithTimeout(ctx, opts.Wait)
+		err = scaleSmokeWorkerDeployment(scaleCtx, opts, opts.ScaleWorkerReplicas)
+		scaleCancel()
+
+		if err != nil {
+			return SmokeResult{}, err
+		}
+
+		restore = true
+	}
+
+	if restore {
+		defer restoreSmokeWorkerDeployment(opts, originalReplicas)
+	}
+
+	fmt.Fprintf(out, "Starting API port-forward on 127.0.0.1:%d\n", opts.APILocalPort)
+	pf, err := startSmokeAPIPortForward(ctx, opts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+	defer pf.stop()
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", opts.APILocalPort)
+	client := &http.Client{Timeout: smokeHTTPClientDelay}
+
+	submitOpts := opts
+	submitOpts.JobPath = opts.ScaleJobPath
+	fmt.Fprintf(out, "Submitting %s\n", submitOpts.JobPath)
+	run, err := submitSmokeJob(client, baseURL, submitOpts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintf(out, "Submitted job_id=%s run_id=%s\n", smokeJobID(run), run.RunID)
+	fmt.Fprintln(out, "Waiting for distributed scale branches to be owned by multiple workers")
+	scaleTaskKeys := []string{"scale-branch-a", "scale-branch-b", "scale-branch-c"}
+	ownerCtx, ownerCancel := context.WithTimeout(ctx, opts.Wait)
+	owners, err := waitForSmokeTaskLeaseOwners(ownerCtx, client, baseURL, opts.APIToken, run.RunID, scaleTaskKeys, opts.ScaleMinWorkers, out)
+	ownerCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	runCtx, runCancel := context.WithTimeout(ctx, opts.Wait)
+	detail, err := waitForSmokeRunStatus(runCtx, client, baseURL, opts.APIToken, run.RunID, out, "succeeded")
+	runCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	result := SmokeResult{
+		Status:       "ok",
+		Context:      strings.TrimSpace(opts.Context),
+		Namespace:    opts.Namespace,
+		JobPath:      opts.ScaleJobPath,
+		JobID:        smokeJobID(run),
+		RunID:        run.RunID,
+		RunStatus:    detail.Status,
+		WorkerOwners: owners,
+	}
+
+	fmt.Fprintf(out, "Kubernetes scale smoke succeeded: run_id=%s workers=%s\n", run.RunID, strings.Join(owners, ","))
+	return result, nil
+}
+
 func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.Kubectl = strings.TrimSpace(opts.Kubectl)
 	if opts.Kubectl == "" {
@@ -263,6 +394,19 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.CancelJobPath = strings.TrimSpace(opts.CancelJobPath)
 	if opts.CancelJobPath == "" {
 		opts.CancelJobPath = DefaultSmokeCancelJobPath
+	}
+
+	opts.ScaleJobPath = strings.TrimSpace(opts.ScaleJobPath)
+	if opts.ScaleJobPath == "" {
+		opts.ScaleJobPath = DefaultSmokeScaleJobPath
+	}
+
+	if opts.ScaleWorkerReplicas == 0 {
+		opts.ScaleWorkerReplicas = DefaultSmokeScaleWorkerReplicas
+	}
+
+	if opts.ScaleMinWorkers == 0 {
+		opts.ScaleMinWorkers = DefaultSmokeScaleMinWorkers
 	}
 
 	opts.CLIImage = strings.TrimSpace(opts.CLIImage)
@@ -443,6 +587,62 @@ func cleanupSmokeSeedResources(opts SmokeOptions, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, _, _ = runSmokeKubectl(ctx, opts, nil, "delete", "job/"+name, "secret/"+name, "--ignore-not-found")
+}
+
+func currentSmokeWorkerReplicas(ctx context.Context, opts SmokeOptions) (int, error) {
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "get", smokeWorkerDeploymentName, "-o", "json")
+	if err != nil {
+		return 0, fmt.Errorf("get %s replicas: %w: %s%s", smokeWorkerDeploymentName, err, stdout, stderr)
+	}
+
+	var deployment smokeDeployment
+	if err := json.Unmarshal([]byte(stdout), &deployment); err != nil {
+		return 0, fmt.Errorf("parse %s: %w", smokeWorkerDeploymentName, err)
+	}
+
+	if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas <= 0 {
+		return 1, nil
+	}
+
+	return *deployment.Spec.Replicas, nil
+}
+
+func scaleSmokeWorkerDeployment(ctx context.Context, opts SmokeOptions, replicas int) error {
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "scale", smokeWorkerDeploymentName, "--replicas", strconv.Itoa(replicas))
+	if err != nil {
+		return fmt.Errorf("scale %s to %d: %w: %s%s", smokeWorkerDeploymentName, replicas, err, stdout, stderr)
+	}
+	if text := strings.TrimSpace(stdout + stderr); text != "" {
+		fmt.Fprintln(opts.Stdout, text)
+	}
+
+	if err := waitForSmokeWorkerDeployment(ctx, opts); err != nil {
+		return fmt.Errorf("wait for %s after scale to %d: %w", smokeWorkerDeploymentName, replicas, err)
+	}
+	return nil
+}
+
+func waitForSmokeWorkerDeployment(ctx context.Context, opts SmokeOptions) error {
+	timeout := opts.Wait.String()
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "rollout", "status", smokeWorkerDeploymentName, "--timeout", timeout)
+	if err != nil {
+		return fmt.Errorf("rollout status: %w: %s%s", err, stdout, stderr)
+	}
+	if text := strings.TrimSpace(stdout + stderr); text != "" {
+		fmt.Fprintln(opts.Stdout, text)
+	}
+
+	return nil
+}
+
+func restoreSmokeWorkerDeployment(opts SmokeOptions, replicas int) {
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
+	defer cancel()
+
+	fmt.Fprintf(opts.Stdout, "Restoring %s to %d replicas\n", smokeWorkerDeploymentName, replicas)
+	if err := scaleSmokeWorkerDeployment(ctx, opts, replicas); err != nil {
+		fmt.Fprintf(opts.Stdout, "Warning: restore %s failed: %v\n", smokeWorkerDeploymentName, err)
+	}
 }
 
 func runSmokeKubectl(ctx context.Context, opts SmokeOptions, stdin io.Reader, args ...string) (string, string, error) {
@@ -646,6 +846,122 @@ func waitForSmokeRunStatus(ctx context.Context, client *http.Client, baseURL, to
 			return smokeRunDetail{}, fmt.Errorf("timed out waiting for run %s: %w", runID, ctx.Err())
 		}
 	}
+}
+
+func waitForSmokeTaskLeaseOwners(ctx context.Context, client *http.Client, baseURL, token, runID string, taskKeys []string, minOwners int, out io.Writer) ([]string, error) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	taskKeySet := map[string]bool{}
+	for _, key := range taskKeys {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			taskKeySet[key] = true
+		}
+	}
+
+	for {
+		tasks, err := fetchSmokeRunTasks(client, baseURL, token, runID)
+		if err != nil {
+			return nil, err
+		}
+
+		ownersByTask := map[string]string{}
+		ownerSet := map[string]bool{}
+		for _, task := range tasks.Data {
+			if len(taskKeySet) > 0 && !taskKeySet[task.TaskKey] {
+				continue
+			}
+
+			for _, attempt := range task.Attempts {
+				owner := ""
+				if attempt.LeaseOwner != nil {
+					owner = strings.TrimSpace(*attempt.LeaseOwner)
+				}
+				if owner == "" {
+					continue
+				}
+
+				ownersByTask[task.TaskKey] = owner
+				ownerSet[owner] = true
+			}
+		}
+
+		owners := sortedSmokeMapKeys(ownerSet)
+		fmt.Fprintf(out, "active scale task owners: %s\n", formatSmokeOwnersByTask(ownersByTask))
+		if len(owners) >= minOwners {
+			return owners, nil
+		}
+
+		detail, err := fetchSmokeRunDetail(client, baseURL, token, runID)
+		if err != nil {
+			return nil, err
+		}
+
+		switch strings.ToLower(strings.TrimSpace(detail.Status)) {
+		case "succeeded", "failed", "orphaned", "cancelled", "abandoned", "aborted":
+			return nil, fmt.Errorf("run %s reached terminal status %s before %d distinct worker owners were observed; saw %d: %s", runID, detail.Status, minOwners, len(owners), strings.Join(owners, ","))
+		}
+
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timed out waiting for %d distinct worker owners on run %s: %w", minOwners, runID, ctx.Err())
+		}
+	}
+}
+
+func fetchSmokeRunTasks(client *http.Client, baseURL, token, runID string) (smokeRunTasksResponse, error) {
+	req, err := newSmokeAPIRequest(http.MethodGet, baseURL, fmt.Sprintf("/api/v1/runs/%s/tasks?limit=200", url.PathEscape(runID)), token, nil)
+	if err != nil {
+		return smokeRunTasksResponse{}, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return smokeRunTasksResponse{}, fmt.Errorf("fetch run %s tasks: %w", runID, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return smokeRunTasksResponse{}, smokeUnexpectedStatus("fetch run "+runID+" tasks", resp)
+	}
+
+	var result smokeRunTasksResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return smokeRunTasksResponse{}, fmt.Errorf("parse run %s tasks: %w", runID, err)
+	}
+
+	return result, nil
+}
+
+func sortedSmokeMapKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+	return keys
+}
+
+func formatSmokeOwnersByTask(ownersByTask map[string]string) string {
+	if len(ownersByTask) == 0 {
+		return "-"
+	}
+
+	keys := make([]string, 0, len(ownersByTask))
+	for key := range ownersByTask {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+ownersByTask[key])
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func cancelSmokeRun(client *http.Client, baseURL, token, runID string) error {

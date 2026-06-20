@@ -28,6 +28,7 @@ make k8s-kind-apply
 make k8s-kind-smoke
 make k8s-kind-run-smoke
 make k8s-kind-run-cancel-smoke
+make k8s-kind-run-scale-smoke
 ```
 
 The local contract is:
@@ -45,6 +46,10 @@ The local contract is:
 | `K8S_SMOKE_SEED_SECRET` | `true` | Whether the smoke harness seeds `encryptedfs://team/smoke-token`. |
 | `K8S_CANCEL_API_LOCAL_PORT` | `18082` | Local port used by the worker-control cancel smoke API port-forward. |
 | `K8S_CANCEL_SMOKE_JOB` | `examples/e2e-kubernetes-cancel.json` | Long-running job submitted by the worker-control cancel smoke harness. |
+| `K8S_SCALE_API_LOCAL_PORT` | `18083` | Local port used by the worker scaling smoke API port-forward. |
+| `K8S_SCALE_SMOKE_JOB` | `examples/e2e-kubernetes-scale.json` | Distributed fanout job submitted by the worker scaling smoke harness. |
+| `K8S_SCALE_WORKER_REPLICAS` | `3` | Temporary worker Deployment replica count used by the scaling smoke. |
+| `K8S_SCALE_MIN_WORKERS` | `2` | Minimum distinct active worker lease owners required by the scaling smoke. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -84,6 +89,7 @@ development PKI so a re-rendered TLS Secret rolls every TLS-speaking workload in
 the same apply. Do not use it as a production PKI baseline. The next Kubernetes
 slices should add:
 
+- worker pod deletion and recovery validation during active work;
 - cell ingress once mTLS is configured;
 - production-oriented certificate issuance and rotation hooks.
 
@@ -97,11 +103,18 @@ to run the lower-level compute/action-registry smoke without secret delivery.
 and requires the API cancel endpoint to use the worker-control fast path. The
 smoke fails if cancellation falls back to the durable pending path.
 
+`make k8s-kind-run-scale-smoke` temporarily scales `deployment/vectis-worker`,
+submits `examples/e2e-kubernetes-scale.json`, and polls run task attempts until
+the distributed branches have at least `K8S_SCALE_MIN_WORKERS` distinct active
+`lease_owner` values. The harness waits for the run to succeed and restores the
+original worker replica count before exiting.
+
 The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --cancel-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scale-only
 ```
 
 Build local component images before loading or pushing them to a cluster:

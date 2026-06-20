@@ -2720,7 +2720,7 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_WaitsForIncomplet
 		t.Fatal("expected sibling task to be created")
 	}
 
-	claimExecutionAccepted(t, ctx, repos.Runs(), sibling.ExecutionID, "worker-sibling")
+	siblingClaim := claimExecutionAccepted(t, ctx, repos.Runs(), sibling.ExecutionID, "worker-sibling")
 
 	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
 	if err != nil {
@@ -2744,6 +2744,28 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_WaitsForIncomplet
 	assertExecutionAndSegmentStatus(t, db, sibling.ExecutionID, sibling.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
 	assertTaskAndAttemptStatus(t, db, sibling.TaskID, 1, dal.TaskStatusAccepted, dal.TaskStatusAccepted, 1)
 	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
+
+	siblingResult, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, sibling.ExecutionID, "worker-sibling", siblingClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim queued sibling: %v", err)
+	}
+
+	if siblingResult.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded || siblingResult.Summary.Total != 2 || siblingResult.Summary.Succeeded != 2 || siblingResult.Summary.Incomplete != 0 {
+		t.Fatalf("queued sibling result mismatch: %+v", siblingResult)
+	}
+
+	status, found, err = repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status after queued sibling: %v", err)
+	}
+
+	if !found || status != dal.RunStatusSucceeded {
+		t.Fatalf("run should succeed after queued sibling finalizes: found=%v status=%q", found, status)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, sibling.ExecutionID, sibling.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertTaskAndAttemptStatus(t, db, sibling.TaskID, 1, dal.TaskStatusSucceeded, dal.TaskStatusSucceeded, 2)
+	assertExecutionClaimCleared(t, db, sibling.ExecutionID)
 }
 
 func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_ActivatesChildren(t *testing.T) {
