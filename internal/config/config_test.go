@@ -1253,6 +1253,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	if got := WorkerExecutionWorkspaceRoot(); got != "" {
 		t.Fatalf("default workspace root = %q, want empty", got)
 	}
+	if got := WorkerExecutionLeaseTTL(); got != 15*time.Minute {
+		t.Fatalf("default execution lease ttl = %v, want 15m", got)
+	}
 	if got := WorkerExecutionCheckoutCacheRoot(); got != "" {
 		t.Fatalf("default checkout cache root = %q, want empty", got)
 	}
@@ -1292,6 +1295,7 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 
 	viper.Set("worker.execution.backend", " LIMA ")
 	viper.Set("worker.execution.workspace_root", "/Users/me/vectis-work")
+	viper.Set("worker.execution.lease_ttl", 45*time.Second)
 	viper.Set("worker.execution.checkout_cache_root", "/Users/me/vectis-cache")
 	viper.Set("worker.execution.checkout_cache_generations_to_keep", 5)
 	viper.Set("worker.execution.checkout_cache_lease_ttl", 90*time.Minute)
@@ -1311,6 +1315,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	}
 	if got := WorkerExecutionWorkspaceRoot(); got != "/Users/me/vectis-work" {
 		t.Fatalf("override workspace root = %q", got)
+	}
+	if got := WorkerExecutionLeaseTTL(); got != 45*time.Second {
+		t.Fatalf("override execution lease ttl = %v", got)
 	}
 	if got := WorkerExecutionCheckoutCacheRoot(); got != "/Users/me/vectis-cache" {
 		t.Fatalf("override checkout cache root = %q", got)

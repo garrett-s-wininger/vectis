@@ -1339,6 +1339,30 @@ func statusErrorNotFound(message string) error {
 	return status.Error(codes.NotFound, message)
 }
 
+func TestWorkerExecutionLeaseTTLConfiguresDeadlineAndRenewal(t *testing.T) {
+	clock := mocks.NewMockClock()
+	now := time.Now().Add(2 * time.Second).UTC()
+	clock.SetNow(now)
+
+	w := &worker{
+		clock:    clock,
+		leaseTTL: 30 * time.Second,
+	}
+
+	deadline := w.leaseDeadline()
+	if got, want := deadline.Sub(now), 30*time.Second; got != want {
+		t.Fatalf("lease deadline delta = %v, want %v", got, want)
+	}
+
+	if got, want := workerRenewInterval(30*time.Second), 10*time.Second; got != want {
+		t.Fatalf("renew interval = %v, want %v", got, want)
+	}
+
+	if got := workerRenewInterval(30 * time.Minute); got != dal.DefaultRenewInterval {
+		t.Fatalf("long lease renew interval = %v, want default %v", got, dal.DefaultRenewInterval)
+	}
+}
+
 func TestLeaseRenewalLoop_RenewsExecutionLease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

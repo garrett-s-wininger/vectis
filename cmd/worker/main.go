@@ -297,7 +297,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		workerID:                      workerID,
 		cellID:                        config.CellID(),
 		clock:                         interfaces.SystemClock{},
-		renewInterval:                 dal.DefaultRenewInterval,
+		leaseTTL:                      config.WorkerExecutionLeaseTTL(),
+		renewInterval:                 workerRenewInterval(config.WorkerExecutionLeaseTTL()),
 		queue:                         clients,
 		logClient:                     logClient,
 		core:                          executionCore,
@@ -525,6 +526,7 @@ type worker struct {
 	workerID                      string
 	cellID                        string
 	clock                         interfaces.Clock
+	leaseTTL                      time.Duration
 	renewInterval                 time.Duration
 	cancelPollInterval            time.Duration
 	queue                         interfaces.QueueClient
@@ -661,7 +663,30 @@ func (w *worker) deadlineBaseNow() time.Time {
 
 func (w *worker) leaseDeadline() time.Time {
 	now := w.deadlineBaseNow()
-	return now.Add(dal.DefaultLeaseTTL)
+	ttl := w.leaseTTL
+	if ttl <= 0 {
+		ttl = dal.DefaultLeaseTTL
+	}
+
+	return now.Add(ttl)
+}
+
+func workerRenewInterval(leaseTTL time.Duration) time.Duration {
+	interval := dal.DefaultRenewInterval
+	if leaseTTL <= 0 {
+		return interval
+	}
+
+	leaseDriven := leaseTTL / 3
+	if leaseDriven <= 0 {
+		return interval
+	}
+
+	if leaseDriven < interval {
+		return leaseDriven
+	}
+
+	return interval
 }
 
 func (w *worker) executionChoreographer() executionChoreographer {
@@ -4236,6 +4261,7 @@ func init() {
 	rootCmd.PersistentFlags().Duration("queue-dequeue-poll-max-interval", config.WorkerQueueDequeuePollMaxInterval(), "Maximum interval for exponential backoff of bounded idle dequeue long-polls")
 	rootCmd.PersistentFlags().Int("queue-dequeue-sticky-success-budget", config.WorkerQueueDequeueStickySuccessBudget(), "Successful dequeues to keep sampling a productive queue shard before probing another shard")
 	rootCmd.PersistentFlags().Int64("queue-continuation-inline-job-max-bytes", config.WorkerQueueContinuationInlineJobMaxBytes(), "Maximum serialized job bytes to inline in continuation queue deliveries instead of compacting behind the durable payload hash (0 disables)")
+	rootCmd.PersistentFlags().Duration("execution-lease-ttl", config.WorkerExecutionLeaseTTL(), "How long an execution claim remains valid without renewal")
 	rootCmd.PersistentFlags().String("core-socket", workercore.DefaultCoreSocketPath(), "Unix socket for the remote worker core")
 	rootCmd.PersistentFlags().String("core-shell-socket", workercore.DefaultShellSocketPath(), "Unix socket exposed by the worker shell for core callbacks")
 	rootCmd.PersistentFlags().Duration("core-connect-timeout", 10*time.Second, "Timeout for connecting to the remote worker core")
@@ -4254,6 +4280,7 @@ func init() {
 	_ = viper.BindPFlag("worker.queue.dequeue_poll_max_interval", rootCmd.PersistentFlags().Lookup("queue-dequeue-poll-max-interval"))
 	_ = viper.BindPFlag("worker.queue.dequeue_sticky_success_budget", rootCmd.PersistentFlags().Lookup("queue-dequeue-sticky-success-budget"))
 	_ = viper.BindPFlag("worker.queue.continuation_inline_job_max_bytes", rootCmd.PersistentFlags().Lookup("queue-continuation-inline-job-max-bytes"))
+	_ = viper.BindPFlag("worker.execution.lease_ttl", rootCmd.PersistentFlags().Lookup("execution-lease-ttl"))
 	_ = viper.BindPFlag("worker.core.socket", rootCmd.PersistentFlags().Lookup("core-socket"))
 	_ = viper.BindPFlag("worker.core.shell_socket", rootCmd.PersistentFlags().Lookup("core-shell-socket"))
 	_ = viper.BindPFlag("worker.core.connect_timeout", rootCmd.PersistentFlags().Lookup("core-connect-timeout"))
@@ -4270,6 +4297,7 @@ func init() {
 	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
 	_ = viper.BindEnv("worker.queue.continuation_inline_job_max_bytes", "VECTIS_WORKER_QUEUE_CONTINUATION_INLINE_JOB_MAX_BYTES")
+	_ = viper.BindEnv("worker.execution.lease_ttl", "VECTIS_WORKER_EXECUTION_LEASE_TTL")
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
 	_ = viper.BindEnv("worker.orchestrator.address", "VECTIS_WORKER_ORCHESTRATOR_ADDRESS")

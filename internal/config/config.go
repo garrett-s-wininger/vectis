@@ -324,6 +324,7 @@ type WorkerControlDefaults struct {
 type WorkerExecutionDefaults struct {
 	Backend                        string                      `toml:"backend"`
 	WorkspaceRoot                  string                      `toml:"workspace_root"`
+	LeaseTTL                       tomlDuration                `toml:"lease_ttl"`
 	CheckoutCacheRoot              string                      `toml:"checkout_cache_root"`
 	CheckoutCacheGenerationsToKeep int                         `toml:"checkout_cache_generations_to_keep"`
 	CheckoutCacheLeaseTTL          tomlDuration                `toml:"checkout_cache_lease_ttl"`
@@ -734,6 +735,10 @@ func validateDefaults(d Defaults) {
 	}
 	if d.Worker.Queue.ContinuationInlineJobMaxBytes < 0 {
 		panic("config defaults: worker.queue.continuation_inline_job_max_bytes must be >= 0")
+	}
+
+	if time.Duration(d.Worker.Execution.LeaseTTL) <= 0 {
+		panic("config defaults: worker.execution.lease_ttl must be > 0")
 	}
 
 	if d.Worker.Execution.CheckoutCacheWarmInterval <= 0 {
@@ -1309,6 +1314,19 @@ func WorkerExecutionWorkspaceRoot() string {
 		return strings.TrimSpace(viper.GetString("worker.execution.workspace_root"))
 	}
 	return MustDefaults().Worker.Execution.WorkspaceRoot
+}
+
+func WorkerExecutionLeaseTTL() time.Duration {
+	if d := viper.GetDuration("worker.execution.lease_ttl"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().Worker.Execution.LeaseTTL)
+	if d > 0 {
+		return d
+	}
+
+	return 15 * time.Minute
 }
 
 func WorkerExecutionCheckoutCacheRoot() string {

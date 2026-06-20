@@ -29,6 +29,7 @@ make k8s-kind-smoke
 make k8s-kind-run-smoke
 make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
+make k8s-kind-run-orphan-smoke
 ```
 
 The local contract is:
@@ -50,6 +51,10 @@ The local contract is:
 | `K8S_SCALE_SMOKE_JOB` | `examples/e2e-kubernetes-scale.json` | Distributed fanout job submitted by the worker scaling smoke harness. |
 | `K8S_SCALE_WORKER_REPLICAS` | `3` | Temporary worker Deployment replica count used by the scaling smoke. |
 | `K8S_SCALE_MIN_WORKERS` | `2` | Minimum distinct active worker lease owners required by the scaling smoke. |
+| `K8S_ORPHAN_API_LOCAL_PORT` | `18084` | Local port used by the worker pod-loss orphan smoke API port-forward. |
+| `K8S_ORPHAN_SMOKE_JOB` | `examples/e2e-kubernetes-orphan.json` | Long-running root task submitted by the pod-loss orphan smoke harness. |
+| `K8S_ORPHAN_LEASE_TTL` | `30s` | Temporary `VECTIS_WORKER_EXECUTION_LEASE_TTL` used by the orphan smoke. |
+| `K8S_ORPHAN_STABILITY` | `20s` | Time the orphan smoke requires the run to remain orphaned after lease expiry. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -89,7 +94,7 @@ development PKI so a re-rendered TLS Secret rolls every TLS-speaking workload in
 the same apply. Do not use it as a production PKI baseline. The next Kubernetes
 slices should add:
 
-- worker pod deletion and recovery validation during active work;
+- explicit orphan repair validation through force-requeue and repair marks;
 - cell ingress once mTLS is configured;
 - production-oriented certificate issuance and rotation hooks.
 
@@ -109,12 +114,21 @@ the distributed branches have at least `K8S_SCALE_MIN_WORKERS` distinct active
 `lease_owner` values. The harness waits for the run to succeed and restores the
 original worker replica count before exiting.
 
+`make k8s-kind-run-orphan-smoke` temporarily scales `deployment/vectis-worker`
+to one replica, sets `VECTIS_WORKER_EXECUTION_LEASE_TTL` to
+`K8S_ORPHAN_LEASE_TTL`, submits `examples/e2e-kubernetes-orphan.json`, waits for
+the root task to have an active `lease_owner`, force-deletes that worker pod,
+and requires the run to become and remain `orphaned` with a single task attempt.
+The harness restores the original worker lease TTL setting and replica count
+before exiting.
+
 The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --cancel-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scale-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only
 ```
 
 Build local component images before loading or pushing them to a cluster:
