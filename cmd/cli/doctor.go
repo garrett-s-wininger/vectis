@@ -20,6 +20,7 @@ import (
 	"vectis/internal/config"
 	secretstore "vectis/internal/secrets"
 	"vectis/internal/utils"
+	"vectis/internal/workercore"
 )
 
 type doctorStatus string
@@ -96,6 +97,7 @@ func doctor(w io.Writer) error {
 		doctorLogReachable(),
 		doctorAuditFlushFailures(),
 		doctorEncryptedFSFiles(),
+		doctorWorkerCoreSockets(),
 		doctorTLSFiles(),
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
@@ -176,6 +178,9 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Cells", Items: []doctorTextItem{
 		{ID: "cells.ingress", Label: "Ingress routes"},
+	}},
+	{Name: "Worker", Items: []doctorTextItem{
+		{ID: "worker.core.sockets", Label: "Core sockets"},
 	}},
 	{Name: "Catalog", Items: []doctorTextItem{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
@@ -1730,6 +1735,111 @@ func doctorEncryptedFSFiles() doctorCheck {
 
 func formatDoctorEncryptedFSEvidence(root, keyFile string) string {
 	return fmt.Sprintf("root=%s key_file=%s", root, keyFile)
+}
+
+func doctorWorkerCoreSockets() doctorCheck {
+	const id = "worker.core.sockets"
+	title := "Worker core sockets private"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	coreRaw, coreConfigured := envValue("VECTIS_WORKER_CORE_SOCKET")
+	shellRaw, shellConfigured := envValue("VECTIS_WORKER_CORE_SHELL_SOCKET")
+	if !coreConfigured && !shellConfigured {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "worker-core socket paths are not configured in this shell", DocLink: doc}
+	}
+
+	checks := []doctorSocketPathCheck{}
+	if coreConfigured {
+		checks = append(checks, doctorSocketPathCheck{label: "core", raw: coreRaw})
+	}
+
+	if shellConfigured {
+		checks = append(checks, doctorSocketPathCheck{label: "shell", raw: shellRaw})
+	}
+
+	resolved := make(map[string]string, len(checks))
+	var problems []string
+	for _, check := range checks {
+		path, err := workercore.SocketPathFromEndpoint(check.raw)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s socket path is invalid: %v", check.label, err))
+			continue
+		}
+
+		resolved[check.label] = path
+		if problem := doctorWorkerCoreSocketProblem(check.label, path); problem != "" {
+			problems = append(problems, problem)
+		}
+	}
+
+	if core, ok := resolved["core"]; ok {
+		if shell, ok := resolved["shell"]; ok && core == shell {
+			problems = append(problems, "core and shell sockets must be distinct")
+		}
+	}
+
+	evidence := formatDoctorWorkerCoreSocketEvidence(resolved)
+	if len(problems) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check VECTIS_WORKER_CORE_SOCKET, VECTIS_WORKER_CORE_SHELL_SOCKET, worker-core, and worker service ownership", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured worker-core sockets are present and private", Evidence: evidence, DocLink: doc}
+}
+
+type doctorSocketPathCheck struct {
+	label string
+	raw   string
+}
+
+func doctorWorkerCoreSocketProblem(label, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Sprintf("%s socket path is empty", label)
+	}
+
+	if !filepath.IsAbs(path) {
+		return fmt.Sprintf("%s socket path must be absolute", label)
+	}
+
+	parent := filepath.Dir(path)
+	info, err := os.Stat(parent)
+	if err != nil {
+		return fmt.Sprintf("%s socket parent is not usable: %v", label, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Sprintf("%s socket parent is not a directory", label)
+	}
+
+	socketInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Sprintf("%s socket is not present: %v", label, err)
+	}
+
+	if socketInfo.Mode()&os.ModeSocket == 0 {
+		return fmt.Sprintf("%s socket path is not a Unix socket", label)
+	}
+
+	if socketInfo.Mode().Perm()&0o077 != 0 {
+		return fmt.Sprintf("%s socket permissions are too broad: %s", label, socketInfo.Mode().Perm())
+	}
+
+	return ""
+}
+
+func formatDoctorWorkerCoreSocketEvidence(paths map[string]string) string {
+	labels := make([]string, 0, len(paths))
+	for label := range paths {
+		labels = append(labels, label)
+	}
+
+	sort.Strings(labels)
+	parts := make([]string, 0, len(labels))
+	for _, label := range labels {
+		parts = append(parts, fmt.Sprintf("%s=%s", label, paths[label]))
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func doctorTLSFiles() doctorCheck {

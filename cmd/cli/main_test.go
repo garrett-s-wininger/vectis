@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"vectis/api/gen/go"
 	"vectis/internal/retention"
+	"vectis/internal/testutil/socktest"
 )
 
 func TestEffectiveToken_envOverridesFile(t *testing.T) {
@@ -5160,7 +5162,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  26 passed, 0 warnings, 0 failed",
+		"Overall: PASS  27 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5181,6 +5183,8 @@ func TestDoctor_success(t *testing.T) {
 		"OK    Stuck runs",
 		"Cells",
 		"OK    Ingress routes",
+		"Worker",
+		"OK    Core sockets",
 		"Catalog",
 		"OK    Cell event inbox",
 		"catalog inbox ok: 0 pending",
@@ -5279,7 +5283,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  24 passed, 2 warnings, 0 failed",
+		"Overall: WARN  25 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5341,7 +5345,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  26 passed, 0 warnings, 0 failed",
+		"Overall: PASS  27 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5400,7 +5404,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  25 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  26 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5459,12 +5463,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 26 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 27 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 26 {
-		t.Fatalf("expected 26 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 27 {
+		t.Fatalf("expected 27 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5539,7 +5543,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 26 || len(report.Checks) != 26 {
+	if report.Status != doctorOK || report.Passed != 27 || len(report.Checks) != 27 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5603,8 +5607,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 26 {
-		t.Fatalf("expected 26 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 27 {
+		t.Fatalf("expected 27 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -5643,6 +5647,56 @@ func TestDoctorEncryptedFSFiles_warnsForPartialConfig(t *testing.T) {
 	if !strings.Contains(check.Summary, "configured together") {
 		t.Fatalf("unexpected summary: %q", check.Summary)
 	}
+}
+
+func TestDoctorWorkerCoreSockets_validConfiguredSockets(t *testing.T) {
+	core := listenTestUnixSocket(t, "worker-core.sock")
+	shell := listenTestUnixSocket(t, "worker-core-shell.sock")
+
+	t.Setenv("VECTIS_WORKER_CORE_SOCKET", "unix://"+core)
+	t.Setenv("VECTIS_WORKER_CORE_SHELL_SOCKET", shell)
+
+	check := doctorWorkerCoreSockets()
+	if check.Status != doctorOK {
+		t.Fatalf("expected worker core socket check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{"core=" + core, "shell=" + shell} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorWorkerCoreSockets_warnsForMissingSocket(t *testing.T) {
+	missing := socktest.ShortPath(t, "missing-worker-core.sock")
+	t.Setenv("VECTIS_WORKER_CORE_SOCKET", missing)
+
+	check := doctorWorkerCoreSockets()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected worker core socket check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "not present") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
+func listenTestUnixSocket(t *testing.T, name string) string {
+	t.Helper()
+
+	path := socktest.ShortPath(t, name)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("listen unix socket: %v", err)
+	}
+
+	t.Cleanup(func() { _ = ln.Close() })
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("chmod unix socket: %v", err)
+	}
+
+	return path
 }
 
 func TestDoctorTLSFiles_validConfiguredFiles(t *testing.T) {
