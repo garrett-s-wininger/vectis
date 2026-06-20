@@ -6,8 +6,11 @@ import type {
   NewEphemeralRun,
   NewJob,
   NewNamespace,
+  NewUser,
   UpdateJob,
-  UpdateNamespace
+  UpdateNamespace,
+  User,
+  UserStatus
 } from "../domain/console";
 import { requestJSON, requestNoContent } from "../api/client";
 import {
@@ -20,6 +23,9 @@ import {
   triggerMockRun,
   updateMockJob,
   updateMockNamespace,
+  updateMockUserStatus,
+  createMockUser,
+  deleteMockUser,
   type MockConsoleData
 } from "../mocks/consoleData";
 
@@ -63,16 +69,26 @@ type APIEphemeralRunResponse = {
   run_id: string;
 };
 
+type APIUser = {
+  created_at?: string;
+  enabled: boolean;
+  id: number;
+  username: string;
+};
+
 export type ConsoleDataSource = {
   createJob(input: NewJob): Promise<ConsoleData>;
   createNamespace(input: NewNamespace): Promise<ConsoleData>;
+  createUser(input: NewUser): Promise<User[]>;
   deleteNamespace(namespaceID: number): Promise<ConsoleData>;
+  deleteUser(userID: string): Promise<User[]>;
   loadConsole(): Promise<ConsoleData>;
   loadRun(runID: string): Promise<RunListItem>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
   triggerRun(jobID: string): Promise<ConsoleData>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
   updateNamespace(namespaceID: number, input: UpdateNamespace): Promise<ConsoleData>;
+  updateUserStatus(userID: string, status: UserStatus): Promise<User[]>;
 };
 
 export function createConsoleDataSource(): ConsoleDataSource {
@@ -105,9 +121,17 @@ function createMockConsoleDataSource(): ConsoleDataSource {
       data = createMockNamespace(data, input);
       return cloneConsoleData(data);
     },
+    async createUser(input) {
+      data = createMockUser(data, input);
+      return cloneConsoleData(data).users;
+    },
     async deleteNamespace(namespaceID) {
       data = deleteMockNamespace(data, namespaceID);
       return cloneConsoleData(data);
+    },
+    async deleteUser(userID) {
+      data = deleteMockUser(data, userID);
+      return cloneConsoleData(data).users;
     },
     async loadConsole() {
       return cloneConsoleData(data);
@@ -134,6 +158,10 @@ function createMockConsoleDataSource(): ConsoleDataSource {
     async updateNamespace(namespaceID, input) {
       data = updateMockNamespace(data, namespaceID, input);
       return cloneConsoleData(data);
+    },
+    async updateUserStatus(userID, status) {
+      data = updateMockUserStatus(data, userID, status);
+      return cloneConsoleData(data).users;
     }
   };
 }
@@ -166,12 +194,29 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
       return loadAPIConsoleData();
     },
+    async createUser(input) {
+      await requestJSON<APIUser>("/api/v1/users", {
+        method: "POST",
+        body: JSON.stringify({
+          username: input.username
+        })
+      });
+
+      return loadAPIUsers();
+    },
     async deleteNamespace(namespaceID) {
       await requestNoContent(`/api/v1/namespaces/${namespaceID}`, {
         method: "DELETE"
       });
 
       return loadAPIConsoleData();
+    },
+    async deleteUser(userID) {
+      await requestNoContent(`/api/v1/users/${encodeURIComponent(userID)}`, {
+        method: "DELETE"
+      });
+
+      return loadAPIUsers();
     },
     loadConsole: loadAPIConsoleData,
     async loadRun(runID) {
@@ -224,13 +269,23 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       });
 
       return loadAPIConsoleData();
+    },
+    async updateUserStatus(userID, status) {
+      await requestNoContent(`/api/v1/users/${encodeURIComponent(userID)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: status === "active"
+        })
+      });
+
+      return loadAPIUsers();
     }
   };
 }
 
 async function loadAPIConsoleData(): Promise<ConsoleData> {
   const mockBase = createMockConsoleDataSnapshot();
-  const [namespaces, jobsPage] = await Promise.all([loadAPINamespaces(), loadAPIJobs()]);
+  const [namespaces, jobsPage, users] = await Promise.all([loadAPINamespaces(), loadAPIJobs(), loadAPIUsers()]);
   const jobs = jobsPage.data.map(apiJobToConsoleJob);
   const runs = await loadAPIRuns(jobs);
 
@@ -241,7 +296,8 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
       lastRunStatus: runs.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)?.status
     })),
     namespaces,
-    runs
+    runs,
+    users
   };
 }
 
@@ -264,8 +320,25 @@ async function loadAPIRuns(jobs: Job[]) {
   });
 }
 
+async function loadAPIUsers() {
+  const users = await requestJSON<APIUser[]>("/api/v1/users");
+
+  return users.map(apiUserToConsoleUser);
+}
+
 async function loadAPIRun(runID: string) {
   return requestJSON<APIRun>(`/api/v1/runs/${encodeURIComponent(runID)}`);
+}
+
+function apiUserToConsoleUser(user: APIUser): User {
+  return {
+    id: String(user.id),
+    username: user.username,
+    role: "Admin",
+    status: user.enabled ? "active" : "disabled",
+    lastSeen: user.created_at ? `Created ${formatDate(user.created_at)}` : "Created date unavailable",
+    tokens: 0
+  };
 }
 
 function apiNamespaceToConsoleNamespace(namespace: APINamespace): Namespace {
@@ -427,6 +500,20 @@ function formatRunDuration(run: APIRun) {
   }
 
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "date unavailable";
+  }
+
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  });
 }
 
 function parseJobDefinition(definitionJSON: string) {

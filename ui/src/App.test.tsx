@@ -129,6 +129,11 @@ describe("App", () => {
         )
       )
       .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ id: 1, username: "admin", enabled: true }]), {
+          status: 200
+        })
+      )
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             data: []
@@ -250,11 +255,13 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Disable taylor" }));
 
-    expect(screen.getByRole("button", { name: "Activate taylor" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Activate taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove taylor" }));
 
-    expect(screen.queryByText("taylor")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("taylor")).not.toBeInTheDocument();
+    });
   });
 
   it("triggers a mock job run and shows it in runs", async () => {

@@ -47,6 +47,16 @@ describe("console data source", () => {
         })
       )
       .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            id: 7,
+            username: "root",
+            enabled: true,
+            created_at: "2026-05-30T12:00:00Z"
+          }
+        ])
+      )
+      .mockResolvedValueOnce(
         jsonResponse({
           data: [
             {
@@ -103,7 +113,15 @@ describe("console data source", () => {
       trigger: "api",
       duration: "42s"
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/runs?limit=200", expect.any(Object));
+    expect(data.users[0]).toMatchObject({
+      id: "7",
+      username: "root",
+      role: "Admin",
+      status: "active",
+      tokens: 0
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/users", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/v1/runs?limit=200", expect.any(Object));
   });
 
   it("does not invent a latest run status for API jobs with no runs", async () => {
@@ -137,6 +155,7 @@ describe("console data source", () => {
           ]
         })
       )
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().loadConsole();
@@ -155,6 +174,7 @@ describe("console data source", () => {
       .mockResolvedValueOnce(new Response(null, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     await createConsoleDataSource().createJob({
@@ -208,6 +228,7 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().createNamespace({
@@ -253,6 +274,7 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     await createConsoleDataSource().deleteNamespace(2);
@@ -299,6 +321,7 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().updateNamespace(2, {
@@ -329,6 +352,7 @@ describe("console data source", () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     await createConsoleDataSource().updateJob("database-vacuum", {
@@ -367,6 +391,7 @@ describe("console data source", () => {
       .mockResolvedValueOnce(jsonResponse({ id: "ephemeral-job", run_id: "run-ephemeral-1" }))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(
         jsonResponse({
           data: [
@@ -413,6 +438,7 @@ describe("console data source", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(
         jsonResponse({
           data: [
@@ -449,6 +475,7 @@ describe("console data source", () => {
       .mockResolvedValueOnce(jsonResponse({ id: "ephemeral-job", run_id: "run-ephemeral-1" }))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().submitEphemeralRun({
@@ -466,6 +493,84 @@ describe("console data source", () => {
       submittedBy: "admin",
       trigger: "ui"
     });
+  });
+
+  it("creates users through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 12, username: "taylor", enabled: true }))
+      .mockResolvedValueOnce(jsonResponse([{ id: 12, username: "taylor", enabled: true }]));
+
+    const users = await createConsoleDataSource().createUser({
+      username: "taylor",
+      role: "Viewer"
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/users",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          username: "taylor"
+        })
+      })
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/users", expect.any(Object));
+    expect(users[0]).toMatchObject({
+      id: "12",
+      username: "taylor",
+      status: "active"
+    });
+  });
+
+  it("updates user status through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse([{ id: 12, username: "taylor", enabled: false }]));
+
+    const users = await createConsoleDataSource().updateUserStatus("12", "disabled");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/users/12",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: false
+        })
+      })
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/users", expect.any(Object));
+    expect(users[0]).toMatchObject({
+      id: "12",
+      status: "disabled"
+    });
+  });
+
+  it("deletes users through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse([]));
+
+    await createConsoleDataSource().deleteUser("12");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/users/12",
+      expect.objectContaining({
+        method: "DELETE"
+      })
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/users", expect.any(Object));
   });
 
   it("loads an inline run by id through the API source", async () => {

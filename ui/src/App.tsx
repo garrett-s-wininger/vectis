@@ -12,16 +12,12 @@ import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource } from "./data/consoleDataSource";
 import type { NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
+import type { NewUser, UserStatus } from "./domain/console";
 import {
   canDeleteMockNamespace,
-  createMockUser,
-  deleteMockUser,
   nextMockRunID,
   scopeMockConsoleData,
-  updateMockUserStatus,
-  type MockConsoleData,
-  type MockUserStatus,
-  type NewMockUser
+  type MockConsoleData
 } from "./mocks/consoleData";
 import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
@@ -270,20 +266,37 @@ export function App() {
     }
   }
 
-  function updateConsoleData(update: (data: MockConsoleData) => MockConsoleData) {
-    setConsoleData((data) => (data ? update(data) : data));
+  async function handleCreateUser(input: NewUser) {
+    try {
+      const users = await consoleDataSourceRef.current.createUser(input);
+      setConsoleData((data) => (data ? { ...data, users } : data));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      setActionError(errorMessage(error, "Unable to create user."));
+    }
   }
 
-  function handleCreateUser(input: NewMockUser) {
-    updateConsoleData((data) => createMockUser(data, input));
+  async function handleUpdateUserStatus(userID: string, status: UserStatus) {
+    try {
+      const users = await consoleDataSourceRef.current.updateUserStatus(userID, status);
+      setConsoleData((data) => (data ? { ...data, users } : data));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      setActionError(errorMessage(error, "Unable to update user."));
+    }
   }
 
-  function handleUpdateUserStatus(userID: string, status: MockUserStatus) {
-    updateConsoleData((data) => updateMockUserStatus(data, userID, status));
-  }
-
-  function handleDeleteUser(userID: string) {
-    updateConsoleData((data) => deleteMockUser(data, userID));
+  async function handleDeleteUser(userID: string) {
+    try {
+      const users = await consoleDataSourceRef.current.deleteUser(userID);
+      setConsoleData((data) => (data ? { ...data, users } : data));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      setActionError(errorMessage(error, "Unable to delete user."));
+    }
   }
 
   async function handleCreateNamespace(input: NewNamespace) {
@@ -623,14 +636,14 @@ function RouteContent({
   namespacePath: string;
   onCreateJob: (input: NewJob) => Promise<void> | void;
   onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
-  onCreateUser: (input: NewMockUser) => void;
+  onCreateUser: (input: NewUser) => Promise<void> | void;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
-  onDeleteUser: (userID: string) => void;
+  onDeleteUser: (userID: string) => Promise<void> | void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
   onTriggerRun: (jobID: string) => void;
   onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
   onUpdateNamespace: (namespaceID: number, input: UpdateNamespace) => Promise<void> | void;
-  onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
+  onUpdateUserStatus: (userID: string, status: UserStatus) => Promise<void> | void;
   onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;
 }) {
