@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -84,6 +85,7 @@ func doctor(w io.Writer) error {
 		doctorHTTPStatus("api.ready", http.MethodGet, "/health/ready", http.StatusOK, "API readiness probe passed", severityCritical, "API readiness", "Check API server and dependencies (DB, queue)", "website/docs/operating/reliability/runbooks.md"),
 		setupStatus,
 		doctorCLIToken(setupStatus.apiAuthEnabled),
+		doctorAPIEdgeConfig(setupStatus.apiAuthEnabled),
 		doctorSchemaCurrent(),
 		doctorReconcilerActive(),
 		doctorAuditDrops(),
@@ -166,6 +168,7 @@ var doctorTextGroups = []doctorTextGroup{
 		{ID: "api.ready", Label: "API readiness"},
 		{ID: "setup.status", Label: "Initial setup"},
 		{ID: "cli.token", Label: "CLI token"},
+		{ID: "api.edge.config", Label: "API edge"},
 	}},
 	{Name: "Database", Items: []doctorTextItem{
 		{ID: "db.schema.current", Label: "Schema"},
@@ -394,6 +397,156 @@ func doctorCLIToken(apiAuthEnabled bool) doctorCheck {
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "CLI API token is configured"}
+}
+
+func doctorAPIEdgeConfig(apiAuthEnabled bool) doctorCheck {
+	const id = "api.edge.config"
+	title := "API edge config valid"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	doctorBindAPIEdgeEnv()
+
+	localVisible := doctorAPIEdgeEnvVisible()
+	authEnabled := apiAuthEnabled || config.APIAuthEnabled()
+	evidence := formatDoctorAPIEdgeEvidence(authEnabled, localVisible)
+
+	var problems []string
+	for _, check := range []struct {
+		label string
+		err   error
+	}{
+		{label: "API HTTPS", err: config.ValidateAPIHTTPS()},
+		{label: "API Host allowlist", err: config.ValidateAPIHostConfig()},
+		{label: "trusted proxy CIDRs", err: config.ValidateAPIClientIPConfig()},
+		{label: "API CORS", err: config.ValidateAPICORSConfig()},
+		{label: "API HSTS", err: config.ValidateAPIHSTSConfig()},
+		{label: "API session", err: config.ValidateAPISessionConfig()},
+	} {
+		if check.err != nil {
+			problems = append(problems, fmt.Sprintf("%s config is invalid: %v", check.label, check.err))
+		}
+	}
+
+	if authEnabled && localVisible && !config.APIAuthEnabled() && !config.APISessionCookieSecure() && !config.APIHTTPSEnabled() && !config.APISessionAllowInsecureCookies() {
+		problems = append(problems, "auth-enabled API edge config should set VECTIS_API_SESSION_COOKIE_SECURE=true or configure direct API TLS")
+	}
+
+	if authEnabled && localVisible && config.APISessionAllowInsecureCookies() {
+		problems = append(problems, "auth-enabled API edge config allows insecure browser cookies; reserve VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES for local development only")
+	}
+
+	if authEnabled && localVisible && doctorAPIHostExternallyBound() && !doctorAPIAllowedHostsConfigured() {
+		problems = append(problems, "externally bound auth-enabled API should configure VECTIS_API_ALLOWED_HOSTS with the browser-facing DNS names")
+	}
+
+	if config.APIHTTPSEnabled() && config.APIHSTSMaxAgeSeconds() == 0 {
+		problems = append(problems, "API HTTPS is enabled but HSTS max-age is zero")
+	}
+
+	if len(problems) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check VECTIS_API_* edge, session, Host, CORS, proxy, HSTS, and TLS settings", DocLink: doc}
+	}
+
+	if !localVisible {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "API edge config is not visible in this shell", Evidence: evidence, DocLink: doc}
+	}
+
+	if authEnabled {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "auth-enabled API edge config is valid", Evidence: evidence, DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "API edge config is valid; API auth is disabled", Evidence: evidence, DocLink: doc}
+}
+
+func doctorBindAPIEdgeEnv() {
+	for _, binding := range []struct {
+		key      string
+		envNames []string
+	}{
+		{key: "api.host", envNames: []string{"VECTIS_API_SERVER_HOST"}},
+		{key: "api.auth.enabled", envNames: []string{"VECTIS_API_AUTH_ENABLED"}},
+		{key: "api.authz.engine", envNames: []string{"VECTIS_API_AUTHZ_ENGINE"}},
+		{key: "api.tls.cert_file", envNames: []string{"VECTIS_API_TLS_CERT_FILE", "VECTIS_API_SERVER_TLS_CERT_FILE"}},
+		{key: "api.tls.key_file", envNames: []string{"VECTIS_API_TLS_KEY_FILE", "VECTIS_API_SERVER_TLS_KEY_FILE"}},
+		{key: "api.tls.reload_interval", envNames: []string{"VECTIS_API_TLS_RELOAD_INTERVAL", "VECTIS_API_SERVER_TLS_RELOAD_INTERVAL"}},
+		{key: "api.hsts.max_age_seconds", envNames: []string{"VECTIS_API_HSTS_MAX_AGE_SECONDS", "VECTIS_API_SERVER_HSTS_MAX_AGE_SECONDS"}},
+		{key: "api.hsts.include_subdomains", envNames: []string{"VECTIS_API_HSTS_INCLUDE_SUBDOMAINS", "VECTIS_API_SERVER_HSTS_INCLUDE_SUBDOMAINS"}},
+		{key: "api.hsts.preload", envNames: []string{"VECTIS_API_HSTS_PRELOAD", "VECTIS_API_SERVER_HSTS_PRELOAD"}},
+		{key: "api.session.ttl", envNames: []string{"VECTIS_API_SESSION_TTL"}},
+		{key: "api.session.idle_ttl", envNames: []string{"VECTIS_API_SESSION_IDLE_TTL"}},
+		{key: "api.session.cookie_secure", envNames: []string{"VECTIS_API_SESSION_COOKIE_SECURE"}},
+		{key: "api.session.allow_insecure_cookies", envNames: []string{"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES"}},
+		{key: "api.client_ip.trusted_proxy_cidrs", envNames: []string{"VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS"}},
+		{key: "api.host_validation.allowed_hosts", envNames: []string{"VECTIS_API_ALLOWED_HOSTS"}},
+		{key: "api.cors.allowed_origins", envNames: []string{"VECTIS_API_CORS_ALLOWED_ORIGINS"}},
+	} {
+		_ = viper.BindEnv(append([]string{binding.key}, binding.envNames...)...)
+	}
+}
+
+func doctorAPIEdgeEnvVisible() bool {
+	return anyEnvSet(
+		"VECTIS_API_AUTH_ENABLED",
+		"VECTIS_API_AUTHZ_ENGINE",
+		"VECTIS_API_SERVER_HOST",
+		"VECTIS_API_ALLOWED_HOSTS",
+		"VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS",
+		"VECTIS_API_CORS_ALLOWED_ORIGINS",
+		"VECTIS_API_TLS_CERT_FILE",
+		"VECTIS_API_TLS_KEY_FILE",
+		"VECTIS_API_SERVER_TLS_CERT_FILE",
+		"VECTIS_API_SERVER_TLS_KEY_FILE",
+		"VECTIS_API_HSTS_MAX_AGE_SECONDS",
+		"VECTIS_API_HSTS_INCLUDE_SUBDOMAINS",
+		"VECTIS_API_HSTS_PRELOAD",
+		"VECTIS_API_SERVER_HSTS_MAX_AGE_SECONDS",
+		"VECTIS_API_SERVER_HSTS_INCLUDE_SUBDOMAINS",
+		"VECTIS_API_SERVER_HSTS_PRELOAD",
+		"VECTIS_API_SESSION_TTL",
+		"VECTIS_API_SESSION_IDLE_TTL",
+		"VECTIS_API_SESSION_COOKIE_SECURE",
+		"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES",
+	)
+}
+
+func formatDoctorAPIEdgeEvidence(authEnabled, localVisible bool) string {
+	return strings.Join([]string{
+		fmt.Sprintf("auth_enabled=%t", authEnabled),
+		fmt.Sprintf("local_config_visible=%t", localVisible),
+		fmt.Sprintf("api_tls_enabled=%t", config.APIHTTPSEnabled()),
+		fmt.Sprintf("cookie_secure=%t", config.APISessionCookieSecure()),
+		fmt.Sprintf("allow_insecure_cookies=%t", config.APISessionAllowInsecureCookies()),
+		fmt.Sprintf("allowed_hosts=%d", len(config.APIAllowedHosts())),
+		fmt.Sprintf("trusted_proxy_cidrs=%d", len(config.APIClientIPTrustedProxyCIDRStrings())),
+		fmt.Sprintf("cors_origins=%d", len(config.APICORSAllowedOrigins())),
+		fmt.Sprintf("hsts_max_age_seconds=%d", config.APIHSTSMaxAgeSeconds()),
+		fmt.Sprintf("hsts_preload=%t", config.APIHSTSPreload()),
+		fmt.Sprintf("externally_bound=%t", doctorAPIHostExternallyBound()),
+	}, " ")
+}
+
+func doctorAPIAllowedHostsConfigured() bool {
+	_, ok := envValue("VECTIS_API_ALLOWED_HOSTS")
+	return ok
+}
+
+func doctorAPIHostExternallyBound() bool {
+	host := strings.TrimSpace(config.APIHost())
+	if host == "" {
+		return false
+	}
+
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	return ip.IsUnspecified()
 }
 
 func doctorSchemaCurrent() doctorCheck {

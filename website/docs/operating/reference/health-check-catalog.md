@@ -60,6 +60,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `api.ready` | critical | `GET /health/ready` | API readiness endpoint returns `200`. It returns `503` during API shutdown drain, database unavailability, or queue unavailability. | Check database and queue connectivity; see [Schema Or Migration Repair](../reliability/repair-runbooks.md#schema-or-migration-repair) if schema/database state is the issue. |
 | `setup.status` | warning | `GET /api/v1/setup/status` | Setup status is readable; incomplete setup warns only when API auth is enabled. | Complete setup when API auth is enabled. |
 | `cli.token` | warning | Local CLI config / `VECTIS_API_TOKEN` | A CLI API token is configured when API auth is enabled; auth-disabled deployments do not require one. | Run `vectis-cli auth login` or set `VECTIS_API_TOKEN` when auth is enabled. |
+| `api.edge.config` | warning | Local `VECTIS_API_*` edge, session, Host, CORS, proxy, HSTS, and API TLS settings | API edge config is not visible in the current shell, or visible config passes API startup validation and auth-enabled edge posture checks for secure cookies and externally bound Host allowlists. | Check API auth, allowed Hosts, trusted proxy CIDRs, session cookie mode, CORS origins, HSTS policy, and direct API TLS files. |
 | `db.schema.current` | critical | `GET /api/v1/schema/status` | Schema exists and reports a migration version. | [Schema Or Migration Repair](../reliability/repair-runbooks.md#schema-or-migration-repair). |
 | `reconciler.active` | warning | `GET /api/v1/reconciler/heartbeat` | The recovery activity endpoint is readable; no activity is healthy when no runs need recovery. | [Reconciler Repair](../reliability/repair-runbooks.md#reconciler-repair). |
 | `audit.drops.recent` | warning | `GET /api/v1/audit/drops` | Audit dropped-event counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
@@ -90,6 +91,14 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `artifact.storage.filesystem` | warning | Local `VECTIS_ARTIFACT_STORAGE_DIR` or default data path | Durable artifact storage directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move artifact storage to a larger writable volume. |
 
 When `queue.backlog.ratio` warns in a multi-cell deployment, `evidence` includes a per-cell breakdown from the global run catalog, for example `queued=101 cells=iad-a:75,pdx-b:26`.
+
+When `api.edge.config` warns, `evidence` includes auth and local visibility
+booleans, counts, and posture booleans, for example `auth_enabled=true
+local_config_visible=true api_tls_enabled=false cookie_secure=false
+allow_insecure_cookies=false allowed_hosts=1 trusted_proxy_cidrs=1
+cors_origins=1 hsts_max_age_seconds=31536000 hsts_preload=false
+externally_bound=false`. It does not list Host values, origins, proxy CIDRs,
+certificate paths, tokens, or cookie material.
 
 When `cron.schedules` warns, `evidence` includes enabled schedule count, due count, active claim count, and the oldest due timestamp when available, for example `schedules=3 due=2 claimed=1 oldest_due=2026-06-13T12:30:00Z`.
 

@@ -5099,6 +5099,7 @@ func writeHealthyDoctorSourceResponse(w http.ResponseWriter, r *http.Request) {
 
 func withHealthyDoctorFilesystemStats(t *testing.T) {
 	t.Helper()
+	withCleanDoctorAPIEdgeEnv(t)
 
 	old := doctorFilesystemStats
 	doctorFilesystemStats = func(path string) (doctorFSStats, error) {
@@ -5109,6 +5110,35 @@ func withHealthyDoctorFilesystemStats(t *testing.T) {
 		}, nil
 	}
 	t.Cleanup(func() { doctorFilesystemStats = old })
+}
+
+func withCleanDoctorAPIEdgeEnv(t *testing.T) {
+	t.Helper()
+
+	for _, name := range []string{
+		"VECTIS_API_AUTH_ENABLED",
+		"VECTIS_API_AUTHZ_ENGINE",
+		"VECTIS_API_SERVER_HOST",
+		"VECTIS_API_ALLOWED_HOSTS",
+		"VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS",
+		"VECTIS_API_CORS_ALLOWED_ORIGINS",
+		"VECTIS_API_TLS_CERT_FILE",
+		"VECTIS_API_TLS_KEY_FILE",
+		"VECTIS_API_SERVER_TLS_CERT_FILE",
+		"VECTIS_API_SERVER_TLS_KEY_FILE",
+		"VECTIS_API_HSTS_MAX_AGE_SECONDS",
+		"VECTIS_API_HSTS_INCLUDE_SUBDOMAINS",
+		"VECTIS_API_HSTS_PRELOAD",
+		"VECTIS_API_SERVER_HSTS_MAX_AGE_SECONDS",
+		"VECTIS_API_SERVER_HSTS_INCLUDE_SUBDOMAINS",
+		"VECTIS_API_SERVER_HSTS_PRELOAD",
+		"VECTIS_API_SESSION_TTL",
+		"VECTIS_API_SESSION_IDLE_TTL",
+		"VECTIS_API_SESSION_COOKIE_SECURE",
+		"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES",
+	} {
+		t.Setenv(name, "")
+	}
 }
 
 func TestDoctor_success(t *testing.T) {
@@ -5162,12 +5192,13 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  32 passed, 0 warnings, 0 failed",
+		"Overall: PASS  33 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
 		"OK    Initial setup",
 		"OK    CLI token",
+		"OK    API edge",
 		"Database",
 		"OK    Schema",
 		"OK    Connection pool",
@@ -5289,7 +5320,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  30 passed, 2 warnings, 0 failed",
+		"Overall: WARN  31 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5351,7 +5382,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  32 passed, 0 warnings, 0 failed",
+		"Overall: PASS  33 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5410,7 +5441,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  31 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  32 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5469,12 +5500,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 32 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 33 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 32 {
-		t.Fatalf("expected 32 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 33 {
+		t.Fatalf("expected 33 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5549,7 +5580,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 32 || len(report.Checks) != 32 {
+	if report.Status != doctorOK || report.Passed != 33 || len(report.Checks) != 33 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5613,8 +5644,102 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 32 {
-		t.Fatalf("expected 32 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 33 {
+		t.Fatalf("expected 33 checks, got %d", len(report.Checks))
+	}
+}
+
+func TestDoctorAPIEdgeConfig_noLocalConfigPasses(t *testing.T) {
+	withCleanDoctorAPIEdgeEnv(t)
+
+	check := doctorAPIEdgeConfig(true)
+	if check.Status != doctorOK {
+		t.Fatalf("expected API edge check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{"auth_enabled=true", "local_config_visible=false"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorAPIEdgeConfig_validAuthEdgeConfig(t *testing.T) {
+	withCleanDoctorAPIEdgeEnv(t)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_SESSION_COOKIE_SECURE", "true")
+	t.Setenv("VECTIS_API_ALLOWED_HOSTS", "ci.example.com")
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/24")
+	t.Setenv("VECTIS_API_CORS_ALLOWED_ORIGINS", "https://ci.example.com")
+	t.Setenv("VECTIS_API_HSTS_PRELOAD", "true")
+	t.Setenv("VECTIS_API_HSTS_INCLUDE_SUBDOMAINS", "true")
+	t.Setenv("VECTIS_API_HSTS_MAX_AGE_SECONDS", "31536000")
+
+	check := doctorAPIEdgeConfig(true)
+	if check.Status != doctorOK {
+		t.Fatalf("expected API edge check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{
+		"auth_enabled=true",
+		"local_config_visible=true",
+		"cookie_secure=true",
+		"allowed_hosts=1",
+		"trusted_proxy_cidrs=1",
+		"cors_origins=1",
+		"hsts_preload=true",
+	} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+
+	if strings.Contains(check.Evidence, "ci.example.com") || strings.Contains(check.Evidence, "10.0.0.0") {
+		t.Fatalf("edge evidence leaked topology values: %q", check.Evidence)
+	}
+}
+
+func TestDoctorAPIEdgeConfig_warnsForInvalidTrustedProxyCIDR(t *testing.T) {
+	withCleanDoctorAPIEdgeEnv(t)
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "0.0.0.0/0")
+
+	check := doctorAPIEdgeConfig(false)
+	if check.Status != doctorWarn {
+		t.Fatalf("expected API edge check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "trusted proxy CIDRs") {
+		t.Fatalf("expected trusted proxy summary, got %q", check.Summary)
+	}
+}
+
+func TestDoctorAPIEdgeConfig_warnsForAuthVisibleWithoutSecureCookie(t *testing.T) {
+	withCleanDoctorAPIEdgeEnv(t)
+	t.Setenv("VECTIS_API_ALLOWED_HOSTS", "ci.example.com")
+
+	check := doctorAPIEdgeConfig(true)
+	if check.Status != doctorWarn {
+		t.Fatalf("expected API edge check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "VECTIS_API_SESSION_COOKIE_SECURE=true") {
+		t.Fatalf("expected secure cookie summary, got %q", check.Summary)
+	}
+}
+
+func TestDoctorAPIEdgeConfig_warnsForExternalBindWithoutAllowedHosts(t *testing.T) {
+	withCleanDoctorAPIEdgeEnv(t)
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_SESSION_COOKIE_SECURE", "true")
+	t.Setenv("VECTIS_API_SERVER_HOST", "0.0.0.0")
+
+	check := doctorAPIEdgeConfig(true)
+	if check.Status != doctorWarn {
+		t.Fatalf("expected API edge check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "VECTIS_API_ALLOWED_HOSTS") {
+		t.Fatalf("expected allowed hosts summary, got %q", check.Summary)
 	}
 }
 
