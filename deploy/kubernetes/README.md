@@ -26,6 +26,7 @@ make k8s-kind-up
 make k8s-kind-load-images
 make k8s-kind-apply
 make k8s-kind-smoke
+make k8s-kind-run-smoke
 ```
 
 The local contract is:
@@ -72,8 +73,18 @@ it as a production security baseline. The next Kubernetes slices should add:
 - internal gRPC/mTLS material and SPIFFE bootstrap;
 - cell ingress once mTLS is configured;
 - Kubernetes-native worker-control publish addresses for fast cancel;
-- cluster smoke tests that apply the manifest, trigger a canonical job, stream
-  logs, and download an artifact.
+- the secret lane in the canonical smoke job.
+
+`make k8s-kind-run-smoke` triggers `examples/e2e-kubernetes.json`, streams logs,
+and downloads the artifact outputs. That job intentionally omits encryptedfs
+secret delivery until the Kubernetes manifest can authenticate `vectis-secrets`
+with internal mTLS and per-execution SPIFFE SVIDs.
+
+The smoke harness is a Go entrypoint and can also be run directly:
+
+```sh
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis
+```
 
 Build local component images before loading or pushing them to a cluster:
 

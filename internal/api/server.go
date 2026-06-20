@@ -455,7 +455,12 @@ func queueRPCReady(q interfaces.QueueService) bool {
 		return true
 	}
 
-	return wc.GRPCConnectivityState() == connectivity.Ready
+	switch wc.GRPCConnectivityState() {
+	case connectivity.Ready, connectivity.Idle:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *APIServer) handlerDBCtx(ctx context.Context) (context.Context, context.CancelFunc) {

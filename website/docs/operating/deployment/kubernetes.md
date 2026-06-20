@@ -24,6 +24,7 @@ make k8s-kind-up
 make k8s-kind-load-images
 make k8s-kind-apply
 make k8s-kind-smoke
+make k8s-kind-run-smoke
 ```
 
 The generic `k8s-*` aliases dispatch through `K8S_PROVIDER`, which defaults to
@@ -49,6 +50,12 @@ Docker or Docker-compatible Colima profiles can use the same targets:
 make k8s-kind-validate CONTAINER_CMD=docker KIND_PROVIDER=docker
 ```
 
+The workload smoke is a Go harness under the Make target:
+
+```sh
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis
+```
+
 The first manifest is a single-cell deployment. It includes Postgres, registry,
 queue, orchestrator, log, artifact, secrets, API, docs, cron, reconciler,
 catalog, and a worker pod that runs `vectis-worker` beside
@@ -60,6 +67,8 @@ The manifest is meant for local or staging validation. It deliberately does not
 claim production security posture yet:
 
 - internal gRPC is plaintext inside the namespace;
+- the Kubernetes smoke job omits encryptedfs secret delivery until the
+  mTLS/SPIFFE lane is added;
 - `vectis-cell-ingress` is not exposed until the Kubernetes mTLS/SPIFFE lane is
   added;
 - worker registry registration is disabled because Kubernetes worker pods need a
@@ -84,11 +93,12 @@ Use these render flags when preparing a cluster-specific manifest:
 The Kubernetes deployment lane should grow in this order:
 
 1. Apply the rendered manifest to a local cluster and wait for all core workloads.
-2. Trigger the canonical job and verify run status, logs, artifact upload, and
-   artifact download.
+2. Trigger the Kubernetes canonical job and verify run status, logs, artifact
+   upload, and artifact download.
 3. Scale the worker deployment and verify parallel task throughput.
 4. Delete a worker pod during a running task and verify recovery behavior.
-5. Add internal mTLS/SPIFFE and then expose cell ingress.
+5. Add internal mTLS/SPIFFE, restore the encryptedfs secret lane in the smoke
+   job, and then expose cell ingress.
 
 For the current security posture and service dependencies, see
 [Security](../../concepts/security.md) and

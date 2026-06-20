@@ -14,6 +14,8 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
+	"vectis/internal/action/builtins"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/dispatchmeta"
@@ -76,6 +78,17 @@ func (c *countingExecutionChoreographer) LoadCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.loads
+}
+
+type workerDescriptorResolver map[string]actionregistry.Descriptor
+
+func (r workerDescriptorResolver) ResolveDescriptor(uses string) (actionregistry.Descriptor, error) {
+	descriptor, ok := r[uses]
+	if !ok {
+		return actionregistry.Descriptor{}, fmt.Errorf("unknown action: %s", uses)
+	}
+
+	return descriptor, nil
 }
 
 func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository, j *api.Job, runID string) *cell.ExecutionEnvelope {
@@ -3006,6 +3019,86 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 
 	if terminalSnapshotEvents != 1 {
 		t.Fatalf("terminal snapshot catalog events: got %d in %+v, want 1", terminalSnapshotEvents, events)
+	}
+}
+
+func TestWorkerPrepareRunForExecutionUsesActionResolverForPlannedTasks(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	runs := repos.Runs()
+
+	jobID := "job-worker-action-digest-plan"
+	runID, _, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootID := "root"
+	fanoutID := "fanout"
+	customID := "custom"
+	sequenceAction := "builtins/sequence"
+	parallelAction := "builtins/parallel"
+	customAction := "examples/custom@v1"
+	j := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &sequenceAction,
+			Steps: []*api.Node{{
+				Id:   &fanoutID,
+				Uses: &parallelAction,
+				Steps: []*api.Node{{
+					Id:   &customID,
+					Uses: &customAction,
+				}},
+			}},
+		},
+	}
+
+	resolver := actionregistry.NewCompositeResolver(
+		builtins.NewRegistry(),
+		workerDescriptorResolver{
+			customAction: {
+				CanonicalName: "examples/custom",
+				Version:       "v1",
+				Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Source:        actionregistry.SourceLocalFilesystem,
+				Runtime:       actionregistry.RuntimeProcess,
+			},
+		},
+	)
+
+	plan, err := job.PlanTaskExecutionsWithActions(j, resolver)
+	if err != nil {
+		t.Fatalf("plan task executions: %v", err)
+	}
+
+	if _, err := job.EnsurePlannedTaskExecutions(ctx, runs, runID, plan, "local"); err != nil {
+		t.Fatalf("materialize planned tasks: %v", err)
+	}
+
+	dispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+	dispatch.DefinitionHash = "test-definition-hash"
+
+	env, err := cell.AttachExecutionEnvelopeWithActions(&api.JobRequest{Job: j}, dispatch, time.Now().UnixNano(), resolver)
+	if err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
+	w := &worker{
+		runCtx:         ctx,
+		store:          runs,
+		actionResolver: resolver,
+		choreographer:  newRestartOnCompleteChoreographer(t),
+	}
+
+	if err := w.prepareRunForExecution(ctx, j, env, time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("prepare run for execution: %v", err)
 	}
 }
 

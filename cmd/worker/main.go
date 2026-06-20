@@ -1887,7 +1887,7 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 	materializeFullPlan := w.executionChoreographer().RequiresDurableTaskRows() && env.TaskKey == dal.RootTaskKey
 	materializeSecretPath := w.executionUsesHotStateOnly(env) && executionNeedsDurableSecretClaim(j, env)
 	if materializeFullPlan || materializeSecretPath {
-		plan, err := job.PlanTaskExecutions(j)
+		plan, err := job.PlanTaskExecutionsWithActions(j, w.actionResolver)
 		if err != nil {
 			return err
 		}

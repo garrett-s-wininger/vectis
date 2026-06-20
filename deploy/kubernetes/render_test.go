@@ -31,6 +31,7 @@ func TestRenderDefaultManifestContract(t *testing.T) {
 		"name: vectis-api",
 		"name: vectis-worker",
 		"VECTIS_DISCOVERY_REGISTRY_ADDRESS: vectis-registry:8082",
+		"VECTIS_ACTION_REGISTRY_LOCAL_ROOTS: /app/examples/actions",
 		"VECTIS_WORKER_REGISTER_WITH_REGISTRY",
 		"VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES",
 		"VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES",
@@ -58,6 +59,7 @@ func TestRenderHonorsImageAndSecretOptions(t *testing.T) {
 		BootstrapToken:   "bootstrap-for-tests",
 		EncryptedFSKey:   "01234567890123456789012345678901",
 	})
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +77,30 @@ func TestRenderHonorsImageAndSecretOptions(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("manifest missing %q", want)
 		}
+	}
+}
+
+func TestKubernetesSmokeJobContract(t *testing.T) {
+	b, err := os.ReadFile("../../examples/e2e-kubernetes.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(b)
+	for _, want := range []string{
+		`"id": "e2e-kubernetes-smoke"`,
+		`"uses": "examples/flaky-once@v1"`,
+		`"name": "e2e-smoke-report"`,
+		`"name": "e2e-registry-retry"`,
+		"canonical-fanout-%s",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("smoke job missing %q", want)
+		}
+	}
+
+	if strings.Contains(text, `"secrets"`) || strings.Contains(text, "canonical-secret-ok") {
+		t.Fatal("Kubernetes smoke job should not require secrets before the manifest has mTLS/SPIFFE")
 	}
 }
 

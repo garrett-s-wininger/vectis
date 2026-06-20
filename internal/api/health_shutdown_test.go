@@ -146,6 +146,21 @@ func TestAPIServer_HealthReady_QueueNotConnected(t *testing.T) {
 	}
 }
 
+func TestAPIServer_HealthReady_QueueIdleIsReady(t *testing.T) {
+	t.Parallel()
+	db := dbtest.NewTestDB(t)
+	srv := api.NewAPIServer(mocks.NewMockLogger(), db)
+	srv.SetQueueClient(queueConnStub{state: connectivity.Idle})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	srv.HealthReady(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
 func TestAPIServer_HealthReady_WithRepositories_SkipsDBPing(t *testing.T) {
 	t.Parallel()
 	jobs := mocks.NewMockJobsRepository()
