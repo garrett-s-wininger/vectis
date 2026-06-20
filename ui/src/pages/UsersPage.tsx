@@ -74,12 +74,6 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
       width: "120px"
     },
     {
-      header: "Tokens",
-      cell: (user) => user.tokens,
-      align: "end",
-      width: "104px"
-    },
-    {
       align: "end",
       header: "Status",
       cell: (user) => (
@@ -126,7 +120,7 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
             </Button>
           ) : null
         }
-        description="Local accounts that can sign in to the console and use CLI tokens."
+        description="Local accounts that can sign in to the console."
         navigation={
           <BreadcrumbTrail
             items={[
@@ -182,12 +176,12 @@ export function UsersPage({ onCreateUser, onDeleteUser, onUpdateUserStatus, user
         <section className={`${styles.summary} polished-panel polished-panel--accent-top`} aria-label="User summary">
           <div className={styles.summaryCopy}>
             <h2>Access</h2>
-            <p>Account state and token usage for the local authentication provider.</p>
+            <p>Account state for the local authentication provider.</p>
           </div>
           <div className={styles.summaryFacts} aria-label="User totals">
             <MetricCard detail="Local console accounts" label="Total" value={userStats.total} variant="plain" />
             <MetricCard detail="Can sign in" label="Active" value={userStats.active} variant="plain" />
-            <MetricCard detail="Issued API tokens" label="Tokens" value={userStats.tokens} variant="plain" />
+            <MetricCard detail="Cannot sign in" label="Disabled" value={userStats.disabled} variant="plain" />
           </div>
         </section>
 
@@ -253,10 +247,10 @@ function summarizeUsers(users: User[]) {
   return users.reduce(
     (summary, user) => ({
       active: summary.active + (user.status === "active" ? 1 : 0),
-      tokens: summary.tokens + user.tokens,
+      disabled: summary.disabled + (user.status === "disabled" ? 1 : 0),
       total: summary.total + 1
     }),
-    { active: 0, tokens: 0, total: 0 }
+    { active: 0, disabled: 0, total: 0 }
   );
 }
 
