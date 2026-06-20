@@ -13,7 +13,9 @@ import (
 	"vectis/internal/orchestrator"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -182,6 +184,101 @@ func TestGRPCExecutionChoreographerLoadRunHydratesSnapshots(t *testing.T) {
 	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
 		t.Fatalf("hydrated grpc finalization outcome: %+v", result)
 	}
+}
+
+func TestGRPCExecutionChoreographerFallsBackWhenExecutionStreamUnavailable(t *testing.T) {
+	ctx := context.Background()
+	service := orchestrator.New(1)
+	t.Cleanup(service.Close)
+
+	listener := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	orchestrator.RegisterOrchestratorService(server, service, interfaces.NewLogger("orchestrator-test"))
+	go func() {
+		_ = server.Serve(listener)
+	}()
+
+	conn, err := grpc.NewClient(
+		"passthrough:///worker-orchestrator-fallback",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return listener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+
+	if err != nil {
+		t.Fatalf("dial orchestrator: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = conn.Close()
+		server.Stop()
+		_ = listener.Close()
+	})
+
+	runID := "run-grpc-stream-fallback"
+	j := &api.Job{
+		Id:    stringPtr("job-grpc-stream-fallback"),
+		RunId: stringPtr(runID),
+		Root:  &api.Node{Id: stringPtr("root"), Uses: stringPtr("builtins/shell")},
+	}
+
+	root := defaultTaskExecutionRecord(runID, dal.RootTaskKey, "", dal.RootTaskKey, "local")
+	rootEnv := executionEnvelopeFromRecord(root)
+	client := &streamUnavailableOrchestratorClient{OrchestratorServiceClient: api.NewOrchestratorServiceClient(conn)}
+	choreographer := newGRPCExecutionChoreographer(client)
+
+	if err := choreographer.LoadRun(ctx, j, rootEnv, nil); err != nil {
+		t.Fatalf("load run: %v", err)
+	}
+
+	claim, err := choreographer.ClaimAndStartExecution(ctx, rootEnv, "worker-grpc", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim via unary fallback: %v", err)
+	}
+
+	if !claim.Claimed || claim.ClaimToken == "" {
+		t.Fatalf("expected fallback claim, got %+v", claim)
+	}
+
+	result, err := choreographer.CompleteExecution(ctx, rootEnv, "worker-grpc", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("complete via unary fallback: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		t.Fatalf("fallback finalization outcome: %+v", result)
+	}
+
+	if client.streamCalls != 1 {
+		t.Fatalf("execution stream attempts: got %d, want 1", client.streamCalls)
+	}
+
+	if client.claimCalls != 1 || client.completeCalls != 1 {
+		t.Fatalf("unary fallback calls: claim=%d complete=%d", client.claimCalls, client.completeCalls)
+	}
+}
+
+type streamUnavailableOrchestratorClient struct {
+	api.OrchestratorServiceClient
+	streamCalls   int
+	claimCalls    int
+	completeCalls int
+}
+
+func (c *streamUnavailableOrchestratorClient) ExecutionStream(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[api.ExecutionStreamRequest, api.ExecutionStreamResponse], error) {
+	c.streamCalls++
+	return nil, status.Error(codes.Unimplemented, "execution stream unavailable")
+}
+
+func (c *streamUnavailableOrchestratorClient) ClaimExecution(ctx context.Context, req *api.ClaimExecutionRequest, opts ...grpc.CallOption) (*api.ClaimExecutionResponse, error) {
+	c.claimCalls++
+	return c.OrchestratorServiceClient.ClaimExecution(ctx, req, opts...)
+}
+
+func (c *streamUnavailableOrchestratorClient) CompleteExecution(ctx context.Context, req *api.CompleteExecutionRequest, opts ...grpc.CallOption) (*api.CompleteExecutionResponse, error) {
+	c.completeCalls++
+	return c.OrchestratorServiceClient.CompleteExecution(ctx, req, opts...)
 }
 
 func executionEnvelopeFromRecord(record dal.TaskExecutionRecord) *cell.ExecutionEnvelope {

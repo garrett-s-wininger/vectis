@@ -183,10 +183,17 @@ func (c macroInProcessOrchestratorChoreography) DBBacked() bool {
 }
 
 type macroGRPCOrchestratorChoreography struct {
-	client apipb.OrchestratorServiceClient
+	client    apipb.OrchestratorServiceClient
+	streamsMu sync.Mutex
+	streams   map[string]*macroGRPCExecutionStream
 }
 
-func (c macroGRPCOrchestratorChoreography) LoadRun(ctx context.Context, req *apipb.JobRequest) error {
+type macroGRPCExecutionStream struct {
+	mu     sync.Mutex
+	stream apipb.OrchestratorService_ExecutionStreamClient
+}
+
+func (c *macroGRPCOrchestratorChoreography) LoadRun(ctx context.Context, req *apipb.JobRequest) error {
 	spec, err := orchestrator.RunSpecFromJobRequest(req)
 	if err != nil {
 		return err
@@ -213,15 +220,20 @@ func (c macroGRPCOrchestratorChoreography) LoadRun(ctx context.Context, req *api
 	return err
 }
 
-func (c macroGRPCOrchestratorChoreography) ClaimAndStartExecution(ctx context.Context, runID, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
-	claim, err := c.client.ClaimExecution(ctx, &apipb.ClaimExecutionRequest{
+func (c *macroGRPCOrchestratorChoreography) ClaimAndStartExecution(ctx context.Context, runID, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+	resp, err := c.executionStreamRoundTrip(ctx, owner, &apipb.ExecutionStreamRequest{Claim: &apipb.ClaimExecutionRequest{
 		RunId:              macroString(runID),
 		ExecutionId:        macroString(executionID),
 		Owner:              macroString(owner),
 		LeaseUntilUnixNano: macroInt64(leaseUntil.UnixNano()),
-	})
+	}})
 	if err != nil {
 		return dal.ExecutionClaimResult{}, err
+	}
+
+	claim := resp.GetClaim()
+	if claim == nil {
+		return dal.ExecutionClaimResult{}, fmt.Errorf("orchestrator execution stream returned no claim response")
 	}
 
 	return dal.ExecutionClaimResult{
@@ -232,8 +244,8 @@ func (c macroGRPCOrchestratorChoreography) ClaimAndStartExecution(ctx context.Co
 	}, nil
 }
 
-func (c macroGRPCOrchestratorChoreography) CompleteExecution(ctx context.Context, runID, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
-	result, err := c.client.CompleteExecution(ctx, &apipb.CompleteExecutionRequest{
+func (c *macroGRPCOrchestratorChoreography) CompleteExecution(ctx context.Context, runID, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	resp, err := c.executionStreamRoundTrip(ctx, owner, &apipb.ExecutionStreamRequest{Complete: &apipb.CompleteExecutionRequest{
 		RunId:       macroString(runID),
 		ExecutionId: macroString(executionID),
 		Owner:       macroString(owner),
@@ -241,9 +253,14 @@ func (c macroGRPCOrchestratorChoreography) CompleteExecution(ctx context.Context
 		Status:      macroString(status),
 		FailureCode: macroString(failureCode),
 		Reason:      macroString(reason),
-	})
+	}})
 	if err != nil {
 		return dal.ExecutionFinalizationResult{}, err
+	}
+
+	result := resp.GetComplete()
+	if result == nil {
+		return dal.ExecutionFinalizationResult{}, fmt.Errorf("orchestrator execution stream returned no complete response")
 	}
 
 	return dal.ExecutionFinalizationResult{
@@ -256,8 +273,77 @@ func (c macroGRPCOrchestratorChoreography) CompleteExecution(ctx context.Context
 	}, nil
 }
 
-func (c macroGRPCOrchestratorChoreography) DBBacked() bool {
+func (c *macroGRPCOrchestratorChoreography) DBBacked() bool {
 	return false
+}
+
+func (c *macroGRPCOrchestratorChoreography) executionStreamRoundTrip(ctx context.Context, owner string, req *apipb.ExecutionStreamRequest) (*apipb.ExecutionStreamResponse, error) {
+	executionStream := c.executionStreamForOwner(owner)
+
+	executionStream.mu.Lock()
+	defer executionStream.mu.Unlock()
+
+	stream, err := c.executionStreamClientLocked(ctx, executionStream)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := stream.Send(req); err != nil {
+		c.resetExecutionStream(owner)
+		return nil, err
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		c.resetExecutionStream(owner)
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func (c *macroGRPCOrchestratorChoreography) executionStreamForOwner(owner string) *macroGRPCExecutionStream {
+	c.streamsMu.Lock()
+	defer c.streamsMu.Unlock()
+
+	if c.streams == nil {
+		c.streams = make(map[string]*macroGRPCExecutionStream)
+	}
+
+	if stream := c.streams[owner]; stream != nil {
+		return stream
+	}
+
+	stream := &macroGRPCExecutionStream{}
+	c.streams[owner] = stream
+	return stream
+}
+
+func (c *macroGRPCOrchestratorChoreography) executionStreamClientLocked(ctx context.Context, executionStream *macroGRPCExecutionStream) (apipb.OrchestratorService_ExecutionStreamClient, error) {
+	if executionStream.stream != nil {
+		return executionStream.stream, nil
+	}
+
+	stream, err := c.client.ExecutionStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	executionStream.stream = stream
+	return stream, nil
+}
+
+func (c *macroGRPCOrchestratorChoreography) resetExecutionStream(owner string) {
+	c.streamsMu.Lock()
+	executionStream := c.streams[owner]
+	delete(c.streams, owner)
+	c.streamsMu.Unlock()
+
+	if executionStream == nil || executionStream.stream == nil {
+		return
+	}
+
+	_ = executionStream.stream.CloseSend()
 }
 
 type macroLogBenchEnv struct {
@@ -2022,7 +2108,7 @@ func newMacroGRPCOrchestratorBenchEnv(b *testing.B, jobs []macroJobSpec) macroBe
 		_ = listener.Close()
 	})
 
-	env.choreo = macroGRPCOrchestratorChoreography{client: apipb.NewOrchestratorServiceClient(conn)}
+	env.choreo = &macroGRPCOrchestratorChoreography{client: apipb.NewOrchestratorServiceClient(conn)}
 	return env
 }
 
@@ -3905,7 +3991,7 @@ func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID, ta
 	}
 
 	ownerID := "orchestrator:macro"
-	if _, ok := env.choreo.(macroGRPCOrchestratorChoreography); ok {
+	if _, ok := env.choreo.(*macroGRPCOrchestratorChoreography); ok {
 		ownerID = "orchestrator:macro-grpc"
 	}
 

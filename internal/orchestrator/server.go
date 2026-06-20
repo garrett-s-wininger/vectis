@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	api "vectis/api/gen/go"
@@ -136,6 +137,88 @@ func (s *grpcServer) GetRunTaskCompletion(ctx context.Context, req *api.GetRunTa
 	}
 
 	return runTaskCompletionToProto(summary), nil
+}
+
+func (s *grpcServer) ExecutionStream(stream grpc.BidiStreamingServer[api.ExecutionStreamRequest, api.ExecutionStreamResponse]) error {
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+
+			return err
+		}
+
+		resp, err := s.executionStreamResponse(stream.Context(), req)
+		if err != nil {
+			return err
+		}
+
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+	}
+}
+
+func (s *grpcServer) executionStreamResponse(ctx context.Context, req *api.ExecutionStreamRequest) (*api.ExecutionStreamResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "execution stream request is required")
+	}
+
+	messageCount := 0
+	if req.GetClaim() != nil {
+		messageCount++
+	}
+
+	if req.GetRenew() != nil {
+		messageCount++
+	}
+
+	if req.GetComplete() != nil {
+		messageCount++
+	}
+
+	if req.GetLoad() != nil {
+		messageCount++
+	}
+
+	if messageCount != 1 {
+		return nil, status.Error(codes.InvalidArgument, "execution stream request must contain exactly one operation")
+	}
+
+	if loadReq := req.GetLoad(); loadReq != nil {
+		load, err := s.LoadRun(ctx, loadReq)
+		if err != nil {
+			return nil, err
+		}
+
+		return &api.ExecutionStreamResponse{Load: load}, nil
+	}
+
+	if claimReq := req.GetClaim(); claimReq != nil {
+		claim, err := s.ClaimExecution(ctx, claimReq)
+		if err != nil {
+			return nil, err
+		}
+
+		return &api.ExecutionStreamResponse{Claim: claim}, nil
+	}
+
+	if renewReq := req.GetRenew(); renewReq != nil {
+		if _, err := s.RenewExecutionLease(ctx, renewReq); err != nil {
+			return nil, err
+		}
+
+		return &api.ExecutionStreamResponse{Renew: &api.Empty{}}, nil
+	}
+
+	complete, err := s.CompleteExecution(ctx, req.GetComplete())
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.ExecutionStreamResponse{Complete: complete}, nil
 }
 
 func taskSpecsFromProto(in []*api.OrchestratorTaskSpec) []TaskSpec {

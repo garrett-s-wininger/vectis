@@ -25,6 +25,7 @@ const (
 	OrchestratorService_RenewExecutionLease_FullMethodName  = "/OrchestratorService/RenewExecutionLease"
 	OrchestratorService_CompleteExecution_FullMethodName    = "/OrchestratorService/CompleteExecution"
 	OrchestratorService_GetRunTaskCompletion_FullMethodName = "/OrchestratorService/GetRunTaskCompletion"
+	OrchestratorService_ExecutionStream_FullMethodName      = "/OrchestratorService/ExecutionStream"
 )
 
 // OrchestratorServiceClient is the client API for OrchestratorService service.
@@ -37,6 +38,7 @@ type OrchestratorServiceClient interface {
 	RenewExecutionLease(ctx context.Context, in *RenewExecutionLeaseRequest, opts ...grpc.CallOption) (*Empty, error)
 	CompleteExecution(ctx context.Context, in *CompleteExecutionRequest, opts ...grpc.CallOption) (*CompleteExecutionResponse, error)
 	GetRunTaskCompletion(ctx context.Context, in *GetRunTaskCompletionRequest, opts ...grpc.CallOption) (*OrchestratorRunTaskCompletion, error)
+	ExecutionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecutionStreamRequest, ExecutionStreamResponse], error)
 }
 
 type orchestratorServiceClient struct {
@@ -107,6 +109,19 @@ func (c *orchestratorServiceClient) GetRunTaskCompletion(ctx context.Context, in
 	return out, nil
 }
 
+func (c *orchestratorServiceClient) ExecutionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecutionStreamRequest, ExecutionStreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &OrchestratorService_ServiceDesc.Streams[0], OrchestratorService_ExecutionStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[ExecutionStreamRequest, ExecutionStreamResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type OrchestratorService_ExecutionStreamClient = grpc.BidiStreamingClient[ExecutionStreamRequest, ExecutionStreamResponse]
+
 // OrchestratorServiceServer is the server API for OrchestratorService service.
 // All implementations must embed UnimplementedOrchestratorServiceServer
 // for forward compatibility.
@@ -117,6 +132,7 @@ type OrchestratorServiceServer interface {
 	RenewExecutionLease(context.Context, *RenewExecutionLeaseRequest) (*Empty, error)
 	CompleteExecution(context.Context, *CompleteExecutionRequest) (*CompleteExecutionResponse, error)
 	GetRunTaskCompletion(context.Context, *GetRunTaskCompletionRequest) (*OrchestratorRunTaskCompletion, error)
+	ExecutionStream(grpc.BidiStreamingServer[ExecutionStreamRequest, ExecutionStreamResponse]) error
 	mustEmbedUnimplementedOrchestratorServiceServer()
 }
 
@@ -144,6 +160,9 @@ func (UnimplementedOrchestratorServiceServer) CompleteExecution(context.Context,
 }
 func (UnimplementedOrchestratorServiceServer) GetRunTaskCompletion(context.Context, *GetRunTaskCompletionRequest) (*OrchestratorRunTaskCompletion, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRunTaskCompletion not implemented")
+}
+func (UnimplementedOrchestratorServiceServer) ExecutionStream(grpc.BidiStreamingServer[ExecutionStreamRequest, ExecutionStreamResponse]) error {
+	return status.Error(codes.Unimplemented, "method ExecutionStream not implemented")
 }
 func (UnimplementedOrchestratorServiceServer) mustEmbedUnimplementedOrchestratorServiceServer() {}
 func (UnimplementedOrchestratorServiceServer) testEmbeddedByValue()                             {}
@@ -274,6 +293,13 @@ func _OrchestratorService_GetRunTaskCompletion_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrchestratorService_ExecutionStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(OrchestratorServiceServer).ExecutionStream(&grpc.GenericServerStream[ExecutionStreamRequest, ExecutionStreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type OrchestratorService_ExecutionStreamServer = grpc.BidiStreamingServer[ExecutionStreamRequest, ExecutionStreamResponse]
+
 // OrchestratorService_ServiceDesc is the grpc.ServiceDesc for OrchestratorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -306,6 +332,13 @@ var OrchestratorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OrchestratorService_GetRunTaskCompletion_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ExecutionStream",
+			Handler:       _OrchestratorService_ExecutionStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "orchestrator.proto",
 }

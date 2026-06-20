@@ -129,6 +129,95 @@ func TestGRPCServiceClaimComplete(t *testing.T) {
 	}
 }
 
+func TestGRPCServiceExecutionStreamClaimRenewComplete(t *testing.T) {
+	ctx := context.Background()
+	svc := orchestrator.New(2)
+	t.Cleanup(svc.Close)
+
+	client, cleanup := newOrchestratorTestClient(t, svc)
+	t.Cleanup(cleanup)
+
+	stream, err := client.ExecutionStream(ctx)
+	if err != nil {
+		t.Fatalf("open execution stream: %v", err)
+	}
+	t.Cleanup(func() { _ = stream.CloseSend() })
+
+	if err := stream.Send(&api.ExecutionStreamRequest{Load: &api.LoadRunRequest{
+		RunId: testString("grpc-stream-run"),
+	}}); err != nil {
+		t.Fatalf("send load: %v", err)
+	}
+
+	loadResp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv load: %v", err)
+	}
+
+	loaded := loadResp.GetLoad()
+	if loaded == nil || loaded.GetRoot().GetExecutionId() == "" {
+		t.Fatalf("load response: %+v", loadResp)
+	}
+
+	if err := stream.Send(&api.ExecutionStreamRequest{Claim: &api.ClaimExecutionRequest{
+		RunId:              testString(loaded.GetRunId()),
+		ExecutionId:        testString(loaded.GetRoot().GetExecutionId()),
+		Owner:              testString("worker-a"),
+		LeaseUntilUnixNano: testInt64(time.Now().Add(time.Minute).UnixNano()),
+	}}); err != nil {
+		t.Fatalf("send claim: %v", err)
+	}
+
+	claimResp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv claim: %v", err)
+	}
+
+	claim := claimResp.GetClaim()
+	if claim == nil || !claim.GetClaimed() || claim.GetClaimToken() == "" {
+		t.Fatalf("claim response: %+v", claimResp)
+	}
+
+	if err := stream.Send(&api.ExecutionStreamRequest{Renew: &api.RenewExecutionLeaseRequest{
+		RunId:              testString(loaded.GetRunId()),
+		ExecutionId:        testString(loaded.GetRoot().GetExecutionId()),
+		Owner:              testString("worker-a"),
+		ClaimToken:         testString(claim.GetClaimToken()),
+		LeaseUntilUnixNano: testInt64(time.Now().Add(2 * time.Minute).UnixNano()),
+	}}); err != nil {
+		t.Fatalf("send renew: %v", err)
+	}
+
+	renewResp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv renew: %v", err)
+	}
+
+	if renewResp.GetRenew() == nil {
+		t.Fatalf("renew response: %+v", renewResp)
+	}
+
+	if err := stream.Send(&api.ExecutionStreamRequest{Complete: &api.CompleteExecutionRequest{
+		RunId:       testString(loaded.GetRunId()),
+		ExecutionId: testString(loaded.GetRoot().GetExecutionId()),
+		Owner:       testString("worker-a"),
+		ClaimToken:  testString(claim.GetClaimToken()),
+		Status:      testString(dal.ExecutionStatusSucceeded),
+	}}); err != nil {
+		t.Fatalf("send complete: %v", err)
+	}
+
+	completeResp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("recv complete: %v", err)
+	}
+
+	completed := completeResp.GetComplete()
+	if completed == nil || completed.GetOutcome() != string(dal.ExecutionFinalizationOutcomeRunSucceeded) {
+		t.Fatalf("complete response: %+v", completeResp)
+	}
+}
+
 func BenchmarkGRPCService_ClaimCompleteLeaf(b *testing.B) {
 	ctx := context.Background()
 	svc := orchestrator.New(8)

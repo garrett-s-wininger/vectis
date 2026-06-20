@@ -8,8 +8,12 @@ import (
 	"testing"
 	"time"
 
+	api "vectis/api/gen/go"
 	"vectis/internal/dal"
+	"vectis/internal/interfaces/mocks"
 	"vectis/internal/orchestrator"
+
+	"google.golang.org/grpc"
 )
 
 type benchmarkDispatch struct {
@@ -34,6 +38,31 @@ func BenchmarkService_ClaimCompleteLeaf(b *testing.B) {
 
 func BenchmarkService_ClaimCompleteLeafSingleShard(b *testing.B) {
 	benchmarkServiceClaimCompleteLeaf(b, 1, runtime.GOMAXPROCS(0))
+}
+
+func BenchmarkGRPCService_ClaimCompleteLeafRuntime(b *testing.B) {
+	benchmarkGRPCServiceClaimCompleteLeaf(b, runtime.GOMAXPROCS(0), runtime.GOMAXPROCS(0))
+}
+
+func BenchmarkGRPCStreamService_ClaimCompleteLeafRuntime(b *testing.B) {
+	benchmarkGRPCStreamServiceClaimCompleteLeaf(b, runtime.GOMAXPROCS(0), runtime.GOMAXPROCS(0))
+}
+
+func BenchmarkGRPCService_ClaimSleepCompleteLeafRuntime(b *testing.B) {
+	for _, workDuration := range []time.Duration{
+		100 * time.Microsecond,
+		time.Millisecond,
+		10 * time.Millisecond,
+		100 * time.Millisecond,
+	} {
+		b.Run(benchmarkWorkDurationName(workDuration), func(b *testing.B) {
+			benchmarkGRPCServiceClaimSleepCompleteLeaf(b, runtime.GOMAXPROCS(0), runtime.GOMAXPROCS(0), workDuration)
+		})
+	}
+}
+
+func BenchmarkProtoService_ClaimCompleteLeafRuntime(b *testing.B) {
+	benchmarkProtoServiceClaimCompleteLeaf(b, runtime.GOMAXPROCS(0), runtime.GOMAXPROCS(0))
 }
 
 func BenchmarkService_ClaimCompleteRootChild(b *testing.B) {
@@ -105,6 +134,326 @@ func benchmarkServiceClaimCompleteLeaf(b *testing.B, shardCount, workerCount int
 
 				if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
 					errCh <- fmt.Errorf("execution %s outcome %q", dispatch.executionID, result.Outcome)
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	elapsed := time.Since(start)
+	b.StopTimer()
+	close(errCh)
+	for err := range errCh {
+		b.Fatal(err)
+	}
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "terminal_runs/s")
+	}
+
+	b.ReportMetric(float64(shardCount), "orchestrator_shards")
+	b.ReportMetric(float64(workerCount), "worker_count")
+}
+
+func benchmarkGRPCServiceClaimCompleteLeaf(b *testing.B, shardCount, workerCount int) {
+	benchmarkGRPCServiceClaimSleepCompleteLeaf(b, shardCount, workerCount, 0)
+}
+
+func benchmarkGRPCServiceClaimSleepCompleteLeaf(b *testing.B, shardCount, workerCount int, workDuration time.Duration) {
+	ctx := context.Background()
+	svc := orchestrator.New(shardCount)
+	b.Cleanup(svc.Close)
+
+	client, cleanup := newOrchestratorTestClient(b, svc)
+	defer cleanup()
+
+	dispatches := make(chan benchmarkDispatch, b.N)
+	for i := 0; i < b.N; i++ {
+		runID := fmt.Sprintf("bench-grpc-leaf-%s-%d", benchmarkWorkDurationName(workDuration), i)
+		loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{RunID: runID})
+		if err != nil {
+			b.Fatalf("load run %s: %v", runID, err)
+		}
+
+		dispatches <- benchmarkDispatch{runID: runID, executionID: loaded.Root.ExecutionID}
+	}
+	close(dispatches)
+
+	leaseUntil := time.Now().Add(time.Hour).UnixNano()
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+
+	errCh := make(chan error, workerCount)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		workerID := fmt.Sprintf("bench-worker-%d", worker)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for dispatch := range dispatches {
+				claim, err := client.ClaimExecution(ctx, &api.ClaimExecutionRequest{
+					RunId:              testString(dispatch.runID),
+					ExecutionId:        testString(dispatch.executionID),
+					Owner:              testString(workerID),
+					LeaseUntilUnixNano: testInt64(leaseUntil),
+				})
+
+				if err != nil {
+					errCh <- err
+					return
+				}
+
+				if !claim.GetClaimed() {
+					errCh <- fmt.Errorf("execution %s was not claimed", dispatch.executionID)
+					return
+				}
+
+				if workDuration > 0 {
+					time.Sleep(workDuration)
+				}
+
+				result, err := client.CompleteExecution(ctx, &api.CompleteExecutionRequest{
+					RunId:       testString(dispatch.runID),
+					ExecutionId: testString(dispatch.executionID),
+					Owner:       testString(workerID),
+					ClaimToken:  testString(claim.GetClaimToken()),
+					Status:      testString(dal.ExecutionStatusSucceeded),
+				})
+
+				if err != nil {
+					errCh <- err
+					return
+				}
+
+				if result.GetOutcome() != string(dal.ExecutionFinalizationOutcomeRunSucceeded) {
+					errCh <- fmt.Errorf("execution %s outcome %q", dispatch.executionID, result.GetOutcome())
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	elapsed := time.Since(start)
+	b.StopTimer()
+	close(errCh)
+	for err := range errCh {
+		b.Fatal(err)
+	}
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "terminal_runs/s")
+	}
+
+	b.ReportMetric(float64(shardCount), "orchestrator_shards")
+	b.ReportMetric(float64(workDuration)/float64(time.Millisecond), "work_ms")
+	b.ReportMetric(float64(workerCount), "worker_count")
+	if workDuration > 0 {
+		idealElapsed := time.Duration((b.N+workerCount-1)/workerCount) * workDuration
+		if idealElapsed > 0 {
+			b.ReportMetric(float64(idealElapsed)/float64(elapsed)*100, "ideal_wall_pct")
+		}
+
+		if excess := elapsed - idealElapsed; excess > 0 {
+			b.ReportMetric(float64(excess)/float64(b.N)/float64(time.Microsecond), "excess_wall_us/op")
+		}
+	}
+}
+
+func benchmarkGRPCStreamServiceClaimCompleteLeaf(b *testing.B, shardCount, workerCount int) {
+	ctx := context.Background()
+	svc := orchestrator.New(shardCount)
+	b.Cleanup(svc.Close)
+
+	client, cleanup := newOrchestratorTestClient(b, svc)
+	defer cleanup()
+
+	streams := make([]api.OrchestratorService_ExecutionStreamClient, workerCount)
+	for worker := 0; worker < workerCount; worker++ {
+		stream, err := client.ExecutionStream(ctx)
+		if err != nil {
+			b.Fatalf("open benchmark stream %d: %v", worker, err)
+		}
+
+		streams[worker] = stream
+	}
+
+	defer func() {
+		for _, stream := range streams {
+			if stream != nil {
+				_ = stream.CloseSend()
+			}
+		}
+	}()
+
+	dispatches := make(chan benchmarkDispatch, b.N)
+	for i := 0; i < b.N; i++ {
+		runID := fmt.Sprintf("bench-grpc-stream-leaf-%d", i)
+		loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{RunID: runID})
+		if err != nil {
+			b.Fatalf("load run %s: %v", runID, err)
+		}
+
+		dispatches <- benchmarkDispatch{runID: runID, executionID: loaded.Root.ExecutionID}
+	}
+	close(dispatches)
+
+	leaseUntil := time.Now().Add(time.Hour).UnixNano()
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+
+	errCh := make(chan error, workerCount)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		workerID := fmt.Sprintf("bench-worker-%d", worker)
+		stream := streams[worker]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for dispatch := range dispatches {
+				if err := stream.Send(&api.ExecutionStreamRequest{Claim: &api.ClaimExecutionRequest{
+					RunId:              testString(dispatch.runID),
+					ExecutionId:        testString(dispatch.executionID),
+					Owner:              testString(workerID),
+					LeaseUntilUnixNano: testInt64(leaseUntil),
+				}}); err != nil {
+					errCh <- err
+					return
+				}
+
+				claimResp, err := stream.Recv()
+				if err != nil {
+					errCh <- err
+					return
+				}
+
+				claim := claimResp.GetClaim()
+				if claim == nil {
+					errCh <- fmt.Errorf("execution %s returned no claim response", dispatch.executionID)
+					return
+				}
+
+				if !claim.GetClaimed() {
+					errCh <- fmt.Errorf("execution %s was not claimed", dispatch.executionID)
+					return
+				}
+
+				if err := stream.Send(&api.ExecutionStreamRequest{Complete: &api.CompleteExecutionRequest{
+					RunId:       testString(dispatch.runID),
+					ExecutionId: testString(dispatch.executionID),
+					Owner:       testString(workerID),
+					ClaimToken:  testString(claim.GetClaimToken()),
+					Status:      testString(dal.ExecutionStatusSucceeded),
+				}}); err != nil {
+					errCh <- err
+					return
+				}
+
+				resultResp, err := stream.Recv()
+				if err != nil {
+					errCh <- err
+					return
+				}
+
+				result := resultResp.GetComplete()
+				if result == nil {
+					errCh <- fmt.Errorf("execution %s returned no complete response", dispatch.executionID)
+					return
+				}
+
+				if result.GetOutcome() != string(dal.ExecutionFinalizationOutcomeRunSucceeded) {
+					errCh <- fmt.Errorf("execution %s outcome %q", dispatch.executionID, result.GetOutcome())
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	elapsed := time.Since(start)
+	b.StopTimer()
+	close(errCh)
+	for err := range errCh {
+		b.Fatal(err)
+	}
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "terminal_runs/s")
+	}
+
+	b.ReportMetric(float64(shardCount), "orchestrator_shards")
+	b.ReportMetric(float64(workerCount), "worker_count")
+}
+
+func benchmarkProtoServiceClaimCompleteLeaf(b *testing.B, shardCount, workerCount int) {
+	ctx := context.Background()
+	svc := orchestrator.New(shardCount)
+	b.Cleanup(svc.Close)
+
+	grpcServer := grpc.NewServer()
+	server := orchestrator.RegisterOrchestratorService(grpcServer, svc, mocks.NopLogger{})
+	b.Cleanup(grpcServer.Stop)
+
+	dispatches := make(chan benchmarkDispatch, b.N)
+	for i := 0; i < b.N; i++ {
+		runID := fmt.Sprintf("bench-proto-leaf-%d", i)
+		loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{RunID: runID})
+		if err != nil {
+			b.Fatalf("load run %s: %v", runID, err)
+		}
+
+		dispatches <- benchmarkDispatch{runID: runID, executionID: loaded.Root.ExecutionID}
+	}
+	close(dispatches)
+
+	leaseUntil := time.Now().Add(time.Hour).UnixNano()
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+
+	errCh := make(chan error, workerCount)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		workerID := fmt.Sprintf("bench-worker-%d", worker)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for dispatch := range dispatches {
+				claim, err := server.ClaimExecution(ctx, &api.ClaimExecutionRequest{
+					RunId:              testString(dispatch.runID),
+					ExecutionId:        testString(dispatch.executionID),
+					Owner:              testString(workerID),
+					LeaseUntilUnixNano: testInt64(leaseUntil),
+				})
+
+				if err != nil {
+					errCh <- err
+					return
+				}
+
+				if !claim.GetClaimed() {
+					errCh <- fmt.Errorf("execution %s was not claimed", dispatch.executionID)
+					return
+				}
+
+				result, err := server.CompleteExecution(ctx, &api.CompleteExecutionRequest{
+					RunId:       testString(dispatch.runID),
+					ExecutionId: testString(dispatch.executionID),
+					Owner:       testString(workerID),
+					ClaimToken:  testString(claim.GetClaimToken()),
+					Status:      testString(dal.ExecutionStatusSucceeded),
+				})
+
+				if err != nil {
+					errCh <- err
+					return
+				}
+
+				if result.GetOutcome() != string(dal.ExecutionFinalizationOutcomeRunSucceeded) {
+					errCh <- fmt.Errorf("execution %s outcome %q", dispatch.executionID, result.GetOutcome())
 					return
 				}
 			}
@@ -320,6 +669,22 @@ func isBenchmarkTerminalOutcome(outcome dal.ExecutionFinalizationOutcome) bool {
 	default:
 		return false
 	}
+}
+
+func benchmarkWorkDurationName(duration time.Duration) string {
+	if duration == 0 {
+		return "work_0"
+	}
+
+	if duration%time.Millisecond == 0 {
+		return fmt.Sprintf("work_%dms", duration/time.Millisecond)
+	}
+
+	if duration%time.Microsecond == 0 {
+		return fmt.Sprintf("work_%dus", duration/time.Microsecond)
+	}
+
+	return fmt.Sprintf("work_%dns", duration/time.Nanosecond)
 }
 
 func benchmarkFanoutTasks(width int) []orchestrator.TaskSpec {

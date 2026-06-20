@@ -109,6 +109,20 @@ message GetRunTaskCompletionRequest {
     string run_id = 1;
 }
 
+message ExecutionStreamRequest {
+    ClaimExecutionRequest claim = 1;
+    RenewExecutionLeaseRequest renew = 2;
+    CompleteExecutionRequest complete = 3;
+    LoadRunRequest load = 4;
+}
+
+message ExecutionStreamResponse {
+    ClaimExecutionResponse claim = 1;
+    common.Empty renew = 2;
+    CompleteExecutionResponse complete = 3;
+    LoadRunResponse load = 4;
+}
+
 service OrchestratorService {
     rpc LoadRun(LoadRunRequest) returns (LoadRunResponse);
     rpc ListPending(ListPendingRequest) returns (ListPendingResponse);
@@ -116,4 +130,5 @@ service OrchestratorService {
     rpc RenewExecutionLease(RenewExecutionLeaseRequest) returns (common.Empty);
     rpc CompleteExecution(CompleteExecutionRequest) returns (CompleteExecutionResponse);
     rpc GetRunTaskCompletion(GetRunTaskCompletionRequest) returns (OrchestratorRunTaskCompletion);
+    rpc ExecutionStream(stream ExecutionStreamRequest) returns (stream ExecutionStreamResponse);
 }
