@@ -69,6 +69,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `reconciler.stuck.runs` | warning | `GET /api/v1/reconciler/stuck-runs` | No queued runs are older than the reconciler dispatch gap, no pending task continuations are waiting for redispatch, and no orphaned task finalization repairs are pending. | [Reconciler Repair](../reliability/repair-runbooks.md#reconciler-repair). |
 | `cells.ingress` | warning | `GET /api/v1/cells/status` | Required cell ingress routes answer readiness checks. | Check cell ingress processes, route map, and network path. |
 | `worker.core.sockets` | warning | Local `VECTIS_WORKER_CORE_SOCKET` and `VECTIS_WORKER_CORE_SHELL_SOCKET` paths | Worker-core socket paths are not configured in the current shell, or each configured path is absolute, present, a Unix socket, and private to its owner. | Check worker-core and worker service state, socket ownership, and runtime directory permissions. |
+| `worker.workspace.filesystem` | warning | Local `VECTIS_WORKER_CORE_WORKSPACE_ROOT`, `VECTIS_WORKER_CORE_EXECUTION_BACKEND`, and `VECTIS_WORKER_CORE_LIMA_GUEST_WORKSPACE_ROOT` | The effective worker-core workspace root exists, is writable, and has at least 1 GiB free; Lima mode also records whether a guest workspace root is configured. | Check worker-core workspace root storage, ownership, and Lima workspace mounts. |
 | `catalog.inbox` | warning | `GET /api/v1/catalog/status` | No catalog events are failed, and pending cell catalog events are at or below the built-in threshold of 100. Cell catalog events include run status, execution status, artifact manifests, and redacted worker-controlled SVID/secret-resolution security events. | Check `vectis-catalog` process health, logs, and database write latency. |
 | `source.mode` | warning | `GET /api/v1/source/status` | Source-backed reusable jobs have source repository persistence and at least one enabled source repository. | Declare or enable a source repository. |
 | `source.repositories.sync` | warning | `GET /api/v1/source/status`, then namespace/repository inventory only when failed or running repositories need IDs or timeout checks | Enabled source repositories have no failed syncs, no stale running sync reservations, and no unknown sync status. | Run `vectis-cli sources status <repository-id>` or retry `vectis-cli sources sync <repository-id>`. |
@@ -95,6 +96,10 @@ When `cells.ingress` warns, `evidence` includes each observed cell and ingress s
 When `worker.core.sockets` warns, `evidence` includes only configured local
 socket paths, for example `core=/run/vectis/worker-core.sock shell=/run/vectis/worker-core-shell.sock`.
 It does not connect to the worker-core service or expose workload data.
+
+When `worker.workspace.filesystem` warns, `evidence` includes backend and local
+filesystem fields, for example `backend=lima workspace_root=/var/lib/vectis/workspaces workspace_root_source=configured guest_workspace_root=/var/tmp/vectis-workspaces stat_path=/var/lib/vectis/workspaces free_bytes=...`.
+It does not create a run workspace or inspect workload files.
 
 When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes source-cell inbox pressure for cells with pending or failed events, for example `sources=iad-a:p=2/f=1,pdx-b:p=101/f=0`. Failed catalog security events can delay the global view of a worker-controlled SVID or secret-resolution denial, so use `vectis-cli runs show <run-id>` and `vectis-cli runs tasks <run-id>` against the owning cell when the global catalog looks stale.
 

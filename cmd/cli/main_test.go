@@ -5162,7 +5162,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  27 passed, 0 warnings, 0 failed",
+		"Overall: PASS  28 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5185,6 +5185,7 @@ func TestDoctor_success(t *testing.T) {
 		"OK    Ingress routes",
 		"Worker",
 		"OK    Core sockets",
+		"OK    Workspace filesystem",
 		"Catalog",
 		"OK    Cell event inbox",
 		"catalog inbox ok: 0 pending",
@@ -5283,7 +5284,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  25 passed, 2 warnings, 0 failed",
+		"Overall: WARN  26 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5345,7 +5346,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  27 passed, 0 warnings, 0 failed",
+		"Overall: PASS  28 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5404,7 +5405,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  26 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  27 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5463,12 +5464,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 27 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 28 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 27 {
-		t.Fatalf("expected 27 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 28 {
+		t.Fatalf("expected 28 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5543,7 +5544,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 27 || len(report.Checks) != 27 {
+	if report.Status != doctorOK || report.Passed != 28 || len(report.Checks) != 28 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5607,8 +5608,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 27 {
-		t.Fatalf("expected 27 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 28 {
+		t.Fatalf("expected 28 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -5697,6 +5698,58 @@ func listenTestUnixSocket(t *testing.T, name string) string {
 	}
 
 	return path
+}
+
+func TestDoctorWorkerWorkspaceFilesystem_validConfiguredRoot(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
+	root := t.TempDir()
+	t.Setenv("VECTIS_WORKER_CORE_EXECUTION_BACKEND", "host")
+	t.Setenv("VECTIS_WORKER_CORE_WORKSPACE_ROOT", root)
+
+	check := doctorWorkerWorkspaceFilesystem()
+	if check.Status != doctorOK {
+		t.Fatalf("expected worker workspace check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{"backend=host", "workspace_root=" + root, "workspace_root_source=configured"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorWorkerWorkspaceFilesystem_warnsForMissingRoot(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
+	root := filepath.Join(t.TempDir(), "missing-workspaces")
+	t.Setenv("VECTIS_WORKER_CORE_WORKSPACE_ROOT", root)
+
+	check := doctorWorkerWorkspaceFilesystem()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected worker workspace check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "does not exist") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
+func TestDoctorWorkerWorkspaceFilesystem_limaWarnsWithoutGuestRoot(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
+	root := t.TempDir()
+	t.Setenv("VECTIS_WORKER_CORE_EXECUTION_BACKEND", "lima")
+	t.Setenv("VECTIS_WORKER_CORE_WORKSPACE_ROOT", root)
+
+	check := doctorWorkerWorkspaceFilesystem()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected worker workspace check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "guest workspace root is not configured") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
 }
 
 func TestDoctorTLSFiles_validConfiguredFiles(t *testing.T) {

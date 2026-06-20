@@ -98,6 +98,7 @@ func doctor(w io.Writer) error {
 		doctorAuditFlushFailures(),
 		doctorEncryptedFSFiles(),
 		doctorWorkerCoreSockets(),
+		doctorWorkerWorkspaceFilesystem(),
 		doctorTLSFiles(),
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
@@ -181,6 +182,7 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Worker", Items: []doctorTextItem{
 		{ID: "worker.core.sockets", Label: "Core sockets"},
+		{ID: "worker.workspace.filesystem", Label: "Workspace filesystem"},
 	}},
 	{Name: "Catalog", Items: []doctorTextItem{
 		{ID: "catalog.inbox", Label: "Cell event inbox"},
@@ -1837,6 +1839,128 @@ func formatDoctorWorkerCoreSocketEvidence(paths map[string]string) string {
 	parts := make([]string, 0, len(labels))
 	for _, label := range labels {
 		parts = append(parts, fmt.Sprintf("%s=%s", label, paths[label]))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func doctorWorkerWorkspaceFilesystem() doctorCheck {
+	const id = "worker.workspace.filesystem"
+	title := "Worker workspace filesystem healthy"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	backend, backendConfigured := envValue("VECTIS_WORKER_CORE_EXECUTION_BACKEND")
+	workspaceRoot, rootConfigured := envValue("VECTIS_WORKER_CORE_WORKSPACE_ROOT")
+	guestRoot, guestRootConfigured := envValue("VECTIS_WORKER_CORE_LIMA_GUEST_WORKSPACE_ROOT")
+
+	if backend == "" {
+		backend = workercore.ExecutionBackendHost
+	}
+
+	rootSource := "configured"
+	if workspaceRoot == "" {
+		workspaceRoot = os.TempDir()
+		rootSource = "os_temp"
+	}
+
+	evidence := doctorWorkerWorkspaceEvidence{
+		Backend:             backend,
+		WorkspaceRoot:       workspaceRoot,
+		WorkspaceRootSource: rootSource,
+		GuestWorkspaceRoot:  guestRoot,
+	}
+
+	var warnings []string
+	switch backend {
+	case workercore.ExecutionBackendHost:
+		if guestRootConfigured {
+			warnings = append(warnings, "Lima guest workspace root is configured but execution backend is host")
+		}
+	case workercore.ExecutionBackendLima:
+		if !guestRootConfigured {
+			warnings = append(warnings, "Lima guest workspace root is not configured; host workspace root must be mounted and writable in the guest")
+		} else if !strings.HasPrefix(guestRoot, "/") {
+			warnings = append(warnings, "Lima guest workspace root should be an absolute guest path")
+		}
+	default:
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("unknown worker-core execution backend %q", backend), Evidence: evidence.String(), SuggestedAction: "Check VECTIS_WORKER_CORE_EXECUTION_BACKEND", DocLink: doc}
+	}
+
+	if workspaceRoot == "" {
+		warnings = append(warnings, "workspace root is empty")
+	} else if !filepath.IsAbs(workspaceRoot) {
+		warnings = append(warnings, "workspace root should be an absolute path")
+	}
+
+	statPath, exists, err := existingPathForStat(workspaceRoot)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("workspace root is not usable: %v", err), Evidence: evidence.String(), SuggestedAction: "Check worker-core workspace root ownership and parent path", DocLink: doc}
+	}
+
+	evidence.StatPath = statPath
+	if !exists {
+		warnings = append(warnings, "workspace root does not exist")
+	} else if err := directoryUsable(workspaceRoot); err != nil {
+		warnings = append(warnings, fmt.Sprintf("workspace root is not writable: %v", err))
+	}
+
+	stats, err := doctorFilesystemStats(statPath)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for workspace root: %v", err), Evidence: evidence.String(), SuggestedAction: "Run vectis-cli health check on the worker-core host", DocLink: doc}
+	}
+
+	evidence.FreeBytes = stats.freeBytes
+	evidence.FreePercent = stats.freePercent
+	evidence.FreeInodes = stats.freeInodes
+
+	if stats.freeBytes < doctorDiskWarnFreeBytes || stats.freeInodes == 0 {
+		warnings = append(warnings, fmt.Sprintf("workspace filesystem pressure: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent))
+	}
+
+	if len(warnings) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(warnings, "; "), Evidence: evidence.String(), SuggestedAction: "Check worker-core workspace root, durable storage, and Lima workspace mapping", DocLink: doc}
+	}
+
+	summary := fmt.Sprintf("workspace filesystem ok: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent)
+	if !backendConfigured && !rootConfigured && !guestRootConfigured {
+		summary += "; using worker-core default temp root"
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence.String(), DocLink: doc}
+}
+
+type doctorWorkerWorkspaceEvidence struct {
+	Backend             string
+	WorkspaceRoot       string
+	WorkspaceRootSource string
+	GuestWorkspaceRoot  string
+	StatPath            string
+	FreeBytes           uint64
+	FreePercent         int
+	FreeInodes          uint64
+}
+
+func (e doctorWorkerWorkspaceEvidence) String() string {
+	parts := []string{
+		"backend=" + e.Backend,
+		"workspace_root=" + e.WorkspaceRoot,
+		"workspace_root_source=" + e.WorkspaceRootSource,
+	}
+
+	if e.GuestWorkspaceRoot != "" {
+		parts = append(parts, "guest_workspace_root="+e.GuestWorkspaceRoot)
+	}
+
+	if e.StatPath != "" {
+		parts = append(parts, "stat_path="+e.StatPath)
+	}
+
+	if e.FreeBytes > 0 || e.FreePercent > 0 || e.FreeInodes > 0 {
+		parts = append(parts,
+			fmt.Sprintf("free_bytes=%d", e.FreeBytes),
+			fmt.Sprintf("free_percent=%d", e.FreePercent),
+			fmt.Sprintf("free_inodes=%d", e.FreeInodes),
+		)
 	}
 
 	return strings.Join(parts, " ")
