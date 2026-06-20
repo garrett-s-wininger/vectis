@@ -23,16 +23,18 @@ import (
 )
 
 const poolDequeuePollInterval = 250 * time.Millisecond
+const defaultDequeueStickySuccessBudget = 64
 
 var queuePoolSequence atomic.Uint64
 
 type QueuePoolOptions struct {
-	PinnedAddress             string
-	RegistryAddress           string
-	RetryMetrics              backoff.RetryMetrics
-	RefreshInterval           time.Duration
-	DequeueSupportedIsolation []string
-	DequeueConnectionLimit    int
+	PinnedAddress              string
+	RegistryAddress            string
+	RetryMetrics               backoff.RetryMetrics
+	RefreshInterval            time.Duration
+	DequeueSupportedIsolation  []string
+	DequeueConnectionLimit     int
+	DequeueStickySuccessBudget int
 }
 
 type ManagingQueuePoolService struct {
@@ -109,10 +111,13 @@ type queuePool struct {
 	activeIDs []string
 	active    []*queuePoolEndpoint
 
-	enqueueCounter atomic.Uint64
-	dequeueCounter atomic.Uint64
-	dequeueRequest *api.DequeueRequest
-	cancelFn       context.CancelFunc
+	enqueueCounter         atomic.Uint64
+	dequeueCounter         atomic.Uint64
+	dequeueRequest         *api.DequeueRequest
+	dequeueStickyID        string
+	dequeueStickyRemaining int
+	dequeueRotateAfterID   string
+	cancelFn               context.CancelFunc
 }
 
 type queuePoolEndpoint struct {
@@ -135,6 +140,10 @@ type desiredQueueEndpoint struct {
 func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolOptions) (*queuePool, error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger is required")
+	}
+
+	if opts.DequeueStickySuccessBudget <= 0 {
+		opts.DequeueStickySuccessBudget = defaultDequeueStickySuccessBudget
 	}
 
 	if opts.RefreshInterval <= 0 {
@@ -523,8 +532,79 @@ func (p *queuePool) rotatedActiveEndpointsFrom(endpoints []*queuePoolEndpoint) (
 		return endpoints, 0
 	}
 
+	if p.opts.DequeueConnectionLimit == 1 {
+		if start, ok := p.preferredDequeueStartFrom(endpoints); ok {
+			return endpoints, start
+		}
+	}
+
 	start := int(p.dequeueCounter.Add(1) % uint64(len(endpoints)))
 	return endpoints, start
+}
+
+func (p *queuePool) preferredDequeueStartFrom(endpoints []*queuePoolEndpoint) (int, bool) {
+	p.mu.Lock()
+	stickyID := p.dequeueStickyID
+	rotateAfterID := ""
+	if stickyID == "" && p.dequeueRotateAfterID != "" {
+		rotateAfterID = p.dequeueRotateAfterID
+		p.dequeueRotateAfterID = ""
+	}
+	p.mu.Unlock()
+
+	if stickyID != "" {
+		for i, ep := range endpoints {
+			if ep != nil && ep.id == stickyID {
+				return i, true
+			}
+		}
+	}
+
+	if rotateAfterID != "" {
+		for i, ep := range endpoints {
+			if ep != nil && ep.id == rotateAfterID {
+				return (i + 1) % len(endpoints), true
+			}
+		}
+	}
+
+	return 0, false
+}
+
+func (p *queuePool) recordDequeueSuccessEndpoint(id string) {
+	if id == "" {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.dequeueStickyID != id || p.dequeueStickyRemaining <= 0 {
+		p.dequeueStickyID = id
+		p.dequeueStickyRemaining = p.opts.DequeueStickySuccessBudget
+	}
+
+	p.dequeueStickyRemaining--
+	if p.dequeueStickyRemaining > 0 {
+		return
+	}
+
+	p.dequeueStickyRemaining = 0
+	p.dequeueRotateAfterID = id
+	p.dequeueStickyID = ""
+}
+
+func (p *queuePool) clearDequeueStickyEndpoint(id string) {
+	p.mu.Lock()
+	if id != "" {
+		p.dequeueRotateAfterID = id
+	}
+
+	if id == "" || p.dequeueStickyID == id {
+		p.dequeueStickyID = ""
+		p.dequeueStickyRemaining = 0
+	}
+	p.mu.Unlock()
 }
 
 func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empty, error) {
@@ -646,7 +726,15 @@ func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
 		if err == nil {
 			sawReachable = true
 			if req != nil && req.GetJob() != nil {
+				if p.opts.DequeueConnectionLimit == 1 && len(endpoints) > 1 {
+					p.recordDequeueSuccessEndpoint(ep.id)
+				}
+
 				return req, nil
+			}
+
+			if p.opts.DequeueConnectionLimit == 1 && len(endpoints) > 1 {
+				p.clearDequeueStickyEndpoint(ep.id)
 			}
 
 			continue
@@ -654,6 +742,10 @@ func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
 
 		lastErr = err
 		if IsTransientRPCError(err) {
+			if p.opts.DequeueConnectionLimit == 1 && len(endpoints) > 1 {
+				p.clearDequeueStickyEndpoint(ep.id)
+			}
+
 			if rerr := p.reconnectEndpoint(ctx, ep.id); rerr != nil {
 				p.logger.Debug("queue pool reconnect to %s failed: %v", ep.id, rerr)
 			}

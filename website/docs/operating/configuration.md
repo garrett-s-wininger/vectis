@@ -438,6 +438,8 @@ Registry address settings may contain multiple comma-separated or space-separate
 
 When registry discovery is used, multiple `vectis-queue` instances may register as a pool. Each queue needs one stable `VECTIS_QUEUE_INSTANCE_ID` / `--instance-id`; if it is omitted, `vectis-queue` derives a stable ID from the system hostname and queue port. Producers choose among discovered queue shards; workers ack back to the shard encoded in the delivery ID.
 
+Workers keep dequeue connections low by sampling one queue shard at a time. `VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET` / `--queue-dequeue-sticky-success-budget` controls how many successful dequeues a worker may take from a productive shard before probing another shard; it defaults to `64`. Lower values spread workers across new or newly-busy shards faster, while higher values reduce shard switching and connection churn.
+
 `VECTIS_QUEUE_POOL` / `--pool` names the local queue pool used when deriving the default persistence path. If `VECTIS_QUEUE_PERSISTENCE_DIR` / `--persistence-dir` is omitted, the queue uses `$XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>`. Set a persistence directory explicitly only when you want to pin storage layout. An explicitly empty persistence directory disables queue persistence.
 
 Queue instance IDs must be unique among active queue processes registered in the same registry, except during a controlled replacement of the same shard with the same persistence directory. If two active queues register the same instance ID, the registry treats them as the same logical shard and the later registration wins; workers may route acks to the wrong process. If two active queues point at the same persistence directory, the second queue refuses to start.

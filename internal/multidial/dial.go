@@ -12,7 +12,8 @@ import (
 )
 
 type DialOptions struct {
-	QueueDequeueSupportedIsolation []string
+	QueueDequeueSupportedIsolation  []string
+	QueueDequeueStickySuccessBudget int
 }
 
 func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, assignmentStore logclient.AssignmentStore, routingMetrics logclient.RoutingMetrics) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
@@ -24,10 +25,11 @@ func DialQueueAndLogWithOptions(ctx context.Context, logger interfaces.Logger, r
 	lPin := config.PinnedLogAddress()
 
 	queuePool, err := queueclient.NewManagingQueuePoolClient(ctx, logger, queueclient.QueuePoolOptions{
-		PinnedAddress:             qPin,
-		RegistryAddress:           config.WorkerRegistryDialAddress(),
-		RetryMetrics:              retryMetrics,
-		DequeueSupportedIsolation: opts.QueueDequeueSupportedIsolation,
+		PinnedAddress:              qPin,
+		RegistryAddress:            config.WorkerRegistryDialAddress(),
+		RetryMetrics:               retryMetrics,
+		DequeueSupportedIsolation:  opts.QueueDequeueSupportedIsolation,
+		DequeueStickySuccessBudget: opts.QueueDequeueStickySuccessBudget,
 	})
 
 	if err != nil {

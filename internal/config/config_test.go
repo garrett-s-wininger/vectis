@@ -1139,6 +1139,10 @@ func TestWorkerArtifactMaxBytes_DefaultAndOverride(t *testing.T) {
 		t.Fatalf("WorkerArtifactMaxCount default: got %d", got)
 	}
 
+	if got := WorkerQueueDequeueStickySuccessBudget(); got != 64 {
+		t.Fatalf("WorkerQueueDequeueStickySuccessBudget default: got %d", got)
+	}
+
 	viper.Set("worker.artifact_max_bytes", int64(4096))
 	if got := WorkerArtifactMaxBytes(); got != 4096 {
 		t.Fatalf("WorkerArtifactMaxBytes namespaced override: got %d", got)
@@ -1152,6 +1156,16 @@ func TestWorkerArtifactMaxBytes_DefaultAndOverride(t *testing.T) {
 	viper.Set("worker.artifact_max_count", int64(12))
 	if got := WorkerArtifactMaxCount(); got != 12 {
 		t.Fatalf("WorkerArtifactMaxCount namespaced override: got %d", got)
+	}
+
+	viper.Set("worker.queue.dequeue_sticky_success_budget", 7)
+	if got := WorkerQueueDequeueStickySuccessBudget(); got != 7 {
+		t.Fatalf("WorkerQueueDequeueStickySuccessBudget namespaced override: got %d", got)
+	}
+
+	viper.Set("worker.queue.dequeue_sticky_success_budget", 0)
+	if got := WorkerQueueDequeueStickySuccessBudget(); got != 64 {
+		t.Fatalf("WorkerQueueDequeueStickySuccessBudget invalid override should use default: got %d", got)
 	}
 
 	viper.Set("worker.artifact_max_bytes", int64(0))

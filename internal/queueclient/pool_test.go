@@ -277,6 +277,177 @@ func TestQueuePoolTryDequeueConnectionLimitWalksOneShardAtATime(t *testing.T) {
 	}
 }
 
+func TestQueuePoolTryDequeueConnectionLimitSticksToSuccessfulShard(t *testing.T) {
+	job := func(id string) *api.JobRequest {
+		return &api.JobRequest{Job: &api.Job{Id: &id}}
+	}
+
+	p, dialed, closed := newLazyFakeQueuePool(map[string]*fakeQueueServiceClient{
+		"a": {tryJobs: []*api.JobRequest{job("a-1"), job("a-2")}},
+		"b": {tryJobs: []*api.JobRequest{job("b-1")}},
+	})
+
+	p.dequeueCounter.Store(^uint64(0))
+	first, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("first try dequeue: %v", err)
+	}
+	if first.GetJob().GetId() != "a-1" {
+		t.Fatalf("first try dequeue got %+v, want a-1", first.GetJob())
+	}
+
+	second, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("second try dequeue: %v", err)
+	}
+	if second.GetJob().GetId() != "a-2" {
+		t.Fatalf("second try dequeue got %+v, want a-2", second.GetJob())
+	}
+
+	if strings.Join(*dialed, ",") != "a" {
+		t.Fatalf("dialed endpoints = %v, want [a]", *dialed)
+	}
+	if len(*closed) != 0 {
+		t.Fatalf("closed endpoints = %v, want none", *closed)
+	}
+}
+
+func TestQueuePoolTryDequeueConnectionLimitSamplesNewShardAfterStickyBudget(t *testing.T) {
+	job := func(id string) *api.JobRequest {
+		return &api.JobRequest{Job: &api.Job{Id: &id}}
+	}
+
+	aJobs := make([]*api.JobRequest, 0, defaultDequeueStickySuccessBudget+2)
+	for i := 0; i < defaultDequeueStickySuccessBudget+2; i++ {
+		aJobs = append(aJobs, job("a"))
+	}
+
+	clients := map[string]*fakeQueueServiceClient{"a": {tryJobs: aJobs}}
+	p, dialed, closed := newLazyFakeQueuePool(clients)
+
+	p.dequeueCounter.Store(^uint64(0))
+	first, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("initial single-shard dequeue: %v", err)
+	}
+	if first.GetJob().GetId()[0] != 'a' {
+		t.Fatalf("initial single-shard dequeue got %+v, want shard a", first.GetJob())
+	}
+
+	clients["b"] = &fakeQueueServiceClient{tryJobs: []*api.JobRequest{job("b-1")}}
+	p.mu.Lock()
+	ep := &queuePoolEndpoint{id: "b", address: "b"}
+	p.endpoints["b"] = ep
+	p.activeIDs = append(p.activeIDs, "b")
+	p.active = append(p.active, ep)
+	p.mu.Unlock()
+
+	for i := 0; i < defaultDequeueStickySuccessBudget; i++ {
+		got, err := p.tryDequeue(context.Background())
+		if err != nil {
+			t.Fatalf("sticky dequeue %d: %v", i, err)
+		}
+		if got.GetJob().GetId()[0] != 'a' {
+			t.Fatalf("sticky dequeue %d got %+v, want shard a", i, got.GetJob())
+		}
+	}
+
+	got, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("post-budget dequeue: %v", err)
+	}
+	if got.GetJob().GetId() != "b-1" {
+		t.Fatalf("post-budget dequeue got %+v, want b-1", got.GetJob())
+	}
+
+	if strings.Join(*dialed, ",") != "a,b" {
+		t.Fatalf("dialed endpoints = %v, want [a b]", *dialed)
+	}
+	if strings.Join(*closed, ",") != "a" {
+		t.Fatalf("closed endpoints = %v, want [a]", *closed)
+	}
+}
+
+func TestQueuePoolTryDequeueConnectionLimitHonorsConfiguredStickyBudget(t *testing.T) {
+	job := func(id string) *api.JobRequest {
+		return &api.JobRequest{Job: &api.Job{Id: &id}}
+	}
+
+	p, _, _ := newLazyFakeQueuePool(map[string]*fakeQueueServiceClient{
+		"a": {tryJobs: []*api.JobRequest{job("a-1"), job("a-2"), job("a-3")}},
+		"b": {tryJobs: []*api.JobRequest{job("b-1")}},
+	})
+	p.opts.DequeueStickySuccessBudget = 2
+
+	p.dequeueCounter.Store(^uint64(0))
+	first, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("first try dequeue: %v", err)
+	}
+	if first.GetJob().GetId() != "a-1" {
+		t.Fatalf("first try dequeue got %+v, want a-1", first.GetJob())
+	}
+
+	second, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("second try dequeue: %v", err)
+	}
+	if second.GetJob().GetId() != "a-2" {
+		t.Fatalf("second try dequeue got %+v, want a-2", second.GetJob())
+	}
+
+	third, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("third try dequeue: %v", err)
+	}
+	if third.GetJob().GetId() != "b-1" {
+		t.Fatalf("third try dequeue got %+v, want b-1", third.GetJob())
+	}
+}
+
+func TestQueuePoolTryDequeueConnectionLimitRotatesAfterStickyShardEmpty(t *testing.T) {
+	job := func(id string) *api.JobRequest {
+		return &api.JobRequest{Job: &api.Job{Id: &id}}
+	}
+
+	p, dialed, closed := newLazyFakeQueuePool(map[string]*fakeQueueServiceClient{
+		"a": {tryJobs: []*api.JobRequest{job("a-1")}},
+		"b": {tryJobs: []*api.JobRequest{job("b-1")}},
+	})
+
+	p.dequeueCounter.Store(^uint64(0))
+	first, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("first try dequeue: %v", err)
+	}
+	if first.GetJob().GetId() != "a-1" {
+		t.Fatalf("first try dequeue got %+v, want a-1", first.GetJob())
+	}
+
+	empty, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("second try dequeue: %v", err)
+	}
+	if empty != nil {
+		t.Fatalf("second try dequeue got job %+v, want nil", empty.GetJob())
+	}
+
+	third, err := p.tryDequeue(context.Background())
+	if err != nil {
+		t.Fatalf("third try dequeue: %v", err)
+	}
+	if third.GetJob().GetId() != "b-1" {
+		t.Fatalf("third try dequeue got %+v, want b-1", third.GetJob())
+	}
+
+	if strings.Join(*dialed, ",") != "a,b" {
+		t.Fatalf("dialed endpoints = %v, want [a b]", *dialed)
+	}
+	if strings.Join(*closed, ",") != "a" {
+		t.Fatalf("closed endpoints = %v, want [a]", *closed)
+	}
+}
+
 func TestQueuePoolAckRoutesToDeliveryShard(t *testing.T) {
 	a := &fakeQueueServiceClient{}
 	b := &fakeQueueServiceClient{}
@@ -377,8 +548,11 @@ func newFakeQueuePool(clients map[string]*fakeQueueServiceClient) *queuePool {
 
 func newLazyFakeQueuePool(clients map[string]*fakeQueueServiceClient) (*queuePool, *[]string, *[]string) {
 	p := &queuePool{
-		logger:    mocks.NopLogger{},
-		opts:      QueuePoolOptions{DequeueConnectionLimit: 1},
+		logger: mocks.NopLogger{},
+		opts: QueuePoolOptions{
+			DequeueConnectionLimit:     1,
+			DequeueStickySuccessBudget: defaultDequeueStickySuccessBudget,
+		},
 		endpoints: make(map[string]*queuePoolEndpoint, len(clients)),
 	}
 

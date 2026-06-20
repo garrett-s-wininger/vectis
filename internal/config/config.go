@@ -299,9 +299,14 @@ type WorkerExecutionLimaDefaults struct {
 	PreserveEnv        bool   `toml:"preserve_env"`
 }
 
+type WorkerQueueDefaults struct {
+	Address                    string `toml:"address"`
+	DequeueStickySuccessBudget int    `toml:"dequeue_sticky_success_budget"`
+}
+
 type WorkerDefaults struct {
 	RegistryAddress      string                          `toml:"registry.address"`
-	QueueAddress         string                          `toml:"queue.address"`
+	Queue                WorkerQueueDefaults             `toml:"queue"`
 	LogAddress           string                          `toml:"log.address"`
 	OrchestratorAddress  string                          `toml:"orchestrator.address"`
 	SecretsAddress       string                          `toml:"secrets.address"`
@@ -415,6 +420,7 @@ func init() {
 	_ = viper.BindEnv("discovery.registry.address", "VECTIS_DISCOVERY_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
 	_ = viper.BindEnv("dispatch.start_ttl", "VECTIS_DISPATCH_START_TTL")
+	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
 }
 
 func MustDefaults() Defaults {
@@ -610,6 +616,10 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.ArtifactMaxCount < 0 {
 		panic("config defaults: worker.artifact_max_count must be >= 0")
+	}
+
+	if d.Worker.Queue.DequeueStickySuccessBudget <= 0 {
+		panic("config defaults: worker.queue.dequeue_sticky_success_budget must be > 0")
 	}
 
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
@@ -1016,6 +1026,16 @@ func WorkerArtifactMaxCount() int64 {
 	}
 
 	return MustDefaults().Worker.ArtifactMaxCount
+}
+
+func WorkerQueueDequeueStickySuccessBudget() int {
+	if viper.IsSet("worker.queue.dequeue_sticky_success_budget") {
+		if value := viper.GetInt("worker.queue.dequeue_sticky_success_budget"); value > 0 {
+			return value
+		}
+	}
+
+	return MustDefaults().Worker.Queue.DequeueStickySuccessBudget
 }
 
 func WorkerControlMode() string {
@@ -1716,7 +1736,7 @@ func WorkerQueueAddress() string {
 	d := MustDefaults()
 	return coalesceNonEmpty(
 		viper.GetString("worker.queue.address"),
-		d.Worker.QueueAddress,
+		d.Worker.Queue.Address,
 		viper.GetString("discovery.queue.address"),
 		d.Discovery.QueueAddress,
 	)
