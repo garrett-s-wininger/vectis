@@ -73,7 +73,7 @@ To inspect or remove local state:
 
 - Go `1.25.10+` as declared in [go.mod](go.mod).
 - CGO enabled for local SQLite use. This is the normal Go default on most developer machines.
-- Node.js and npm for the default `make build`, which embeds the docs site into `vectis-docs`. Use `SKIP_WEB_BUILD=1 make build` to skip this.
+- Node.js `20+` and npm for the default `make build`, which embeds the docs site into `vectis-docs`. Use `SKIP_WEB_BUILD=1 make build` to skip this.
 - `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` only if you need to regenerate protobuf code with `make proto`.
 
 ## Learn The Basics
