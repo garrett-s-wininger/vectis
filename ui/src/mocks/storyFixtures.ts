@@ -103,6 +103,7 @@ export const storyNamespaces: Namespace[] = [
     id: 1,
     name: "/",
     path: "/",
+    description: "Default boundary for shared definitions.",
     breakInheritance: false,
     role: "Admin"
   },
@@ -111,6 +112,7 @@ export const storyNamespaces: Namespace[] = [
     name: "team-a",
     parentID: 1,
     path: "/team-a",
+    description: "Team-owned stored definitions and triggers.",
     breakInheritance: false,
     role: "Operator"
   }

@@ -64,16 +64,20 @@ describe("mock console data", () => {
   it("creates and deletes empty namespaces", async () => {
     const data = await loadMockConsoleData();
     const withNamespace = createMockNamespace(data, {
+      description: "Short-lived test definitions.",
       name: "sandbox",
       parentID: 1
     });
+
     const sandbox = withNamespace.namespaces.find((namespace) => namespace.path === "/sandbox");
 
     expect(sandbox).toMatchObject({
       name: "sandbox",
+      description: "Short-lived test definitions.",
       parentID: 1,
       role: "Admin"
     });
+
     expect(canDeleteMockNamespace(withNamespace, sandbox?.id ?? 0)).toBe(true);
     expect(
       deleteMockNamespace(withNamespace, sandbox?.id ?? 0).namespaces.find((namespace) => namespace.path === "/sandbox")

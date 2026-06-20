@@ -65,6 +65,7 @@ export type Namespace = {
   name: string;
   parentID?: number;
   path: string;
+  description?: string;
   breakInheritance: boolean;
   role: NamespaceRole;
 };
@@ -87,6 +88,7 @@ export type NewUser = {
 };
 
 export type NewNamespace = {
+  description?: string;
   name: string;
   parentID: number;
 };

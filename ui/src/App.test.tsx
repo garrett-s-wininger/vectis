@@ -491,12 +491,19 @@ describe("App", () => {
 
     expect(screen.getByRole("button", { name: "Delete /" })).toBeDisabled();
 
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "sandbox" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create namespace" }));
+
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "Temporary test boundary." }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Namespace" }));
 
     expect(await screen.findByRole("button", { name: "Delete /sandbox" })).toBeInTheDocument();
+    expect(screen.getByText("Temporary test boundary.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete /sandbox" }));
 

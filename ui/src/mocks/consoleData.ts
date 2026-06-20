@@ -207,6 +207,7 @@ const namespaces: Namespace[] = [
     id: 1,
     name: "/",
     path: "/",
+    description: "Default boundary for shared definitions and administrative access.",
     breakInheritance: false,
     role: "Admin"
   },
@@ -215,6 +216,7 @@ const namespaces: Namespace[] = [
     name: "team-a",
     parentID: 1,
     path: "/team-a",
+    description: "Application delivery jobs owned by Team A.",
     breakInheritance: false,
     role: "Admin"
   },
@@ -223,6 +225,7 @@ const namespaces: Namespace[] = [
     name: "edge",
     parentID: 2,
     path: "/team-a/edge",
+    description: "Edge deploy and validation workflows.",
     breakInheritance: true,
     role: "Operator"
   },
@@ -231,6 +234,7 @@ const namespaces: Namespace[] = [
     name: "prod",
     parentID: 1,
     path: "/prod",
+    description: "Production release definitions with restricted access.",
     breakInheritance: false,
     role: "Viewer"
   }
@@ -385,6 +389,7 @@ export function createMockNamespace(data: MockConsoleData, input: NewMockNamespa
     name,
     parentID: parent.id,
     path,
+    description: input.description?.trim() || undefined,
     breakInheritance: false,
     role: parent.role
   };
