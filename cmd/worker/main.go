@@ -194,6 +194,9 @@ func runWorker(cmd *cobra.Command, args []string) {
 	dequeueSupportedIsolation := coreDescription.SupportedIsolation
 	dialOptions := multidial.DialOptions{
 		QueueDequeueSupportedIsolation:  dequeueSupportedIsolation,
+		QueueDequeuePollBaseInterval:    config.WorkerQueueDequeuePollBaseInterval(),
+		QueueDequeuePollJitterRatio:     config.WorkerQueueDequeuePollJitterRatio(),
+		QueueDequeuePollMaxInterval:     config.WorkerQueueDequeuePollMaxInterval(),
 		QueueDequeueStickySuccessBudget: config.WorkerQueueDequeueStickySuccessBudget(),
 	}
 	dial := func(ctx context.Context) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
@@ -3581,6 +3584,9 @@ func init() {
 	rootCmd.PersistentFlags().Int64("artifact-max-bytes", config.WorkerArtifactMaxBytes(), "Maximum bytes for a worker artifact upload (0 disables)")
 	rootCmd.PersistentFlags().Int64("artifact-max-run-bytes", config.WorkerArtifactMaxRunBytes(), "Maximum total artifact bytes recorded for one run (0 disables)")
 	rootCmd.PersistentFlags().Int64("artifact-max-count", config.WorkerArtifactMaxCount(), "Maximum artifact manifests recorded for one run (0 disables)")
+	rootCmd.PersistentFlags().Duration("queue-dequeue-poll-base-interval", config.WorkerQueueDequeuePollBaseInterval(), "Base interval for exponential backoff between empty dequeue polls while a worker is idle")
+	rootCmd.PersistentFlags().Float64("queue-dequeue-poll-jitter-ratio", config.WorkerQueueDequeuePollJitterRatio(), "One-sided jitter ratio for idle dequeue poll delays (0 disables, 0.2 means 80-100%)")
+	rootCmd.PersistentFlags().Duration("queue-dequeue-poll-max-interval", config.WorkerQueueDequeuePollMaxInterval(), "Maximum interval for exponential backoff between empty dequeue polls while a worker is idle")
 	rootCmd.PersistentFlags().Int("queue-dequeue-sticky-success-budget", config.WorkerQueueDequeueStickySuccessBudget(), "Successful dequeues to keep sampling a productive queue shard before probing another shard")
 	rootCmd.PersistentFlags().String("core-socket", workercore.DefaultCoreSocketPath(), "Unix socket for the remote worker core")
 	rootCmd.PersistentFlags().String("core-shell-socket", workercore.DefaultShellSocketPath(), "Unix socket exposed by the worker shell for core callbacks")
@@ -3592,6 +3598,9 @@ func init() {
 	_ = viper.BindPFlag("worker.artifact_max_bytes", rootCmd.PersistentFlags().Lookup("artifact-max-bytes"))
 	_ = viper.BindPFlag("worker.artifact_max_run_bytes", rootCmd.PersistentFlags().Lookup("artifact-max-run-bytes"))
 	_ = viper.BindPFlag("worker.artifact_max_count", rootCmd.PersistentFlags().Lookup("artifact-max-count"))
+	_ = viper.BindPFlag("worker.queue.dequeue_poll_base_interval", rootCmd.PersistentFlags().Lookup("queue-dequeue-poll-base-interval"))
+	_ = viper.BindPFlag("worker.queue.dequeue_poll_jitter_ratio", rootCmd.PersistentFlags().Lookup("queue-dequeue-poll-jitter-ratio"))
+	_ = viper.BindPFlag("worker.queue.dequeue_poll_max_interval", rootCmd.PersistentFlags().Lookup("queue-dequeue-poll-max-interval"))
 	_ = viper.BindPFlag("worker.queue.dequeue_sticky_success_budget", rootCmd.PersistentFlags().Lookup("queue-dequeue-sticky-success-budget"))
 	_ = viper.BindPFlag("worker.core.socket", rootCmd.PersistentFlags().Lookup("core-socket"))
 	_ = viper.BindPFlag("worker.core.shell_socket", rootCmd.PersistentFlags().Lookup("core-shell-socket"))
@@ -3601,6 +3610,9 @@ func init() {
 	_ = viper.BindEnv("worker.artifact_max_bytes", "VECTIS_WORKER_ARTIFACT_MAX_BYTES")
 	_ = viper.BindEnv("worker.artifact_max_run_bytes", "VECTIS_WORKER_ARTIFACT_MAX_RUN_BYTES")
 	_ = viper.BindEnv("worker.artifact_max_count", "VECTIS_WORKER_ARTIFACT_MAX_COUNT")
+	_ = viper.BindEnv("worker.queue.dequeue_poll_base_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_BASE_INTERVAL")
+	_ = viper.BindEnv("worker.queue.dequeue_poll_jitter_ratio", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_JITTER_RATIO")
+	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")

@@ -300,8 +300,11 @@ type WorkerExecutionLimaDefaults struct {
 }
 
 type WorkerQueueDefaults struct {
-	Address                    string `toml:"address"`
-	DequeueStickySuccessBudget int    `toml:"dequeue_sticky_success_budget"`
+	Address                    string       `toml:"address"`
+	DequeuePollBaseInterval    tomlDuration `toml:"dequeue_poll_base_interval"`
+	DequeuePollJitterRatio     float64      `toml:"dequeue_poll_jitter_ratio"`
+	DequeuePollMaxInterval     tomlDuration `toml:"dequeue_poll_max_interval"`
+	DequeueStickySuccessBudget int          `toml:"dequeue_sticky_success_budget"`
 }
 
 type WorkerDefaults struct {
@@ -420,6 +423,9 @@ func init() {
 	_ = viper.BindEnv("discovery.registry.address", "VECTIS_DISCOVERY_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
 	_ = viper.BindEnv("dispatch.start_ttl", "VECTIS_DISPATCH_START_TTL")
+	_ = viper.BindEnv("worker.queue.dequeue_poll_base_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_BASE_INTERVAL")
+	_ = viper.BindEnv("worker.queue.dequeue_poll_jitter_ratio", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_JITTER_RATIO")
+	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
 }
 
@@ -616,6 +622,22 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.ArtifactMaxCount < 0 {
 		panic("config defaults: worker.artifact_max_count must be >= 0")
+	}
+
+	if d.Worker.Queue.DequeuePollBaseInterval <= 0 {
+		panic("config defaults: worker.queue.dequeue_poll_base_interval must be > 0")
+	}
+
+	if d.Worker.Queue.DequeuePollMaxInterval <= 0 {
+		panic("config defaults: worker.queue.dequeue_poll_max_interval must be > 0")
+	}
+
+	if d.Worker.Queue.DequeuePollMaxInterval < d.Worker.Queue.DequeuePollBaseInterval {
+		panic("config defaults: worker.queue.dequeue_poll_max_interval must be >= worker.queue.dequeue_poll_base_interval")
+	}
+
+	if d.Worker.Queue.DequeuePollJitterRatio < 0 || d.Worker.Queue.DequeuePollJitterRatio > 1 {
+		panic("config defaults: worker.queue.dequeue_poll_jitter_ratio must be between 0 and 1")
 	}
 
 	if d.Worker.Queue.DequeueStickySuccessBudget <= 0 {
@@ -1036,6 +1058,42 @@ func WorkerQueueDequeueStickySuccessBudget() int {
 	}
 
 	return MustDefaults().Worker.Queue.DequeueStickySuccessBudget
+}
+
+func WorkerQueueDequeuePollBaseInterval() time.Duration {
+	if viper.IsSet("worker.queue.dequeue_poll_base_interval") {
+		if value := viper.GetDuration("worker.queue.dequeue_poll_base_interval"); value > 0 {
+			return value
+		}
+	}
+
+	return time.Duration(MustDefaults().Worker.Queue.DequeuePollBaseInterval)
+}
+
+func WorkerQueueDequeuePollJitterRatio() float64 {
+	if viper.IsSet("worker.queue.dequeue_poll_jitter_ratio") {
+		if value := viper.GetFloat64("worker.queue.dequeue_poll_jitter_ratio"); value >= 0 && value <= 1 {
+			return value
+		}
+	}
+
+	return MustDefaults().Worker.Queue.DequeuePollJitterRatio
+}
+
+func WorkerQueueDequeuePollMaxInterval() time.Duration {
+	base := WorkerQueueDequeuePollBaseInterval()
+	if viper.IsSet("worker.queue.dequeue_poll_max_interval") {
+		if value := viper.GetDuration("worker.queue.dequeue_poll_max_interval"); value >= base {
+			return value
+		}
+	}
+
+	value := time.Duration(MustDefaults().Worker.Queue.DequeuePollMaxInterval)
+	if value < base {
+		return base
+	}
+
+	return value
 }
 
 func WorkerControlMode() string {

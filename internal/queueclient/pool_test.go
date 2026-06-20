@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces/mocks"
@@ -490,6 +491,34 @@ func TestQueuePoolAckUsesPinnedEndpointForShardedDeliveryID(t *testing.T) {
 
 	if len(pinned.acks) != 1 || pinned.acks[0] != deliveryID {
 		t.Fatalf("expected ack on pinned endpoint, got %+v", pinned.acks)
+	}
+}
+
+func TestProportionalLowerBoundJitter(t *testing.T) {
+	delay := time.Second
+
+	if got := proportionalLowerBoundJitter(delay, 0, 0); got != delay {
+		t.Fatalf("zero ratio should not jitter: got %v", got)
+	}
+
+	if got := proportionalLowerBoundJitter(delay, 0.2, 0); got != 800*time.Millisecond {
+		t.Fatalf("sample at lower bound: got %v", got)
+	}
+
+	if got := proportionalLowerBoundJitter(delay, 0.2, 1); got != delay {
+		t.Fatalf("sample at upper bound: got %v", got)
+	}
+
+	if got := proportionalLowerBoundJitter(delay, 0.2, -1); got != 800*time.Millisecond {
+		t.Fatalf("sample below range should clamp low: got %v", got)
+	}
+
+	if got := proportionalLowerBoundJitter(delay, 0.2, 2); got != delay {
+		t.Fatalf("sample above range should clamp high: got %v", got)
+	}
+
+	if got := proportionalLowerBoundJitter(delay, 2, 0); got != 0 {
+		t.Fatalf("ratio above one should clamp to full lower-bound jitter: got %v", got)
 	}
 }
 

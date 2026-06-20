@@ -3,6 +3,7 @@ package queueclient
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -22,7 +23,8 @@ import (
 	"google.golang.org/grpc/connectivity"
 )
 
-const poolDequeuePollInterval = 250 * time.Millisecond
+const defaultDequeuePollBaseInterval = 250 * time.Millisecond
+const defaultDequeuePollMaxInterval = time.Second
 const defaultDequeueStickySuccessBudget = 64
 
 var queuePoolSequence atomic.Uint64
@@ -34,6 +36,9 @@ type QueuePoolOptions struct {
 	RefreshInterval            time.Duration
 	DequeueSupportedIsolation  []string
 	DequeueConnectionLimit     int
+	DequeuePollBaseInterval    time.Duration
+	DequeuePollJitterRatio     float64
+	DequeuePollMaxInterval     time.Duration
 	DequeueStickySuccessBudget int
 }
 
@@ -144,6 +149,26 @@ func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolO
 
 	if opts.DequeueStickySuccessBudget <= 0 {
 		opts.DequeueStickySuccessBudget = defaultDequeueStickySuccessBudget
+	}
+
+	if opts.DequeuePollBaseInterval <= 0 {
+		opts.DequeuePollBaseInterval = defaultDequeuePollBaseInterval
+	}
+
+	if opts.DequeuePollMaxInterval <= 0 {
+		opts.DequeuePollMaxInterval = defaultDequeuePollMaxInterval
+	}
+
+	if opts.DequeuePollMaxInterval < opts.DequeuePollBaseInterval {
+		opts.DequeuePollMaxInterval = opts.DequeuePollBaseInterval
+	}
+
+	if opts.DequeuePollJitterRatio < 0 {
+		opts.DequeuePollJitterRatio = 0
+	}
+
+	if opts.DequeuePollJitterRatio > 1 {
+		opts.DequeuePollJitterRatio = 1
 	}
 
 	if opts.RefreshInterval <= 0 {
@@ -678,18 +703,49 @@ func (p *queuePool) enqueue(ctx context.Context, req *api.JobRequest) (*api.Empt
 }
 
 func (p *queuePool) dequeue(ctx context.Context) (*api.JobRequest, error) {
+	emptyAttempts := 0
 	for {
 		req, err := p.tryDequeue(ctx)
 		if err != nil || req != nil {
 			return req, err
 		}
 
+		delay := backoff.ExponentialDelay(p.opts.DequeuePollBaseInterval, emptyAttempts, p.opts.DequeuePollMaxInterval)
+		delay = jitterDequeuePollDelay(delay, p.opts.DequeuePollJitterRatio)
+		emptyAttempts++
+
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(poolDequeuePollInterval):
+		case <-time.After(delay):
 		}
 	}
+}
+
+func jitterDequeuePollDelay(delay time.Duration, ratio float64) time.Duration {
+	return proportionalLowerBoundJitter(delay, ratio, rand.Float64())
+}
+
+func proportionalLowerBoundJitter(delay time.Duration, ratio, sample float64) time.Duration {
+	if delay <= 0 || ratio <= 0 {
+		return delay
+	}
+
+	if ratio > 1 {
+		ratio = 1
+	}
+
+	if sample < 0 {
+		sample = 0
+	}
+
+	if sample > 1 {
+		sample = 1
+	}
+
+	delayNanos := float64(delay)
+	minNanos := delayNanos * (1 - ratio)
+	return time.Duration(minNanos + (delayNanos-minNanos)*sample)
 }
 
 func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {

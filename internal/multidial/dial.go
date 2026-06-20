@@ -3,6 +3,7 @@ package multidial
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"vectis/internal/backoff"
 	"vectis/internal/config"
@@ -13,6 +14,9 @@ import (
 
 type DialOptions struct {
 	QueueDequeueSupportedIsolation  []string
+	QueueDequeuePollBaseInterval    time.Duration
+	QueueDequeuePollJitterRatio     float64
+	QueueDequeuePollMaxInterval     time.Duration
 	QueueDequeueStickySuccessBudget int
 }
 
@@ -29,6 +33,9 @@ func DialQueueAndLogWithOptions(ctx context.Context, logger interfaces.Logger, r
 		RegistryAddress:            config.WorkerRegistryDialAddress(),
 		RetryMetrics:               retryMetrics,
 		DequeueSupportedIsolation:  opts.QueueDequeueSupportedIsolation,
+		DequeuePollBaseInterval:    opts.QueueDequeuePollBaseInterval,
+		DequeuePollJitterRatio:     opts.QueueDequeuePollJitterRatio,
+		DequeuePollMaxInterval:     opts.QueueDequeuePollMaxInterval,
 		DequeueStickySuccessBudget: opts.QueueDequeueStickySuccessBudget,
 	})
 

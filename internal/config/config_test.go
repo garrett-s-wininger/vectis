@@ -1143,6 +1143,18 @@ func TestWorkerArtifactMaxBytes_DefaultAndOverride(t *testing.T) {
 		t.Fatalf("WorkerQueueDequeueStickySuccessBudget default: got %d", got)
 	}
 
+	if got := WorkerQueueDequeuePollBaseInterval(); got != 250*time.Millisecond {
+		t.Fatalf("WorkerQueueDequeuePollBaseInterval default: got %v", got)
+	}
+
+	if got := WorkerQueueDequeuePollMaxInterval(); got != time.Second {
+		t.Fatalf("WorkerQueueDequeuePollMaxInterval default: got %v", got)
+	}
+
+	if got := WorkerQueueDequeuePollJitterRatio(); got != 0.2 {
+		t.Fatalf("WorkerQueueDequeuePollJitterRatio default: got %v", got)
+	}
+
 	viper.Set("worker.artifact_max_bytes", int64(4096))
 	if got := WorkerArtifactMaxBytes(); got != 4096 {
 		t.Fatalf("WorkerArtifactMaxBytes namespaced override: got %d", got)
@@ -1163,9 +1175,50 @@ func TestWorkerArtifactMaxBytes_DefaultAndOverride(t *testing.T) {
 		t.Fatalf("WorkerQueueDequeueStickySuccessBudget namespaced override: got %d", got)
 	}
 
+	viper.Set("worker.queue.dequeue_poll_base_interval", 100*time.Millisecond)
+	if got := WorkerQueueDequeuePollBaseInterval(); got != 100*time.Millisecond {
+		t.Fatalf("WorkerQueueDequeuePollBaseInterval namespaced override: got %v", got)
+	}
+
+	viper.Set("worker.queue.dequeue_poll_max_interval", 2*time.Second)
+	if got := WorkerQueueDequeuePollMaxInterval(); got != 2*time.Second {
+		t.Fatalf("WorkerQueueDequeuePollMaxInterval namespaced override: got %v", got)
+	}
+
+	viper.Set("worker.queue.dequeue_poll_jitter_ratio", 0)
+	if got := WorkerQueueDequeuePollJitterRatio(); got != 0 {
+		t.Fatalf("WorkerQueueDequeuePollJitterRatio zero override: got %v", got)
+	}
+
+	viper.Set("worker.queue.dequeue_poll_jitter_ratio", 0.5)
+	if got := WorkerQueueDequeuePollJitterRatio(); got != 0.5 {
+		t.Fatalf("WorkerQueueDequeuePollJitterRatio namespaced override: got %v", got)
+	}
+
 	viper.Set("worker.queue.dequeue_sticky_success_budget", 0)
 	if got := WorkerQueueDequeueStickySuccessBudget(); got != 64 {
 		t.Fatalf("WorkerQueueDequeueStickySuccessBudget invalid override should use default: got %d", got)
+	}
+
+	viper.Set("worker.queue.dequeue_poll_base_interval", time.Duration(0))
+	if got := WorkerQueueDequeuePollBaseInterval(); got != 250*time.Millisecond {
+		t.Fatalf("WorkerQueueDequeuePollBaseInterval invalid override should use default: got %v", got)
+	}
+
+	viper.Set("worker.queue.dequeue_poll_max_interval", time.Duration(0))
+	if got := WorkerQueueDequeuePollMaxInterval(); got != time.Second {
+		t.Fatalf("WorkerQueueDequeuePollMaxInterval invalid override should use default: got %v", got)
+	}
+
+	viper.Set("worker.queue.dequeue_poll_jitter_ratio", 1.5)
+	if got := WorkerQueueDequeuePollJitterRatio(); got != 0.2 {
+		t.Fatalf("WorkerQueueDequeuePollJitterRatio invalid override should use default: got %v", got)
+	}
+
+	viper.Set("worker.queue.dequeue_poll_base_interval", 2*time.Second)
+	viper.Set("worker.queue.dequeue_poll_max_interval", time.Second)
+	if got := WorkerQueueDequeuePollMaxInterval(); got != 2*time.Second {
+		t.Fatalf("WorkerQueueDequeuePollMaxInterval below base should clamp to base: got %v", got)
 	}
 
 	viper.Set("worker.artifact_max_bytes", int64(0))

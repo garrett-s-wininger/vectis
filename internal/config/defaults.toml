@@ -210,6 +210,9 @@ secrets.address = "localhost:8090"
 artifact_max_bytes = 1073741824
 artifact_max_run_bytes = 10737418240
 artifact_max_count = 1000
+queue.dequeue_poll_base_interval = "250ms"
+queue.dequeue_poll_jitter_ratio = 0.2
+queue.dequeue_poll_max_interval = "1s"
 queue.dequeue_sticky_success_budget = 64
 
 [worker.execution]

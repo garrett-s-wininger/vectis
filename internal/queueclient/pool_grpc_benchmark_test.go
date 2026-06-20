@@ -2,6 +2,7 @@ package queueclient_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -17,8 +18,10 @@ import (
 	"vectis/internal/registry"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/stats"
+	"google.golang.org/grpc/status"
 )
 
 func BenchmarkQueuePool_GRPCWorkerFanout(b *testing.B) {
@@ -54,6 +57,31 @@ func BenchmarkQueuePool_GRPCWorkerFanoutLarge(b *testing.B) {
 	for _, tc := range cases {
 		b.Run(fmt.Sprintf("shards_%d_workers_%05d", tc.shards, tc.workers), func(b *testing.B) {
 			runQueuePoolGRPCWorkerFanout(b, tc.shards, tc.workers)
+		})
+	}
+}
+
+func BenchmarkQueuePool_GRPCIdleDequeuePolling(b *testing.B) {
+	cases := []struct {
+		name       string
+		shards     int
+		workers    int
+		base       time.Duration
+		jitter     float64
+		max        time.Duration
+		idleWindow time.Duration
+	}{
+		{name: "fixed_250ms", shards: 1, workers: 100, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
+		{name: "fixed_250ms", shards: 1, workers: 1000, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
+		{name: "fixed_250ms", shards: 4, workers: 100, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
+		{name: "fixed_250ms", shards: 4, workers: 1000, base: 250 * time.Millisecond, max: 250 * time.Millisecond, idleWindow: 5 * time.Second},
+		{name: "exp_max_1s_jitter_20pct", shards: 1, workers: 1000, base: 250 * time.Millisecond, jitter: 0.2, max: time.Second, idleWindow: 5 * time.Second},
+		{name: "exp_max_1s_jitter_20pct", shards: 4, workers: 1000, base: 250 * time.Millisecond, jitter: 0.2, max: time.Second, idleWindow: 5 * time.Second},
+	}
+
+	for _, tc := range cases {
+		b.Run(fmt.Sprintf("%s/shards_%d_workers_%05d", tc.name, tc.shards, tc.workers), func(b *testing.B) {
+			runQueuePoolGRPCIdleDequeuePolling(b, tc.shards, tc.workers, tc.base, tc.jitter, tc.max, tc.idleWindow)
 		})
 	}
 }
@@ -192,6 +220,147 @@ func runQueuePoolGRPCWorkerFanout(b *testing.B, shardCount, workers int) {
 	b.ReportMetric(float64(queueConns+registryConns), "total_grpc_conns")
 }
 
+func runQueuePoolGRPCIdleDequeuePolling(b *testing.B, shardCount, workers int, pollBase time.Duration, pollJitter float64, pollMax, idleWindow time.Duration) {
+	if shardCount <= 0 {
+		b.Fatal("shard count must be positive")
+	}
+
+	if workers <= 0 {
+		b.Fatal("workers must be positive")
+	}
+
+	b.StopTimer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reg := startGRPCBenchmarkRegistry(b)
+	defer reg.close()
+
+	shards := startGRPCBenchmarkQueueShards(b, shardCount)
+	defer closeGRPCBenchmarkQueueShards(shards)
+	registerGRPCBenchmarkQueueShards(b, ctx, reg.address, shards)
+
+	workerClients := make([]*queueclient.ManagingQueuePoolClient, 0, workers)
+	for workerIndex := range workers {
+		client, err := queueclient.NewManagingQueuePoolClient(ctx, mocks.NopLogger{}, queueclient.QueuePoolOptions{
+			RegistryAddress:         reg.address,
+			RefreshInterval:         time.Hour,
+			DequeuePollBaseInterval: pollBase,
+			DequeuePollJitterRatio:  pollJitter,
+			DequeuePollMaxInterval:  pollMax,
+		})
+
+		if err != nil {
+			b.Fatalf("create idle worker queue pool %d: %v", workerIndex, err)
+		}
+
+		workerClients = append(workerClients, client)
+		if workerIndex%64 == 63 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	defer func() {
+		for _, client := range workerClients {
+			if err := client.Close(); err != nil {
+				b.Fatalf("close worker queue pool: %v", err)
+			}
+		}
+	}()
+
+	var measured time.Duration
+	var emptyTryDequeueRPCs int64
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		b.StopTimer()
+		beforeRPCs := measureGRPCBenchmarkQueueRPCs(shards)
+		workCtx, cancelWork := context.WithTimeout(ctx, idleWindow)
+
+		var ready sync.WaitGroup
+		var done sync.WaitGroup
+		start := make(chan struct{})
+		errs := make(chan error, workers)
+		ready.Add(workers)
+		done.Add(workers)
+
+		for _, client := range workerClients {
+			client := client
+			go func() {
+				defer done.Done()
+				ready.Done()
+				<-start
+
+				job, err := client.Dequeue(workCtx)
+				if job != nil {
+					errs <- fmt.Errorf("expected no idle dequeue job")
+					return
+				}
+
+				if err != nil && !isGRPCBenchmarkIdleDequeueTimeout(err) {
+					errs <- fmt.Errorf("idle dequeue: %w", err)
+					return
+				}
+			}()
+		}
+
+		ready.Wait()
+		b.StartTimer()
+		iterationStart := time.Now()
+		close(start)
+		done.Wait()
+		iterationMeasured := time.Since(iterationStart)
+		b.StopTimer()
+		cancelWork()
+
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		afterRPCs := measureGRPCBenchmarkQueueRPCs(shards)
+		emptyTryDequeueRPCs += afterRPCs - beforeRPCs
+		measured += iterationMeasured
+	}
+
+	if measured > 0 {
+		b.ReportMetric(float64(emptyTryDequeueRPCs)/measured.Seconds(), "empty_try_dequeue_rpcs/s")
+		b.ReportMetric(float64(workers*int(b.N))/measured.Seconds(), "idle_workers/s")
+	}
+
+	if workers > 0 && b.N > 0 {
+		b.ReportMetric(float64(emptyTryDequeueRPCs)/float64(workers*int(b.N)), "empty_try_dequeue_rpcs_per_worker")
+	}
+
+	b.ReportMetric(float64(shardCount), "shards")
+	b.ReportMetric(float64(workers), "workers")
+	b.ReportMetric(float64(pollBase)/float64(time.Millisecond), "dequeue_poll_base_interval_ms")
+	b.ReportMetric(pollJitter, "dequeue_poll_jitter_ratio")
+	b.ReportMetric(float64(pollMax)/float64(time.Millisecond), "dequeue_poll_max_interval_ms")
+	b.ReportMetric(idleWindow.Seconds(), "idle_window_s")
+
+	queueConns, queueConnPeak := measureGRPCBenchmarkQueueConns(shards)
+	workerQueueConns := queueConns - int64(shardCount)
+	if workerQueueConns < 0 {
+		workerQueueConns = 0
+	}
+
+	registryConns := reg.conns.current.Load()
+	b.ReportMetric(float64(workerQueueConns), "worker_queue_conns")
+	b.ReportMetric(float64(queueConns), "queue_conns")
+	b.ReportMetric(float64(queueConnPeak), "queue_conn_peak")
+	b.ReportMetric(float64(registryConns), "registry_conns")
+	b.ReportMetric(float64(reg.conns.max.Load()), "registry_conn_peak")
+	b.ReportMetric(float64(queueConns+registryConns), "total_grpc_conns")
+}
+
+func isGRPCBenchmarkIdleDequeueTimeout(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded
+}
+
 type grpcBenchmarkRegistry struct {
 	address  string
 	server   *grpc.Server
@@ -307,17 +476,31 @@ func measureGRPCBenchmarkQueueConns(shards []grpcBenchmarkQueueShard) (int64, in
 	return current, peak
 }
 
+func measureGRPCBenchmarkQueueRPCs(shards []grpcBenchmarkQueueShard) int64 {
+	var total int64
+	for _, shard := range shards {
+		total += shard.conns.rpcBegins.Load()
+	}
+
+	return total
+}
+
 type grpcBenchmarkConnCounter struct {
-	current atomic.Int64
-	total   atomic.Int64
-	max     atomic.Int64
+	current   atomic.Int64
+	total     atomic.Int64
+	max       atomic.Int64
+	rpcBegins atomic.Int64
 }
 
 func (c *grpcBenchmarkConnCounter) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
 	return ctx
 }
 
-func (c *grpcBenchmarkConnCounter) HandleRPC(context.Context, stats.RPCStats) {}
+func (c *grpcBenchmarkConnCounter) HandleRPC(_ context.Context, stat stats.RPCStats) {
+	if _, ok := stat.(*stats.Begin); ok {
+		c.rpcBegins.Add(1)
+	}
+}
 
 func (c *grpcBenchmarkConnCounter) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
 	return ctx
