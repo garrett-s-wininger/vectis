@@ -5346,6 +5346,30 @@ func TestRunsRepository_RequeueRunForRetry_ClearsRuntimeFields(t *testing.T) {
 			failureCode, failure, leaseOwner, leaseUntil, lastDispatched)
 	}
 
+	var oldExecutionStatus string
+	var oldExecutionLeaseOwner sql.NullString
+	var oldExecutionLeaseUntil sql.NullInt64
+	var oldExecutionClaimToken sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, lease_owner, lease_until, claim_token
+		FROM segment_executions WHERE execution_id = ?
+	`, claimedDispatch.ExecutionID).Scan(&oldExecutionStatus, &oldExecutionLeaseOwner, &oldExecutionLeaseUntil, &oldExecutionClaimToken); err != nil {
+		t.Fatalf("query retired execution: %v", err)
+	}
+
+	if oldExecutionStatus != dal.ExecutionStatusAborted || oldExecutionLeaseOwner.Valid || oldExecutionLeaseUntil.Valid || oldExecutionClaimToken.Valid {
+		t.Fatalf("expected old execution to be aborted and unclaimed, got status=%q owner=%v lease=%v token=%v", oldExecutionStatus, oldExecutionLeaseOwner, oldExecutionLeaseUntil, oldExecutionClaimToken)
+	}
+
+	var oldAttemptStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM task_attempts WHERE attempt_id = ?`, claimedDispatch.TaskAttemptID).Scan(&oldAttemptStatus); err != nil {
+		t.Fatalf("query retired task attempt: %v", err)
+	}
+
+	if oldAttemptStatus != dal.TaskStatusAborted {
+		t.Fatalf("expected old task attempt to be aborted, got %q", oldAttemptStatus)
+	}
+
 	retryDispatch, err := runs.GetPendingExecution(ctx, runID)
 	if err != nil {
 		t.Fatalf("expected retry to restore a pending execution: %v", err)
@@ -5358,6 +5382,42 @@ func TestRunsRepository_RequeueRunForRetry_ClearsRuntimeFields(t *testing.T) {
 	}
 	if retryDispatch.StartDeadlineUnixNano != 0 {
 		t.Fatalf("expected retry dispatch to clear stale start deadline, got %d", retryDispatch.StartDeadlineUnixNano)
+	}
+
+	retryClaim, err := runs.TryClaimExecution(ctx, retryDispatch.ExecutionID, "worker-retry", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim retry execution: %v", err)
+	}
+	if !retryClaim.Claimed || retryClaim.ClaimToken == "" {
+		t.Fatalf("expected retry execution to be claimable, claim=%+v", retryClaim)
+	}
+
+	result, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, retryDispatch.ExecutionID, "worker-retry", retryClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("finalize retry execution: %v", err)
+	}
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		t.Fatalf("expected retry to complete run, got %+v", result)
+	}
+
+	status, found, err := runs.GetRunStatus(ctx, runID)
+	if err != nil {
+		t.Fatalf("get retry run status: %v", err)
+	}
+	if !found || status != dal.RunStatusSucceeded {
+		t.Fatalf("expected retry run to be succeeded, found=%v status=%q", found, status)
+	}
+
+	if err := db.QueryRowContext(ctx, `
+		SELECT ta.status, se.status
+		FROM task_attempts ta
+		JOIN segment_executions se ON se.task_attempt_id = ta.attempt_id
+		WHERE ta.attempt_id = ?
+	`, claimedDispatch.TaskAttemptID).Scan(&oldAttemptStatus, &oldExecutionStatus); err != nil {
+		t.Fatalf("query historical retry attempt: %v", err)
+	}
+	if oldAttemptStatus != dal.TaskStatusAborted || oldExecutionStatus != dal.ExecutionStatusAborted {
+		t.Fatalf("expected historical attempt to remain aborted, got attempt=%q execution=%q", oldAttemptStatus, oldExecutionStatus)
 	}
 }
 

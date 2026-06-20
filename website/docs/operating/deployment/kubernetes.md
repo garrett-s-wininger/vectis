@@ -28,6 +28,7 @@ make k8s-kind-run-smoke
 make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
+make k8s-kind-run-repair-smoke
 ```
 
 The generic `k8s-*` aliases dispatch through `K8S_PROVIDER`, which defaults to
@@ -55,6 +56,10 @@ container tooling already uses Podman:
 | `K8S_ORPHAN_SMOKE_JOB` | `examples/e2e-kubernetes-orphan.json` | Long-running root task submitted by the pod-loss orphan smoke harness. |
 | `K8S_ORPHAN_LEASE_TTL` | `30s` | Temporary `VECTIS_WORKER_EXECUTION_LEASE_TTL` used by the orphan smoke. |
 | `K8S_ORPHAN_STABILITY` | `20s` | Time the orphan smoke requires the run to remain orphaned after lease expiry. |
+| `K8S_REPAIR_API_LOCAL_PORT` | `18085` | Local port used by the explicit orphan repair smoke API port-forward. |
+| `K8S_REPAIR_SMOKE_JOB` | `examples/e2e-kubernetes-repair.json` | Dynamic-cutoff job submitted by the explicit orphan repair smoke harness. |
+| `K8S_REPAIR_LEASE_TTL` | `30s` | Temporary `VECTIS_WORKER_EXECUTION_LEASE_TTL` used by the repair smoke. |
+| `K8S_REPAIR_READY_AFTER` | `75s` | Delay after repair job submission before force-requeue should take the success path. |
 | `CONTAINER_CMD` | `podman` | Runtime command used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; set `auto` for kind autodetection. |
@@ -74,6 +79,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --cancel-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scale-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
 ```
 
 The first manifest is a single-cell deployment. It includes Postgres, registry,
@@ -104,6 +110,9 @@ claim production security posture yet:
 - the orphan smoke temporarily shortens the worker execution lease TTL, deletes
   the worker pod that owns a long-running root task, verifies the run becomes
   and remains `orphaned`, and checks no extra task attempt is created;
+- the repair smoke creates pod-loss orphaned runs and then verifies explicit
+  operator repair through `force-requeue` to a second successful attempt and
+  `repair/mark-abandoned` to a terminal abandoned state;
 - `vectis-cell-ingress` is not exposed yet;
 - default Secret values are placeholders and must be overridden before shared use.
 
@@ -123,11 +132,12 @@ Use these render flags when preparing a cluster-specific manifest:
 ## Validation Direction
 
 The Kubernetes deployment lane now validates the core workload path,
-worker-control cancellation, scaled worker fanout, and pod-loss orphan safety.
+worker-control cancellation, scaled worker fanout, pod-loss orphan safety, and
+explicit orphan repair.
 The next useful checks are:
 
-1. Explicitly repair an orphaned run with force-requeue and terminal repair marks.
-2. Expose cell ingress once the mTLS edge contract is ready.
+1. Expose cell ingress once the mTLS edge contract is ready.
+2. Add production-oriented certificate issuance and rotation checks.
 
 For the current security posture and service dependencies, see
 [Security](../../concepts/security.md) and

@@ -408,7 +408,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | POST | `/api/v1/runs/{id}/repair/mark-abandoned` | Resolve an orphaned run as abandoned | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/repair/mark-queued` | Requeue a run from a repairable state | `run:operator` | general | `204` empty |
 | POST | `/api/v1/runs/{id}/force-fail` | Force a run into failed state | `run:operator` | general | `204` empty |
-| POST | `/api/v1/runs/{id}/force-requeue` | Requeue a run from a repairable state | `run:operator` | general | `202` JSON result |
+| POST | `/api/v1/runs/{id}/force-requeue` | Requeue a run from a repairable state | `run:operator` | general | `204` empty |
 | GET | `/api/v1/runs/{id}/logs` | Stream run logs as SSE | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/setup/status` | Report whether initial setup is complete and API auth is enabled | `setup:status` | auth | `200` JSON status |
 | POST | `/api/v1/setup/complete` | Create the first admin account | `setup:complete` | auth | `200` JSON token |

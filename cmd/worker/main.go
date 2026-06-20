@@ -1935,7 +1935,8 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 		w.noteDBRecovered()
 	}
 
-	if err := w.executionChoreographer().LoadRun(context.WithoutCancel(ctx), j, env, nil); err != nil {
+	snapshots := currentExecutionLoadSnapshots(env)
+	if err := w.executionChoreographer().LoadRun(context.WithoutCancel(ctx), j, env, snapshots); err != nil {
 		return fmt.Errorf("load orchestrator run: %w", err)
 	}
 
@@ -2005,6 +2006,17 @@ func taskPlanPathTo(plan []job.TaskPlanEntry, taskKey string) ([]job.TaskPlanEnt
 	return out, nil
 }
 
+func currentExecutionLoadSnapshots(env *cell.ExecutionEnvelope) []orchestrator.TaskExecutionSnapshot {
+	if env == nil || env.ExecutionID == "" {
+		return nil
+	}
+
+	return []orchestrator.TaskExecutionSnapshot{{
+		Record: orchestrator.TaskExecutionRecordFromEnvelope(env),
+		Status: dal.ExecutionStatusPending,
+	}}
+}
+
 func (w *worker) finalizeFailedTaskRunByExecutionClaim(ctx context.Context, j *api.Job, executionClaim *executionClaimState, failureCode, reason string, executionEnvelope *cell.ExecutionEnvelope) string {
 	span := trace.SpanFromContext(ctx)
 
@@ -2039,6 +2051,12 @@ func decideExecutionError(err error) executionErrorDecision {
 
 	var resultErr *workercore.TaskResultError
 	if !errors.As(err, &resultErr) {
+		if isRemoteWorkerCoreUnavailableError(err) {
+			out.disposition = executionErrorOrphaned
+			out.failureCode = ""
+			out.reason = truncateFailureReason(workerCoreUnavailableOrphanReason(err))
+		}
+
 		return out
 	}
 
@@ -2064,6 +2082,22 @@ func decideExecutionError(err error) executionErrorDecision {
 	}
 
 	return out
+}
+
+func isRemoteWorkerCoreUnavailableError(err error) bool {
+	if err == nil || status.Code(err) != codes.Unavailable {
+		return false
+	}
+
+	return strings.Contains(err.Error(), "remote worker core execute task")
+}
+
+func workerCoreUnavailableOrphanReason(err error) string {
+	if err == nil {
+		return dal.OrphanReasonWorkerCoreUnknown
+	}
+
+	return dal.OrphanReasonWorkerCoreUnknown + ": " + err.Error()
 }
 
 func workerCoreUnknownOrphanReason(resultErr *workercore.TaskResultError, fallback error) string {

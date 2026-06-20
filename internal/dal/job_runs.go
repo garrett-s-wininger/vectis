@@ -1374,12 +1374,53 @@ func (r *SQLRunsRepository) RequeueRunForRetry(ctx context.Context, runID string
 		return fmt.Errorf("%w: run %s in status %s cannot be requeued", ErrConflict, runID, status)
 	}
 
+	if err := retireRootRetryAttemptsTx(ctx, tx, runID); err != nil {
+		return err
+	}
+
 	if err := ensureRetryPendingExecutionTx(ctx, tx, runID, owningCell); err != nil {
 		return err
 	}
 
 	if err := tx.Commit(); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func retireRootRetryAttemptsTx(ctx context.Context, tx *sql.Tx, runID string) error {
+	taskID := rootTaskID(runID)
+	rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT execution_id
+		FROM segment_executions
+		WHERE run_id = ?
+			AND task_id = ?
+			AND status IN (?, ?, ?)
+		ORDER BY attempt ASC, id ASC
+	`), runID, taskID, ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	executionIDs := []string{}
+	for rows.Next() {
+		var executionID string
+		if err := rows.Scan(&executionID); err != nil {
+			return normalizeSQLError(err)
+		}
+		executionIDs = append(executionIDs, executionID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	for _, executionID := range executionIDs {
+		if _, err := transitionExecutionTx(ctx, tx, executionID, ExecutionStatusAborted, SegmentStatusAborted, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, false, false, true); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -3942,7 +3983,7 @@ func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, task
 		JOIN segment_executions se ON se.task_id = rt.task_id AND se.task_attempt_id = ta.attempt_id AND se.run_id = rt.run_id AND se.attempt = ta.attempt
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = rt.run_id
 		WHERE rt.task_id = ?
-		ORDER BY ta.attempt ASC
+		ORDER BY ta.attempt DESC
 		LIMIT 1
 	`), taskID))
 	if err != nil {
@@ -3979,6 +4020,12 @@ func taskExecutionStatusSnapshotsByParentTaskIDTx(ctx context.Context, tx *sql.T
 		JOIN segment_executions se ON se.task_id = rt.task_id AND se.task_attempt_id = ta.attempt_id AND se.run_id = rt.run_id AND se.attempt = ta.attempt
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = rt.run_id
 		WHERE rt.parent_task_id = ?
+			AND ta.attempt = (
+				SELECT MAX(ta2.attempt)
+				FROM task_attempts ta2
+				WHERE ta2.task_id = rt.task_id
+					AND ta2.run_id = rt.run_id
+			)
 		ORDER BY rt.id ASC, ta.attempt ASC
 	`), parentTaskID)
 
@@ -4027,6 +4074,12 @@ func taskExecutionStatusSnapshotsByRunIDTx(ctx context.Context, tx *sql.Tx, runI
 		JOIN segment_executions se ON se.task_id = rt.task_id AND se.task_attempt_id = ta.attempt_id AND se.run_id = rt.run_id AND se.attempt = ta.attempt
 		JOIN run_segments rs ON rs.segment_id = se.segment_id AND rs.run_id = rt.run_id
 		WHERE rt.run_id = ?
+			AND ta.attempt = (
+				SELECT MAX(ta2.attempt)
+				FROM task_attempts ta2
+				WHERE ta2.task_id = rt.task_id
+					AND ta2.run_id = rt.run_id
+			)
 		ORDER BY rt.id ASC, ta.attempt ASC
 	`), runID)
 

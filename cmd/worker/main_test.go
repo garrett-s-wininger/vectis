@@ -4200,9 +4200,9 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		t.Fatalf("requeue run for retry: %v", err)
 	}
 
-	env = attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
-	if env.ExecutionID == originalExecutionID {
-		t.Fatalf("expected retry requeue to create a new execution, got %q", env.ExecutionID)
+	retryEnv := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	if retryEnv.ExecutionID == originalExecutionID {
+		t.Fatalf("expected retry requeue to create a new execution, got %q", retryEnv.ExecutionID)
 	}
 
 	w := &worker{
@@ -4219,7 +4219,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 		choreographer: sqlExecutionChoreographer{runs: runs},
 	}
 
-	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, retryEnv)
 
 	var statusVal string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&statusVal); err != nil {
@@ -4840,6 +4840,84 @@ func TestWorkerRunTaskExecution_WorkerCoreUnknownResultOrphansRun(t *testing.T) 
 
 	if !failureReason.Valid || !strings.Contains(failureReason.String, workersdk.ReasonExternalUnavailable) || !strings.Contains(failureReason.String, "jenkins unavailable") {
 		t.Fatalf("failure reason = %v, want worker core unknown detail", failureReason)
+	}
+}
+
+func TestWorkerRunTaskExecution_RemoteWorkerCoreUnavailableOrphansRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+
+	runID, _, err := runs.CreateRun(ctx, "job-worker-core-unavailable", nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	coreErr := fmt.Errorf("remote worker core execute task: %w", status.Error(codes.Unavailable, `closing transport due to: connection error: desc = "error reading from server: EOF", received prior goaway: code: NO_ERROR, debug data: "graceful_stop"`))
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-core-unavailable",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		queue:         mocks.NewMockQueueClient(),
+		logClient:     mocks.NewMockLogClient(),
+		core: errorWorkerCore{
+			err: coreErr,
+		},
+		store:         runs,
+		choreographer: newLocalOrchestratorChoreographer(t),
+		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
+	}
+
+	jobID := "job-worker-core-unavailable"
+	deliveryID := "delivery-worker-core-unavailable"
+	commandNodeID := "node-1"
+	action := "builtins/shell"
+	j := &api.Job{
+		Id:         &jobID,
+		RunId:      &runID,
+		DeliveryId: &deliveryID,
+		Root: &api.Node{
+			Id:   &commandNodeID,
+			Uses: &action,
+		},
+	}
+
+	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	outcome := w.runTaskExecution(context.Background(), j, jobID, runID, deliveryID, env)
+	if outcome != observability.WorkerOutcomeFailed {
+		t.Fatalf("outcome: got %q, want %q", outcome, observability.WorkerOutcomeFailed)
+	}
+
+	var runStatus string
+	var failureCode string
+	var failureReason sql.NullString
+	var orphanReason sql.NullString
+	if err := db.QueryRowContext(ctx, `
+		SELECT status, failure_code, failure_reason, orphan_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`, runID).Scan(&runStatus, &failureCode, &failureReason, &orphanReason); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusOrphaned {
+		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusOrphaned)
+	}
+
+	if failureCode != "" {
+		t.Fatalf("failure code: got %q, want empty", failureCode)
+	}
+
+	if !orphanReason.Valid || orphanReason.String != dal.OrphanReasonWorkerCoreUnknown {
+		t.Fatalf("orphan reason = %v, want %q", orphanReason, dal.OrphanReasonWorkerCoreUnknown)
+	}
+
+	if !failureReason.Valid || !strings.Contains(failureReason.String, "remote worker core execute task") || !strings.Contains(failureReason.String, "graceful_stop") {
+		t.Fatalf("failure reason = %v, want worker core unavailable detail", failureReason)
 	}
 }
 

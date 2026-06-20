@@ -178,6 +178,27 @@ func TestKubernetesOrphanSmokeJobContract(t *testing.T) {
 	}
 }
 
+func TestKubernetesRepairSmokeJobContract(t *testing.T) {
+	b, err := os.ReadFile("../../examples/e2e-kubernetes-repair.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(b)
+	for _, want := range []string{
+		`"id": "e2e-kubernetes-repair-smoke"`,
+		`"id": "repair-long-until-requeued"`,
+		smokeRepairReadyAfterPlaceholder,
+		"repair-task-started",
+		"repair-task-requeued",
+		"unexpected-repair-finished",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("repair smoke job missing %q", want)
+		}
+	}
+}
+
 func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 	opts := normalizeSmokeOptions(SmokeOptions{})
 	if opts.JobPath != DefaultSmokeJobPath {
@@ -196,6 +217,10 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatalf("orphan job path = %q", opts.OrphanJobPath)
 	}
 
+	if opts.RepairJobPath != DefaultSmokeRepairJobPath {
+		t.Fatalf("repair job path = %q", opts.RepairJobPath)
+	}
+
 	if opts.ScaleWorkerReplicas != DefaultSmokeScaleWorkerReplicas {
 		t.Fatalf("scale worker replicas = %d", opts.ScaleWorkerReplicas)
 	}
@@ -210,6 +235,14 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 
 	if opts.OrphanStability != DefaultSmokeOrphanStability {
 		t.Fatalf("orphan stability = %v", opts.OrphanStability)
+	}
+
+	if opts.RepairLeaseTTL != DefaultSmokeRepairLeaseTTL {
+		t.Fatalf("repair lease ttl = %v", opts.RepairLeaseTTL)
+	}
+
+	if opts.RepairReadyAfter != DefaultSmokeRepairReadyAfter {
+		t.Fatalf("repair ready after = %v", opts.RepairReadyAfter)
 	}
 
 	if opts.CLIImage != DefaultSmokeCLIImage {

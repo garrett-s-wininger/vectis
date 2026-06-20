@@ -30,6 +30,7 @@ make k8s-kind-run-smoke
 make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
+make k8s-kind-run-repair-smoke
 ```
 
 The local contract is:
@@ -55,6 +56,10 @@ The local contract is:
 | `K8S_ORPHAN_SMOKE_JOB` | `examples/e2e-kubernetes-orphan.json` | Long-running root task submitted by the pod-loss orphan smoke harness. |
 | `K8S_ORPHAN_LEASE_TTL` | `30s` | Temporary `VECTIS_WORKER_EXECUTION_LEASE_TTL` used by the orphan smoke. |
 | `K8S_ORPHAN_STABILITY` | `20s` | Time the orphan smoke requires the run to remain orphaned after lease expiry. |
+| `K8S_REPAIR_API_LOCAL_PORT` | `18085` | Local port used by the explicit orphan repair smoke API port-forward. |
+| `K8S_REPAIR_SMOKE_JOB` | `examples/e2e-kubernetes-repair.json` | Dynamic-cutoff job submitted by the explicit orphan repair smoke harness. |
+| `K8S_REPAIR_LEASE_TTL` | `30s` | Temporary `VECTIS_WORKER_EXECUTION_LEASE_TTL` used by the repair smoke. |
+| `K8S_REPAIR_READY_AFTER` | `75s` | Delay after repair job submission before force-requeue should take the success path. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -94,7 +99,6 @@ development PKI so a re-rendered TLS Secret rolls every TLS-speaking workload in
 the same apply. Do not use it as a production PKI baseline. The next Kubernetes
 slices should add:
 
-- explicit orphan repair validation through force-requeue and repair marks;
 - cell ingress once mTLS is configured;
 - production-oriented certificate issuance and rotation hooks.
 
@@ -122,6 +126,14 @@ and requires the run to become and remain `orphaned` with a single task attempt.
 The harness restores the original worker lease TTL setting and replica count
 before exiting.
 
+`make k8s-kind-run-repair-smoke` uses the same pod-loss orphan setup twice.
+First it submits `examples/e2e-kubernetes-repair.json`, force-deletes the owning
+worker pod, waits for the run to become `orphaned`, explicitly calls
+`POST /api/v1/runs/{id}/force-requeue`, and requires the second root attempt to
+succeed. Then it creates another orphaned run and verifies
+`POST /api/v1/runs/{id}/repair/mark-abandoned` moves it to `abandoned` without
+creating another task attempt.
+
 The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
@@ -129,6 +141,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --cancel-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scale-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
 ```
 
 Build local component images before loading or pushing them to a cluster:

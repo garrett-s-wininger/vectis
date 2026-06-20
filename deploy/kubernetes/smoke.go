@@ -21,30 +21,34 @@ import (
 )
 
 const (
-	DefaultSmokeContext             = "kind-vectis"
-	DefaultSmokeJobPath             = "examples/e2e-canonical.json"
-	DefaultSmokeCancelJobPath       = "examples/e2e-kubernetes-cancel.json"
-	DefaultSmokeScaleJobPath        = "examples/e2e-kubernetes-scale.json"
-	DefaultSmokeOrphanJobPath       = "examples/e2e-kubernetes-orphan.json"
-	DefaultSmokeScaleWorkerReplicas = 3
-	DefaultSmokeScaleMinWorkers     = 2
-	DefaultSmokeOrphanLeaseTTL      = 30 * time.Second
-	DefaultSmokeOrphanStability     = 20 * time.Second
-	DefaultSmokeCLIImage            = "localhost/vectis-cli:dev-local"
-	DefaultSmokeSeedSecret          = true
-	DefaultSmokeAPIPort             = 18080
-	DefaultSmokeWait                = 180 * time.Second
-	smokeAPIServiceName             = "service/vectis-api"
-	smokeAPIRemotePort              = 8080
-	smokeWorkerDeploymentName       = "deployment/vectis-worker"
-	smokeWorkerPodSelector          = "app.kubernetes.io/name=vectis,app.kubernetes.io/component=worker"
-	smokeWorkerContainerName        = "worker"
-	smokeWorkerLeaseTTLEnv          = "VECTIS_WORKER_EXECUTION_LEASE_TTL"
-	smokeHTTPClientDelay            = 30 * time.Second
-	smokeSecretRef                  = "encryptedfs://team/smoke-token"
-	smokeSecretPlaintext            = "spiffe-secret"
-	smokeSecretRoot                 = "/data/vectis/secrets/encryptedfs"
-	smokeSecretKeyFile              = "/run/vectis/secrets/encryptedfs.key"
+	DefaultSmokeContext              = "kind-vectis"
+	DefaultSmokeJobPath              = "examples/e2e-canonical.json"
+	DefaultSmokeCancelJobPath        = "examples/e2e-kubernetes-cancel.json"
+	DefaultSmokeScaleJobPath         = "examples/e2e-kubernetes-scale.json"
+	DefaultSmokeOrphanJobPath        = "examples/e2e-kubernetes-orphan.json"
+	DefaultSmokeRepairJobPath        = "examples/e2e-kubernetes-repair.json"
+	DefaultSmokeScaleWorkerReplicas  = 3
+	DefaultSmokeScaleMinWorkers      = 2
+	DefaultSmokeOrphanLeaseTTL       = 30 * time.Second
+	DefaultSmokeOrphanStability      = 20 * time.Second
+	DefaultSmokeRepairLeaseTTL       = 30 * time.Second
+	DefaultSmokeRepairReadyAfter     = 75 * time.Second
+	DefaultSmokeCLIImage             = "localhost/vectis-cli:dev-local"
+	DefaultSmokeSeedSecret           = true
+	DefaultSmokeAPIPort              = 18080
+	DefaultSmokeWait                 = 180 * time.Second
+	smokeAPIServiceName              = "service/vectis-api"
+	smokeAPIRemotePort               = 8080
+	smokeWorkerDeploymentName        = "deployment/vectis-worker"
+	smokeWorkerPodSelector           = "app.kubernetes.io/name=vectis,app.kubernetes.io/component=worker"
+	smokeWorkerContainerName         = "worker"
+	smokeWorkerLeaseTTLEnv           = "VECTIS_WORKER_EXECUTION_LEASE_TTL"
+	smokeRepairReadyAfterPlaceholder = "__VECTIS_REPAIR_READY_AFTER_UNIX__"
+	smokeHTTPClientDelay             = 30 * time.Second
+	smokeSecretRef                   = "encryptedfs://team/smoke-token"
+	smokeSecretPlaintext             = "spiffe-secret"
+	smokeSecretRoot                  = "/data/vectis/secrets/encryptedfs"
+	smokeSecretKeyFile               = "/run/vectis/secrets/encryptedfs.key"
 )
 
 type SmokeOptions struct {
@@ -55,13 +59,17 @@ type SmokeOptions struct {
 	CancelJobPath       string
 	ScaleJobPath        string
 	OrphanJobPath       string
+	RepairJobPath       string
 	CancelOnly          bool
 	ScaleOnly           bool
 	OrphanOnly          bool
+	RepairOnly          bool
 	ScaleWorkerReplicas int
 	ScaleMinWorkers     int
 	OrphanLeaseTTL      time.Duration
 	OrphanStability     time.Duration
+	RepairLeaseTTL      time.Duration
+	RepairReadyAfter    time.Duration
 	CLIImage            string
 	SeedSecret          *bool
 	APILocalPort        int
@@ -80,12 +88,21 @@ type SmokeResult struct {
 	RunStatus    string               `json:"run_status"`
 	WorkerOwners []string             `json:"worker_owners,omitempty"`
 	DeletedPod   string               `json:"deleted_pod,omitempty"`
+	RepairChecks []SmokeRepairCheck   `json:"repair_checks,omitempty"`
 	Artifacts    []SmokeArtifactCheck `json:"artifacts"`
 }
 
 type SmokeArtifactCheck struct {
 	Name  string `json:"name"`
 	Bytes int    `json:"bytes"`
+}
+
+type SmokeRepairCheck struct {
+	Action     string `json:"action"`
+	RunID      string `json:"run_id"`
+	RunStatus  string `json:"run_status"`
+	DeletedPod string `json:"deleted_pod,omitempty"`
+	Attempts   int    `json:"attempts,omitempty"`
 }
 
 type smokeJobRunResult struct {
@@ -182,6 +199,9 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	}
 	if opts.OrphanOnly {
 		return runOrphanSmoke(ctx, opts)
+	}
+	if opts.RepairOnly {
+		return runRepairSmoke(ctx, opts)
 	}
 
 	if err := validateSmokeOptions(opts); err != nil {
@@ -421,21 +441,238 @@ func runScaleSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) 
 	return result, nil
 }
 
+type smokeJobSubmitFunc func(client *http.Client, baseURL string, opts SmokeOptions) (smokeJobRunResult, error)
+
+type smokePodLossScenario struct {
+	Name      string
+	JobPath   string
+	LeaseTTL  time.Duration
+	Stability time.Duration
+	Submit    smokeJobSubmitFunc
+}
+
+type smokePodLossResult struct {
+	Run        smokeJobRunResult
+	Detail     smokeRunDetail
+	Owner      string
+	DeletedPod string
+}
+
 func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if err := validateSmokeOptions(opts); err != nil {
 		return SmokeResult{}, err
+	}
+
+	orphan, err := runPodLossOrphanScenario(ctx, opts, smokePodLossScenario{
+		Name:      "orphan smoke",
+		JobPath:   opts.OrphanJobPath,
+		LeaseTTL:  opts.OrphanLeaseTTL,
+		Stability: opts.OrphanStability,
+	})
+
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	result := SmokeResult{
+		Status:       "ok",
+		Context:      strings.TrimSpace(opts.Context),
+		Namespace:    opts.Namespace,
+		JobPath:      opts.OrphanJobPath,
+		JobID:        smokeJobID(orphan.Run),
+		RunID:        orphan.Run.RunID,
+		RunStatus:    orphan.Detail.Status,
+		WorkerOwners: []string{orphan.Owner},
+		DeletedPod:   orphan.DeletedPod,
+	}
+
+	fmt.Fprintf(opts.Stdout, "Kubernetes orphan smoke succeeded: run_id=%s deleted_pod=%s owner=%s\n", orphan.Run.RunID, orphan.DeletedPod, orphan.Owner)
+	return result, nil
+}
+
+func runRepairSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
+	if err := validateSmokeOptions(opts); err != nil {
+		return SmokeResult{}, err
+	}
+
+	if strings.TrimSpace(opts.RepairJobPath) == "" {
+		return SmokeResult{}, fmt.Errorf("repair job path is required")
 	}
 
 	if strings.TrimSpace(opts.OrphanJobPath) == "" {
 		return SmokeResult{}, fmt.Errorf("orphan job path is required")
 	}
 
-	if opts.OrphanLeaseTTL <= 0 {
-		return SmokeResult{}, fmt.Errorf("orphan lease ttl must be > 0")
+	if opts.RepairLeaseTTL <= 0 {
+		return SmokeResult{}, fmt.Errorf("repair lease ttl must be > 0")
 	}
 
-	if opts.OrphanStability < 0 {
-		return SmokeResult{}, fmt.Errorf("orphan stability must be >= 0")
+	if opts.RepairReadyAfter <= 0 {
+		return SmokeResult{}, fmt.Errorf("repair ready-after must be > 0")
+	}
+
+	out := opts.Stdout
+	var readyAt time.Time
+	repairSubmit := func(client *http.Client, baseURL string, submitOpts SmokeOptions) (smokeJobRunResult, error) {
+		readyAt = time.Now().Add(opts.RepairReadyAfter)
+		replacements := map[string]string{
+			smokeRepairReadyAfterPlaceholder: strconv.FormatInt(readyAt.Unix(), 10),
+		}
+
+		return submitSmokeJobWithReplacements(client, baseURL, submitOpts, replacements)
+	}
+
+	requeueOrphan, err := runPodLossOrphanScenario(ctx, opts, smokePodLossScenario{
+		Name:     "repair force-requeue smoke",
+		JobPath:  opts.RepairJobPath,
+		LeaseTTL: opts.RepairLeaseTTL,
+		Submit:   repairSubmit,
+	})
+
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	if readyAt.IsZero() {
+		return SmokeResult{}, fmt.Errorf("repair smoke did not record retry readiness cutoff")
+	}
+
+	if err := waitUntilSmokeTime(ctx, readyAt, out, "force-requeue retry success window"); err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintf(out, "Starting API port-forward on 127.0.0.1:%d\n", opts.APILocalPort)
+	pf, err := startSmokeAPIPortForward(ctx, opts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	defer func() {
+		if pf != nil {
+			pf.stop()
+		}
+	}()
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", opts.APILocalPort)
+	client := &http.Client{Timeout: smokeHTTPClientDelay}
+
+	fmt.Fprintf(out, "Force-requeueing orphaned run_id=%s\n", requeueOrphan.Run.RunID)
+	if err := forceRequeueSmokeRun(client, baseURL, opts.APIToken, requeueOrphan.Run.RunID); err != nil {
+		return SmokeResult{}, err
+	}
+
+	runCtx, runCancel := context.WithTimeout(ctx, opts.Wait)
+	requeuedDetail, err := waitForSmokeRunStatus(runCtx, client, baseURL, opts.APIToken, requeueOrphan.Run.RunID, out, "succeeded")
+	runCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	if err := assertSmokeRunTaskAttemptCount(client, baseURL, opts.APIToken, requeueOrphan.Run.RunID, "root", 2); err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintln(out, "Verifying force-requeue retry logs")
+	logCtx, logCancel := context.WithTimeout(ctx, opts.Wait)
+	err = waitForSmokeLogMarkers(logCtx, baseURL, opts.APIToken, requeueOrphan.Run.RunID, []string{"repair-task-requeued"}, out)
+	logCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	pf.stop()
+	pf = nil
+
+	checks := []SmokeRepairCheck{{
+		Action:     "force-requeue",
+		RunID:      requeueOrphan.Run.RunID,
+		RunStatus:  requeuedDetail.Status,
+		DeletedPod: requeueOrphan.DeletedPod,
+		Attempts:   2,
+	}}
+
+	fmt.Fprintln(out, "Creating orphaned run for repair mark-abandoned")
+	markOrphan, err := runPodLossOrphanScenario(ctx, opts, smokePodLossScenario{
+		Name:     "repair mark-abandoned smoke",
+		JobPath:  opts.OrphanJobPath,
+		LeaseTTL: opts.RepairLeaseTTL,
+	})
+
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintf(out, "Starting API port-forward on 127.0.0.1:%d\n", opts.APILocalPort)
+	markPF, err := startSmokeAPIPortForward(ctx, opts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+	defer markPF.stop()
+
+	markBaseURL := fmt.Sprintf("http://127.0.0.1:%d", opts.APILocalPort)
+	fmt.Fprintf(out, "Repair-marking orphaned run_id=%s abandoned\n", markOrphan.Run.RunID)
+	if err := repairMarkSmokeRun(client, markBaseURL, opts.APIToken, markOrphan.Run.RunID, "abandoned", "kubernetes repair smoke mark-abandoned"); err != nil {
+		return SmokeResult{}, err
+	}
+
+	markCtx, markCancel := context.WithTimeout(ctx, opts.Wait)
+	markedDetail, err := waitForSmokeRunStatus(markCtx, client, markBaseURL, opts.APIToken, markOrphan.Run.RunID, out, "abandoned")
+	markCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	if err := assertSmokeRunTaskAttemptCount(client, markBaseURL, opts.APIToken, markOrphan.Run.RunID, "root", 1); err != nil {
+		return SmokeResult{}, err
+	}
+
+	checks = append(checks, SmokeRepairCheck{
+		Action:     "mark-abandoned",
+		RunID:      markOrphan.Run.RunID,
+		RunStatus:  markedDetail.Status,
+		DeletedPod: markOrphan.DeletedPod,
+		Attempts:   1,
+	})
+
+	result := SmokeResult{
+		Status:       "ok",
+		Context:      strings.TrimSpace(opts.Context),
+		Namespace:    opts.Namespace,
+		JobPath:      opts.RepairJobPath,
+		JobID:        smokeJobID(requeueOrphan.Run),
+		RunID:        requeueOrphan.Run.RunID,
+		RunStatus:    requeuedDetail.Status,
+		WorkerOwners: []string{requeueOrphan.Owner, markOrphan.Owner},
+		DeletedPod:   requeueOrphan.DeletedPod,
+		RepairChecks: checks,
+	}
+
+	fmt.Fprintf(out, "Kubernetes repair smoke succeeded: force_requeue_run_id=%s mark_abandoned_run_id=%s\n", requeueOrphan.Run.RunID, markOrphan.Run.RunID)
+	return result, nil
+}
+
+func runPodLossOrphanScenario(ctx context.Context, opts SmokeOptions, scenario smokePodLossScenario) (smokePodLossResult, error) {
+	name := strings.TrimSpace(scenario.Name)
+	if name == "" {
+		name = "pod-loss smoke"
+	}
+
+	jobPath := strings.TrimSpace(scenario.JobPath)
+	if jobPath == "" {
+		return smokePodLossResult{}, fmt.Errorf("%s job path is required", name)
+	}
+
+	if scenario.LeaseTTL <= 0 {
+		return smokePodLossResult{}, fmt.Errorf("%s lease ttl must be > 0", name)
+	}
+
+	if scenario.Stability < 0 {
+		return smokePodLossResult{}, fmt.Errorf("%s stability must be >= 0", name)
+	}
+
+	submit := scenario.Submit
+	if submit == nil {
+		submit = submitSmokeJob
 	}
 
 	out := opts.Stdout
@@ -443,19 +680,20 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	deployment, err := fetchSmokeWorkerDeployment(setupCtx, opts)
 	setupCancel()
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
 	originalReplicas := smokeDeploymentReplicas(deployment)
 	restoreReplicas := false
 	if originalReplicas != 1 {
-		fmt.Fprintf(out, "Scaling %s from %d to 1 replica for orphan smoke\n", smokeWorkerDeploymentName, originalReplicas)
+		fmt.Fprintf(out, "Scaling %s from %d to 1 replica for %s\n", smokeWorkerDeploymentName, originalReplicas, name)
 		scaleCtx, scaleCancel := context.WithTimeout(ctx, opts.Wait)
 		err = scaleSmokeWorkerDeployment(scaleCtx, opts, 1)
 		scaleCancel()
 		if err != nil {
-			return SmokeResult{}, err
+			return smokePodLossResult{}, err
 		}
+
 		restoreReplicas = true
 	}
 
@@ -464,14 +702,15 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	}
 
 	originalLeaseTTL, hadLeaseTTL := smokeDeploymentContainerEnv(deployment, smokeWorkerContainerName, smokeWorkerLeaseTTLEnv)
-	desiredLeaseTTL := opts.OrphanLeaseTTL.String()
+	desiredLeaseTTL := scenario.LeaseTTL.String()
 	if originalLeaseTTL != desiredLeaseTTL {
 		fmt.Fprintf(out, "Temporarily setting %s=%s on %s\n", smokeWorkerLeaseTTLEnv, desiredLeaseTTL, smokeWorkerDeploymentName)
 		envCtx, envCancel := context.WithTimeout(ctx, opts.Wait)
 		err = setSmokeWorkerEnv(envCtx, opts, smokeWorkerLeaseTTLEnv, desiredLeaseTTL)
 		envCancel()
+
 		if err != nil {
-			return SmokeResult{}, err
+			return smokePodLossResult{}, err
 		}
 		defer restoreSmokeWorkerEnv(opts, smokeWorkerLeaseTTLEnv, originalLeaseTTL, hadLeaseTTL)
 	}
@@ -480,14 +719,14 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	workerPod, err := waitForSingleReadySmokeWorkerPod(podCtx, opts, "")
 	podCancel()
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
-	fmt.Fprintf(out, "Using worker pod %s for orphan smoke\n", workerPod.Metadata.Name)
+	fmt.Fprintf(out, "Using worker pod %s for %s\n", workerPod.Metadata.Name, name)
 	fmt.Fprintf(out, "Starting API port-forward on 127.0.0.1:%d\n", opts.APILocalPort)
 	pf, err := startSmokeAPIPortForward(ctx, opts)
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 	defer pf.stop()
 
@@ -495,11 +734,11 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	client := &http.Client{Timeout: smokeHTTPClientDelay}
 
 	submitOpts := opts
-	submitOpts.JobPath = opts.OrphanJobPath
+	submitOpts.JobPath = jobPath
 	fmt.Fprintf(out, "Submitting %s\n", submitOpts.JobPath)
-	run, err := submitSmokeJob(client, baseURL, submitOpts)
+	run, err := submit(client, baseURL, submitOpts)
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
 	fmt.Fprintf(out, "Submitted job_id=%s run_id=%s\n", smokeJobID(run), run.RunID)
@@ -507,11 +746,11 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	owner, err := waitForSmokeTaskLeaseOwner(ownerCtx, client, baseURL, opts.APIToken, run.RunID, "root", out)
 	ownerCancel()
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
 	if err := assertSmokeRunTaskAttemptCount(client, baseURL, opts.APIToken, run.RunID, "root", 1); err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
 	fmt.Fprintf(out, "Deleting active worker pod %s with root owner %s\n", workerPod.Metadata.Name, owner)
@@ -519,14 +758,14 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	err = deleteSmokePod(deleteCtx, opts, workerPod.Metadata.Name)
 	deleteCancel()
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
 	replacementCtx, replacementCancel := context.WithTimeout(ctx, opts.Wait)
 	replacementPod, err := waitForSingleReadySmokeWorkerPod(replacementCtx, opts, workerPod.Metadata.Name)
 	replacementCancel()
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
 	fmt.Fprintf(out, "Replacement worker pod ready: %s\n", replacementPod.Metadata.Name)
@@ -534,37 +773,29 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	detail, err := waitForSmokeRunStatus(runCtx, client, baseURL, opts.APIToken, run.RunID, out, "orphaned")
 	runCancel()
 	if err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
 	if err := assertSmokeRunTaskAttemptCount(client, baseURL, opts.APIToken, run.RunID, "root", 1); err != nil {
-		return SmokeResult{}, err
+		return smokePodLossResult{}, err
 	}
 
-	if opts.OrphanStability > 0 {
-		fmt.Fprintf(out, "Verifying run remains orphaned for %v\n", opts.OrphanStability)
-		stabilityCtx, stabilityCancel := context.WithTimeout(ctx, opts.OrphanStability)
+	if scenario.Stability > 0 {
+		fmt.Fprintf(out, "Verifying run remains orphaned for %v\n", scenario.Stability)
+		stabilityCtx, stabilityCancel := context.WithTimeout(ctx, scenario.Stability)
 		err = assertSmokeRunRemainsOrphaned(stabilityCtx, client, baseURL, opts.APIToken, run.RunID, "root", 1, out)
 		stabilityCancel()
 		if err != nil {
-			return SmokeResult{}, err
+			return smokePodLossResult{}, err
 		}
 	}
 
-	result := SmokeResult{
-		Status:       "ok",
-		Context:      strings.TrimSpace(opts.Context),
-		Namespace:    opts.Namespace,
-		JobPath:      opts.OrphanJobPath,
-		JobID:        smokeJobID(run),
-		RunID:        run.RunID,
-		RunStatus:    detail.Status,
-		WorkerOwners: []string{owner},
-		DeletedPod:   workerPod.Metadata.Name,
-	}
-
-	fmt.Fprintf(out, "Kubernetes orphan smoke succeeded: run_id=%s deleted_pod=%s owner=%s\n", run.RunID, workerPod.Metadata.Name, owner)
-	return result, nil
+	return smokePodLossResult{
+		Run:        run,
+		Detail:     detail,
+		Owner:      owner,
+		DeletedPod: workerPod.Metadata.Name,
+	}, nil
 }
 
 func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
@@ -599,6 +830,11 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 		opts.OrphanJobPath = DefaultSmokeOrphanJobPath
 	}
 
+	opts.RepairJobPath = strings.TrimSpace(opts.RepairJobPath)
+	if opts.RepairJobPath == "" {
+		opts.RepairJobPath = DefaultSmokeRepairJobPath
+	}
+
 	if opts.ScaleWorkerReplicas == 0 {
 		opts.ScaleWorkerReplicas = DefaultSmokeScaleWorkerReplicas
 	}
@@ -613,6 +849,14 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 
 	if opts.OrphanStability == 0 {
 		opts.OrphanStability = DefaultSmokeOrphanStability
+	}
+
+	if opts.RepairLeaseTTL == 0 {
+		opts.RepairLeaseTTL = DefaultSmokeRepairLeaseTTL
+	}
+
+	if opts.RepairReadyAfter == 0 {
+		opts.RepairReadyAfter = DefaultSmokeRepairReadyAfter
 	}
 
 	opts.CLIImage = strings.TrimSpace(opts.CLIImage)
@@ -1154,11 +1398,28 @@ func (b *smokeLineBuffer) String() string {
 }
 
 func submitSmokeJob(client *http.Client, baseURL string, opts SmokeOptions) (smokeJobRunResult, error) {
+	return submitSmokeJobWithReplacements(client, baseURL, opts, nil)
+}
+
+func submitSmokeJobWithReplacements(client *http.Client, baseURL string, opts SmokeOptions, replacements map[string]string) (smokeJobRunResult, error) {
 	body, err := os.ReadFile(opts.JobPath)
 	if err != nil {
 		return smokeJobRunResult{}, fmt.Errorf("read smoke job %s: %w", opts.JobPath, err)
 	}
 
+	if len(replacements) > 0 {
+		text := string(body)
+		for placeholder, value := range replacements {
+			text = strings.ReplaceAll(text, placeholder, value)
+		}
+
+		body = []byte(text)
+	}
+
+	return submitSmokeJobBody(client, baseURL, opts, body)
+}
+
+func submitSmokeJobBody(client *http.Client, baseURL string, opts SmokeOptions, body []byte) (smokeJobRunResult, error) {
 	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, "/api/v1/jobs/run", opts.APIToken, bytes.NewReader(body))
 	if err != nil {
 		return smokeJobRunResult{}, err
@@ -1185,6 +1446,24 @@ func submitSmokeJob(client *http.Client, baseURL string, opts SmokeOptions) (smo
 	}
 
 	return result, nil
+}
+
+func waitUntilSmokeTime(ctx context.Context, target time.Time, out io.Writer, reason string) error {
+	wait := time.Until(target)
+	if wait <= 0 {
+		return nil
+	}
+
+	fmt.Fprintf(out, "Waiting %v for %s\n", wait.Round(time.Second), reason)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("cancelled waiting for %s: %w", reason, ctx.Err())
+	}
 }
 
 func waitForSmokeRunStatus(ctx context.Context, client *http.Client, baseURL, token, runID string, out io.Writer, expectedStatuses ...string) (smokeRunDetail, error) {
@@ -1490,6 +1769,56 @@ func cancelSmokeRun(client *http.Client, baseURL, token, runID string) error {
 	default:
 		return smokeUnexpectedStatus("cancel smoke run", resp)
 	}
+}
+
+func forceRequeueSmokeRun(client *http.Client, baseURL, token, runID string) error {
+	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, fmt.Sprintf("/api/v1/runs/%s/force-requeue", url.PathEscape(runID)), token, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("force-requeue smoke run: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return smokeUnexpectedStatus("force-requeue smoke run", resp)
+	}
+
+	return nil
+}
+
+func repairMarkSmokeRun(client *http.Client, baseURL, token, runID, status, reason string) error {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return fmt.Errorf("repair mark status is required")
+	}
+
+	body, err := json.Marshal(map[string]string{"reason": reason})
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/api/v1/runs/%s/repair/mark-%s", url.PathEscape(runID), url.PathEscape(status))
+	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, path, token, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("repair-mark smoke run: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return smokeUnexpectedStatus("repair-mark smoke run", resp)
+	}
+
+	return nil
 }
 
 func fetchSmokeRunDetail(client *http.Client, baseURL, token, runID string) (smokeRunDetail, error) {
