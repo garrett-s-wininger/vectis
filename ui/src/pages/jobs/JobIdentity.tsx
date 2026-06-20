@@ -3,9 +3,9 @@ import { ResourceStatus } from "../shared";
 import styles from "./JobsPage.module.css";
 import { getJobSourceDetail } from "./JobPresentation";
 
-export function JobIdentity({ job, onSelect, selected }: { job: Job; onSelect: () => void; selected: boolean }) {
+export function JobIdentity({ job }: { job: Job }) {
   return (
-    <button aria-pressed={selected} className={styles.identity} onClick={onSelect} type="button">
+    <div className={styles.identity}>
       <div className={styles.identityTitle}>
         <strong>{job.name}</strong>
       </div>
@@ -15,7 +15,6 @@ export function JobIdentity({ job, onSelect, selected }: { job: Job; onSelect: (
           {job.status === "enabled" ? "Enabled" : "Paused"}
         </ResourceStatus>
       </span>
-      <span className={styles.identityChevron} aria-hidden="true" />
-    </button>
+    </div>
   );
 }

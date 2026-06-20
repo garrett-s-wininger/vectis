@@ -138,10 +138,6 @@ describe("JobsPage", () => {
     );
 
     expect(screen.getByText("None")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /test-run/ }));
-
-    expect(screen.getAllByText("None")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "View latest run for test-run" })).not.toBeInTheDocument();
   });
 

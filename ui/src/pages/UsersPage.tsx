@@ -11,7 +11,7 @@ import { SelectField } from "../components";
 import type { CreatedUserCredential } from "../data/consoleDataSource";
 import type { AssignableUserRole, NewUser, User, UserStatus } from "../domain/console";
 import { userRoleOptions } from "../domain/consoleOptions";
-import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle, TableActions } from "./shared";
+import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle } from "./shared";
 import { UserDetailPage } from "./users/UserDetailPage";
 import { UserModals } from "./users/UserModals";
 import { roleTone } from "./users/UserPresentation";
@@ -113,18 +113,6 @@ export function UsersPage({
           {user.status === "active" ? "Active" : "Disabled"}
         </ResourceStatus>
       )
-    },
-    {
-      align: "end",
-      header: "Actions",
-      cell: (user) => (
-        <TableActions className={styles.userActions}>
-          <Button aria-label={`View ${user.username}`} className={styles.userActionButton} onClick={() => onOpenUser(user.id)} variant="quiet">
-            View
-          </Button>
-        </TableActions>
-      ),
-      width: "92px"
     }
   ];
 
@@ -242,7 +230,14 @@ export function UsersPage({
         </section>
 
         {users.length > 0 ? (
-          <DataTable columns={columns} emptyMessage="No users found." getRowKey={(user) => user.id} rows={users} />
+          <DataTable
+            columns={columns}
+            emptyMessage="No users found."
+            getRowActionLabel={(user) => `View ${user.username}`}
+            getRowKey={(user) => user.id}
+            onRowClick={(user) => onOpenUser(user.id)}
+            rows={users}
+          />
         ) : (
           <EmptyStateRail>
             <EmptyStatePanel

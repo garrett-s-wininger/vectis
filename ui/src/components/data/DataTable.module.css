@@ -64,6 +64,15 @@
   box-shadow: inset var(--space-2xs) 0 0 var(--color-primary);
 }
 
+.root tbody tr[data-clickable="true"] {
+  cursor: pointer;
+}
+
+.root tbody tr[data-clickable="true"]:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 .root tbody tr[aria-selected="true"] {
   background:
     linear-gradient(90deg, rgb(30 116 139 / 9%), transparent 38%),

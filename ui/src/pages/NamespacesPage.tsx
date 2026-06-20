@@ -9,7 +9,7 @@ import { MetricCard } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { Job, Namespace, NewNamespace, UpdateNamespace } from "../domain/console";
-import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle, TableActions } from "./shared";
+import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle } from "./shared";
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {
@@ -135,26 +135,6 @@ export function NamespacesPage({
         </ResourceStatus>
       ),
       width: "132px"
-    },
-    {
-      align: "end",
-      header: "Actions",
-      cell: (namespace) => (
-        <TableActions>
-          <Button aria-label={`View ${namespace.path}`} onClick={() => onOpenNamespace(namespace.id)} variant="quiet">
-            View
-          </Button>
-          <Button
-            aria-label={`Delete ${namespace.path}`}
-            disabled={!canDeleteNamespace(namespace.id)}
-            onClick={() => onDeleteNamespace(namespace.id)}
-            variant="quiet"
-          >
-            Delete
-          </Button>
-        </TableActions>
-      ),
-      width: "116px"
     }
   ];
 
@@ -251,7 +231,9 @@ export function NamespacesPage({
           <DataTable
             columns={columns}
             emptyMessage="No namespaces found."
+            getRowActionLabel={(namespace) => `View ${namespace.path}`}
             getRowKey={(namespace) => String(namespace.id)}
+            onRowClick={(namespace) => onOpenNamespace(namespace.id)}
             rows={namespaces}
           />
         ) : (
@@ -340,18 +322,6 @@ function NamespaceDetail({
       header: "Access",
       cell: (child) => <ResourceStatus tone={roleTone(child.role)}>{child.role}</ResourceStatus>,
       width: "124px"
-    },
-    {
-      align: "end",
-      header: "Actions",
-      cell: (child) => (
-        <TableActions>
-          <Button aria-label={`View ${child.path}`} onClick={() => onOpenNamespace(child.id)} variant="quiet">
-            View
-          </Button>
-        </TableActions>
-      ),
-      width: "104px"
     }
   ];
 
@@ -464,7 +434,9 @@ function NamespaceDetail({
           <DataTable
             columns={childColumns}
             emptyMessage="No child namespaces."
+            getRowActionLabel={(child) => `View ${child.path}`}
             getRowKey={(child) => String(child.id)}
+            onRowClick={(child) => onOpenNamespace(child.id)}
             rows={childNamespaces}
           />
         </section>

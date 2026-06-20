@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
 import { JobsPageHarness, PageStoryFrame } from "../mocks/pageHarnesses";
 import { JobsPage } from "./JobsPage";
@@ -44,6 +45,10 @@ export const NamespaceScoped: Story = {
   render: () => <JobsPageHarness namespacePath="/team-a/edge" />
 };
 
+export const RowNavigation: Story = {
+  render: () => <RowNavigationStory />
+};
+
 export const PausedJob: Story = {
   render: () => {
     return (
@@ -85,3 +90,28 @@ export const Empty: Story = {
     />
   )
 };
+
+function RowNavigationStory() {
+  const [detailJobID, setDetailJobID] = useState<string | undefined>();
+
+  return (
+    <JobsPage
+      allJobs={data.jobs}
+      detailJobID={detailJobID}
+      jobs={data.jobs}
+      namespaces={data.namespaces}
+      namespacePath="/"
+      onCloseEditor={() => setDetailJobID(undefined)}
+      onCreateJob={() => undefined}
+      onOpenCreate={() => undefined}
+      onOpenEditor={() => undefined}
+      onOpenJob={(jobID) => setDetailJobID(jobID || undefined)}
+      onOpenJobRuns={() => undefined}
+      onSelectRun={() => undefined}
+      onSelectNamespace={() => undefined}
+      onTriggerRun={() => undefined}
+      onUpdateJob={() => undefined}
+      runs={data.runs}
+    />
+  );
+}

@@ -72,7 +72,7 @@ describe("NamespacesPage", () => {
     });
   });
 
-  it("only enables delete when the namespace can be removed", () => {
+  it("keeps destructive actions out of the namespace list", () => {
     render(
       <NamespacesPage
         canDeleteNamespace={(namespaceID) => namespaceID === 2}
@@ -90,8 +90,51 @@ describe("NamespacesPage", () => {
       />
     );
 
-    expect(screen.getByLabelText("Delete /")).toBeDisabled();
-    expect(screen.getByLabelText("Delete /team-a")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "View /" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View /team-a" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Delete/ })).not.toBeInTheDocument();
+  });
+
+  it("only enables delete on namespace detail when the namespace can be removed", () => {
+    const { rerender } = render(
+      <NamespacesPage
+        canDeleteNamespace={() => false}
+        editorMode={null}
+        jobs={jobs}
+        namespaces={namespaces}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
+        onCreateNamespace={() => undefined}
+        onDeleteNamespace={() => undefined}
+        onOpenJobs={() => undefined}
+        onOpenNamespace={() => undefined}
+        onOpenNamespaces={() => undefined}
+        onUpdateNamespace={() => undefined}
+        selectedNamespaceID={1}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+
+    rerender(
+      <NamespacesPage
+        canDeleteNamespace={(namespaceID) => namespaceID === 2}
+        editorMode={null}
+        jobs={jobs}
+        namespaces={namespaces}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
+        onCreateNamespace={() => undefined}
+        onDeleteNamespace={() => undefined}
+        onOpenJobs={() => undefined}
+        onOpenNamespace={() => undefined}
+        onOpenNamespaces={() => undefined}
+        onUpdateNamespace={() => undefined}
+        selectedNamespaceID={2}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
   });
 
   it("shows namespace details with jobs and children", () => {

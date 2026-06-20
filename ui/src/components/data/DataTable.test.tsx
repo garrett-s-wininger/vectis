@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { DataTable, type DataTableColumn } from "./DataTable";
 
 type Row = {
@@ -49,5 +49,28 @@ describe("DataTable", () => {
 
     expect(screen.getByRole("row", { name: "docs-publish Paused" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("row", { name: "api-test-suite Enabled" })).not.toHaveAttribute("aria-selected");
+  });
+
+  it("supports clickable rows with keyboard activation", () => {
+    const onRowClick = vi.fn();
+
+    render(
+      <DataTable
+        columns={columns}
+        getRowActionLabel={(row) => `View ${row.name}`}
+        getRowKey={(row) => row.id}
+        onRowClick={onRowClick}
+        rows={[
+          { id: "1", name: "api-test-suite", status: "Enabled" },
+          { id: "2", name: "docs-publish", status: "Paused" }
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View api-test-suite" }));
+    expect(onRowClick).toHaveBeenCalledWith({ id: "1", name: "api-test-suite", status: "Enabled" });
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "View docs-publish" }), { key: "Enter" });
+    expect(onRowClick).toHaveBeenCalledWith({ id: "2", name: "docs-publish", status: "Paused" });
   });
 });

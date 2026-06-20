@@ -7,7 +7,7 @@ import type { RunListItem } from "../components";
 import type { Job, Namespace, NewJob, UpdateJob } from "../domain/console";
 import { JobDetailPage } from "./jobs/JobDetailPage";
 import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEditor";
-import { JobWorkspace } from "./jobs/JobWorkspace";
+import { JobList } from "./jobs/JobList";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
 import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
 import { EmptyStateRail, PageMissingState } from "./shared";
@@ -174,14 +174,7 @@ export function JobsPage({
         </EmptyStateRail>
       ) : null}
       {!editorMode && jobs.length > 0 ? (
-        <JobWorkspace
-          jobs={jobs}
-          onEdit={startEditJob}
-          onOpen={onOpenJob}
-          onSelectRun={onSelectRun}
-          onTrigger={onTriggerRun}
-          runs={runs}
-        />
+        <JobList jobs={jobs} onOpen={onOpenJob} runs={runs} />
       ) : null}
     </>
   );

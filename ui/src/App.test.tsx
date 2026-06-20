@@ -304,8 +304,9 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Jobs" });
 
-    fireEvent.click(screen.getByRole("button", { name: /docs-publish/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Trigger docs-publish" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "View docs-publish" }));
+    expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run docs-publish" }));
     fireEvent.click(screen.getByRole("link", { name: "Runs" }));
 
     expect(await screen.findByText("Run #1241")).toBeInTheDocument();
@@ -324,8 +325,7 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Jobs" });
 
-    fireEvent.click(screen.getByRole("button", { name: /docs-publish/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: "View docs-publish" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "View docs-publish" }));
 
     expect(await screen.findByRole("heading", { name: "docs-publish" })).toBeInTheDocument();
     expect(screen.getByText("Publishes documentation updates from the reviewed docs repository.")).toBeInTheDocument();
@@ -475,8 +475,9 @@ describe("App", () => {
     expect(await screen.findByText("cache-warmup")).toBeInTheDocument();
     expect(screen.getAllByText("database").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: /cache-warmup/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Edit cache-warmup" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "View cache-warmup" }));
+    expect(await screen.findByRole("heading", { name: "cache-warmup" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit cache-warmup" }));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "cache-prime" }
     });
@@ -530,7 +531,8 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Namespaces" });
 
-    expect(screen.getByRole("button", { name: "Delete /" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "View /" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete /" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByLabelText("Name"), {
@@ -543,7 +545,8 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create Namespace" }));
 
-    expect(await screen.findByRole("button", { name: "Delete /sandbox" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "View /sandbox" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete /sandbox" })).not.toBeInTheDocument();
     expect(screen.getByText("Temporary test boundary.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "View /sandbox" }));
@@ -552,7 +555,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Delete /sandbox" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "View /sandbox" })).not.toBeInTheDocument();
     });
 
     expect(window.location.pathname).toBe("/namespaces");
