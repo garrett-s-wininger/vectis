@@ -265,7 +265,7 @@ The broker decrypts that envelope with `--encryptedfs-key-file` before handing t
 }
 ```
 
-The repository includes a smoke-test version of this pattern at `examples/secrets.json`.
+The repository includes a smoke-test version of this pattern at `examples/secrets.json`. See [Secrets Reference](./secrets-reference.md) for the full field contract, provider rules, policy syntax, and redacted troubleshooting signals.
 
 ## Built-In Actions
 

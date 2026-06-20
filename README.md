@@ -85,6 +85,7 @@ The docs site is the best place to continue:
 | [Getting Started](./website/docs/getting-started.md) | A slower walkthrough of the local stack and first run. |
 | [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
 | [Job Definition Reference](./website/docs/using/job-definition-reference.md) | Field-by-field job JSON shape, ports, inputs, secrets, limits, and built-in action settings. |
+| [Secrets Reference](./website/docs/using/secrets-reference.md) | Job secret references, encryptedfs envelopes, broker policy, file delivery, and redacted troubleshooting signals. |
 | [Artifacts](./website/docs/using/artifacts.md) | Upload, list, download, operate, and troubleshoot run artifacts. |
 | [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
 | [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |

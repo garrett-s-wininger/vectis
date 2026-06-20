@@ -159,7 +159,7 @@ Bound input names must be accepted by the selected action. A node cannot set the
 
 ## Secrets
 
-Top-level `secrets` describe references that the cell-local secrets broker can resolve. Job definitions carry references and delivery instructions, not the secret values themselves.
+Top-level `secrets` describe references that the cell-local secrets broker can resolve. Job definitions carry references and delivery instructions, not the secret values themselves. See [Secrets Reference](./secrets-reference.md) for provider, policy, materialization, and troubleshooting details.
 
 | Field | Required | Meaning |
 | --- | --- | --- |

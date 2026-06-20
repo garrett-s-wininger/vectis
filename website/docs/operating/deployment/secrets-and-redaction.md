@@ -4,7 +4,7 @@ Vectis provides an initial job secret path through the cell-local `vectis-secret
 
 This page is for operators deciding where secrets may appear and how to reduce accidental exposure.
 
-For the broader security posture, see [Security](../../concepts/security.md). For the production secret inventory and required config groups, see [Production Config And Secrets Contract](./production-config-contract.md). For the hardening checklist, see [Production Security Checklist](./production-security-checklist.md). For reference deployment secret handling, see [Reference Deployment Posture](./reference-deployment-posture.md). For an end-to-end local SPIFFE secret-resolution exercise, see [Local SPIFFE Secrets Smoke Test](./local-spiffe-secrets-smoke-test.md). For backup inventory, see [Backup And Restore](../reliability/backup-restore.md).
+For the broader security posture, see [Security](../../concepts/security.md). For the job secret contract, see [Secrets Reference](../../using/secrets-reference.md). For the production secret inventory and required config groups, see [Production Config And Secrets Contract](./production-config-contract.md). For the hardening checklist, see [Production Security Checklist](./production-security-checklist.md). For reference deployment secret handling, see [Reference Deployment Posture](./reference-deployment-posture.md). For an end-to-end local SPIFFE secret-resolution exercise, see [Local SPIFFE Secrets Smoke Test](./local-spiffe-secrets-smoke-test.md). For backup inventory, see [Backup And Restore](../reliability/backup-restore.md).
 
 ## Current Posture
 
@@ -100,6 +100,7 @@ Use this baseline for shared or production-like deployments:
 | --- | --- |
 | Security posture | [Security](../../concepts/security.md) |
 | Internal trust boundaries | [Internal Service Trust](../../concepts/internal-service-trust.md) |
+| Job secret contract | [Secrets Reference](../../using/secrets-reference.md) |
 | Configuration and secret variables | [Configuration](../configuration.md) |
 | Production config contract | [Production Config And Secrets Contract](./production-config-contract.md) |
 | Production security checklist | [Production Security Checklist](./production-security-checklist.md) |
