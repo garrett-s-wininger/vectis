@@ -74,7 +74,7 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 		catalog:           cell.NewCatalogEventPublisher("iad-a", repos.CatalogEvents()),
 	}
 
-	publisher := w.newArtifactPublisher(env)
+	publisher := w.newArtifactPublisher(job, env)
 	if publisher == nil {
 		t.Fatal("expected artifact publisher")
 	}
@@ -140,6 +140,125 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 	}
 }
 
+func TestWorkerArtifactPublisherMaterializesSparseChildTaskPath(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	runs := repos.Runs()
+
+	jobID := "job-worker-artifact-sparse-child"
+	def := `{"id":"` + jobID + `","root":{"id":"root-control","uses":"builtins/parallel","with":{"execution":"distributed"},"steps":[{"id":"artifact-child","uses":"builtins/upload-artifact"}]}}`
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create job definition: %v", err)
+	}
+
+	runID, runIndex, err := runs.CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rootDispatch, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root dispatch: %v", err)
+	}
+
+	rootID := "root-control"
+	childID := "artifact-child"
+	parallelUses := "builtins/parallel"
+	uploadUses := "builtins/upload-artifact"
+	job := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &rootID,
+			Uses: &parallelUses,
+			With: map[string]string{"execution": "distributed"},
+			Steps: []*api.Node{{
+				Id:   &childID,
+				Uses: &uploadUses,
+			}},
+		},
+	}
+
+	rootReq := &api.JobRequest{Job: job}
+	rootEnv, err := cell.AttachExecutionEnvelope(rootReq, rootDispatch, 1)
+	if err != nil {
+		t.Fatalf("attach root envelope: %v", err)
+	}
+
+	child := dal.TaskExecutionRecord{
+		RunID:         runID,
+		TaskID:        runID + ":" + childID,
+		ParentTaskID:  runID + ":" + dal.RootTaskKey,
+		TaskKey:       childID,
+		Name:          childID,
+		TaskAttemptID: runID + ":" + childID + ":attempt:1",
+		SegmentID:     runID + ":" + childID + ":segment",
+		SegmentName:   childID,
+		ExecutionID:   runID + ":" + childID + ":attempt:1:execution",
+		CellID:        "iad-a",
+		Attempt:       1,
+	}
+
+	childDispatch := executionDispatchRecordFromTaskExecution(job, rootEnv, child)
+	childDispatch.RunIndex = runIndex
+
+	childReq := &api.JobRequest{Job: job}
+	childEnv, err := cell.AttachExecutionEnvelope(childReq, childDispatch, 2)
+	if err != nil {
+		t.Fatalf("attach child envelope: %v", err)
+	}
+
+	var rowsBefore int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM run_tasks WHERE run_id = ? AND task_key = ?`, runID, childID).Scan(&rowsBefore); err != nil {
+		t.Fatalf("count child rows before: %v", err)
+	}
+
+	if rowsBefore != 0 {
+		t.Fatalf("child rows before materialization: got %d, want 0", rowsBefore)
+	}
+
+	w := &worker{
+		logger:            mocks.NewMockLogger(),
+		store:             runs,
+		artifactManifests: repos.Artifacts(),
+	}
+
+	publisher := w.newArtifactPublisher(job, childEnv)
+	if publisher == nil {
+		t.Fatal("expected artifact publisher")
+	}
+
+	if err := publisher.ensureDurableTaskPath(ctx); err != nil {
+		t.Fatalf("ensure durable task path: %v", err)
+	}
+
+	tasks, _, err := runs.ListRunTasks(ctx, runID, 0, 10)
+	if err != nil {
+		t.Fatalf("list run tasks: %v", err)
+	}
+
+	var childTask *dal.TaskRecord
+	for i := range tasks {
+		if tasks[i].TaskKey == childID {
+			childTask = &tasks[i]
+			break
+		}
+	}
+
+	if childTask == nil {
+		t.Fatalf("materialized child task missing from tasks: %+v", tasks)
+	}
+
+	if childTask.Status != dal.TaskStatusPlanned || len(childTask.Attempts) != 1 {
+		t.Fatalf("materialized child task = %+v, want planned with one attempt", childTask)
+	}
+
+	if got := childTask.Attempts[0].ExecutionID; got != childEnv.ExecutionID {
+		t.Fatalf("materialized child execution id = %q, want %q", got, childEnv.ExecutionID)
+	}
+}
+
 func TestWorkerArtifactPublisherAppliesUploadLimit(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -187,7 +306,7 @@ func TestWorkerArtifactPublisherAppliesUploadLimit(t *testing.T) {
 		artifactMaxBytes:  3,
 	}
 
-	publisher := w.newArtifactPublisher(env)
+	publisher := w.newArtifactPublisher(job, env)
 	if publisher == nil {
 		t.Fatal("expected artifact publisher")
 	}
@@ -255,7 +374,7 @@ func TestWorkerArtifactPublisherAppliesRunQuota(t *testing.T) {
 		artifactMaxRunBytes: 3,
 	}
 
-	publisher := w.newArtifactPublisher(env)
+	publisher := w.newArtifactPublisher(job, env)
 	if publisher == nil {
 		t.Fatal("expected artifact publisher")
 	}
@@ -336,7 +455,7 @@ func TestWorkerUploadArtifactActionPublishesDownloadableBlob(t *testing.T) {
 		artifactManifests: repos.Artifacts(),
 	}
 
-	publisher := w.newArtifactPublisher(env)
+	publisher := w.newArtifactPublisher(job, env)
 	if publisher == nil {
 		t.Fatal("expected artifact publisher")
 	}
@@ -435,7 +554,7 @@ func TestWorkerUploadArtifactActionPublishesDownloadableBlob(t *testing.T) {
 
 func TestWorkerNewArtifactPublisherRequiresManifestRepository(t *testing.T) {
 	w := &worker{logger: mocks.NewMockLogger()}
-	if got := w.newArtifactPublisher(workerTestExecutionEnvelope()); got != nil {
+	if got := w.newArtifactPublisher(nil, workerTestExecutionEnvelope()); got != nil {
 		t.Fatalf("expected nil publisher without manifest repository, got %+v", got)
 	}
 }

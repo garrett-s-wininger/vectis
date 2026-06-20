@@ -649,6 +649,18 @@ func hotStateOwnerID(cellID string) string {
 }
 
 func (w *worker) publishRunHotStateOwner(ctx context.Context, env *cell.ExecutionEnvelope, leaseUntil time.Time) error {
+	if env != nil && env.TaskKey != dal.RootTaskKey {
+		return nil
+	}
+
+	return w.upsertRunHotStateOwner(ctx, env, leaseUntil)
+}
+
+func (w *worker) renewRunHotStateOwner(ctx context.Context, env *cell.ExecutionEnvelope, leaseUntil time.Time) error {
+	return w.upsertRunHotStateOwner(ctx, env, leaseUntil)
+}
+
+func (w *worker) upsertRunHotStateOwner(ctx context.Context, env *cell.ExecutionEnvelope, leaseUntil time.Time) error {
 	if w.store == nil ||
 		env == nil ||
 		w.executionChoreographer().RequiresDurableTaskRows() {
@@ -676,26 +688,6 @@ func (w *worker) publishRunHotStateOwner(ctx context.Context, env *cell.Executio
 		ownerEpoch = "unknown"
 	}
 
-	if env.TaskKey != dal.RootTaskKey {
-		owner, found, err := w.store.GetRunHotStateOwner(w.runCtx, env.RunID)
-		if err != nil {
-			w.noteDBError(err)
-			trace.SpanFromContext(ctx).RecordError(err)
-			return err
-		}
-
-		if found && runHotStateOwnerFresh(owner, ownerID, w.now().UTC()) {
-			w.noteDBRecovered()
-			trace.SpanFromContext(ctx).AddEvent("run.hot_state_owner.publish_skipped", trace.WithAttributes(
-				attribute.String("run.id", env.RunID),
-				attribute.String("cell.id", cellID),
-				attribute.String("vectis.hot_state.owner_id", ownerID),
-			))
-
-			return nil
-		}
-	}
-
 	if err := w.store.UpsertRunHotStateOwner(w.runCtx, dal.RunHotStateOwnerUpdate{
 		RunID:      env.RunID,
 		CellID:     cellID,
@@ -716,14 +708,6 @@ func (w *worker) publishRunHotStateOwner(ctx context.Context, env *cell.Executio
 		attribute.String("vectis.hot_state.owner_epoch", ownerEpoch),
 	))
 	return nil
-}
-
-func runHotStateOwnerFresh(owner dal.RunHotStateOwnerRecord, ownerID string, now time.Time) bool {
-	if strings.TrimSpace(owner.OwnerID) != strings.TrimSpace(ownerID) {
-		return false
-	}
-
-	return owner.LeaseUntil.After(now.Add(dal.DefaultLeaseTTL / 2))
 }
 
 type missingExecutionChoreographer struct{}
@@ -1239,21 +1223,47 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		return observability.WorkerOutcomeFailed
 	}
 
-	if err := w.prepareRunForExecution(ctx, job, executionEnvelope, leaseUntil); err != nil {
-		span.SetStatus(otelcodes.Error, "prepare run")
-		span.RecordError(err)
-		w.logger.Error("Failed to prepare run %s for orchestrator execution: %v", runID, err)
-		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
-		if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
-			w.logger.Error("Failed to mark run %s orphaned after orchestrator prepare failure: %v", runID, markErr)
-			span.RecordError(markErr)
-		}
+	if w.shouldPrepareRunBeforeClaim(job, executionEnvelope) {
+		if err := w.prepareRunForExecution(ctx, job, executionEnvelope, leaseUntil); err != nil {
+			span.SetStatus(otelcodes.Error, "prepare run")
+			span.RecordError(err)
+			w.logger.Error("Failed to prepare run %s for orchestrator execution: %v", runID, err)
+			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+			if markErr := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); markErr != nil {
+				w.logger.Error("Failed to mark run %s orphaned after orchestrator prepare failure: %v", runID, markErr)
+				span.RecordError(markErr)
+			}
 
-		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
-		return observability.WorkerOutcomeFailed
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+			return observability.WorkerOutcomeFailed
+		}
 	}
 
 	executionClaimToken, executionClaimed, executionStarted, executionClaimErr := w.tryClaimExecution(ctx, job, executionEnvelope, leaseUntil)
+	if executionClaimErr != nil && isOrchestratorNotFound(executionClaimErr) && !w.executionChoreographer().RequiresDurableTaskRows() {
+		recoveredClaim := newExecutionClaimState("")
+		recovered, recoverErr := w.recoverOrchestratorExecutionClaim(ctx, job, executionEnvelope, recoveredClaim, leaseUntil, "claim")
+		if recoverErr != nil && !errors.Is(recoverErr, dal.ErrConflict) {
+			span.SetStatus(otelcodes.Error, "recover execution claim")
+			span.RecordError(recoverErr)
+			w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
+			if err := w.markRunOrphanedWithRetry(runID, dal.OrphanReasonAckUncertain); err != nil {
+				w.logger.Error("Failed to mark run %s orphaned after orchestrator claim recovery failure: %v", runID, err)
+				span.RecordError(err)
+			}
+
+			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+			return observability.WorkerOutcomeFailed
+		}
+
+		executionClaimErr = nil
+		if recovered {
+			w.logger.Info("Execution %s: recovered orchestrator claim after missing claim state", executionEnvelope.ExecutionID)
+			executionClaimToken = recoveredClaim.get()
+			executionClaimed = true
+			executionStarted = false
+		}
+	}
 	if executionClaimErr != nil {
 		span.SetStatus(otelcodes.Error, "claim execution")
 		w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
@@ -1408,6 +1418,22 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 
 	trace.SpanFromContext(ctx).AddEvent("orchestrator.run.loaded")
 	return nil
+}
+
+func (w *worker) shouldPrepareRunBeforeClaim(j *api.Job, env *cell.ExecutionEnvelope) bool {
+	if env == nil {
+		return false
+	}
+
+	if w.executionChoreographer().RequiresDurableTaskRows() {
+		return true
+	}
+
+	if env.TaskKey == dal.RootTaskKey {
+		return true
+	}
+
+	return executionNeedsDurableSecretClaim(j, env)
 }
 
 func taskPlanPathTo(plan []job.TaskPlanEntry, taskKey string) ([]job.TaskPlanEntry, error) {
@@ -3184,7 +3210,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			return err
 		}
 
-		artifactPublisher := w.newArtifactPublisher(env)
+		artifactPublisher := w.newArtifactPublisher(runJob, env)
 		if artifactPublisher != nil {
 			defer artifactPublisher.Close()
 		}
@@ -3499,6 +3525,12 @@ func (w *worker) leaseRenewalLoop(
 				if err := w.renewMirroredExecutionClaim(execCtx, j, executionEnvelope, claimToken, next); err != nil {
 					renewFailed = true
 					w.logger.Warn("Execution %s: mirrored lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
+					continue
+				}
+
+				if err := w.renewRunHotStateOwner(execCtx, executionEnvelope, next); err != nil {
+					renewFailed = true
+					w.logger.Warn("Execution %s: hot-state owner renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 					continue
 				}
 			}

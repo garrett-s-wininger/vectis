@@ -792,16 +792,6 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		return
 	}
 
-	if err := s.materializeJobTasks(ctx, runID, job, targetCellID); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "materialize task executions")
-		span.End()
-		s.logger.Error("Failed to materialize task executions (run %s): %v", runID, err)
-		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
-		return
-	}
-
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeAttempt)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
@@ -1396,16 +1386,6 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 		return
 	}
 
-	if err := s.materializeJobTasks(ctx, runID, job, targetCellID); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "materialize task executions")
-		span.End()
-		s.logger.Error("Failed to materialize task executions (run %s): %v", runID, err)
-		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
-		return
-	}
-
 	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeAttempt)
 	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
@@ -1503,20 +1483,6 @@ func requestedCellsForInvocation(targetCellIDs []string) []string {
 
 func (s *APIServer) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
 	return cell.RecordExecutionHandoffPayload(ctx, s.runs, runID, req, definitionHash)
-}
-
-func (s *APIServer) materializeJobTasks(ctx context.Context, runID string, job *api.Job, targetCellID string) error {
-	if job == nil {
-		return fmt.Errorf("job is required")
-	}
-
-	if strings.TrimSpace(job.GetRunId()) == "" {
-		job = proto.Clone(job).(*api.Job)
-		job.RunId = &runID
-	}
-
-	_, err := jobpkg.EnsureJobTaskExecutionsWithActions(ctx, s.runs, job, targetCellID, s.actionDescriptorResolver)
-	return err
 }
 
 func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {

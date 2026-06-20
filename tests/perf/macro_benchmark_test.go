@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -41,7 +42,9 @@ import (
 	_ "vectis/internal/dbdrivers"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -704,6 +707,14 @@ func BenchmarkMacro_OrchestratorGRPCConcurrentE2ECanonicalDistributed_TriggerToT
 	runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b, e2eCanonicalDistributedMacroJob(b), newMacroGRPCOrchestratorBenchEnv)
 }
 
+func BenchmarkMacro_OrchestratorConcurrentShallowFanoutResult_TriggerToTerminal(b *testing.B) {
+	for _, width := range macroBenchmarkFanoutWidths(b) {
+		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
+			runMacroDistributedTriggerToTerminalBenchmarkWithJobAndEnv(b, shallowFanoutResultMacroJob(b, width), newMacroInProcessOrchestratorBenchEnv)
+		})
+	}
+}
+
 func BenchmarkMacro_OrchestratorGRPCConcurrentShallowFanoutResult_TriggerToTerminal(b *testing.B) {
 	for _, width := range macroBenchmarkFanoutWidths(b) {
 		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
@@ -1015,7 +1026,15 @@ func runMacroConcurrentTriggerToTerminalBenchmarkWithStatusReads(
 }
 
 func BenchmarkMacro_APITriggerToQueued(b *testing.B) {
-	runMacroAPITriggerToQueuedBenchmark(b)
+	runMacroAPITriggerToQueuedBenchmarkWithJob(b, noopMacroJob())
+}
+
+func BenchmarkMacro_APITriggerShallowFanoutToQueued(b *testing.B) {
+	for _, width := range macroBenchmarkFanoutWidths(b) {
+		b.Run(fmt.Sprintf("children_%05d", width), func(b *testing.B) {
+			runMacroAPITriggerToQueuedBenchmarkWithJob(b, shallowFanoutResultMacroJob(b, width))
+		})
+	}
 }
 
 func BenchmarkMacro_DB_CreateAttachTouchQueuedRun(b *testing.B) {
@@ -1034,6 +1053,14 @@ func BenchmarkMacro_DB_EnsurePlannedFanoutTasksBatch(b *testing.B) {
 	for _, width := range macroBenchmarkFanoutWidths(b) {
 		b.Run(fmt.Sprintf("children_%03d", width), func(b *testing.B) {
 			benchmarkMacroDBEnsurePlannedFanoutTasksBatchWithEnv(b, width, newMacroBenchEnv)
+		})
+	}
+}
+
+func BenchmarkMacro_JobPlanShallowFanout(b *testing.B) {
+	for _, width := range macroBenchmarkFanoutWidths(b) {
+		b.Run(fmt.Sprintf("children_%03d", width), func(b *testing.B) {
+			benchmarkMacroJobPlanShallowFanout(b, width)
 		})
 	}
 }
@@ -1162,8 +1189,8 @@ func benchmarkMacroDBEnsurePlannedFanoutTasksBatchWithEnv(b *testing.B, width in
 	}
 
 	ctx := context.Background()
-	macroJob := uniqueStoredMacroJob(shallowFanoutResultMacroJob(b, width))
-	env := newEnv(b, []storedMacroJob{macroJob})
+	macroJob := uniqueMacroJob(shallowFanoutResultMacroJob(b, width))
+	env := newEnv(b, []macroJobSpec{macroJob})
 	jobs := make([]*apipb.Job, b.N)
 	for i := 0; i < b.N; i++ {
 		runID := createMacroDBBenchmarkRun(b, ctx, env, macroJob.id, i+1)
@@ -1197,6 +1224,40 @@ func benchmarkMacroDBEnsurePlannedFanoutTasksBatchWithEnv(b *testing.B, width in
 
 	b.ReportMetric(float64(width), "fanout_width")
 	b.ReportMetric(float64(createdTasks), "planned_tasks")
+}
+
+func benchmarkMacroJobPlanShallowFanout(b *testing.B, width int) {
+	if width <= 0 {
+		b.Fatal("fanout width must be positive")
+	}
+
+	macroJob := shallowFanoutResultMacroJob(b, width)
+	req := macroJobRequest(b, macroJob, "macro-plan-benchmark-run")
+	j := req.GetJob()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	start := time.Now()
+
+	var plannedTasks int
+	for i := 0; i < b.N; i++ {
+		plan, err := job.PlanTaskExecutionsWithActions(j, macroJob.actionResolver)
+		if err != nil {
+			b.Fatalf("plan shallow fanout tasks: %v", err)
+		}
+		plannedTasks += len(plan)
+	}
+
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	if elapsed > 0 {
+		b.ReportMetric(float64(b.N)/elapsed.Seconds(), "runs/s")
+		b.ReportMetric(float64(plannedTasks)/elapsed.Seconds(), "planned_tasks/s")
+	}
+
+	b.ReportMetric(float64(width), "fanout_width")
+	b.ReportMetric(float64(plannedTasks), "planned_tasks")
 }
 
 func benchmarkMacroDBMarkExecutionStartedWithEnv(b *testing.B, newEnv macroBenchEnvFactory) {
@@ -1965,11 +2026,11 @@ func newMacroGRPCOrchestratorBenchEnv(b *testing.B, jobs []macroJobSpec) macroBe
 	return env
 }
 
-func runMacroAPITriggerToQueuedBenchmark(b *testing.B) {
+func runMacroAPITriggerToQueuedBenchmarkWithJob(b *testing.B, macroJob macroJobSpec) {
 	b.Helper()
 
 	ctx := context.Background()
-	macroJob := uniqueMacroJob(noopMacroJob())
+	macroJob = uniqueMacroJob(macroJob)
 	env := newMacroBenchEnv(b, []macroJobSpec{macroJob})
 	statsEnabled := resetMacroDBStats(b, env)
 	dbStatsStart := env.db.Stats()
@@ -3180,14 +3241,14 @@ func startMacroWorkers(
 					return
 				}
 
-				dbTimings, err := loadDequeuedMacroRun(ctx, env, jobReq)
+				dbTimings, err := loadDequeuedMacroRunBeforeClaim(ctx, env, jobReq)
 				if err != nil {
 					sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{err: err})
 					return
 				}
 
 				timings, err := finishDequeuedMacroJob(ctx, env, jobReq, info, dequeuedAt, workerID, noopLogClient{})
-				timings.db.choreographyLoadRun = dbTimings.choreographyLoadRun
+				timings.db.choreographyLoadRun += dbTimings.choreographyLoadRun
 				sendMacroWorkerResult(ctx, resultCh, macroWorkerResult{timings: timings, err: err})
 
 				if err != nil {
@@ -3243,14 +3304,14 @@ func startMacroDistributedWorkers(
 					return
 				}
 
-				dbTimings, err := loadDequeuedMacroRun(ctx, env, jobReq)
+				dbTimings, err := loadDequeuedMacroRunBeforeClaim(ctx, env, jobReq)
 				if err != nil {
 					sendMacroDistributedTaskResult(ctx, taskCh, macroDistributedTaskResult{err: err})
 					return
 				}
 
 				execution, err := finishDequeuedMacroExecution(ctx, env, jobReq, info, dequeuedAt, workerID, noopLogClient{})
-				execution.timings.db.choreographyLoadRun = dbTimings.choreographyLoadRun
+				execution.timings.db.choreographyLoadRun += dbTimings.choreographyLoadRun
 				if err != nil {
 					sendMacroDistributedTaskResult(ctx, taskCh, macroDistributedTaskResult{execution: execution, err: err})
 					return
@@ -3777,7 +3838,7 @@ func runMacroTriggerToTerminal(
 	}
 
 	jobReq, dequeuedAt := waitForDequeuedJob(b, ctx, env.queue)
-	dbTimings, err := loadDequeuedMacroRun(ctx, env, jobReq)
+	dbTimings, err := loadDequeuedMacroRunBeforeClaim(ctx, env, jobReq)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -3787,8 +3848,37 @@ func runMacroTriggerToTerminal(
 		b.Fatal(err)
 	}
 
-	timings.db.choreographyLoadRun = dbTimings.choreographyLoadRun
+	timings.db.choreographyLoadRun += dbTimings.choreographyLoadRun
 	return timings
+}
+
+func loadDequeuedMacroRunBeforeClaim(ctx context.Context, env macroBenchEnv, jobReq *apipb.JobRequest) (macroDBTimings, error) {
+	shouldLoad, err := shouldLoadDequeuedMacroRunBeforeClaim(env, jobReq)
+	if err != nil || !shouldLoad {
+		return macroDBTimings{}, err
+	}
+
+	return loadDequeuedMacroRun(ctx, env, jobReq)
+}
+
+func shouldLoadDequeuedMacroRunBeforeClaim(env macroBenchEnv, jobReq *apipb.JobRequest) (bool, error) {
+	if env.choreo.DBBacked() {
+		return false, nil
+	}
+
+	executionEnvelope, ok, err := cell.ExecutionEnvelopeFromRequest(jobReq)
+	if err != nil {
+		return false, fmt.Errorf("decode execution envelope: %w", err)
+	}
+	if !ok {
+		return false, fmt.Errorf("missing execution envelope")
+	}
+
+	return executionEnvelope.TaskKey == dal.RootTaskKey, nil
+}
+
+func macroOrchestratorNotFound(err error) bool {
+	return errors.Is(err, dal.ErrNotFound) || status.Code(err) == codes.NotFound
 }
 
 func loadDequeuedMacroRun(ctx context.Context, env macroBenchEnv, jobReq *apipb.JobRequest) (macroDBTimings, error) {
@@ -3810,24 +3900,13 @@ func loadDequeuedMacroRun(ctx context.Context, env macroBenchEnv, jobReq *apipb.
 }
 
 func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID, taskKey string, leaseUntil time.Time) error {
-	if env.choreo.DBBacked() {
+	if env.choreo.DBBacked() || taskKey != dal.RootTaskKey {
 		return nil
 	}
 
 	ownerID := "orchestrator:macro"
 	if _, ok := env.choreo.(macroGRPCOrchestratorChoreography); ok {
 		ownerID = "orchestrator:macro-grpc"
-	}
-
-	if taskKey != dal.RootTaskKey {
-		owner, found, err := env.runs.GetRunHotStateOwner(ctx, runID)
-		if err != nil {
-			return err
-		}
-
-		if found && macroRunHotStateOwnerFresh(owner, ownerID, time.Now().UTC()) {
-			return nil
-		}
 	}
 
 	return env.runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
@@ -3837,14 +3916,6 @@ func publishMacroHotStateOwner(ctx context.Context, env macroBenchEnv, runID, ta
 		OwnerEpoch: "macro",
 		LeaseUntil: leaseUntil,
 	})
-}
-
-func macroRunHotStateOwnerFresh(owner dal.RunHotStateOwnerRecord, ownerID string, now time.Time) bool {
-	if strings.TrimSpace(owner.OwnerID) != strings.TrimSpace(ownerID) {
-		return false
-	}
-
-	return owner.LeaseUntil.After(now.Add(dal.DefaultLeaseTTL / 2))
 }
 
 func finishDequeuedMacroExecution(
@@ -3887,9 +3958,22 @@ func finishDequeuedMacroExecution(
 	claimStarted := time.Now()
 	executionClaim, err := env.choreo.ClaimAndStartExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
 	claimedAt := time.Now()
-	dbTimings.choreographyClaimAndStart = claimedAt.Sub(claimStarted).Nanoseconds()
+	dbTimings.choreographyClaimAndStart += claimedAt.Sub(claimStarted).Nanoseconds()
 	if env.choreo.DBBacked() {
 		dbTimings.tryClaimExecution = dbTimings.choreographyClaimAndStart
+	}
+
+	if err != nil && macroOrchestratorNotFound(err) && !env.choreo.DBBacked() {
+		loadTimings, loadErr := loadDequeuedMacroRun(ctx, env, jobReq)
+		if loadErr != nil {
+			return macroExecutionResult{}, fmt.Errorf("recover choreography for missing execution %s: %w", executionEnvelope.ExecutionID, loadErr)
+		}
+		dbTimings.choreographyLoadRun += loadTimings.choreographyLoadRun
+
+		claimStarted = time.Now()
+		executionClaim, err = env.choreo.ClaimAndStartExecution(ctx, runID, executionEnvelope.ExecutionID, workerID, time.Now().Add(dal.DefaultLeaseTTL))
+		claimedAt = time.Now()
+		dbTimings.choreographyClaimAndStart += claimedAt.Sub(claimStarted).Nanoseconds()
 	}
 
 	if err != nil {

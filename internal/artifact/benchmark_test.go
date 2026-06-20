@@ -454,8 +454,8 @@ func createBenchmarkArtifactRun(b *testing.B, ctx context.Context, repos *dal.SQ
 	b.Helper()
 
 	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
-	if err := repos.Jobs().Create(ctx, jobID, def, 1); err != nil {
-		b.Fatalf("create artifact benchmark job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		b.Fatalf("create artifact benchmark job definition: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)

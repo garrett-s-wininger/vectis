@@ -41,6 +41,41 @@ import (
 
 func workerStrp(s string) *string { return &s }
 
+type countingExecutionChoreographer struct {
+	inner executionChoreographer
+	mu    sync.Mutex
+	loads int
+}
+
+func (c *countingExecutionChoreographer) LoadRun(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
+	c.mu.Lock()
+	c.loads++
+	c.mu.Unlock()
+	return c.inner.LoadRun(ctx, j, env, snapshots)
+}
+
+func (c *countingExecutionChoreographer) ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+	return c.inner.ClaimAndStartExecution(ctx, env, owner, leaseUntil)
+}
+
+func (c *countingExecutionChoreographer) RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error {
+	return c.inner.RenewExecutionLease(ctx, env, owner, claimToken, leaseUntil)
+}
+
+func (c *countingExecutionChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+	return c.inner.CompleteExecution(ctx, env, owner, claimToken, status, failureCode, reason)
+}
+
+func (c *countingExecutionChoreographer) RequiresDurableTaskRows() bool {
+	return c.inner.RequiresDurableTaskRows()
+}
+
+func (c *countingExecutionChoreographer) LoadCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loads
+}
+
 func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository, j *api.Job, runID string) *cell.ExecutionEnvelope {
 	t.Helper()
 
@@ -163,11 +198,19 @@ func TestWorkerPublishRunHotStateOwner_OnlyForOrchestratorRuns(t *testing.T) {
 
 	store.HotStateOwner.LeaseUntil = time.Now().Add(time.Minute).UTC()
 	if err := orchestratorWorker.publishRunHotStateOwner(ctx, &childEnv, leaseUntil); err != nil {
-		t.Fatalf("renew stale child owner: %v", err)
+		t.Fatalf("publish stale child owner: %v", err)
+	}
+
+	if store.LastHotStateOwner.RunID != "" {
+		t.Fatalf("child start should not renew stale owner, got %+v", store.LastHotStateOwner)
+	}
+
+	if err := orchestratorWorker.renewRunHotStateOwner(ctx, &childEnv, leaseUntil); err != nil {
+		t.Fatalf("renew child owner: %v", err)
 	}
 
 	if store.LastHotStateOwner.RunID != env.RunID {
-		t.Fatalf("stale child owner should renew, got %+v", store.LastHotStateOwner)
+		t.Fatalf("child lease renewal should refresh owner, got %+v", store.LastHotStateOwner)
 	}
 
 	sqlStore := &mocks.MockRunsRepository{}
@@ -1636,12 +1679,15 @@ func TestWorkerHydrateJobRequest_CachedPayloadKeepsDeliveryIdentityIsolated(t *t
 	if got := first.GetJob().GetRunId(); got != runOne {
 		t.Fatalf("first hydrated run_id: got %q, want %q", got, runOne)
 	}
+
 	if got := first.GetJob().GetDeliveryId(); got != deliveryOne {
 		t.Fatalf("first hydrated delivery_id: got %q, want %q", got, deliveryOne)
 	}
+
 	if got := second.GetJob().GetRunId(); got != runTwo {
 		t.Fatalf("second hydrated run_id: got %q, want %q", got, runTwo)
 	}
+
 	if got := second.GetJob().GetDeliveryId(); got != deliveryTwo {
 		t.Fatalf("second hydrated delivery_id: got %q, want %q", got, deliveryTwo)
 	}
@@ -1650,6 +1696,7 @@ func TestWorkerHydrateJobRequest_CachedPayloadKeepsDeliveryIdentityIsolated(t *t
 	if got := cached.GetRunId(); got != "" {
 		t.Fatalf("cached payload run_id mutated: got %q", got)
 	}
+
 	if got := cached.GetDeliveryId(); got != "" {
 		t.Fatalf("cached payload delivery_id mutated: got %q", got)
 	}
@@ -1683,6 +1730,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	queue := mocks.NewMockQueueClient()
+	choreographer := &countingExecutionChoreographer{inner: newLocalOrchestratorChoreographer(t)}
 	clock := mocks.NewMockClock()
 	w := &worker{
 		ctx:           context.Background(),
@@ -1696,7 +1744,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		logClient:     mocks.NewMockLogClient(),
 		core:          testWorkerCore(job.NewExecutor()),
 		store:         runs,
-		choreographer: newLocalOrchestratorChoreographer(t),
+		choreographer: choreographer,
 		catalog:       cell.NewCatalogEventPublisher("local", repos.CatalogEvents()),
 	}
 
@@ -1735,6 +1783,9 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	w.handleJob(req)
+	if got := choreographer.LoadCount(); got != 1 {
+		t.Fatalf("root execution LoadRun count: got %d, want 1", got)
+	}
 
 	var runStatus string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
@@ -1776,6 +1827,9 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	w.handleJob(reqs[0])
+	if got := choreographer.LoadCount(); got != 1 {
+		t.Fatalf("hot-state child should claim without LoadRun; count got %d, want 1", got)
+	}
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&runStatus); err != nil {
 		t.Fatalf("query run status after child: %v", err)
 	}

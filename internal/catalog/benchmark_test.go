@@ -212,8 +212,8 @@ func seedCatalogBenchmarkRunningRuns(b *testing.B, ctx context.Context, db *sql.
 func seedCatalogBenchmarkQueuedRuns(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string, count int) []string {
 	b.Helper()
 
-	if err := repos.Jobs().Create(ctx, jobID, fmt.Sprintf(catalogBenchmarkJobDefinition, jobID), 1); err != nil {
-		b.Fatalf("create benchmark job %s: %v", jobID, err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(catalogBenchmarkJobDefinition, jobID)); err != nil {
+		b.Fatalf("create benchmark job definition %s: %v", jobID, err)
 	}
 
 	runs := repos.Runs()

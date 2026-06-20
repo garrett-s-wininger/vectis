@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/artifact"
 	"vectis/internal/backoff"
@@ -13,6 +15,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	jobexec "vectis/internal/job"
 )
 
 type workerArtifactPublisher struct {
@@ -23,18 +26,23 @@ type workerArtifactPublisher struct {
 
 	runID         string
 	taskID        string
+	taskKey       string
 	taskAttemptID string
 	executionID   string
 	cellID        string
+	job           *api.Job
+	runs          dal.RunsRepository
 	maxBytes      int64
 	maxRunBytes   int64
 	maxRunCount   int64
 
-	mu        sync.Mutex
-	publisher *artifact.RoutedPublisher
+	mu            sync.Mutex
+	publisher     *artifact.RoutedPublisher
+	ensureTask    sync.Once
+	ensureTaskErr error
 }
 
-func (w *worker) newArtifactPublisher(env *cell.ExecutionEnvelope) *workerArtifactPublisher {
+func (w *worker) newArtifactPublisher(job *api.Job, env *cell.ExecutionEnvelope) *workerArtifactPublisher {
 	if w == nil || w.artifactManifests == nil || env == nil {
 		return nil
 	}
@@ -46,9 +54,12 @@ func (w *worker) newArtifactPublisher(env *cell.ExecutionEnvelope) *workerArtifa
 		metrics:       w.retryMetrics,
 		runID:         env.RunID,
 		taskID:        env.TaskID,
+		taskKey:       env.TaskKey,
 		taskAttemptID: env.TaskAttemptID,
 		executionID:   env.ExecutionID,
 		cellID:        env.CellID,
+		job:           job,
+		runs:          w.store,
 		maxBytes:      w.artifactMaxBytes,
 		maxRunBytes:   w.artifactMaxRunBytes,
 		maxRunCount:   w.artifactMaxCount,
@@ -58,6 +69,10 @@ func (w *worker) newArtifactPublisher(env *cell.ExecutionEnvelope) *workerArtifa
 func (p *workerArtifactPublisher) PublishArtifact(ctx context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
 	if p == nil {
 		return action.ArtifactPublishResult{}, fmt.Errorf("artifact publisher is not configured")
+	}
+
+	if err := p.ensureDurableTaskPath(ctx); err != nil {
+		return action.ArtifactPublishResult{}, err
 	}
 
 	publisher, err := p.ensurePublisher(ctx)
@@ -103,6 +118,45 @@ func (p *workerArtifactPublisher) PublishArtifact(ctx context.Context, req actio
 		SizeBytes:       published.Manifest.SizeBytes,
 		ArtifactShardID: published.Manifest.ArtifactShardID,
 	}, nil
+}
+
+func (p *workerArtifactPublisher) ensureDurableTaskPath(ctx context.Context) error {
+	p.ensureTask.Do(func() {
+		p.ensureTaskErr = p.materializeDurableTaskPath(ctx)
+	})
+
+	return p.ensureTaskErr
+}
+
+func (p *workerArtifactPublisher) materializeDurableTaskPath(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+
+	taskKey := strings.TrimSpace(p.taskKey)
+	if p.runs == nil || p.job == nil || taskKey == "" || taskKey == dal.RootTaskKey {
+		return nil
+	}
+
+	plan, err := jobexec.PlanTaskExecutions(p.job)
+	if err != nil {
+		return fmt.Errorf("plan artifact task path: %w", err)
+	}
+
+	path, err := taskPlanPathTo(plan, taskKey)
+	if err != nil {
+		return fmt.Errorf("plan artifact task path: %w", err)
+	}
+
+	if len(path) == 0 {
+		return nil
+	}
+
+	if _, err := jobexec.EnsurePlannedTaskExecutions(ctx, p.runs, p.runID, path, p.cellID); err != nil {
+		return fmt.Errorf("materialize artifact task path: %w", err)
+	}
+
+	return nil
 }
 
 func (p *workerArtifactPublisher) recordArtifactCatalogEvent(ctx context.Context, create dal.ArtifactCreate) error {

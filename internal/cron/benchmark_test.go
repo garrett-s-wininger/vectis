@@ -159,8 +159,8 @@ func seedCronBenchmarkSchedules(b *testing.B, ctx context.Context, db *sql.DB, r
 	b.Helper()
 
 	definition := fmt.Sprintf(cronBenchmarkJobDefinition, jobID)
-	if err := repos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
-		b.Fatalf("create benchmark cron job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
+		b.Fatalf("create benchmark cron job definition: %v", err)
 	}
 
 	tx, err := db.BeginTx(ctx, nil)

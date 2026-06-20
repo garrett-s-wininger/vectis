@@ -638,8 +638,8 @@ func (i *benchmarkAPIIngress) wait(b *testing.B) cell.ExecutionSubmission {
 func seedBenchmarkAPIStoredJob(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string) {
 	b.Helper()
 
-	if err := repos.Jobs().Create(ctx, jobID, fmt.Sprintf(benchAPIJobDefinition, jobID), 1); err != nil {
-		b.Fatalf("create benchmark job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(benchAPIJobDefinition, jobID)); err != nil {
+		b.Fatalf("create benchmark job definition: %v", err)
 	}
 }
 
@@ -713,8 +713,8 @@ func seedBenchmarkAPIRunReadLiveTasks(b *testing.B, ctx context.Context, repos *
 	b.Helper()
 
 	jobID := fmt.Sprintf("bench-api-run-read-live-%d", childTasks)
-	if err := repos.Jobs().Create(ctx, jobID, fmt.Sprintf(benchAPIJobDefinition, jobID), 1); err != nil {
-		b.Fatalf("create benchmark job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(benchAPIJobDefinition, jobID)); err != nil {
+		b.Fatalf("create benchmark job definition: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
@@ -742,8 +742,8 @@ func seedBenchmarkAPIRunReadFinalFacts(b *testing.B, ctx context.Context, repos 
 	b.Helper()
 
 	jobID := fmt.Sprintf("bench-api-run-read-final-facts-%d", childTasks)
-	if err := repos.Jobs().Create(ctx, jobID, fmt.Sprintf(benchAPIJobDefinition, jobID), 1); err != nil {
-		b.Fatalf("create benchmark job: %v", err)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(benchAPIJobDefinition, jobID)); err != nil {
+		b.Fatalf("create benchmark job definition: %v", err)
 	}
 
 	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
