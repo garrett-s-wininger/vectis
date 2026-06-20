@@ -14,6 +14,10 @@ const meta = {
     tone: {
       control: "select",
       options: ["neutral", "attention", "success"]
+    },
+    variant: {
+      control: "select",
+      options: ["default", "plain"]
     }
   }
 } satisfies Meta<typeof MetricCard>;
@@ -30,6 +34,16 @@ export const DashboardSet: Story = {
       <MetricCard label="Services" value="Healthy" detail="all systems reporting" tone="success" />
       <MetricCard label="Queue pressure" value="3 queued" detail="0 idle workers" tone="attention" />
       <MetricCard label="Active capacity" value="6 executing" detail="1 worker drained" />
+    </div>
+  )
+};
+
+export const PlainSet: Story = {
+  render: () => (
+    <div className="metric-card-grid">
+      <MetricCard detail="Immediate descendants" label="Child Namespaces" value="2" variant="plain" />
+      <MetricCard detail="Directly organized here" label="Stored Jobs" value="8" variant="plain" />
+      <MetricCard detail="Inherited boundary" label="Access" value="Admin" variant="plain" />
     </div>
   )
 };

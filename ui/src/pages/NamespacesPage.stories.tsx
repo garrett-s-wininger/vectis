@@ -66,3 +66,9 @@ export const Configure: Story = {
     selectedNamespaceID: 2
   }
 };
+
+export const Missing: Story = {
+  args: {
+    selectedNamespaceMissing: true
+  }
+};

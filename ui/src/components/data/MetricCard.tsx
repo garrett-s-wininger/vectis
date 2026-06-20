@@ -2,16 +2,20 @@ import type { ReactNode } from "react";
 import styles from "./MetricCard.module.css";
 
 export type MetricTone = "neutral" | "attention" | "success";
+export type MetricVariant = "default" | "plain";
 
 export type MetricCardProps = {
   label: string;
   value: ReactNode;
   detail?: string;
   tone?: MetricTone;
+  variant?: MetricVariant;
 };
 
-export function MetricCard({ label, value, detail, tone = "neutral" }: MetricCardProps) {
-  const className = tone === "neutral" ? styles.root : `${styles.root} ${styles[tone]}`;
+export function MetricCard({ label, value, detail, tone = "neutral", variant = "default" }: MetricCardProps) {
+  const className = [styles.root, variant === "plain" ? styles.plain : "", tone === "neutral" ? "" : styles[tone]]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <article className={className}>

@@ -506,11 +506,18 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Delete /sandbox" })).toBeInTheDocument();
     expect(screen.getByText("Temporary test boundary.")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete /sandbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "View /sandbox" }));
+    expect(await screen.findByRole("heading", { name: "/sandbox" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Delete /sandbox" })).not.toBeInTheDocument();
     });
+
+    expect(window.location.pathname).toBe("/namespaces");
+    expect(screen.getByRole("heading", { name: "Namespaces" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Namespace Not Found" })).not.toBeInTheDocument();
   });
 
   it("keeps malformed namespace routes on the namespace not-found page", async () => {

@@ -15,4 +15,10 @@ describe("MetricCard", () => {
 
     expect(screen.getByText("Services").closest("article")).toBeInTheDocument();
   });
+
+  it("supports a plain metadata variant", () => {
+    render(<MetricCard detail="Inherited boundary" label="Access" value="Admin" variant="plain" />);
+
+    expect(screen.getByText("Access").closest("article")?.className).toContain("plain");
+  });
 });

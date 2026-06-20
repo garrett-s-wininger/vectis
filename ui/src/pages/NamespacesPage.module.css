@@ -5,7 +5,8 @@
 }
 
 .summary,
-.createPanel {
+.createPanel,
+.editorPanel {
   box-sizing: border-box;
   width: 100%;
 }
@@ -25,7 +26,8 @@
 }
 
 .summary h2,
-.createPanel h2 {
+.createPanel h2,
+.editorPanel h2 {
   color: var(--text-primary);
   font-size: var(--font-size-3xl);
   line-height: var(--line-height-heading);
@@ -33,7 +35,8 @@
 }
 
 .summary p,
-.createPanel p {
+.createPanel p,
+.editorPanel p {
   color: var(--text-subtle);
   margin: 0;
   max-width: 62ch;
@@ -41,39 +44,12 @@
 
 .summaryFacts {
   display: grid;
-  gap: var(--space-sm);
+  gap: var(--space-lg);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.fact {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 74%), rgb(255 255 255 / 18%)),
-    linear-gradient(180deg, #f2f6f8, #e2ebf0);
-  border: 1px solid rgb(151 168 177 / 54%);
-  border-radius: var(--control-radius);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 78%),
-    0 1px 0 rgb(255 255 255 / 68%);
-  display: grid;
-  gap: var(--space-2xs);
-  min-width: 0;
-  padding: var(--space-md);
-}
-
-.fact strong {
-  color: var(--text-primary);
-  font-size: var(--font-size-3xl);
-  line-height: var(--line-height-tight);
-}
-
-.fact span {
-  color: var(--text-navigation);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-compact);
-}
-
-.createPanel {
+.createPanel,
+.editorPanel {
   display: grid;
   gap: var(--space-xl);
   padding: var(--space-2xl);
@@ -113,12 +89,6 @@
   justify-content: end;
 }
 
-.detailGrid {
-  display: grid;
-  gap: var(--space-md);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .detailPanel {
   display: grid;
   gap: var(--space-xl);
@@ -154,7 +124,14 @@
     grid-template-columns: 1fr;
   }
 
-  .detailGrid {
+  .summary,
+  .createPanel,
+  .editorPanel,
+  .overviewPanel {
+    padding: var(--space-xl);
+  }
+
+  .summaryFacts {
     grid-template-columns: 1fr;
   }
 }
@@ -162,16 +139,6 @@
 @media (max-width: 700px) {
   .workspace {
     gap: var(--space-xl);
-  }
-
-  .summary,
-  .createPanel,
-  .overviewPanel {
-    padding: var(--space-xl);
-  }
-
-  .summaryFacts {
-    grid-template-columns: 1fr;
   }
 
   .form {

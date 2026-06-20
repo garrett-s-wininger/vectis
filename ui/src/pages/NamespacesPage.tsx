@@ -5,6 +5,7 @@ import { Button } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
 import { EmptyStatePanel } from "../components";
 import { FormField } from "../components";
+import { MetricCard } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { Job, Namespace, NewNamespace, UpdateNamespace } from "../domain/console";
@@ -193,6 +194,7 @@ export function NamespacesPage({
                 name="namespaceName"
                 onChange={(event) => setValues({ ...values, name: event.target.value })}
                 pattern="[A-Za-z0-9_-]+"
+                placeholder="team-a"
                 required
                 value={values.name}
                 wide
@@ -209,6 +211,7 @@ export function NamespacesPage({
                 label="Description"
                 name="namespaceDescription"
                 onChange={(event) => setValues({ ...values, description: event.target.value })}
+                placeholder="Jobs and access for a product area"
                 value={values.description ?? ""}
                 wide
               />
@@ -225,12 +228,22 @@ export function NamespacesPage({
         <section className={`${styles.summary} polished-panel polished-panel--accent-top`} aria-label="Namespace summary">
           <div className={styles.summaryCopy}>
             <h2>Hierarchy</h2>
-            <p>Use namespaces to separate definitions while letting access inherit from broader boundaries.</p>
+            <p>Boundaries and inheritance at a glance.</p>
           </div>
           <div className={styles.summaryFacts} aria-label="Namespace totals">
-            <NamespaceStat label="Total" value={String(namespaceStats.total)} />
-            <NamespaceStat label="Root Children" value={String(namespaceStats.rootChildren)} />
-            <NamespaceStat label="Stopped Inheritance" value={String(namespaceStats.stoppedInheritance)} />
+            <MetricCard detail="Available boundaries" label="Total" value={namespaceStats.total} variant="plain" />
+            <MetricCard
+              detail="Directly under Root"
+              label="Root Children"
+              value={namespaceStats.rootChildren}
+              variant="plain"
+            />
+            <MetricCard
+              detail="Custom access boundary"
+              label="Stopped Inheritance"
+              value={namespaceStats.stoppedInheritance}
+              variant="plain"
+            />
           </div>
         </section>
 
@@ -395,16 +408,31 @@ function NamespaceDetail({
           <div className={styles.detailHeader}>
             <div>
               <h2 id="namespace-overview-title">Overview</h2>
-              <p>{description}</p>
+              <p>Counts and access posture for this boundary.</p>
             </div>
             <ResourceStatus tone={namespace.breakInheritance ? "paused" : "enabled"}>
               {namespace.breakInheritance ? "Stopped Inheritance" : "Inherited Access"}
             </ResourceStatus>
           </div>
-          <div className={styles.detailGrid} aria-label="Namespace summary">
-            <NamespaceStat label="Child Namespaces" value={String(childNamespaces.length)} />
-            <NamespaceStat label="Stored Jobs" value={String(namespaceJobs.length)} />
-            <NamespaceStat label="Access" value={namespace.role} />
+          <div className={styles.summaryFacts} aria-label="Namespace summary">
+            <MetricCard
+              detail="Immediate descendants"
+              label="Child Namespaces"
+              value={childNamespaces.length}
+              variant="plain"
+            />
+            <MetricCard
+              detail="Directly organized here"
+              label="Stored Jobs"
+              value={namespaceJobs.length}
+              variant="plain"
+            />
+            <MetricCard
+              detail={namespace.breakInheritance ? "Local boundary" : "Inherited boundary"}
+              label="Access"
+              value={namespace.role}
+              variant="plain"
+            />
           </div>
         </section>
 
@@ -471,7 +499,7 @@ function NamespaceEditor({
   return (
     <>
       <PageHeader
-        description="Update descriptive metadata for this namespace."
+        description="Update the descriptive metadata operators see across namespace views."
         navigation={
           <BreadcrumbTrail
             items={[
@@ -487,10 +515,10 @@ function NamespaceEditor({
       />
 
       <div className={styles.workspace}>
-        <section className={`${styles.createPanel} polished-panel polished-panel--accent-top`} aria-labelledby="namespace-config-title">
+        <section className={`${styles.editorPanel} polished-panel polished-panel--accent-top`} aria-labelledby="namespace-config-title">
           <div className={styles.createCopy}>
             <p className="eyebrow">Namespace</p>
-            <h2 id="namespace-config-title">Details</h2>
+            <h2 id="namespace-config-title">Metadata</h2>
             <p>Name, parent, and path are fixed for this first configuration pass.</p>
           </div>
           <form className={styles.configForm} onSubmit={handleSubmit}>
@@ -501,6 +529,7 @@ function NamespaceEditor({
               label="Description"
               name="namespaceDescription"
               onChange={(event) => setDescription(event.target.value)}
+              placeholder="Jobs and access for a product area"
               value={description}
               wide
             />
@@ -514,15 +543,6 @@ function NamespaceEditor({
         </section>
       </div>
     </>
-  );
-}
-
-function NamespaceStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className={styles.fact}>
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
   );
 }
 

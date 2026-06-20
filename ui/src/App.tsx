@@ -324,6 +324,7 @@ export function App() {
 
   async function handleDeleteNamespace(namespaceID: number) {
     const namespacePath = consoleData?.namespaces.find((namespace) => namespace.id === namespaceID)?.path;
+    const shouldReturnToNamespaces = route.kind === "namespaces" && route.namespaceID === namespaceID;
 
     try {
       setConsoleData(await consoleDataSourceRef.current.deleteNamespace(namespaceID));
@@ -336,6 +337,10 @@ export function App() {
 
     if (namespacePath === selectedNamespacePath) {
       setSelectedNamespacePath("/");
+    }
+
+    if (shouldReturnToNamespaces) {
+      navigateTo("/namespaces");
     }
   }
 
