@@ -88,8 +88,8 @@ The default manifest creates:
   secret envelopes;
 - generated development gRPC TLS and SPIFFE CA material in a Kubernetes Secret;
 - a single worker pod with `vectis-worker` and `vectis-worker-core` side by side
-  over a shared Unix socket, plus a local `vectis-spiffe` sidecar for
-  per-execution SVIDs;
+  over a shared Unix socket and shared log spool, plus a local `vectis-spiffe`
+  sidecar for per-execution SVIDs;
 - worker registry registration using the pod IP and worker-control port so the
   API can issue fast cancel requests inside the cluster.
 

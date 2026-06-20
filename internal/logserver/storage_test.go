@@ -63,7 +63,7 @@ func TestLocalRunLogStore_ListMissingRun(t *testing.T) {
 	}
 }
 
-func TestLocalRunLogStore_ListReturnsSortedBySequence(t *testing.T) {
+func TestLocalRunLogStore_ListPreservesAppendOrder(t *testing.T) {
 	store, err := NewLocalRunLogStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new local run log store: %v", err)
@@ -91,7 +91,7 @@ func TestLocalRunLogStore_ListReturnsSortedBySequence(t *testing.T) {
 		t.Fatalf("expected 3 entries, got %d", len(got))
 	}
 
-	for i, wantSeq := range []int64{1, 2, 3} {
+	for i, wantSeq := range []int64{3, 1, 2} {
 		if got[i].Sequence != wantSeq {
 			t.Fatalf("entry %d: expected sequence %d, got %d", i, wantSeq, got[i].Sequence)
 		}

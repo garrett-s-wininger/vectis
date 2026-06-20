@@ -39,6 +39,14 @@ func rebindQueryForPgx(query string) string {
 	return b.String()
 }
 
+func forUpdateClause() string {
+	if os.Getenv(database.EnvDatabaseDriver) == "pgx" {
+		return " FOR UPDATE"
+	}
+
+	return ""
+}
+
 const (
 	RunStatusQueued    = "queued"
 	RunStatusRunning   = "running"

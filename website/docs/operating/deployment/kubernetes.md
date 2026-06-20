@@ -85,10 +85,11 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repa
 The first manifest is a single-cell deployment. It includes Postgres, registry,
 queue, orchestrator, log, artifact, secrets, API, docs, cron, reconciler,
 catalog, and a worker pod that runs `vectis-worker` beside
-`vectis-worker-core` over a shared Unix socket. The worker pod also runs a
-local `vectis-spiffe` sidecar so secret resolution uses per-execution SVIDs over
-internal gRPC mTLS. The worker registers its pod IP and worker-control port with
-the registry so the API can issue fast cancel requests inside the cluster.
+`vectis-worker-core` over a shared Unix socket and shared log spool. The worker
+pod also runs a local `vectis-spiffe` sidecar so secret resolution uses
+per-execution SVIDs over internal gRPC mTLS. The worker registers its pod IP and
+worker-control port with the registry so the API can issue fast cancel requests
+inside the cluster.
 
 ## Current Scope
 

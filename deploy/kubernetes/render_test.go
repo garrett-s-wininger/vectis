@@ -49,6 +49,8 @@ func TestRenderDefaultManifestContract(t *testing.T) {
 		"VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES",
 		"VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED",
 		"mountPath: /var/lib/postgresql",
+		"name: worker-log-spool",
+		"mountPath: /tmp/vectis-log-spool",
 		"VECTIS_API_SERVER_PORT",
 		"VECTIS_DOCS_PORT",
 	} {

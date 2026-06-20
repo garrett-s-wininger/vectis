@@ -117,6 +117,42 @@ func (s *fakeStreamLogsServer) RecvMsg(any) error {
 	return nil
 }
 
+type fakeGetLogsServer struct {
+	ctx    context.Context
+	chunks []*api.LogChunk
+}
+
+func (s *fakeGetLogsServer) Send(chunk *api.LogChunk) error {
+	s.chunks = append(s.chunks, chunk)
+	return nil
+}
+
+func (s *fakeGetLogsServer) SetHeader(metadata.MD) error {
+	return nil
+}
+
+func (s *fakeGetLogsServer) SendHeader(metadata.MD) error {
+	return nil
+}
+
+func (s *fakeGetLogsServer) SetTrailer(metadata.MD) {}
+
+func (s *fakeGetLogsServer) Context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+
+	return context.Background()
+}
+
+func (s *fakeGetLogsServer) SendMsg(any) error {
+	return nil
+}
+
+func (s *fakeGetLogsServer) RecvMsg(any) error {
+	return nil
+}
+
 func TestStreamLogsRejectsMixedRunStream(t *testing.T) {
 	store := &recordingRunLogStore{}
 	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
@@ -142,6 +178,65 @@ func TestStreamLogsRejectsMixedRunStream(t *testing.T) {
 
 	if stream.closed {
 		t.Fatal("mixed-run stream should return an error, not SendAndClose")
+	}
+}
+
+func TestStreamLogsAssignsRunGlobalSequencesAcrossTaskStreams(t *testing.T) {
+	store := &recordingRunLogStore{}
+	s := NewServerWithStore(mocks.NopLogger{}, store, nil)
+	runID := "run-task-streams"
+	stdout := api.Stream_STREAM_STDOUT
+	control := api.Stream_STREAM_CONTROL
+	success := api.RunOutcome_RUN_OUTCOME_SUCCESS
+
+	rootStream := &fakeStreamLogsServer{
+		chunks: []*api.LogChunk{
+			{RunId: proto.String(runID), Sequence: proto.Int64(1), Stream: &stdout, Data: []byte("root start")},
+			{RunId: proto.String(runID), Sequence: proto.Int64(2), Stream: &control, Completed: success.Enum(), Data: []byte(`{"event":"completed","status":"success"}`)},
+		},
+	}
+
+	if err := s.StreamLogs(rootStream); err != nil {
+		t.Fatalf("root StreamLogs: %v", err)
+	}
+
+	fanoutStream := &fakeStreamLogsServer{
+		chunks: []*api.LogChunk{
+			{RunId: proto.String(runID), Sequence: proto.Int64(1), Stream: &stdout, Data: []byte("fanout after root completion")},
+		},
+	}
+
+	if err := s.StreamLogs(fanoutStream); err != nil {
+		t.Fatalf("fanout StreamLogs: %v", err)
+	}
+
+	entries := store.entries[runID]
+	if len(entries) != 3 {
+		t.Fatalf("stored entries = %d, want 3", len(entries))
+	}
+
+	for i, entry := range entries {
+		wantSeq := int64(i + 1)
+		if entry.Sequence != wantSeq {
+			t.Fatalf("entry %d sequence = %d, want %d", i, entry.Sequence, wantSeq)
+		}
+	}
+
+	replay := &fakeGetLogsServer{}
+	if err := s.GetLogs(&api.GetLogsRequest{RunId: proto.String(runID), SinceSequence: proto.Int64(2)}, replay); err != nil {
+		t.Fatalf("GetLogs: %v", err)
+	}
+
+	if len(replay.chunks) != 1 {
+		t.Fatalf("replayed chunks = %d, want 1", len(replay.chunks))
+	}
+
+	if got := string(replay.chunks[0].GetData()); got != "fanout after root completion" {
+		t.Fatalf("replayed data = %q, want fanout log", got)
+	}
+
+	if replay.chunks[0].GetSequence() != 3 {
+		t.Fatalf("replayed sequence = %d, want 3", replay.chunks[0].GetSequence())
 	}
 }
 

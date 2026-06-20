@@ -5736,6 +5736,14 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 		return ExecutionFinalizationResult{}, err
 	}
 
+	if err := lockRunForFinalizationTx(ctx, tx, runID); err != nil {
+		return ExecutionFinalizationResult{}, err
+	}
+
+	if _, err := validateExecutionClaimForCompletionTx(ctx, tx, executionID, owner, claimToken, time.Now().UTC().Unix()); err != nil {
+		return ExecutionFinalizationResult{}, err
+	}
+
 	var children []TaskExecutionRecord
 	var activated int
 	var cancelRequested bool
@@ -5896,6 +5904,22 @@ func getRunCancelIntentTx(ctx context.Context, tx *sql.Tx, runID string) (bool, 
 	}
 
 	return requestedAt.Valid && requestedAt.Int64 > 0, outReason, nil
+}
+
+func lockRunForFinalizationTx(ctx context.Context, tx *sql.Tx, runID string) error {
+	var found string
+	if err := tx.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT run_id FROM job_runs WHERE run_id = ?"+forUpdateClause()),
+		runID,
+	).Scan(&found); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	return nil
 }
 
 func validateExecutionClaimForCompletionTx(ctx context.Context, tx *sql.Tx, executionID, owner, claimToken string, nowUnix int64) (string, error) {

@@ -120,6 +120,8 @@ type JobBuffer struct {
 	lastActivity  time.Time
 	terminal      bool
 	terminalEntry LogEntry
+	nextSequence  int64
+	seqInit       bool
 }
 
 func NewJobBuffer(logger interfaces.Logger, metrics *observability.LogMetrics) *JobBuffer {
@@ -139,6 +141,9 @@ func (jb *JobBuffer) Add(entry LogEntry) bool {
 	jb.lastActivity = entry.Timestamp
 	if isCompletedEvent(entry) {
 		jb.recordTerminalLocked(entry)
+	}
+	if entry.Sequence > jb.nextSequence {
+		jb.nextSequence = entry.Sequence
 	}
 
 	if len(jb.entries) >= MaxLogLinesPerJob {
@@ -161,6 +166,9 @@ func (jb *JobBuffer) AddBatch(entries []LogEntry) int {
 	for _, entry := range entries {
 		if isCompletedEvent(entry) {
 			jb.recordTerminalLocked(entry)
+		}
+		if entry.Sequence > jb.nextSequence {
+			jb.nextSequence = entry.Sequence
 		}
 	}
 
@@ -206,6 +214,38 @@ func (jb *JobBuffer) TerminalEntry() (LogEntry, bool) {
 	}
 
 	return jb.terminalEntry, true
+}
+
+func (jb *JobBuffer) NeedsSequenceInit() bool {
+	jb.mu.RLock()
+	defer jb.mu.RUnlock()
+
+	return !jb.seqInit
+}
+
+func (jb *JobBuffer) InitSequenceFloor(seq int64) {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	if jb.seqInit {
+		return
+	}
+
+	if seq > jb.nextSequence {
+		jb.nextSequence = seq
+	}
+
+	jb.seqInit = true
+}
+
+func (jb *JobBuffer) NextSequence() int64 {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	jb.seqInit = true
+	jb.nextSequence++
+
+	return jb.nextSequence
 }
 
 func (jb *JobBuffer) recordTerminalLocked(entry LogEntry) {
@@ -339,6 +379,19 @@ func (s *Server) getOrCreateBuffer(runID string) *JobBuffer {
 	return buffer
 }
 
+func (s *Server) nextRunSequence(runID string, buffer *JobBuffer) int64 {
+	if buffer.NeedsSequenceInit() {
+		entries, err := s.store.List(runID)
+		if err != nil && s.logger != nil {
+			s.logger.Warn("Failed to initialize log sequence for run %s: %v", runID, err)
+		}
+
+		buffer.InitSequenceFloor(nextSequence(entries) - 1)
+	}
+
+	return buffer.NextSequence()
+}
+
 func (s *Server) bufferCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -445,11 +498,10 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 					if syntheticCompletion && lastBuffer != nil && !lastBuffer.IsTerminal() {
 						s.logger.Warn("Stream ended for run %s without completion event", lastRunID)
 
-						entries := lastBuffer.GetEntries()
 						synthetic := LogEntry{
 							Timestamp: time.Now(),
 							Stream:    api.Stream_STREAM_CONTROL,
-							Sequence:  nextSequence(entries),
+							Sequence:  s.nextRunSequence(lastRunID, lastBuffer),
 							Data:      []byte(`{"event":"completed","status":"unknown","synthetic":true}`),
 							Completed: api.RunOutcome_RUN_OUTCOME_UNKNOWN,
 						}
@@ -486,6 +538,11 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 				return err
 			}
 			item.runID = streamRoute.RunID
+
+			buffer := s.getOrCreateBuffer(streamRoute.RunID)
+			item.entry.Sequence = s.nextRunSequence(streamRoute.RunID, buffer)
+			lastRunID = streamRoute.RunID
+			lastBuffer = buffer
 
 			pending = append(pending, item)
 			if len(pending) >= defaultLogAppendBatchSize {
@@ -538,6 +595,7 @@ func (s *Server) SendLogBatch(ctx context.Context, batch *api.LogBatch) (*api.Em
 		return &api.Empty{}, nil
 	}
 
+	s.assignRunSequences(entries)
 	groups := groupStreamLogEntries(entries)
 	if err := s.appendLogEntryGroups(ctx, entries, groups); err != nil {
 		return nil, err
@@ -634,6 +692,28 @@ func (s *Server) persistLogEntryGroups(entries []streamLogEntry, groups []runLog
 	}
 
 	return nil
+}
+
+func (s *Server) assignRunSequences(entries []streamLogEntry) {
+	if len(entries) == 0 {
+		return
+	}
+
+	buffers := make(map[string]*JobBuffer)
+	for i := range entries {
+		runID := entries[i].runID
+		if runID == "" {
+			continue
+		}
+
+		buffer := buffers[runID]
+		if buffer == nil {
+			buffer = s.getOrCreateBuffer(runID)
+			buffers[runID] = buffer
+		}
+
+		entries[i].entry.Sequence = s.nextRunSequence(runID, buffer)
+	}
 }
 
 func (s *Server) publishLogEntryGroups(ctx context.Context, groups []runLogEntryGroup, lastRunID string) (string, *JobBuffer) {

@@ -1196,6 +1196,8 @@ spec:
               mountPath: /run/vectis/worker-core
             - name: worker-workspace
               mountPath: /workspace
+            - name: worker-log-spool
+              mountPath: /tmp/vectis-log-spool
             - name: grpc-tls
               mountPath: /run/vectis/grpc-tls
               readOnly: true
@@ -1253,6 +1255,8 @@ spec:
               mountPath: /run/vectis/worker-core
             - name: worker-workspace
               mountPath: /workspace
+            - name: worker-log-spool
+              mountPath: /tmp/vectis-log-spool
             - name: grpc-tls
               mountPath: /run/vectis/grpc-tls
               readOnly: true
@@ -1262,6 +1266,8 @@ spec:
         - name: worker-core-sockets
           emptyDir: {}
         - name: worker-workspace
+          emptyDir: {}
+        - name: worker-log-spool
           emptyDir: {}
         - name: spiffe-data
           emptyDir: {}
