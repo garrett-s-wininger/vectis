@@ -1,5 +1,5 @@
 import type { RunListItem, RunStatus } from "../components";
-import type { AssignableUserRole, CellStatus } from "./console";
+import type { AssignableUserRole, CellStatus, RoleBindingRole } from "./console";
 
 export type RunFilter = RunStatus | "all";
 export type SourceFilter = NonNullable<RunListItem["source"]> | "all";
@@ -79,6 +79,13 @@ export const userRoleOptions: { label: string; value: AssignableUserRole }[] = [
   { label: "Admin", value: "Admin" },
   { label: "Operator", value: "Operator" },
   { label: "Viewer", value: "Viewer" }
+];
+
+export const roleBindingRoleOptions: { label: string; value: RoleBindingRole }[] = [
+  { label: "Admin", value: "Admin" },
+  { label: "Operator", value: "Operator" },
+  { label: "Viewer", value: "Viewer" },
+  { label: "Trigger", value: "Trigger" }
 ];
 
 export function cellStatusLabel(status: CellStatus) {

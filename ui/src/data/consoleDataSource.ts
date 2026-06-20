@@ -7,11 +7,13 @@ import type {
   NewJob,
   NewNamespace,
   NewUser,
+  RoleBindingRole,
   UpdateJob,
   UpdateNamespace,
   User,
   UserStatus
 } from "../domain/console";
+import { summarizeRoleBindings } from "../domain/roleBindings";
 import { requestJSON, requestNoContent } from "../api/client";
 import {
   createMockConsoleDataSnapshot,
@@ -26,6 +28,8 @@ import {
   updateMockUserStatus,
   createMockUser,
   deleteMockUser,
+  grantMockRoleBinding,
+  revokeMockRoleBinding,
   type MockConsoleData
 } from "../mocks/consoleData";
 
@@ -77,6 +81,12 @@ type APIUser = {
   username: string;
 };
 
+type APIRoleBinding = {
+  local_user_id: number;
+  role: string;
+  username?: string;
+};
+
 export type CreatedUserCredential = {
   password: string;
   username: string;
@@ -93,8 +103,10 @@ export type ConsoleDataSource = {
   createUser(input: NewUser): Promise<CreateUserResult>;
   deleteNamespace(namespaceID: number): Promise<ConsoleData>;
   deleteUser(userID: string): Promise<User[]>;
+  grantRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   loadConsole(): Promise<ConsoleData>;
   loadRun(runID: string): Promise<RunListItem>;
+  revokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
   triggerRun(jobID: string): Promise<ConsoleData>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
@@ -150,6 +162,10 @@ function createMockConsoleDataSource(): ConsoleDataSource {
       data = deleteMockUser(data, userID);
       return cloneConsoleData(data).users;
     },
+    async grantRoleBinding(userID, namespaceID, role) {
+      data = grantMockRoleBinding(data, userID, namespaceID, role);
+      return cloneConsoleData(data);
+    },
     async loadConsole() {
       return cloneConsoleData(data);
     },
@@ -159,6 +175,10 @@ function createMockConsoleDataSource(): ConsoleDataSource {
         throw new Error("Run not found.");
       }
       return run;
+    },
+    async revokeRoleBinding(userID, namespaceID, role) {
+      data = revokeMockRoleBinding(data, userID, namespaceID, role);
+      return cloneConsoleData(data);
     },
     async submitEphemeralRun(input) {
       data = submitMockEphemeralRun(data, input);
@@ -243,6 +263,17 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 
       return loadAPIUsers();
     },
+    async grantRoleBinding(userID, namespaceID, role) {
+      await requestJSON<APIRoleBinding>(`/api/v1/namespaces/${namespaceID}/bindings`, {
+        method: "POST",
+        body: JSON.stringify({
+          local_user_id: Number(userID),
+          role: apiRoleBindingRole(role)
+        })
+      });
+
+      return loadAPIConsoleData();
+    },
     loadConsole: loadAPIConsoleData,
     async loadRun(runID) {
       const [run, jobsPage] = await Promise.all([loadAPIRun(runID), loadAPIJobs()]);
@@ -266,6 +297,16 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
         ...data,
         runs: [apiEphemeralRunToConsoleRun(response, definition, input), ...data.runs]
       };
+    },
+    async revokeRoleBinding(userID, namespaceID, role) {
+      await requestNoContent(
+        `/api/v1/namespaces/${namespaceID}/bindings/${encodeURIComponent(userID)}?role=${encodeURIComponent(apiRoleBindingRole(role))}`,
+        {
+          method: "DELETE"
+        }
+      );
+
+      return loadAPIConsoleData();
     },
     async triggerRun(jobID) {
       await requestJSON(`/api/v1/jobs/trigger/${encodeURIComponent(jobID)}`, {
@@ -311,8 +352,17 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
 async function loadAPIConsoleData(): Promise<ConsoleData> {
   const mockBase = createMockConsoleDataSnapshot();
   const [namespaces, jobsPage, users] = await Promise.all([loadAPINamespaces(), loadAPIJobs(), loadAPIUsers()]);
+  const roleBindings = await loadAPIRoleBindings(namespaces, users);
   const jobs = jobsPage.data.map(apiJobToConsoleJob);
   const runs = await loadAPIRuns(jobs);
+  const usersWithRoleBindings = users.map((user) => {
+    const bindings = roleBindings.filter((binding) => binding.userID === user.id);
+    return {
+      ...user,
+      role: summarizeRoleBindings(bindings),
+      roleBindings: bindings
+    };
+  });
 
   return {
     ...mockBase,
@@ -321,8 +371,9 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
       lastRunStatus: runs.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)?.status
     })),
     namespaces,
+    roleBindings,
     runs,
-    users
+    users: usersWithRoleBindings
   };
 }
 
@@ -351,6 +402,30 @@ async function loadAPIUsers() {
   return users.map(apiUserToConsoleUser);
 }
 
+async function loadAPIRoleBindings(namespaces: Namespace[], users: User[]) {
+  const usersByID = new Map(users.map((user) => [user.id, user]));
+  const bindingsByNamespace = await Promise.all(
+    namespaces.map(async (namespace) => ({
+      namespace,
+      bindings: await requestJSON<APIRoleBinding[]>(`/api/v1/namespaces/${namespace.id}/bindings`)
+    }))
+  );
+
+  return bindingsByNamespace.flatMap(({ bindings, namespace }) =>
+    bindings.map((binding) => {
+      const userID = String(binding.local_user_id);
+      return {
+        id: `${namespace.id}:${userID}:${binding.role}`,
+        namespaceID: namespace.id,
+        namespacePath: namespace.path,
+        role: consoleRoleBindingRole(binding.role),
+        userID,
+        username: binding.username || usersByID.get(userID)?.username
+      };
+    })
+  );
+}
+
 async function loadAPIRun(runID: string) {
   return requestJSON<APIRun>(`/api/v1/runs/${encodeURIComponent(runID)}`);
 }
@@ -360,11 +435,31 @@ function apiUserToConsoleUser(user: APIUser): User {
     id: String(user.id),
     username: user.username,
     role: "Unassigned",
+    roleBindings: [],
     status: user.enabled ? "active" : "disabled",
     lastSeen: user.created_at ? `Created ${formatDate(user.created_at)}` : "Created date unavailable",
     tokens: 0
   };
 }
+
+function consoleRoleBindingRole(role: string): RoleBindingRole {
+  switch (role) {
+    case "admin":
+      return "Admin";
+    case "operator":
+      return "Operator";
+    case "trigger":
+      return "Trigger";
+    case "viewer":
+    default:
+      return "Viewer";
+  }
+}
+
+function apiRoleBindingRole(role: RoleBindingRole) {
+  return role.toLowerCase();
+}
+
 
 function apiNamespaceToConsoleNamespace(namespace: APINamespace): Namespace {
   return {

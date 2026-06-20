@@ -9,6 +9,8 @@ import {
   createMockUser,
   deleteMockNamespace,
   deleteMockUser,
+  grantMockRoleBinding,
+  revokeMockRoleBinding,
   scopeMockConsoleData,
   submitMockEphemeralRun,
   triggerMockRun,
@@ -159,6 +161,7 @@ export function UsersPageHarness() {
 
   return (
     <UsersPage
+      namespaces={data.namespaces}
       onCreateUser={(input) => {
         setData((current) => createMockUser(current, input));
         return {
@@ -167,8 +170,12 @@ export function UsersPageHarness() {
         };
       }}
       onDeleteUser={(userID) => setData((current) => deleteMockUser(current, userID))}
+      onGrantRoleBinding={(userID, namespaceID, role) => setData((current) => grantMockRoleBinding(current, userID, namespaceID, role))}
       onOpenUser={() => undefined}
       onOpenUsers={() => undefined}
+      onRevokeRoleBinding={(userID, namespaceID, role) =>
+        setData((current) => revokeMockRoleBinding(current, userID, namespaceID, role))
+      }
       onUpdateUserStatus={(userID, status) => setData((current) => updateMockUserStatus(current, userID, status))}
       users={data.users}
     />

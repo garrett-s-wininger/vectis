@@ -3,6 +3,7 @@ import { useId } from "react";
 import styles from "./Field.module.css";
 
 export type SelectOption = {
+  disabled?: boolean;
   label: string;
   value: string;
 };
@@ -32,7 +33,7 @@ export function SelectField({ error, id, label, options, wide, ...props }: Selec
           id={selectID}
         >
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option disabled={option.disabled} key={option.value} value={option.value}>
               {option.label}
             </option>
           ))}

@@ -133,6 +133,7 @@ describe("App", () => {
           status: 200
         })
       )
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({

@@ -9,7 +9,7 @@ import { MetricCard } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { CreatedUserCredential } from "../data/consoleDataSource";
-import type { AssignableUserRole, NewUser, User, UserStatus } from "../domain/console";
+import type { AssignableUserRole, Namespace, NewUser, RoleBindingRole, User, UserStatus } from "../domain/console";
 import { userRoleOptions } from "../domain/consoleOptions";
 import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle } from "./shared";
 import { UserDetailPage } from "./users/UserDetailPage";
@@ -18,20 +18,26 @@ import { roleTone } from "./users/UserPresentation";
 import styles from "./UsersPage.module.css";
 
 type UsersPageProps = {
+  namespaces: Namespace[];
   onCreateUser: (input: NewUser) => Promise<CreatedUserCredential | undefined> | CreatedUserCredential | undefined;
   onDeleteUser: (userID: string) => Promise<void> | void;
+  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onOpenUser: (userID: string) => void;
   onOpenUsers: () => void;
+  onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onUpdateUserStatus: (userID: string, status: UserStatus) => Promise<void> | void;
   selectedUserID?: string;
   users: User[];
 };
 
 export function UsersPage({
+  namespaces,
   onCreateUser,
   onDeleteUser,
+  onGrantRoleBinding,
   onOpenUser,
   onOpenUsers,
+  onRevokeRoleBinding,
   onUpdateUserStatus,
   selectedUserID,
   users
@@ -136,7 +142,10 @@ export function UsersPage({
     return (
       <UserDetailPage
         onBack={onOpenUsers}
+        namespaces={namespaces}
+        onGrantRoleBinding={onGrantRoleBinding}
         onRemoveUser={setPendingDeleteUser}
+        onRevokeRoleBinding={onRevokeRoleBinding}
         onUpdateUserStatus={onUpdateUserStatus}
         user={selectedUser}
       >

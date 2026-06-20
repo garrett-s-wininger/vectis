@@ -10,11 +10,14 @@ import type {
   NewJob,
   NewNamespace,
   NewUser,
+  RoleBinding,
+  RoleBindingRole,
   UpdateJob,
   UpdateNamespace,
   User,
   UserStatus
 } from "../domain/console";
+import { summarizeRoleBindings } from "../domain/roleBindings";
 import type { DashboardMetric } from "./fixtures";
 import { activeRuns, instanceSignals, workloadProgress } from "./fixtures";
 
@@ -27,6 +30,7 @@ export type UpdateMockJob = UpdateJob;
 export type MockNamespace = Namespace;
 export type MockUserStatus = UserStatus;
 export type MockUser = User;
+export type MockRoleBinding = RoleBinding;
 export type NewMockUser = NewUser;
 export type NewMockNamespace = NewNamespace;
 export type UpdateMockNamespace = UpdateNamespace;
@@ -269,16 +273,54 @@ const users: User[] = [
   }
 ];
 
+const roleBindings: RoleBinding[] = [
+  {
+    id: "1:user-admin:Admin",
+    namespaceID: 1,
+    namespacePath: "/",
+    role: "Admin",
+    userID: "user-admin",
+    username: "admin"
+  },
+  {
+    id: "2:user-mira:Operator",
+    namespaceID: 2,
+    namespacePath: "/team-a",
+    role: "Operator",
+    userID: "user-mira",
+    username: "mira"
+  },
+  {
+    id: "3:user-mira:Trigger",
+    namespaceID: 3,
+    namespacePath: "/team-a/edge",
+    role: "Trigger",
+    userID: "user-mira",
+    username: "mira"
+  },
+  {
+    id: "4:user-lee:Viewer",
+    namespaceID: 4,
+    namespacePath: "/prod",
+    role: "Viewer",
+    userID: "user-lee",
+    username: "lee"
+  }
+];
+
 export function createMockConsoleDataSnapshot(): MockConsoleData {
-  return cloneData({
+  return withUserRoleBindings(
+    cloneData({
     cells,
     jobs,
     namespaces,
     progress: workloadProgress,
+    roleBindings,
     runs: activeRuns,
     signals: instanceSignals,
     users
-  });
+    })
+  );
 }
 
 export async function loadMockConsoleData(): Promise<MockConsoleData> {
@@ -457,24 +499,70 @@ export function createMockUser(data: MockConsoleData, input: NewMockUser): MockC
     tokens: 0
   };
 
-  return {
+  const nextData = {
     ...data,
+    roleBindings: [
+      ...data.roleBindings,
+      {
+        id: `1:${user.id}:${input.role}`,
+        namespaceID: 1,
+        namespacePath: "/",
+        role: input.role,
+        userID: user.id,
+        username
+      }
+    ],
     users: [user, ...data.users]
   };
+
+  return withUserRoleBindings(nextData);
 }
 
 export function updateMockUserStatus(data: MockConsoleData, userID: string, status: MockUserStatus): MockConsoleData {
-  return {
+  return withUserRoleBindings({
     ...data,
     users: data.users.map((user) => (user.id === userID ? { ...user, status } : user))
-  };
+  });
 }
 
 export function deleteMockUser(data: MockConsoleData, userID: string): MockConsoleData {
-  return {
+  return withUserRoleBindings({
     ...data,
+    roleBindings: data.roleBindings.filter((binding) => binding.userID !== userID),
     users: data.users.filter((user) => user.id !== userID)
-  };
+  });
+}
+
+export function grantMockRoleBinding(data: MockConsoleData, userID: string, namespaceID: number, role: RoleBindingRole): MockConsoleData {
+  const namespace = data.namespaces.find((candidate) => candidate.id === namespaceID);
+  const user = data.users.find((candidate) => candidate.id === userID);
+  if (!namespace || !user || data.roleBindings.some((binding) => binding.userID === userID && binding.namespaceID === namespaceID && binding.role === role)) {
+    return data;
+  }
+
+  return withUserRoleBindings({
+    ...data,
+    roleBindings: [
+      ...data.roleBindings,
+      {
+        id: `${namespaceID}:${userID}:${role}`,
+        namespaceID,
+        namespacePath: namespace.path,
+        role,
+        userID,
+        username: user.username
+      }
+    ]
+  });
+}
+
+export function revokeMockRoleBinding(data: MockConsoleData, userID: string, namespaceID: number, role: RoleBindingRole): MockConsoleData {
+  return withUserRoleBindings({
+    ...data,
+    roleBindings: data.roleBindings.filter(
+      (binding) => !(binding.userID === userID && binding.namespaceID === namespaceID && binding.role === role)
+    )
+  });
 }
 
 export function createMockJob(data: MockConsoleData, input: NewMockJob): MockConsoleData {
@@ -618,11 +706,30 @@ function cloneData(data: MockConsoleData): MockConsoleData {
     jobs: data.jobs.map((job) => ({ ...job })),
     namespaces: data.namespaces.map((namespace) => ({ ...namespace })),
     progress: data.progress.map((progress) => ({ ...progress })),
+    roleBindings: data.roleBindings.map((binding) => ({ ...binding })),
     runs: data.runs.map((run) => ({ ...run })),
     signals: data.signals.map((signal) => ({ ...signal })),
-    users: data.users.map((user) => ({ ...user }))
+    users: data.users.map((user) => ({
+      ...user,
+      roleBindings: user.roleBindings?.map((binding) => ({ ...binding }))
+    }))
   };
 }
+
+function withUserRoleBindings(data: MockConsoleData): MockConsoleData {
+  return {
+    ...data,
+    users: data.users.map((user) => {
+      const userBindings = data.roleBindings.filter((binding) => binding.userID === user.id);
+      return {
+        ...user,
+        role: summarizeRoleBindings(userBindings),
+        roleBindings: userBindings
+      };
+    })
+  };
+}
+
 
 function nextMockRunNumber(data: MockConsoleData) {
   return Math.max(0, ...data.runs.map((run) => run.runNumber)) + 1;

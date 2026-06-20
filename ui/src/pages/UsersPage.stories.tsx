@@ -8,10 +8,13 @@ const meta = {
   title: "Pages/Users",
   component: UsersPage,
   args: {
+    namespaces: createMockConsoleDataSnapshot().namespaces,
     onCreateUser: () => undefined,
     onDeleteUser: () => undefined,
+    onGrantRoleBinding: () => undefined,
     onOpenUser: () => undefined,
     onOpenUsers: () => undefined,
+    onRevokeRoleBinding: () => undefined,
     onUpdateUserStatus: () => undefined,
     users: createMockConsoleDataSnapshot().users
   },
@@ -36,8 +39,10 @@ export const Empty: Story = {
   args: {
     onCreateUser: () => undefined,
     onDeleteUser: () => undefined,
+    onGrantRoleBinding: () => undefined,
     onOpenUser: () => undefined,
     onOpenUsers: () => undefined,
+    onRevokeRoleBinding: () => undefined,
     onUpdateUserStatus: () => undefined,
     users: []
   }
@@ -49,8 +54,34 @@ export const Detail: Story = {
 
     return (
       <UserDetailPage
+        namespaces={createMockConsoleDataSnapshot().namespaces}
         onBack={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onRemoveUser={() => undefined}
+        onRevokeRoleBinding={() => undefined}
+        onUpdateUserStatus={() => undefined}
+        user={user}
+      />
+    );
+  }
+};
+
+export const DetailNoBindings: Story = {
+  render: () => {
+    const data = createMockConsoleDataSnapshot();
+    const user = {
+      ...data.users[1],
+      role: "Unassigned" as const,
+      roleBindings: []
+    };
+
+    return (
+      <UserDetailPage
+        namespaces={data.namespaces}
+        onBack={() => undefined}
+        onGrantRoleBinding={() => undefined}
+        onRemoveUser={() => undefined}
+        onRevokeRoleBinding={() => undefined}
         onUpdateUserStatus={() => undefined}
         user={user}
       />

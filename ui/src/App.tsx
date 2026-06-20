@@ -12,7 +12,7 @@ import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource, type CreatedUserCredential } from "./data/consoleDataSource";
 import type { NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
-import type { NewUser, UserStatus } from "./domain/console";
+import type { NewUser, RoleBindingRole, UserStatus } from "./domain/console";
 import {
   canDeleteMockNamespace,
   nextMockRunID,
@@ -303,6 +303,28 @@ export function App() {
     }
   }
 
+  async function handleGrantRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole) {
+    try {
+      setConsoleData(await consoleDataSourceRef.current.grantRoleBinding(userID, namespaceID, role));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      setActionError(errorMessage(error, "Unable to grant role binding."));
+      throw error;
+    }
+  }
+
+  async function handleRevokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole) {
+    try {
+      setConsoleData(await consoleDataSourceRef.current.revokeRoleBinding(userID, namespaceID, role));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      setActionError(errorMessage(error, "Unable to revoke role binding."));
+      throw error;
+    }
+  }
+
   async function handleCreateNamespace(input: NewNamespace) {
     try {
       setConsoleData(await consoleDataSourceRef.current.createNamespace(input));
@@ -483,6 +505,8 @@ export function App() {
         onCreateUser={handleCreateUser}
         onDeleteNamespace={handleDeleteNamespace}
         onDeleteUser={handleDeleteUser}
+        onGrantRoleBinding={handleGrantRoleBinding}
+        onRevokeRoleBinding={handleRevokeRoleBinding}
         onSubmitEphemeralRun={handleSubmitEphemeralRun}
         onTriggerRun={handleTriggerRun}
         onUpdateJob={handleUpdateJob}
@@ -625,6 +649,8 @@ function RouteContent({
   onCreateJob,
   onDeleteNamespace,
   onDeleteUser,
+  onGrantRoleBinding,
+  onRevokeRoleBinding,
   onSubmitEphemeralRun,
   onTriggerRun,
   onUpdateJob,
@@ -643,6 +669,8 @@ function RouteContent({
   onCreateUser: (input: NewUser) => Promise<CreatedUserCredential | undefined> | CreatedUserCredential | undefined;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
   onDeleteUser: (userID: string) => Promise<void> | void;
+  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
+  onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
   onTriggerRun: (jobID: string) => void;
   onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
@@ -740,9 +768,12 @@ function RouteContent({
         <UsersPage
           onCreateUser={onCreateUser}
           onDeleteUser={onDeleteUser}
+          onGrantRoleBinding={onGrantRoleBinding}
           onOpenUser={(userID) => navigateTo(`/users/${encodeURIComponent(userID)}`)}
           onOpenUsers={() => navigateTo("/users")}
+          onRevokeRoleBinding={onRevokeRoleBinding}
           onUpdateUserStatus={onUpdateUserStatus}
+          namespaces={consoleData.namespaces}
           selectedUserID={route.userID}
           users={consoleData.users}
         />

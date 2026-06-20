@@ -71,13 +71,24 @@ export type Namespace = {
 };
 
 export type AssignableUserRole = "Admin" | "Operator" | "Viewer";
-export type UserRole = AssignableUserRole | "Unassigned";
+export type RoleBindingRole = AssignableUserRole | "Trigger";
+export type UserRole = RoleBindingRole | "Unassigned";
 export type UserStatus = "active" | "disabled";
+
+export type RoleBinding = {
+  id: string;
+  namespaceID: number;
+  namespacePath: string;
+  role: RoleBindingRole;
+  userID: string;
+  username?: string;
+};
 
 export type User = {
   id: string;
   username: string;
   role: UserRole;
+  roleBindings?: RoleBinding[];
   status: UserStatus;
   lastSeen: string;
   tokens: number;
@@ -109,6 +120,7 @@ export type ConsoleData = {
   jobs: Job[];
   namespaces: Namespace[];
   progress: ProgressFixture[];
+  roleBindings: RoleBinding[];
   runs: RunListItem[];
   signals: SignalItem[];
   users: User[];

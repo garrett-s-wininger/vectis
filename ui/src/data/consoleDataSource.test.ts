@@ -57,6 +57,14 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            local_user_id: 7,
+            role: "admin"
+          }
+        ])
+      )
+      .mockResolvedValueOnce(
         jsonResponse({
           data: [
             {
@@ -72,8 +80,7 @@ describe("console data source", () => {
             }
           ]
         })
-      )
-      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+      );
 
     const data = await createConsoleDataSource().loadConsole();
 
@@ -116,12 +123,21 @@ describe("console data source", () => {
     expect(data.users[0]).toMatchObject({
       id: "7",
       username: "root",
-      role: "Unassigned",
+      role: "Admin",
+      roleBindings: [
+        {
+          namespaceID: 1,
+          namespacePath: "/",
+          role: "Admin",
+          userID: "7"
+        }
+      ],
       status: "active",
       tokens: 0
     });
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/users", expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/v1/runs?limit=200", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/v1/namespaces/1/bindings", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/v1/runs?limit=200", expect.any(Object));
   });
 
   it("does not invent a latest run status for API jobs with no runs", async () => {
@@ -155,6 +171,7 @@ describe("console data source", () => {
           ]
         })
       )
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
@@ -229,6 +246,8 @@ describe("console data source", () => {
       )
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
       .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
     const data = await createConsoleDataSource().createNamespace({
@@ -274,6 +293,7 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
@@ -321,6 +341,8 @@ describe("console data source", () => {
         ])
       )
       .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ data: [] }));
 
@@ -584,6 +606,52 @@ describe("console data source", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/users", expect.any(Object));
   });
 
+  it("grants role bindings through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ local_user_id: 12, role: "operator" }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await createConsoleDataSource().grantRoleBinding("12", 2, "Operator");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/namespaces/2/bindings",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          local_user_id: 12,
+          role: "operator"
+        })
+      })
+    );
+  });
+
+  it("revokes role bindings through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await createConsoleDataSource().revokeRoleBinding("12", 2, "Viewer");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/namespaces/2/bindings/12?role=viewer",
+      expect.objectContaining({
+        method: "DELETE"
+      })
+    );
+  });
+
   it("loads an inline run by id through the API source", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 
@@ -621,11 +689,13 @@ describe("console data source", () => {
   });
 });
 
-function jsonResponse(body: unknown) {
+function jsonResponse(body: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status: init?.status ?? 200,
     headers: {
-      "Content-Type": "application/json"
-    }
+      "Content-Type": "application/json",
+      ...init?.headers
+    },
+    statusText: init?.statusText
   });
 }

@@ -1,20 +1,70 @@
-import type { ReactNode } from "react";
-import { BreadcrumbTrail, Button, PageHeader } from "../../components";
-import type { User, UserStatus } from "../../domain/console";
+import type { FormEvent, ReactNode } from "react";
+import { useMemo, useState } from "react";
+import { BreadcrumbTrail, Button, PageHeader, SelectField } from "../../components";
+import type { Namespace, RoleBindingRole, User, UserStatus } from "../../domain/console";
+import { roleBindingRoleOptions } from "../../domain/consoleOptions";
 import { ResourceStatus } from "../shared";
 import styles from "../UsersPage.module.css";
 import { roleTone } from "./UserPresentation";
 
 type UserDetailPageProps = {
   children?: ReactNode;
+  namespaces: Namespace[];
   onBack: () => void;
+  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onRemoveUser: (user: User) => void;
+  onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onUpdateUserStatus: (userID: string, status: UserStatus) => Promise<void> | void;
   user: User;
 };
 
-export function UserDetailPage({ children, onBack, onRemoveUser, onUpdateUserStatus, user }: UserDetailPageProps) {
+export function UserDetailPage({
+  children,
+  namespaces,
+  onBack,
+  onGrantRoleBinding,
+  onRemoveUser,
+  onRevokeRoleBinding,
+  onUpdateUserStatus,
+  user
+}: UserDetailPageProps) {
   const nextStatus = user.status === "active" ? "disabled" : "active";
+  const bindings = useMemo(() => user.roleBindings ?? [], [user.roleBindings]);
+  const [bindingValues, setBindingValues] = useState(() => ({
+    namespaceID: String(namespaces[0]?.id ?? ""),
+    role: "Viewer" as RoleBindingRole
+  }));
+  const grantNamespaceOptions = useMemo(
+    () =>
+      namespaces.map((namespace) => ({
+        label: namespace.path === "/" ? "Root" : namespace.path,
+        value: String(namespace.id)
+      })),
+    [namespaces]
+  );
+  const selectedGrantNamespaceID = grantNamespaceOptions.some((option) => option.value === bindingValues.namespaceID)
+    ? bindingValues.namespaceID
+    : (grantNamespaceOptions[0]?.value ?? "");
+  const selectedGrantBinding = bindings.find((binding) => binding.namespaceID === Number(selectedGrantNamespaceID));
+  const grantRoleOptions = selectedGrantBinding
+    ? [{ label: selectedGrantBinding.role, value: selectedGrantBinding.role }]
+    : roleBindingRoleOptions;
+  const selectedGrantRole = grantRoleOptions.some((option) => option.value === bindingValues.role)
+    ? bindingValues.role
+    : grantRoleOptions[0]?.value;
+  const canGrantBinding =
+    Boolean(selectedGrantNamespaceID) &&
+    Boolean(selectedGrantRole) &&
+    !selectedGrantBinding;
+
+  async function handleGrantBinding(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canGrantBinding) {
+      return;
+    }
+
+    await onGrantRoleBinding(user.id, Number(selectedGrantNamespaceID), selectedGrantRole);
+  }
 
   return (
     <>
@@ -53,10 +103,55 @@ export function UserDetailPage({ children, onBack, onRemoveUser, onUpdateUserSta
           <div className={styles.detailCopy}>
             <p className="eyebrow">Access</p>
             <h2 id="user-access-title">Role Bindings</h2>
-            <p>
-              Role bindings are not exposed by the live users API yet. Accounts loaded from the API display as unassigned until that
-              permission surface is wired in.
-            </p>
+            <p>Grant namespace-scoped access for this account. Bindings inherit through child namespaces unless inheritance is stopped.</p>
+          </div>
+          <form className={styles.bindingForm} onSubmit={handleGrantBinding}>
+            <SelectField
+              label="Namespace"
+              name="roleBindingNamespace"
+              onChange={(event) => setBindingValues({ ...bindingValues, namespaceID: event.target.value })}
+              options={grantNamespaceOptions}
+              value={selectedGrantNamespaceID}
+              wide
+            />
+            <SelectField
+              label="Role"
+              name="roleBindingRole"
+              onChange={(event) =>
+                setBindingValues({
+                  ...bindingValues,
+                  role: event.target.value as RoleBindingRole
+                })
+              }
+              options={grantRoleOptions}
+              value={selectedGrantRole}
+              wide
+            />
+            <Button disabled={!canGrantBinding} type="submit">
+              Grant
+            </Button>
+          </form>
+          <div className={styles.bindingList} aria-label="Role bindings">
+            {bindings.length > 0 ? (
+              bindings.map((binding) => (
+                <div className={styles.bindingRow} key={binding.id}>
+                  <div>
+                    <strong>{binding.namespacePath === "/" ? "Root" : binding.namespacePath}</strong>
+                    <span>Namespace</span>
+                  </div>
+                  <ResourceStatus tone={roleTone(binding.role)}>{binding.role}</ResourceStatus>
+                  <Button
+                    onClick={() => onRevokeRoleBinding(user.id, binding.namespaceID, binding.role)}
+                    type="button"
+                    variant="quiet"
+                  >
+                    Revoke
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <div className={styles.emptyAccess}>No namespace role bindings.</div>
+            )}
           </div>
           <div className={styles.detailActions}>
             <Button onClick={() => onUpdateUserStatus(user.id, nextStatus)} type="button" variant="quiet">
