@@ -18,6 +18,7 @@ export type AppRoute = {
   activeHref: string;
   jobEditor?: { kind: "create" } | { kind: "edit"; jobID: string };
   jobID?: string;
+  namespaceID?: number;
   pathname: string;
   runJobName?: string;
   runID?: string;
@@ -102,7 +103,15 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
     return { kind: "users", activeHref: "/users", pathname };
   }
 
-  if (pathname === "/namespaces" || pathname.startsWith("/namespaces/")) {
+  if (pathname.startsWith("/namespaces/")) {
+    const namespaceID = Number(pathname.slice("/namespaces/".length));
+
+    if (Number.isInteger(namespaceID) && namespaceID > 0) {
+      return { kind: "namespaces", activeHref: "/namespaces", namespaceID, pathname };
+    }
+  }
+
+  if (pathname === "/namespaces") {
     return { kind: "namespaces", activeHref: "/namespaces", pathname };
   }
 

@@ -677,9 +677,17 @@ function RouteContent({
       return withActionAlert(
         <NamespacesPage
           canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(consoleData, namespaceID)}
+          jobs={consoleData.jobs}
           namespaces={consoleData.namespaces}
           onCreateNamespace={onCreateNamespace}
           onDeleteNamespace={onDeleteNamespace}
+          onOpenJobs={(namespacePath) => {
+            onSelectNamespace(namespacePath);
+            navigateTo("/jobs");
+          }}
+          onOpenNamespace={(namespaceID) => navigateTo(`/namespaces/${namespaceID}`)}
+          onOpenNamespaces={() => navigateTo("/namespaces")}
+          selectedNamespaceID={route.namespaceID}
         />
       );
     case "profile":

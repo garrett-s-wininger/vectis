@@ -63,13 +63,19 @@ export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: strin
 
 export function NamespacesPageHarness() {
   const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
+  const [selectedNamespaceID, setSelectedNamespaceID] = useState<number | undefined>();
 
   return (
     <NamespacesPage
       canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(data, namespaceID)}
+      jobs={data.jobs}
       namespaces={data.namespaces}
       onCreateNamespace={(input) => setData((current) => createMockNamespace(current, input))}
       onDeleteNamespace={(namespaceID) => setData((current) => deleteMockNamespace(current, namespaceID))}
+      onOpenJobs={() => undefined}
+      onOpenNamespace={setSelectedNamespaceID}
+      onOpenNamespaces={() => setSelectedNamespaceID(undefined)}
+      selectedNamespaceID={selectedNamespaceID}
     />
   );
 }

@@ -7,22 +7,32 @@ import { EmptyStatePanel } from "../components";
 import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
-import type { Namespace, NewNamespace } from "../domain/console";
+import type { Job, Namespace, NewNamespace } from "../domain/console";
 import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {
   canDeleteNamespace: (namespaceID: number) => boolean;
+  jobs: Job[];
   namespaces: Namespace[];
   onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
+  onOpenJobs: (namespacePath: string) => void;
+  onOpenNamespace: (namespaceID: number) => void;
+  onOpenNamespaces: () => void;
+  selectedNamespaceID?: number;
 };
 
 export function NamespacesPage({
   canDeleteNamespace,
+  jobs,
   namespaces,
   onCreateNamespace,
-  onDeleteNamespace
+  onDeleteNamespace,
+  onOpenJobs,
+  onOpenNamespace,
+  onOpenNamespaces,
+  selectedNamespaceID
 }: NamespacesPageProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [values, setValues] = useState<NewNamespace>({
@@ -42,10 +52,33 @@ export function NamespacesPage({
     setIsCreating(false);
   }
 
+  const selectedNamespace = selectedNamespaceID
+    ? namespaces.find((namespace) => namespace.id === selectedNamespaceID)
+    : null;
+
   const namespaceOptions = namespaces.map((namespace) => ({
     label: namespace.path === "/" ? "Root" : namespace.path,
     value: String(namespace.id)
   }));
+
+  if (selectedNamespaceID) {
+    if (!selectedNamespace) {
+      return <EmptyStatePanel description="The selected namespace could not be found." title="Namespace Not Found" />;
+    }
+
+    return (
+      <NamespaceDetail
+        canDeleteNamespace={canDeleteNamespace(selectedNamespace.id)}
+        jobs={jobs}
+        namespace={selectedNamespace}
+        namespaces={namespaces}
+        onDeleteNamespace={onDeleteNamespace}
+        onOpenJobs={onOpenJobs}
+        onOpenNamespace={onOpenNamespace}
+        onOpenNamespaces={onOpenNamespaces}
+      />
+    );
+  }
 
   const namespaceStats = summarizeNamespaces(namespaces);
 
@@ -79,6 +112,9 @@ export function NamespacesPage({
       header: "Actions",
       cell: (namespace) => (
         <TableActions>
+          <Button aria-label={`View ${namespace.path}`} onClick={() => onOpenNamespace(namespace.id)} variant="quiet">
+            View
+          </Button>
           <Button
             aria-label={`Delete ${namespace.path}`}
             disabled={!canDeleteNamespace(namespace.id)}
@@ -164,9 +200,9 @@ export function NamespacesPage({
             <p>Use namespaces to separate definitions while letting access inherit from broader boundaries.</p>
           </div>
           <div className={styles.summaryFacts} aria-label="Namespace totals">
-            <NamespaceFact label="Total" value={String(namespaceStats.total)} />
-            <NamespaceFact label="Root Children" value={String(namespaceStats.rootChildren)} />
-            <NamespaceFact label="Stopped Inheritance" value={String(namespaceStats.stoppedInheritance)} />
+            <NamespaceStat label="Total" value={String(namespaceStats.total)} />
+            <NamespaceStat label="Root Children" value={String(namespaceStats.rootChildren)} />
+            <NamespaceStat label="Stopped Inheritance" value={String(namespaceStats.stoppedInheritance)} />
           </div>
         </section>
 
@@ -200,7 +236,159 @@ export function NamespacesPage({
   );
 }
 
-function NamespaceFact({ label, value }: { label: string; value: string }) {
+function NamespaceDetail({
+  canDeleteNamespace,
+  jobs,
+  namespace,
+  namespaces,
+  onDeleteNamespace,
+  onOpenJobs,
+  onOpenNamespace,
+  onOpenNamespaces
+}: {
+  canDeleteNamespace: boolean;
+  jobs: Job[];
+  namespace: Namespace;
+  namespaces: Namespace[];
+  onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
+  onOpenJobs: (namespacePath: string) => void;
+  onOpenNamespace: (namespaceID: number) => void;
+  onOpenNamespaces: () => void;
+}) {
+  const childNamespaces = namespaces.filter((candidate) => candidate.parentID === namespace.id);
+  const namespaceJobs = jobs.filter((job) => job.namespacePath === namespace.path);
+  const displayPath = namespace.path === "/" ? "Root" : namespace.path;
+  const description = namespace.description ?? namespaceFallbackDescription(namespaces, namespace);
+
+  const childColumns: DataTableColumn<Namespace>[] = [
+    {
+      header: "Namespace",
+      cell: (child) => (
+        <ResourceTitle
+          subtitle={child.description ?? namespaceFallbackDescription(namespaces, child)}
+          title={child.path === "/" ? "Root" : child.path}
+        />
+      )
+    },
+    {
+      align: "end",
+      header: "Access",
+      cell: (child) => <ResourceStatus tone={roleTone(child.role)}>{child.role}</ResourceStatus>,
+      width: "124px"
+    },
+    {
+      align: "end",
+      header: "Actions",
+      cell: (child) => (
+        <TableActions>
+          <Button aria-label={`View ${child.path}`} onClick={() => onOpenNamespace(child.id)} variant="quiet">
+            View
+          </Button>
+        </TableActions>
+      ),
+      width: "104px"
+    }
+  ];
+
+  const jobColumns: DataTableColumn<Job>[] = [
+    {
+      header: "Job",
+      cell: (job) => <ResourceTitle subtitle={job.description ?? job.sourceDetail} title={job.name} />
+    },
+    {
+      align: "end",
+      header: "State",
+      cell: (job) => <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>,
+      width: "120px"
+    }
+  ];
+
+  return (
+    <>
+      <PageHeader
+        actions={
+          <Button
+            disabled={!canDeleteNamespace}
+            onClick={() => onDeleteNamespace(namespace.id)}
+            type="button"
+            variant="quiet"
+          >
+            Delete
+          </Button>
+        }
+        description={description}
+        navigation={
+          <BreadcrumbTrail
+            items={[
+              { label: "Root" },
+              { label: "Namespaces", onClick: onOpenNamespaces },
+              { current: true, label: displayPath }
+            ]}
+            label="Namespace location"
+          />
+        }
+        title={displayPath}
+      />
+
+      <div className={styles.workspace}>
+        <section
+          className={`${styles.detailPanel} ${styles.overviewPanel} polished-panel polished-panel--accent-top`}
+          aria-labelledby="namespace-overview-title"
+        >
+          <div className={styles.detailHeader}>
+            <div>
+              <h2 id="namespace-overview-title">Overview</h2>
+              <p>{description}</p>
+            </div>
+            <ResourceStatus tone={namespace.breakInheritance ? "paused" : "enabled"}>
+              {namespace.breakInheritance ? "Stopped Inheritance" : "Inherited Access"}
+            </ResourceStatus>
+          </div>
+          <div className={styles.detailGrid} aria-label="Namespace summary">
+            <NamespaceStat label="Child Namespaces" value={String(childNamespaces.length)} />
+            <NamespaceStat label="Stored Jobs" value={String(namespaceJobs.length)} />
+            <NamespaceStat label="Access" value={namespace.role} />
+          </div>
+        </section>
+
+        <section className={`${styles.detailPanel} polished-panel`} aria-labelledby="namespace-jobs-title">
+          <div className={styles.detailHeader}>
+            <div>
+              <h2 id="namespace-jobs-title">Jobs</h2>
+              <p>Stored definitions directly organized in this namespace.</p>
+            </div>
+            <Button onClick={() => onOpenJobs(namespace.path)} type="button" variant="quiet">
+              View Jobs
+            </Button>
+          </div>
+          <DataTable
+            columns={jobColumns}
+            emptyMessage="No jobs are stored directly in this namespace."
+            getRowKey={(job) => job.id}
+            rows={namespaceJobs}
+          />
+        </section>
+
+        <section className={`${styles.detailPanel} polished-panel`} aria-labelledby="namespace-children-title">
+          <div className={styles.detailHeader}>
+            <div>
+              <h2 id="namespace-children-title">Children</h2>
+              <p>Immediate boundaries nested under this namespace.</p>
+            </div>
+          </div>
+          <DataTable
+            columns={childColumns}
+            emptyMessage="No child namespaces."
+            getRowKey={(child) => String(child.id)}
+            rows={childNamespaces}
+          />
+        </section>
+      </div>
+    </>
+  );
+}
+
+function NamespaceStat({ label, value }: { label: string; value: string }) {
   return (
     <div className={styles.fact}>
       <strong>{value}</strong>
