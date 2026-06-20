@@ -18,7 +18,9 @@ export type AppRoute = {
   activeHref: string;
   jobEditor?: { kind: "create" } | { kind: "edit"; jobID: string };
   jobID?: string;
+  namespaceEditor?: { kind: "edit"; namespaceID: number };
   namespaceID?: number;
+  namespaceMissing?: boolean;
   pathname: string;
   runJobName?: string;
   runID?: string;
@@ -104,11 +106,25 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
   }
 
   if (pathname.startsWith("/namespaces/")) {
+    const namespaceConfigMatch = pathname.match(/^\/namespaces\/(\d+)\/config$/);
+    if (namespaceConfigMatch?.[1]) {
+      const namespaceID = Number(namespaceConfigMatch[1]);
+      return {
+        kind: "namespaces",
+        activeHref: "/namespaces",
+        namespaceEditor: { kind: "edit", namespaceID },
+        namespaceID,
+        pathname
+      };
+    }
+
     const namespaceID = Number(pathname.slice("/namespaces/".length));
 
     if (Number.isInteger(namespaceID) && namespaceID > 0) {
       return { kind: "namespaces", activeHref: "/namespaces", namespaceID, pathname };
     }
+
+    return { kind: "namespaces", activeHref: "/namespaces", namespaceMissing: true, pathname };
   }
 
   if (pathname === "/namespaces") {

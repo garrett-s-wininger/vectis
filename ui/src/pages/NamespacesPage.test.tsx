@@ -45,13 +45,17 @@ describe("NamespacesPage", () => {
     render(
       <NamespacesPage
         canDeleteNamespace={() => false}
+        editorMode={null}
         jobs={jobs}
         namespaces={namespaces}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
         onCreateNamespace={onCreateNamespace}
         onDeleteNamespace={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onUpdateNamespace={() => undefined}
       />
     );
 
@@ -72,13 +76,17 @@ describe("NamespacesPage", () => {
     render(
       <NamespacesPage
         canDeleteNamespace={(namespaceID) => namespaceID === 2}
+        editorMode={null}
         jobs={jobs}
         namespaces={namespaces}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onUpdateNamespace={() => undefined}
       />
     );
 
@@ -90,6 +98,7 @@ describe("NamespacesPage", () => {
     render(
       <NamespacesPage
         canDeleteNamespace={() => true}
+        editorMode={null}
         jobs={jobs}
         namespaces={[
           ...namespaces,
@@ -102,11 +111,14 @@ describe("NamespacesPage", () => {
             role: "Operator"
           }
         ]}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onUpdateNamespace={() => undefined}
         selectedNamespaceID={2}
       />
     );
@@ -115,5 +127,61 @@ describe("NamespacesPage", () => {
     expect(screen.getByText("deploy-api")).toBeInTheDocument();
     expect(screen.getByText("/team-a/edge")).toBeInTheDocument();
     expect(screen.getByText("Inherited Access")).toBeInTheDocument();
+  });
+
+  it("renders a namespace-specific not found state", () => {
+    const onOpenNamespaces = vi.fn();
+
+    render(
+      <NamespacesPage
+        canDeleteNamespace={() => true}
+        editorMode={null}
+        jobs={jobs}
+        namespaces={namespaces}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
+        onCreateNamespace={() => undefined}
+        onDeleteNamespace={() => undefined}
+        onOpenJobs={() => undefined}
+        onOpenNamespace={() => undefined}
+        onOpenNamespaces={onOpenNamespaces}
+        onUpdateNamespace={() => undefined}
+        selectedNamespaceID={99}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Namespace Not Found" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "No Namespace Found" })).toBeInTheDocument();
+    expect(screen.queryByText("Create One Today")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View Namespaces" }));
+    expect(onOpenNamespaces).toHaveBeenCalledOnce();
+  });
+
+  it("updates namespace descriptions from configure mode", () => {
+    const onUpdateNamespace = vi.fn();
+
+    render(
+      <NamespacesPage
+        canDeleteNamespace={() => true}
+        editorMode={{ kind: "edit", namespaceID: 2 }}
+        jobs={jobs}
+        namespaces={namespaces}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
+        onCreateNamespace={() => undefined}
+        onDeleteNamespace={() => undefined}
+        onOpenJobs={() => undefined}
+        onOpenNamespace={() => undefined}
+        onOpenNamespaces={() => undefined}
+        onUpdateNamespace={onUpdateNamespace}
+        selectedNamespaceID={2}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Updated namespace detail." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onUpdateNamespace).toHaveBeenCalledWith(2, { description: "Updated namespace detail." });
   });
 });

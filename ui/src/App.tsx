@@ -1,5 +1,5 @@
 import type { FormEvent, MouseEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./index.css";
 import vectisLogo from "../../assets/brand/public/vectis.png";
 import { completeSetup, loadUIContext, login, logout } from "./api/auth";
@@ -10,7 +10,7 @@ import { FormError } from "./components";
 import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource } from "./data/consoleDataSource";
-import type { NewJob, NewNamespace, UpdateJob } from "./domain/console";
+import type { NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
 import {
   canDeleteMockNamespace,
   createMockUser,
@@ -68,12 +68,13 @@ export function App() {
   const [formError, setFormError] = useState("");
   const [accountName, setAccountName] = useState("admin");
   const [authEnabled, setAuthEnabled] = useState(true);
-  const [consoleDataSource] = useState(() => createConsoleDataSource());
+  const consoleDataSourceRef = useRef(createConsoleDataSource());
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
   const [actionError, setActionError] = useState("");
   const [missingRunID, setMissingRunID] = useState<string | null>(null);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
+  const loadingRunIDRef = useRef<string | null>(null);
 
   useEffect(() => {
     const onPopState = () => {
@@ -131,7 +132,7 @@ export function App() {
       };
     }
 
-    consoleDataSource
+    consoleDataSourceRef.current
       .loadConsole()
       .then((data) => {
         if (!ignore) {
@@ -154,7 +155,7 @@ export function App() {
     return () => {
       ignore = true;
     };
-  }, [consoleDataSource, route.kind]);
+  }, [route.kind]);
 
   useEffect(() => {
     if (route.kind !== "runs" || !route.runID || !consoleData) {
@@ -162,15 +163,25 @@ export function App() {
     }
 
     if (consoleData.runs.some((run) => run.id === route.runID)) {
+      loadingRunIDRef.current = null;
+      return;
+    }
+
+    if (missingRunID === route.runID || loadingRunIDRef.current === route.runID) {
       return;
     }
 
     let ignore = false;
+    loadingRunIDRef.current = route.runID;
 
-    consoleDataSource
+    consoleDataSourceRef.current
       .loadRun(route.runID)
       .then((run) => {
         if (ignore) {
+          if (loadingRunIDRef.current === route.runID) {
+            loadingRunIDRef.current = null;
+          }
+
           return;
         }
 
@@ -186,10 +197,12 @@ export function App() {
         });
 
         setMissingRunID(null);
+        loadingRunIDRef.current = null;
         setConsoleError("");
         setActionError("");
       })
       .catch((error: unknown) => {
+        loadingRunIDRef.current = null;
         if (!ignore) {
           if (error instanceof VectisAPIError && error.code === "run_not_found") {
             setMissingRunID(route.runID ?? null);
@@ -207,8 +220,11 @@ export function App() {
 
     return () => {
       ignore = true;
+      if (loadingRunIDRef.current === route.runID) {
+        loadingRunIDRef.current = null;
+      }
     };
-  }, [consoleData, consoleDataSource, route]);
+  }, [consoleData, missingRunID, route.kind, route.runID]);
 
   async function handleSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -271,7 +287,7 @@ export function App() {
 
   async function handleCreateNamespace(input: NewNamespace) {
     try {
-      setConsoleData(await consoleDataSource.createNamespace(input));
+      setConsoleData(await consoleDataSourceRef.current.createNamespace(input));
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -283,7 +299,7 @@ export function App() {
 
   async function handleCreateJob(input: NewJob) {
     try {
-      setConsoleData(await consoleDataSource.createJob(input));
+      setConsoleData(await consoleDataSourceRef.current.createJob(input));
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -295,7 +311,7 @@ export function App() {
 
   async function handleUpdateJob(jobID: string, input: UpdateJob) {
     try {
-      setConsoleData(await consoleDataSource.updateJob(jobID, input));
+      setConsoleData(await consoleDataSourceRef.current.updateJob(jobID, input));
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -309,7 +325,7 @@ export function App() {
     const namespacePath = consoleData?.namespaces.find((namespace) => namespace.id === namespaceID)?.path;
 
     try {
-      setConsoleData(await consoleDataSource.deleteNamespace(namespaceID));
+      setConsoleData(await consoleDataSourceRef.current.deleteNamespace(namespaceID));
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -322,9 +338,26 @@ export function App() {
     }
   }
 
+  async function handleUpdateNamespace(namespaceID: number, input: UpdateNamespace) {
+    try {
+      if (!consoleDataSourceRef.current.updateNamespace) {
+        consoleDataSourceRef.current = createConsoleDataSource();
+      }
+
+      setConsoleData(await consoleDataSourceRef.current.updateNamespace(namespaceID, input));
+      setConsoleError("");
+      setActionError("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update namespace.";
+      setActionError(message);
+
+      throw new Error(message, { cause: error });
+    }
+  }
+
   async function handleTriggerRun(jobID: string) {
     try {
-      setConsoleData(await consoleDataSource.triggerRun(jobID));
+      setConsoleData(await consoleDataSourceRef.current.triggerRun(jobID));
       setConsoleError("");
       setActionError("");
     } catch (error) {
@@ -336,7 +369,7 @@ export function App() {
     const fallbackRunID = consoleData ? nextMockRunID(consoleData) : null;
 
     try {
-      const nextData = await consoleDataSource.submitEphemeralRun({
+      const nextData = await consoleDataSourceRef.current.submitEphemeralRun({
         definition,
         namespacePath: selectedNamespacePath,
         submittedBy: "admin"
@@ -430,6 +463,7 @@ export function App() {
         onSubmitEphemeralRun={handleSubmitEphemeralRun}
         onTriggerRun={handleTriggerRun}
         onUpdateJob={handleUpdateJob}
+        onUpdateNamespace={handleUpdateNamespace}
         onUpdateUserStatus={handleUpdateUserStatus}
         onSelectNamespace={setSelectedNamespacePath}
         route={route}
@@ -571,6 +605,7 @@ function RouteContent({
   onSubmitEphemeralRun,
   onTriggerRun,
   onUpdateJob,
+  onUpdateNamespace,
   onUpdateUserStatus,
   onSelectNamespace,
   route
@@ -588,16 +623,25 @@ function RouteContent({
   onSubmitEphemeralRun: (definition: string) => Promise<void> | void;
   onTriggerRun: (jobID: string) => void;
   onUpdateJob: (jobID: string, input: UpdateJob) => Promise<void> | void;
+  onUpdateNamespace: (namespaceID: number, input: UpdateNamespace) => Promise<void> | void;
   onUpdateUserStatus: (userID: string, status: MockUserStatus) => void;
   onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;
 }) {
   if (consoleError && !consoleData) {
-    return <AppState description={consoleError} title="Unable to load console" tone="error" />;
+    return (
+      <CenteredAppState>
+        <AppState description={consoleError} title="Unable to load console" tone="error" />
+      </CenteredAppState>
+    );
   }
 
   if (!consoleData) {
-    return <AppState title="Loading console" tone="loading" />;
+    return (
+      <CenteredAppState>
+        <AppState title="Loading console" tone="loading" />
+      </CenteredAppState>
+    );
   }
 
   const scopedConsoleData = scopeMockConsoleData(consoleData, namespacePath);
@@ -618,7 +662,11 @@ function RouteContent({
       if (route.runID) {
         const run = consoleData.runs.find((candidate) => candidate.id === route.runID);
         if (!run && missingRunID !== route.runID) {
-          return <AppState title="Loading run" tone="loading" />;
+          return (
+            <CenteredAppState>
+              <AppState title="Loading run" tone="loading" />
+            </CenteredAppState>
+          );
         }
 
         return withActionAlert(
@@ -685,18 +733,33 @@ function RouteContent({
             onSelectNamespace(namespacePath);
             navigateTo("/jobs");
           }}
+          onCloseEditor={() => navigateTo(`/namespaces/${route.namespaceID ?? ""}`)}
+          onConfigureNamespace={(namespaceID) => navigateTo(`/namespaces/${namespaceID}/config`)}
           onOpenNamespace={(namespaceID) => navigateTo(`/namespaces/${namespaceID}`)}
           onOpenNamespaces={() => navigateTo("/namespaces")}
+          onUpdateNamespace={onUpdateNamespace}
+          editorMode={route.namespaceEditor ?? null}
+          selectedNamespaceMissing={route.namespaceMissing}
           selectedNamespaceID={route.namespaceID}
         />
       );
     case "profile":
       return withActionAlert(
-        <AppState description="Account preferences and session details will live here." title="Profile" />
+        <CenteredAppState>
+          <AppState description="Account preferences and session details will live here." title="Profile" />
+        </CenteredAppState>
       );
     default:
-      return <NotFoundPage />;
+      return (
+        <CenteredAppState>
+          <NotFoundPage />
+        </CenteredAppState>
+      );
   }
+}
+
+function CenteredAppState({ children }: { children: ReactNode }) {
+  return <div className="app-state-rail">{children}</div>;
 }
 
 function PageWithActionAlert({ actionError, children }: { actionError: string; children: ReactNode }) {

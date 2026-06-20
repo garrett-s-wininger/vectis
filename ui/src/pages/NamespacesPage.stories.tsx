@@ -8,13 +8,17 @@ const meta = {
   component: NamespacesPage,
   args: {
     canDeleteNamespace: () => false,
+    editorMode: null,
     jobs: createMockConsoleDataSnapshot().jobs,
     namespaces: createMockConsoleDataSnapshot().namespaces,
+    onCloseEditor: () => undefined,
+    onConfigureNamespace: () => undefined,
     onCreateNamespace: () => undefined,
     onDeleteNamespace: () => undefined,
     onOpenJobs: () => undefined,
     onOpenNamespace: () => undefined,
-    onOpenNamespaces: () => undefined
+    onOpenNamespaces: () => undefined,
+    onUpdateNamespace: () => undefined
   },
   decorators: [
     (Story) => (
@@ -36,18 +40,29 @@ export const Hierarchy: Story = {
 export const Empty: Story = {
   args: {
     canDeleteNamespace: () => false,
+    editorMode: null,
     jobs: [],
     namespaces: [],
+    onCloseEditor: () => undefined,
+    onConfigureNamespace: () => undefined,
     onCreateNamespace: () => undefined,
     onDeleteNamespace: () => undefined,
     onOpenJobs: () => undefined,
     onOpenNamespace: () => undefined,
-    onOpenNamespaces: () => undefined
+    onOpenNamespaces: () => undefined,
+    onUpdateNamespace: () => undefined
   }
 };
 
 export const Detail: Story = {
   args: {
+    selectedNamespaceID: 2
+  }
+};
+
+export const Configure: Story = {
+  args: {
+    editorMode: { kind: "edit", namespaceID: 2 },
     selectedNamespaceID: 2
   }
 };

@@ -11,6 +11,7 @@ import type {
   NewNamespace,
   NewUser,
   UpdateJob,
+  UpdateNamespace,
   User,
   UserStatus
 } from "../domain/console";
@@ -28,6 +29,7 @@ export type MockUserStatus = UserStatus;
 export type MockUser = User;
 export type NewMockUser = NewUser;
 export type NewMockNamespace = NewNamespace;
+export type UpdateMockNamespace = UpdateNamespace;
 export type NewMockEphemeralRun = NewEphemeralRun;
 export type MockConsoleData = ConsoleData;
 
@@ -408,6 +410,21 @@ export function deleteMockNamespace(data: MockConsoleData, namespaceID: number):
   return {
     ...data,
     namespaces: data.namespaces.filter((namespace) => namespace.id !== namespaceID)
+  };
+}
+
+export function updateMockNamespace(
+  data: MockConsoleData,
+  namespaceID: number,
+  input: UpdateMockNamespace
+): MockConsoleData {
+  return {
+    ...data,
+    namespaces: data.namespaces.map((namespace) =>
+      namespace.id === namespaceID
+        ? { ...namespace, description: input.description?.trim() || undefined }
+        : namespace
+    )
   };
 }
 

@@ -100,6 +100,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/namespaces", string(authz.ActionJobRead)},
 		{"POST /api/v1/namespaces", string(authz.ActionAdmin)},
 		{"GET /api/v1/namespaces/{id}", string(authz.ActionJobRead)},
+		{"PUT /api/v1/namespaces/{id}", string(authz.ActionAdmin)},
 		{"DELETE /api/v1/namespaces/{id}", string(authz.ActionAdmin)},
 		{"GET /api/v1/namespaces/{id}/bindings", string(authz.ActionAdmin)},
 		{"POST /api/v1/namespaces/{id}/bindings", string(authz.ActionAdmin)},
@@ -185,6 +186,7 @@ func TestAPIRouteInventory_bodyPolicies(t *testing.T) {
 		"POST /api/v1/users":                           routeBodyJSONPolicy(maxUserBodyBytes),
 		"PUT /api/v1/users/{id}":                       routeBodyJSONPolicy(maxUserBodyBytes),
 		"POST /api/v1/namespaces":                      routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/namespaces/{id}":                  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 		"POST /api/v1/namespaces/{id}/bindings":        routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
 	}
 

@@ -13,6 +13,7 @@ import {
   submitMockEphemeralRun,
   triggerMockRun,
   updateMockJob,
+  updateMockNamespace,
   updateMockUserStatus,
   type MockConsoleData
 } from "./consoleData";
@@ -64,17 +65,34 @@ export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: strin
 export function NamespacesPageHarness() {
   const [data, setData] = useState<MockConsoleData>(() => createMockConsoleDataSnapshot());
   const [selectedNamespaceID, setSelectedNamespaceID] = useState<number | undefined>();
+  const [editingNamespaceID, setEditingNamespaceID] = useState<number | undefined>();
 
   return (
     <NamespacesPage
       canDeleteNamespace={(namespaceID) => canDeleteMockNamespace(data, namespaceID)}
+      editorMode={editingNamespaceID ? { kind: "edit", namespaceID: editingNamespaceID } : null}
       jobs={data.jobs}
       namespaces={data.namespaces}
+      onCloseEditor={() => setEditingNamespaceID(undefined)}
+      onConfigureNamespace={(namespaceID) => {
+        setSelectedNamespaceID(namespaceID);
+        setEditingNamespaceID(namespaceID);
+      }}
       onCreateNamespace={(input) => setData((current) => createMockNamespace(current, input))}
       onDeleteNamespace={(namespaceID) => setData((current) => deleteMockNamespace(current, namespaceID))}
       onOpenJobs={() => undefined}
-      onOpenNamespace={setSelectedNamespaceID}
-      onOpenNamespaces={() => setSelectedNamespaceID(undefined)}
+      onOpenNamespace={(namespaceID) => {
+        setSelectedNamespaceID(namespaceID);
+        setEditingNamespaceID(undefined);
+      }}
+      onOpenNamespaces={() => {
+        setSelectedNamespaceID(undefined);
+        setEditingNamespaceID(undefined);
+      }}
+      onUpdateNamespace={(namespaceID, input) => {
+        setData((current) => updateMockNamespace(current, namespaceID, input));
+        setEditingNamespaceID(undefined);
+      }}
       selectedNamespaceID={selectedNamespaceID}
     />
   );

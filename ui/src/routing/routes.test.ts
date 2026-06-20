@@ -52,6 +52,20 @@ describe("routes", () => {
     });
   });
 
+  it("keeps malformed namespace routes in the namespace surface", () => {
+    expect(routeFromPath("/namespaces/missing")).toMatchObject({
+      activeHref: "/namespaces",
+      kind: "namespaces",
+      namespaceMissing: true
+    });
+
+    expect(routeFromPath("/namespaces/missing/config")).toMatchObject({
+      activeHref: "/namespaces",
+      kind: "namespaces",
+      namespaceMissing: true
+    });
+  });
+
   it("returns same-origin next paths", () => {
     expect(safeNextPath("?next=%2Fruns%2F123%3Fstatus%3Drunning%23logs", "http://ui.test")).toBe(
       "/runs/123?status=running#logs"

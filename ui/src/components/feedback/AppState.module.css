@@ -3,6 +3,7 @@
   display: grid;
   gap: var(--space-xl);
   grid-template-columns: minmax(0, 1fr) auto;
+  margin-inline: auto;
   min-height: var(--size-state-min);
   padding: var(--space-2xl);
   width: min(var(--layout-narrow-max), 100%);

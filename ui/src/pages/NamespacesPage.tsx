@@ -7,31 +7,41 @@ import { EmptyStatePanel } from "../components";
 import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
-import type { Job, Namespace, NewNamespace } from "../domain/console";
+import type { Job, Namespace, NewNamespace, UpdateNamespace } from "../domain/console";
 import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {
   canDeleteNamespace: (namespaceID: number) => boolean;
+  editorMode: { kind: "edit"; namespaceID: number } | null;
   jobs: Job[];
   namespaces: Namespace[];
+  onCloseEditor: () => void;
+  onConfigureNamespace: (namespaceID: number) => void;
   onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
   onOpenJobs: (namespacePath: string) => void;
   onOpenNamespace: (namespaceID: number) => void;
   onOpenNamespaces: () => void;
+  onUpdateNamespace: (namespaceID: number, input: UpdateNamespace) => Promise<void> | void;
+  selectedNamespaceMissing?: boolean;
   selectedNamespaceID?: number;
 };
 
 export function NamespacesPage({
   canDeleteNamespace,
+  editorMode,
   jobs,
   namespaces,
+  onCloseEditor,
+  onConfigureNamespace,
   onCreateNamespace,
   onDeleteNamespace,
   onOpenJobs,
   onOpenNamespace,
   onOpenNamespaces,
+  onUpdateNamespace,
+  selectedNamespaceMissing = false,
   selectedNamespaceID
 }: NamespacesPageProps) {
   const [isCreating, setIsCreating] = useState(false);
@@ -61,9 +71,26 @@ export function NamespacesPage({
     value: String(namespace.id)
   }));
 
+  if (selectedNamespaceMissing) {
+    return <NamespaceNotFound onOpenNamespaces={onOpenNamespaces} />;
+  }
+
   if (selectedNamespaceID) {
     if (!selectedNamespace) {
-      return <EmptyStatePanel description="The selected namespace could not be found." title="Namespace Not Found" />;
+      return <NamespaceNotFound onOpenNamespaces={onOpenNamespaces} />;
+    }
+
+    if (editorMode?.kind === "edit") {
+      return (
+        <NamespaceEditor
+          namespace={selectedNamespace}
+          namespaces={namespaces}
+          onCancel={onCloseEditor}
+          onOpenNamespace={onOpenNamespace}
+          onOpenNamespaces={onOpenNamespaces}
+          onUpdateNamespace={onUpdateNamespace}
+        />
+      );
     }
 
     return (
@@ -73,6 +100,7 @@ export function NamespacesPage({
         namespace={selectedNamespace}
         namespaces={namespaces}
         onDeleteNamespace={onDeleteNamespace}
+        onConfigureNamespace={onConfigureNamespace}
         onOpenJobs={onOpenJobs}
         onOpenNamespace={onOpenNamespace}
         onOpenNamespaces={onOpenNamespaces}
@@ -236,12 +264,46 @@ export function NamespacesPage({
   );
 }
 
+function NamespaceNotFound({ onOpenNamespaces }: { onOpenNamespaces: () => void }) {
+  return (
+    <>
+      <PageHeader
+        description="This namespace is no longer available, or the route points to an ID that does not exist."
+        navigation={
+          <BreadcrumbTrail
+            items={[
+              { label: "Root" },
+              { label: "Namespaces", onClick: onOpenNamespaces },
+              { current: true, label: "Missing" }
+            ]}
+            label="Namespace location"
+          />
+        }
+        title="Namespace Not Found"
+      />
+      <div className={styles.emptyStateRail}>
+        <EmptyStatePanel
+          actions={
+            <Button onClick={onOpenNamespaces} type="button" variant="quiet">
+              View Namespaces
+            </Button>
+          }
+          description="Return to the namespace index to choose an active boundary."
+          eyebrow="Missing Namespace"
+          title="No Namespace Found"
+        />
+      </div>
+    </>
+  );
+}
+
 function NamespaceDetail({
   canDeleteNamespace,
   jobs,
   namespace,
   namespaces,
   onDeleteNamespace,
+  onConfigureNamespace,
   onOpenJobs,
   onOpenNamespace,
   onOpenNamespaces
@@ -251,6 +313,7 @@ function NamespaceDetail({
   namespace: Namespace;
   namespaces: Namespace[];
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
+  onConfigureNamespace: (namespaceID: number) => void;
   onOpenJobs: (namespacePath: string) => void;
   onOpenNamespace: (namespaceID: number) => void;
   onOpenNamespaces: () => void;
@@ -307,14 +370,19 @@ function NamespaceDetail({
     <>
       <PageHeader
         actions={
-          <Button
-            disabled={!canDeleteNamespace}
-            onClick={() => onDeleteNamespace(namespace.id)}
-            type="button"
-            variant="quiet"
-          >
-            Delete
-          </Button>
+          <>
+            <Button
+              disabled={!canDeleteNamespace}
+              onClick={() => onDeleteNamespace(namespace.id)}
+              type="button"
+              variant="quiet"
+            >
+              Delete
+            </Button>
+            <Button onClick={() => onConfigureNamespace(namespace.id)} type="button">
+              Configure
+            </Button>
+          </>
         }
         description={description}
         navigation={
@@ -382,6 +450,78 @@ function NamespaceDetail({
             getRowKey={(child) => String(child.id)}
             rows={childNamespaces}
           />
+        </section>
+      </div>
+    </>
+  );
+}
+
+function NamespaceEditor({
+  namespace,
+  namespaces,
+  onCancel,
+  onOpenNamespace,
+  onOpenNamespaces,
+  onUpdateNamespace
+}: {
+  namespace: Namespace;
+  namespaces: Namespace[];
+  onCancel: () => void;
+  onOpenNamespace: (namespaceID: number) => void;
+  onOpenNamespaces: () => void;
+  onUpdateNamespace: (namespaceID: number, input: UpdateNamespace) => Promise<void> | void;
+}) {
+  const [description, setDescription] = useState(namespace.description ?? "");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await onUpdateNamespace(namespace.id, { description });
+    onOpenNamespace(namespace.id);
+  }
+
+  return (
+    <>
+      <PageHeader
+        description="Update descriptive metadata for this namespace."
+        navigation={
+          <BreadcrumbTrail
+            items={[
+              { label: "Root" },
+              { label: "Namespaces", onClick: onOpenNamespaces },
+              { label: namespace.path === "/" ? "Root" : namespace.path, onClick: () => onOpenNamespace(namespace.id) },
+              { current: true, label: "Configure" }
+            ]}
+            label="Namespace configure location"
+          />
+        }
+        title="Configure Namespace"
+      />
+
+      <div className={styles.workspace}>
+        <section className={`${styles.createPanel} polished-panel polished-panel--accent-top`} aria-labelledby="namespace-config-title">
+          <div className={styles.createCopy}>
+            <p className="eyebrow">Namespace</p>
+            <h2 id="namespace-config-title">Details</h2>
+            <p>Name, parent, and path are fixed for this first configuration pass.</p>
+          </div>
+          <form className={styles.configForm} onSubmit={handleSubmit}>
+            <FormField disabled label="Name" name="namespaceName" value={namespace.name} wide />
+            <FormField disabled label="Path" name="namespacePath" value={namespace.path === "/" ? "Root" : namespace.path} wide />
+            <FormField disabled label="Parent" name="namespaceParent" value={parentPathFor(namespaces, namespace)} wide />
+            <FormField
+              label="Description"
+              name="namespaceDescription"
+              onChange={(event) => setDescription(event.target.value)}
+              value={description}
+              wide
+            />
+            <div className={styles.formActions}>
+              <Button onClick={onCancel} type="button" variant="quiet">
+                Cancel
+              </Button>
+              <Button type="submit">Save</Button>
+            </div>
+          </form>
         </section>
       </div>
     </>

@@ -16,6 +16,10 @@ type createNamespaceRequest struct {
 	ParentID    *int64 `json:"parent_id,omitempty"`
 }
 
+type updateNamespaceRequest struct {
+	Description string `json:"description,omitempty"`
+}
+
 type namespaceResponse struct {
 	ID               int64  `json:"id"`
 	Name             string `json:"name"`
@@ -215,6 +219,83 @@ func (s *APIServer) GetNamespace(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobRead, rec.Path) {
 		return
 	}
+
+	resp := namespaceRecordToResponse(rec)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode namespace: %v", err)
+	}
+}
+
+func (s *APIServer) UpdateNamespace(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
+		return
+	}
+
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
+		return
+	}
+
+	var req updateNamespaceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r)
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) {
+		return
+	}
+
+	rec, err := s.namespaces.GetByID(ctx, id)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, rec.Path) {
+		return
+	}
+
+	rec, err = s.namespaces.UpdateDescription(ctx, id, req.Description)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+
+		return
+	}
+	s.markDBRecovered()
 
 	resp := namespaceRecordToResponse(rec)
 	w.Header().Set("Content-Type", "application/json")

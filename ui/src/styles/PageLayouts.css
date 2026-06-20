@@ -222,6 +222,16 @@ h1 {
   width: 100%;
 }
 
+.app-state-rail {
+  display: grid;
+  justify-items: center;
+  width: 100%;
+}
+
+.app-state-rail > * {
+  width: min(var(--layout-narrow-max), 100%);
+}
+
 .resource-title {
   display: grid;
   gap: var(--space-3xs);

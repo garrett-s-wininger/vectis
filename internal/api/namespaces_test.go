@@ -169,6 +169,47 @@ func TestGetNamespace_NotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateNamespace_Description(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+
+	ns, err := repos.Namespaces().Create(ctx, "team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	body := []byte(`{"description": "Updated delivery boundary."}`)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/namespaces/%d", ns.ID), bytes.NewReader(body))
+	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.UpdateNamespace(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+
+	if resp["description"] != "Updated delivery boundary." {
+		t.Fatalf("expected updated description, got %v", resp["description"])
+	}
+
+	got, err := repos.Namespaces().GetByID(ctx, ns.ID)
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+
+	if got.Description != "Updated delivery boundary." {
+		t.Fatalf("expected persisted description, got %q", got.Description)
+	}
+}
+
 func TestDeleteNamespace_Success(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()

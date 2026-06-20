@@ -93,6 +93,10 @@ export type NewNamespace = {
   parentID: number;
 };
 
+export type UpdateNamespace = {
+  description?: string;
+};
+
 export type NewEphemeralRun = {
   definition: string;
   namespacePath: string;

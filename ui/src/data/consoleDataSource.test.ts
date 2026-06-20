@@ -266,6 +266,62 @@ describe("console data source", () => {
     );
   });
 
+  it("updates namespaces through the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 2,
+          name: "platform",
+          path: "/platform",
+          description: "Updated platform detail.",
+          parent_id: 1,
+          break_inheritance: false
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            id: 1,
+            name: "/",
+            path: "/",
+            break_inheritance: false
+          },
+          {
+            id: 2,
+            name: "platform",
+            path: "/platform",
+            description: "Updated platform detail.",
+            parent_id: 1,
+            break_inheritance: false
+          }
+        ])
+      )
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    const data = await createConsoleDataSource().updateNamespace(2, {
+      description: "Updated platform detail."
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/namespaces/2",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          description: "Updated platform detail."
+        })
+      })
+    );
+
+    expect(data.namespaces[1]).toMatchObject({
+      description: "Updated platform detail.",
+      path: "/platform"
+    });
+  });
+
   it("updates stored job definitions without injecting form-only description text", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 

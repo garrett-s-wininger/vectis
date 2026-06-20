@@ -1,5 +1,14 @@
 import type { RunListItem, RunStatus } from "../components";
-import type { ConsoleData, Job, Namespace, NewEphemeralRun, NewJob, NewNamespace, UpdateJob } from "../domain/console";
+import type {
+  ConsoleData,
+  Job,
+  Namespace,
+  NewEphemeralRun,
+  NewJob,
+  NewNamespace,
+  UpdateJob,
+  UpdateNamespace
+} from "../domain/console";
 import { requestJSON, requestNoContent } from "../api/client";
 import {
   createMockConsoleDataSnapshot,
@@ -10,6 +19,7 @@ import {
   submitMockEphemeralRun,
   triggerMockRun,
   updateMockJob,
+  updateMockNamespace,
   type MockConsoleData
 } from "../mocks/consoleData";
 
@@ -62,6 +72,7 @@ export type ConsoleDataSource = {
   submitEphemeralRun(input: NewEphemeralRun): Promise<ConsoleData>;
   triggerRun(jobID: string): Promise<ConsoleData>;
   updateJob(jobID: string, input: UpdateJob): Promise<ConsoleData>;
+  updateNamespace(namespaceID: number, input: UpdateNamespace): Promise<ConsoleData>;
 };
 
 export function createConsoleDataSource(): ConsoleDataSource {
@@ -118,6 +129,10 @@ function createMockConsoleDataSource(): ConsoleDataSource {
     },
     async updateJob(jobID, input) {
       data = updateMockJob(data, jobID, input);
+      return cloneConsoleData(data);
+    },
+    async updateNamespace(namespaceID, input) {
+      data = updateMockNamespace(data, namespaceID, input);
       return cloneConsoleData(data);
     }
   };
@@ -196,6 +211,16 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       await requestNoContent(`/api/v1/jobs/${encodeURIComponent(jobID)}`, {
         method: "PUT",
         body: JSON.stringify(definition)
+      });
+
+      return loadAPIConsoleData();
+    },
+    async updateNamespace(namespaceID, input) {
+      await requestJSON<APINamespace>(`/api/v1/namespaces/${namespaceID}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          description: input.description
+        })
       });
 
       return loadAPIConsoleData();

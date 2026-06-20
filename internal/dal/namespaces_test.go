@@ -172,6 +172,28 @@ func TestNamespacesRepository_ListChildren(t *testing.T) {
 	}
 }
 
+func TestNamespacesRepository_UpdateDescription(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLNamespacesRepository(db)
+	ctx := context.Background()
+
+	rec, err := repo.Create(ctx, "editable", nil)
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	updated, err := repo.UpdateDescription(ctx, rec.ID, "  Updated namespace detail.  ")
+	if err != nil {
+		t.Fatalf("update description failed: %v", err)
+	}
+
+	if updated.Description != "Updated namespace detail." {
+		t.Fatalf("expected trimmed description, got %q", updated.Description)
+	}
+}
+
 func TestNamespacesRepository_Delete(t *testing.T) {
 	t.Parallel()
 

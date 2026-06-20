@@ -629,6 +629,13 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			RateLimit: defaultLimits.General,
 		},
 		{
+			Pattern:   "PUT /api/v1/namespaces/{id}",
+			Handler:   http.HandlerFunc(s.UpdateNamespace),
+			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},
+			Body:      jsonDocumentBody,
+			RateLimit: defaultLimits.General,
+		},
+		{
 			Pattern:   "DELETE /api/v1/namespaces/{id}",
 			Handler:   http.HandlerFunc(s.DeleteNamespace),
 			Auth:      routeAuthPolicy{Action: authz.ActionAdmin},

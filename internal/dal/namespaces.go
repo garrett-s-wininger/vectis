@@ -41,6 +41,7 @@ type NamespacesRepository interface {
 	GetByPath(ctx context.Context, path string) (*NamespaceRecord, error)
 	List(ctx context.Context) ([]NamespaceRecord, error)
 	ListChildren(ctx context.Context, parentID int64) ([]NamespaceRecord, error)
+	UpdateDescription(ctx context.Context, id int64, description string) (*NamespaceRecord, error)
 	Delete(ctx context.Context, id int64) error
 	HasChildren(ctx context.Context, id int64) (bool, error)
 	HasJobs(ctx context.Context, id int64) (bool, error)
@@ -237,6 +238,27 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 	}
 
 	return out, nil
+}
+
+func (r *SQLNamespacesRepository) UpdateDescription(ctx context.Context, id int64, description string) (*NamespaceRecord, error) {
+	res, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE namespaces SET description = ? WHERE id = ?"),
+		strings.TrimSpace(description), id,
+	)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if n == 0 {
+		return nil, fmt.Errorf("%w: namespace %d", ErrNotFound, id)
+	}
+
+	return r.GetByID(ctx, id)
 }
 
 func (r *SQLNamespacesRepository) Delete(ctx context.Context, id int64) error {

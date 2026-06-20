@@ -512,6 +512,16 @@ describe("App", () => {
     });
   });
 
+  it("keeps malformed namespace routes on the namespace not-found page", async () => {
+    window.history.replaceState(null, "", "/namespaces/missing");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Namespace Not Found" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Namespaces" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Go to Jobs" })).not.toBeInTheDocument();
+  });
+
   it("logs out and returns to login", async () => {
     window.history.replaceState(null, "", "/runs/123");
     fetchMock

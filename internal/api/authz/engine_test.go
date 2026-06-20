@@ -62,6 +62,10 @@ func (m *mockNamespacesRepo) ListChildren(ctx context.Context, parentID int64) (
 	return nil, nil
 }
 
+func (m *mockNamespacesRepo) UpdateDescription(ctx context.Context, id int64, description string) (*dal.NamespaceRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m *mockNamespacesRepo) Delete(ctx context.Context, id int64) error { return nil }
 func (m *mockNamespacesRepo) HasChildren(ctx context.Context, id int64) (bool, error) {
 	return false, nil
