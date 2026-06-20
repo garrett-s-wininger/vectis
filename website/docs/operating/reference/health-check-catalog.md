@@ -76,6 +76,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `source.schedules.overrides` | warning | `GET /api/v1/source/status`, then `GET /api/v1/source-repositories/{id}/schedules` only when active overrides need IDs | No source-backed cron schedule has an active hotfix override. | Clear source schedule overrides after hotfixes land back in source. |
 | `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | [Log Service Repair](../reliability/repair-runbooks.md#log-service-repair). |
 | `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
+| `secrets.encryptedfs.files` | warning | Local `VECTIS_SECRETS_ENCRYPTEDFS_ROOT` and `VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE` paths | Encryptedfs is disabled, or both paths are configured, the root exists and is writable, the key file is regular and private, and the key parses as a valid encryptedfs key. | Check encryptedfs secret root/key mounts, ownership, permissions, and backup placement. |
 | `tls.files` | warning | Local `VECTIS_GRPC_TLS_*` and `VECTIS_METRICS_TLS_*` paths | TLS is disabled, or configured cert/key/CA files are readable, parseable, not expired or within 14 days of expiry, and certificate/key pairs match. | Check TLS env vars, mounted files, certificate expiry, and key pairing. |
 | `queue.persistence.filesystem` | warning | Local `VECTIS_QUEUE_PERSISTENCE_DIR` or default per-shard data path | Queue persistence directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move queue persistence to a larger writable volume. |
 | `log.storage.filesystem` | warning | Local `VECTIS_LOG_STORAGE_DIR` or default data path | Durable log storage directory, or nearest existing parent, is inspectable and has at least 1 GiB free. | Free disk space or move log storage to a larger writable volume. |
@@ -101,6 +102,10 @@ When `source.repositories.declared` warns, `evidence` includes stale enabled and
 When `source.schedules.declared` warns, `evidence` includes stale enabled and disabled schedule IDs after the detailed schedule fetch, for example `stale_enabled_ids=nightly-build stale_disabled_ids=old-hourly`.
 
 When `source.schedules.overrides` warns, `evidence` includes the schedule IDs with active overrides after the detailed schedule fetch, for example `override_ids=nightly-build,release-smoke`.
+
+When `secrets.encryptedfs.files` warns, `evidence` includes only local paths,
+for example `root=/var/lib/vectis/secrets/encryptedfs key_file=/etc/vectis/secrets/encryptedfs.key`.
+It does not list secret refs, envelope filenames, plaintext, or key material.
 
 ## How To Respond
 

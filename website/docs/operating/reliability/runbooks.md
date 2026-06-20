@@ -57,6 +57,7 @@ That command shows status, dispatch events, and the latest failed worker-control
 | Source control | Config-as-code readiness, source repository sync status, stale enabled source repositories and schedules, and active schedule overrides. |
 | Logs | API-to-log-service gRPC reachability. |
 | Audit | Dropped audit events and flush failures. |
+| Secrets | Encryptedfs root and key-file pairing, readability, permissions, and key format when local paths are visible. |
 | Database pool | API-visible `database/sql` pool pressure. |
 | Local files | TLS file readability and queue/log/artifact/spool filesystem checks where paths are locally visible. |
 

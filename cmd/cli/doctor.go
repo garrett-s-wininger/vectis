@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 	"vectis/internal/config"
+	secretstore "vectis/internal/secrets"
 	"vectis/internal/utils"
 )
 
@@ -94,6 +95,7 @@ func doctor(w io.Writer) error {
 	checks = append(checks,
 		doctorLogReachable(),
 		doctorAuditFlushFailures(),
+		doctorEncryptedFSFiles(),
 		doctorTLSFiles(),
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
@@ -196,6 +198,9 @@ var doctorTextGroups = []doctorTextGroup{
 	{Name: "Audit", Items: []doctorTextItem{
 		{ID: "audit.drops.recent", Label: "Recent drops"},
 		{ID: "audit.flush.failures", Label: "Flush failures"},
+	}},
+	{Name: "Secrets", Items: []doctorTextItem{
+		{ID: "secrets.encryptedfs.files", Label: "EncryptedFS files"},
 	}},
 	{Name: "TLS", Items: []doctorTextItem{
 		{ID: "tls.files", Label: "Files"},
@@ -1669,6 +1674,64 @@ func doctorAuditFlushFailures() doctorCheck {
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "no audit flush failures", DocLink: "website/docs/operating/reference/health-check-catalog.md"}
 }
 
+func doctorEncryptedFSFiles() doctorCheck {
+	const id = "secrets.encryptedfs.files"
+	title := "EncryptedFS secret files valid"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+	action := "Check VECTIS_SECRETS_ENCRYPTEDFS_ROOT and VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE"
+
+	root, rootConfigured := envValue("VECTIS_SECRETS_ENCRYPTEDFS_ROOT")
+	keyFile, keyConfigured := envValue("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE")
+
+	if !rootConfigured && !keyConfigured {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "encryptedfs secret provider is not configured", DocLink: doc}
+	}
+
+	if root == "" || keyFile == "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "encryptedfs root and key file must be configured together", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+	}
+
+	statPath, exists, err := existingPathForStat(root)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs root is not usable: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Check encryptedfs root ownership and parent path", DocLink: doc}
+	}
+
+	if !exists {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "encryptedfs root does not exist", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Create the encryptedfs root on durable private storage", DocLink: doc}
+	}
+
+	if err := directoryUsable(root); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs root is not writable: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Check encryptedfs root ownership and permissions", DocLink: doc}
+	}
+
+	if _, err := doctorFilesystemStats(statPath); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for encryptedfs root: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Run vectis-cli health check on the host that owns the encryptedfs root", DocLink: doc}
+	}
+
+	info, err := os.Stat(keyFile)
+	if err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file is not readable: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+	}
+
+	if !info.Mode().IsRegular() {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "encryptedfs key file is not a regular file", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+	}
+
+	if info.Mode().Perm()&0o077 != 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file permissions are too broad: %s", info.Mode().Perm()), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Restrict encryptedfs key file permissions to the service owner", DocLink: doc}
+	}
+
+	if _, err := secretstore.LoadEncryptedFSKeyFile(keyFile); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file is invalid: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "encryptedfs root is writable and key file is valid", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), DocLink: doc}
+}
+
+func formatDoctorEncryptedFSEvidence(root, keyFile string) string {
+	return fmt.Sprintf("root=%s key_file=%s", root, keyFile)
+}
+
 func doctorTLSFiles() doctorCheck {
 	const id = "tls.files"
 	title := "TLS files valid"
@@ -1996,6 +2059,12 @@ func envOrDefaultAllowEmpty(name, fallback string) string {
 	}
 
 	return fallback
+}
+
+func envValue(name string) (string, bool) {
+	v, ok := os.LookupEnv(name)
+	v = strings.TrimSpace(v)
+	return v, ok && v != ""
 }
 
 func envBoolDefault(name string, fallback bool) bool {

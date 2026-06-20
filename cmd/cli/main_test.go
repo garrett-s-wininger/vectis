@@ -5160,7 +5160,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  25 passed, 0 warnings, 0 failed",
+		"Overall: PASS  26 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5204,6 +5204,8 @@ func TestDoctor_success(t *testing.T) {
 		"Audit",
 		"OK    Recent drops",
 		"OK    Flush failures",
+		"Secrets",
+		"OK    EncryptedFS files",
 		"TLS",
 		"OK    Files",
 	} {
@@ -5277,7 +5279,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  23 passed, 2 warnings, 0 failed",
+		"Overall: WARN  24 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5339,7 +5341,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  25 passed, 0 warnings, 0 failed",
+		"Overall: PASS  26 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5398,7 +5400,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  24 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  25 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5457,12 +5459,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 25 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 26 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 25 {
-		t.Fatalf("expected 25 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 26 {
+		t.Fatalf("expected 26 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5537,7 +5539,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 25 || len(report.Checks) != 25 {
+	if report.Status != doctorOK || report.Passed != 26 || len(report.Checks) != 26 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5601,8 +5603,45 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 25 {
-		t.Fatalf("expected 25 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 26 {
+		t.Fatalf("expected 26 checks, got %d", len(report.Checks))
+	}
+}
+
+func TestDoctorEncryptedFSFiles_validConfiguredFiles(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
+	root := t.TempDir()
+	keyFile := filepath.Join(t.TempDir(), "encryptedfs.key")
+	if err := os.WriteFile(keyFile, []byte("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", root)
+	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", keyFile)
+
+	check := doctorEncryptedFSFiles()
+	if check.Status != doctorOK {
+		t.Fatalf("expected encryptedfs check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{"root=" + root, "key_file=" + keyFile} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorEncryptedFSFiles_warnsForPartialConfig(t *testing.T) {
+	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", t.TempDir())
+
+	check := doctorEncryptedFSFiles()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected encryptedfs check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "configured together") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
 	}
 }
 
