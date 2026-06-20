@@ -58,7 +58,9 @@ type queueServer struct {
 	deliveryPrefix            string
 	deliverySeq               uint64
 	mu                        sync.Mutex
-	waiters                   []queueWaiter
+	waiters                   []*queueWaiter
+	waiterHead                int
+	waiterCount               int
 	log                       interfaces.Logger
 	persistence               *persistenceStore
 	metrics                   *observability.QueueMetrics
@@ -69,6 +71,7 @@ type queueWaiter struct {
 	notify        chan struct{}
 	supportedMask uint64
 	filtered      bool
+	active        bool
 }
 
 type deadLetterItem struct {
@@ -278,13 +281,16 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 			return nil, nil
 		}
 
-		waiter := queueWaiter{
+		waiter := &queueWaiter{
 			notify:        make(chan struct{}),
 			supportedMask: supportedMask,
 			filtered:      filtered,
+			active:        true,
 		}
 
 		s.waiters = append(s.waiters, waiter)
+		s.waiterCount++
+
 		s.mu.Unlock()
 		select {
 		case <-waiter.notify:
@@ -910,26 +916,93 @@ func (s *queueServer) appendPendingLocked(req *api.JobRequest) uint64 {
 }
 
 func (s *queueServer) notifyEligibleWaiterLocked(requirementMask uint64) {
-	for i, waiter := range s.waiters {
+	for i := s.waiterHead; i < len(s.waiters); i++ {
+		waiter := s.waiters[i]
+		if waiter == nil || !waiter.active {
+			continue
+		}
+
 		if waiter.filtered && requirementMask&^waiter.supportedMask != 0 {
 			continue
 		}
 
-		s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
+		waiter.active = false
+		s.waiters[i] = nil
+		s.waiterCount--
 		close(waiter.notify)
+		if i == s.waiterHead {
+			s.advanceWaiterHeadLocked()
+		}
+
+		s.compactWaitersLocked()
+		return
+	}
+
+	s.compactWaitersLocked()
+}
+
+func (s *queueServer) removeWaiterLocked(notify <-chan struct{}) {
+	for i := s.waiterHead; i < len(s.waiters); i++ {
+		waiter := s.waiters[i]
+		if waiter == nil || !waiter.active || waiter.notify != notify {
+			continue
+		}
+
+		waiter.active = false
+		s.waiters[i] = nil
+		s.waiterCount--
+		if i == s.waiterHead {
+			s.advanceWaiterHeadLocked()
+		}
+
+		s.compactWaitersLocked()
 		return
 	}
 }
 
-func (s *queueServer) removeWaiterLocked(notify <-chan struct{}) {
-	for i, waiter := range s.waiters {
-		if waiter.notify != notify {
+func (s *queueServer) advanceWaiterHeadLocked() {
+	for s.waiterHead < len(s.waiters) {
+		waiter := s.waiters[s.waiterHead]
+		if waiter != nil && waiter.active {
+			return
+		}
+
+		s.waiters[s.waiterHead] = nil
+		s.waiterHead++
+	}
+
+	s.waiters = s.waiters[:0]
+	s.waiterHead = 0
+}
+
+func (s *queueServer) compactWaitersLocked() {
+	s.advanceWaiterHeadLocked()
+	liveSlots := len(s.waiters) - s.waiterHead
+	if liveSlots == 0 {
+		return
+	}
+
+	if s.waiterHead < 1024 && s.waiterCount*2 >= liveSlots {
+		return
+	}
+
+	next := 0
+	for i := s.waiterHead; i < len(s.waiters); i++ {
+		waiter := s.waiters[i]
+		if waiter == nil || !waiter.active {
 			continue
 		}
 
-		s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
-		return
+		s.waiters[next] = waiter
+		next++
 	}
+
+	for i := next; i < len(s.waiters); i++ {
+		s.waiters[i] = nil
+	}
+
+	s.waiters = s.waiters[:next]
+	s.waiterHead = 0
 }
 
 func (s *queueServer) removePendingHeadLocked() {

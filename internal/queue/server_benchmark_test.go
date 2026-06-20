@@ -947,7 +947,7 @@ func waitForQueueWaitersWithin(tb testing.TB, queue *queueServer, want int, time
 	deadline := start.Add(timeout)
 	for {
 		queue.mu.Lock()
-		got := len(queue.waiters)
+		got := queue.waiterCount
 		queue.mu.Unlock()
 
 		if got >= want {
