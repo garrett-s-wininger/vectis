@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"io"
 	"net/http"
 	"net/url"
@@ -99,6 +100,7 @@ func doctor(w io.Writer) error {
 		doctorAuditFlushFailures(),
 		doctorEncryptedFSFiles(),
 		doctorWorkerCoreSockets(),
+		doctorWorkerSPIFFEConfig(),
 		doctorWorkerWorkspaceFilesystem(),
 		doctorTLSFiles(),
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
@@ -183,6 +185,7 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Worker", Items: []doctorTextItem{
 		{ID: "worker.core.sockets", Label: "Core sockets"},
+		{ID: "worker.spiffe.config", Label: "SPIFFE config"},
 		{ID: "worker.workspace.filesystem", Label: "Workspace filesystem"},
 	}},
 	{Name: "Catalog", Items: []doctorTextItem{
@@ -1826,6 +1829,159 @@ func doctorLogForwarderSocket() doctorCheck {
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured log-forwarder socket is present and private", Evidence: evidence, DocLink: doc}
+}
+
+func doctorWorkerSPIFFEConfig() doctorCheck {
+	const id = "worker.spiffe.config"
+	title := "Worker SPIFFE config valid"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	doctorBindWorkerSPIFFEEnv()
+	evidence := formatDoctorWorkerSPIFFEEvidence()
+	if err := config.ValidateWorkerExecutionIdentityConfig(); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("worker execution identity config is invalid: %v", err), Evidence: evidence, SuggestedAction: "Check VECTIS_WORKER_EXECUTION_IDENTITY_* values", DocLink: doc}
+	}
+
+	if err := config.ValidateWorkerSPIFFEConfig(); err != nil {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("worker SPIFFE config is invalid: %v", err), Evidence: evidence, SuggestedAction: "Check VECTIS_WORKER_SPIFFE_* values and worker execution identity settings", DocLink: doc}
+	}
+
+	if !config.WorkerSPIFFEEnabled() {
+		summary := "worker SPIFFE is disabled"
+		if config.WorkerExecutionIdentityEnabled() {
+			summary = "worker SPIFFE is disabled; execution identity derivation is enabled"
+		}
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence, DocLink: doc}
+	}
+
+	var problems []string
+	workloadPath, err := doctorUnixAddressPath(config.WorkerSPIFFEWorkloadAPIAddress())
+	if err != nil {
+		problems = append(problems, fmt.Sprintf("SPIFFE Workload API address is invalid: %v", err))
+	} else if problem := doctorProtectedUnixSocketProblem("SPIFFE Workload API", workloadPath); problem != "" {
+		problems = append(problems, problem)
+	}
+
+	if config.WorkerSPIFFERegistrationEnabled() {
+		registrationPath, err := doctorUnixAddressPath(config.WorkerSPIFFERegistrationServerAddress())
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("SPIFFE registration API address is invalid: %v", err))
+		} else if problem := doctorProtectedUnixSocketProblem("SPIFFE registration API", registrationPath); problem != "" {
+			problems = append(problems, problem)
+		}
+	}
+
+	if len(problems) > 0 {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: strings.Join(problems, "; "), Evidence: evidence, SuggestedAction: "Check SPIFFE socket mounts, service state, and socket permissions on the worker host", DocLink: doc}
+	}
+
+	summary := "worker SPIFFE config ok; Workload API socket is present"
+	if config.WorkerSPIFFERegistrationEnabled() {
+		summary = "worker SPIFFE config ok; Workload API and registration sockets are present"
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: summary, Evidence: evidence, DocLink: doc}
+}
+
+func doctorBindWorkerSPIFFEEnv() {
+	for key, envName := range map[string]string{
+		"worker.execution_identity.enabled":         "VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED",
+		"worker.execution_identity.trust_domain":    "VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN",
+		"worker.execution_identity.path_template":   "VECTIS_WORKER_EXECUTION_IDENTITY_PATH_TEMPLATE",
+		"worker.spiffe.enabled":                     "VECTIS_WORKER_SPIFFE_ENABLED",
+		"worker.spiffe.workload_api_address":        "VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS",
+		"worker.spiffe.fetch_timeout":               "VECTIS_WORKER_SPIFFE_FETCH_TIMEOUT",
+		"worker.spiffe.registration.enabled":        "VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED",
+		"worker.spiffe.registration.server_address": "VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS",
+		"worker.spiffe.registration.parent_id":      "VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID",
+		"worker.spiffe.registration.selectors":      "VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS",
+		"worker.spiffe.registration.x509_svid_ttl":  "VECTIS_WORKER_SPIFFE_REGISTRATION_X509_SVID_TTL",
+		"worker.spiffe.registration.min_ttl":        "VECTIS_WORKER_SPIFFE_REGISTRATION_MIN_TTL",
+		"worker.spiffe.registration.max_ttl":        "VECTIS_WORKER_SPIFFE_REGISTRATION_MAX_TTL",
+	} {
+		_ = viper.BindEnv(key, envName)
+	}
+}
+
+func formatDoctorWorkerSPIFFEEvidence() string {
+	parts := []string{
+		fmt.Sprintf("enabled=%t", config.WorkerSPIFFEEnabled()),
+		fmt.Sprintf("execution_identity_enabled=%t", config.WorkerExecutionIdentityEnabled()),
+		fmt.Sprintf("registration_enabled=%t", config.WorkerSPIFFERegistrationEnabled()),
+		fmt.Sprintf("fetch_timeout=%s", config.WorkerSPIFFEFetchTimeout()),
+	}
+
+	if address := config.WorkerSPIFFEWorkloadAPIAddress(); strings.TrimSpace(address) != "" {
+		parts = append(parts, fmt.Sprintf("workload_api=%s", address))
+	}
+
+	if address := config.WorkerSPIFFERegistrationServerAddress(); strings.TrimSpace(address) != "" {
+		parts = append(parts, fmt.Sprintf("registration_api=%s", address))
+	}
+
+	if specs := config.WorkerSPIFFERegistrationSelectorSpecs(); len(specs) > 0 {
+		parts = append(parts, fmt.Sprintf("registration_selectors=%d", len(specs)))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func doctorUnixAddressPath(address string) (string, error) {
+	address = strings.TrimSpace(address)
+	u, err := url.Parse(address)
+	if err != nil {
+		return "", err
+	}
+
+	if u.Scheme != "unix" {
+		return "", fmt.Errorf("must use unix:// scheme")
+	}
+
+	if strings.TrimSpace(u.Host) != "" || strings.TrimSpace(u.Path) == "" || !strings.HasPrefix(u.Path, "/") {
+		return "", fmt.Errorf("must be in unix:///path/to/socket form")
+	}
+
+	if u.RawQuery != "" || u.Fragment != "" || u.User != nil || u.Opaque != "" {
+		return "", fmt.Errorf("must not include userinfo, query, fragment, or opaque data")
+	}
+
+	return u.Path, nil
+}
+
+func doctorProtectedUnixSocketProblem(label, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Sprintf("%s socket path is empty", label)
+	}
+
+	if !filepath.IsAbs(path) {
+		return fmt.Sprintf("%s socket path must be absolute", label)
+	}
+
+	parent := filepath.Dir(path)
+	info, err := os.Stat(parent)
+	if err != nil {
+		return fmt.Sprintf("%s socket parent is not usable: %v", label, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Sprintf("%s socket parent is not a directory", label)
+	}
+
+	socketInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Sprintf("%s socket is not present: %v", label, err)
+	}
+
+	if socketInfo.Mode()&os.ModeSocket == 0 {
+		return fmt.Sprintf("%s socket path is not a Unix socket", label)
+	}
+
+	if socketInfo.Mode().Perm()&0o007 != 0 {
+		return fmt.Sprintf("%s socket permissions are world-accessible: %s", label, socketInfo.Mode().Perm())
+	}
+
+	return ""
 }
 
 type doctorSocketPathCheck struct {

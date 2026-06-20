@@ -5162,7 +5162,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  30 passed, 0 warnings, 0 failed",
+		"Overall: PASS  31 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5185,6 +5185,7 @@ func TestDoctor_success(t *testing.T) {
 		"OK    Ingress routes",
 		"Worker",
 		"OK    Core sockets",
+		"OK    SPIFFE config",
 		"OK    Workspace filesystem",
 		"Catalog",
 		"OK    Cell event inbox",
@@ -5286,7 +5287,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  28 passed, 2 warnings, 0 failed",
+		"Overall: WARN  29 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5348,7 +5349,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  30 passed, 0 warnings, 0 failed",
+		"Overall: PASS  31 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5407,7 +5408,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  29 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  30 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5466,12 +5467,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 30 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 31 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 30 {
-		t.Fatalf("expected 30 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 31 {
+		t.Fatalf("expected 31 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5546,7 +5547,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 30 || len(report.Checks) != 30 {
+	if report.Status != doctorOK || report.Passed != 31 || len(report.Checks) != 31 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5610,8 +5611,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 30 {
-		t.Fatalf("expected 30 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 31 {
+		t.Fatalf("expected 31 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -5681,6 +5682,63 @@ func TestDoctorWorkerCoreSockets_warnsForMissingSocket(t *testing.T) {
 	}
 
 	if !strings.Contains(check.Summary, "not present") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
+func TestDoctorWorkerSPIFFEConfig_validEnabledConfig(t *testing.T) {
+	workload := listenTestUnixSocket(t, "spiffe-workload.sock")
+	registration := listenTestUnixSocket(t, "spiffe-registration.sock")
+
+	t.Setenv("VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED", "true")
+	t.Setenv("VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN", "prod.example")
+	t.Setenv("VECTIS_WORKER_SPIFFE_ENABLED", "true")
+	t.Setenv("VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS", "unix://"+workload)
+	t.Setenv("VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED", "true")
+	t.Setenv("VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS", "unix://"+registration)
+	t.Setenv("VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID", "spiffe://prod.example/vectis-spiffe/agent/worker")
+	t.Setenv("VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS", "unix:uid:1000,k8s:sa:vectis:worker")
+
+	check := doctorWorkerSPIFFEConfig()
+	if check.Status != doctorOK {
+		t.Fatalf("expected worker SPIFFE config check to pass, got %#v", check)
+	}
+
+	for _, want := range []string{"enabled=true", "execution_identity_enabled=true", "registration_enabled=true", "workload_api=unix://" + workload, "registration_api=unix://" + registration, "registration_selectors=2"} {
+		if !strings.Contains(check.Evidence, want) {
+			t.Fatalf("expected evidence to contain %q, got %q", want, check.Evidence)
+		}
+	}
+}
+
+func TestDoctorWorkerSPIFFEConfig_warnsForMissingWorkloadSocket(t *testing.T) {
+	missing := socktest.ShortPath(t, "missing-spiffe-workload.sock")
+	t.Setenv("VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED", "true")
+	t.Setenv("VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN", "prod.example")
+	t.Setenv("VECTIS_WORKER_SPIFFE_ENABLED", "true")
+	t.Setenv("VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS", "unix://"+missing)
+
+	check := doctorWorkerSPIFFEConfig()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected worker SPIFFE config check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "not present") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
+func TestDoctorWorkerSPIFFEConfig_warnsWhenEnabledWithoutExecutionIdentity(t *testing.T) {
+	workload := listenTestUnixSocket(t, "spiffe-workload.sock")
+	t.Setenv("VECTIS_WORKER_SPIFFE_ENABLED", "true")
+	t.Setenv("VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS", "unix://"+workload)
+
+	check := doctorWorkerSPIFFEConfig()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected worker SPIFFE config check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "execution_identity.enabled") {
 		t.Fatalf("unexpected summary: %q", check.Summary)
 	}
 }
