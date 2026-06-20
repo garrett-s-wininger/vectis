@@ -1,0 +1,9 @@
+.rail {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.rail > * {
+  width: min(var(--layout-card-max), 100%);
+}

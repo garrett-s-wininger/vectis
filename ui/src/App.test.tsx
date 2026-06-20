@@ -400,8 +400,9 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Run not found" })).toBeInTheDocument();
-    expect(screen.getByText("No run matched missing.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Run Not Found" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "No Run Found" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Runs" })).toBeInTheDocument();
   });
 
   it("creates, edits, and deletes a stored job in the mock", async () => {

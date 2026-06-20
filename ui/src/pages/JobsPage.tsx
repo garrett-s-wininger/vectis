@@ -1,4 +1,3 @@
-import { AppState } from "../components";
 import { Button } from "../components";
 import { BreadcrumbTrail } from "../components";
 import { EmptyStatePanel } from "../components";
@@ -11,6 +10,7 @@ import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEdito
 import { JobWorkspace } from "./jobs/JobWorkspace";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
 import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
+import { PageMissingState } from "./shared";
 import styles from "./jobs/JobsPage.module.css";
 import { RoutedJobEditor } from "./jobs/RoutedJobEditor";
 
@@ -76,7 +76,19 @@ export function JobsPage({
   }
 
   if (detailJobID && !detailJob) {
-    return <AppState description={`Job ${detailJobID} was not found in ${namespacePath}.`} title="Job not found" />;
+    return (
+      <PageMissingState
+        actionLabel="View Jobs"
+        breadcrumbs={jobMissingBreadcrumbItems(namespacePath)}
+        description="This job is no longer available, or the route points to an ID that does not exist."
+        label="Job location"
+        onAction={() => onOpenJob("")}
+        panelDescription="Return to the jobs index to choose an active definition."
+        panelEyebrow="Missing Job"
+        panelTitle="No Job Found"
+        title="Job Not Found"
+      />
+    );
   }
 
   if (detailJob) {
@@ -174,4 +186,11 @@ export function JobsPage({
       ) : null}
     </>
   );
+}
+
+function jobMissingBreadcrumbItems(namespacePath: string) {
+  return [
+    ...jobsIndexBreadcrumbItems(namespacePath).map((item) => ({ ...item, current: false })),
+    { current: true, label: "Missing" }
+  ];
 }

@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Clock, Code2, FileText, History, Server, User, Zap } from "lucide-react";
 import {
-  AppState,
   BreadcrumbTrail,
-  Button,
   OperationalFact,
   PageHeader,
   StatusBadge,
@@ -22,6 +20,7 @@ import {
   runTimelineEvents,
   sourceLabel
 } from "./RunDetailPresentation";
+import { PageMissingState } from "./shared";
 import styles from "./RunDetailPage.module.css";
 
 type RunDetailPageProps = {
@@ -34,28 +33,20 @@ type RunDetailPageProps = {
 export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPageProps) {
   if (!run) {
     return (
-      <>
-        <PageHeader
-          actions={<Button onClick={onBack}>Back to Runs</Button>}
-          description={`No run matched ${runID}.`}
-          navigation={
-            <BreadcrumbTrail
-              items={[
-                { label: "Runs", onClick: onBack },
-                { label: runID, current: true }
-              ]}
-              label="Run location"
-            />
-          }
-          title="Run not found"
-        />
-        <AppState
-          actions={<Button onClick={onBack}>Back to Runs</Button>}
-          description="The selected run is not present in the current console data."
-          title="Run not found"
-          tone="empty"
-        />
-      </>
+      <PageMissingState
+        actionLabel="View Runs"
+        breadcrumbs={[
+          { label: "Runs", onClick: onBack },
+          { current: true, label: "Missing" }
+        ]}
+        description={`Run ${runID} is no longer available, or the route points to an ID that does not exist.`}
+        label="Run location"
+        onAction={onBack}
+        panelDescription="Return to the runs index to choose an active execution record."
+        panelEyebrow="Missing Run"
+        panelTitle="No Run Found"
+        title="Run Not Found"
+      />
     );
   }
 

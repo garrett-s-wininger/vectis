@@ -208,6 +208,37 @@ describe("JobsPage", () => {
     expect(openJobRuns).toHaveBeenCalledWith("test-run");
   });
 
+  it("renders a shared missing state for unknown job detail routes", () => {
+    const openJob = vi.fn();
+
+    render(
+      <JobsPage
+        detailJobID="missing-job"
+        jobs={[]}
+        namespaces={namespaces}
+        namespacePath="/"
+        onCloseEditor={() => undefined}
+        onCreateJob={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenEditor={() => undefined}
+        onOpenJob={openJob}
+        onOpenJobRuns={() => undefined}
+        onSelectNamespace={() => undefined}
+        onSelectRun={() => undefined}
+        onTriggerRun={() => undefined}
+        onUpdateJob={() => undefined}
+        runs={[]}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Job Not Found" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "No Job Found" })).toBeInTheDocument();
+    expect(screen.getByText("Missing Job")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View Jobs" }));
+    expect(openJob).toHaveBeenCalledWith("");
+  });
+
   it("uses all jobs for routed detail views while preserving scoped list jobs", () => {
     const scopedJob = {
       id: "scoped-job",

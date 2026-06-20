@@ -8,7 +8,7 @@ import { FormField } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
 import type { Job, Namespace, NewNamespace, UpdateNamespace } from "../domain/console";
-import { ResourceStatus, ResourceTitle, TableActions } from "./shared";
+import { PageMissingState, ResourceStatus, ResourceTitle, TableActions } from "./shared";
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {
@@ -266,34 +266,21 @@ export function NamespacesPage({
 
 function NamespaceNotFound({ onOpenNamespaces }: { onOpenNamespaces: () => void }) {
   return (
-    <>
-      <PageHeader
-        description="This namespace is no longer available, or the route points to an ID that does not exist."
-        navigation={
-          <BreadcrumbTrail
-            items={[
-              { label: "Root" },
-              { label: "Namespaces", onClick: onOpenNamespaces },
-              { current: true, label: "Missing" }
-            ]}
-            label="Namespace location"
-          />
-        }
-        title="Namespace Not Found"
-      />
-      <div className={styles.emptyStateRail}>
-        <EmptyStatePanel
-          actions={
-            <Button onClick={onOpenNamespaces} type="button" variant="quiet">
-              View Namespaces
-            </Button>
-          }
-          description="Return to the namespace index to choose an active boundary."
-          eyebrow="Missing Namespace"
-          title="No Namespace Found"
-        />
-      </div>
-    </>
+    <PageMissingState
+      actionLabel="View Namespaces"
+      breadcrumbs={[
+        { label: "Root" },
+        { label: "Namespaces", onClick: onOpenNamespaces },
+        { current: true, label: "Missing" }
+      ]}
+      description="This namespace is no longer available, or the route points to an ID that does not exist."
+      label="Namespace location"
+      onAction={onOpenNamespaces}
+      panelDescription="Return to the namespace index to choose an active boundary."
+      panelEyebrow="Missing Namespace"
+      panelTitle="No Namespace Found"
+      title="Namespace Not Found"
+    />
   );
 }
 
