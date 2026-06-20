@@ -5162,7 +5162,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  28 passed, 0 warnings, 0 failed",
+		"Overall: PASS  29 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5202,6 +5202,7 @@ func TestDoctor_success(t *testing.T) {
 		"no active source schedule overrides",
 		"Logging",
 		"OK    Log service",
+		"OK    Forwarder socket",
 		"OK    Log storage",
 		"OK    Forwarder spool",
 		"Artifacts",
@@ -5284,7 +5285,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  26 passed, 2 warnings, 0 failed",
+		"Overall: WARN  27 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5346,7 +5347,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  28 passed, 0 warnings, 0 failed",
+		"Overall: PASS  29 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5405,7 +5406,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  27 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  28 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5464,12 +5465,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 28 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 29 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 28 {
-		t.Fatalf("expected 28 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 29 {
+		t.Fatalf("expected 29 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5544,7 +5545,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 28 || len(report.Checks) != 28 {
+	if report.Status != doctorOK || report.Passed != 29 || len(report.Checks) != 29 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5608,8 +5609,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 28 {
-		t.Fatalf("expected 28 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 29 {
+		t.Fatalf("expected 29 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -5676,6 +5677,34 @@ func TestDoctorWorkerCoreSockets_warnsForMissingSocket(t *testing.T) {
 	check := doctorWorkerCoreSockets()
 	if check.Status != doctorWarn {
 		t.Fatalf("expected worker core socket check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "not present") {
+		t.Fatalf("unexpected summary: %q", check.Summary)
+	}
+}
+
+func TestDoctorLogForwarderSocket_validConfiguredSocket(t *testing.T) {
+	socket := listenTestUnixSocket(t, "log-forwarder.sock")
+	t.Setenv("VECTIS_LOG_FORWARDER_SOCKET", socket)
+
+	check := doctorLogForwarderSocket()
+	if check.Status != doctorOK {
+		t.Fatalf("expected log-forwarder socket check to pass, got %#v", check)
+	}
+
+	if !strings.Contains(check.Evidence, "socket="+socket) {
+		t.Fatalf("expected evidence to contain socket path, got %q", check.Evidence)
+	}
+}
+
+func TestDoctorLogForwarderSocket_warnsForMissingSocket(t *testing.T) {
+	missing := socktest.ShortPath(t, "missing-log-forwarder.sock")
+	t.Setenv("VECTIS_LOG_FORWARDER_SOCKET", missing)
+
+	check := doctorLogForwarderSocket()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected log-forwarder socket check to warn, got %#v", check)
 	}
 
 	if !strings.Contains(check.Summary, "not present") {

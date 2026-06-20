@@ -95,6 +95,7 @@ func doctor(w io.Writer) error {
 	checks = append(checks, doctorSourceControlChecks()...)
 	checks = append(checks,
 		doctorLogReachable(),
+		doctorLogForwarderSocket(),
 		doctorAuditFlushFailures(),
 		doctorEncryptedFSFiles(),
 		doctorWorkerCoreSockets(),
@@ -196,6 +197,7 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Logging", Items: []doctorTextItem{
 		{ID: "log.reachable", Label: "Log service"},
+		{ID: "log.forwarder.socket", Label: "Forwarder socket"},
 		{ID: "log.storage.filesystem", Label: "Log storage"},
 		{ID: "log.forwarder.spool.filesystem", Label: "Forwarder spool"},
 	}},
@@ -1769,7 +1771,7 @@ func doctorWorkerCoreSockets() doctorCheck {
 		}
 
 		resolved[check.label] = path
-		if problem := doctorWorkerCoreSocketProblem(check.label, path); problem != "" {
+		if problem := doctorUnixSocketProblem(check.label, path); problem != "" {
 			problems = append(problems, problem)
 		}
 	}
@@ -1788,12 +1790,31 @@ func doctorWorkerCoreSockets() doctorCheck {
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured worker-core sockets are present and private", Evidence: evidence, DocLink: doc}
 }
 
+func doctorLogForwarderSocket() doctorCheck {
+	const id = "log.forwarder.socket"
+	title := "Log forwarder socket private"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	raw, configured := envValue("VECTIS_LOG_FORWARDER_SOCKET")
+	if !configured {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "log-forwarder socket path is not configured in this shell", DocLink: doc}
+	}
+
+	socketPath := strings.TrimSpace(raw)
+	evidence := fmt.Sprintf("socket=%s", socketPath)
+	if problem := doctorUnixSocketProblem("log-forwarder", socketPath); problem != "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: problem, Evidence: evidence, SuggestedAction: "Check VECTIS_LOG_FORWARDER_SOCKET, vectis-log-forwarder service state, and runtime directory ownership", DocLink: doc}
+	}
+
+	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "configured log-forwarder socket is present and private", Evidence: evidence, DocLink: doc}
+}
+
 type doctorSocketPathCheck struct {
 	label string
 	raw   string
 }
 
-func doctorWorkerCoreSocketProblem(label, path string) string {
+func doctorUnixSocketProblem(label, path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return fmt.Sprintf("%s socket path is empty", label)

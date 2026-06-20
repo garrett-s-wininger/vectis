@@ -55,7 +55,7 @@ That command shows status, dispatch events, and the latest failed worker-control
 | Schema | Database schema status through the API. |
 | Queue, cron, and reconciler | Queue backlog, due cron schedules, stuck queued runs, reconciler recovery visibility. |
 | Source control | Config-as-code readiness, source repository sync status, stale enabled source repositories and schedules, and active schedule overrides. |
-| Logs | API-to-log-service gRPC reachability. |
+| Logs | API-to-log-service gRPC reachability and log-forwarder socket presence/private permissions when the local socket path is visible. |
 | Worker | Worker-core and worker shell Unix socket presence, private permissions, and worker-core workspace filesystem health when local paths are visible. |
 | Audit | Dropped audit events and flush failures. |
 | Secrets | Encryptedfs root and key-file pairing, readability, permissions, and key format when local paths are visible. |

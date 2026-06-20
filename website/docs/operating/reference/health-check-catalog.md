@@ -77,6 +77,7 @@ Treat `id`, `status`, and `severity` as the fields most suitable for automation.
 | `source.schedules.declared` | warning | `GET /api/v1/source/status`, then `GET /api/v1/source-repositories/{id}/schedules` only when stale enabled schedules need IDs | No enabled source-backed cron schedule is missing from current source schedule configuration. | Disable stale source schedules or restore their source schedule declarations. |
 | `source.schedules.overrides` | warning | `GET /api/v1/source/status`, then `GET /api/v1/source-repositories/{id}/schedules` only when active overrides need IDs | No source-backed cron schedule has an active hotfix override. | Clear source schedule overrides after hotfixes land back in source. |
 | `log.reachable` | warning | `GET /api/v1/log/reachable` | API's log gRPC connection is `READY` or `IDLE`. | [Log Service Repair](../reliability/repair-runbooks.md#log-service-repair). |
+| `log.forwarder.socket` | warning | Local `VECTIS_LOG_FORWARDER_SOCKET` path | The log-forwarder socket path is not configured in the current shell, or the configured path is absolute, present, a Unix socket, and private to its owner. | Check `vectis-log-forwarder` service state, socket ownership, and runtime directory permissions. |
 | `audit.flush.failures` | warning | `GET /api/v1/audit/flush-failures` | Audit flush failure counter is zero. | [Audit Durability Repair](../reliability/repair-runbooks.md#audit-durability-repair). |
 | `secrets.encryptedfs.files` | warning | Local `VECTIS_SECRETS_ENCRYPTEDFS_ROOT` and `VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE` paths | Encryptedfs is disabled, or both paths are configured, the root exists and is writable, the key file is regular and private, and the key parses as a valid encryptedfs key. | Check encryptedfs secret root/key mounts, ownership, permissions, and backup placement. |
 | `tls.files` | warning | Local `VECTIS_GRPC_TLS_*` and `VECTIS_METRICS_TLS_*` paths | TLS is disabled, or configured cert/key/CA files are readable, parseable, not expired or within 14 days of expiry, and certificate/key pairs match. | Check TLS env vars, mounted files, certificate expiry, and key pairing. |
@@ -100,6 +101,10 @@ It does not connect to the worker-core service or expose workload data.
 When `worker.workspace.filesystem` warns, `evidence` includes backend and local
 filesystem fields, for example `backend=lima workspace_root=/var/lib/vectis/workspaces workspace_root_source=configured guest_workspace_root=/var/tmp/vectis-workspaces stat_path=/var/lib/vectis/workspaces free_bytes=...`.
 It does not create a run workspace or inspect workload files.
+
+When `log.forwarder.socket` warns, `evidence` includes only the configured local
+socket path, for example `socket=/run/vectis/log-forwarder.sock`. It does not
+send log chunks or expose workload log data.
 
 When `catalog.inbox` warns in a multi-cell deployment, `evidence` includes source-cell inbox pressure for cells with pending or failed events, for example `sources=iad-a:p=2/f=1,pdx-b:p=101/f=0`. Failed catalog security events can delay the global view of a worker-controlled SVID or secret-resolution denial, so use `vectis-cli runs show <run-id>` and `vectis-cli runs tasks <run-id>` against the owning cell when the global catalog looks stale.
 
