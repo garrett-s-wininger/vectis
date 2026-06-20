@@ -283,20 +283,6 @@ h1 {
   color: var(--text-muted);
 }
 
-.table-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2xs);
-  justify-content: end;
-  min-width: 0;
-}
-
-.table-actions button {
-  font-size: var(--font-size-sm);
-  min-height: calc(var(--control-height-sm) - var(--space-xs));
-  padding: 0 var(--space-sm);
-}
-
 .console-panel {
   align-items: center;
   display: flex;

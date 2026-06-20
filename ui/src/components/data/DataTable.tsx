@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import type { CSSProperties } from "react";
 import styles from "./DataTable.module.css";
 
@@ -43,6 +43,14 @@ export function DataTable<TRow>({
     onRowClick(row);
   }
 
+  function handleRowClick(event: MouseEvent<HTMLTableRowElement>, row: TRow) {
+    if (!onRowClick || isInteractiveElement(event.target, event.currentTarget)) {
+      return;
+    }
+
+    onRowClick(row);
+  }
+
   return (
     <div className={styles.root}>
       <table>
@@ -69,7 +77,7 @@ export function DataTable<TRow>({
                 aria-selected={isRowSelected?.(row) || undefined}
                 data-clickable={onRowClick ? true : undefined}
                 key={getRowKey(row)}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onClick={onRowClick ? (event) => handleRowClick(event, row) : undefined}
                 onKeyDown={(event) => handleRowKeyDown(event, row)}
                 role={onRowClick ? "button" : undefined}
                 tabIndex={onRowClick ? 0 : undefined}
@@ -99,4 +107,13 @@ export function DataTable<TRow>({
       </table>
     </div>
   );
+}
+
+function isInteractiveElement(target: EventTarget, row: HTMLTableRowElement) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  const interactiveElement = target.closest("a, button, input, select, textarea, [role='button'], [role='link']");
+  return Boolean(interactiveElement && interactiveElement !== row);
 }

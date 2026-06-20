@@ -73,4 +73,34 @@ describe("DataTable", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "View docs-publish" }), { key: "Enter" });
     expect(onRowClick).toHaveBeenCalledWith({ id: "2", name: "docs-publish", status: "Paused" });
   });
+
+  it("does not trigger row clicks from interactive cell content", () => {
+    const onRowClick = vi.fn();
+    const onButtonClick = vi.fn();
+
+    render(
+      <DataTable
+        columns={[
+          { header: "Name", cell: (row) => row.name },
+          {
+            header: "Actions",
+            cell: () => (
+              <button onClick={onButtonClick} type="button">
+                Open menu
+              </button>
+            )
+          }
+        ]}
+        getRowActionLabel={(row) => `View ${row.name}`}
+        getRowKey={(row) => row.id}
+        onRowClick={onRowClick}
+        rows={[{ id: "1", name: "api-test-suite", status: "Enabled" }]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    expect(onButtonClick).toHaveBeenCalledOnce();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
 });
