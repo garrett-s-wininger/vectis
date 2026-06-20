@@ -190,6 +190,7 @@ var doctorTextGroups = []doctorTextGroup{
 	}},
 	{Name: "Source Control", Items: []doctorTextItem{
 		{ID: "source.mode", Label: "Config-as-code"},
+		{ID: "source.checkout.filesystem", Label: "Checkout filesystem"},
 		{ID: "source.repositories.sync", Label: "Repository sync"},
 		{ID: "source.repositories.declared", Label: "Repository declarations"},
 		{ID: "source.schedules.declared", Label: "Schedule declarations"},
@@ -966,6 +967,7 @@ func doctorSourceControlChecks() []doctorCheck {
 
 	return []doctorCheck{
 		doctorSourceMode(status, statusLoadError),
+		doctorSourceCheckoutFilesystem(),
 		repositorySyncCheck,
 		repositoryDeclarationCheck,
 		scheduleDeclarationCheck,
@@ -995,6 +997,23 @@ func doctorSourceStatusNeedsScheduleDetails(status doctorSourceStatus, statusLoa
 	}
 
 	return status.Schedules.StaleEnabled > 0 || status.Schedules.ActiveOverrides > 0
+}
+
+func doctorSourceCheckoutFilesystem() doctorCheck {
+	const id = "source.checkout.filesystem"
+	title := "Source checkout filesystem"
+	doc := "website/docs/operating/reference/health-check-catalog.md"
+
+	root := defaultDoctorSourceCheckoutRoot()
+	if strings.TrimSpace(root) == "" {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source checkout path is not configured", SuggestedAction: "Configure VECTIS_SOURCE_CHECKOUT_ROOT or run vectis-cli health check on the API host", DocLink: doc}
+	}
+
+	if !filepath.IsAbs(root) {
+		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "source checkout path must be absolute", Evidence: fmt.Sprintf("path=%s", root), SuggestedAction: "Set VECTIS_SOURCE_CHECKOUT_ROOT to an absolute managed checkout root", DocLink: doc}
+	}
+
+	return doctorFilesystemPressure(id, title, "source checkout", root)
 }
 
 type doctorSourceStatus struct {
@@ -2368,6 +2387,10 @@ func defaultDoctorLogStorageDir() string {
 
 func defaultDoctorArtifactStorageDir() string {
 	return filepath.Join(utils.DataHome(), "vectis", "artifact")
+}
+
+func defaultDoctorSourceCheckoutRoot() string {
+	return config.SourceCheckoutRoot(utils.DataHome())
 }
 
 func defaultDoctorQueuePersistenceDir() string {

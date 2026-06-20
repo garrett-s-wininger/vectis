@@ -5162,7 +5162,7 @@ func TestDoctor_success(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"Vectis health check",
-		"Overall: PASS  29 passed, 0 warnings, 0 failed",
+		"Overall: PASS  30 passed, 0 warnings, 0 failed",
 		"Core",
 		"OK    API liveness",
 		"OK    API readiness",
@@ -5192,6 +5192,7 @@ func TestDoctor_success(t *testing.T) {
 		"Source Control",
 		"OK    Config-as-code",
 		"config-as-code ready: 1 enabled source repositories",
+		"OK    Checkout filesystem",
 		"OK    Repository sync",
 		"source repository sync ok: 1 enabled",
 		"OK    Repository declarations",
@@ -5285,7 +5286,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: WARN  27 passed, 2 warnings, 0 failed",
+		"Overall: WARN  28 passed, 2 warnings, 0 failed",
 		"WARN  Initial setup",
 		"initial setup is not complete",
 		"WARN  CLI token",
@@ -5347,7 +5348,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 
 	out := buf.String()
 	for _, want := range []string{
-		"Overall: PASS  29 passed, 0 warnings, 0 failed",
+		"Overall: PASS  30 passed, 0 warnings, 0 failed",
 		"initial setup not required; API auth is disabled",
 		"CLI API token not required; API auth is disabled",
 	} {
@@ -5406,7 +5407,7 @@ func TestDoctor_failsWhenRequiredCheckFails(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Overall: FAIL  28 passed, 0 warnings, 1 failed") ||
+	if !strings.Contains(out, "Overall: FAIL  29 passed, 0 warnings, 1 failed") ||
 		!strings.Contains(out, "FAIL  API readiness") ||
 		!strings.Contains(out, "unexpected status: 503 Service Unavailable") {
 		t.Fatalf("missing readiness failure in output:\n%s", out)
@@ -5465,12 +5466,12 @@ func TestDoctor_jsonOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 29 || report.Warnings != 0 || report.Failed != 0 {
+	if report.Status != doctorOK || report.Passed != 30 || report.Warnings != 0 || report.Failed != 0 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 29 {
-		t.Fatalf("expected 29 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 30 {
+		t.Fatalf("expected 30 checks, got %d", len(report.Checks))
 	}
 
 	// Verify structure of first check
@@ -5545,7 +5546,7 @@ func TestDoctor_jsonOutputFromGlobalFormat(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\n%s", err, buf.String())
 	}
 
-	if report.Status != doctorOK || report.Passed != 29 || len(report.Checks) != 29 {
+	if report.Status != doctorOK || report.Passed != 30 || len(report.Checks) != 30 {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 }
@@ -5609,8 +5610,8 @@ func TestDoctor_jsonOutputStillFailsOnFailedCheck(t *testing.T) {
 		t.Fatalf("unexpected report summary: %+v", report)
 	}
 
-	if len(report.Checks) != 29 {
-		t.Fatalf("expected 29 checks, got %d", len(report.Checks))
+	if len(report.Checks) != 30 {
+		t.Fatalf("expected 30 checks, got %d", len(report.Checks))
 	}
 }
 
@@ -6003,6 +6004,59 @@ func TestDoctor_sourceModeWarnsWhenNoEnabledRepositories(t *testing.T) {
 		if !strings.Contains(check.Summary+" "+check.Evidence, want) {
 			t.Fatalf("expected config-as-code check to contain %q, got %#v", want, check)
 		}
+	}
+}
+
+func TestDoctorSourceCheckoutFilesystem_validConfiguredRoot(t *testing.T) {
+	withHealthyDoctorFilesystemStats(t)
+
+	root := t.TempDir()
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", root)
+
+	check := doctorSourceCheckoutFilesystem()
+	if check.Status != doctorOK {
+		t.Fatalf("expected source checkout filesystem check to pass, got %#v", check)
+	}
+
+	if !strings.Contains(check.Evidence, "path="+root) {
+		t.Fatalf("expected evidence to contain checkout root, got %q", check.Evidence)
+	}
+}
+
+func TestDoctorSourceCheckoutFilesystem_warnsForLowSpace(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", root)
+
+	old := doctorFilesystemStats
+	doctorFilesystemStats = func(path string) (doctorFSStats, error) {
+		return doctorFSStats{
+			freeBytes:   512 << 20,
+			freePercent: 5,
+			freeInodes:  1000,
+		}, nil
+	}
+	t.Cleanup(func() { doctorFilesystemStats = old })
+
+	check := doctorSourceCheckoutFilesystem()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected source checkout filesystem check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "filesystem pressure") || !strings.Contains(check.Evidence, "path="+root) {
+		t.Fatalf("unexpected source checkout warning: %#v", check)
+	}
+}
+
+func TestDoctorSourceCheckoutFilesystem_warnsForRelativeRoot(t *testing.T) {
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", "relative-source-checkouts")
+
+	check := doctorSourceCheckoutFilesystem()
+	if check.Status != doctorWarn {
+		t.Fatalf("expected source checkout filesystem check to warn, got %#v", check)
+	}
+
+	if !strings.Contains(check.Summary, "must be absolute") {
+		t.Fatalf("unexpected source checkout warning: %#v", check)
 	}
 }
 
