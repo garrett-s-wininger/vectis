@@ -19,7 +19,9 @@ const sidebars = {
       items: [
         'using/your-first-job',
         'using/job-definition-reference',
+        'using/actions-reference',
         'using/secrets-reference',
+        'using/triggers-and-schedules-reference',
         'using/artifacts',
         'using/cli-guide',
         'using/api-reference',
@@ -77,6 +79,8 @@ const sidebars = {
           label: 'Reference',
           items: [
             'operating/reference/run-state-reference',
+            'operating/reference/internal-grpc-service-reference',
+            'operating/reference/upgrade-compatibility-matrix',
             'operating/reference/configuration-key-reference',
             'operating/reference/authorization-reference',
             'operating/reference/audit-event-catalog',

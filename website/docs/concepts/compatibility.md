@@ -4,7 +4,7 @@ This page explains what Vectis clients and operators can rely on between release
 
 Vectis is still pre-1.0 unless a release tag says otherwise. Breaking changes can still happen. The user/operator contract is that incompatible changes should be visible in release notes, with enough detail to update clients, scripts, config, or rollout plans.
 
-For upgrade procedure, see [Releases And Upgrades](../developing/releases.md). For database migration rules, see [Database Migrations](../developing/migrations.md).
+For upgrade procedure, see [Releases And Upgrades](../developing/releases.md). For the operator checklist, see [Upgrade Compatibility Matrix](../operating/reference/upgrade-compatibility-matrix.md). For database migration rules, see [Database Migrations](../developing/migrations.md).
 
 ## Compatibility At A Glance
 

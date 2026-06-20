@@ -4,7 +4,7 @@ Use this page when preparing a Vectis release or evaluating whether a deployment
 
 Maintainers use it to decide what evidence and release notes a release must include. Operators use the same release notes to decide whether an upgrade can roll, needs downtime, or needs a backup-and-restore rollback plan.
 
-Related policy lives in [Database Migrations](./migrations.md), [Capacity And Performance Checks](./performance/capacity-checks.md), [Production Topology v1](../operating/deployment/production-topology-v1.md), and [Backup And Restore](../operating/reliability/backup-restore.md).
+Related policy lives in [Database Migrations](./migrations.md), [Upgrade Compatibility Matrix](../operating/reference/upgrade-compatibility-matrix.md), [Capacity And Performance Checks](./performance/capacity-checks.md), [Production Topology v1](../operating/deployment/production-topology-v1.md), and [Backup And Restore](../operating/reliability/backup-restore.md).
 
 ## Versioning And Traceability
 

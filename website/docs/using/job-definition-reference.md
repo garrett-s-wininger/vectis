@@ -1,6 +1,6 @@
 # Job Definition Reference
 
-This page is the compact field reference for the JSON job documents submitted with `vectis-cli jobs run`, `vectis-cli jobs create`, and the v1 jobs API. For a walkthrough, start with [Your First Job](./your-first-job.md). For examples of validation failures and fixes, see [Job Definition Validation](./job-validation.md).
+This page is the compact field reference for the JSON job documents submitted with `vectis-cli jobs run`, `vectis-cli jobs create`, and the v1 jobs API. For a walkthrough, start with [Your First Job](./your-first-job.md). For action descriptor, selector, and digest-pin details, see [Actions Reference](./actions-reference.md). For examples of validation failures and fixes, see [Job Definition Validation](./job-validation.md).
 
 ## JSON Shape
 

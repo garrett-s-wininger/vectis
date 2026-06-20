@@ -85,7 +85,9 @@ The docs site is the best place to continue:
 | [Getting Started](./website/docs/getting-started.md) | A slower walkthrough of the local stack and first run. |
 | [Your First Job](./website/docs/using/your-first-job.md) | How to write the JSON job definitions Vectis runs today. |
 | [Job Definition Reference](./website/docs/using/job-definition-reference.md) | Field-by-field job JSON shape, ports, inputs, secrets, limits, and built-in action settings. |
+| [Actions Reference](./website/docs/using/actions-reference.md) | Built-in actions, action descriptors, selectors, digest pins, capabilities, and custom action policy. |
 | [Secrets Reference](./website/docs/using/secrets-reference.md) | Job secret references, encryptedfs envelopes, broker policy, file delivery, and redacted troubleshooting signals. |
+| [Triggers And Schedules Reference](./website/docs/using/triggers-and-schedules-reference.md) | Manual triggers, replay, cron schedule processing, trigger audit fields, and cron status signals. |
 | [Artifacts](./website/docs/using/artifacts.md) | Upload, list, download, operate, and troubleshoot run artifacts. |
 | [CLI Guide](./website/docs/using/cli-guide.md) | Everyday `vectis-cli` commands. |
 | [API Reference](./website/docs/using/api-reference.md) | HTTP routes, request shapes, auth actions, and error envelopes. |
@@ -95,6 +97,8 @@ The docs site is the best place to continue:
 | [Configuration](./website/docs/operating/configuration.md) | Environment variables, flags, discovery, storage, and TLS settings. |
 | [Configuration Key Reference](./website/docs/operating/reference/configuration-key-reference.md) | Embedded defaults, config paths, and env-only runtime knobs. |
 | [Run, Task, And Queue State Reference](./website/docs/operating/reference/run-state-reference.md) | Lifecycle states, queue delivery states, repair hints, and operator triage. |
+| [Internal gRPC Service Reference](./website/docs/operating/reference/internal-grpc-service-reference.md) | Internal protobuf services, RPC ownership, listeners, discovery, TLS, and compatibility notes. |
+| [Upgrade Compatibility Matrix](./website/docs/operating/reference/upgrade-compatibility-matrix.md) | Operator upgrade questions, surface compatibility, rollout order, schema readiness, and rollback choices. |
 | [Authorization Reference](./website/docs/operating/reference/authorization-reference.md) | API auth actions, namespace roles, token scopes, and route families. |
 | [Audit Event Catalog](./website/docs/operating/reference/audit-event-catalog.md) | Audit event names, metadata fields, durability defaults, and operator signals. |
 | [Database Schema](./website/docs/operating/reference/database-schema.md) | SQL tables, fields, constraints, indexes, and operational notes. |

@@ -1,6 +1,6 @@
 # Adding Actions
 
-Actions are the executable nodes in a Vectis job tree. User-facing jobs refer to them through the node `uses` field, such as `builtins/shell`, `builtins/checkout`, or `builtins/result`.
+Actions are the executable nodes in a Vectis job tree. User-facing jobs refer to them through the node `uses` field, such as `builtins/shell`, `builtins/checkout`, or `builtins/result`. For a compact user/operator contract, see [Actions Reference](../using/actions-reference.md).
 
 This page is for contributors adding or changing actions in Vectis itself. If you are writing job files, start with [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md).
 
