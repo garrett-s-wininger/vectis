@@ -49,7 +49,8 @@ SUITE ?= queue
 PERF_ARGS ?=
 PERF_BIN ?= $(OUT_DIR)/vectis-perf
 PERF_SOURCES := $(shell find scripts/perf -name '*.go' 2>/dev/null)
-RELEASE_READINESS_CHECKS ?= git-clean,release-local
+RELEASE_READINESS_PROFILE ?= local
+RELEASE_READINESS_CHECKS ?=
 RELEASE_READINESS_ARGS ?=
 
 .PHONY: all
@@ -156,7 +157,7 @@ release-local-validate:
 
 .PHONY: release-readiness-report
 release-readiness-report:
-	$(GO) run ./tools/release-readiness --checks "$(RELEASE_READINESS_CHECKS)" $(RELEASE_READINESS_ARGS)
+	$(GO) run ./tools/release-readiness --profile "$(RELEASE_READINESS_PROFILE)" $(if $(RELEASE_READINESS_CHECKS),--checks "$(RELEASE_READINESS_CHECKS)",) $(RELEASE_READINESS_ARGS)
 
 .PHONY: test-fault
 test-fault:

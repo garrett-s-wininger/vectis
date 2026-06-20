@@ -172,13 +172,16 @@ The target runs `tools/release-readiness` and writes a bundle under
 - `checksums.txt`: SHA-256 inventory for discovered release artifacts.
 - `logs/*.log`: stdout/stderr for each selected command check.
 
-The default check set is `git-clean,release-local`, which verifies that the
-worktree is clean and then runs `make release-local-validate`. Select heavier
-lanes explicitly:
+The default `local` profile is `git-clean,release-local`, which verifies that
+the worktree is clean and then runs `make release-local-validate`. Select
+heavier profiles or explicit checks when the release touches more surfaces:
 
 ```sh
+make release-readiness-report RELEASE_READINESS_PROFILE=candidate
+
 make release-readiness-report \
-  RELEASE_READINESS_CHECKS=git-clean,release-local,postgres-integration,package-linux
+  RELEASE_READINESS_CHECKS=git-clean,release-local,postgres-integration,package-linux \
+  RELEASE_READINESS_ARGS='--artifact-roots bin,artifacts/packages,artifacts/deploy,website/static/openapi/v1.json'
 ```
 
 Use skips for unavailable local infrastructure and waivers for deliberately
@@ -186,13 +189,15 @@ accepted release risk:
 
 ```sh
 make release-readiness-report \
-  RELEASE_READINESS_CHECKS=git-clean,release-local,postgres-integration,vm-e2e \
+  RELEASE_READINESS_PROFILE=full \
   RELEASE_READINESS_ARGS='--skip postgres-integration="no local Postgres" --waive vm-e2e="no prepared RPM guest; DEB smoke covered"'
 ```
 
 Add `RELEASE_READINESS_ARGS='--strict'` when skipped or waived selected checks
-should fail the run. Use `go run ./tools/release-readiness --list-checks` to
-list available checks.
+should fail the run. Add `RELEASE_READINESS_ARGS='--fail-fast'` when a failed
+gate should stop later selected checks. Use
+`go run ./tools/release-readiness --list-checks` to list available profiles and
+checks.
 
 ## Maintainer Release Checklist
 

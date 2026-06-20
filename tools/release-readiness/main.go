@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	defaultChecks  = "git-clean,release-local"
-	defaultOutRoot = "artifacts/release-readiness"
-	defaultTimeout = 60 * time.Minute
+	defaultProfile       = "local"
+	defaultOutRoot       = "artifacts/release-readiness"
+	defaultTimeout       = 60 * time.Minute
+	defaultArtifactRoots = "bin,artifacts/packages,artifacts/deploy,website/static/openapi/v1.json"
 
 	statusPassed  = "passed"
 	statusFailed  = "failed"
@@ -32,14 +33,19 @@ const (
 var errReadinessFailed = errors.New("release readiness checks did not pass")
 
 type options struct {
-	checksRaw string
-	outRoot   string
-	runName   string
-	timeout   time.Duration
-	strict    bool
-	list      bool
-	skips     valueMap
-	waivers   valueMap
+	checksRaw        string
+	checksProvided   bool
+	profile          string
+	outRoot          string
+	runName          string
+	timeout          time.Duration
+	strict           bool
+	failFast         bool
+	list             bool
+	artifactRootsRaw string
+	artifactRoots    []string
+	skips            valueMap
+	waivers          valueMap
 }
 
 type valueMap map[string]string
@@ -94,6 +100,9 @@ type report struct {
 	Workspace     string           `json:"workspace"`
 	OutputDir     string           `json:"output_dir"`
 	Strict        bool             `json:"strict"`
+	FailFast      bool             `json:"fail_fast"`
+	Profile       string           `json:"profile,omitempty"`
+	ArtifactRoots []string         `json:"artifact_roots,omitempty"`
 	Git           gitInfo          `json:"git"`
 	Toolchain     toolchainInfo    `json:"toolchain"`
 	Checks        []checkResult    `json:"checks"`
@@ -171,28 +180,38 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 func parseOptions(args []string, stderr io.Writer) (options, error) {
 	opts := options{
-		checksRaw: defaultChecks,
-		outRoot:   defaultOutRoot,
-		timeout:   defaultTimeout,
-		skips:     make(map[string]string),
-		waivers:   make(map[string]string),
+		profile:          defaultProfile,
+		outRoot:          defaultOutRoot,
+		timeout:          defaultTimeout,
+		artifactRootsRaw: defaultArtifactRoots,
+		skips:            make(map[string]string),
+		waivers:          make(map[string]string),
 	}
 
 	timeoutRaw := opts.timeout.String()
 	flags := flag.NewFlagSet("release-readiness", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	flags.StringVar(&opts.checksRaw, "checks", opts.checksRaw, "comma-separated check IDs to include")
+	flags.StringVar(&opts.profile, "profile", opts.profile, "check profile: local, candidate, full, or metadata")
+	flags.StringVar(&opts.checksRaw, "checks", opts.checksRaw, "comma-separated check IDs to include; overrides --profile")
 	flags.StringVar(&opts.outRoot, "out", opts.outRoot, "directory for readiness report runs")
 	flags.StringVar(&opts.runName, "run-name", opts.runName, "report run directory name; defaults to UTC timestamp")
 	flags.StringVar(&timeoutRaw, "timeout", timeoutRaw, "per-command timeout; use 0 to disable")
 	flags.BoolVar(&opts.strict, "strict", opts.strict, "fail when any selected check is skipped or waived")
+	flags.BoolVar(&opts.failFast, "fail-fast", opts.failFast, "stop running later selected checks after the first failed check")
 	flags.BoolVar(&opts.list, "list-checks", opts.list, "list available check IDs and exit")
+	flags.StringVar(&opts.artifactRootsRaw, "artifact-roots", opts.artifactRootsRaw, "comma-separated files or directories to checksum")
 	flags.Var(&opts.skips, "skip", "mark a selected check as skipped without running it, as check=reason")
 	flags.Var(&opts.waivers, "waive", "mark a selected check as waived without running it, as check=reason")
 
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
+
+	flags.Visit(func(flag *flag.Flag) {
+		if flag.Name == "checks" {
+			opts.checksProvided = true
+		}
+	})
 
 	if flags.NArg() > 0 {
 		return options{}, fmt.Errorf("unexpected positional arguments: %s", strings.Join(flags.Args(), " "))
@@ -208,7 +227,25 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	}
 
 	opts.timeout = timeout
+	opts.profile = strings.TrimSpace(opts.profile)
+	if opts.profile == "" {
+		opts.profile = defaultProfile
+	}
+
 	opts.checksRaw = strings.TrimSpace(opts.checksRaw)
+	if opts.checksRaw == "" && opts.checksProvided && !opts.list {
+		return options{}, fmt.Errorf("at least one check is required")
+	}
+
+	if opts.checksRaw == "" {
+		profileChecks, ok := checkProfiles()[opts.profile]
+		if !ok && !opts.list {
+			return options{}, fmt.Errorf("unknown profile %q; expected one of %s", opts.profile, strings.Join(sortedProfileNames(), ", "))
+		}
+
+		opts.checksRaw = profileChecks
+	}
+
 	if opts.checksRaw == "" && !opts.list {
 		return options{}, fmt.Errorf("at least one check is required")
 	}
@@ -227,7 +264,18 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 		return options{}, fmt.Errorf("run name %q must not contain path separators", opts.runName)
 	}
 
+	opts.artifactRoots = splitCSV(opts.artifactRootsRaw)
+
 	return opts, nil
+}
+
+func checkProfiles() map[string]string {
+	return map[string]string{
+		"metadata":  "metadata",
+		"local":     "git-clean,release-local",
+		"candidate": "git-clean,release-local,postgres-integration,package-linux",
+		"full":      "git-clean,release-local,postgres-integration,package-linux,perf-macro,vm-e2e",
+	}
 }
 
 func availableChecks() map[string]checkSpec {
@@ -307,6 +355,12 @@ func availableChecks() map[string]checkSpec {
 }
 
 func printChecks(stdout io.Writer, checks map[string]checkSpec) {
+	fmt.Fprintln(stdout, "Profiles:")
+	for _, name := range sortedProfileNames() {
+		fmt.Fprintf(stdout, "%s\t%s\n", name, checkProfiles()[name])
+	}
+
+	fmt.Fprintln(stdout, "\nChecks:")
 	ids := sortedCheckIDs(checks)
 	for _, id := range ids {
 		spec := checks[id]
@@ -359,19 +413,32 @@ func runWithExecutor(opts options, stdout io.Writer, executor commandExecutor) e
 		Workspace:     cwd,
 		OutputDir:     runDir,
 		Strict:        opts.strict,
+		FailFast:      opts.failFast,
+		Profile:       reportProfile(opts),
+		ArtifactRoots: opts.artifactRoots,
 	}
 
 	rep.Git, rep.Warnings = collectGitInfo(cwd)
 	rep.Toolchain = collectToolchainInfo(cwd)
 
+	haltRemaining := false
 	for _, spec := range checks {
-		result := runCheck(spec, opts, cwd, runDir, logsDir, executor)
+		result := checkResult{}
+		if haltRemaining {
+			result = skippedAfterFailure(spec)
+		} else {
+			result = runCheck(spec, opts, cwd, runDir, logsDir, executor)
+			if opts.failFast && result.Status == statusFailed {
+				haltRemaining = true
+			}
+		}
+
 		rep.Checks = append(rep.Checks, result)
 		addCount(&rep.Counts, result.Status)
 		fmt.Fprintf(stdout, "%-22s %s\n", result.ID, result.Status)
 	}
 
-	artifacts, err := collectArtifacts(cwd)
+	artifacts, err := collectArtifacts(cwd, opts.artifactRoots)
 	if err != nil {
 		rep.Warnings = append(rep.Warnings, fmt.Sprintf("collect artifacts: %v", err))
 	}
@@ -402,6 +469,30 @@ func runWithExecutor(opts options, stdout io.Writer, executor commandExecutor) e
 	}
 
 	return nil
+}
+
+func reportProfile(opts options) string {
+	if opts.checksProvided {
+		return "custom"
+	}
+
+	return opts.profile
+}
+
+func skippedAfterFailure(spec checkSpec) checkResult {
+	start := time.Now().UTC()
+	result := checkResult{
+		ID:          spec.ID,
+		Title:       spec.Title,
+		Description: spec.Description,
+		Status:      statusSkipped,
+		Command:     commandString(spec.Command),
+		Reason:      "not run after earlier failure because --fail-fast was set",
+		StartedAt:   start.Format(time.RFC3339),
+	}
+
+	finishCheck(&result, start)
+	return result
 }
 
 func resolveChecks(raw string, available map[string]checkSpec) ([]checkSpec, error) {
@@ -476,6 +567,17 @@ func sortedCheckIDs(checks map[string]checkSpec) []string {
 
 	sort.Strings(ids)
 	return ids
+}
+
+func sortedProfileNames() []string {
+	profiles := checkProfiles()
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+	return names
 }
 
 func runCheck(spec checkSpec, opts options, cwd, runDir, logsDir string, executor commandExecutor) checkResult {
@@ -679,14 +781,7 @@ func firstLine(raw string) string {
 	return ""
 }
 
-func collectArtifacts(cwd string) ([]artifactRecord, error) {
-	roots := []string{
-		"bin",
-		"artifacts/packages",
-		"artifacts/deploy",
-		"website/static/openapi/v1.json",
-	}
-
+func collectArtifacts(cwd string, roots []string) ([]artifactRecord, error) {
 	var records []artifactRecord
 	for _, root := range roots {
 		fullRoot := filepath.Join(cwd, root)
@@ -793,7 +888,10 @@ func writeMarkdownReport(runDir string, rep report) error {
 	fmt.Fprintf(&b, "| Version | `%s` |\n", rep.Git.Describe)
 	fmt.Fprintf(&b, "| Branch | `%s` |\n", valueOr(rep.Git.Branch, "(detached)"))
 	fmt.Fprintf(&b, "| Dirty | %t |\n", rep.Git.Dirty)
-	fmt.Fprintf(&b, "| Strict | %t |\n\n", rep.Strict)
+	fmt.Fprintf(&b, "| Profile | `%s` |\n", valueOr(rep.Profile, "(explicit checks)"))
+	fmt.Fprintf(&b, "| Artifact roots | `%s` |\n", strings.Join(rep.ArtifactRoots, ", "))
+	fmt.Fprintf(&b, "| Strict | %t |\n", rep.Strict)
+	fmt.Fprintf(&b, "| Fail fast | %t |\n\n", rep.FailFast)
 
 	fmt.Fprintf(&b, "## Summary\n\n")
 	fmt.Fprintf(&b, "| Passed | Failed | Skipped | Waived |\n")
