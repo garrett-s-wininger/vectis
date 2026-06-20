@@ -507,6 +507,10 @@ func controlPublishAddress(addr string) string {
 		return addr
 	}
 
+	if publish := config.WorkerControlPublishAddress(); publish != "" {
+		return strings.ReplaceAll(publish, "{port}", port)
+	}
+
 	if host == "" || host == "::" || host == "0.0.0.0" {
 		return net.JoinHostPort("localhost", port)
 	}
@@ -4271,7 +4275,9 @@ func init() {
 	_ = viper.BindEnv("worker.orchestrator.address", "VECTIS_WORKER_ORCHESTRATOR_ADDRESS")
 	_ = viper.BindEnv("worker.secrets.address", "VECTIS_WORKER_SECRETS_ADDRESS")
 	_ = viper.BindEnv("worker.registry.address", "VECTIS_WORKER_REGISTRY_ADDRESS")
+	_ = viper.BindEnv("worker.register_with_registry", "VECTIS_WORKER_REGISTER_WITH_REGISTRY")
 	_ = viper.BindEnv("worker.control.mode", "VECTIS_WORKER_CONTROL_MODE")
+	_ = viper.BindEnv("worker.control.publish_address", "VECTIS_WORKER_CONTROL_PUBLISH_ADDRESS")
 	_ = viper.BindEnv("control_port", "VECTIS_WORKER_CONTROL_PORT")
 	_ = viper.BindEnv("control_port_min", "VECTIS_WORKER_CONTROL_PORT_MIN")
 	_ = viper.BindEnv("control_port_max", "VECTIS_WORKER_CONTROL_PORT_MAX")

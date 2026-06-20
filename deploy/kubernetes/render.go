@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
@@ -62,6 +63,7 @@ type templateData struct {
 	GRPCServerCert     string
 	GRPCServerKey      string
 	GRPCClientCABundle string
+	GRPCTLSChecksum    string
 	SPIFFECA           string
 	SPIFFECAKey        string
 }
@@ -97,6 +99,7 @@ func Render(opts RenderOptions) ([]byte, RenderResult, error) {
 		GRPCServerCert:     string(pki.grpcServerCert),
 		GRPCServerKey:      string(pki.grpcServerKey),
 		GRPCClientCABundle: string(bytes.Join([][]byte{pki.grpcCA, pki.spiffeCA}, nil)),
+		GRPCTLSChecksum:    checksumBytes(pki.grpcCA, pki.grpcServerCert, pki.grpcServerKey, pki.spiffeCA, pki.spiffeCAKey),
 		SPIFFECA:           string(pki.spiffeCA),
 		SPIFFECAKey:        string(pki.spiffeCAKey),
 	}
@@ -204,6 +207,17 @@ func yamlQuote(s string) string {
 func postgresDSN(password string) string {
 	user := url.UserPassword("vectis", password).String()
 	return fmt.Sprintf("postgres://%s@vectis-postgres:5432/vectis?sslmode=disable", user)
+}
+
+func checksumBytes(parts ...[]byte) string {
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = fmt.Fprintf(h, "%d:", len(part))
+		_, _ = h.Write(part)
+		_, _ = h.Write([]byte{0})
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 type devPKI struct {

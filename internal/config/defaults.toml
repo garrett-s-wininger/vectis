@@ -258,6 +258,7 @@ mode = "static"
 port = 9084
 port_min = 20000
 port_max = 30000
+publish_address = ""
 
 [worker.execution_identity]
 enabled = false

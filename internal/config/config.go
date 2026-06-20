@@ -314,10 +314,11 @@ type RetentionCleanupPolicyDefaults struct {
 }
 
 type WorkerControlDefaults struct {
-	Mode    string `toml:"mode"`
-	Port    int    `toml:"port"`
-	PortMin int    `toml:"port_min"`
-	PortMax int    `toml:"port_max"`
+	Mode           string `toml:"mode"`
+	Port           int    `toml:"port"`
+	PortMin        int    `toml:"port_min"`
+	PortMax        int    `toml:"port_max"`
+	PublishAddress string `toml:"publish_address"`
 }
 
 type WorkerExecutionDefaults struct {
@@ -1278,6 +1279,13 @@ func WorkerControlPortMax() int {
 		return p
 	}
 	return MustDefaults().Worker.Control.PortMax
+}
+
+func WorkerControlPublishAddress() string {
+	return strings.TrimSpace(coalesceNonEmpty(
+		viper.GetString("worker.control.publish_address"),
+		MustDefaults().Worker.Control.PublishAddress,
+	))
 }
 
 func WorkerRegisterWithRegistry() bool {

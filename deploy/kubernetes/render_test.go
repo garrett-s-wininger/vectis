@@ -35,8 +35,12 @@ func TestRenderDefaultManifestContract(t *testing.T) {
 		"VECTIS_GRPC_TLS_INSECURE: \"false\"",
 		"VECTIS_GRPC_TLS_CA_FILE: /run/vectis/grpc-tls/ca.pem",
 		"VECTIS_GRPC_TLS_SERVER_NAME: vectis.internal",
+		"vectis.dev/grpc-tls-checksum",
 		"VECTIS_ACTION_REGISTRY_LOCAL_ROOTS: /app/examples/actions",
-		"VECTIS_WORKER_REGISTER_WITH_REGISTRY",
+		"- name: VECTIS_WORKER_REGISTER_WITH_REGISTRY\n              value: \"true\"",
+		"fieldPath: status.podIP",
+		"VECTIS_WORKER_CONTROL_PUBLISH_ADDRESS",
+		`value: "$(VECTIS_POD_IP):9084"`,
 		"VECTIS_WORKER_SPIFFE_ENABLED",
 		"VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS",
 		"VECTIS_GRPC_TLS_CLIENT_CA_FILE",
@@ -112,10 +116,34 @@ func TestKubernetesSmokeJobContract(t *testing.T) {
 	}
 }
 
+func TestKubernetesCancelSmokeJobContract(t *testing.T) {
+	b, err := os.ReadFile("../../examples/e2e-kubernetes-cancel.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(b)
+	for _, want := range []string{
+		`"id": "e2e-kubernetes-cancel-smoke"`,
+		`"id": "cancel-long-running"`,
+		"canonical-cancel-%s",
+		"sleep 60",
+		"unexpected-finished",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("cancel smoke job missing %q", want)
+		}
+	}
+}
+
 func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 	opts := normalizeSmokeOptions(SmokeOptions{})
 	if opts.JobPath != DefaultSmokeJobPath {
 		t.Fatalf("job path = %q", opts.JobPath)
+	}
+
+	if opts.CancelJobPath != DefaultSmokeCancelJobPath {
+		t.Fatalf("cancel job path = %q", opts.CancelJobPath)
 	}
 
 	if opts.CLIImage != DefaultSmokeCLIImage {

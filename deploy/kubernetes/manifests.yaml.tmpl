@@ -250,6 +250,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: registry
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       containers:
@@ -318,6 +320,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: queue
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       containers:
@@ -399,6 +403,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: orchestrator
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       containers:
@@ -470,6 +476,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: log
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       containers:
@@ -552,6 +560,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: artifact
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       containers:
@@ -634,6 +644,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: secrets
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       initContainers:
@@ -747,6 +759,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: api
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       initContainers:
@@ -855,6 +869,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: docs
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       containers:
@@ -918,6 +934,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: cron
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       initContainers:
@@ -983,6 +1001,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: reconciler
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       initContainers:
@@ -1044,6 +1064,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: catalog
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       initContainers:
@@ -1105,6 +1127,8 @@ spec:
       labels:
         app.kubernetes.io/name: vectis
         app.kubernetes.io/component: worker
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
     spec:
       automountServiceAccountToken: false
       initContainers:
@@ -1205,7 +1229,13 @@ spec:
             - name: VECTIS_WORKER_SECRETS_ADDRESS
               value: vectis-secrets:8090
             - name: VECTIS_WORKER_REGISTER_WITH_REGISTRY
-              value: "false"
+              value: "true"
+            - name: VECTIS_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VECTIS_WORKER_CONTROL_PUBLISH_ADDRESS
+              value: "$(VECTIS_POD_IP):9084"
             - name: VECTIS_WORKER_SPIFFE_ENABLED
               value: "true"
             - name: VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS

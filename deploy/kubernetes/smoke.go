@@ -19,32 +19,35 @@ import (
 )
 
 const (
-	DefaultSmokeContext    = "kind-vectis"
-	DefaultSmokeJobPath    = "examples/e2e-canonical.json"
-	DefaultSmokeCLIImage   = "localhost/vectis-cli:dev-local"
-	DefaultSmokeSeedSecret = true
-	DefaultSmokeAPIPort    = 18080
-	DefaultSmokeWait       = 180 * time.Second
-	smokeAPIServiceName    = "service/vectis-api"
-	smokeAPIRemotePort     = 8080
-	smokeHTTPClientDelay   = 30 * time.Second
-	smokeSecretRef         = "encryptedfs://team/smoke-token"
-	smokeSecretPlaintext   = "spiffe-secret"
-	smokeSecretRoot        = "/data/vectis/secrets/encryptedfs"
-	smokeSecretKeyFile     = "/run/vectis/secrets/encryptedfs.key"
+	DefaultSmokeContext       = "kind-vectis"
+	DefaultSmokeJobPath       = "examples/e2e-canonical.json"
+	DefaultSmokeCancelJobPath = "examples/e2e-kubernetes-cancel.json"
+	DefaultSmokeCLIImage      = "localhost/vectis-cli:dev-local"
+	DefaultSmokeSeedSecret    = true
+	DefaultSmokeAPIPort       = 18080
+	DefaultSmokeWait          = 180 * time.Second
+	smokeAPIServiceName       = "service/vectis-api"
+	smokeAPIRemotePort        = 8080
+	smokeHTTPClientDelay      = 30 * time.Second
+	smokeSecretRef            = "encryptedfs://team/smoke-token"
+	smokeSecretPlaintext      = "spiffe-secret"
+	smokeSecretRoot           = "/data/vectis/secrets/encryptedfs"
+	smokeSecretKeyFile        = "/run/vectis/secrets/encryptedfs.key"
 )
 
 type SmokeOptions struct {
-	Kubectl      string
-	Context      string
-	Namespace    string
-	JobPath      string
-	CLIImage     string
-	SeedSecret   *bool
-	APILocalPort int
-	Wait         time.Duration
-	APIToken     string
-	Stdout       io.Writer
+	Kubectl       string
+	Context       string
+	Namespace     string
+	JobPath       string
+	CancelJobPath string
+	CancelOnly    bool
+	CLIImage      string
+	SeedSecret    *bool
+	APILocalPort  int
+	Wait          time.Duration
+	APIToken      string
+	Stdout        io.Writer
 }
 
 type SmokeResult struct {
@@ -96,6 +99,10 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	}
 
 	opts = normalizeSmokeOptions(opts)
+	if opts.CancelOnly {
+		return runCancelSmoke(ctx, opts)
+	}
+
 	if err := validateSmokeOptions(opts); err != nil {
 		return SmokeResult{}, err
 	}
@@ -130,7 +137,7 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	fmt.Fprintf(out, "Submitted job_id=%s run_id=%s\n", smokeJobID(run), run.RunID)
 
 	runCtx, runCancel := context.WithTimeout(ctx, opts.Wait)
-	detail, err := waitForSmokeRun(runCtx, client, baseURL, opts.APIToken, run.RunID, out)
+	detail, err := waitForSmokeRunStatus(runCtx, client, baseURL, opts.APIToken, run.RunID, out, "succeeded")
 	runCancel()
 	if err != nil {
 		return SmokeResult{}, err
@@ -173,6 +180,69 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	return result, nil
 }
 
+func runCancelSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
+	if err := validateSmokeOptions(opts); err != nil {
+		return SmokeResult{}, err
+	}
+	if strings.TrimSpace(opts.CancelJobPath) == "" {
+		return SmokeResult{}, fmt.Errorf("cancel job path is required")
+	}
+
+	out := opts.Stdout
+	fmt.Fprintf(out, "Starting API port-forward on 127.0.0.1:%d\n", opts.APILocalPort)
+	pf, err := startSmokeAPIPortForward(ctx, opts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+	defer pf.stop()
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", opts.APILocalPort)
+	client := &http.Client{Timeout: smokeHTTPClientDelay}
+
+	submitOpts := opts
+	submitOpts.JobPath = opts.CancelJobPath
+	fmt.Fprintf(out, "Submitting %s\n", submitOpts.JobPath)
+	run, err := submitSmokeJob(client, baseURL, submitOpts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintf(out, "Submitted job_id=%s run_id=%s\n", smokeJobID(run), run.RunID)
+	fmt.Fprintln(out, "Waiting for cancellable run to start")
+	logCtx, logCancel := context.WithTimeout(ctx, opts.Wait)
+	err = waitForSmokeLogMarkers(logCtx, baseURL, opts.APIToken, run.RunID, []string{"canonical-cancel-started"}, out)
+	logCancel()
+
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintf(out, "Cancelling run_id=%s through worker-control\n", run.RunID)
+	if err := cancelSmokeRun(client, baseURL, opts.APIToken, run.RunID); err != nil {
+		return SmokeResult{}, err
+	}
+
+	runCtx, runCancel := context.WithTimeout(ctx, opts.Wait)
+	detail, err := waitForSmokeRunStatus(runCtx, client, baseURL, opts.APIToken, run.RunID, out, "cancelled")
+	runCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	result := SmokeResult{
+		Status:    "ok",
+		Context:   strings.TrimSpace(opts.Context),
+		Namespace: opts.Namespace,
+		JobPath:   opts.CancelJobPath,
+		JobID:     smokeJobID(run),
+		RunID:     run.RunID,
+		RunStatus: detail.Status,
+	}
+
+	fmt.Fprintf(out, "Kubernetes cancel smoke succeeded: run_id=%s\n", run.RunID)
+	return result, nil
+}
+
 func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.Kubectl = strings.TrimSpace(opts.Kubectl)
 	if opts.Kubectl == "" {
@@ -188,6 +258,11 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.JobPath = strings.TrimSpace(opts.JobPath)
 	if opts.JobPath == "" {
 		opts.JobPath = DefaultSmokeJobPath
+	}
+
+	opts.CancelJobPath = strings.TrimSpace(opts.CancelJobPath)
+	if opts.CancelJobPath == "" {
+		opts.CancelJobPath = DefaultSmokeCancelJobPath
 	}
 
 	opts.CLIImage = strings.TrimSpace(opts.CLIImage)
@@ -535,9 +610,17 @@ func submitSmokeJob(client *http.Client, baseURL string, opts SmokeOptions) (smo
 	return result, nil
 }
 
-func waitForSmokeRun(ctx context.Context, client *http.Client, baseURL, token, runID string, out io.Writer) (smokeRunDetail, error) {
+func waitForSmokeRunStatus(ctx context.Context, client *http.Client, baseURL, token, runID string, out io.Writer, expectedStatuses ...string) (smokeRunDetail, error) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	expected := map[string]bool{}
+	for _, status := range expectedStatuses {
+		status = strings.ToLower(strings.TrimSpace(status))
+		if status != "" {
+			expected[status] = true
+		}
+	}
 
 	for {
 		detail, err := fetchSmokeRunDetail(client, baseURL, token, runID)
@@ -547,10 +630,13 @@ func waitForSmokeRun(ctx context.Context, client *http.Client, baseURL, token, r
 
 		fmt.Fprintf(out, "run_id=%s status=%s\n", detail.RunID, detail.Status)
 
-		switch strings.ToLower(strings.TrimSpace(detail.Status)) {
-		case "succeeded":
+		status := strings.ToLower(strings.TrimSpace(detail.Status))
+		if expected[status] {
 			return detail, nil
-		case "failed", "orphaned", "cancelled", "abandoned", "aborted":
+		}
+
+		switch status {
+		case "succeeded", "failed", "orphaned", "cancelled", "abandoned", "aborted":
 			return detail, fmt.Errorf("run %s reached terminal status %s", runID, detail.Status)
 		}
 
@@ -559,6 +645,29 @@ func waitForSmokeRun(ctx context.Context, client *http.Client, baseURL, token, r
 		case <-ctx.Done():
 			return smokeRunDetail{}, fmt.Errorf("timed out waiting for run %s: %w", runID, ctx.Err())
 		}
+	}
+}
+
+func cancelSmokeRun(client *http.Client, baseURL, token, runID string) error {
+	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, fmt.Sprintf("/api/v1/runs/%s/cancel", url.PathEscape(runID)), token, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("cancel smoke run: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		return nil
+	case http.StatusAccepted:
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cancel smoke run used durable pending path instead of worker-control fast path: %s", strings.TrimSpace(string(body)))
+	default:
+		return smokeUnexpectedStatus("cancel smoke run", resp)
 	}
 }
 

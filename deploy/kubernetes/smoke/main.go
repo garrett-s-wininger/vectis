@@ -21,6 +21,8 @@ func main() {
 	flag.StringVar(&opts.Context, "context", kubernetesdeploy.DefaultSmokeContext, "Kubernetes context to use; empty uses kubectl's current context")
 	flag.StringVar(&opts.Namespace, "namespace", kubernetesdeploy.DefaultNamespace, "Kubernetes namespace")
 	flag.StringVar(&opts.JobPath, "job", kubernetesdeploy.DefaultSmokeJobPath, "Kubernetes smoke job definition path")
+	flag.StringVar(&opts.CancelJobPath, "cancel-job", kubernetesdeploy.DefaultSmokeCancelJobPath, "Kubernetes worker-control cancel smoke job definition path")
+	flag.BoolVar(&opts.CancelOnly, "cancel-only", false, "Run only the worker-control cancel smoke")
 	flag.StringVar(&opts.CLIImage, "cli-image", kubernetesdeploy.DefaultSmokeCLIImage, "vectis-cli image used to seed smoke secrets")
 	flag.BoolVar(&seedSecret, "seed-secret", kubernetesdeploy.DefaultSmokeSeedSecret, "Seed the canonical encryptedfs smoke secret before submitting the job")
 	flag.IntVar(&opts.APILocalPort, "api-local-port", kubernetesdeploy.DefaultSmokeAPIPort, "Local port used for the API port-forward")

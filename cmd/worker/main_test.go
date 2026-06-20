@@ -5123,6 +5123,9 @@ func TestStartControlListener_EphemeralUsesZeroPort(t *testing.T) {
 }
 
 func TestControlPublishAddress_NormalizesUnspecifiedHost(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
 	if got := controlPublishAddress("[::]:19084"); got != "localhost:19084" {
 		t.Fatalf("IPv6 unspecified addr = %q, want localhost:19084", got)
 	}
@@ -5133,6 +5136,26 @@ func TestControlPublishAddress_NormalizesUnspecifiedHost(t *testing.T) {
 
 	if got := controlPublishAddress("127.0.0.1:19084"); got != "127.0.0.1:19084" {
 		t.Fatalf("loopback addr = %q, want 127.0.0.1:19084", got)
+	}
+}
+
+func TestControlPublishAddress_UsesPublishAddressOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("worker.control.publish_address", "10.244.0.12:9084")
+	if got := controlPublishAddress("[::]:19084"); got != "10.244.0.12:9084" {
+		t.Fatalf("publish override addr = %q, want 10.244.0.12:9084", got)
+	}
+}
+
+func TestControlPublishAddress_ExpandsPortPlaceholder(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("worker.control.publish_address", "worker-1:{port}")
+	if got := controlPublishAddress("[::]:19084"); got != "worker-1:19084" {
+		t.Fatalf("publish placeholder addr = %q, want worker-1:19084", got)
 	}
 }
 
