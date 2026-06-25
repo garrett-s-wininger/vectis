@@ -34,6 +34,12 @@ make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
 ```
 
+Or run the full local lifecycle and smoke matrix:
+
+```sh
+make k8s-kind-validate
+```
+
 The local contract is:
 
 | Variable | Default | Purpose |
@@ -43,6 +49,10 @@ The local contract is:
 | `K8S_NAMESPACE` | `vectis` | Namespace rendered into the manifest. |
 | `K8S_IMAGE_REGISTRY` | `localhost` | Local image registry/name prefix rendered for kind and used when tagging images. |
 | `K8S_IMAGE_TAG` | `dev-local` | Tag used for images loaded into kind. |
+| `K8S_KIND_VALIDATE_STEPS` | `k8s-kind-up ... k8s-kind-run-repair-smoke` | Ordered targets run by `make k8s-kind-validate`. |
+| `K8S_VALIDATE_DIAGNOSTICS` | `1` | Whether `make k8s-kind-validate` captures diagnostics after the first failed step. |
+| `K8S_DIAGNOSTICS_DIR` | `artifacts/deploy/kubernetes/diagnostics` | Base directory for Kubernetes diagnostic bundles. |
+| `K8S_DIAGNOSTICS_LOG_TAIL` | `200` | Per-pod log lines captured by diagnostics. |
 | `K8S_API_LOCAL_PORT` | `18080` | Local port used by the canonical smoke API port-forward. |
 | `K8S_SMOKE_JOB` | `examples/e2e-canonical.json` | Job submitted by the workload smoke harness. |
 | `K8S_SMOKE_CLI_IMAGE` | `localhost/vectis-cli:dev-local` | CLI image used by the smoke harness to seed the encryptedfs secret. |
@@ -82,6 +92,12 @@ For nerdctl-backed setups:
 ```sh
 make k8s-kind-validate CONTAINER_CMD=nerdctl KIND_PROVIDER=nerdctl
 ```
+
+`make k8s-kind-validate` runs `K8S_KIND_VALIDATE_STEPS` in order. If a step
+fails and `K8S_VALIDATE_DIAGNOSTICS` is not `0`, it writes a timestamped bundle
+under `K8S_DIAGNOSTICS_DIR` with context metadata, cluster info, nodes,
+namespace resources, events, pod descriptions, and current/previous pod logs.
+Run `make k8s-kind-diagnostics` to capture the same bundle on demand.
 
 The default manifest creates:
 

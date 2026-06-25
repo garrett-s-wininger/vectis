@@ -286,6 +286,31 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 	}
 }
 
+func TestKubernetesMakefileValidationDiagnosticsContract(t *testing.T) {
+	b, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(b)
+	for _, want := range []string{
+		"K8S_DIAGNOSTICS_DIR ?= artifacts/deploy/kubernetes/diagnostics",
+		"K8S_VALIDATE_DIAGNOSTICS ?= 1",
+		"K8S_KIND_VALIDATE_STEPS ?= k8s-kind-up k8s-kind-load-images k8s-kind-apply",
+		".PHONY: k8s-diagnostics",
+		".PHONY: k8s-validate",
+		".PHONY: k8s-kind-diagnostics",
+		"cluster-info > \"$$out/cluster-info.txt\"",
+		"describe pods > \"$$out/pods-describe.txt\"",
+		"logs \"$$pod\" --all-containers --tail=$(K8S_DIAGNOSTICS_LOG_TAIL)",
+		"$(MAKE) k8s-kind-diagnostics || true",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Makefile missing %q", want)
+		}
+	}
+}
+
 func TestSmokeWorkerCoreDeploymentPatch(t *testing.T) {
 	patch, err := smokeWorkerCoreDeploymentPatch(normalizeSmokeOptions(SmokeOptions{
 		Namespace:           "ci-vectis",
