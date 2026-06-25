@@ -245,6 +245,72 @@ func TestCheckoutAction_Execute_DirectCloneFetchesRefspecsFromOrigin(t *testing.
 	}
 }
 
+func TestCheckoutAction_Execute_DirectCloneChecksOutRef(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	checkoutAction := NewCheckoutAction(mockExecutor)
+	state := createTestState(nil)
+	state.Workspace = "/tmp/vectis-direct-ref-checkout"
+
+	url := "http://gerrit.example.com/project"
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{
+		"url": url,
+		"ref": "refs/changes/01/1/1",
+	}, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	wantArgs := [][]string{
+		gitcmd.NoAutoMaintenanceCloneArgs(url, "."),
+		gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", "origin", "refs/changes/01/1/1"),
+		gitcmd.NoAutoMaintenanceArgs("checkout", "--detach", "FETCH_HEAD"),
+	}
+
+	if got := mockExecutor.GetArgs(); !reflect.DeepEqual(got, wantArgs) {
+		t.Fatalf("git args = %+v, want %+v", got, wantArgs)
+	}
+
+	workDirs := mockExecutor.GetWorkDirs()
+	if len(workDirs) != 3 {
+		t.Fatalf("workDirs = %v, want 3 calls", workDirs)
+	}
+	for i, got := range workDirs {
+		if got != state.Workspace {
+			t.Fatalf("workDir[%d] = %q, want workspace %q", i, got, state.Workspace)
+		}
+	}
+}
+
+func TestCheckoutAction_Execute_RejectsOptionLikeRef(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	checkoutAction := NewCheckoutAction(mockExecutor)
+	state := createTestState(nil)
+
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{
+		"url": "https://gerrit.example.com/project",
+		"ref": "--upload-pack=bad",
+	}, nil)
+
+	if result.Status != action.StatusFailure {
+		t.Fatalf("expected failure, got %v", result.Status)
+	}
+
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "must not begin") {
+		t.Fatalf("expected option-like ref error, got %v", result.Error)
+	}
+
+	if len(mockExecutor.GetArgs()) != 0 {
+		t.Fatalf("expected checkout to reject ref before git invocation, got %v", mockExecutor.GetArgs())
+	}
+}
+
 func TestCheckoutAction_Execute_ReportsCheckoutCacheFailure(t *testing.T) {
 	mockExecutor := mocks.NewMockExecExecutor()
 	cache := &fakeCheckoutCache{handled: true, err: fmt.Errorf("cache unavailable")}

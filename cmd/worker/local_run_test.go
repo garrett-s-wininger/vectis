@@ -50,6 +50,42 @@ func TestRunLocalJobSuccess(t *testing.T) {
 	}
 }
 
+func TestRunLocalJobDecodesFriendlySecretDeliveryType(t *testing.T) {
+	workspace := t.TempDir()
+	dir := t.TempDir()
+	jobPath := filepath.Join(dir, "job.json")
+	body := `{
+  "id": "local-secret-alias",
+  "secrets": [
+    {
+      "id": "token",
+      "ref": "encryptedfs://team/token",
+      "delivery": {"type": "file", "path": "token"},
+      "task_keys": ["script"]
+    }
+  ],
+  "root": {
+    "id": "script",
+    "uses": "builtins/script",
+    "with": {"script": "printf local-secret-alias-ok"}
+  }
+}`
+
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runLocalJob(context.Background(), jobPath, workspace, &stdout, &stderr); err != nil {
+		t.Fatalf("run local job: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "local-secret-alias-ok") {
+		t.Fatalf("expected stdout log to contain command output, got %q", stdout.String())
+	}
+}
+
 func TestRunLocalJobFailure(t *testing.T) {
 	workspace := t.TempDir()
 	jobPath := writeLocalRunJob(t, t.TempDir(), "printf local-fail; exit 7")

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -98,7 +97,7 @@ func runLocalJob(ctx context.Context, jobPath, workspace string, stdout, stderr 
 	}
 
 	var j api.Job
-	if err := json.Unmarshal(body, &j); err != nil {
+	if err := job.DecodeDefinitionJSON(body, &j); err != nil {
 		return fmt.Errorf("invalid job JSON: %w", err)
 	}
 

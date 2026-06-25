@@ -35,7 +35,8 @@ Short built-in names such as `script` can resolve internally, but job files shou
 | --- | --- | --- | --- | --- | --- |
 | `builtins/script` | `script` | `runner`, `outputs` | None | No | Writes `script` to a temporary workspace file and runs it with the selected runner. `runner: "auto"` or an omitted runner defaults to PowerShell on Windows and `sh` elsewhere. |
 | `builtins/test` | `command` | `runner` | None | No | Runs a predicate command with the selected runner. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
-| `builtins/checkout` | `url` | `fetch_refspecs` | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected. When worker persistent cache handles the URL, `origin` stays on the declared remote and `vectis-cache` exposes the local mirror; `fetch_refspecs` demand-hydrates source refs into the cache when needed, then fetches whitespace-separated refspecs locally on cache hits or from `origin` after direct clones. |
+| `builtins/checkout` | `url` | `fetch_refspecs`, `ref` | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected. When worker persistent cache handles the URL, `origin` stays on the declared remote and `vectis-cache` exposes the local mirror; `fetch_refspecs` demand-hydrates source refs into the cache when needed, then fetches whitespace-separated refspecs locally on cache hits or from `origin` after direct clones. `ref` fetches a single ref from the active remote and checks out `FETCH_HEAD` detached. |
+| `builtins/gerrit-review` | `url`, `change`, `message`, `username`, `password_file` | `revision`, `label`, `value`, `tag` | None | No | Posts a Gerrit review message and optional label vote to `/a/changes/{change}/revisions/{revision}/review` using HTTP basic auth from a workspace-relative password file. |
 | `builtins/upload-artifact` | `name`, `path` | `content_type`, `metadata_json`, `max_bytes` | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object. |
 | `builtins/sequence` | None | `execution` | `steps` | No | Runs child nodes in order and stops on first failure. |
 | `builtins/parallel` | None | `execution` | `branches` | No | Runs branches concurrently when local, or fans out distributed child task executions by default. |
@@ -121,6 +122,7 @@ Current built-in descriptors report capabilities for process-oriented actions:
 | `builtins/script` | `process_launch`, `workspace_read`, `workspace_write` |
 | `builtins/test` | `process_launch`, `workspace_read`, `workspace_write` |
 | `builtins/checkout` | `network`, `process_launch`, `workspace_write` |
+| `builtins/gerrit-review` | `network`, `workspace_read` |
 
 Other built-ins currently report no explicit capabilities.
 

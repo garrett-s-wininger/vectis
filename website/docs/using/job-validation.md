@@ -72,7 +72,8 @@ These are the built-in actions that the validator knows today:
 | --- | --- | --- | --- |
 | `builtins/script` | `script` | none | Writes the script body to a temporary workspace file and runs it with `runner`. Supported runners are `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. Optional `outputs` reads a workspace-relative JSON object file after success and returns it as node outputs. |
 | `builtins/test` | `command` | none | Runs the command as a predicate with the selected runner. Optional `runner` uses the same values and OS default as `builtins/script`. Exit `0` returns `outputs.result=true`, exit `1` returns `outputs.result=false`, and other execution errors fail the action. |
-| `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Unknown action keys are rejected. |
+| `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Optional `ref` fetches a ref from `origin` after clone and checks out `FETCH_HEAD` detached; optional `fetch_refspecs` fetches additional refspecs. Unknown action keys are rejected. |
+| `builtins/gerrit-review` | `url`, `change`, `message`, `username`, `password_file` | none | Posts a Gerrit review message to the authenticated `/a/changes/{change}/revisions/{revision}/review` REST path. Optional `revision` defaults to `current`; optional `label` and integer `value` post a label vote. The password file must be workspace-relative, usually under `.vectis/secrets`. |
 | `builtins/sequence` | none | `steps` | Runs child nodes in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional `with` keys are tolerated for compatibility. |
 | `builtins/parallel` | none | `branches` | Runs branch nodes concurrently when local, or fans them out as task executions when distributed. Defaults to `execution: "distributed"`. Unknown optional `with` keys are tolerated for compatibility. |
 | `builtins/if` | none | `condition`, `then`, `else` | Runs exactly one `condition` node, reads its `outputs.result` boolean, then runs the ordered `then` or `else` port. Condition execution failures fail the `if`. Local-only until durable skipped-branch semantics exist. |
@@ -337,7 +338,7 @@ This fails because Vectis does not know `builtins/not-real`:
 }
 ```
 
-Use one of the supported actions, such as `builtins/script`, `builtins/test`, `builtins/checkout`, `builtins/sequence`, `builtins/parallel`, `builtins/result`, or `builtins/upload-artifact`.
+Use one of the supported actions, such as `builtins/script`, `builtins/test`, `builtins/checkout`, `builtins/gerrit-review`, `builtins/sequence`, `builtins/parallel`, `builtins/result`, or `builtins/upload-artifact`.
 
 ### Invalid `with` Fields
 

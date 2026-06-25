@@ -67,6 +67,10 @@ https://user:token@example.com/org/repo.git
 
 Those URLs are rejected because they can leak through persisted job definitions, logs, process arguments, and debugging output. Vectis also defensively redacts URL user info in logs, but validation is the primary protection.
 
+For `builtins/gerrit-review`, put the Gerrit HTTP password in a task-scoped
+secret file and pass that workspace-relative path through `password_file`.
+Do not place the password in the job definition or Gerrit URL.
+
 ## Operator Baseline
 
 Use this baseline for shared or production-like deployments:

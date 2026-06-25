@@ -1414,12 +1414,24 @@ func TestValidateJob_CheckoutSCPURL(t *testing.T) {
 	}
 }
 
+func TestValidateJob_CheckoutRef(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].Uses = strp("builtins/checkout")
+	job.Root.Steps[0].With = map[string]string{"url": "https://github.com/example/repo.git", "ref": "refs/changes/01/1/1"}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid checkout ref: %v", err)
+	}
+}
+
 func TestValidateJob_CheckoutUnknownKey(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
 	job.Root.Steps[0].Uses = strp("builtins/checkout")
-	job.Root.Steps[0].With = map[string]string{"url": "https://github.com/example/repo.git", "ref": "main"}
+	job.Root.Steps[0].With = map[string]string{"url": "https://github.com/example/repo.git", "unknown_key": "main"}
 
 	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
 	if err == nil {
@@ -1427,7 +1439,51 @@ func TestValidateJob_CheckoutUnknownKey(t *testing.T) {
 	}
 
 	msg := err.Error()
-	if !strings.Contains(msg, `unknown field "ref"`) {
+	if !strings.Contains(msg, `unknown field "unknown_key"`) {
 		t.Fatalf("expected unknown key error, got %q", msg)
+	}
+}
+
+func TestValidateJob_GerritReviewValid(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].Uses = strp("builtins/gerrit-review")
+	job.Root.Steps[0].With = map[string]string{
+		"url":           "https://gerrit.example.com",
+		"change":        "123",
+		"message":       "Vectis succeeded",
+		"label":         "Verified",
+		"value":         "+1",
+		"username":      "ci-bot",
+		"password_file": ".vectis/secrets/gerrit/http-password",
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid Gerrit review job: %v", err)
+	}
+}
+
+func TestValidateJob_GerritReviewRejectsCredentialedURL(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root.Steps[0].Uses = strp("builtins/gerrit-review")
+	job.Root.Steps[0].With = map[string]string{
+		"url":           "https://ci-bot:secret@gerrit.example.com",
+		"change":        "123",
+		"message":       "Vectis succeeded",
+		"username":      "ci-bot",
+		"password_file": ".vectis/secrets/gerrit/http-password",
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for credentialed Gerrit URL")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, `root.steps[0].with.url: must not include embedded credentials`) {
+		t.Fatalf("expected credentialed URL error, got %q", msg)
 	}
 }

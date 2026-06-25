@@ -293,6 +293,8 @@ func BuiltinDisplayName(actionType string) string {
 		return "Test"
 	case "builtins/checkout":
 		return "Checkout"
+	case "builtins/gerrit-review":
+		return "Gerrit Review"
 	case "builtins/sequence":
 		return "Sequence"
 	case "builtins/parallel":
@@ -318,6 +320,8 @@ func BuiltinCapabilities(actionType string) []Capability {
 		return []Capability{CapabilityProcessLaunch, CapabilityWorkspaceRead, CapabilityWorkspaceWrite}
 	case "builtins/checkout":
 		return []Capability{CapabilityNetwork, CapabilityProcessLaunch, CapabilityWorkspaceWrite}
+	case "builtins/gerrit-review":
+		return []Capability{CapabilityNetwork, CapabilityWorkspaceRead}
 	default:
 		return nil
 	}
