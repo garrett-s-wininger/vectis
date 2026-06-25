@@ -9,7 +9,34 @@ export type RunTimelineEvent = {
 };
 
 export function runDetailDescription() {
-  return "Execution state, logs, and definition context.";
+  return "Execution graph, logs, timeline, and definition context.";
+}
+
+export function runOutcomeCopy(run: RunListItem) {
+  switch (run.status) {
+    case "succeeded":
+      return "Execution completed successfully. Review logs and task timing for confirmation.";
+    case "failed":
+      return "Execution failed. Start with the graph, then inspect logs around the failing task.";
+    case "running":
+      return "Execution is still in progress. Logs continue streaming while the worker runs.";
+    case "queued":
+      return "Execution is accepted and waiting for a worker.";
+    case "cancelled":
+      return "Execution was cancelled before it completed.";
+    case "abandoned":
+    case "orphaned":
+    case "aborted":
+      return "Execution did not complete normally. Use timeline and logs to identify where it stopped.";
+  }
+}
+
+export function runGraphDescription(run: RunListItem) {
+  if (run.status === "running") {
+    return "Task topology and the currently selected execution node.";
+  }
+
+  return "Task topology and final status for this execution.";
 }
 
 export function runDefinitionTitle(run: RunListItem) {

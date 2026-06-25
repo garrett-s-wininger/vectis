@@ -195,7 +195,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { level: 1, name: "api-test-suite (#1240)" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Investigation Summary" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -384,11 +384,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open run api-test-suite #1240" }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "api-test-suite (#1240)" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Investigation Summary" })).toBeInTheDocument();
     expect(screen.getByText("run-1240")).toBeInTheDocument();
     expect(screen.getByText("Saved")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/runs/run-1240");
-    expect(screen.getByRole("heading", { name: "Logs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Task Logs" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Job Definition" })).toBeInTheDocument();
     expect(screen.getByText("Submitted via Manual by mira.")).toBeInTheDocument();
@@ -425,7 +425,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit run" }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "database-backfill (#1241)" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Investigation Summary" })).toBeInTheDocument();
     expect(screen.getByText("Ephemeral")).toBeInTheDocument();
     expect(screen.getByText("Inline")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Submitted Definition" })).toBeInTheDocument();

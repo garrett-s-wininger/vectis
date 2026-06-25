@@ -26,6 +26,14 @@
   margin: var(--space-2xs) 0 0;
 }
 
+.outcome {
+  color: var(--text-subtle);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-body);
+  margin: 0;
+  max-width: 72ch;
+}
+
 .facts {
   display: grid;
   gap: var(--space-lg);

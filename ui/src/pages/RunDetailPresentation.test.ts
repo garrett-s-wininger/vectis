@@ -3,8 +3,11 @@ import {
   formatRunDefinition,
   referenceLabel,
   runDefinitionDescription,
+  runDetailDescription,
   runDefinitionTitle,
+  runGraphDescription,
   runLogLines,
+  runOutcomeCopy,
   runTimelineEvents,
   sourceLabel
 } from "./RunDetailPresentation";
@@ -29,6 +32,17 @@ const run: RunListItem = {
 };
 
 describe("run detail presentation", () => {
+  it("describes run investigation states", () => {
+    expect(runDetailDescription()).toBe("Execution graph, logs, timeline, and definition context.");
+    expect(runOutcomeCopy(run)).toContain("completed successfully");
+    expect(runOutcomeCopy({ ...run, status: "failed" })).toContain("Execution failed");
+    expect(runGraphDescription({ ...run, status: "running" })).toBe(
+      "Task topology and the currently selected execution node."
+    );
+
+    expect(runGraphDescription(run)).toBe("Task topology and final status for this execution.");
+  });
+
   it("formats source and reference labels", () => {
     expect(sourceLabel("stored")).toBe("Saved");
     expect(sourceLabel("ephemeral")).toBe("Ephemeral");

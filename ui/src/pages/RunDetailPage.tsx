@@ -17,7 +17,9 @@ import {
   runDefinitionDescription,
   runDefinitionTitle,
   runDetailDescription,
+  runGraphDescription,
   runLogLines,
+  runOutcomeCopy,
   runTimelineEvents,
   sourceLabel
 } from "./RunDetailPresentation";
@@ -78,11 +80,12 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
       >
         <div className={styles.heroHeader}>
           <div>
-            <h2>Summary</h2>
+            <h2>Investigation Summary</h2>
             <p>{run.id}</p>
           </div>
           <StatusBadge status={run.status} />
         </div>
+        <p className={styles.outcome}>{runOutcomeCopy(run)}</p>
         <dl className={styles.facts}>
           <OperationalFact emphasis icon={Clock} label={runDurationLabel(run.status)} value={run.duration} />
           <OperationalFact icon={Server} label="Cell" value={run.cellName ?? "Unassigned"} />
@@ -116,7 +119,7 @@ function RunGraph({ run }: { run: RunListItem }) {
       <div className={styles.panelHeader}>
         <div>
           <h2 id="run-graph-title">Graph</h2>
-          <p>Execution nodes and selected task context.</p>
+          <p>{runGraphDescription(run)}</p>
         </div>
       </div>
       <div className={styles.graph} aria-label="Execution graph">
@@ -170,8 +173,8 @@ function RunLogs({ run }: { run: RunListItem }) {
     >
       <div className={styles.panelHeader}>
         <div>
-          <h2 id="run-logs-title">Logs</h2>
-          <p>Worker output and dispatch messages for this run.</p>
+          <h2 id="run-logs-title">Task Logs</h2>
+          <p>Worker output for the selected execution context.</p>
         </div>
       </div>
       <ErrorAlert message={visibleLogState.error} title="Log Stream Unavailable" />

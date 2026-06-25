@@ -56,6 +56,32 @@ export const EphemeralRun: Story = {
   }
 };
 
+export const RunningRun: Story = {
+  args: {
+    run: {
+      ...data.runs[0],
+      duration: "18s",
+      finishedAt: undefined,
+      id: "run-running",
+      status: "running"
+    },
+    runID: "run-running"
+  }
+};
+
+export const FailedRun: Story = {
+  args: {
+    run: {
+      ...data.runs[0],
+      duration: "42s",
+      finishedAt: "2026-05-31T12:00:42Z",
+      id: "run-failed",
+      status: "failed"
+    },
+    runID: "run-failed"
+  }
+};
+
 export const MissingRun: Story = {
   args: {
     run: undefined,
