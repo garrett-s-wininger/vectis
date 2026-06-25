@@ -3,7 +3,7 @@
   align-self: start;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: var(--space-lg);
   height: auto;
   justify-self: center;
   padding: var(--space-2xl);
@@ -19,7 +19,7 @@
 
 .root p {
   color: var(--text-subtle);
-  margin: var(--space-lg) 0 0;
+  margin: var(--space-sm) 0 0;
   max-width: 56ch;
 }
 
@@ -29,7 +29,6 @@
   flex: 0 0 auto;
   flex-wrap: wrap;
   gap: var(--space-sm);
-  margin-top: var(--space-lg);
 }
 
 @media (max-width: 720px) {

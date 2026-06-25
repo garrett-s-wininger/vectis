@@ -1,4 +1,5 @@
 export { EmptyStateRail } from "./EmptyStateRail";
+export { InlineEmptyState } from "./InlineEmptyState";
 export { PageMissingState } from "./PageMissingState";
 export { ResourceStatus } from "./ResourceStatus";
 export { ResourceTitle } from "./ResourceTitle";

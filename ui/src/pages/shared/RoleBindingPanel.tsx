@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 import { Button, SelectField, type SelectOption } from "../../components";
 import type { RoleBindingRole } from "../../domain/console";
+import { InlineEmptyState } from "./InlineEmptyState";
 import { ResourceStatus } from "./ResourceStatus";
 import styles from "./RoleBindingPanel.module.css";
 
@@ -83,7 +84,7 @@ export function RoleBindingPanel({
             </div>
           ))
         ) : (
-          <div className={styles.empty}>{emptyMessage}</div>
+          <InlineEmptyState>{emptyMessage}</InlineEmptyState>
         )}
       </div>
     </>
