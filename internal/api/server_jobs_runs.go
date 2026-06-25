@@ -823,7 +823,7 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+	if err := s.recordDispatchSuccess(ctx, runID, dal.DispatchSourceAPI, targetCellID); err != nil {
 		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
@@ -837,7 +837,6 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	}
 
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeSuccess)
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
@@ -1417,7 +1416,7 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+	if err := s.recordDispatchSuccess(ctx, runID, dal.DispatchSourceAPI, targetCellID); err != nil {
 		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
@@ -1430,7 +1429,6 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 		return
 	}
 	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeSuccess)
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)

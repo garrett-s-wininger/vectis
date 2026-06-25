@@ -207,6 +207,22 @@ func (s *CronService) recordDispatchEvent(ctx context.Context, runID, eventType 
 	}
 }
 
+func (s *CronService) recordDispatchSuccess(ctx context.Context, runID string) error {
+	if s.dispatch != nil {
+		if err := s.dispatch.RecordDispatchSuccess(ctx, runID, dal.DispatchSourceCron); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if s.runs != nil {
+		return s.runs.TouchDispatched(ctx, runID)
+	}
+
+	return nil
+}
+
 func (s *CronService) CloseQueueDial() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -474,14 +490,13 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 		return err
 	}
 
-	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+	if err := s.recordDispatchSuccess(ctx, runID); err != nil {
 		s.logger.Error("TouchDispatched after enqueue for run %s: %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
 		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
 		return nil
 	}
 
-	s.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
 	return nil
 }
 

@@ -146,6 +146,24 @@ func (s *Service) recordDispatchEvent(ctx context.Context, runID, targetCellID, 
 	}
 }
 
+func (s *Service) recordDispatchSuccess(ctx context.Context, runID, targetCellID string) error {
+	if s.dispatch != nil {
+		if err := s.dispatch.RecordDispatchSuccess(ctx, runID, dal.DispatchSourceReconciler); err != nil {
+			return err
+		}
+	} else if s.runs != nil {
+		if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+			return err
+		}
+	}
+
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, dal.DispatchSourceReconciler, dal.DispatchEventSuccess, targetCellID)
+	}
+
+	return nil
+}
+
 func (s *Service) SetMetrics(metrics *observability.ReconcilerMetrics) {
 	s.metrics = metrics
 }
@@ -543,7 +561,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		enqueued++
 	}
 
-	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+	if err := s.recordDispatchSuccess(ctx, runID, qr.OwningCell); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "touch dispatched")
 		msg := "touch dispatched: " + err.Error()
@@ -554,7 +572,6 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 
 		return fmt.Errorf("touch dispatched: %w", err)
 	}
-	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventSuccess, nil)
 	span.SetAttributes(attribute.Int("vectis.reconciler.enqueued_executions", enqueued))
 
 	span.SetAttributes(attribute.String("vectis.reconciler.outcome", observability.ReconcilerOutcomeSuccess))

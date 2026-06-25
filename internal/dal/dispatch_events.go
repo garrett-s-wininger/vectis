@@ -26,6 +26,28 @@ func (r *SQLDispatchEventsRepository) Record(ctx context.Context, runID, source,
 	return normalizeSQLError(err)
 }
 
+func (r *SQLDispatchEventsRepository) RecordDispatchSuccess(ctx context.Context, runID, source string) error {
+	now := time.Now().Unix()
+	_, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`
+			UPDATE job_runs
+			SET last_dispatched_at = ?
+			WHERE run_id = ?;
+
+			INSERT INTO run_dispatch_events (run_id, source, event_type, message, created_at)
+			VALUES (?, ?, ?, NULL, ?)
+		`),
+		now,
+		runID,
+		runID,
+		source,
+		DispatchEventSuccess,
+		now,
+	)
+
+	return normalizeSQLError(err)
+}
+
 func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error) {
 	rows, err := r.db.QueryContext(ctx,
 		rebindQueryForPgx(`

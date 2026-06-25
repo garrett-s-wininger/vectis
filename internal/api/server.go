@@ -334,6 +334,24 @@ func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, even
 	}
 }
 
+func (s *APIServer) recordDispatchSuccess(ctx context.Context, runID, source, targetCell string) error {
+	if s.dispatchEvents != nil {
+		if err := s.dispatchEvents.RecordDispatchSuccess(ctx, runID, source); err != nil {
+			return err
+		}
+	} else if s.runs != nil {
+		if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+			return err
+		}
+	}
+
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, source, dal.DispatchEventSuccess, targetCell)
+	}
+
+	return nil
+}
+
 func (s *APIServer) recordAPIEnqueueMetric(ctx context.Context, runKind, outcome string) {
 	if s.apiDispatchMetrics == nil {
 		return

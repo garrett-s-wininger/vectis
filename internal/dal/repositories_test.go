@@ -4360,13 +4360,17 @@ func TestDispatchEventsRepository_RecordAndListByRun(t *testing.T) {
 		t.Fatalf("record failure: %v", err)
 	}
 
+	if err := dispatch.RecordDispatchSuccess(ctx, runID, dal.DispatchSourceAPI); err != nil {
+		t.Fatalf("record dispatch success: %v", err)
+	}
+
 	events, err := dispatch.ListByRun(ctx, runID)
 	if err != nil {
 		t.Fatalf("list dispatch events: %v", err)
 	}
 
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %+v", events)
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %+v", events)
 	}
 
 	if events[0].EventType != dal.DispatchEventAttempt || events[0].Message != nil {
@@ -4381,7 +4385,19 @@ func TestDispatchEventsRepository_RecordAndListByRun(t *testing.T) {
 		t.Fatalf("unexpected failure message: %+v", events[1].Message)
 	}
 
-	if events[0].CreatedAt == 0 || events[1].CreatedAt == 0 {
+	if events[2].Source != dal.DispatchSourceAPI || events[2].EventType != dal.DispatchEventSuccess || events[2].Message != nil {
+		t.Fatalf("unexpected success event: %+v", events[2])
+	}
+
+	var lastDispatchedAt sql.NullInt64
+	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", runID).Scan(&lastDispatchedAt); err != nil {
+		t.Fatalf("query last_dispatched_at: %v", err)
+	}
+	if !lastDispatchedAt.Valid || lastDispatchedAt.Int64 == 0 {
+		t.Fatalf("expected dispatch success to touch run, got %+v", lastDispatchedAt)
+	}
+
+	if events[0].CreatedAt == 0 || events[1].CreatedAt == 0 || events[2].CreatedAt == 0 {
 		t.Fatalf("expected created_at values: %+v", events)
 	}
 }
