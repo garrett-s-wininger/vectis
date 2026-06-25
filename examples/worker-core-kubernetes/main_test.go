@@ -59,6 +59,21 @@ func TestKubernetesCoreServerConformance(t *testing.T) {
 	})
 }
 
+func TestKubernetesCoreDescribesWorkerCompatibleIsolation(t *testing.T) {
+	desc, err := newTestCore(&fakeRunner{}).Describe(context.Background())
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+
+	if len(desc.SupportedIsolation) != 1 || desc.SupportedIsolation[0] != "host" {
+		t.Fatalf("supported isolation = %v, want [host]", desc.SupportedIsolation)
+	}
+
+	if desc.Metadata["provider"] != "kubernetes" {
+		t.Fatalf("provider metadata = %q, want kubernetes", desc.Metadata["provider"])
+	}
+}
+
 func TestExecuteTaskAppliesKubernetesJob(t *testing.T) {
 	runner := &fakeRunner{outcome: jobOutcome{Phase: jobSucceeded}}
 	core := newTestCore(runner)

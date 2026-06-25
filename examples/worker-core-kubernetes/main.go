@@ -45,13 +45,13 @@ const (
 var scpURLRe = regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./~-]+$`)
 
 func main() {
-	socketPath := flag.String("socket", defaultSocketPath, "Unix socket served by the Kubernetes worker core")
+	socketPath := flag.String("socket", envDefault("VECTIS_WORKER_CORE_SOCKET", defaultSocketPath), "Unix socket served by the Kubernetes worker core")
 	namespace := flag.String("namespace", envDefault("KUBERNETES_NAMESPACE", defaultNamespace), "Kubernetes namespace for task Jobs")
 	image := flag.String("image", envDefault("VECTIS_KUBERNETES_WORKER_CORE_IMAGE", defaultTaskImage), "Container image used for shell task Jobs")
 	kubectl := flag.String("kubectl", envDefault("KUBECTL", defaultKubectl), "kubectl executable")
-	waitTimeout := flag.Duration("wait-timeout", defaultWaitTimeout, "Maximum time to wait for a Kubernetes Job to complete")
-	pollInterval := flag.Duration("poll-interval", defaultPollInterval, "Kubernetes Job status poll interval")
-	deleteAfter := flag.Bool("delete-after", false, "Delete task Jobs after terminal completion")
+	waitTimeout := flag.Duration("wait-timeout", envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_WAIT_TIMEOUT", defaultWaitTimeout), "Maximum time to wait for a Kubernetes Job to complete")
+	pollInterval := flag.Duration("poll-interval", envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_POLL_INTERVAL", defaultPollInterval), "Kubernetes Job status poll interval")
+	deleteAfter := flag.Bool("delete-after", envBoolDefault("VECTIS_KUBERNETES_WORKER_CORE_DELETE_AFTER", false), "Delete task Jobs after terminal completion")
 	flag.Parse()
 
 	core := newKubernetesCore(coreConfig{
@@ -138,7 +138,7 @@ func newKubernetesCore(cfg coreConfig, runner kubeRunner) *kubernetesCore {
 func (c *kubernetesCore) Describe(context.Context) (sdk.Description, error) {
 	return sdk.Description{
 		ProtocolVersion:    sdk.ProtocolVersion,
-		SupportedIsolation: []string{"kubernetes"},
+		SupportedIsolation: []string{"host"},
 		Capabilities: []sdk.Capability{
 			{Name: sdk.CapabilityExecute, Version: "v1"},
 			{Name: sdk.CapabilityCancelTask, Version: "v1"},
@@ -201,10 +201,19 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 	}()
 
 	outcome, waitErr := c.runner.WaitJob(ctx, c.cfg.Namespace, jobName, c.cfg.WaitTimeout, c.cfg.PollInterval)
-	stopLogs()
+	logDrained := false
 	select {
 	case <-logDone:
-	case <-time.After(500 * time.Millisecond):
+		logDrained = true
+	case <-time.After(2 * time.Second):
+	}
+
+	stopLogs()
+	if !logDrained {
+		select {
+		case <-logDone:
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 
 	if c.cfg.DeleteAfter && outcome.Phase != jobRunning {
@@ -680,7 +689,16 @@ func (r kubectlRunner) StreamLogs(ctx context.Context, namespace, name string, s
 		}
 
 		if err == nil {
-			return nil
+			if sent {
+				return nil
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(500 * time.Millisecond):
+				continue
+			}
 		}
 
 		if sent {
@@ -1032,6 +1050,38 @@ func envDefault(key, fallback string) string {
 	}
 
 	return value
+}
+
+func envDurationDefault(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		log.Printf("Ignoring invalid %s=%q: %v", key, value, err)
+		return fallback
+	}
+
+	return parsed
+}
+
+func envBoolDefault(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		log.Printf("Ignoring invalid %s=%q", key, value)
+		return fallback
+	}
 }
 
 var _ sdk.Core = (*kubernetesCore)(nil)

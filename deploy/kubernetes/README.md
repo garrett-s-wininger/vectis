@@ -27,6 +27,7 @@ make k8s-kind-load-images
 make k8s-kind-apply
 make k8s-kind-smoke
 make k8s-kind-run-smoke
+make k8s-kind-run-worker-core-smoke
 make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
@@ -46,6 +47,10 @@ The local contract is:
 | `K8S_SMOKE_JOB` | `examples/e2e-canonical.json` | Job submitted by the workload smoke harness. |
 | `K8S_SMOKE_CLI_IMAGE` | `localhost/vectis-cli:dev-local` | CLI image used by the smoke harness to seed the encryptedfs secret. |
 | `K8S_SMOKE_SEED_SECRET` | `true` | Whether the smoke harness seeds `encryptedfs://team/smoke-token`. |
+| `K8S_WORKER_CORE_API_LOCAL_PORT` | `18081` | Local port used by the Kubernetes worker-core provider smoke API port-forward. |
+| `K8S_WORKER_CORE_SMOKE_JOB` | `examples/e2e-kubernetes-worker-core.json` | Leaf shell job submitted while the worker uses the Kubernetes worker-core provider. |
+| `K8S_WORKER_CORE_SMOKE_IMAGE` | `localhost/vectis-worker-core-kubernetes:dev-local` | Temporary worker-core sidecar image used by the provider smoke. |
+| `K8S_WORKER_CORE_TASK_IMAGE` | `localhost/vectis-worker:dev-local` | Task container image used by the Kubernetes worker-core provider. |
 | `K8S_CANCEL_API_LOCAL_PORT` | `18082` | Local port used by the worker-control cancel smoke API port-forward. |
 | `K8S_CANCEL_SMOKE_JOB` | `examples/e2e-kubernetes-cancel.json` | Long-running job submitted by the worker-control cancel smoke harness. |
 | `K8S_SCALE_API_LOCAL_PORT` | `18083` | Local port used by the worker scaling smoke API port-forward. |
@@ -107,6 +112,13 @@ slices should add:
 Pass `K8S_SMOKE_JOB=examples/e2e-kubernetes.json K8S_SMOKE_SEED_SECRET=false`
 to run the lower-level compute/action-registry smoke without secret delivery.
 
+`make k8s-kind-run-worker-core-smoke` temporarily grants the worker pod
+namespace-scoped Job/pod-log RBAC, swaps the `worker-core` sidecar to
+`vectis-worker-core-kubernetes`, submits `examples/e2e-kubernetes-worker-core.json`,
+and verifies both the Vectis run and the Kubernetes task Job complete. The
+harness restores the worker Deployment and deletes the temporary RBAC before
+exiting.
+
 `make k8s-kind-run-cancel-smoke` submits
 `examples/e2e-kubernetes-cancel.json`, waits for the long-running task to start,
 and requires the API cancel endpoint to use the worker-control fast path. The
@@ -138,6 +150,7 @@ The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --worker-core-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --cancel-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scale-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only

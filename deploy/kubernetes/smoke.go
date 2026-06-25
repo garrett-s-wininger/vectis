@@ -23,6 +23,7 @@ import (
 const (
 	DefaultSmokeContext              = "kind-vectis"
 	DefaultSmokeJobPath              = "examples/e2e-canonical.json"
+	DefaultSmokeWorkerCoreJobPath    = "examples/e2e-kubernetes-worker-core.json"
 	DefaultSmokeCancelJobPath        = "examples/e2e-kubernetes-cancel.json"
 	DefaultSmokeScaleJobPath         = "examples/e2e-kubernetes-scale.json"
 	DefaultSmokeOrphanJobPath        = "examples/e2e-kubernetes-orphan.json"
@@ -34,6 +35,8 @@ const (
 	DefaultSmokeRepairLeaseTTL       = 30 * time.Second
 	DefaultSmokeRepairReadyAfter     = 75 * time.Second
 	DefaultSmokeCLIImage             = "localhost/vectis-cli:dev-local"
+	DefaultSmokeWorkerCoreImage      = "localhost/vectis-worker-core-kubernetes:dev-local"
+	DefaultSmokeWorkerCoreTaskImage  = "localhost/vectis-worker:dev-local"
 	DefaultSmokeSeedSecret           = true
 	DefaultSmokeAPIPort              = 18080
 	DefaultSmokeWait                 = 180 * time.Second
@@ -42,6 +45,10 @@ const (
 	smokeWorkerDeploymentName        = "deployment/vectis-worker"
 	smokeWorkerPodSelector           = "app.kubernetes.io/name=vectis,app.kubernetes.io/component=worker"
 	smokeWorkerContainerName         = "worker"
+	smokeWorkerCoreContainerName     = "worker-core"
+	smokeWorkerCoreServiceAccount    = "vectis-worker-core-kubernetes"
+	smokeWorkerCoreTaskJobSelector   = "app.kubernetes.io/name=vectis-worker-core-task"
+	smokeWorkerCoreTaskRunAnnotation = "vectis.dev/run-id"
 	smokeWorkerLeaseTTLEnv           = "VECTIS_WORKER_EXECUTION_LEASE_TTL"
 	smokeRepairReadyAfterPlaceholder = "__VECTIS_REPAIR_READY_AFTER_UNIX__"
 	smokeHTTPClientDelay             = 30 * time.Second
@@ -56,10 +63,12 @@ type SmokeOptions struct {
 	Context             string
 	Namespace           string
 	JobPath             string
+	WorkerCoreJobPath   string
 	CancelJobPath       string
 	ScaleJobPath        string
 	OrphanJobPath       string
 	RepairJobPath       string
+	WorkerCoreOnly      bool
 	CancelOnly          bool
 	ScaleOnly           bool
 	OrphanOnly          bool
@@ -71,6 +80,8 @@ type SmokeOptions struct {
 	RepairLeaseTTL      time.Duration
 	RepairReadyAfter    time.Duration
 	CLIImage            string
+	WorkerCoreImage     string
+	WorkerCoreTaskImage string
 	SeedSecret          *bool
 	APILocalPort        int
 	Wait                time.Duration
@@ -86,6 +97,7 @@ type SmokeResult struct {
 	JobID        string               `json:"job_id,omitempty"`
 	RunID        string               `json:"run_id"`
 	RunStatus    string               `json:"run_status"`
+	TaskJob      string               `json:"task_job,omitempty"`
 	WorkerOwners []string             `json:"worker_owners,omitempty"`
 	DeletedPod   string               `json:"deleted_pod,omitempty"`
 	RepairChecks []SmokeRepairCheck   `json:"repair_checks,omitempty"`
@@ -161,6 +173,25 @@ type smokePod struct {
 	} `json:"status"`
 }
 
+type smokeKubernetesJobList struct {
+	Items []smokeKubernetesJob `json:"items"`
+}
+
+type smokeKubernetesJob struct {
+	Metadata struct {
+		Name        string            `json:"name"`
+		Annotations map[string]string `json:"annotations,omitempty"`
+	} `json:"metadata"`
+	Status struct {
+		Conditions []struct {
+			Type    string `json:"type,omitempty"`
+			Status  string `json:"status,omitempty"`
+			Reason  string `json:"reason,omitempty"`
+			Message string `json:"message,omitempty"`
+		} `json:"conditions,omitempty"`
+	} `json:"status"`
+}
+
 type smokeRunTasksResponse struct {
 	Data []smokeRunTask `json:"data"`
 }
@@ -191,6 +222,9 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	}
 
 	opts = normalizeSmokeOptions(opts)
+	if opts.WorkerCoreOnly {
+		return runWorkerCoreSmoke(ctx, opts)
+	}
 	if opts.CancelOnly {
 		return runCancelSmoke(ctx, opts)
 	}
@@ -278,6 +312,99 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	}
 
 	fmt.Fprintf(out, "Kubernetes smoke succeeded: run_id=%s\n", run.RunID)
+	return result, nil
+}
+
+func runWorkerCoreSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
+	if err := validateSmokeOptions(opts); err != nil {
+		return SmokeResult{}, err
+	}
+
+	if strings.TrimSpace(opts.WorkerCoreJobPath) == "" {
+		return SmokeResult{}, fmt.Errorf("worker-core job path is required")
+	}
+
+	if strings.TrimSpace(opts.WorkerCoreImage) == "" {
+		return SmokeResult{}, fmt.Errorf("worker-core image is required")
+	}
+
+	if strings.TrimSpace(opts.WorkerCoreTaskImage) == "" {
+		return SmokeResult{}, fmt.Errorf("worker-core task image is required")
+	}
+
+	out := opts.Stdout
+	setupCtx, setupCancel := context.WithTimeout(ctx, opts.Wait)
+	if err := applySmokeWorkerCoreRBAC(setupCtx, opts); err != nil {
+		setupCancel()
+		return SmokeResult{}, err
+	}
+
+	setupCancel()
+	defer cleanupSmokeWorkerCoreRBAC(opts)
+
+	patchCtx, patchCancel := context.WithTimeout(ctx, opts.Wait)
+	if err := patchSmokeWorkerForKubernetesCore(patchCtx, opts); err != nil {
+		patchCancel()
+		return SmokeResult{}, err
+	}
+
+	patchCancel()
+	defer restoreSmokeWorkerAfterKubernetesCore(opts)
+
+	fmt.Fprintf(out, "Starting API port-forward on 127.0.0.1:%d\n", opts.APILocalPort)
+	pf, err := startSmokeAPIPortForward(ctx, opts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+	defer pf.stop()
+
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", opts.APILocalPort)
+	client := &http.Client{Timeout: smokeHTTPClientDelay}
+
+	submitOpts := opts
+	submitOpts.JobPath = opts.WorkerCoreJobPath
+	fmt.Fprintf(out, "Submitting %s through Kubernetes worker core\n", submitOpts.JobPath)
+	run, err := submitSmokeJob(client, baseURL, submitOpts)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintf(out, "Submitted job_id=%s run_id=%s\n", smokeJobID(run), run.RunID)
+	taskJobCtx, taskJobCancel := context.WithTimeout(ctx, opts.Wait)
+	taskJob, err := waitForSmokeWorkerCoreTaskJob(taskJobCtx, opts, run.RunID, out)
+	taskJobCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+	defer cleanupSmokeWorkerCoreTaskJob(opts, taskJob)
+
+	runCtx, runCancel := context.WithTimeout(ctx, opts.Wait)
+	detail, err := waitForSmokeRunStatus(runCtx, client, baseURL, opts.APIToken, run.RunID, out, "succeeded")
+	runCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	fmt.Fprintln(out, "Verifying worker-core smoke logs")
+	logCtx, logCancel := context.WithTimeout(ctx, opts.Wait)
+	err = waitForSmokeLogMarkers(logCtx, baseURL, opts.APIToken, run.RunID, []string{"kubernetes-worker-core-smoke-ok"}, out)
+	logCancel()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	result := SmokeResult{
+		Status:    "ok",
+		Context:   strings.TrimSpace(opts.Context),
+		Namespace: opts.Namespace,
+		JobPath:   opts.WorkerCoreJobPath,
+		JobID:     smokeJobID(run),
+		RunID:     run.RunID,
+		RunStatus: detail.Status,
+		TaskJob:   taskJob,
+	}
+
+	fmt.Fprintf(out, "Kubernetes worker-core smoke succeeded: run_id=%s task_job=%s\n", run.RunID, taskJob)
 	return result, nil
 }
 
@@ -815,6 +942,11 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 		opts.JobPath = DefaultSmokeJobPath
 	}
 
+	opts.WorkerCoreJobPath = strings.TrimSpace(opts.WorkerCoreJobPath)
+	if opts.WorkerCoreJobPath == "" {
+		opts.WorkerCoreJobPath = DefaultSmokeWorkerCoreJobPath
+	}
+
 	opts.CancelJobPath = strings.TrimSpace(opts.CancelJobPath)
 	if opts.CancelJobPath == "" {
 		opts.CancelJobPath = DefaultSmokeCancelJobPath
@@ -862,6 +994,16 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.CLIImage = strings.TrimSpace(opts.CLIImage)
 	if opts.CLIImage == "" {
 		opts.CLIImage = DefaultSmokeCLIImage
+	}
+
+	opts.WorkerCoreImage = strings.TrimSpace(opts.WorkerCoreImage)
+	if opts.WorkerCoreImage == "" {
+		opts.WorkerCoreImage = DefaultSmokeWorkerCoreImage
+	}
+
+	opts.WorkerCoreTaskImage = strings.TrimSpace(opts.WorkerCoreTaskImage)
+	if opts.WorkerCoreTaskImage == "" {
+		opts.WorkerCoreTaskImage = DefaultSmokeWorkerCoreTaskImage
 	}
 
 	if opts.SeedSecret == nil {
@@ -1086,6 +1228,89 @@ func smokeDeploymentContainerEnv(deployment smokeDeployment, containerName, envN
 	return "", false
 }
 
+func waitForSmokeWorkerCoreTaskJob(ctx context.Context, opts SmokeOptions, runID string, out io.Writer) (string, error) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		job, found, err := fetchSmokeWorkerCoreTaskJob(ctx, opts, runID)
+		if err != nil {
+			return "", err
+		}
+		if found {
+			phase, message := smokeKubernetesJobPhase(job)
+			switch phase {
+			case "succeeded":
+				return job.Metadata.Name, nil
+			case "failed":
+				return "", fmt.Errorf("worker-core task Job %s failed: %s", job.Metadata.Name, message)
+			default:
+				fmt.Fprintf(out, "Waiting for worker-core task Job %s phase=%s\n", job.Metadata.Name, phase)
+			}
+		} else {
+			fmt.Fprintf(out, "Waiting for worker-core task Job for run_id=%s\n", runID)
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("timed out waiting for worker-core task Job for run_id=%s: %w", runID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func fetchSmokeWorkerCoreTaskJob(ctx context.Context, opts SmokeOptions, runID string) (smokeKubernetesJob, bool, error) {
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "get", "jobs", "-l", smokeWorkerCoreTaskJobSelector, "-o", "json")
+	if err != nil {
+		return smokeKubernetesJob{}, false, fmt.Errorf("list worker-core task Jobs: %w: %s%s", err, stdout, stderr)
+	}
+
+	var jobs smokeKubernetesJobList
+	if err := json.Unmarshal([]byte(stdout), &jobs); err != nil {
+		return smokeKubernetesJob{}, false, fmt.Errorf("parse worker-core task Jobs: %w", err)
+	}
+
+	for _, job := range jobs.Items {
+		if job.Metadata.Annotations[smokeWorkerCoreTaskRunAnnotation] == runID {
+			return job, true, nil
+		}
+	}
+
+	return smokeKubernetesJob{}, false, nil
+}
+
+func smokeKubernetesJobPhase(job smokeKubernetesJob) (string, string) {
+	for _, condition := range job.Status.Conditions {
+		if !strings.EqualFold(condition.Status, "true") {
+			continue
+		}
+
+		switch condition.Type {
+		case "Complete":
+			return "succeeded", strings.TrimSpace(condition.Message)
+		case "Failed":
+			message := strings.TrimSpace(condition.Message)
+			if message == "" {
+				message = strings.TrimSpace(condition.Reason)
+			}
+			return "failed", message
+		}
+	}
+
+	return "running", ""
+}
+
+func cleanupSmokeWorkerCoreTaskJob(opts SmokeOptions, name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, _, _ = runSmokeKubectl(ctx, opts, nil, "delete", "job/"+name, "--ignore-not-found")
+}
+
 func scaleSmokeWorkerDeployment(ctx context.Context, opts SmokeOptions, replicas int) error {
 	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "scale", smokeWorkerDeploymentName, "--replicas", strconv.Itoa(replicas))
 	if err != nil {
@@ -1151,6 +1376,152 @@ func waitForSmokeWorkerDeployment(ctx context.Context, opts SmokeOptions) error 
 	}
 
 	return nil
+}
+
+func applySmokeWorkerCoreRBAC(ctx context.Context, opts SmokeOptions) error {
+	fmt.Fprintf(opts.Stdout, "Applying temporary Kubernetes worker-core RBAC\n")
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(smokeWorkerCoreRBACManifest()), "apply", "-f", "-")
+	if err != nil {
+		return fmt.Errorf("apply worker-core smoke RBAC: %w: %s%s", err, stdout, stderr)
+	}
+
+	if text := strings.TrimSpace(stdout + stderr); text != "" {
+		fmt.Fprintln(opts.Stdout, text)
+	}
+
+	return nil
+}
+
+func smokeWorkerCoreRBACManifest() string {
+	name := yamlQuote(smokeWorkerCoreServiceAccount)
+	return fmt.Sprintf(`apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: %s
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: worker-core-kubernetes-smoke
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: %s
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: worker-core-kubernetes-smoke
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "patch", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: %s
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: worker-core-kubernetes-smoke
+subjects:
+  - kind: ServiceAccount
+    name: %s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: %s
+`, name, name, name, name, name)
+}
+
+func cleanupSmokeWorkerCoreRBAC(opts SmokeOptions) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, _, _ = runSmokeKubectl(ctx, opts, nil,
+		"delete",
+		"rolebinding/"+smokeWorkerCoreServiceAccount,
+		"role/"+smokeWorkerCoreServiceAccount,
+		"serviceaccount/"+smokeWorkerCoreServiceAccount,
+		"--ignore-not-found",
+	)
+}
+
+func patchSmokeWorkerForKubernetesCore(ctx context.Context, opts SmokeOptions) error {
+	patch, err := smokeWorkerCoreDeploymentPatch(opts)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(opts.Stdout, "Patching %s to use %s\n", smokeWorkerDeploymentName, opts.WorkerCoreImage)
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "patch", smokeWorkerDeploymentName, "--type=strategic", "--patch", patch)
+	if err != nil {
+		return fmt.Errorf("patch %s for Kubernetes worker core: %w: %s%s", smokeWorkerDeploymentName, err, stdout, stderr)
+	}
+
+	if text := strings.TrimSpace(stdout + stderr); text != "" {
+		fmt.Fprintln(opts.Stdout, text)
+	}
+
+	if err := waitForSmokeWorkerDeployment(ctx, opts); err != nil {
+		return fmt.Errorf("wait for %s after Kubernetes worker core patch: %w", smokeWorkerDeploymentName, err)
+	}
+
+	return nil
+}
+
+func smokeWorkerCoreDeploymentPatch(opts SmokeOptions) (string, error) {
+	patch := map[string]any{
+		"spec": map[string]any{
+			"template": map[string]any{
+				"spec": map[string]any{
+					"serviceAccountName":           smokeWorkerCoreServiceAccount,
+					"automountServiceAccountToken": true,
+					"containers": []map[string]any{
+						{
+							"name":  smokeWorkerCoreContainerName,
+							"image": opts.WorkerCoreImage,
+							"env": []map[string]string{
+								{"name": "KUBERNETES_NAMESPACE", "value": opts.Namespace},
+								{"name": "VECTIS_KUBERNETES_WORKER_CORE_IMAGE", "value": opts.WorkerCoreTaskImage},
+								{"name": "VECTIS_KUBERNETES_WORKER_CORE_DELETE_AFTER", "value": "false"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	b, err := json.Marshal(patch)
+	if err != nil {
+		return "", fmt.Errorf("marshal Kubernetes worker-core deployment patch: %w", err)
+	}
+
+	return string(b), nil
+}
+
+func restoreSmokeWorkerAfterKubernetesCore(opts SmokeOptions) {
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
+	defer cancel()
+
+	fmt.Fprintf(opts.Stdout, "Restoring %s after Kubernetes worker-core smoke\n", smokeWorkerDeploymentName)
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "rollout", "undo", smokeWorkerDeploymentName)
+	if err != nil {
+		fmt.Fprintf(opts.Stdout, "Warning: restore %s failed: %v: %s%s\n", smokeWorkerDeploymentName, err, stdout, stderr)
+		return
+	}
+
+	if text := strings.TrimSpace(stdout + stderr); text != "" {
+		fmt.Fprintln(opts.Stdout, text)
+	}
+
+	if err := waitForSmokeWorkerDeployment(ctx, opts); err != nil {
+		fmt.Fprintf(opts.Stdout, "Warning: wait for restored %s failed: %v\n", smokeWorkerDeploymentName, err)
+	}
 }
 
 func restoreSmokeWorkerDeployment(opts SmokeOptions, replicas int) {

@@ -6,6 +6,8 @@ leaf executable task as a Kubernetes `Job`.
 It is intentionally small:
 
 - `ExecuteTask` renders and applies a `batch/v1 Job` with one `task` container.
+- The core advertises Vectis `host` isolation compatibility; `provider=kubernetes`
+  metadata identifies where commands actually run.
 - `builtins/shell` runs `sh -c <with.command>`.
 - Frozen custom `runtime=process` actions run `sh -c <runtime_config.command>`
   or `sh -c <runtime_config.entrypoint>`.
@@ -45,13 +47,13 @@ Useful flags:
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--socket` | `/tmp/vectis-worker-core-kubernetes.sock` | Worker-core Unix socket. |
+| `--socket` | `$VECTIS_WORKER_CORE_SOCKET` or `/tmp/vectis-worker-core-kubernetes.sock` | Worker-core Unix socket. |
 | `--namespace` | `$KUBERNETES_NAMESPACE` or `default` | Namespace for task Jobs. |
 | `--image` | `$VECTIS_KUBERNETES_WORKER_CORE_IMAGE` or `busybox:1.36` | Shell task image. |
 | `--kubectl` | `$KUBECTL` or `kubectl` | `kubectl` binary. |
-| `--wait-timeout` | `30m` | Maximum wait for a task Job to become terminal. |
-| `--poll-interval` | `1s` | Job status poll interval. |
-| `--delete-after` | `false` | Delete terminal task Jobs after completion. |
+| `--wait-timeout` | `$VECTIS_KUBERNETES_WORKER_CORE_WAIT_TIMEOUT` or `30m` | Maximum wait for a task Job to become terminal. |
+| `--poll-interval` | `$VECTIS_KUBERNETES_WORKER_CORE_POLL_INTERVAL` or `1s` | Job status poll interval. |
+| `--delete-after` | `$VECTIS_KUBERNETES_WORKER_CORE_DELETE_AFTER` or `false` | Delete terminal task Jobs after completion. |
 
 ## RBAC
 

@@ -138,6 +138,24 @@ func TestKubernetesCancelSmokeJobContract(t *testing.T) {
 	}
 }
 
+func TestKubernetesWorkerCoreSmokeJobContract(t *testing.T) {
+	b, err := os.ReadFile("../../examples/e2e-kubernetes-worker-core.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(b)
+	for _, want := range []string{
+		`"id": "e2e-kubernetes-worker-core-smoke"`,
+		`"uses": "builtins/shell"`,
+		"kubernetes-worker-core-smoke-ok",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("worker-core smoke job missing %q", want)
+		}
+	}
+}
+
 func TestKubernetesScaleSmokeJobContract(t *testing.T) {
 	b, err := os.ReadFile("../../examples/e2e-kubernetes-scale.json")
 	if err != nil {
@@ -211,6 +229,10 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatalf("cancel job path = %q", opts.CancelJobPath)
 	}
 
+	if opts.WorkerCoreJobPath != DefaultSmokeWorkerCoreJobPath {
+		t.Fatalf("worker-core job path = %q", opts.WorkerCoreJobPath)
+	}
+
 	if opts.ScaleJobPath != DefaultSmokeScaleJobPath {
 		t.Fatalf("scale job path = %q", opts.ScaleJobPath)
 	}
@@ -251,8 +273,57 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatalf("cli image = %q", opts.CLIImage)
 	}
 
+	if opts.WorkerCoreImage != DefaultSmokeWorkerCoreImage {
+		t.Fatalf("worker-core image = %q", opts.WorkerCoreImage)
+	}
+
+	if opts.WorkerCoreTaskImage != DefaultSmokeWorkerCoreTaskImage {
+		t.Fatalf("worker-core task image = %q", opts.WorkerCoreTaskImage)
+	}
+
 	if !smokeSeedSecretEnabled(opts) {
 		t.Fatal("secret seeding should be enabled by default")
+	}
+}
+
+func TestSmokeWorkerCoreDeploymentPatch(t *testing.T) {
+	patch, err := smokeWorkerCoreDeploymentPatch(normalizeSmokeOptions(SmokeOptions{
+		Namespace:           "ci-vectis",
+		WorkerCoreImage:     "localhost/vectis-worker-core-kubernetes:test",
+		WorkerCoreTaskImage: "localhost/vectis-worker:test",
+	}))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		`"serviceAccountName":"vectis-worker-core-kubernetes"`,
+		`"automountServiceAccountToken":true`,
+		`"name":"worker-core"`,
+		`"image":"localhost/vectis-worker-core-kubernetes:test"`,
+		`"name":"KUBERNETES_NAMESPACE","value":"ci-vectis"`,
+		`"name":"VECTIS_KUBERNETES_WORKER_CORE_IMAGE","value":"localhost/vectis-worker:test"`,
+	} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("patch missing %q: %s", want, patch)
+		}
+	}
+}
+
+func TestSmokeKubernetesJobPhase(t *testing.T) {
+	var job smokeKubernetesJob
+	job.Metadata.Name = "task-job"
+	job.Status.Conditions = append(job.Status.Conditions, struct {
+		Type    string `json:"type,omitempty"`
+		Status  string `json:"status,omitempty"`
+		Reason  string `json:"reason,omitempty"`
+		Message string `json:"message,omitempty"`
+	}{Type: "Complete", Status: "True", Message: "done"})
+
+	phase, message := smokeKubernetesJobPhase(job)
+	if phase != "succeeded" || message != "done" {
+		t.Fatalf("phase=%q message=%q, want succeeded/done", phase, message)
 	}
 }
 

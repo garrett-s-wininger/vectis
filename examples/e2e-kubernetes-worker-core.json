@@ -1,0 +1,10 @@
+{
+  "id": "e2e-kubernetes-worker-core-smoke",
+  "root": {
+    "id": "root",
+    "uses": "builtins/shell",
+    "with": {
+      "command": "printf 'kubernetes-worker-core-smoke-ok\\n'"
+    }
+  }
+}
