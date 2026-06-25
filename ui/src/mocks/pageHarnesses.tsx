@@ -82,6 +82,7 @@ export function NamespacesPageHarness() {
       }}
       onCreateNamespace={(input) => setData((current) => createMockNamespace(current, input))}
       onDeleteNamespace={(namespaceID) => setData((current) => deleteMockNamespace(current, namespaceID))}
+      onGrantRoleBinding={(userID, namespaceID, role) => setData((current) => grantMockRoleBinding(current, userID, namespaceID, role))}
       onOpenJobs={() => undefined}
       onOpenNamespace={(namespaceID) => {
         setSelectedNamespaceID(namespaceID);
@@ -91,11 +92,15 @@ export function NamespacesPageHarness() {
         setSelectedNamespaceID(undefined);
         setEditingNamespaceID(undefined);
       }}
+      onRevokeRoleBinding={(userID, namespaceID, role) =>
+        setData((current) => revokeMockRoleBinding(current, userID, namespaceID, role))
+      }
       onUpdateNamespace={(namespaceID, input) => {
         setData((current) => updateMockNamespace(current, namespaceID, input));
         setEditingNamespaceID(undefined);
       }}
       selectedNamespaceID={selectedNamespaceID}
+      users={data.users}
     />
   );
 }

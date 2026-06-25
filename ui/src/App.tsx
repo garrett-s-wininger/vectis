@@ -794,10 +794,13 @@ function RouteContent({
           onConfigureNamespace={(namespaceID) => navigateTo(`/namespaces/${namespaceID}/config`)}
           onOpenNamespace={(namespaceID) => navigateTo(`/namespaces/${namespaceID}`)}
           onOpenNamespaces={() => navigateTo("/namespaces")}
+          onGrantRoleBinding={onGrantRoleBinding}
+          onRevokeRoleBinding={onRevokeRoleBinding}
           onUpdateNamespace={onUpdateNamespace}
           editorMode={route.namespaceEditor ?? null}
           selectedNamespaceMissing={route.namespaceMissing}
           selectedNamespaceID={route.namespaceID}
+          users={consoleData.users}
         />
       );
     case "profile":

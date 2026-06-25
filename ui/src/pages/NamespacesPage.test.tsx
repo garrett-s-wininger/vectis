@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Namespace } from "../domain/console";
 import type { Job } from "../domain/console";
+import type { User } from "../domain/console";
 import { NamespacesPage } from "./NamespacesPage";
 
 const namespaces: Namespace[] = [
@@ -38,6 +39,36 @@ const jobs: Job[] = [
   }
 ];
 
+const users: User[] = [
+  {
+    id: "12",
+    username: "mira",
+    role: "Operator",
+    roleBindings: [
+      {
+        id: "2:12:Operator",
+        namespaceID: 2,
+        namespacePath: "/team-a",
+        role: "Operator",
+        userID: "12",
+        username: "mira"
+      }
+    ],
+    status: "active",
+    lastSeen: "Created 20 Jun 2026",
+    tokens: 0
+  },
+  {
+    id: "13",
+    username: "lee",
+    role: "Unassigned",
+    roleBindings: [],
+    status: "active",
+    lastSeen: "Created 20 Jun 2026",
+    tokens: 0
+  }
+];
+
 describe("NamespacesPage", () => {
   it("creates namespaces from the form", () => {
     const onCreateNamespace = vi.fn();
@@ -52,10 +83,13 @@ describe("NamespacesPage", () => {
         onConfigureNamespace={() => undefined}
         onCreateNamespace={onCreateNamespace}
         onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onRevokeRoleBinding={() => undefined}
         onUpdateNamespace={() => undefined}
+        users={users}
       />
     );
 
@@ -83,10 +117,13 @@ describe("NamespacesPage", () => {
         onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onRevokeRoleBinding={() => undefined}
         onUpdateNamespace={() => undefined}
+        users={users}
       />
     );
 
@@ -106,11 +143,14 @@ describe("NamespacesPage", () => {
         onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onRevokeRoleBinding={() => undefined}
         onUpdateNamespace={() => undefined}
         selectedNamespaceID={1}
+        users={users}
       />
     );
 
@@ -126,11 +166,14 @@ describe("NamespacesPage", () => {
         onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onRevokeRoleBinding={() => undefined}
         onUpdateNamespace={() => undefined}
         selectedNamespaceID={2}
+        users={users}
       />
     );
 
@@ -158,11 +201,14 @@ describe("NamespacesPage", () => {
         onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onRevokeRoleBinding={() => undefined}
         onUpdateNamespace={() => undefined}
         selectedNamespaceID={2}
+        users={users}
       />
     );
 
@@ -170,6 +216,43 @@ describe("NamespacesPage", () => {
     expect(screen.getByText("deploy-api")).toBeInTheDocument();
     expect(screen.getByText("/team-a/edge")).toBeInTheDocument();
     expect(screen.getByText("Inherited Access")).toBeInTheDocument();
+  });
+
+  it("manages direct role bindings from namespace detail", () => {
+    const onGrantRoleBinding = vi.fn();
+    const onRevokeRoleBinding = vi.fn();
+
+    render(
+      <NamespacesPage
+        canDeleteNamespace={() => true}
+        editorMode={null}
+        jobs={jobs}
+        namespaces={namespaces}
+        onCloseEditor={() => undefined}
+        onConfigureNamespace={() => undefined}
+        onCreateNamespace={() => undefined}
+        onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={onGrantRoleBinding}
+        onOpenJobs={() => undefined}
+        onOpenNamespace={() => undefined}
+        onOpenNamespaces={() => undefined}
+        onRevokeRoleBinding={onRevokeRoleBinding}
+        onUpdateNamespace={() => undefined}
+        selectedNamespaceID={2}
+        users={users}
+      />
+    );
+
+    expect(screen.getByLabelText("Namespace role bindings")).toHaveTextContent("mira");
+    expect(screen.getByLabelText("Namespace role bindings")).toHaveTextContent("Operator");
+
+    fireEvent.change(screen.getByLabelText("User"), { target: { value: "13" } });
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Viewer" } });
+    fireEvent.click(screen.getByRole("button", { name: "Grant" }));
+    expect(onGrantRoleBinding).toHaveBeenCalledWith("13", 2, "Viewer");
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(onRevokeRoleBinding).toHaveBeenCalledWith("12", 2, "Operator");
   });
 
   it("renders a namespace-specific not found state", () => {
@@ -185,11 +268,14 @@ describe("NamespacesPage", () => {
         onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={onOpenNamespaces}
+        onRevokeRoleBinding={() => undefined}
         onUpdateNamespace={() => undefined}
         selectedNamespaceID={99}
+        users={users}
       />
     );
 
@@ -214,11 +300,14 @@ describe("NamespacesPage", () => {
         onConfigureNamespace={() => undefined}
         onCreateNamespace={() => undefined}
         onDeleteNamespace={() => undefined}
+        onGrantRoleBinding={() => undefined}
         onOpenJobs={() => undefined}
         onOpenNamespace={() => undefined}
         onOpenNamespaces={() => undefined}
+        onRevokeRoleBinding={() => undefined}
         onUpdateNamespace={onUpdateNamespace}
         selectedNamespaceID={2}
+        users={users}
       />
     );
 

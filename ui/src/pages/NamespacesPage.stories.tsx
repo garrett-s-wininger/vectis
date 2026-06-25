@@ -15,10 +15,13 @@ const meta = {
     onConfigureNamespace: () => undefined,
     onCreateNamespace: () => undefined,
     onDeleteNamespace: () => undefined,
+    onGrantRoleBinding: () => undefined,
     onOpenJobs: () => undefined,
     onOpenNamespace: () => undefined,
     onOpenNamespaces: () => undefined,
-    onUpdateNamespace: () => undefined
+    onRevokeRoleBinding: () => undefined,
+    onUpdateNamespace: () => undefined,
+    users: createMockConsoleDataSnapshot().users
   },
   decorators: [
     (Story) => (
@@ -47,10 +50,13 @@ export const Empty: Story = {
     onConfigureNamespace: () => undefined,
     onCreateNamespace: () => undefined,
     onDeleteNamespace: () => undefined,
+    onGrantRoleBinding: () => undefined,
     onOpenJobs: () => undefined,
     onOpenNamespace: () => undefined,
     onOpenNamespaces: () => undefined,
-    onUpdateNamespace: () => undefined
+    onRevokeRoleBinding: () => undefined,
+    onUpdateNamespace: () => undefined,
+    users: []
   }
 };
 

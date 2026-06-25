@@ -1,9 +1,9 @@
 import type { FormEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { BreadcrumbTrail, Button, PageHeader, SelectField } from "../../components";
+import { BreadcrumbTrail, Button, PageHeader } from "../../components";
 import type { Namespace, RoleBindingRole, User, UserStatus } from "../../domain/console";
 import { roleBindingRoleOptions } from "../../domain/consoleOptions";
-import { ResourceStatus } from "../shared";
+import { ResourceStatus, RoleBindingPanel } from "../shared";
 import styles from "../UsersPage.module.css";
 import { roleTone } from "./UserPresentation";
 
@@ -105,54 +105,28 @@ export function UserDetailPage({
             <h2 id="user-access-title">Role Bindings</h2>
             <p>Grant namespace-scoped access for this account. Bindings inherit through child namespaces unless inheritance is stopped.</p>
           </div>
-          <form className={styles.bindingForm} onSubmit={handleGrantBinding}>
-            <SelectField
-              label="Namespace"
-              name="roleBindingNamespace"
-              onChange={(event) => setBindingValues({ ...bindingValues, namespaceID: event.target.value })}
-              options={grantNamespaceOptions}
-              value={selectedGrantNamespaceID}
-              wide
-            />
-            <SelectField
-              label="Role"
-              name="roleBindingRole"
-              onChange={(event) =>
-                setBindingValues({
-                  ...bindingValues,
-                  role: event.target.value as RoleBindingRole
-                })
-              }
-              options={grantRoleOptions}
-              value={selectedGrantRole}
-              wide
-            />
-            <Button disabled={!canGrantBinding} type="submit">
-              Grant
-            </Button>
-          </form>
-          <div className={styles.bindingList} aria-label="Role bindings">
-            {bindings.length > 0 ? (
-              bindings.map((binding) => (
-                <div className={styles.bindingRow} key={binding.id}>
-                  <div>
-                    <strong>{binding.namespacePath === "/" ? "Root" : binding.namespacePath}</strong>
-                    <span>Namespace</span>
-                  </div>
-                  <ResourceStatus tone={roleTone(binding.role)}>{binding.role}</ResourceStatus>
-                  <Button
-                    onClick={() => onRevokeRoleBinding(user.id, binding.namespaceID, binding.role)}
-                    type="button"
-                    variant="quiet"
-                  >
-                    Revoke
-                  </Button>
-                </div>
-              ))
-            ) : (
-              <div className={styles.emptyAccess}>No namespace role bindings.</div>
-            )}
-          </div>
+          <RoleBindingPanel
+            ariaLabel="Role bindings"
+            canGrant={canGrantBinding}
+            emptyMessage="No namespace role bindings."
+            onGrant={handleGrantBinding}
+            onPrimaryChange={(namespaceID) => setBindingValues({ ...bindingValues, namespaceID })}
+            onRoleChange={(role) => setBindingValues({ ...bindingValues, role })}
+            primaryLabel="Namespace"
+            primaryName="roleBindingNamespace"
+            primaryOptions={grantNamespaceOptions}
+            primaryValue={selectedGrantNamespaceID}
+            roleOptions={grantRoleOptions}
+            roleTone={roleTone}
+            roleValue={selectedGrantRole}
+            rows={bindings.map((binding) => ({
+              caption: "Namespace",
+              id: binding.id,
+              label: binding.namespacePath === "/" ? "Root" : binding.namespacePath,
+              onRevoke: () => onRevokeRoleBinding(user.id, binding.namespaceID, binding.role),
+              role: binding.role
+            }))}
+          />
           <div className={styles.detailActions}>
             <Button onClick={() => onUpdateUserStatus(user.id, nextStatus)} type="button" variant="quiet">
               {user.status === "active" ? "Disable" : "Activate"}

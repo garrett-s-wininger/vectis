@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BreadcrumbTrail } from "../components";
 import { Button } from "../components";
 import { DataTable, type DataTableColumn } from "../components";
@@ -8,8 +8,9 @@ import { FormField } from "../components";
 import { MetricCard } from "../components";
 import { PageHeader } from "../components";
 import { SelectField } from "../components";
-import type { Job, Namespace, NewNamespace, UpdateNamespace } from "../domain/console";
-import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle } from "./shared";
+import type { Job, Namespace, NewNamespace, RoleBindingRole, UpdateNamespace, User } from "../domain/console";
+import { roleBindingRoleOptions } from "../domain/consoleOptions";
+import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle, RoleBindingPanel } from "./shared";
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {
@@ -21,12 +22,15 @@ type NamespacesPageProps = {
   onConfigureNamespace: (namespaceID: number) => void;
   onCreateNamespace: (input: NewNamespace) => Promise<void> | void;
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
+  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onOpenJobs: (namespacePath: string) => void;
   onOpenNamespace: (namespaceID: number) => void;
   onOpenNamespaces: () => void;
+  onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onUpdateNamespace: (namespaceID: number, input: UpdateNamespace) => Promise<void> | void;
   selectedNamespaceMissing?: boolean;
   selectedNamespaceID?: number;
+  users: User[];
 };
 
 export function NamespacesPage({
@@ -38,12 +42,15 @@ export function NamespacesPage({
   onConfigureNamespace,
   onCreateNamespace,
   onDeleteNamespace,
+  onGrantRoleBinding,
   onOpenJobs,
   onOpenNamespace,
   onOpenNamespaces,
+  onRevokeRoleBinding,
   onUpdateNamespace,
   selectedNamespaceMissing = false,
-  selectedNamespaceID
+  selectedNamespaceID,
+  users
 }: NamespacesPageProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [values, setValues] = useState<NewNamespace>({
@@ -102,9 +109,12 @@ export function NamespacesPage({
         namespaces={namespaces}
         onDeleteNamespace={onDeleteNamespace}
         onConfigureNamespace={onConfigureNamespace}
+        onGrantRoleBinding={onGrantRoleBinding}
         onOpenJobs={onOpenJobs}
         onOpenNamespace={onOpenNamespace}
         onOpenNamespaces={onOpenNamespaces}
+        onRevokeRoleBinding={onRevokeRoleBinding}
+        users={users}
       />
     );
   }
@@ -288,9 +298,12 @@ function NamespaceDetail({
   namespaces,
   onDeleteNamespace,
   onConfigureNamespace,
+  onGrantRoleBinding,
   onOpenJobs,
   onOpenNamespace,
-  onOpenNamespaces
+  onOpenNamespaces,
+  onRevokeRoleBinding,
+  users
 }: {
   canDeleteNamespace: boolean;
   jobs: Job[];
@@ -298,14 +311,56 @@ function NamespaceDetail({
   namespaces: Namespace[];
   onDeleteNamespace: (namespaceID: number) => Promise<void> | void;
   onConfigureNamespace: (namespaceID: number) => void;
+  onGrantRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
   onOpenJobs: (namespacePath: string) => void;
   onOpenNamespace: (namespaceID: number) => void;
   onOpenNamespaces: () => void;
+  onRevokeRoleBinding: (userID: string, namespaceID: number, role: RoleBindingRole) => Promise<void> | void;
+  users: User[];
 }) {
   const childNamespaces = namespaces.filter((candidate) => candidate.parentID === namespace.id);
   const namespaceJobs = jobs.filter((job) => job.namespacePath === namespace.path);
   const displayPath = namespace.path === "/" ? "Root" : namespace.path;
   const description = namespace.description ?? namespaceFallbackDescription(namespaces, namespace);
+  const namespaceBindings = users.flatMap((user) =>
+    (user.roleBindings ?? [])
+      .filter((binding) => binding.namespaceID === namespace.id)
+      .map((binding) => ({
+        ...binding,
+        username: binding.username ?? user.username
+      }))
+  );
+
+  const [bindingValues, setBindingValues] = useState(() => ({
+    role: "Viewer" as RoleBindingRole,
+    userID: users[0]?.id ?? ""
+  }));
+
+  const userOptions = useMemo(
+    () =>
+      users.map((user) => ({
+        label: user.username,
+        value: user.id
+      })),
+    [users]
+  );
+
+  const selectedBinding = namespaceBindings.find((binding) => binding.userID === bindingValues.userID);
+  const roleOptions = selectedBinding ? [{ label: selectedBinding.role, value: selectedBinding.role }] : roleBindingRoleOptions;
+  const selectedRole = roleOptions.some((option) => option.value === bindingValues.role)
+    ? bindingValues.role
+    : (roleOptions[0]?.value ?? "Viewer");
+
+  const canGrantBinding = Boolean(bindingValues.userID) && Boolean(selectedRole) && !selectedBinding;
+
+  async function handleGrantBinding(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canGrantBinding) {
+      return;
+    }
+
+    await onGrantRoleBinding(bindingValues.userID, namespace.id, selectedRole);
+  }
 
   const childColumns: DataTableColumn<Namespace>[] = [
     {
@@ -404,6 +459,37 @@ function NamespaceDetail({
               variant="plain"
             />
           </div>
+        </section>
+
+        <section className={`${styles.detailPanel} polished-panel`} aria-labelledby="namespace-access-title">
+          <div className={styles.detailHeader}>
+            <div>
+              <h2 id="namespace-access-title">Access</h2>
+              <p>Users with direct role bindings on this namespace.</p>
+            </div>
+          </div>
+          <RoleBindingPanel
+            ariaLabel="Namespace role bindings"
+            canGrant={canGrantBinding}
+            emptyMessage="No direct role bindings."
+            onGrant={handleGrantBinding}
+            onPrimaryChange={(userID) => setBindingValues({ ...bindingValues, userID })}
+            onRoleChange={(role) => setBindingValues({ ...bindingValues, role })}
+            primaryLabel="User"
+            primaryName="namespaceBindingUser"
+            primaryOptions={userOptions}
+            primaryValue={bindingValues.userID}
+            roleOptions={roleOptions}
+            roleTone={roleTone}
+            roleValue={selectedRole}
+            rows={namespaceBindings.map((binding) => ({
+              caption: "User",
+              id: binding.id,
+              label: binding.username ?? binding.userID,
+              onRevoke: () => onRevokeRoleBinding(binding.userID, namespace.id, binding.role),
+              role: binding.role
+            }))}
+          />
         </section>
 
         <section className={`${styles.detailPanel} polished-panel`} aria-labelledby="namespace-jobs-title">
@@ -524,7 +610,7 @@ function parentPathFor(namespaces: Namespace[], namespace: Namespace) {
   return parent?.path === "/" || !parent?.path ? "Root" : parent.path;
 }
 
-function roleTone(role: Namespace["role"]) {
+function roleTone(role: Namespace["role"] | RoleBindingRole) {
   if (role === "Admin") {
     return "active";
   }
