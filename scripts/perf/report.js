@@ -621,11 +621,20 @@ function renderPGTable() {
       "<td class=\"bar-bg\" style=\"background-size:" + pct + "% 100%; background-repeat:no-repeat;\">" + esc(formatValue(row.total_ms)) + "</td>" +
       "<td>" + esc(formatValue(row.mean_ms)) + "</td>" +
       "<td>" + esc(row.rows) + "</td>" +
+      "<td>" + esc(row.plans || 0) + "</td>" +
+      "<td>" + esc(formatValue(row.total_plan_ms || 0)) + "</td>" +
+      "<td>" + esc(row.shared_blks_hit || 0) + "</td>" +
+      "<td>" + esc(row.shared_blks_read || 0) + "</td>" +
+      "<td>" + esc(row.shared_blks_dirtied || 0) + "</td>" +
+      "<td>" + esc(row.shared_blks_written || 0) + "</td>" +
+      "<td>" + esc(row.temp_blks_read || 0) + "</td>" +
+      "<td>" + esc(row.temp_blks_written || 0) + "</td>" +
+      "<td>" + esc(row.wal_bytes || 0) + "</td>" +
       "<td class=\"query\">" + esc(row.query) + "</td>" +
       "</tr>";
   });
   tableEl.innerHTML =
-    "<table><thead><tr><th>Benchmark</th><th>DB</th><th>Iter</th><th>Rank</th><th>Calls</th><th>Total ms</th><th>Mean ms</th><th>Rows</th><th>Query</th></tr></thead><tbody>" +
+    "<table><thead><tr><th>Benchmark</th><th>DB</th><th>Iter</th><th>Rank</th><th>Calls</th><th>Total ms</th><th>Mean ms</th><th>Rows</th><th>Plans</th><th>Total plan ms</th><th>Shared hit</th><th>Shared read</th><th>Shared dirtied</th><th>Shared written</th><th>Temp read</th><th>Temp written</th><th>WAL bytes</th><th>Query</th></tr></thead><tbody>" +
     body.join("") +
     "</tbody></table>";
 }

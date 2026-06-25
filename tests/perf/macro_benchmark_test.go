@@ -63,6 +63,7 @@ const (
 	envMacroWorkerCounts         = "VECTIS_PERF_WORKER_COUNTS"
 	envMacroPGStatStatements     = "VECTIS_PERF_PG_STAT_STATEMENTS"
 	envMacroPGStatStatementsOut  = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
+	envMacroPGStatsSnapshotOut   = "VECTIS_PERF_PG_STATS_SNAPSHOT_OUTPUT"
 	envMacroStatusReadClients    = "VECTIS_PERF_STATUS_READ_CLIENTS"
 	envMacroStatusReadsPerRun    = "VECTIS_PERF_STATUS_READS_PER_RUN"
 
@@ -547,6 +548,7 @@ func macroBenchmarkOptionalEnvInt(b *testing.B, name string, defaultValue int) i
 
 func resetMacroDBStats(b *testing.B, env macroBenchEnv) bool {
 	b.Helper()
+	defer writeMacroPGStatsSnapshot(b, env, "before")
 
 	if !macroPGStatStatementsEnabled(env) {
 		return false
@@ -571,18 +573,44 @@ func resetMacroDBStats(b *testing.B, env macroBenchEnv) bool {
 func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 	b.Helper()
 
+	writeMacroPGStatsSnapshot(b, env, "after")
 	if !enabled {
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	conn, err := macroPGStatsConn(ctx, env.db)
+	if err != nil {
+		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable conn=%q", b.Name(), b.N, err)
+		return
+	}
+	defer conn.Close()
 
-	rows, err := env.db.QueryContext(ctx, `
-		SELECT query, calls, total_exec_time, mean_exec_time, rows
+	rows, err := conn.QueryContext(ctx, `
+		SELECT
+			query,
+			calls,
+			total_exec_time,
+			mean_exec_time,
+			rows,
+			plans,
+			total_plan_time,
+			mean_plan_time,
+			shared_blks_hit,
+			shared_blks_read,
+			shared_blks_dirtied,
+			shared_blks_written,
+			temp_blks_read,
+			temp_blks_written,
+			wal_records,
+			wal_fpi,
+			wal_bytes::bigint
 		FROM pg_stat_statements
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 		  AND query NOT LIKE '%pg_stat_statements%'
+		  AND query NOT LIKE '%pg_stat_activity%'
+		  AND query NOT LIKE '%pg_locks%'
 		ORDER BY total_exec_time DESC
 		LIMIT $1
 	`, macroPGStatStatementsTopLimit)
@@ -600,7 +628,37 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 		var totalMS float64
 		var meanMS float64
 		var returnedRows int64
-		if err := rows.Scan(&query, &calls, &totalMS, &meanMS, &returnedRows); err != nil {
+		var plans int64
+		var totalPlanMS float64
+		var meanPlanMS float64
+		var sharedBlksHit int64
+		var sharedBlksRead int64
+		var sharedBlksDirtied int64
+		var sharedBlksWritten int64
+		var tempBlksRead int64
+		var tempBlksWritten int64
+		var walRecords int64
+		var walFPI int64
+		var walBytes int64
+		if err := rows.Scan(
+			&query,
+			&calls,
+			&totalMS,
+			&meanMS,
+			&returnedRows,
+			&plans,
+			&totalPlanMS,
+			&meanPlanMS,
+			&sharedBlksHit,
+			&sharedBlksRead,
+			&sharedBlksDirtied,
+			&sharedBlksWritten,
+			&tempBlksRead,
+			&tempBlksWritten,
+			&walRecords,
+			&walFPI,
+			&walBytes,
+		); err != nil {
 			emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable scan=%q", b.Name(), b.N, err)
 			return
 		}
@@ -608,7 +666,7 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 		rank++
 		emitMacroPGStatLine(
 			b,
-			"# pg_stat_statements benchmark=%s iterations=%d rank=%d calls=%d total_ms=%.3f mean_ms=%.3f rows=%d query=%q",
+			"# pg_stat_statements benchmark=%s iterations=%d rank=%d calls=%d total_ms=%.3f mean_ms=%.3f rows=%d plans=%d total_plan_ms=%.3f mean_plan_ms=%.3f shared_blks_hit=%d shared_blks_read=%d shared_blks_dirtied=%d shared_blks_written=%d temp_blks_read=%d temp_blks_written=%d wal_records=%d wal_fpi=%d wal_bytes=%d query=%q",
 			b.Name(),
 			b.N,
 			rank,
@@ -616,12 +674,167 @@ func reportMacroDBStats(b *testing.B, env macroBenchEnv, enabled bool) {
 			totalMS,
 			meanMS,
 			returnedRows,
+			plans,
+			totalPlanMS,
+			meanPlanMS,
+			sharedBlksHit,
+			sharedBlksRead,
+			sharedBlksDirtied,
+			sharedBlksWritten,
+			tempBlksRead,
+			tempBlksWritten,
+			walRecords,
+			walFPI,
+			walBytes,
 			compactMacroSQL(query),
 		)
 	}
 
 	if err := rows.Err(); err != nil {
 		emitMacroPGStatLine(b, "# pg_stat_statements benchmark=%s iterations=%d unavailable rows=%q", b.Name(), b.N, err)
+	}
+}
+
+func macroPGStatsConn(ctx context.Context, db *sql.DB) (*sql.Conn, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	_, _ = conn.ExecContext(ctx, "SET application_name = 'vectis-perf-pg-stats'")
+	_, _ = conn.ExecContext(ctx, "SET auto_explain.log_min_duration = -1")
+	return conn, nil
+}
+
+func writeMacroPGStatsSnapshot(b *testing.B, env macroBenchEnv, phase string) {
+	b.Helper()
+
+	if env.db == nil || env.dbDriver != "pgx" {
+		return
+	}
+
+	path := strings.TrimSpace(os.Getenv(envMacroPGStatsSnapshotOut))
+	if path == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	conn, err := macroPGStatsConn(ctx, env.db)
+	if err != nil {
+		b.Logf("write postgres stats snapshot %s: %v", path, err)
+		return
+	}
+	defer conn.Close()
+
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			b.Logf("prepare postgres stats snapshot %s: %v", path, err)
+			return
+		}
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		b.Logf("open postgres stats snapshot %s: %v", path, err)
+		return
+	}
+	defer file.Close()
+
+	_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s sampled_at=%s\n", sanitizeMacroTSVField(b.Name()), b.N, sanitizeMacroTSVField(phase), time.Now().UTC().Format(time.RFC3339Nano))
+	for _, section := range macroPGStatsSnapshotSections() {
+		writeMacroPGStatsSnapshotSection(ctx, conn, file, b.Name(), b.N, phase, section.name, section.query)
+	}
+}
+
+type macroPGStatsSnapshotSection struct {
+	name  string
+	query string
+}
+
+func macroPGStatsSnapshotSections() []macroPGStatsSnapshotSection {
+	return []macroPGStatsSnapshotSection{
+		{name: "pg_stat_wal", query: "SELECT * FROM pg_stat_wal"},
+		{name: "pg_stat_io", query: "SELECT * FROM pg_stat_io ORDER BY backend_type, object, context"},
+		{name: "pg_stat_bgwriter", query: "SELECT * FROM pg_stat_bgwriter"},
+		{name: "pg_stat_checkpointer", query: "SELECT * FROM pg_stat_checkpointer"},
+		{name: "pg_stat_database", query: "SELECT * FROM pg_stat_database WHERE datname = current_database()"},
+		{name: "pg_stat_user_tables", query: "SELECT * FROM pg_stat_user_tables ORDER BY schemaname, relname"},
+		{name: "pg_stat_user_indexes", query: "SELECT * FROM pg_stat_user_indexes ORDER BY schemaname, relname, indexrelname"},
+		{name: "pg_statio_user_tables", query: "SELECT * FROM pg_statio_user_tables ORDER BY schemaname, relname"},
+		{name: "pg_statio_user_indexes", query: "SELECT * FROM pg_statio_user_indexes ORDER BY schemaname, relname, indexrelname"},
+	}
+}
+
+func writeMacroPGStatsSnapshotSection(ctx context.Context, conn *sql.Conn, file *os.File, benchmark string, iterations int, phase, name, query string) {
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s unavailable=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+		return
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s unavailable=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+		return
+	}
+
+	_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name))
+	_, _ = fmt.Fprintln(file, strings.Join(sanitizeMacroTSVFields(columns), "\t"))
+	for rows.Next() {
+		values := make([]any, len(columns))
+		scan := make([]any, len(columns))
+		for i := range values {
+			scan[i] = &values[i]
+		}
+
+		if err := rows.Scan(scan...); err != nil {
+			_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s scan_error=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+			return
+		}
+
+		fields := make([]string, len(values))
+		for i, value := range values {
+			fields[i] = sanitizeMacroTSVField(formatMacroSQLValue(value))
+		}
+		_, _ = fmt.Fprintln(file, strings.Join(fields, "\t"))
+	}
+
+	if err := rows.Err(); err != nil {
+		_, _ = fmt.Fprintf(file, "# benchmark=%s iterations=%d phase=%s section=%s rows_error=%q\n", sanitizeMacroTSVField(benchmark), iterations, sanitizeMacroTSVField(phase), sanitizeMacroTSVField(name), sanitizeMacroTSVField(err.Error()))
+	}
+}
+
+func sanitizeMacroTSVFields(values []string) []string {
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = sanitizeMacroTSVField(value)
+	}
+
+	return out
+}
+
+func sanitizeMacroTSVField(value string) string {
+	replacer := strings.NewReplacer("\t", " ", "\n", " ", "\r", " ")
+	return replacer.Replace(value)
+}
+
+func formatMacroSQLValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return `\N`
+	case []byte:
+		return string(typed)
+	case time.Time:
+		return typed.UTC().Format(time.RFC3339Nano)
+	default:
+		return fmt.Sprint(typed)
 	}
 }
 

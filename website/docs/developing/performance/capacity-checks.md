@@ -107,6 +107,14 @@ Useful knobs:
 | `VECTIS_PERF_DATABASE_MAX_IDLE_CONNS` | `1` for SQLite, up to `16` for Postgres | Macro benchmark SQL max idle connections. |
 | `VECTIS_PERF_PG_STAT_STATEMENTS` | enabled for Postgres macro benchmarks | Set to `false` to skip `pg_stat_statements` reset and top-query output. |
 | `VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT` | harness-generated | Optional direct `go test` output file for Postgres top-query lines. |
+| `VECTIS_PERF_PG_STATS_SNAPSHOTS` | `true` for Podman-backed Postgres macro benchmarks | Set to `false` to skip before/after Postgres aggregate stats snapshots. |
+| `VECTIS_PERF_PG_STATS_SNAPSHOT_OUTPUT` | harness-generated when snapshots are enabled | Optional direct output file for before/after `pg_stat_*` and `pg_statio_*` TSV snapshots. |
+| `VECTIS_PERF_PG_WAIT_SAMPLES` | `false` | Set to `true` for Podman-backed Postgres macro attribution runs that should sample active waits and ungranted locks. Keep disabled for clean throughput runs. |
+| `VECTIS_PERF_PG_WAIT_SAMPLES_OUTPUT` | harness-generated when wait samples are enabled | Optional direct output file for active `pg_stat_activity`/`pg_locks` TSV samples. |
+| `VECTIS_PERF_PG_WAIT_SAMPLE_INTERVAL` | `50ms` | Sampling interval for Postgres wait samples. |
+| `VECTIS_PERF_PG_AUTO_EXPLAIN` | `false` | Set to `true` for Podman-backed Postgres planner attribution runs that should preload `auto_explain` and capture server-side plan logs. This is intentionally heavier than a clean benchmark. |
+| `VECTIS_PERF_PG_AUTO_EXPLAIN_OUTPUT` | harness-generated when auto-explain is enabled | Optional direct output file for the Podman Postgres server log containing `auto_explain` plans. |
+| `VECTIS_PERF_PG_AUTO_EXPLAIN_MIN_DURATION` | `1ms` | `auto_explain.log_min_duration` for planner attribution runs. Use `0` only when you need every statement plan. |
 | `VECTIS_PERF_TRIGGER_CLIENTS` | `4` | Concurrent trigger clients used by macro trigger-to-terminal benchmarks. |
 | `VECTIS_PERF_WORKERS` | `4` | Concurrent worker loops used by macro worker and trigger-to-terminal benchmarks. |
 | `VECTIS_PERF_WORKER_COUNTS` | `1,2,4,8,16` | Comma-separated worker counts used by worker-scale macro benchmarks. |
@@ -163,7 +171,20 @@ The matrix tags parsed benchmark rows with `db_sqlite3`, `db_pgx_podman`, or `db
 
 The `pgx_podman_unsafe` entry disables Postgres durability settings with `fsync=off`, `synchronous_commit=off`, and `full_page_writes=off`. Use it only for disposable local measurement. It approximates a lower bound for client/server, query, lock, and index overhead; it is not a deployable configuration.
 
-The harness mirrors macro database settings into `VECTIS_DATABASE_DRIVER` for the benchmark child process so DAL SQL placeholder rebinding follows the selected backend. For Postgres macro benchmarks, the harness also writes `pg-stat-statements*.txt` sidecar artifacts, appends their `# pg_stat_statements` lines to the raw output after the Go benchmark rows, and includes the parsed final-iteration hot list in `summary.json` and `report.html`. Those lines show the top statements after setup has been reset out of the sample; when Go runs calibration passes, use the largest `iterations=` value for the representative sample.
+The harness mirrors macro database settings into `VECTIS_DATABASE_DRIVER` for the benchmark child process so DAL SQL placeholder rebinding follows the selected backend. For Postgres macro benchmarks, the harness also writes `pg-stat-statements*.txt` sidecar artifacts, appends their `# pg_stat_statements` lines to the raw output after the Go benchmark rows, and includes the parsed final-iteration hot list in `summary.json` and `report.html`. Those lines show the top statements after setup has been reset out of the sample; when Go runs calibration passes, use the largest `iterations=` value for the representative sample. Podman-backed Postgres preloads `pg_stat_statements` with planning tracking enabled unless `VECTIS_PERF_PG_STAT_STATEMENTS=false`, so the hot list includes execution time, planning count, planning time, shared buffer counters, temp block counters, and WAL counters.
+
+Podman-backed Postgres runs also write `pg-stats-snapshot*.tsv` by default. This file captures before/after snapshots for `pg_stat_wal`, `pg_stat_io`, `pg_stat_bgwriter`, `pg_stat_checkpointer` when available, `pg_stat_database`, `pg_stat_user_tables`, `pg_stat_user_indexes`, `pg_statio_user_tables`, and `pg_statio_user_indexes`. Use this to compare whole-database WAL, checkpoint, table, and index churn against the per-statement hot list.
+
+For attribution runs, opt into database wait and planner evidence:
+
+```sh
+VECTIS_PERF_MACRO_DATABASES=pgx_podman \
+VECTIS_PERF_PG_WAIT_SAMPLES=true \
+VECTIS_PERF_PG_AUTO_EXPLAIN=true \
+make perf SUITE=macro
+```
+
+Wait sampling writes `pg-wait-samples*.tsv` with active waits and ungranted locks from `pg_stat_activity`/`pg_locks`. Auto-explain writes `pg-auto-explain*.log` from the disposable Postgres server log. These options perturb the benchmark; use them to explain a suspected bottleneck, not as the clean capacity number. For the least noisy attribution, run wait sampling and auto-explain separately unless you intentionally want both views from the same run.
 
 To use an existing disposable Postgres database instead, pass a DSN and use `pgx`:
 

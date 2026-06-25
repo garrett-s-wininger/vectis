@@ -33,7 +33,13 @@ const (
 
 	envPerfDatabaseDSN            = "VECTIS_PERF_DATABASE_DSN"
 	envPerfDatabaseDriver         = "VECTIS_PERF_DATABASE_DRIVER"
+	envPerfPGAutoExplain          = "VECTIS_PERF_PG_AUTO_EXPLAIN"
+	envPerfPGAutoExplainOutput    = "VECTIS_PERF_PG_AUTO_EXPLAIN_OUTPUT"
 	envPerfPGStatStatementsOutput = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
+	envPerfPGStatsSnapshots       = "VECTIS_PERF_PG_STATS_SNAPSHOTS"
+	envPerfPGStatsSnapshotOutput  = "VECTIS_PERF_PG_STATS_SNAPSHOT_OUTPUT"
+	envPerfPGWaitSamples          = "VECTIS_PERF_PG_WAIT_SAMPLES"
+	envPerfPGWaitSamplesOutput    = "VECTIS_PERF_PG_WAIT_SAMPLES_OUTPUT"
 	envPerfPostgresDSN            = "VECTIS_PERF_POSTGRES_DSN"
 	envPerfPostgresDurability     = "VECTIS_PERF_POSTGRES_DURABILITY"
 	envPerfServe                  = "VECTIS_PERF_SERVE"
@@ -52,7 +58,7 @@ var (
 	benchmarkLineTagRE    = regexp.MustCompile(`^(.*)(-\d+)$`)
 	sanitizePartRE        = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 	sanitizePathRE        = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
-	pgStatLineRE          = regexp.MustCompile(`^# pg_stat_statements\s+(?:database=([^ ]+)\s+)?benchmark=([^ ]+)\s+iterations=(\d+)\s+rank=(\d+)\s+calls=(\d+)\s+total_ms=([0-9.]+)\s+mean_ms=([0-9.]+)\s+rows=(\d+)\s+query="(.*)"$`)
+	pgStatLineRE          = regexp.MustCompile(`^# pg_stat_statements\s+(?:database=([^ ]+)\s+)?benchmark=([^ ]+)\s+iterations=(\d+)\s+rank=(\d+)\s+calls=(\d+)\s+total_ms=([0-9.]+)\s+mean_ms=([0-9.]+)\s+rows=(\d+)(?:\s+plans=(\d+)\s+total_plan_ms=([0-9.]+)\s+mean_plan_ms=([0-9.]+))?(?:\s+shared_blks_hit=(\d+)\s+shared_blks_read=(\d+)\s+shared_blks_dirtied=(\d+)\s+shared_blks_written=(\d+)\s+temp_blks_read=(\d+)\s+temp_blks_written=(\d+)\s+wal_records=(\d+)\s+wal_fpi=(\d+)\s+wal_bytes=(\d+))?\s+query="(.*)"$`)
 )
 
 type suiteConfig struct {
@@ -133,15 +139,27 @@ type HarnessMetadata struct {
 }
 
 type PGStatStatement struct {
-	Database   string  `json:"database,omitempty"`
-	Benchmark  string  `json:"benchmark"`
-	Iterations int     `json:"iterations"`
-	Rank       int     `json:"rank"`
-	Calls      int64   `json:"calls"`
-	TotalMS    float64 `json:"total_ms"`
-	MeanMS     float64 `json:"mean_ms"`
-	Rows       int64   `json:"rows"`
-	Query      string  `json:"query"`
+	Database          string  `json:"database,omitempty"`
+	Benchmark         string  `json:"benchmark"`
+	Iterations        int     `json:"iterations"`
+	Rank              int     `json:"rank"`
+	Calls             int64   `json:"calls"`
+	TotalMS           float64 `json:"total_ms"`
+	MeanMS            float64 `json:"mean_ms"`
+	Rows              int64   `json:"rows"`
+	Plans             int64   `json:"plans,omitempty"`
+	TotalPlanMS       float64 `json:"total_plan_ms,omitempty"`
+	MeanPlanMS        float64 `json:"mean_plan_ms,omitempty"`
+	SharedBlksHit     int64   `json:"shared_blks_hit,omitempty"`
+	SharedBlksRead    int64   `json:"shared_blks_read,omitempty"`
+	SharedBlksDirtied int64   `json:"shared_blks_dirtied,omitempty"`
+	SharedBlksWritten int64   `json:"shared_blks_written,omitempty"`
+	TempBlksRead      int64   `json:"temp_blks_read,omitempty"`
+	TempBlksWritten   int64   `json:"temp_blks_written,omitempty"`
+	WALRecords        int64   `json:"wal_records,omitempty"`
+	WALFPI            int64   `json:"wal_fpi,omitempty"`
+	WALBytes          int64   `json:"wal_bytes,omitempty"`
+	Query             string  `json:"query"`
 }
 
 type Summary struct {
@@ -406,6 +424,7 @@ func captureGoBenchmarkOutput(args runArgs, command []string, databaseMatrix []s
 		}
 
 		env[envPerfPGStatStatementsOutput] = pgStatOutput
+		configurePostgresDiagnosticOutputs(env, runDir, "")
 	}
 
 	result := runCommand(command, env)
@@ -447,6 +466,7 @@ func runMacroDatabaseMatrix(command []string, databases []string, runDir string)
 		pgStatOutput := filepath.Join(runDir, fmt.Sprintf("pg-stat-statements-%s.txt", tag))
 		preparePGStatOutput(pgStatOutput)
 		env[envPerfPGStatStatementsOutput] = pgStatOutput
+		configurePostgresDiagnosticOutputs(env, runDir, tag)
 
 		databaseCommand, err := macroDatabaseCommand(command, database)
 		if err != nil {
@@ -640,6 +660,47 @@ func preparePGStatOutput(path string) {
 	_ = os.Remove(path)
 }
 
+func configurePostgresDiagnosticOutputs(env map[string]string, runDir, tag string) {
+	suffix := ""
+	if tag != "" {
+		suffix = "-" + tag
+	}
+
+	if mapEnvBool(env, envPerfPGStatsSnapshots, true) && strings.TrimSpace(env[envPerfPGStatsSnapshotOutput]) == "" {
+		path := filepath.Join(runDir, "pg-stats-snapshot"+suffix+".tsv")
+		_ = os.Remove(path)
+		env[envPerfPGStatsSnapshotOutput] = path
+	}
+
+	if mapEnvBool(env, envPerfPGWaitSamples, false) && strings.TrimSpace(env[envPerfPGWaitSamplesOutput]) == "" {
+		path := filepath.Join(runDir, "pg-wait-samples"+suffix+".tsv")
+		_ = os.Remove(path)
+		env[envPerfPGWaitSamplesOutput] = path
+	}
+
+	if mapEnvBool(env, envPerfPGAutoExplain, false) && strings.TrimSpace(env[envPerfPGAutoExplainOutput]) == "" {
+		path := filepath.Join(runDir, "pg-auto-explain"+suffix+".log")
+		_ = os.Remove(path)
+		env[envPerfPGAutoExplainOutput] = path
+	}
+}
+
+func mapEnvBool(env map[string]string, name string, defaultValue bool) bool {
+	raw, ok := env[name]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return defaultValue
+	}
+
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return defaultValue
+	}
+}
+
 func appendPGStatOutput(output, path, tag string) string {
 	if path == "" {
 		return output
@@ -743,18 +804,42 @@ func parsePGStatStatements(output string) []PGStatStatement {
 		totalMS, _ := strconv.ParseFloat(match[6], 64)
 		meanMS, _ := strconv.ParseFloat(match[7], 64)
 		rows, _ := strconv.ParseInt(match[8], 10, 64)
-		query := unquotePGStatQuery(match[9])
+		plans, _ := strconv.ParseInt(match[9], 10, 64)
+		totalPlanMS, _ := strconv.ParseFloat(match[10], 64)
+		meanPlanMS, _ := strconv.ParseFloat(match[11], 64)
+		sharedBlksHit, _ := strconv.ParseInt(match[12], 10, 64)
+		sharedBlksRead, _ := strconv.ParseInt(match[13], 10, 64)
+		sharedBlksDirtied, _ := strconv.ParseInt(match[14], 10, 64)
+		sharedBlksWritten, _ := strconv.ParseInt(match[15], 10, 64)
+		tempBlksRead, _ := strconv.ParseInt(match[16], 10, 64)
+		tempBlksWritten, _ := strconv.ParseInt(match[17], 10, 64)
+		walRecords, _ := strconv.ParseInt(match[18], 10, 64)
+		walFPI, _ := strconv.ParseInt(match[19], 10, 64)
+		walBytes, _ := strconv.ParseInt(match[20], 10, 64)
+		query := unquotePGStatQuery(match[21])
 
 		statements = append(statements, PGStatStatement{
-			Database:   match[1],
-			Benchmark:  match[2],
-			Iterations: iterations,
-			Rank:       rank,
-			Calls:      calls,
-			TotalMS:    totalMS,
-			MeanMS:     meanMS,
-			Rows:       rows,
-			Query:      query,
+			Database:          match[1],
+			Benchmark:         match[2],
+			Iterations:        iterations,
+			Rank:              rank,
+			Calls:             calls,
+			TotalMS:           totalMS,
+			MeanMS:            meanMS,
+			Rows:              rows,
+			Plans:             plans,
+			TotalPlanMS:       totalPlanMS,
+			MeanPlanMS:        meanPlanMS,
+			SharedBlksHit:     sharedBlksHit,
+			SharedBlksRead:    sharedBlksRead,
+			SharedBlksDirtied: sharedBlksDirtied,
+			SharedBlksWritten: sharedBlksWritten,
+			TempBlksRead:      tempBlksRead,
+			TempBlksWritten:   tempBlksWritten,
+			WALRecords:        walRecords,
+			WALFPI:            walFPI,
+			WALBytes:          walBytes,
+			Query:             query,
 		})
 	}
 
@@ -855,6 +940,21 @@ func printArtifactFooter(runDir string) {
 	emit("- JSON summary        : " + filepath.Join(runDir, "summary.json"))
 	emit("- Markdown summary    : " + filepath.Join(runDir, "summary.md"))
 	emit("- HTML report         : " + filepath.Join(runDir, "report.html"))
+	printOptionalArtifactFiles(runDir, "Postgres stats", "pg-stats-snapshot*.tsv")
+	printOptionalArtifactFiles(runDir, "Postgres wait samples", "pg-wait-samples*.tsv")
+	printOptionalArtifactFiles(runDir, "Postgres auto_explain", "pg-auto-explain*.log")
+}
+
+func printOptionalArtifactFiles(runDir, label, pattern string) {
+	matches, err := filepath.Glob(filepath.Join(runDir, pattern))
+	if err != nil || len(matches) == 0 {
+		return
+	}
+
+	sort.Strings(matches)
+	for _, match := range matches {
+		emit(fmt.Sprintf("- %-20s: %s", label, match))
+	}
 }
 
 func writeJSON(path string, value any) error {
@@ -903,12 +1003,12 @@ func writeMarkdownSummary(path string, summary Summary, rawName string) error {
 	finalStats := finalPGStatStatements(summary.PGStatStatements)
 	if len(finalStats) > 0 {
 		lines = append(lines, "", "## Postgres Statement Hot List", "")
-		lines = append(lines, "| Benchmark | Database | Iterations | Rank | Calls | Total ms | Mean ms | Query |")
-		lines = append(lines, "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |")
+		lines = append(lines, "| Benchmark | Database | Iterations | Rank | Calls | Total ms | Mean ms | Plans | Total plan ms | Shared hit | Shared read | Shared dirtied | Shared written | Temp read | Temp written | WAL bytes | Query |")
+		lines = append(lines, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
 
 		for _, stat := range finalStats {
 			lines = append(lines, fmt.Sprintf(
-				"| `%s` | `%s` | %d | %d | %d | %.3f | %.3f | `%s` |",
+				"| `%s` | `%s` | %d | %d | %d | %.3f | %.3f | %d | %.3f | %d | %d | %d | %d | %d | %d | %d | `%s` |",
 				markdownEscape(stat.Benchmark),
 				markdownEscape(stat.Database),
 				stat.Iterations,
@@ -916,6 +1016,15 @@ func writeMarkdownSummary(path string, summary Summary, rawName string) error {
 				stat.Calls,
 				stat.TotalMS,
 				stat.MeanMS,
+				stat.Plans,
+				stat.TotalPlanMS,
+				stat.SharedBlksHit,
+				stat.SharedBlksRead,
+				stat.SharedBlksDirtied,
+				stat.SharedBlksWritten,
+				stat.TempBlksRead,
+				stat.TempBlksWritten,
+				stat.WALBytes,
 				markdownEscape(stat.Query),
 			))
 		}
