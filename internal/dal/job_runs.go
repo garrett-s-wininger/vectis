@@ -2043,21 +2043,30 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 	}
 
 	payloadHash := ExecutionPayloadHash(payloadJSON)
-	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO execution_payloads (payload_hash, payload_json, definition_hash)
 		VALUES (?, ?, ?)
 		ON CONFLICT(payload_hash) DO NOTHING
-	`), payloadHash, payloadJSON, definitionHash); err != nil {
+	`), payloadHash, payloadJSON, definitionHash)
+
+	if err != nil {
 		return "", "", normalizeSQLError(err)
 	}
 
-	existingPayload, err := lookupPayload(payloadHash)
+	inserted, err := res.RowsAffected()
 	if err != nil {
-		return "", "", err
+		return "", "", normalizeSQLError(err)
 	}
 
-	if existingPayload != payloadJSON {
-		return "", "", fmt.Errorf("%w: execution payload hash %s has different payload", ErrConflict, payloadHash)
+	if inserted == 0 {
+		existingPayload, err := lookupPayload(payloadHash)
+		if err != nil {
+			return "", "", err
+		}
+
+		if existingPayload != payloadJSON {
+			return "", "", fmt.Errorf("%w: execution payload hash %s has different payload", ErrConflict, payloadHash)
+		}
 	}
 
 	result, err := tx.ExecContext(ctx,
@@ -2198,7 +2207,7 @@ func (r *SQLRunsRepository) UpsertRunHotStateOwner(ctx context.Context, update R
 		return fmt.Errorf("%w: run_id, cell_id, owner_id, owner_epoch, and lease_until are required", ErrConflict)
 	}
 
-	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO run_hot_state_owners (
 			run_id,
 			cell_id,
@@ -2210,13 +2219,7 @@ func (r *SQLRunsRepository) UpsertRunHotStateOwner(ctx context.Context, update R
 			updated_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-		ON CONFLICT(run_id) DO UPDATE SET
-			cell_id = excluded.cell_id,
-			owner_id = excluded.owner_id,
-			owner_epoch = excluded.owner_epoch,
-			lease_until = excluded.lease_until,
-			last_sequence = excluded.last_sequence,
-			updated_at = CURRENT_TIMESTAMP
+		ON CONFLICT(run_id) DO NOTHING
 	`),
 		update.RunID,
 		update.CellID,
@@ -2224,6 +2227,35 @@ func (r *SQLRunsRepository) UpsertRunHotStateOwner(ctx context.Context, update R
 		update.OwnerEpoch,
 		update.LeaseUntil.UTC().Unix(),
 		update.LastSequence,
+	)
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+	if rows > 0 {
+		return nil
+	}
+
+	_, err = r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE run_hot_state_owners
+		SET cell_id = ?,
+			owner_id = ?,
+			owner_epoch = ?,
+			lease_until = ?,
+			last_sequence = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE run_id = ?
+	`),
+		update.CellID,
+		update.OwnerID,
+		update.OwnerEpoch,
+		update.LeaseUntil.UTC().Unix(),
+		update.LastSequence,
+		update.RunID,
 	)
 
 	return normalizeSQLError(err)
