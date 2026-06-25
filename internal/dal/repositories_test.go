@@ -48,6 +48,14 @@ func claimPendingRunExecution(t testing.TB, ctx context.Context, runs dal.RunsRe
 	return dispatch, claim
 }
 
+func assertCreatedRunRootDispatch(t testing.TB, createdRun dal.CreatedRun, dispatch dal.ExecutionDispatchRecord) {
+	t.Helper()
+
+	if createdRun.RootDispatch != dispatch {
+		t.Fatalf("created run root dispatch mismatch:\n got  %+v\n want %+v", createdRun.RootDispatch, dispatch)
+	}
+}
+
 func TestJobsRepository_DefinitionSnapshotsAppendImmutableVersions(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -130,8 +138,10 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 		t.Fatalf("record trigger invocation: %v", err)
 	}
 
+	startDeadlineUnixNano := int64(123456789)
 	created, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{"iad-a", "pdx-b"}, dal.RunAuditMetadata{
-		TriggerInvocationID: rec.InvocationID,
+		TriggerInvocationID:   rec.InvocationID,
+		StartDeadlineUnixNano: startDeadlineUnixNano,
 	})
 	if err != nil {
 		t.Fatalf("create audited runs: %v", err)
@@ -169,6 +179,15 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 		if payloadHash != "" {
 			t.Fatalf("run %s should not have payload hash before dispatch, got %q", run.RunID, payloadHash)
 		}
+
+		dispatch, err := repos.Runs().GetPendingExecution(ctx, run.RunID)
+		if err != nil {
+			t.Fatalf("get pending execution for %s: %v", run.RunID, err)
+		}
+		if dispatch.StartDeadlineUnixNano != startDeadlineUnixNano {
+			t.Fatalf("run %s start deadline: got %d want %d", run.RunID, dispatch.StartDeadlineUnixNano, startDeadlineUnixNano)
+		}
+		assertCreatedRunRootDispatch(t, run, dispatch)
 	}
 
 	payload1 := `{"job":{"id":"job-audit","runId":"` + created[0].RunID + `"},"metadata":{"attempt":"1"}}`
@@ -799,6 +818,7 @@ func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
 	if dispatch.CellID != "pdx-b" || dispatch.DefinitionVersion != 1 {
 		t.Fatalf("replay dispatch: got cell=%q version=%d", dispatch.CellID, dispatch.DefinitionVersion)
 	}
+	assertCreatedRunRootDispatch(t, replay, dispatch)
 
 	activeRunID, _, err := repos.Runs().CreateRunInCell(ctx, jobID, nil, 1, "pdx-b")
 	if err != nil {
@@ -965,6 +985,7 @@ func TestRunsRepository_CreateRunsInCells_FanoutTargetsExecutionCells(t *testing
 		if dispatch.OwningCell != createdRun.TargetCellID {
 			t.Fatalf("owning cell for %s: got %q, want %q", createdRun.RunID, dispatch.OwningCell, createdRun.TargetCellID)
 		}
+		assertCreatedRunRootDispatch(t, createdRun, dispatch)
 	}
 
 	iadRuns, _, err := repos.Runs().ListByJob(ctx, jobID, nil, nil, "iad-a", 0, 100)

@@ -504,6 +504,7 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 	m.LastRunAudit = audit
 	m.LastCreateTargetCell = targetCellIDs[0]
 	m.LastCreateTargetCells = append([]string(nil), targetCellIDs...)
+	definitionHash := m.PendingExecution.DefinitionHash
 	m.mu.Unlock()
 
 	baseRunID := m.CreateRunID
@@ -523,6 +524,16 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 			JobID:        jobID,
 			RunIndex:     runIndexStart + i,
 			TargetCellID: targetCellID,
+			RootDispatch: mockRootDispatchRecord(
+				runID,
+				jobID,
+				runIndexStart+i,
+				targetCellID,
+				definitionVersion,
+				definitionHash,
+				audit.NamespacePath,
+				audit.StartDeadlineUnixNano,
+			),
 		})
 	}
 
@@ -531,6 +542,45 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 
 func (m *MockRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]dal.CreatedRun, error) {
 	return nil, nil
+}
+
+func mockRootDispatchRecord(runID, jobID string, runIndex int, targetCellID string, definitionVersion int, definitionHash string, namespacePath string, startDeadlineUnixNano int64) dal.ExecutionDispatchRecord {
+	targetCellID = strings.TrimSpace(targetCellID)
+	if targetCellID == "" {
+		targetCellID = dal.DefaultCellID
+	}
+
+	namespacePath = strings.TrimSpace(namespacePath)
+	if namespacePath == "" {
+		namespacePath = "/"
+	}
+
+	definitionHash = strings.TrimSpace(definitionHash)
+	if definitionHash == "" {
+		definitionHash = "mock-definition-hash"
+	}
+
+	return dal.ExecutionDispatchRecord{
+		RunID:                 runID,
+		JobID:                 jobID,
+		NamespacePath:         namespacePath,
+		RunIndex:              runIndex,
+		TaskID:                runID + ":" + dal.RootTaskKey,
+		TaskKey:               dal.RootTaskKey,
+		TaskName:              dal.RootTaskKey,
+		TaskAttemptID:         runID + ":" + dal.RootTaskKey + ":attempt:1",
+		SegmentID:             runID + ":" + dal.RootTaskKey + ":segment",
+		SegmentName:           dal.RootTaskKey,
+		SegmentStatus:         dal.SegmentStatusPending,
+		ExecutionID:           runID + ":" + dal.RootTaskKey + ":attempt:1:execution",
+		ExecutionStatus:       dal.ExecutionStatusPending,
+		CellID:                targetCellID,
+		Attempt:               1,
+		DefinitionVersion:     definitionVersion,
+		DefinitionHash:        definitionHash,
+		OwningCell:            targetCellID,
+		StartDeadlineUnixNano: startDeadlineUnixNano,
+	}
 }
 
 func (m *MockRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit dal.RunAuditMetadata) (dal.CreatedRun, error) {

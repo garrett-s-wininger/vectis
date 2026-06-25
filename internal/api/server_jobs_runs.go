@@ -38,9 +38,10 @@ const (
 	idempotencyResourceTriggerInvocation = "trigger_invocation"
 )
 
-func newRunAuditMetadata(triggerInvocationID string) dal.RunAuditMetadata {
+func newRunAuditMetadata(triggerInvocationID, namespacePath string) dal.RunAuditMetadata {
 	return dal.RunAuditMetadata{
 		TriggerInvocationID:   triggerInvocationID,
+		NamespacePath:         namespacePath,
 		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
 	}
 }
@@ -754,7 +755,9 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
 }
 
-func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job, definitionHash string) {
+func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, createdRun dal.CreatedRun, job *api.Job, definitionHash string) {
+	runID := createdRun.RunID
+	runIndex := createdRun.RunIndex
 	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.trigger.async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(observability.RunIndexAttrs(runIndex)...)
@@ -774,7 +777,7 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 	enqueuedAt := time.Now().UnixNano()
 	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(enqueuedAt, 10)
 	observability.InjectJobTraceContext(ctx, req)
-	env, err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt)
+	env, err := s.attachCreatedRunExecutionEnvelope(ctx, req, createdRun, enqueuedAt)
 	targetCellID := ""
 	if env != nil {
 		targetCellID = env.CellID
@@ -1039,6 +1042,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	createdRun, err := s.runs.CreateReplayRun(ctx, sourceRunID, targetCellID, dal.RunAuditMetadata{
 		TriggerInvocationID:   invocationID,
 		ReplayOfRunID:         sourceRunID,
+		NamespacePath:         nsPath,
 		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
 	})
 
@@ -1110,7 +1114,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 
 	bgCtx := detachedTraceContextFromRequest(r)
 	jobForRun := cloneJobForRun(&job, createdRun.RunID)
-	go s.finishTriggerEnqueue(bgCtx, jobID, createdRun.RunID, createdRun.RunIndex, jobForRun, definitionHash)
+	go s.finishTriggerEnqueue(bgCtx, jobID, createdRun, jobForRun, definitionHash)
 }
 
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
@@ -1280,7 +1284,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	var runID string
 	if starter, ok := s.ephemeralRuns.(dal.EphemeralRunStarterWithAudit); ok {
-		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, newRunAuditMetadata(invocationID))
+		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, newRunAuditMetadata(invocationID, "/"))
 	} else {
 		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
 	}
@@ -1495,6 +1499,56 @@ func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobReq
 	}
 
 	dispatch.StartDeadlineUnixNano = deadline
+	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionDescriptorResolver)
+}
+
+func (s *APIServer) attachCreatedRunExecutionEnvelope(ctx context.Context, req *api.JobRequest, createdRun dal.CreatedRun, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+	dispatch := createdRun.RootDispatch
+	if strings.TrimSpace(dispatch.ExecutionID) == "" || strings.TrimSpace(dispatch.SegmentID) == "" {
+		return s.attachExecutionEnvelope(ctx, req, createdRun.RunID, createdAtUnixNano)
+	}
+
+	dispatch.RunID = strings.TrimSpace(dispatch.RunID)
+	if dispatch.RunID == "" {
+		dispatch.RunID = createdRun.RunID
+	} else if dispatch.RunID != createdRun.RunID {
+		return nil, fmt.Errorf("created run dispatch run_id %q does not match created run %q", dispatch.RunID, createdRun.RunID)
+	}
+
+	if dispatch.RunIndex <= 0 {
+		dispatch.RunIndex = createdRun.RunIndex
+	} else if createdRun.RunIndex > 0 && dispatch.RunIndex != createdRun.RunIndex {
+		return nil, fmt.Errorf("created run dispatch run_index %d does not match created run index %d", dispatch.RunIndex, createdRun.RunIndex)
+	}
+
+	targetCellID := strings.TrimSpace(createdRun.TargetCellID)
+	dispatch.CellID = strings.TrimSpace(dispatch.CellID)
+	if dispatch.CellID == "" {
+		dispatch.CellID = targetCellID
+	} else if targetCellID != "" && dispatch.CellID != targetCellID {
+		return nil, fmt.Errorf("created run dispatch cell_id %q does not match target cell %q", dispatch.CellID, targetCellID)
+	}
+
+	dispatch.OwningCell = strings.TrimSpace(dispatch.OwningCell)
+	if dispatch.OwningCell == "" {
+		dispatch.OwningCell = targetCellID
+	} else if targetCellID != "" && dispatch.OwningCell != targetCellID {
+		return nil, fmt.Errorf("created run dispatch owning_cell %q does not match target cell %q", dispatch.OwningCell, targetCellID)
+	}
+
+	if strings.TrimSpace(dispatch.NamespacePath) == "" {
+		dispatch.NamespacePath = "/"
+	}
+
+	if dispatch.StartDeadlineUnixNano <= 0 {
+		deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()))
+		if err != nil {
+			return nil, err
+		}
+
+		dispatch.StartDeadlineUnixNano = deadline
+	}
+
 	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionDescriptorResolver)
 }
 

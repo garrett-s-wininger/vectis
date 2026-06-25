@@ -1649,6 +1649,14 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 		return nil, err
 	}
 
+	namespacePath := strings.TrimSpace(audit.NamespacePath)
+	if namespacePath == "" {
+		namespacePath, err = lookupJobNamespacePathTx(ctx, tx, jobID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if len(targetCellIDs) == 0 {
 		targetCellIDs = []string{r.currentCellID()}
 	}
@@ -1681,7 +1689,8 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 			return nil, normalizeSQLError(err)
 		}
 
-		if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+		root, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano)
+		if err != nil {
 			return nil, err
 		}
 
@@ -1690,6 +1699,17 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 			JobID:        jobID,
 			RunIndex:     runIndexOut,
 			TargetCellID: targetCellID,
+			RootDispatch: rootDispatchRecord(
+				runID,
+				jobID,
+				namespacePath,
+				runIndexOut,
+				root,
+				definitionVersion,
+				definitionHash,
+				targetCellID,
+				audit.StartDeadlineUnixNano,
+			),
 		})
 	}
 
@@ -1860,7 +1880,7 @@ func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex 
 		return 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+	if _, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 		return 0, err
 	}
 
@@ -1910,6 +1930,14 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 		return CreatedRun{}, fmt.Errorf("%w: definition version %d for job %s", ErrNotFound, definitionVersion, jobID)
 	}
 
+	namespacePath := strings.TrimSpace(audit.NamespacePath)
+	if namespacePath == "" {
+		namespacePath, err = lookupJobNamespacePathTx(ctx, tx, jobID)
+		if err != nil {
+			return CreatedRun{}, err
+		}
+	}
+
 	var idx int
 	if err := tx.QueryRowContext(ctx, rebindQueryForPgx("SELECT COALESCE(MAX(run_index), 0) + 1 FROM job_runs WHERE job_id = ?"), jobID).Scan(&idx); err != nil {
 		return CreatedRun{}, normalizeSQLError(err)
@@ -1939,7 +1967,8 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 		return CreatedRun{}, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+	root, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano)
+	if err != nil {
 		return CreatedRun{}, err
 	}
 
@@ -1947,7 +1976,23 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 		return CreatedRun{}, err
 	}
 
-	return CreatedRun{RunID: runID, JobID: jobID, RunIndex: idx, TargetCellID: targetCellID}, nil
+	return CreatedRun{
+		RunID:        runID,
+		JobID:        jobID,
+		RunIndex:     idx,
+		TargetCellID: targetCellID,
+		RootDispatch: rootDispatchRecord(
+			runID,
+			jobID,
+			namespacePath,
+			idx,
+			root,
+			definitionVersion,
+			definitionHash,
+			targetCellID,
+			audit.StartDeadlineUnixNano,
+		),
+	}, nil
 }
 
 func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error) {
@@ -2342,6 +2387,29 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 	} else {
 		return "", normalizeSQLError(err)
 	}
+}
+
+func lookupJobNamespacePathTx(ctx context.Context, tx *sql.Tx, jobID string) (string, error) {
+	var path string
+	err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COALESCE(ns.path, '/')
+		FROM stored_jobs sj
+		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
+		WHERE sj.job_id = ?
+	`), jobID).Scan(&path)
+	if err == sql.ErrNoRows {
+		return "/", nil
+	}
+	if err != nil {
+		return "", normalizeSQLError(err)
+	}
+
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "/", nil
+	}
+
+	return path, nil
 }
 
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {

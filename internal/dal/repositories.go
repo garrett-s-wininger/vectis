@@ -299,12 +299,14 @@ type CreatedRun struct {
 	JobID        string
 	RunIndex     int
 	TargetCellID string
+	RootDispatch ExecutionDispatchRecord
 }
 
 type RunAuditMetadata struct {
 	TriggerInvocationID   string
 	ExecutionPayloadHash  string
 	ReplayOfRunID         string
+	NamespacePath         string
 	StartDeadlineUnixNano int64
 }
 
@@ -997,14 +999,15 @@ func normalizeTargetCellID(cellID, fallback string) string {
 	return cellID
 }
 
-func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string, startDeadlineUnixNano int64) error {
+func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellID string, startDeadlineUnixNano int64) (TaskExecutionRecord, error) {
 	if err := createInitialRootTaskAttemptTx(ctx, tx, runID, cellID); err != nil {
-		return err
+		return TaskExecutionRecord{}, err
 	}
 
 	taskID := rootTaskID(runID)
 	taskAttemptID := rootTaskAttemptID(runID, 1)
 	segmentID := newSegmentID()
+	executionID := newExecutionID()
 	if _, err := tx.ExecContext(ctx,
 		rebindQueryForPgx("INSERT INTO run_segments (segment_id, run_id, name, status) VALUES (?, ?, ?, ?)"),
 		segmentID,
@@ -1012,12 +1015,12 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		RootTaskKey,
 		SegmentStatusPending,
 	); err != nil {
-		return normalizeSQLError(err)
+		return TaskExecutionRecord{}, normalizeSQLError(err)
 	}
 
 	if _, err := tx.ExecContext(ctx,
 		rebindQueryForPgx("INSERT INTO segment_executions (execution_id, segment_id, run_id, task_id, task_attempt_id, cell_id, status, attempt, start_deadline_unix_nano) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
-		newExecutionID(),
+		executionID,
 		segmentID,
 		runID,
 		taskID,
@@ -1027,10 +1030,60 @@ func createInitialSegmentExecutionTx(ctx context.Context, tx *sql.Tx, runID, cel
 		1,
 		nullableInt64(startDeadlineUnixNano),
 	); err != nil {
-		return normalizeSQLError(err)
+		return TaskExecutionRecord{}, normalizeSQLError(err)
 	}
 
-	return nil
+	return TaskExecutionRecord{
+		RunID:         runID,
+		TaskID:        taskID,
+		TaskKey:       RootTaskKey,
+		Name:          RootTaskKey,
+		TaskAttemptID: taskAttemptID,
+		SegmentID:     segmentID,
+		SegmentName:   RootTaskKey,
+		ExecutionID:   executionID,
+		CellID:        normalizeCellID(cellID),
+		Attempt:       1,
+	}, nil
+}
+
+func rootDispatchRecord(
+	runID string,
+	jobID string,
+	namespacePath string,
+	runIndex int,
+	root TaskExecutionRecord,
+	definitionVersion int,
+	definitionHash string,
+	owningCell string,
+	startDeadlineUnixNano int64,
+) ExecutionDispatchRecord {
+	namespacePath = strings.TrimSpace(namespacePath)
+	if namespacePath == "" {
+		namespacePath = "/"
+	}
+
+	return ExecutionDispatchRecord{
+		RunID:                 runID,
+		JobID:                 jobID,
+		NamespacePath:         namespacePath,
+		RunIndex:              runIndex,
+		TaskID:                root.TaskID,
+		TaskKey:               root.TaskKey,
+		TaskName:              root.Name,
+		TaskAttemptID:         root.TaskAttemptID,
+		SegmentID:             root.SegmentID,
+		SegmentName:           root.SegmentName,
+		SegmentStatus:         SegmentStatusPending,
+		ExecutionID:           root.ExecutionID,
+		ExecutionStatus:       ExecutionStatusPending,
+		CellID:                root.CellID,
+		Attempt:               root.Attempt,
+		DefinitionVersion:     definitionVersion,
+		DefinitionHash:        definitionHash,
+		OwningCell:            normalizeCellID(owningCell),
+		StartDeadlineUnixNano: startDeadlineUnixNano,
+	}
 }
 
 func createInitialRootTaskAttemptTx(ctx context.Context, tx *sql.Tx, runID, cellID string) error {
@@ -1114,7 +1167,7 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 		return "", 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+	if _, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 		return "", 0, err
 	}
 
@@ -1184,7 +1237,7 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx contex
 		return "", 0, 0, normalizeSQLError(err)
 	}
 
-	if err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
+	if _, err := createInitialSegmentExecutionTx(ctx, tx, runID, targetCellID, audit.StartDeadlineUnixNano); err != nil {
 		return "", 0, 0, err
 	}
 
