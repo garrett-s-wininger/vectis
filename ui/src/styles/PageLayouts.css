@@ -307,42 +307,9 @@ h1 {
   padding: var(--space-5xl) var(--space-3xl);
 }
 
-.dashboard-layout {
-  display: grid;
-  gap: var(--space-3xl);
-  grid-template-columns: minmax(0, 1.25fr) minmax(var(--layout-field-max), 0.75fr);
-  width: 100%;
-}
-
-.dashboard-side-stack {
-  align-content: start;
-  display: grid;
-  gap: var(--space-3xl);
-}
-
-.cell-health-layout {
-  display: grid;
-  gap: var(--space-3xl);
-  grid-template-columns: minmax(0, 1fr) minmax(var(--layout-field-max), 0.8fr);
-  width: 100%;
-}
-
-.dashboard-layout .progress-meter-stack,
-.cell-health-layout .progress-meter-stack {
-  width: 100%;
-}
-
 @media (max-width: 720px) {
   .storybook-page-main {
     padding: var(--space-3xl) var(--space-xl);
-  }
-
-  .dashboard-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .cell-health-layout {
-    grid-template-columns: 1fr;
   }
 }
 

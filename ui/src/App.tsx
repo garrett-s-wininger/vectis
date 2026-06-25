@@ -19,6 +19,7 @@ import {
   scopeMockConsoleData,
   type MockConsoleData
 } from "./mocks/consoleData";
+import { DashboardPage } from "./pages/DashboardPage";
 import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
 import { NamespacesPage } from "./pages/NamespacesPage";
@@ -26,6 +27,7 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
+import { PageMissingState } from "./pages/shared";
 import {
   adminNavItems,
   navigateTo,
@@ -702,11 +704,32 @@ function RouteContent({
 
   switch (route.kind) {
     case "health":
+      if (route.cellID) {
+        const cell = consoleData.cells.find((candidate) => candidate.id === route.cellID);
+
+        if (!cell) {
+          return withActionAlert(
+            <PageMissingState
+              actionLabel="Go to Health"
+              breadcrumbs={[{ label: "Health", onClick: () => navigateTo("/health") }, { label: "Missing Cell", current: true }]}
+              description="The requested cell is not registered with this console."
+              label="Health breadcrumbs"
+              onAction={() => navigateTo("/health")}
+              panelDescription="The cell may have been removed, renamed, or never registered."
+              panelEyebrow="Missing"
+              panelTitle="Cell Not Found"
+              title="Cell Not Found"
+            />
+          );
+        }
+
+        return withActionAlert(<DashboardPage cell={cell} onOpenHealth={() => navigateTo("/health")} />);
+      }
+
       return withActionAlert(
         <HealthPage
           cells={consoleData.cells}
           onSelectCell={(cellID) => navigateTo(`/health/${cellID}`)}
-          selectedCellID={route.cellID}
         />
       );
     case "runs":

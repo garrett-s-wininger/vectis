@@ -169,13 +169,28 @@ button.rowAction:focus-visible {
   align-items: center;
   display: grid;
   gap: var(--space-lg);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   margin: 0;
   min-width: 0;
 }
 
+.featuredMeta {
+  grid-template-columns: minmax(16rem, 2.1fr) repeat(3, minmax(4.5rem, 0.65fr));
+}
+
 .meta > div {
   min-width: 0;
+}
+
+.featuredMeta > div:first-child {
+  grid-template-columns: var(--space-2xl) minmax(0, 1fr);
+}
+
+.featuredMeta > div:first-child dd {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .meta > div + div {
@@ -183,30 +198,34 @@ button.rowAction:focus-visible {
   padding-left: var(--space-lg);
 }
 
-.statusQueued::before {
+.railNeutral::before {
   background: var(--status-neutral-border);
 }
 
-.statusRunning::before {
+.railInfo::before {
   background: var(--status-info-border);
 }
 
-.statusSucceeded::before {
+.railSuccess::before {
   background: var(--status-success-border);
 }
 
-.statusFailed::before {
-  background: var(--status-danger-border);
+.railWarning::before {
+  background: var(--status-warning-border);
 }
 
-.statusCancelled::before,
-.statusAbandoned::before,
-.statusAborted::before {
+.railWarningMuted::before {
   background: var(--status-warning-border-muted);
 }
 
-.statusOrphaned::before {
-  background: var(--status-warning-border);
+.railDanger::before {
+  background: var(--status-danger-border);
+}
+
+@media (max-width: 920px) {
+  .featuredMeta {
+    grid-template-columns: minmax(0, 1.8fr) repeat(3, minmax(4.5rem, 0.75fr));
+  }
 }
 
 @media (max-width: 860px) {
@@ -278,5 +297,41 @@ button.rowAction:focus-visible {
 
   .meta > div:nth-child(n + 3)::before {
     top: var(--space-sm);
+  }
+
+  .featuredMeta > div:first-child {
+    border-top: 0;
+    grid-column: 1 / -1;
+    padding-left: 0;
+    padding-top: 0;
+  }
+
+  .featuredMeta > div:first-child::before,
+  .featuredMeta > div:nth-child(2n)::before {
+    display: none;
+  }
+
+  .featuredMeta > div:nth-child(2n) {
+    padding-left: 0;
+  }
+
+  .featuredMeta > div:nth-child(2n + 3) {
+    padding-left: var(--space-md);
+  }
+
+  .featuredMeta > div:nth-child(2n + 3)::before {
+    background: rgb(151 168 177 / 24%);
+    bottom: 0;
+    content: "";
+    display: block;
+    left: 0;
+    position: absolute;
+    top: var(--space-sm);
+    width: 1px;
+  }
+
+  .featuredMeta > div:nth-child(n + 2) {
+    border-top: 1px solid rgb(151 168 177 / 24%);
+    padding-top: var(--space-sm);
   }
 }

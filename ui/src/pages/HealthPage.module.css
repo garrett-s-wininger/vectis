@@ -1,0 +1,6 @@
+.metrics {
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: repeat(auto-fit, minmax(var(--layout-field-min), 1fr));
+  width: min(var(--layout-panel-max), 100%);
+}

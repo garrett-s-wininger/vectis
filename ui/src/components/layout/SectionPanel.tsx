@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useId } from "react";
 import styles from "./SectionPanel.module.css";
 
 type SectionPanelProps = {
@@ -9,11 +10,13 @@ type SectionPanelProps = {
 };
 
 export function SectionPanel({ title, description, actions, children }: SectionPanelProps) {
+  const titleID = useId();
+
   return (
-    <section className={styles.root} aria-labelledby="section-panel-title">
+    <section className={styles.root} aria-labelledby={titleID}>
       <div className={styles.header}>
         <div className={styles.copy}>
-          <h2 className={styles.title} id="section-panel-title">
+          <h2 className={styles.title} id={titleID}>
             {title}
           </h2>
           {description ? <p className={styles.description}>{description}</p> : null}

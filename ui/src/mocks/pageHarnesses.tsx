@@ -19,6 +19,7 @@ import {
   updateMockUserStatus,
   type MockConsoleData
 } from "./consoleData";
+import { DashboardPage } from "../pages/DashboardPage";
 import { HealthPage } from "../pages/HealthPage";
 import { JobsPage } from "../pages/JobsPage";
 import type { JobEditorMode } from "../pages/jobs/JobEditor";
@@ -32,8 +33,13 @@ export function PageStoryFrame({ children }: { children: ReactNode }) {
 
 export function HealthPageHarness({ cells }: { cells: Cell[] }) {
   const [selectedCellID, setSelectedCellID] = useState<string | undefined>();
+  const selectedCell = cells.find((cell) => cell.id === selectedCellID);
 
-  return <HealthPage cells={cells} onSelectCell={setSelectedCellID} selectedCellID={selectedCellID} />;
+  if (selectedCell) {
+    return <DashboardPage cell={selectedCell} onOpenHealth={() => setSelectedCellID(undefined)} />;
+  }
+
+  return <HealthPage cells={cells} onSelectCell={setSelectedCellID} />;
 }
 
 export function JobsPageHarness({ namespacePath = "/" }: { namespacePath?: string }) {

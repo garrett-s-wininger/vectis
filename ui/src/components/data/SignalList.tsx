@@ -18,15 +18,18 @@ export type SignalItem = {
 
 type SignalListProps = {
   signals: SignalItem[];
+  variant?: "default" | "stretch";
 };
 
-export function SignalList({ signals }: SignalListProps) {
+export function SignalList({ signals, variant = "default" }: SignalListProps) {
   if (signals.length === 0) {
     return <p className={styles.empty}>No signals to show.</p>;
   }
 
+  const className = variant === "stretch" ? `${styles.root} ${styles.stretch}` : styles.root;
+
   return (
-    <ul className={styles.root}>
+    <ul className={className}>
       {signals.map((signal) => (
         <li className={styles.item} key={signal.id}>
           <span className={`${styles.marker} ${styles[`${signal.state}Marker`]}`} />

@@ -31,4 +31,10 @@ describe("SignalList", () => {
 
     expect(screen.getByText("No signals to show.")).toBeInTheDocument();
   });
+
+  it("can render as a stretched panel list", () => {
+    render(<SignalList signals={signals} variant="stretch" />);
+
+    expect(screen.getByRole("list")).toBeInTheDocument();
+  });
 });

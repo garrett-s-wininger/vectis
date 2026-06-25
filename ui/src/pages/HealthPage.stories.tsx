@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { createMockConsoleDataSnapshot } from "../mocks/consoleData";
 import { HealthPageHarness, PageStoryFrame } from "../mocks/pageHarnesses";
+import { DashboardPage } from "./DashboardPage";
 import { HealthPage } from "./HealthPage";
 
 const data = createMockConsoleDataSnapshot();
@@ -30,11 +31,7 @@ export const Cluster: Story = {
 };
 
 export const CellDrilldown: Story = {
-  args: {
-    cells: data.cells,
-    onSelectCell: () => undefined,
-    selectedCellID: "cell-edge"
-  }
+  render: () => <DashboardPage cell={data.cells.find((cell) => cell.id === "cell-edge") ?? data.cells[0]} />
 };
 
 export const OfflineCell: Story = {

@@ -20,4 +20,10 @@ describe("ProgressMeter", () => {
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
+
+  it("can render as a card surface", () => {
+    render(<ProgressMeter label="Worker utilization" value={83} variant="card" />);
+
+    expect(screen.getByRole("progressbar", { name: "Worker utilization" })).toBeInTheDocument();
+  });
 });

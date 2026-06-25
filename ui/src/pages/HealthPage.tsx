@@ -1,61 +1,27 @@
-import { Button } from "../components";
-import { DataTable, type DataTableColumn } from "../components";
-import { MetricCard } from "../components";
-import { PageHeader } from "../components";
+import { Activity, Gauge, Network, Server } from "lucide-react";
+import {
+  MetricCard,
+  OperationalFact,
+  PageHeader,
+  RecordList,
+  RecordListIdentity,
+  RecordListMeta,
+  RecordListSummary,
+  type RecordListRailTone
+} from "../components";
 import type { Cell } from "../domain/console";
 import { cellStatusLabel, cellStatusTone } from "../domain/consoleOptions";
 import { clusterHealthMetricsFor } from "../mocks/consoleData";
-import { DashboardPage } from "./DashboardPage";
-import { ResourceStatus, ResourceTitle } from "./shared";
+import { ResourceStatus } from "./shared";
+import styles from "./HealthPage.module.css";
 
 type HealthPageProps = {
   cells: Cell[];
   onSelectCell: (cellID: string) => void;
-  selectedCellID?: string;
 };
 
-export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPageProps) {
-  const selectedCell = cells.find((cell) => cell.id === selectedCellID);
+export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
   const metrics = clusterHealthMetricsFor(cells);
-  const columns: DataTableColumn<Cell>[] = [
-    {
-      header: "Cell",
-      cell: (cell) => <ResourceTitle subtitle={cell.region} title={cell.name} />
-    },
-    {
-      header: "Endpoint",
-      cell: (cell) => cell.endpoint
-    },
-    {
-      align: "end",
-      header: "Runs",
-      cell: (cell) => cell.activeRuns
-    },
-    {
-      align: "end",
-      header: "Queue",
-      cell: (cell) => cell.queueDepth
-    },
-    {
-      align: "end",
-      header: "Workers",
-      cell: (cell) => `${cell.workersOnline}/${cell.workersTotal}`
-    },
-    {
-      align: "end",
-      header: "Status",
-      cell: (cell) => <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>
-    },
-    {
-      align: "end",
-      header: "Actions",
-      cell: (cell) => (
-        <Button aria-label={`Inspect ${cell.name}`} onClick={() => onSelectCell(cell.id)}>
-          Inspect
-        </Button>
-      )
-    }
-  ];
 
   return (
     <>
@@ -64,7 +30,7 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
         eyebrow="Cluster"
         title="Health"
       />
-      <div className="metric-card-grid">
+      <div className={styles.metrics}>
         {metrics.map((metric) => (
           <MetricCard
             detail={metric.detail}
@@ -75,8 +41,45 @@ export function HealthPage({ cells, onSelectCell, selectedCellID }: HealthPagePr
           />
         ))}
       </div>
-      <DataTable columns={columns} emptyMessage="No cells registered." getRowKey={(cell) => cell.id} rows={cells} />
-      {selectedCell ? <DashboardPage cell={selectedCell} /> : null}
+      <RecordList
+        countLabel={cellCountLabel(cells.length)}
+        description="Gateway-visible execution topology"
+        emptyMessage="No cells registered."
+        items={cells.map((cell) => ({
+          actions: <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>,
+          ariaLabel: `Inspect ${cell.name}`,
+          content: (
+            <RecordListSummary>
+              <RecordListIdentity subtitle={cell.region} title={cell.name} />
+              <RecordListMeta featuredFirst>
+                <OperationalFact emphasis icon={Network} label="Endpoint" value={cell.endpoint} />
+                <OperationalFact icon={Activity} label="Runs" value={String(cell.activeRuns)} />
+                <OperationalFact icon={Gauge} label="Queue" value={String(cell.queueDepth)} />
+                <OperationalFact icon={Server} label="Workers" value={`${cell.workersOnline}/${cell.workersTotal}`} />
+              </RecordListMeta>
+            </RecordListSummary>
+          ),
+          key: cell.id,
+          onSelect: () => onSelectCell(cell.id),
+          railTone: cellRailTone(cell.status)
+        }))}
+        title="Cells"
+      />
     </>
   );
+}
+
+function cellCountLabel(count: number) {
+  return count === 1 ? "1 cell" : `${count} cells`;
+}
+
+function cellRailTone(status: Cell["status"]): RecordListRailTone {
+  switch (status) {
+    case "healthy":
+      return "success";
+    case "degraded":
+      return "warning";
+    case "offline":
+      return "danger";
+  }
 }

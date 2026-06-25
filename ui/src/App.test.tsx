@@ -229,7 +229,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Inspect edge" }));
 
-    expect(screen.getByRole("heading", { name: "edge dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "edge" })).toBeInTheDocument();
     expect(screen.getByText("Lag 2m 14s")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/health/cell-edge");
   });

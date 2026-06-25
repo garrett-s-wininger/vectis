@@ -7,15 +7,22 @@ export type ProgressMeterProps = {
   value: number;
   detail?: string;
   tone?: ProgressTone;
+  variant?: "default" | "card";
 };
 
 function clampPercent(value: number) {
   return Math.min(100, Math.max(0, value));
 }
 
-export function ProgressMeter({ label, value, detail, tone = "neutral" }: ProgressMeterProps) {
+export function ProgressMeter({ label, value, detail, tone = "neutral", variant = "default" }: ProgressMeterProps) {
   const percent = clampPercent(value);
-  const className = tone === "neutral" ? styles.root : `${styles.root} ${styles[tone]}`;
+  const className = [
+    styles.root,
+    tone === "neutral" ? "" : styles[tone],
+    variant === "card" ? styles.card : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className={className}>

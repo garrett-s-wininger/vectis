@@ -17,10 +17,16 @@ type Story = StoryObj<typeof meta>;
 
 export const ComponentHealth: Story = {};
 
+export const Stretch: Story = {
+  args: {
+    variant: "stretch"
+  }
+};
+
 export const InPanel: Story = {
   render: () => (
     <SectionPanel description="Service availability and capacity signals." title="Component health">
-      <SignalList signals={storySignals} />
+      <SignalList signals={storySignals} variant="stretch" />
     </SectionPanel>
   )
 };
