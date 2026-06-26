@@ -4259,6 +4259,61 @@ func TestRunsRepository_ListQueuedBeforeDispatchCutoffLimit(t *testing.T) {
 	}
 }
 
+func TestRunsRepository_ListQueuedBeforeDispatchCutoffSkipsActiveHotStateOwner(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	runs := dal.NewSQLRepositories(db).Runs()
+	ctx := context.Background()
+
+	activeRun, _, err := runs.CreateRun(ctx, "job-queued-hot-active", nil, 1)
+	if err != nil {
+		t.Fatalf("create active run: %v", err)
+	}
+
+	expiredRun, _, err := runs.CreateRun(ctx, "job-queued-hot-expired", nil, 1)
+	if err != nil {
+		t.Fatalf("create expired run: %v", err)
+	}
+
+	plainRun, _, err := runs.CreateRun(ctx, "job-queued-hot-plain", nil, 1)
+	if err != nil {
+		t.Fatalf("create plain run: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if err := runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      activeRun,
+		CellID:     "local",
+		OwnerID:    "orchestrator:registry:local",
+		OwnerEpoch: "epoch-active",
+		LeaseUntil: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert active hot-state owner: %v", err)
+	}
+
+	if err := runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      expiredRun,
+		CellID:     "local",
+		OwnerID:    "orchestrator:registry:local",
+		OwnerEpoch: "epoch-expired",
+		LeaseUntil: now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert expired hot-state owner: %v", err)
+	}
+
+	queued, err := runs.ListQueuedBeforeDispatchCutoff(ctx, now.Unix())
+	if err != nil {
+		t.Fatalf("list queued before dispatch cutoff: %v", err)
+	}
+
+	if len(queued) != 2 {
+		t.Fatalf("expected two queued runs, got %+v", queued)
+	}
+
+	if queued[0].RunID != expiredRun || queued[1].RunID != plainRun {
+		t.Fatalf("expected expired and plain queued runs, got %+v", queued)
+	}
+}
+
 func TestRunsRepository_RequestRunCancel_SetsDurableIntent(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
@@ -4518,6 +4573,11 @@ func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
 		t.Fatalf("create run B: %v", err)
 	}
 
+	runC, _, err := runs.CreateRun(ctx, "job-orphan-hot-owner", nil, 1)
+	if err != nil {
+		t.Fatalf("create run C: %v", err)
+	}
+
 	leaseExpired := time.Now().Add(-1 * time.Minute).Unix()
 	leaseFuture := time.Now().Add(10 * time.Minute).Unix()
 
@@ -4537,6 +4597,24 @@ func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
 		t.Fatalf("seed run B running active lease: %v", err)
 	}
 
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_runs
+		SET status = 'running', lease_owner = 'worker-c', lease_until = ?
+		WHERE run_id = ?
+	`, leaseExpired, runC); err != nil {
+		t.Fatalf("seed run C running expired lease: %v", err)
+	}
+
+	if err := runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      runC,
+		CellID:     "local",
+		OwnerID:    "orchestrator:registry:local",
+		OwnerEpoch: "epoch-c",
+		LeaseUntil: time.Unix(leaseFuture, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("upsert run C hot-state owner: %v", err)
+	}
+
 	orphaned, err := runs.MarkExpiredRunningAsOrphaned(ctx, time.Now().Unix())
 	if err != nil {
 		t.Fatalf("MarkExpiredRunningAsOrphaned: %v", err)
@@ -4546,12 +4624,15 @@ func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
 		t.Fatalf("expected only runA orphaned, got %+v", orphaned)
 	}
 
-	var statusA, statusB string
+	var statusA, statusB, statusC string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runA).Scan(&statusA); err != nil {
 		t.Fatalf("scan run A status: %v", err)
 	}
 	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runB).Scan(&statusB); err != nil {
 		t.Fatalf("scan run B status: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runC).Scan(&statusC); err != nil {
+		t.Fatalf("scan run C status: %v", err)
 	}
 
 	if statusA != "orphaned" {
@@ -4559,6 +4640,9 @@ func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
 	}
 	if statusB != "running" {
 		t.Fatalf("expected run B running, got %q", statusB)
+	}
+	if statusC != "running" {
+		t.Fatalf("expected run C running while hot-state owner is active, got %q", statusC)
 	}
 }
 

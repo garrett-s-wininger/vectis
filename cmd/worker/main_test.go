@@ -310,6 +310,62 @@ func TestWorkerMirrorsHotStateSecretExecutionClaim(t *testing.T) {
 	if plainStore.LastExecutionRenewID != "" {
 		t.Fatalf("plain hot-state execution should not renew mirror, got %q", plainStore.LastExecutionRenewID)
 	}
+
+	rootStore := &mocks.MockRunsRepository{}
+	rootWorker := &worker{
+		runCtx:        context.Background(),
+		workerID:      "worker-root",
+		choreographer: newLocalOrchestratorChoreographer(t),
+		store:         rootStore,
+	}
+
+	rootEnv := &cell.ExecutionEnvelope{
+		RunID:       "run-root",
+		TaskID:      "run-root:root",
+		TaskKey:     dal.RootTaskKey,
+		ExecutionID: "execution-root",
+		CellID:      "local",
+	}
+
+	if err := rootWorker.mirrorExecutionClaim(ctx, &api.Job{}, rootEnv, "claim-root", leaseUntil); err != nil {
+		t.Fatalf("mirror root hot-state execution claim: %v", err)
+	}
+
+	if rootStore.LastMirroredExecID != "" {
+		t.Fatalf("root hot-state execution should not mirror, got %q", rootStore.LastMirroredExecID)
+	}
+
+	if err := rootWorker.renewMirroredExecutionClaim(ctx, &api.Job{}, rootEnv, "claim-root", leaseUntil.Add(time.Minute)); err != nil {
+		t.Fatalf("renew root hot-state mirrored claim: %v", err)
+	}
+
+	if rootStore.LastExecutionRenewID != "" {
+		t.Fatalf("root hot-state execution should not renew mirror, got %q", rootStore.LastExecutionRenewID)
+	}
+
+	sqlStore := &mocks.MockRunsRepository{}
+	sqlWorker := &worker{
+		runCtx:        context.Background(),
+		workerID:      "worker-sql",
+		choreographer: sqlExecutionChoreographer{runs: sqlStore},
+		store:         sqlStore,
+	}
+
+	if err := sqlWorker.mirrorExecutionClaim(ctx, &api.Job{}, rootEnv, "claim-sql", leaseUntil); err != nil {
+		t.Fatalf("mirror SQL execution claim: %v", err)
+	}
+
+	if sqlStore.LastMirroredExecID != "execution-root" || sqlStore.LastMirroredToken != "claim-sql" {
+		t.Fatalf("SQL execution mirror = id %q token %q", sqlStore.LastMirroredExecID, sqlStore.LastMirroredToken)
+	}
+
+	if err := sqlWorker.renewMirroredExecutionClaim(ctx, &api.Job{}, rootEnv, "claim-sql", leaseUntil.Add(time.Minute)); err != nil {
+		t.Fatalf("renew SQL mirrored claim: %v", err)
+	}
+
+	if sqlStore.LastExecutionRenewID != "execution-root" {
+		t.Fatalf("SQL execution renew id = %q, want execution-root", sqlStore.LastExecutionRenewID)
+	}
 }
 
 func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T) {
@@ -1796,6 +1852,19 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 		t.Fatalf("run status: got %q, want %q", runStatus, dal.RunStatusQueued)
 	}
 
+	owner, found, err := runs.GetRunHotStateOwner(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run hot-state owner: %v", err)
+	}
+
+	if !found {
+		t.Fatal("expected run hot-state owner after root fanout")
+	}
+
+	if owner.RunID != runID || owner.OwnerID == "" || owner.OwnerEpoch == "" || !owner.LeaseUntil.After(time.Now()) {
+		t.Fatalf("run hot-state owner: %+v", owner)
+	}
+
 	reqs := queue.GetJobRequests()
 	if len(reqs) != 1 {
 		t.Fatalf("queued continuation requests: got %d, want 1", len(reqs))
@@ -2030,6 +2099,17 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 
 	if runStatus != dal.RunStatusQueued {
 		t.Fatalf("run status after waiting reduction: got %q, want %q", runStatus, dal.RunStatusQueued)
+	}
+
+	owner, found, err := runs.GetRunHotStateOwner(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run hot-state owner after waiting reduction: %v", err)
+	}
+	if !found {
+		t.Fatal("expected run hot-state owner after waiting reduction")
+	}
+	if owner.RunID != runID || owner.OwnerID == "" || owner.OwnerEpoch == "" || !owner.LeaseUntil.After(time.Now()) {
+		t.Fatalf("run hot-state owner after waiting reduction: %+v", owner)
 	}
 
 	reqs := queue.GetJobRequests()

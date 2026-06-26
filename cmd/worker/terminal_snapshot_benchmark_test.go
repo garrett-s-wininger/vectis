@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"vectis/internal/orchestrator"
 )
 
+var terminalSnapshotBenchmarkSequence atomic.Uint64
+
 func BenchmarkWorker_PersistTerminalExecutionSnapshot(b *testing.B) {
 	for _, totalTasks := range []int{1000, 5000, 10000, 25000} {
 		b.Run(fmt.Sprintf("total_tasks_%05d", totalTasks), func(b *testing.B) {
@@ -28,13 +31,135 @@ func BenchmarkWorker_PersistTerminalExecutionSnapshot(b *testing.B) {
 }
 
 func BenchmarkWorker_PersistTerminalExecutionSnapshot_ConcurrentShallowRuns(b *testing.B) {
-	for _, totalTasks := range []int{10, 25, 50} {
+	for _, totalTasks := range []int{1, 5, 10, 25, 50} {
 		for _, concurrency := range []int{1, 8, 32} {
 			b.Run(fmt.Sprintf("total_tasks_%05d/concurrency_%03d", totalTasks, concurrency), func(b *testing.B) {
 				benchmarkWorkerPersistTerminalExecutionSnapshotConcurrent(b, totalTasks, concurrency)
 			})
 		}
 	}
+}
+
+func BenchmarkWorker_MirrorExecutionClaim(b *testing.B) {
+	ctx := context.Background()
+
+	b.Run("orchestrator_root_hot_state", func(b *testing.B) {
+		db := newTerminalSnapshotBenchmarkDB(b)
+		runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+		worker := newTerminalSnapshotBenchmarkWorker(ctx, runs, "worker-mirror-hot-state")
+		env := &cell.ExecutionEnvelope{
+			RunID:       "run-hot-state",
+			TaskID:      "run-hot-state:root",
+			TaskKey:     dal.RootTaskKey,
+			ExecutionID: "execution-hot-state-root",
+			CellID:      "local",
+		}
+		leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		start := time.Now()
+
+		for i := 0; i < b.N; i++ {
+			if err := worker.mirrorExecutionClaim(ctx, &api.Job{}, env, "claim-hot-state", leaseUntil); err != nil {
+				b.Fatalf("mirror hot-state root claim: %v", err)
+			}
+		}
+
+		reportBenchmarkRate(b, "claim_mirrors/s", b.N, time.Since(start))
+	})
+
+	b.Run("sql_root_mirror", func(b *testing.B) {
+		db := newTerminalSnapshotBenchmarkDB(b)
+		runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+		worker := &worker{
+			runCtx:        ctx,
+			logger:        interfaces.NewLogger("worker-mirror-sql"),
+			workerID:      "worker-mirror-sql",
+			store:         runs,
+			choreographer: sqlExecutionChoreographer{runs: runs},
+		}
+
+		envs := make([]*cell.ExecutionEnvelope, 0, b.N)
+		for i := 0; i < b.N; i++ {
+			envs = append(envs, terminalSnapshotBenchmarkRootEnvelope(b, ctx, runs, i))
+		}
+		leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		start := time.Now()
+
+		for i, env := range envs {
+			if err := worker.mirrorExecutionClaim(ctx, &api.Job{}, env, fmt.Sprintf("claim-sql-%d", i), leaseUntil); err != nil {
+				b.Fatalf("mirror SQL root claim: %v", err)
+			}
+		}
+
+		reportBenchmarkRate(b, "claim_mirrors/s", b.N, time.Since(start))
+	})
+}
+
+func BenchmarkWorker_RenewMirroredExecutionClaim(b *testing.B) {
+	ctx := context.Background()
+
+	b.Run("orchestrator_root_hot_state", func(b *testing.B) {
+		db := newTerminalSnapshotBenchmarkDB(b)
+		runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+		worker := newTerminalSnapshotBenchmarkWorker(ctx, runs, "worker-renew-hot-state")
+		env := &cell.ExecutionEnvelope{
+			RunID:       "run-hot-state",
+			TaskID:      "run-hot-state:root",
+			TaskKey:     dal.RootTaskKey,
+			ExecutionID: "execution-hot-state-root",
+			CellID:      "local",
+		}
+		leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		start := time.Now()
+
+		for i := 0; i < b.N; i++ {
+			if err := worker.renewMirroredExecutionClaim(ctx, &api.Job{}, env, "claim-hot-state", leaseUntil); err != nil {
+				b.Fatalf("renew hot-state root claim: %v", err)
+			}
+		}
+
+		reportBenchmarkRate(b, "claim_renews/s", b.N, time.Since(start))
+	})
+
+	b.Run("sql_root_renew", func(b *testing.B) {
+		db := newTerminalSnapshotBenchmarkDB(b)
+		runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+		worker := &worker{
+			runCtx:        ctx,
+			logger:        interfaces.NewLogger("worker-renew-sql"),
+			workerID:      "worker-renew-sql",
+			store:         runs,
+			choreographer: sqlExecutionChoreographer{runs: runs},
+		}
+
+		env := terminalSnapshotBenchmarkRootEnvelope(b, ctx, runs, 0)
+		claimToken := "claim-sql-renew"
+		leaseUntil := time.Now().Add(dal.DefaultLeaseTTL)
+		if err := worker.mirrorExecutionClaim(ctx, &api.Job{}, env, claimToken, leaseUntil); err != nil {
+			b.Fatalf("seed SQL root claim: %v", err)
+		}
+		renewUntil := leaseUntil.Add(dal.DefaultLeaseTTL)
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		start := time.Now()
+
+		for i := 0; i < b.N; i++ {
+			if err := worker.renewMirroredExecutionClaim(ctx, &api.Job{}, env, claimToken, renewUntil); err != nil {
+				b.Fatalf("renew SQL root claim: %v", err)
+			}
+		}
+
+		reportBenchmarkRate(b, "claim_renews/s", b.N, time.Since(start))
+	})
 }
 
 func benchmarkWorkerPersistTerminalExecutionSnapshot(b *testing.B, totalTasks int) {
@@ -224,7 +349,7 @@ func terminalSnapshotBenchmarkEnvInt(name string, defaultValue int) int {
 func terminalSnapshotBenchmarkFixture(b *testing.B, ctx context.Context, runs dal.RunsRepository, totalTasks, runIndex int) dal.ExecutionFinalizationResult {
 	b.Helper()
 
-	jobID := fmt.Sprintf("job-terminal-snapshot-%d", runIndex)
+	jobID := terminalSnapshotBenchmarkJobID("job-terminal-snapshot", runIndex)
 	runID, _, err := runs.CreateRun(ctx, jobID, &runIndex, 1)
 	if err != nil {
 		b.Fatalf("create benchmark run %d: %v", runIndex, err)
@@ -271,6 +396,29 @@ func terminalSnapshotBenchmarkFixture(b *testing.B, ctx context.Context, runs da
 	}
 }
 
+func terminalSnapshotBenchmarkRootEnvelope(b *testing.B, ctx context.Context, runs dal.RunsRepository, runIndex int) *cell.ExecutionEnvelope {
+	b.Helper()
+
+	jobID := terminalSnapshotBenchmarkJobID("job-root-claim", runIndex)
+	runID, _, err := runs.CreateRun(ctx, jobID, &runIndex, 1)
+	if err != nil {
+		b.Fatalf("create root claim run %d: %v", runIndex, err)
+	}
+
+	root, err := runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		b.Fatalf("get root claim execution %s: %v", runID, err)
+	}
+
+	return &cell.ExecutionEnvelope{
+		RunID:       root.RunID,
+		TaskID:      root.TaskID,
+		TaskKey:     root.TaskKey,
+		ExecutionID: root.ExecutionID,
+		CellID:      root.CellID,
+	}
+}
+
 func terminalSnapshotRecordFromDispatch(dispatch dal.ExecutionDispatchRecord) dal.TaskExecutionRecord {
 	return dal.TaskExecutionRecord{
 		RunID:         dispatch.RunID,
@@ -306,4 +454,17 @@ func (terminalSnapshotBenchmarkChoreographer) CompleteExecution(context.Context,
 
 func (terminalSnapshotBenchmarkChoreographer) RequiresDurableTaskRows() bool {
 	return false
+}
+
+func reportBenchmarkRate(b *testing.B, name string, n int, elapsed time.Duration) {
+	b.Helper()
+	if elapsed <= 0 {
+		return
+	}
+
+	b.ReportMetric(float64(n)/elapsed.Seconds(), name)
+}
+
+func terminalSnapshotBenchmarkJobID(prefix string, runIndex int) string {
+	return fmt.Sprintf("%s-%d-%d", prefix, terminalSnapshotBenchmarkSequence.Add(1), runIndex)
 }

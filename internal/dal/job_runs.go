@@ -1402,6 +1402,12 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 			AND (jr.lease_until IS NULL OR jr.lease_until < ?)
 			AND NOT EXISTS (
 				SELECT 1
+				FROM run_hot_state_owners h
+				WHERE h.run_id = jr.run_id
+					AND h.lease_until >= ?
+			)
+			AND NOT EXISTS (
+				SELECT 1
 				FROM segment_executions se
 				WHERE se.run_id = jr.run_id
 					AND se.status IN (?, ?)
@@ -1409,7 +1415,7 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 					AND se.lease_until >= ?
 			)
 		ORDER BY id ASC
-	`), cutoffUnix, ExecutionStatusAccepted, ExecutionStatusRunning, cutoffUnix)
+	`), cutoffUnix, cutoffUnix, ExecutionStatusAccepted, ExecutionStatusRunning, cutoffUnix)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)
@@ -1442,13 +1448,19 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 				AND (lease_until IS NULL OR lease_until < ?)
 				AND NOT EXISTS (
 					SELECT 1
+					FROM run_hot_state_owners h
+					WHERE h.run_id = job_runs.run_id
+						AND h.lease_until >= ?
+				)
+				AND NOT EXISTS (
+					SELECT 1
 					FROM segment_executions se
 					WHERE se.run_id = job_runs.run_id
 						AND se.status IN (?, ?)
 						AND se.lease_until IS NOT NULL
 						AND se.lease_until >= ?
 				)
-		`), OrphanReasonLeaseExpired, runID, cutoffUnix, ExecutionStatusAccepted, ExecutionStatusRunning, cutoffUnix)
+		`), OrphanReasonLeaseExpired, runID, cutoffUnix, cutoffUnix, ExecutionStatusAccepted, ExecutionStatusRunning, cutoffUnix)
 
 		if err != nil {
 			return nil, normalizeSQLError(err)
@@ -4499,8 +4511,14 @@ func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(ctx context.Context, 
 		FROM job_runs
 		WHERE status = 'queued'
 			AND (last_dispatched_at IS NULL OR last_dispatched_at < ?)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM run_hot_state_owners h
+				WHERE h.run_id = job_runs.run_id
+					AND h.lease_until >= ?
+			)
 		ORDER BY id ASC`
-	args := []any{cutoffUnix}
+	args := []any{cutoffUnix, cutoffUnix}
 	if limit > 0 {
 		query += " LIMIT ?"
 		args = append(args, limit)

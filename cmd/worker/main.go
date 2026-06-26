@@ -634,6 +634,18 @@ func (w *worker) executionUsesHotStateOnly(env *cell.ExecutionEnvelope) bool {
 		!w.executionChoreographer().RequiresDurableTaskRows()
 }
 
+func (w *worker) executionRequiresDurableClaim(job *api.Job, env *cell.ExecutionEnvelope) bool {
+	if env == nil {
+		return false
+	}
+
+	if w.executionChoreographer().RequiresDurableTaskRows() {
+		return true
+	}
+
+	return executionNeedsDurableSecretClaim(job, env)
+}
+
 func executionNeedsDurableSecretClaim(job *api.Job, env *cell.ExecutionEnvelope) bool {
 	return job != nil && env != nil && len(secrets.ReferencesForTask(job, env.TaskKey)) > 0
 }
@@ -2812,7 +2824,7 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, job *api.Job, env *ce
 		return nil
 	}
 
-	if w.executionUsesHotStateOnly(env) && !executionNeedsDurableSecretClaim(job, env) {
+	if !w.executionRequiresDurableClaim(job, env) {
 		trace.SpanFromContext(ctx).AddEvent("execution.claim.mirror_skipped_hot_state", trace.WithAttributes(executionEnvelopeAttrs(env)...))
 		return nil
 	}
@@ -2859,11 +2871,15 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, job *api.Job, env *ce
 }
 
 func (w *worker) renewMirroredExecutionClaim(ctx context.Context, job *api.Job, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time) error {
-	if w.store == nil || env == nil || strings.TrimSpace(claimToken) == "" {
+	if w.store == nil || env == nil {
 		return nil
 	}
 
-	if w.executionUsesHotStateOnly(env) && !executionNeedsDurableSecretClaim(job, env) {
+	if !w.executionRequiresDurableClaim(job, env) {
+		return nil
+	}
+
+	if strings.TrimSpace(claimToken) == "" {
 		return nil
 	}
 

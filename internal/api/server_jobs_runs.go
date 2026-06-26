@@ -1920,10 +1920,21 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
 	}
 
+	effectiveStatus, err := s.effectiveRunStatus(ctx, rec, time.Now())
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
 	resp := runRow{
 		RunID:                rec.RunID,
 		RunIndex:             rec.RunIndex,
-		Status:               rec.Status,
+		Status:               effectiveStatus,
 		OrphanReason:         rec.OrphanReason,
 		FailureCode:          rec.FailureCode,
 		CreatedAt:            rec.CreatedAt,
@@ -1941,7 +1952,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerPayloadHash:   rec.TriggerPayloadHash,
 		RequestedCells:       rec.RequestedCells,
 		ExecutionPayloadHash: rec.ExecutionPayloadHash,
-		NextAction:           runNextAction(rec.Status, taskCompletionSummary, pendingTaskContinuation, latestFailedSecurityEvent != nil),
+		NextAction:           runNextAction(effectiveStatus, taskCompletionSummary, pendingTaskContinuation, latestFailedSecurityEvent != nil),
 		DispatchSummary:      buildDispatchSummary(dispatchEvents),
 		DispatchEvents:       []dispatchEventRow{},
 	}
@@ -2110,6 +2121,24 @@ func (s *APIServer) GetRunDefinition(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write(buf.Bytes())
+}
+
+func (s *APIServer) effectiveRunStatus(ctx context.Context, rec dal.RunRecord, now time.Time) (string, error) {
+	status := rec.Status
+	if status != dal.RunStatusQueued && status != dal.RunStatusRunning {
+		return status, nil
+	}
+
+	owner, found, err := s.runs.GetRunHotStateOwner(ctx, rec.RunID)
+	if err != nil {
+		return "", err
+	}
+
+	if found && owner.LeaseUntil.After(now.UTC()) {
+		return dal.RunStatusRunning, nil
+	}
+
+	return status, nil
 }
 
 const (

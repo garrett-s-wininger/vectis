@@ -2428,6 +2428,93 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	}
 }
 
+func TestAPIServer_GetRun_ActiveHotStateOwnerReportsRunning(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	ctx := context.Background()
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "node-1",
+			"uses": "builtins/shell",
+			"with": map[string]string{
+				"command": "echo hello",
+			},
+		},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("RunJob: expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var runResp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &runResp); err != nil {
+		t.Fatalf("parse run response: %v", err)
+	}
+
+	waitForNEnqueuedJobs(t, queueService, 1)
+
+	runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+	if err := runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      runResp.RunID,
+		CellID:     "local",
+		OwnerID:    "orchestrator:registry:local",
+		OwnerEpoch: "epoch-active",
+		LeaseUntil: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert active hot-state owner: %v", err)
+	}
+
+	assertGetRunStatus := func(want string) {
+		t.Helper()
+
+		getReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runResp.RunID, nil)
+		getReq.SetPathValue("id", runResp.RunID)
+		getRec := httptest.NewRecorder()
+
+		server.GetRun(getRec, getReq)
+
+		if getRec.Code != http.StatusOK {
+			t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, getRec.Code, getRec.Body.String())
+		}
+
+		var got struct {
+			Status string `json:"status"`
+		}
+
+		if err := json.Unmarshal(getRec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("parse get run response: %v", err)
+		}
+
+		if got.Status != want {
+			t.Fatalf("status: got %q, want %q", got.Status, want)
+		}
+	}
+
+	assertGetRunStatus(dal.RunStatusRunning)
+
+	if err := runs.UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      runResp.RunID,
+		CellID:     "local",
+		OwnerID:    "orchestrator:registry:local",
+		OwnerEpoch: "epoch-expired",
+		LeaseUntil: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert expired hot-state owner: %v", err)
+	}
+
+	assertGetRunStatus(dal.RunStatusQueued)
+}
+
 func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
