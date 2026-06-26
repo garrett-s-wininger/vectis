@@ -24,7 +24,7 @@ The built-in registry resolves the `uses` value from a job node to one of these 
 
 Actions that need to execute commands should use the worker-provided execution path instead of creating host child processes directly. The current host runner preserves existing behavior, but [ADR 0009](./architecture-decisions/0009-worker-execution-containment-providers.md) makes the runner boundary the path for future container and VM providers.
 
-Custom user actions should not be added as new builtins unless they are meant to ship with Vectis itself. The extension point for user-owned actions is the action registry: it resolves friendly names such as `examples/greet@v1` to versioned descriptors with immutable digests before worker execution. See [ADR 0010: Versioned action registry](./architecture-decisions/0010-versioned-action-registry.md) for the architectural contract.
+Custom user actions should not be added as new builtins unless they are meant to ship with Vectis itself. The extension point for user-owned actions is the action registry: it resolves friendly names such as `examples/greet@v1` to versioned descriptors with immutable digests before worker execution. Standard provider integrations that ship with this repository but are not Vectis core belong under `extensions/actions/` once their runtime/package shape is reusable. See [ADR 0010: Versioned action registry](./architecture-decisions/0010-versioned-action-registry.md) for the architectural contract.
 
 ## Local Descriptor Registry
 

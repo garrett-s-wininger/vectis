@@ -4,6 +4,13 @@ The worker-core boundary is the supported extension point for bringing an extern
 
 The Go SDK lives in `sdk/workercore`. It wraps the generated WorkerCore gRPC API and the shell callback API so a provider does not need to hand-roll protobuf conversion, Unix-socket serving, log streaming, or artifact publishing.
 
+The worker-core protocol is an extension contract, not an implementation
+detail. Go providers should import `sdk/workercore` and generated message types
+from `api/gen/go`. Non-Go providers should generate from `api/proto/worker_core.proto`
+and its imports, currently `api/proto/common.proto` and `api/proto/secrets.proto`.
+Changes to those protocol files follow the repository's gRPC compatibility
+rules.
+
 ## When To Use It
 
 Use a worker core when Vectis is the source of truth for the work and the provider is the place where that work runs. Use an action when the provider is the source of truth for the side effect.
@@ -100,7 +107,7 @@ return server.Serve(listener)
 
 The repository includes a minimal runnable example in
 `examples/worker-core-external` and a Kubernetes Job-backed executable-task
-provider in `examples/worker-core-kubernetes`.
+provider in `extensions/worker-core/kubernetes`.
 
 ## Conformance
 

@@ -2,7 +2,11 @@
 
 Hand-written protos under [`proto/`](proto/); **`mage proto`** regenerates [`gen/go/`](gen/go/) — never edit generated files.
 
-This directory is for internal gRPC contracts and generated protobuf code. The public HTTP API lives in [`../internal/api/`](../internal/api/) and is documented in [`../website/docs/using/api-reference.md`](../website/docs/using/api-reference.md).
+This directory is for gRPC contracts and generated protobuf code. Most services
+are internal Vectis component contracts. Worker-core protos are also an
+extension-facing contract consumed by `sdk/workercore` providers. The public
+HTTP API lives in [`../internal/api/`](../internal/api/) and is documented in
+[`../website/docs/using/api-reference.md`](../website/docs/using/api-reference.md).
 
 **Codegen:** `mage proto` invokes local `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc`. Keep each `.proto` file's `go_package` option aligned with `vectis/api/gen/go;api`.
 
@@ -20,6 +24,7 @@ This directory is for internal gRPC contracts and generated protobuf code. The p
 | [`orchestrator.proto`](proto/orchestrator.proto) | `OrchestratorService` | `internal/orchestrator/` |
 | [`registry.proto`](proto/registry.proto) | `RegistryService` | `internal/registry/` |
 | [`worker_control.proto`](proto/worker_control.proto) | `WorkerControlService` | `cmd/worker/` |
+| [`worker_core.proto`](proto/worker_core.proto) | `WorkerCoreService`, `WorkerCoreShellService` | `sdk/workercore/`, `internal/workercore/` |
 | [`secrets.proto`](proto/secrets.proto) | `SecretsService` | `internal/secrets/` |
 
 ## Clients
@@ -39,3 +44,7 @@ This directory is for internal gRPC contracts and generated protobuf code. The p
 - Prefer unary RPCs unless streaming is required for backpressure or partial results.
 - Use `common.Empty` for messages with no fields.
 - Keep `go_package` explicit and stable so raw `protoc` can regenerate without network-backed tooling.
+- Treat `worker_core.proto`, plus its `common.proto` and `secrets.proto` import
+  surface, as consumable by extension authors. Prefer additive changes and
+  document compatibility-impacting protocol changes in
+  [`../website/docs/developing/worker-core-sdk.md`](../website/docs/developing/worker-core-sdk.md).

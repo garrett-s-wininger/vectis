@@ -19,7 +19,7 @@ COPY api/ ./api/
 COPY cmd/ ./cmd/
 COPY deploy/ ./deploy/
 COPY examples/actions/ ./examples/actions/
-COPY examples/worker-core-kubernetes/ ./examples/worker-core-kubernetes/
+COPY extensions/ ./extensions/
 COPY internal/ ./internal/
 COPY sdk/ ./sdk/
 COPY magefile.go mage_*.go ./

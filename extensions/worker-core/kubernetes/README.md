@@ -1,7 +1,7 @@
-# Kubernetes Worker Core Example
+# Kubernetes Worker Core Extension
 
-This example implements the Vectis worker-core contract by running a claimed
-leaf executable task as a Kubernetes `Job`.
+This standard extension implements the Vectis worker-core contract by running a
+claimed leaf executable task as a Kubernetes `Job`.
 
 It is intentionally small:
 
@@ -21,7 +21,7 @@ It is intentionally small:
 - `CancelTask` is idempotent and deletes the derived Kubernetes Job.
 
 Unsupported task shapes fail explicitly with `kubernetes.unsupported_task`.
-This example does not translate full Vectis action graphs, dataflow-bound
+This extension does not translate full Vectis action graphs, dataflow-bound
 inputs, artifacts, secret delivery, local-only actions, action source files, or
 non-process custom runtimes into Kubernetes-native objects.
 
@@ -30,7 +30,7 @@ non-process custom runtimes into Kubernetes-native objects.
 Start the core:
 
 ```sh
-go run ./examples/worker-core-kubernetes \
+go run ./extensions/worker-core/kubernetes \
   --socket /tmp/vectis-worker-core-kubernetes.sock \
   --namespace vectis-work \
   --image busybox:1.36
