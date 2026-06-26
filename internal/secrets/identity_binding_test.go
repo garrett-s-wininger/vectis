@@ -3,8 +3,6 @@ package secrets
 import (
 	"errors"
 	"testing"
-
-	"vectis/internal/workloadidentity"
 )
 
 func validResolveIdentityRequest() ResolveRequest {
@@ -13,7 +11,7 @@ func validResolveIdentityRequest() ResolveRequest {
 		RunID:        "run-1",
 		ExecutionID:  "execution-1",
 		PeerSPIFFEID: spiffeID,
-		Workload: &workloadidentity.Identity{
+		Workload: &WorkloadIdentity{
 			SPIFFEID:      spiffeID,
 			TrustDomain:   "prod.example",
 			NamespacePath: "/team-a",
@@ -21,7 +19,7 @@ func validResolveIdentityRequest() ResolveRequest {
 			JobID:         "job-1",
 			RunID:         "run-1",
 			ExecutionID:   "execution-1",
-			X509SVID: &workloadidentity.X509SVID{
+			X509SVID: &X509SVID{
 				SPIFFEID: spiffeID,
 			},
 		},

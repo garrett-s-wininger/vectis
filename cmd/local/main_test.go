@@ -13,11 +13,11 @@ import (
 
 	"github.com/spf13/viper"
 
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/localpki"
-	"vectis/internal/secrets"
 )
 
 func resetLocalTestConfig(t *testing.T) {
@@ -90,7 +90,7 @@ func TestEnsureLocalSecretsKeys(t *testing.T) {
 		t.Fatalf("key file permissions = %o, want no group/other bits", info.Mode().Perm())
 	}
 
-	if _, err := secrets.LoadEncryptedFSKeyFile(keyFile); err != nil {
+	if _, err := encryptedfs.LoadEncryptedFSKeyFile(keyFile); err != nil {
 		t.Fatalf("LoadEncryptedFSKeyFile: %v", err)
 	}
 }

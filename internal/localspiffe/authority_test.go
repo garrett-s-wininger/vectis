@@ -14,6 +14,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/localpki"
 	secretstore "vectis/internal/secrets"
 	"vectis/internal/spire"
@@ -132,11 +133,11 @@ func TestAuthoritySVIDResolvesEncryptedFSSecretOverGRPC(t *testing.T) {
 
 	root := t.TempDir()
 	key := []byte("0123456789abcdef0123456789abcdef")
-	if err := secretstore.WriteEncryptedFSSecretFile(root, "encryptedfs://team/token", []byte("secret-value"), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(root, "encryptedfs://team/token", []byte("secret-value"), key); err != nil {
 		t.Fatalf("WriteEncryptedFSSecretFile: %v", err)
 	}
 
-	provider, err := secretstore.NewEncryptedFSProvider(root, secretstore.WithEncryptedFSKey(key))
+	provider, err := encryptedfs.NewEncryptedFSProvider(root, encryptedfs.WithEncryptedFSKey(key))
 	if err != nil {
 		t.Fatalf("NewEncryptedFSProvider: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestAuthoritySVIDResolvesEncryptedFSSecretOverGRPC(t *testing.T) {
 	}
 
 	file := bundle.Files[0]
-	if file.ID != "token" || file.Path != "secrets/token" || string(file.Data) != "secret-value" || file.Mode != secretstore.DefaultFileMode {
+	if file.ID != "token" || file.Path != "secrets/token" || string(file.Data) != "secret-value" || file.Mode != encryptedfs.DefaultFileMode {
 		t.Fatalf("file = %+v", file)
 	}
 }
@@ -214,11 +215,11 @@ func TestAuthoritySVIDRejectsUnauthorizedSecretResolveOverGRPC(t *testing.T) {
 
 	root := t.TempDir()
 	key := []byte("0123456789abcdef0123456789abcdef")
-	if err := secretstore.WriteEncryptedFSSecretFile(root, "encryptedfs://team/token", []byte("secret-value"), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(root, "encryptedfs://team/token", []byte("secret-value"), key); err != nil {
 		t.Fatalf("WriteEncryptedFSSecretFile: %v", err)
 	}
 
-	provider, err := secretstore.NewEncryptedFSProvider(root, secretstore.WithEncryptedFSKey(key))
+	provider, err := encryptedfs.NewEncryptedFSProvider(root, encryptedfs.WithEncryptedFSKey(key))
 	if err != nil {
 		t.Fatalf("NewEncryptedFSProvider: %v", err)
 	}

@@ -2,76 +2,69 @@
 package secrets
 
 import (
-	"context"
-	"io/fs"
+	"crypto/x509"
 	"strings"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/workloadidentity"
+	sdksecrets "vectis/sdk/secrets"
 )
 
 const (
-	DeliveryTypeFile DeliveryType = "file"
+	DeliveryTypeFile = sdksecrets.DeliveryTypeFile
 
-	DefaultFileMode fs.FileMode = 0o400
-	rootTaskKey     string      = "root"
+	DefaultFileMode       = sdksecrets.DefaultFileMode
+	DefaultMaxSecretBytes = sdksecrets.DefaultMaxSecretBytes
+
+	providerKindMulti   = sdksecrets.ProviderKindMulti
+	providerKindMixed   = sdksecrets.ProviderKindMixed
+	providerKindUnknown = sdksecrets.ProviderKindUnknown
+
+	rootTaskKey string = "root"
 )
 
-type DeliveryType string
+var (
+	ErrNotFound = sdksecrets.ErrNotFound
+	ErrDenied   = sdksecrets.ErrDenied
+)
 
-type Reference struct {
-	ID       string
-	Ref      string
-	Delivery Delivery
-	TaskKeys []string
-}
+type DeliveryType = sdksecrets.DeliveryType
+type Reference = sdksecrets.Reference
+type Delivery = sdksecrets.Delivery
+type ResolveRequest = sdksecrets.ResolveRequest
+type WorkloadIdentity = sdksecrets.WorkloadIdentity
+type X509SVID = sdksecrets.X509SVID
+type ExecutionScope = sdksecrets.ExecutionScope
+type FileMaterial = sdksecrets.FileMaterial
+type Bundle = sdksecrets.Bundle
+type Provider = sdksecrets.Provider
+type KindedProvider = sdksecrets.KindedProvider
+type RequestKindedProvider = sdksecrets.RequestKindedProvider
 
-type Delivery struct {
-	Type DeliveryType
-	Path string
-}
+func WorkloadIdentityFromInternal(identity *workloadidentity.Identity) *WorkloadIdentity {
+	if identity == nil {
+		return nil
+	}
 
-type ResolveRequest struct {
-	RunID               string
-	ExecutionID         string
-	ExecutionClaimToken string
-	PeerSPIFFEID        string
-	Workload            *workloadidentity.Identity
-	Scope               ExecutionScope
-	Secrets             []Reference
-}
+	out := &WorkloadIdentity{
+		SPIFFEID:      identity.SPIFFEID,
+		TrustDomain:   identity.TrustDomain,
+		NamespacePath: identity.NamespacePath,
+		CellID:        identity.CellID,
+		JobID:         identity.JobID,
+		RunID:         identity.RunID,
+		ExecutionID:   identity.ExecutionID,
+	}
 
-type ExecutionScope struct {
-	SPIFFEID          string
-	TrustDomain       string
-	NamespacePath     string
-	CellID            string
-	JobID             string
-	RunID             string
-	RunIndex          int
-	TaskID            string
-	TaskKey           string
-	SegmentID         string
-	ExecutionID       string
-	Attempt           int
-	DefinitionVersion int
-	DefinitionHash    string
-}
+	if identity.X509SVID != nil {
+		out.X509SVID = &X509SVID{
+			SPIFFEID:     identity.X509SVID.SPIFFEID,
+			Certificates: append([]*x509.Certificate(nil), identity.X509SVID.Certificates...),
+			PrivateKey:   identity.X509SVID.PrivateKey,
+		}
+	}
 
-type FileMaterial struct {
-	ID   string
-	Path string
-	Data []byte
-	Mode fs.FileMode
-}
-
-type Bundle struct {
-	Files []FileMaterial
-}
-
-type Provider interface {
-	ValidateRef(ctx context.Context, ref Reference) error
-	Resolve(ctx context.Context, req ResolveRequest) (Bundle, error)
+	return out
 }
 
 func ReferencesFromJob(job *api.Job) []Reference {

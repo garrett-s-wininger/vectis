@@ -11,7 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	secretstore "vectis/internal/secrets"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
+	sdksecrets "vectis/sdk/secrets"
 )
 
 func TestSecretEncryptedFSPutWritesEncryptedEnvelope(t *testing.T) {
@@ -52,22 +53,22 @@ func TestSecretEncryptedFSPutWritesEncryptedEnvelope(t *testing.T) {
 		t.Fatalf("encrypted secret file contains plaintext: %s", onDisk)
 	}
 
-	key, err := secretstore.LoadEncryptedFSKeyFile(keyFile)
+	key, err := encryptedfs.LoadEncryptedFSKeyFile(keyFile)
 	if err != nil {
 		t.Fatalf("LoadEncryptedFSKeyFile: %v", err)
 	}
 
-	provider, err := secretstore.NewEncryptedFSProvider(root, secretstore.WithEncryptedFSKey(key))
+	provider, err := encryptedfs.NewEncryptedFSProvider(root, encryptedfs.WithEncryptedFSKey(key))
 	if err != nil {
 		t.Fatalf("NewEncryptedFSProvider: %v", err)
 	}
 
-	bundle, err := provider.Resolve(context.Background(), secretstore.ResolveRequest{
-		Secrets: []secretstore.Reference{{
+	bundle, err := provider.Resolve(context.Background(), sdksecrets.ResolveRequest{
+		Secrets: []sdksecrets.Reference{{
 			ID:  "npm-token",
 			Ref: "encryptedfs://team/npm-token",
-			Delivery: secretstore.Delivery{
-				Type: secretstore.DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "npm/token",
 			},
 		}},
@@ -86,7 +87,7 @@ func TestSecretEncryptedFSPutRefusesOverwriteUnlessForced(t *testing.T) {
 	root := t.TempDir()
 	keyFile := filepath.Join(t.TempDir(), "encryptedfs.key")
 
-	if _, err := secretstore.EnsureEncryptedFSKeyFile(keyFile); err != nil {
+	if _, err := encryptedfs.EnsureEncryptedFSKeyFile(keyFile); err != nil {
 		t.Fatalf("EnsureEncryptedFSKeyFile: %v", err)
 	}
 
@@ -131,22 +132,22 @@ func TestSecretEncryptedFSPutRefusesOverwriteUnlessForced(t *testing.T) {
 		t.Fatalf("forced put: %v", err)
 	}
 
-	key, err := secretstore.LoadEncryptedFSKeyFile(keyFile)
+	key, err := encryptedfs.LoadEncryptedFSKeyFile(keyFile)
 	if err != nil {
 		t.Fatalf("LoadEncryptedFSKeyFile: %v", err)
 	}
 
-	provider, err := secretstore.NewEncryptedFSProvider(root, secretstore.WithEncryptedFSKey(key))
+	provider, err := encryptedfs.NewEncryptedFSProvider(root, encryptedfs.WithEncryptedFSKey(key))
 	if err != nil {
 		t.Fatalf("NewEncryptedFSProvider: %v", err)
 	}
 
-	bundle, err := provider.Resolve(context.Background(), secretstore.ResolveRequest{
-		Secrets: []secretstore.Reference{{
+	bundle, err := provider.Resolve(context.Background(), sdksecrets.ResolveRequest{
+		Secrets: []sdksecrets.Reference{{
 			ID:  "deploy-token",
 			Ref: "encryptedfs://team/deploy-token",
-			Delivery: secretstore.Delivery{
-				Type: secretstore.DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "deploy/token",
 			},
 		}},

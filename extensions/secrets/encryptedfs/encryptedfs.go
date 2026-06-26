@@ -1,4 +1,4 @@
-package secrets
+package encryptedfs
 
 import (
 	"bytes"
@@ -16,15 +16,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	sdksecrets "vectis/sdk/secrets"
 )
 
 const (
 	EncryptedFSScheme          = "encryptedfs"
 	EncryptedFSKeySize         = 32
-	DefaultMaxSecretBytes      = 1 << 20
+	DefaultFileMode            = sdksecrets.DefaultFileMode
+	DefaultMaxSecretBytes      = sdksecrets.DefaultMaxSecretBytes
 	encryptedFSEnvelopeVersion = 1
 	encryptedFSAlgorithm       = "AES-256-GCM"
 )
+
+var (
+	ErrNotFound = sdksecrets.ErrNotFound
+	ErrDenied   = sdksecrets.ErrDenied
+)
+
+type Reference = sdksecrets.Reference
+type ResolveRequest = sdksecrets.ResolveRequest
+type Bundle = sdksecrets.Bundle
+type FileMaterial = sdksecrets.FileMaterial
 
 type EncryptedFSProvider struct {
 	root           string

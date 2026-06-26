@@ -1,4 +1,4 @@
-package secrets
+package knox
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sdksecrets "vectis/sdk/secrets"
 )
 
 func TestKnoxProviderResolveFetchesPrimaryVersion(t *testing.T) {
@@ -42,8 +44,8 @@ func TestKnoxProviderResolveFetchesPrimaryVersion(t *testing.T) {
 		Secrets: []Reference{{
 			ID:  "deploy-token",
 			Ref: "knox://team/deploy_token",
-			Delivery: Delivery{
-				Type: DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "deploy/token",
 			},
 		}},
@@ -172,8 +174,8 @@ func TestKnoxProviderMapsKnoxErrors(t *testing.T) {
 				Secrets: []Reference{{
 					ID:  "token",
 					Ref: "knox://team/token",
-					Delivery: Delivery{
-						Type: DeliveryTypeFile,
+					Delivery: sdksecrets.Delivery{
+						Type: sdksecrets.DeliveryTypeFile,
 						Path: "token",
 					},
 				}},
@@ -226,8 +228,8 @@ func TestKnoxProviderRejectsMismatchedOrOversizedSecrets(t *testing.T) {
 				Secrets: []Reference{{
 					ID:  "token",
 					Ref: "knox://team/token",
-					Delivery: Delivery{
-						Type: DeliveryTypeFile,
+					Delivery: sdksecrets.Delivery{
+						Type: sdksecrets.DeliveryTypeFile,
 						Path: "token",
 					},
 				}},
@@ -264,7 +266,7 @@ func TestKnoxProviderLoadsAuthTokenFile(t *testing.T) {
 		Secrets: []Reference{{
 			ID:       "token",
 			Ref:      "knox://team/token",
-			Delivery: Delivery{Type: DeliveryTypeFile, Path: "token"},
+			Delivery: sdksecrets.Delivery{Type: sdksecrets.DeliveryTypeFile, Path: "token"},
 		}},
 	}); err != nil {
 		t.Fatalf("Resolve: %v", err)

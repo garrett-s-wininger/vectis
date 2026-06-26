@@ -256,9 +256,10 @@ func (r *Runner) resolveSecrets(ctx context.Context, runJob *api.Job, env *cell.
 		RunID:               env.RunID,
 		ExecutionID:         env.ExecutionID,
 		ExecutionClaimToken: claimToken,
-		Workload:            workload,
+		Workload:            secrets.WorkloadIdentityFromInternal(workload),
 		Secrets:             refs,
 	}
+
 	if err := secrets.ValidateResolveIdentityBinding(&req); err != nil {
 		return nil, fmt.Errorf("validate secret resolve identity: %w", err)
 	}
@@ -267,6 +268,7 @@ func (r *Runner) resolveSecrets(ctx context.Context, runJob *api.Job, env *cell.
 	if err != nil {
 		return nil, err
 	}
+
 	return bundle.Files, nil
 }
 

@@ -16,6 +16,7 @@ Current SDKs:
 | Package | Purpose |
 | --- | --- |
 | `sdk/action` | Public descriptor, reference, schema, lifecycle, and digest types for action extensions. |
+| `sdk/secrets` | Public provider, request, identity, bundle, and error types for secret-provider extensions. |
 | `sdk/workercore` | Go SDK for worker-core execution providers. |
 | `sdk/workercore/conformance` | Provider conformance tests for worker-core implementations. |
 

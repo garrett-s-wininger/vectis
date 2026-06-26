@@ -7,6 +7,8 @@ import (
 	"os"
 
 	api "vectis/api/gen/go"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
+	knox "vectis/extensions/secrets/knox"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -113,12 +115,12 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 			logger.Fatal("encryptedfs secret provider requires --encryptedfs-key-file or VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE")
 		}
 
-		fsProvider, err := secrets.NewEncryptedFSProvider(root, secrets.WithEncryptedFSKeyFile(keyFile))
+		fsProvider, err := encryptedfs.NewEncryptedFSProvider(root, encryptedfs.WithEncryptedFSKeyFile(keyFile))
 		if err != nil {
 			logger.Fatal("Failed to configure encryptedfs secret provider: %v", err)
 		}
 
-		if err := providerSet.Register(secrets.EncryptedFSScheme, fsProvider); err != nil {
+		if err := providerSet.Register(encryptedfs.EncryptedFSScheme, fsProvider); err != nil {
 			logger.Fatal("Failed to register encryptedfs secret provider: %v", err)
 		}
 
@@ -127,18 +129,18 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	}
 
 	if knoxURL := config.SecretsKnoxURL(); knoxURL != "" {
-		knoxProvider, err := secrets.NewKnoxProvider(
+		knoxProvider, err := knox.NewKnoxProvider(
 			knoxURL,
-			secrets.WithKnoxAuthToken(config.SecretsKnoxAuthToken()),
-			secrets.WithKnoxAuthTokenFile(config.SecretsKnoxAuthTokenFile()),
-			secrets.WithKnoxInsecureSkipVerify(config.SecretsKnoxInsecureSkipVerify()),
+			knox.WithKnoxAuthToken(config.SecretsKnoxAuthToken()),
+			knox.WithKnoxAuthTokenFile(config.SecretsKnoxAuthTokenFile()),
+			knox.WithKnoxInsecureSkipVerify(config.SecretsKnoxInsecureSkipVerify()),
 		)
 
 		if err != nil {
 			logger.Fatal("Failed to configure knox secret provider: %v", err)
 		}
 
-		if err := providerSet.Register(secrets.KnoxScheme, knoxProvider); err != nil {
+		if err := providerSet.Register(knox.KnoxScheme, knoxProvider); err != nil {
 			logger.Fatal("Failed to register knox secret provider: %v", err)
 		}
 

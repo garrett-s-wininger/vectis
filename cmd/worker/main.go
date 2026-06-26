@@ -4041,7 +4041,7 @@ func (w *worker) resolveExecutionSecrets(ctx context.Context, runJob *api.Job, e
 		RunID:               env.RunID,
 		ExecutionID:         env.ExecutionID,
 		ExecutionClaimToken: executionClaimToken,
-		Workload:            workloadIdentity,
+		Workload:            secrets.WorkloadIdentityFromInternal(workloadIdentity),
 		Secrets:             refs,
 	}
 	if err := secrets.ValidateResolveIdentityBinding(&req); err != nil {

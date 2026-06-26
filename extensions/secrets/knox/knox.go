@@ -1,4 +1,4 @@
-package secrets
+package knox
 
 import (
 	"context"
@@ -12,18 +12,32 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	sdksecrets "vectis/sdk/secrets"
 )
 
 const (
 	KnoxScheme               = "knox"
 	DefaultKnoxUserAgent     = "Vectis-Knox-Provider/1"
 	DefaultKnoxTimeout       = 10 * time.Second
+	DefaultFileMode          = sdksecrets.DefaultFileMode
+	DefaultMaxSecretBytes    = sdksecrets.DefaultMaxSecretBytes
 	knoxResponseCodeOK       = 0
 	knoxResponseCodeNoKey    = 4
 	knoxResponseCodeNoAuth   = 5
 	knoxResponseCodeDenied   = 6
 	knoxResponseCodeNotFound = 8
 )
+
+var (
+	ErrNotFound = sdksecrets.ErrNotFound
+	ErrDenied   = sdksecrets.ErrDenied
+)
+
+type Reference = sdksecrets.Reference
+type ResolveRequest = sdksecrets.ResolveRequest
+type Bundle = sdksecrets.Bundle
+type FileMaterial = sdksecrets.FileMaterial
 
 var knoxKeyIDPattern = regexp.MustCompile(`^[A-Za-z0-9_:]+$`)
 
@@ -280,9 +294,9 @@ func parseKnoxRefKeyID(raw string) (string, error) {
 			return "", fmt.Errorf("%w: parse knox ref: %v", ErrNotFound, err)
 		}
 
-		scheme := normalizeProviderScheme(u.Scheme)
+		scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
 		if scheme == "" {
-			scheme = providerKindUnknown
+			scheme = sdksecrets.ProviderKindUnknown
 		}
 
 		return "", fmt.Errorf("%w: unsupported secret provider scheme %q", ErrNotFound, scheme)

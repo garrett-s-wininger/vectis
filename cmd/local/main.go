@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
@@ -29,7 +30,6 @@ import (
 	"vectis/internal/localpki"
 	"vectis/internal/localspiffe"
 	"vectis/internal/platform"
-	secretstore "vectis/internal/secrets"
 	"vectis/internal/serviceidentity"
 	"vectis/internal/spire"
 	"vectis/internal/supervisor"
@@ -1382,7 +1382,7 @@ func buildLocalTopology() (localTopology, error) {
 
 func ensureLocalSecretsKeys(topology localTopology) error {
 	for _, cell := range topology.Cells {
-		if _, err := secretstore.EnsureEncryptedFSKeyFile(cell.SecretsKeyFile); err != nil {
+		if _, err := encryptedfs.EnsureEncryptedFSKeyFile(cell.SecretsKeyFile); err != nil {
 			return fmt.Errorf("cell %s: %w", cell.ID, err)
 		}
 	}

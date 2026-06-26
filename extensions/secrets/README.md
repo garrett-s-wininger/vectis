@@ -6,8 +6,12 @@ SPIFFE identity checks, access policy, redacted observability, and worker file
 materialization. Providers own only provider-specific reference validation,
 authentication, lookup, and error mapping.
 
-The provider boundary is not yet a public SDK. Current providers still live in
-`internal/secrets` until the reusable contract is extracted into a supported
-package or provider protocol. When that happens, provider implementations such
-as Knox should move here without changing the worker-facing secret delivery
-path.
+The reusable provider contract lives in `sdk/secrets`. Standard provider
+implementations live here once their packaging and operational shape are stable
+enough to reuse outside core Vectis. The first standard provider extensions are
+`encryptedfs/` for local encrypted-file storage and `knox/` for Knox
+primary-version reads.
+
+Provider packages should return `sdk/secrets.ErrNotFound` or
+`sdk/secrets.ErrDenied` when those outcomes are known so the broker can preserve
+accurate audit and metrics classification.

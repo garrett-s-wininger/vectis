@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"vectis/internal/workloadidentity"
 )
 
 type fakeClaimValidator struct {
@@ -153,7 +151,7 @@ func TestClaimAuthorizerRejectsMismatchedRequestWorkload(t *testing.T) {
 		ExecutionID:         "execution-1",
 		ExecutionClaimToken: "claim-1",
 		PeerSPIFFEID:        spiffeID,
-		Workload: &workloadidentity.Identity{
+		Workload: &WorkloadIdentity{
 			SPIFFEID:    spiffeID,
 			RunID:       "other-run",
 			ExecutionID: "execution-1",

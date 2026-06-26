@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	secretstore "vectis/internal/secrets"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 )
 
 type secretEncryptedFSPutResult struct {
@@ -47,12 +47,12 @@ func secretEncryptedFSPut(ref, root, keyFile, fromFile string, createKey, force 
 		return fmt.Errorf("encryptedfs ref is required")
 	}
 
-	target, err := secretstore.EncryptedFSSecretFilePath(root, ref)
+	target, err := encryptedfs.EncryptedFSSecretFilePath(root, ref)
 	if err != nil {
 		return err
 	}
 
-	plaintext, err := readSecretPlaintext(fromFile, stdin, secretstore.DefaultMaxSecretBytes)
+	plaintext, err := readSecretPlaintext(fromFile, stdin, encryptedfs.DefaultMaxSecretBytes)
 	if err != nil {
 		return err
 	}
@@ -63,9 +63,9 @@ func secretEncryptedFSPut(ref, root, keyFile, fromFile string, createKey, force 
 	}
 
 	if force {
-		err = secretstore.WriteEncryptedFSSecretFile(root, ref, plaintext, key)
+		err = encryptedfs.WriteEncryptedFSSecretFile(root, ref, plaintext, key)
 	} else {
-		err = secretstore.WriteEncryptedFSSecretFileExclusive(root, ref, plaintext, key)
+		err = encryptedfs.WriteEncryptedFSSecretFileExclusive(root, ref, plaintext, key)
 	}
 
 	if err != nil {
@@ -103,7 +103,7 @@ func loadEncryptedFSWriteKey(path string, create bool) ([]byte, bool, error) {
 	}
 
 	if !create {
-		key, err := secretstore.LoadEncryptedFSKeyFile(path)
+		key, err := encryptedfs.LoadEncryptedFSKeyFile(path)
 		return key, false, err
 	}
 
@@ -116,7 +116,7 @@ func loadEncryptedFSWriteKey(path string, create bool) ([]byte, bool, error) {
 		created = true
 	}
 
-	key, err := secretstore.EnsureEncryptedFSKeyFile(path)
+	key, err := encryptedfs.EnsureEncryptedFSKeyFile(path)
 	if err != nil {
 		return nil, false, err
 	}

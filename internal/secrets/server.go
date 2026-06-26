@@ -3,7 +3,6 @@ package secrets
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -15,11 +14,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-)
-
-var (
-	ErrNotFound = errors.New("secrets: not found")
-	ErrDenied   = errors.New("secrets: denied")
 )
 
 const (
@@ -336,16 +330,8 @@ func classifyProviderError(err error) (string, string) {
 	}
 }
 
-type kindedProvider interface {
-	ProviderKind() string
-}
-
-type requestKindedProvider interface {
-	ProviderKindForRefs(refs []Reference) string
-}
-
 func providerKindForRequest(provider Provider, refs []Reference) string {
-	if requestKinded, ok := provider.(requestKindedProvider); ok {
+	if requestKinded, ok := provider.(RequestKindedProvider); ok {
 		if kind := requestKinded.ProviderKindForRefs(refs); kind != "" {
 			return kind
 		}
@@ -359,15 +345,11 @@ func providerKind(provider Provider) string {
 		return "none"
 	}
 
-	if kinded, ok := provider.(kindedProvider); ok {
+	if kinded, ok := provider.(KindedProvider); ok {
 		if kind := kinded.ProviderKind(); kind != "" {
 			return kind
 		}
 	}
 
 	return providerKindUnknown
-}
-
-func (r ResolveRequest) String() string {
-	return fmt.Sprintf("run=%s execution=%s secrets=%d peer=%s", r.RunID, r.ExecutionID, len(r.Secrets), r.PeerSPIFFEID)
 }

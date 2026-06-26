@@ -871,8 +871,8 @@ func TestWorkerResolveExecutionSecretsSendsTaskScopedRequest(t *testing.T) {
 		t.Fatalf("request identity = %+v", resolver.req)
 	}
 
-	if resolver.req.Workload != workload {
-		t.Fatalf("request workload = %+v, want original workload", resolver.req.Workload)
+	if resolver.req.Workload == nil || resolver.req.Workload.SPIFFEID != workload.SPIFFEID {
+		t.Fatalf("request workload = %+v, want SPIFFE ID %q", resolver.req.Workload, workload.SPIFFEID)
 	}
 
 	if len(resolver.req.Secrets) != 2 || resolver.req.Secrets[0].ID != "global" || resolver.req.Secrets[1].ID != "npm-token" {
@@ -952,7 +952,7 @@ func TestWorkerResolveExecutionSecretsUsesWorkloadResolverFactory(t *testing.T) 
 		t.Fatalf("files = %+v", files)
 	}
 
-	if resolver.req.Workload != workload || resolver.req.ExecutionClaimToken != "claim-1" {
+	if resolver.req.Workload == nil || resolver.req.Workload.SPIFFEID != workload.SPIFFEID || resolver.req.ExecutionClaimToken != "claim-1" {
 		t.Fatalf("resolver request = %+v", resolver.req)
 	}
 }

@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-const (
-	providerKindMulti   = "multi"
-	providerKindUnknown = "unknown"
-)
-
 type ProviderSet struct {
 	providers map[string]Provider
 }
@@ -72,7 +67,7 @@ func (s *ProviderSet) ProviderKindForRefs(refs []Reference) string {
 		}
 
 		if kind != scheme {
-			return "mixed"
+			return providerKindMixed
 		}
 	}
 

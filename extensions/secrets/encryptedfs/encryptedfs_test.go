@@ -1,4 +1,4 @@
-package secrets
+package encryptedfs
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	sdksecrets "vectis/sdk/secrets"
 )
 
 var testEncryptedFSKey = []byte("0123456789abcdef0123456789abcdef")
@@ -37,8 +39,8 @@ func TestEncryptedFSProviderResolveReadsEncryptedSecretFiles(t *testing.T) {
 		Secrets: []Reference{{
 			ID:  "npm-token",
 			Ref: "encryptedfs://team/npm-token",
-			Delivery: Delivery{
-				Type: DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "npm/token",
 			},
 		}},
@@ -81,8 +83,8 @@ func TestEncryptedFSProviderResolveRejectsUnsafeRefs(t *testing.T) {
 				Secrets: []Reference{{
 					ID:  "bad",
 					Ref: ref,
-					Delivery: Delivery{
-						Type: DeliveryTypeFile,
+					Delivery: sdksecrets.Delivery{
+						Type: sdksecrets.DeliveryTypeFile,
 						Path: "bad",
 					},
 				}},
@@ -117,8 +119,8 @@ func TestEncryptedFSProviderResolveRejectsSymlinkEscape(t *testing.T) {
 		Secrets: []Reference{{
 			ID:  "token",
 			Ref: "encryptedfs://token",
-			Delivery: Delivery{
-				Type: DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "token",
 			},
 		}},
@@ -146,8 +148,8 @@ func TestEncryptedFSProviderResolveRejectsOversizedSecret(t *testing.T) {
 		Secrets: []Reference{{
 			ID:  "token",
 			Ref: "encryptedfs://token",
-			Delivery: Delivery{
-				Type: DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "token",
 			},
 		}},
@@ -175,8 +177,8 @@ func TestEncryptedFSProviderResolveRejectsPlaintextFiles(t *testing.T) {
 		Secrets: []Reference{{
 			ID:  "token",
 			Ref: "encryptedfs://token",
-			Delivery: Delivery{
-				Type: DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "token",
 			},
 		}},
@@ -208,8 +210,8 @@ func TestEncryptedFSProviderResolveRejectsSwappedEnvelope(t *testing.T) {
 		Secrets: []Reference{{
 			ID:  "token",
 			Ref: "encryptedfs://team/target",
-			Delivery: Delivery{
-				Type: DeliveryTypeFile,
+			Delivery: sdksecrets.Delivery{
+				Type: sdksecrets.DeliveryTypeFile,
 				Path: "token",
 			},
 		}},
