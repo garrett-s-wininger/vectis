@@ -123,12 +123,6 @@ metrics_port = 9088
 port = 8090
 metrics_host = "localhost"
 metrics_port = 9091
-encryptedfs.root = ""
-encryptedfs.key_file = ""
-knox.url = ""
-knox.auth_token_file = ""
-knox.auth_token = ""
-knox.insecure_skip_verify = false
 
 [secrets.policy]
 allow = []

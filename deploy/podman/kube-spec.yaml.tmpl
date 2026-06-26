@@ -779,9 +779,9 @@ spec:
           value: "true"
         - name: VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN
           value: vectis.internal
-        - name: VECTIS_SECRETS_ENCRYPTEDFS_ROOT
+        - name: VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_ROOT
           value: /data/vectis/secrets/encryptedfs
-        - name: VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE
+        - name: VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE
           value: /run/vectis/secrets/encryptedfs.key
         - name: VECTIS_SECRETS_POLICY_ALLOW
           value: namespace=*;job=*;task=*;ref=encryptedfs://*

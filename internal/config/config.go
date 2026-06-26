@@ -214,16 +214,10 @@ type LogForwarderDefaults struct {
 }
 
 type SecretsDefaults struct {
-	Port            int                   `toml:"port"`
-	MetricsHost     string                `toml:"metrics_host"`
-	MetricsPort     int                   `toml:"metrics_port"`
-	EncryptedFSRoot string                `toml:"encryptedfs.root"`
-	EncryptedFSKey  string                `toml:"encryptedfs.key_file"`
-	KnoxURL         string                `toml:"knox.url"`
-	KnoxAuthFile    string                `toml:"knox.auth_token_file"`
-	KnoxAuthToken   string                `toml:"knox.auth_token"`
-	KnoxInsecureTLS bool                  `toml:"knox.insecure_skip_verify"`
-	Policy          SecretsPolicyDefaults `toml:"policy"`
+	Port        int                   `toml:"port"`
+	MetricsHost string                `toml:"metrics_host"`
+	MetricsPort int                   `toml:"metrics_port"`
+	Policy      SecretsPolicyDefaults `toml:"policy"`
 }
 
 type SecretsPolicyDefaults struct {
@@ -1748,58 +1742,6 @@ func SecretsMetricsEffectiveListenPort() int {
 
 func SecretsMetricsListenAddr() string {
 	return metricsListenAddr(SecretsMetricsHost(), SecretsMetricsEffectiveListenPort())
-}
-
-func SecretsEncryptedFSRoot() string {
-	return coalesceNonEmpty(
-		viper.GetString("encryptedfs_root"),
-		viper.GetString("secrets.encryptedfs.root"),
-		MustDefaults().Secrets.EncryptedFSRoot,
-	)
-}
-
-func SecretsEncryptedFSKeyFile() string {
-	return coalesceNonEmpty(
-		viper.GetString("encryptedfs_key_file"),
-		viper.GetString("secrets.encryptedfs.key_file"),
-		MustDefaults().Secrets.EncryptedFSKey,
-	)
-}
-
-func SecretsKnoxURL() string {
-	return coalesceNonEmpty(
-		viper.GetString("knox_url"),
-		viper.GetString("secrets.knox.url"),
-		MustDefaults().Secrets.KnoxURL,
-	)
-}
-
-func SecretsKnoxAuthTokenFile() string {
-	return coalesceNonEmpty(
-		viper.GetString("knox_auth_token_file"),
-		viper.GetString("secrets.knox.auth_token_file"),
-		MustDefaults().Secrets.KnoxAuthFile,
-	)
-}
-
-func SecretsKnoxAuthToken() string {
-	return coalesceNonEmpty(
-		viper.GetString("knox_auth_token"),
-		viper.GetString("secrets.knox.auth_token"),
-		MustDefaults().Secrets.KnoxAuthToken,
-	)
-}
-
-func SecretsKnoxInsecureSkipVerify() bool {
-	if viper.IsSet("knox_insecure_skip_verify") {
-		return viper.GetBool("knox_insecure_skip_verify")
-	}
-
-	if viper.IsSet("secrets.knox.insecure_skip_verify") {
-		return viper.GetBool("secrets.knox.insecure_skip_verify")
-	}
-
-	return MustDefaults().Secrets.KnoxInsecureTLS
 }
 
 func SecretsPolicyAllowRules() []string {

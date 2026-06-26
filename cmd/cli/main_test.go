@@ -2800,7 +2800,7 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 	findInitContainer(t, pod, "vectis-client-ca-bundle-init")
 	findContainer(t, pod, "spiffe")
 	assertEnv(t, findContainer(t, pod, "secrets"), "VECTIS_GRPC_TLS_CLIENT_CA_FILE", "/run/vectis/grpc-tls/client-ca-bundle.pem")
-	assertEnv(t, findContainer(t, pod, "secrets"), "VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", "/run/vectis/secrets/encryptedfs.key")
+	assertEnv(t, findContainer(t, pod, "secrets"), "VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE", "/run/vectis/secrets/encryptedfs.key")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIFFE_ENABLED", "true")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS", "unix:///run/vectis/spiffe/workload.sock")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS", "unix:///run/vectis/spiffe/registration.sock")

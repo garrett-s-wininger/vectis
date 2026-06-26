@@ -217,12 +217,12 @@ VECTIS_SPIFFE_X509_SVID_TTL=5m
 ```sh
 VECTIS_SECRETS_PORT=8090
 VECTIS_SECRETS_METRICS_PORT=9091
-VECTIS_SECRETS_ENCRYPTEDFS_ROOT=/var/lib/vectis/secrets/envelopes
-VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=/etc/vectis/secrets/encryptedfs.key
+VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_ROOT=/var/lib/vectis/secrets/envelopes
+VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE=/etc/vectis/secrets/encryptedfs.key
 VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;task=*;ref=encryptedfs://teams/build/*
 # Optional Knox provider:
-# VECTIS_SECRETS_KNOX_URL=https://knox.internal.example
-# VECTIS_SECRETS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
+# VECTIS_SECRETS_PROVIDERS_KNOX_URL=https://knox.internal.example
+# VECTIS_SECRETS_PROVIDERS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
 # VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;task=*;ref=knox://release/*
 ```
 

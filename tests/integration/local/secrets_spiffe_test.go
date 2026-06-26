@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	api "vectis/api/gen/go"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -168,11 +169,11 @@ func startSecretsBroker(t *testing.T, logger interfaces.Logger, runs dal.RunsRep
 
 	root := t.TempDir()
 	key := []byte("0123456789abcdef0123456789abcdef")
-	if err := secretstore.WriteEncryptedFSSecretFile(root, "encryptedfs://team/smoke-token", []byte(secretPlaintext), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(root, "encryptedfs://team/smoke-token", []byte(secretPlaintext), key); err != nil {
 		t.Fatalf("write encryptedfs secret: %v", err)
 	}
 
-	provider, err := secretstore.NewEncryptedFSProvider(root, secretstore.WithEncryptedFSKey(key))
+	provider, err := encryptedfs.NewEncryptedFSProvider(root, encryptedfs.WithEncryptedFSKey(key))
 	if err != nil {
 		t.Fatalf("new encryptedfs provider: %v", err)
 	}

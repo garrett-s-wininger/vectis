@@ -206,12 +206,12 @@ advertises VM support. Vectis does not silently fall back from VM to host.
 When `vectis-secrets` is enabled:
 
 ```sh
-VECTIS_SECRETS_ENCRYPTEDFS_ROOT=/var/lib/vectis/secrets/envelopes
-VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=/etc/vectis/secrets/encryptedfs.key
+VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_ROOT=/var/lib/vectis/secrets/envelopes
+VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE=/etc/vectis/secrets/encryptedfs.key
 VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=encryptedfs://teams/build/*
 # Optional Knox provider:
-# VECTIS_SECRETS_KNOX_URL=https://knox.internal.example
-# VECTIS_SECRETS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
+# VECTIS_SECRETS_PROVIDERS_KNOX_URL=https://knox.internal.example
+# VECTIS_SECRETS_PROVIDERS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
 # VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=knox://release/*
 ```
 

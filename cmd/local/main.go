@@ -1161,8 +1161,8 @@ func secretsEnv(cell localCell) []string {
 		database.EnvCellDatabaseDSN + "=" + cell.CellDB,
 		fmt.Sprintf("VECTIS_SECRETS_PORT=%d", cell.SecretsPort),
 		fmt.Sprintf("VECTIS_SECRETS_METRICS_PORT=%d", cell.SecretsMetricsPort),
-		"VECTIS_SECRETS_ENCRYPTEDFS_ROOT=" + cell.SecretsDir,
-		"VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=" + cell.SecretsKeyFile,
+		encryptedfs.EnvRoot + "=" + cell.SecretsDir,
+		encryptedfs.EnvKeyFile + "=" + cell.SecretsKeyFile,
 		"VECTIS_SECRETS_POLICY_ALLOW=namespace=*;job=*;task=*;ref=encryptedfs://*",
 	}
 }

@@ -734,8 +734,8 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 
 		if svc.name == "vectis-secrets[iad-a]" &&
 			hasEnv(svc.env, "VECTIS_SECRETS_PORT=8090") &&
-			hasEnvPrefix(svc.env, "VECTIS_SECRETS_ENCRYPTEDFS_ROOT=") &&
-			hasEnvPrefix(svc.env, "VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=") &&
+			hasEnvPrefix(svc.env, encryptedfs.EnvRoot+"=") &&
+			hasEnvPrefix(svc.env, encryptedfs.EnvKeyFile+"=") &&
 			hasEnv(svc.env, "VECTIS_SECRETS_POLICY_ALLOW=namespace=*;job=*;task=*;ref=encryptedfs://*") {
 			foundSecrets = true
 		}

@@ -99,7 +99,9 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 
 	providerSet := secrets.NewProviderSet()
 	providerConfigured := false
-	if config.SecretsEncryptedFSRoot() != "" || config.SecretsKnoxURL() != "" {
+	encryptedFSConfig := encryptedfs.ConfigFromViper(viper.GetViper())
+	knoxConfig := knox.ConfigFromViper(viper.GetViper())
+	if encryptedFSConfig.Enabled() || knoxConfig.Enabled() {
 		if !config.WorkerExecutionIdentityEnabled() {
 			logger.Fatal("secret providers require worker.execution_identity.enabled=true so workload callers can be authorized")
 		}
@@ -109,13 +111,8 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	if root := config.SecretsEncryptedFSRoot(); root != "" {
-		keyFile := config.SecretsEncryptedFSKeyFile()
-		if keyFile == "" {
-			logger.Fatal("encryptedfs secret provider requires --encryptedfs-key-file or VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE")
-		}
-
-		fsProvider, err := encryptedfs.NewEncryptedFSProvider(root, encryptedfs.WithEncryptedFSKeyFile(keyFile))
+	if encryptedFSConfig.Enabled() {
+		fsProvider, err := encryptedFSConfig.NewProvider()
 		if err != nil {
 			logger.Fatal("Failed to configure encryptedfs secret provider: %v", err)
 		}
@@ -125,17 +122,11 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 		}
 
 		providerConfigured = true
-		logger.Info("Using encryptedfs secret provider rooted at %s with key file %s", root, keyFile)
+		logger.Info("Using encryptedfs secret provider rooted at %s with key file %s", encryptedFSConfig.Root, encryptedFSConfig.KeyFile)
 	}
 
-	if knoxURL := config.SecretsKnoxURL(); knoxURL != "" {
-		knoxProvider, err := knox.NewKnoxProvider(
-			knoxURL,
-			knox.WithKnoxAuthToken(config.SecretsKnoxAuthToken()),
-			knox.WithKnoxAuthTokenFile(config.SecretsKnoxAuthTokenFile()),
-			knox.WithKnoxInsecureSkipVerify(config.SecretsKnoxInsecureSkipVerify()),
-		)
-
+	if knoxConfig.Enabled() {
+		knoxProvider, err := knoxConfig.NewProvider()
 		if err != nil {
 			logger.Fatal("Failed to configure knox secret provider: %v", err)
 		}
@@ -145,11 +136,11 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 		}
 
 		providerConfigured = true
-		logger.Info("Using knox secret provider at %s", knoxURL)
+		logger.Info("Using knox secret provider at %s", knoxConfig.URL)
 	}
 
 	if !providerConfigured {
-		logger.Info("Secret provider is not configured; set --encryptedfs-root, VECTIS_SECRETS_ENCRYPTEDFS_ROOT, --knox-url, or VECTIS_SECRETS_KNOX_URL to enable resolution")
+		logger.Info("Secret provider is not configured; set --encryptedfs-root, %s, --knox-url, or %s to enable resolution", encryptedfs.EnvRoot, knox.EnvURL)
 	}
 
 	provider := secrets.Provider(secrets.UnconfiguredProvider{})
@@ -261,46 +252,32 @@ func init() {
 	viper.SetDefault("port", config.SecretsPort())
 	viper.SetDefault("metrics_host", config.SecretsMetricsHost())
 	viper.SetDefault("metrics_port", config.SecretsMetricsPort())
-	viper.SetDefault("encryptedfs_root", "")
-	viper.SetDefault("encryptedfs_key_file", "")
-	viper.SetDefault("knox_url", "")
-	viper.SetDefault("knox_auth_token_file", "")
-	viper.SetDefault("knox_auth_token", "")
-	viper.SetDefault("knox_insecure_skip_verify", false)
 	viper.SetDefault("policy_allow", config.SecretsPolicyAllowRules())
 
 	rootCmd.PersistentFlags().Int("port", config.SecretsPort(), "Port for the secrets gRPC service")
 	rootCmd.PersistentFlags().String("metrics-host", config.SecretsMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.SecretsMetricsPort(), "HTTP port for Prometheus /metrics")
-	rootCmd.PersistentFlags().String("encryptedfs-root", "", "Root directory for encryptedfs secret files")
-	rootCmd.PersistentFlags().String("encryptedfs-key-file", "", "32-byte, hex, or base64 key file for encryptedfs secret envelopes")
-	rootCmd.PersistentFlags().String("knox-url", "", "Base URL for a Knox secret service")
-	rootCmd.PersistentFlags().String("knox-auth-token-file", "", "File containing the Knox Authorization header value")
-	rootCmd.PersistentFlags().String("knox-auth-token", "", "Knox Authorization header value; prefer --knox-auth-token-file")
-	rootCmd.PersistentFlags().Bool("knox-insecure-skip-verify", false, "Skip Knox server TLS certificate verification for local development")
+	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
+	knox.AddConfigFlags(rootCmd.PersistentFlags())
 	rootCmd.PersistentFlags().StringSlice("allow-secret", config.SecretsPolicyAllowRules(), "Secret access allow rule in namespace=...;job=...;task=...;ref=... form; may be repeated")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
-	_ = viper.BindPFlag("encryptedfs_root", rootCmd.PersistentFlags().Lookup("encryptedfs-root"))
-	_ = viper.BindPFlag("encryptedfs_key_file", rootCmd.PersistentFlags().Lookup("encryptedfs-key-file"))
-	_ = viper.BindPFlag("knox_url", rootCmd.PersistentFlags().Lookup("knox-url"))
-	_ = viper.BindPFlag("knox_auth_token_file", rootCmd.PersistentFlags().Lookup("knox-auth-token-file"))
-	_ = viper.BindPFlag("knox_auth_token", rootCmd.PersistentFlags().Lookup("knox-auth-token"))
-	_ = viper.BindPFlag("knox_insecure_skip_verify", rootCmd.PersistentFlags().Lookup("knox-insecure-skip-verify"))
 	_ = viper.BindPFlag("policy_allow", rootCmd.PersistentFlags().Lookup("allow-secret"))
-	_ = viper.BindEnv("secrets.encryptedfs.root", "VECTIS_SECRETS_ENCRYPTEDFS_ROOT")
-	_ = viper.BindEnv("secrets.encryptedfs.key_file", "VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE")
-	_ = viper.BindEnv("secrets.knox.url", "VECTIS_SECRETS_KNOX_URL")
-	_ = viper.BindEnv("secrets.knox.auth_token_file", "VECTIS_SECRETS_KNOX_AUTH_TOKEN_FILE")
-	_ = viper.BindEnv("secrets.knox.auth_token", "VECTIS_SECRETS_KNOX_AUTH_TOKEN")
-	_ = viper.BindEnv("secrets.knox.insecure_skip_verify", "VECTIS_SECRETS_KNOX_INSECURE_SKIP_VERIFY")
+	mustBindProviderConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
+	mustBindProviderConfig(knox.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
 	_ = viper.BindEnv("policy_allow", "VECTIS_SECRETS_POLICY_ALLOW")
 	_ = viper.BindEnv("secrets.policy.allow", "VECTIS_SECRETS_POLICY_ALLOW")
 
 	viper.SetEnvPrefix("VECTIS_SECRETS")
 	viper.AutomaticEnv()
+}
+
+func mustBindProviderConfig(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func main() {

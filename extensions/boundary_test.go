@@ -134,7 +134,8 @@ func allowedSecretProviderImportFile(path string) bool {
 		"../cmd/local/main.go",
 		"../cmd/local/main_test.go",
 		"../cmd/secrets/main.go",
-		"../internal/localspiffe/authority_test.go":
+		"../internal/localspiffe/authority_test.go",
+		"../tests/integration/local/secrets_spiffe_test.go":
 		return true
 	default:
 		return false
