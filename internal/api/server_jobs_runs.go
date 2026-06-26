@@ -30,6 +30,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -127,6 +129,55 @@ type replayRunResponseBody struct {
 	RunIndex      int    `json:"run_index"`
 	CellID        string `json:"cell_id,omitempty"`
 	ReplayOfRunID string `json:"replay_of_run_id"`
+}
+
+type runTaskExecutionSecurityEventRow struct {
+	ID            int64   `json:"id"`
+	RunID         string  `json:"run_id"`
+	TaskID        string  `json:"task_id,omitempty"`
+	TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+	ExecutionID   string  `json:"execution_id,omitempty"`
+	EventType     string  `json:"event_type"`
+	Outcome       string  `json:"outcome"`
+	Reason        string  `json:"reason,omitempty"`
+	Provider      *string `json:"provider,omitempty"`
+	SecretCount   *int    `json:"secret_count,omitempty"`
+	FileCount     *int    `json:"file_count,omitempty"`
+	CreatedAt     int64   `json:"created_at"`
+}
+
+type runTaskAttemptRow struct {
+	AttemptID       string                             `json:"attempt_id"`
+	TaskID          string                             `json:"task_id"`
+	RunID           string                             `json:"run_id"`
+	ExecutionID     string                             `json:"execution_id,omitempty"`
+	ExecutionStatus string                             `json:"execution_status,omitempty"`
+	CellID          string                             `json:"cell_id"`
+	LeaseOwner      *string                            `json:"lease_owner,omitempty"`
+	LeaseUntil      *int64                             `json:"lease_until,omitempty"`
+	Attempt         int                                `json:"attempt"`
+	Status          string                             `json:"status"`
+	AcceptedAt      *string                            `json:"accepted_at,omitempty"`
+	StartedAt       *string                            `json:"started_at,omitempty"`
+	FinishedAt      *string                            `json:"finished_at,omitempty"`
+	LastObservedAt  *int64                             `json:"last_observed_at,omitempty"`
+	EventSequence   int64                              `json:"event_sequence"`
+	CreatedAt       *string                            `json:"created_at,omitempty"`
+	UpdatedAt       *string                            `json:"updated_at,omitempty"`
+	SecurityEvents  []runTaskExecutionSecurityEventRow `json:"security_events,omitempty"`
+}
+
+type runTaskRow struct {
+	TaskID       string              `json:"task_id"`
+	RunID        string              `json:"run_id"`
+	ParentTaskID *string             `json:"parent_task_id,omitempty"`
+	TaskKey      string              `json:"task_key"`
+	Name         string              `json:"name"`
+	Status       string              `json:"status"`
+	SpecHash     string              `json:"spec_hash,omitempty"`
+	CreatedAt    *string             `json:"created_at,omitempty"`
+	UpdatedAt    *string             `json:"updated_at,omitempty"`
+	Attempts     []runTaskAttemptRow `json:"attempts"`
 }
 
 func triggerJobResponse(jobID string, createdRuns []dal.CreatedRun) triggerJobResponseBody {
@@ -1920,7 +1971,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
 	}
 
-	effectiveStatus, err := s.effectiveRunStatus(ctx, rec, time.Now())
+	_, activeHotOwner, err := s.activeRunHotStateOwner(ctx, rec.RunID, time.Now())
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -1930,6 +1981,14 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
+
+	if activeHotOwner {
+		if summary, ok := s.orchestratorRunTaskCompletion(ctx, runID); ok {
+			taskCompletionSummary = summary
+		}
+	}
+
+	effectiveStatus := effectiveRunStatusFromHotOwner(rec.Status, activeHotOwner)
 
 	resp := runRow{
 		RunID:                rec.RunID,
@@ -2124,21 +2183,12 @@ func (s *APIServer) GetRunDefinition(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) effectiveRunStatus(ctx context.Context, rec dal.RunRecord, now time.Time) (string, error) {
-	status := rec.Status
-	if status != dal.RunStatusQueued && status != dal.RunStatusRunning {
-		return status, nil
-	}
-
-	owner, found, err := s.runs.GetRunHotStateOwner(ctx, rec.RunID)
+	_, active, err := s.activeRunHotStateOwner(ctx, rec.RunID, now)
 	if err != nil {
 		return "", err
 	}
 
-	if found && owner.LeaseUntil.After(now.UTC()) {
-		return dal.RunStatusRunning, nil
-	}
-
-	return status, nil
+	return effectiveRunStatusFromHotOwner(rec.Status, active), nil
 }
 
 const (
@@ -2147,6 +2197,63 @@ const (
 	runNextActionTaskFinalizationRepairPending = "task_finalization_repair_pending"
 	runNextActionSecurityGateFailed            = "security_gate_failed"
 )
+
+func (s *APIServer) activeRunHotStateOwner(ctx context.Context, runID string, now time.Time) (dal.RunHotStateOwnerRecord, bool, error) {
+	owner, found, err := s.runs.GetRunHotStateOwner(ctx, runID)
+	if err != nil {
+		return dal.RunHotStateOwnerRecord{}, false, err
+	}
+
+	if !found || !owner.LeaseUntil.After(now.UTC()) {
+		return dal.RunHotStateOwnerRecord{}, false, nil
+	}
+
+	return owner, true, nil
+}
+
+func effectiveRunStatusFromHotOwner(status string, activeHotOwner bool) string {
+	if activeHotOwner && (status == dal.RunStatusQueued || status == dal.RunStatusRunning) {
+		return dal.RunStatusRunning
+	}
+
+	return status
+}
+
+func (s *APIServer) orchestratorRunTaskCompletion(ctx context.Context, runID string) (dal.RunTaskCompletion, bool) {
+	client := s.orchestratorReadClient()
+	if client == nil {
+		return dal.RunTaskCompletion{}, false
+	}
+
+	resp, err := client.GetRunTaskCompletion(ctx, &api.GetRunTaskCompletionRequest{RunId: &runID})
+	if err != nil {
+		if grpcstatus.Code(err) != grpccodes.NotFound {
+			s.logger.Warn("Live orchestrator task completion read for run %s failed; falling back to database: %v", runID, err)
+		}
+
+		return dal.RunTaskCompletion{}, false
+	}
+
+	if resp == nil {
+		return dal.RunTaskCompletion{}, false
+	}
+
+	return runTaskCompletionFromProto(resp), true
+}
+
+func runTaskCompletionFromProto(resp *api.OrchestratorRunTaskCompletion) dal.RunTaskCompletion {
+	if resp == nil {
+		return dal.RunTaskCompletion{}
+	}
+
+	return dal.RunTaskCompletion{
+		RunID:          resp.GetRunId(),
+		Total:          int(resp.GetTotal()),
+		Succeeded:      int(resp.GetSucceeded()),
+		TerminalFailed: int(resp.GetTerminalFailed()),
+		Incomplete:     int(resp.GetIncomplete()),
+	}
+}
 
 type dispatchSummary struct {
 	Source        string  `json:"source"`
@@ -2246,6 +2353,160 @@ func (s *APIServer) runHasPendingTaskContinuation(ctx context.Context, runID str
 	return false, nil
 }
 
+func (s *APIServer) orchestratorRunTaskRows(ctx context.Context, runID string, params pageParams) ([]runTaskRow, int64, bool) {
+	client := s.orchestratorReadClient()
+	if client == nil {
+		return nil, 0, false
+	}
+
+	cursor := params.Cursor
+	limit := int32(params.Limit)
+	resp, err := client.GetRunTaskSnapshot(ctx, &api.GetRunTaskSnapshotRequest{
+		RunId:  &runID,
+		Cursor: &cursor,
+		Limit:  &limit,
+	})
+
+	if err != nil {
+		if grpcstatus.Code(err) != grpccodes.NotFound {
+			s.logger.Warn("Live orchestrator task snapshot read for run %s failed; falling back to database: %v", runID, err)
+		}
+
+		return nil, 0, false
+	}
+
+	return runTaskRowsFromOrchestratorExecutions(resp.GetExecutions()), resp.GetNextCursor(), true
+}
+
+func runTaskRowsFromRecords(taskRecords []dal.TaskRecord) []runTaskRow {
+	tasks := make([]runTaskRow, 0, len(taskRecords))
+	for _, rec := range taskRecords {
+		task := runTaskRow{
+			TaskID:       rec.TaskID,
+			RunID:        rec.RunID,
+			ParentTaskID: rec.ParentTaskID,
+			TaskKey:      rec.TaskKey,
+			Name:         rec.Name,
+			Status:       rec.Status,
+			SpecHash:     rec.SpecHash,
+			CreatedAt:    rec.CreatedAt,
+			UpdatedAt:    rec.UpdatedAt,
+			Attempts:     []runTaskAttemptRow{},
+		}
+
+		for _, attempt := range rec.Attempts {
+			securityEvents := make([]runTaskExecutionSecurityEventRow, 0, len(attempt.SecurityEvents))
+			for _, event := range attempt.SecurityEvents {
+				securityEvents = append(securityEvents, runTaskExecutionSecurityEventRow{
+					ID:            event.ID,
+					RunID:         event.RunID,
+					TaskID:        event.TaskID,
+					TaskAttemptID: event.TaskAttemptID,
+					ExecutionID:   event.ExecutionID,
+					EventType:     event.EventType,
+					Outcome:       event.Outcome,
+					Reason:        event.Reason,
+					Provider:      event.Provider,
+					SecretCount:   event.SecretCount,
+					FileCount:     event.FileCount,
+					CreatedAt:     event.CreatedAt,
+				})
+			}
+
+			task.Attempts = append(task.Attempts, runTaskAttemptRow{
+				AttemptID:       attempt.AttemptID,
+				TaskID:          attempt.TaskID,
+				RunID:           attempt.RunID,
+				ExecutionID:     attempt.ExecutionID,
+				ExecutionStatus: attempt.ExecutionStatus,
+				CellID:          attempt.CellID,
+				LeaseOwner:      attempt.LeaseOwner,
+				LeaseUntil:      attempt.LeaseUntil,
+				Attempt:         attempt.Attempt,
+				Status:          attempt.Status,
+				AcceptedAt:      attempt.AcceptedAt,
+				StartedAt:       attempt.StartedAt,
+				FinishedAt:      attempt.FinishedAt,
+				LastObservedAt:  attempt.LastObservedAt,
+				EventSequence:   attempt.EventSequence,
+				CreatedAt:       attempt.CreatedAt,
+				UpdatedAt:       attempt.UpdatedAt,
+				SecurityEvents:  securityEvents,
+			})
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	return tasks
+}
+
+func runTaskRowsFromOrchestratorExecutions(executions []*api.OrchestratorTaskExecution) []runTaskRow {
+	tasks := make([]runTaskRow, 0, len(executions))
+	for _, execution := range executions {
+		if execution == nil {
+			continue
+		}
+
+		status := execution.GetStatus()
+		task := runTaskRow{
+			TaskID:       execution.GetTaskId(),
+			RunID:        execution.GetRunId(),
+			ParentTaskID: nonEmptyStringPtr(execution.GetParentTaskId()),
+			TaskKey:      execution.GetTaskKey(),
+			Name:         execution.GetName(),
+			Status:       status,
+			Attempts: []runTaskAttemptRow{{
+				AttemptID:       execution.GetTaskAttemptId(),
+				TaskID:          execution.GetTaskId(),
+				RunID:           execution.GetRunId(),
+				ExecutionID:     execution.GetExecutionId(),
+				ExecutionStatus: status,
+				CellID:          execution.GetCellId(),
+				Attempt:         int(execution.GetAttempt()),
+				Status:          status,
+				AcceptedAt:      unixNanoRFC3339StringPtr(execution.GetAcceptedAtUnixNano()),
+				StartedAt:       unixNanoRFC3339StringPtr(execution.GetStartedAtUnixNano()),
+				FinishedAt:      unixNanoRFC3339StringPtr(execution.GetFinishedAtUnixNano()),
+			}},
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	return tasks
+}
+
+func nonEmptyStringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+
+	return &value
+}
+
+func unixNanoRFC3339StringPtr(value int64) *string {
+	if value <= 0 {
+		return nil
+	}
+
+	formatted := time.Unix(0, value).UTC().Format(time.RFC3339Nano)
+	return &formatted
+}
+
+func (s *APIServer) writeRunTasksResponse(w http.ResponseWriter, tasks []runTaskRow, nextCursor int64) {
+	w.Header().Set("Content-Type", "application/json")
+	resp := buildPaginatedResponse(tasks, nextCursor)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode run tasks: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
 func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 	runID := r.PathValue("id")
 	if runID == "" {
@@ -2284,6 +2545,25 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, activeHotOwner, err := s.activeRunHotStateOwner(ctx, runID, time.Now())
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	if activeHotOwner {
+		if tasks, nextCursor, ok := s.orchestratorRunTaskRows(ctx, runID, params); ok {
+			s.writeRunTasksResponse(w, tasks, nextCursor)
+			return
+		}
+	}
+
 	taskRecords, nextCursor, err := s.runs.ListRunTasks(ctx, runID, params.Cursor, params.Limit)
 	if err != nil {
 		if dal.IsNotFound(err) {
@@ -2301,124 +2581,7 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	type executionSecurityEventRow struct {
-		ID            int64   `json:"id"`
-		RunID         string  `json:"run_id"`
-		TaskID        string  `json:"task_id,omitempty"`
-		TaskAttemptID string  `json:"task_attempt_id,omitempty"`
-		ExecutionID   string  `json:"execution_id,omitempty"`
-		EventType     string  `json:"event_type"`
-		Outcome       string  `json:"outcome"`
-		Reason        string  `json:"reason,omitempty"`
-		Provider      *string `json:"provider,omitempty"`
-		SecretCount   *int    `json:"secret_count,omitempty"`
-		FileCount     *int    `json:"file_count,omitempty"`
-		CreatedAt     int64   `json:"created_at"`
-	}
-
-	type taskAttemptRow struct {
-		AttemptID       string                      `json:"attempt_id"`
-		TaskID          string                      `json:"task_id"`
-		RunID           string                      `json:"run_id"`
-		ExecutionID     string                      `json:"execution_id,omitempty"`
-		ExecutionStatus string                      `json:"execution_status,omitempty"`
-		CellID          string                      `json:"cell_id"`
-		LeaseOwner      *string                     `json:"lease_owner,omitempty"`
-		LeaseUntil      *int64                      `json:"lease_until,omitempty"`
-		Attempt         int                         `json:"attempt"`
-		Status          string                      `json:"status"`
-		AcceptedAt      *string                     `json:"accepted_at,omitempty"`
-		StartedAt       *string                     `json:"started_at,omitempty"`
-		FinishedAt      *string                     `json:"finished_at,omitempty"`
-		LastObservedAt  *int64                      `json:"last_observed_at,omitempty"`
-		EventSequence   int64                       `json:"event_sequence"`
-		CreatedAt       *string                     `json:"created_at,omitempty"`
-		UpdatedAt       *string                     `json:"updated_at,omitempty"`
-		SecurityEvents  []executionSecurityEventRow `json:"security_events,omitempty"`
-	}
-
-	type taskRow struct {
-		TaskID       string           `json:"task_id"`
-		RunID        string           `json:"run_id"`
-		ParentTaskID *string          `json:"parent_task_id,omitempty"`
-		TaskKey      string           `json:"task_key"`
-		Name         string           `json:"name"`
-		Status       string           `json:"status"`
-		SpecHash     string           `json:"spec_hash,omitempty"`
-		CreatedAt    *string          `json:"created_at,omitempty"`
-		UpdatedAt    *string          `json:"updated_at,omitempty"`
-		Attempts     []taskAttemptRow `json:"attempts"`
-	}
-
-	tasks := make([]taskRow, 0, len(taskRecords))
-	for _, rec := range taskRecords {
-		task := taskRow{
-			TaskID:       rec.TaskID,
-			RunID:        rec.RunID,
-			ParentTaskID: rec.ParentTaskID,
-			TaskKey:      rec.TaskKey,
-			Name:         rec.Name,
-			Status:       rec.Status,
-			SpecHash:     rec.SpecHash,
-			CreatedAt:    rec.CreatedAt,
-			UpdatedAt:    rec.UpdatedAt,
-			Attempts:     []taskAttemptRow{},
-		}
-
-		for _, attempt := range rec.Attempts {
-			securityEvents := make([]executionSecurityEventRow, 0, len(attempt.SecurityEvents))
-			for _, event := range attempt.SecurityEvents {
-				securityEvents = append(securityEvents, executionSecurityEventRow{
-					ID:            event.ID,
-					RunID:         event.RunID,
-					TaskID:        event.TaskID,
-					TaskAttemptID: event.TaskAttemptID,
-					ExecutionID:   event.ExecutionID,
-					EventType:     event.EventType,
-					Outcome:       event.Outcome,
-					Reason:        event.Reason,
-					Provider:      event.Provider,
-					SecretCount:   event.SecretCount,
-					FileCount:     event.FileCount,
-					CreatedAt:     event.CreatedAt,
-				})
-			}
-
-			task.Attempts = append(task.Attempts, taskAttemptRow{
-				AttemptID:       attempt.AttemptID,
-				TaskID:          attempt.TaskID,
-				RunID:           attempt.RunID,
-				ExecutionID:     attempt.ExecutionID,
-				ExecutionStatus: attempt.ExecutionStatus,
-				CellID:          attempt.CellID,
-				LeaseOwner:      attempt.LeaseOwner,
-				LeaseUntil:      attempt.LeaseUntil,
-				Attempt:         attempt.Attempt,
-				Status:          attempt.Status,
-				AcceptedAt:      attempt.AcceptedAt,
-				StartedAt:       attempt.StartedAt,
-				FinishedAt:      attempt.FinishedAt,
-				LastObservedAt:  attempt.LastObservedAt,
-				EventSequence:   attempt.EventSequence,
-				CreatedAt:       attempt.CreatedAt,
-				UpdatedAt:       attempt.UpdatedAt,
-				SecurityEvents:  securityEvents,
-			})
-		}
-
-		tasks = append(tasks, task)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	resp := buildPaginatedResponse(tasks, nextCursor)
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
-		s.logger.Error("Failed to encode run tasks: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	_, _ = w.Write(buf.Bytes())
+	s.writeRunTasksResponse(w, runTaskRowsFromRecords(taskRecords), nextCursor)
 }
 
 func (s *APIServer) GetRunExecutionPayload(w http.ResponseWriter, r *http.Request) {

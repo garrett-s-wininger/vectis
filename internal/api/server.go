@@ -61,6 +61,10 @@ type logClientHolder struct {
 	close  func()
 }
 
+type orchestratorClientHolder struct {
+	client api.OrchestratorServiceClient
+}
+
 type logReaderClient interface {
 	GetLogs(ctx context.Context, in *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error)
 }
@@ -88,6 +92,7 @@ type APIServer struct {
 	actionDescriptorResolver actionregistry.Resolver
 	queueClient              atomic.Pointer[queueClientHolder]
 	logClient                atomic.Pointer[logClientHolder]
+	orchestratorClient       atomic.Pointer[orchestratorClientHolder]
 	runBroadcaster           *RunBroadcaster
 	dbUnavailable            atomic.Bool
 	draining                 atomic.Bool
@@ -615,6 +620,24 @@ func (s *APIServer) SetLogClient(client api.LogServiceClient) {
 	if old != nil && old.close != nil {
 		old.close()
 	}
+}
+
+func (s *APIServer) SetOrchestratorClient(client api.OrchestratorServiceClient) {
+	if client == nil {
+		s.orchestratorClient.Store(nil)
+		return
+	}
+
+	s.orchestratorClient.Store(&orchestratorClientHolder{client: client})
+}
+
+func (s *APIServer) orchestratorReadClient() api.OrchestratorServiceClient {
+	holder := s.orchestratorClient.Load()
+	if holder == nil {
+		return nil
+	}
+
+	return holder.client
 }
 
 func (s *APIServer) SetCatalogEventsRepository(repo dal.CatalogEventsRepository) {

@@ -25,6 +25,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/registry"
+	"vectis/internal/resolver"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -319,6 +320,18 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetAPISecurityMetrics(apiSecurityMetrics)
 	server.SetSourceSyncMetrics(sourceSyncMetrics)
 	server.SetSourceSyncCheckoutStatus(sourceSyncStatus)
+
+	logger.Info("Establishing orchestrator read client connection...")
+	orchestratorConn, stopOrchestrator, err := resolver.DialOrchestrator(cmd.Context(), logger, config.PinnedOrchestratorAddress(), config.APIRegistryDialAddress(), retryMetrics)
+	if err != nil {
+		logger.Error("Failed to connect to orchestrator: %v", err)
+		exitCode = 1
+		return
+	}
+
+	defer stopOrchestrator()
+	server.SetOrchestratorClient(apigen.NewOrchestratorServiceClient(orchestratorConn))
+	logger.Info("Orchestrator read client ready")
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {

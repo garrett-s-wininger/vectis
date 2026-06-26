@@ -60,6 +60,13 @@ type LoadResult struct {
 	Summary dal.RunTaskCompletion
 }
 
+type RunTaskSnapshot struct {
+	RunID      string
+	Executions []dal.TaskExecutionSnapshot
+	Summary    dal.RunTaskCompletion
+	NextCursor int64
+}
+
 type LoadRunOptions struct {
 	OmitPending bool
 }
@@ -418,6 +425,28 @@ func (s *Service) GetRunTaskCompletion(ctx context.Context, runID string) (dal.R
 	}
 
 	return value.(dal.RunTaskCompletion), nil
+}
+
+func (s *Service) GetRunTaskSnapshot(ctx context.Context, runID string, cursor int64, limit int) (RunTaskSnapshot, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return RunTaskSnapshot{}, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
+	}
+
+	value, err := s.call(ctx, runID, func(state *shardState) (any, error) {
+		run, err := state.getRun(runID)
+		if err != nil {
+			return RunTaskSnapshot{}, err
+		}
+
+		return run.taskSnapshot(cursor, limit), nil
+	})
+
+	if err != nil {
+		return RunTaskSnapshot{}, err
+	}
+
+	return value.(RunTaskSnapshot), nil
 }
 
 func (s *Service) call(ctx context.Context, runID string, apply func(*shardState) (any, error)) (any, error) {
@@ -813,6 +842,46 @@ func (r *runState) executionSnapshots() []dal.TaskExecutionSnapshot {
 	}
 
 	return out
+}
+
+func (r *runState) taskSnapshot(cursor int64, limit int) RunTaskSnapshot {
+	start := int(cursor)
+	if start < 0 {
+		start = 0
+	}
+
+	if start > len(r.order) {
+		start = len(r.order)
+	}
+
+	end := len(r.order)
+	if limit > 0 && start+limit < end {
+		end = start + limit
+	}
+
+	executions := make([]dal.TaskExecutionSnapshot, 0, end-start)
+	for _, taskKey := range r.order[start:end] {
+		task := r.tasks[taskKey]
+		executions = append(executions, dal.TaskExecutionSnapshot{
+			Record:             task.record,
+			Status:             task.status,
+			AcceptedAtUnixNano: timeUnixNano(task.acceptedAt),
+			StartedAtUnixNano:  timeUnixNano(task.startedAt),
+			FinishedAtUnixNano: timeUnixNano(task.finishedAt),
+		})
+	}
+
+	var nextCursor int64
+	if end < len(r.order) {
+		nextCursor = int64(end)
+	}
+
+	return RunTaskSnapshot{
+		RunID:      r.runID,
+		Executions: executions,
+		Summary:    r.summary,
+		NextCursor: nextCursor,
+	}
 }
 
 func timeUnixNano(t time.Time) int64 {

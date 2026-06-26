@@ -139,6 +139,24 @@ func (s *grpcServer) GetRunTaskCompletion(ctx context.Context, req *api.GetRunTa
 	return runTaskCompletionToProto(summary), nil
 }
 
+func (s *grpcServer) GetRunTaskSnapshot(ctx context.Context, req *api.GetRunTaskSnapshotRequest) (*api.GetRunTaskSnapshotResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "get run task snapshot request is required")
+	}
+
+	snapshot, err := s.service.GetRunTaskSnapshot(ctx, req.GetRunId(), req.GetCursor(), int(req.GetLimit()))
+	if err != nil {
+		return nil, grpcError(err)
+	}
+
+	return &api.GetRunTaskSnapshotResponse{
+		RunId:      stringPtr(snapshot.RunID),
+		Executions: taskExecutionSnapshotsToProto(snapshot.Executions),
+		Summary:    runTaskCompletionToProto(snapshot.Summary),
+		NextCursor: int64Ptr(snapshot.NextCursor),
+	}, nil
+}
+
 func (s *grpcServer) ExecutionStream(stream grpc.BidiStreamingServer[api.ExecutionStreamRequest, api.ExecutionStreamResponse]) error {
 	for {
 		req, err := stream.Recv()

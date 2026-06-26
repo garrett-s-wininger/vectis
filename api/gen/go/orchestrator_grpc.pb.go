@@ -25,6 +25,7 @@ const (
 	OrchestratorService_RenewExecutionLease_FullMethodName  = "/OrchestratorService/RenewExecutionLease"
 	OrchestratorService_CompleteExecution_FullMethodName    = "/OrchestratorService/CompleteExecution"
 	OrchestratorService_GetRunTaskCompletion_FullMethodName = "/OrchestratorService/GetRunTaskCompletion"
+	OrchestratorService_GetRunTaskSnapshot_FullMethodName   = "/OrchestratorService/GetRunTaskSnapshot"
 	OrchestratorService_ExecutionStream_FullMethodName      = "/OrchestratorService/ExecutionStream"
 )
 
@@ -38,6 +39,7 @@ type OrchestratorServiceClient interface {
 	RenewExecutionLease(ctx context.Context, in *RenewExecutionLeaseRequest, opts ...grpc.CallOption) (*Empty, error)
 	CompleteExecution(ctx context.Context, in *CompleteExecutionRequest, opts ...grpc.CallOption) (*CompleteExecutionResponse, error)
 	GetRunTaskCompletion(ctx context.Context, in *GetRunTaskCompletionRequest, opts ...grpc.CallOption) (*OrchestratorRunTaskCompletion, error)
+	GetRunTaskSnapshot(ctx context.Context, in *GetRunTaskSnapshotRequest, opts ...grpc.CallOption) (*GetRunTaskSnapshotResponse, error)
 	ExecutionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecutionStreamRequest, ExecutionStreamResponse], error)
 }
 
@@ -109,6 +111,16 @@ func (c *orchestratorServiceClient) GetRunTaskCompletion(ctx context.Context, in
 	return out, nil
 }
 
+func (c *orchestratorServiceClient) GetRunTaskSnapshot(ctx context.Context, in *GetRunTaskSnapshotRequest, opts ...grpc.CallOption) (*GetRunTaskSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRunTaskSnapshotResponse)
+	err := c.cc.Invoke(ctx, OrchestratorService_GetRunTaskSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *orchestratorServiceClient) ExecutionStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecutionStreamRequest, ExecutionStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &OrchestratorService_ServiceDesc.Streams[0], OrchestratorService_ExecutionStream_FullMethodName, cOpts...)
@@ -132,6 +144,7 @@ type OrchestratorServiceServer interface {
 	RenewExecutionLease(context.Context, *RenewExecutionLeaseRequest) (*Empty, error)
 	CompleteExecution(context.Context, *CompleteExecutionRequest) (*CompleteExecutionResponse, error)
 	GetRunTaskCompletion(context.Context, *GetRunTaskCompletionRequest) (*OrchestratorRunTaskCompletion, error)
+	GetRunTaskSnapshot(context.Context, *GetRunTaskSnapshotRequest) (*GetRunTaskSnapshotResponse, error)
 	ExecutionStream(grpc.BidiStreamingServer[ExecutionStreamRequest, ExecutionStreamResponse]) error
 	mustEmbedUnimplementedOrchestratorServiceServer()
 }
@@ -160,6 +173,9 @@ func (UnimplementedOrchestratorServiceServer) CompleteExecution(context.Context,
 }
 func (UnimplementedOrchestratorServiceServer) GetRunTaskCompletion(context.Context, *GetRunTaskCompletionRequest) (*OrchestratorRunTaskCompletion, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRunTaskCompletion not implemented")
+}
+func (UnimplementedOrchestratorServiceServer) GetRunTaskSnapshot(context.Context, *GetRunTaskSnapshotRequest) (*GetRunTaskSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRunTaskSnapshot not implemented")
 }
 func (UnimplementedOrchestratorServiceServer) ExecutionStream(grpc.BidiStreamingServer[ExecutionStreamRequest, ExecutionStreamResponse]) error {
 	return status.Error(codes.Unimplemented, "method ExecutionStream not implemented")
@@ -293,6 +309,24 @@ func _OrchestratorService_GetRunTaskCompletion_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OrchestratorService_GetRunTaskSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRunTaskSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OrchestratorServiceServer).GetRunTaskSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OrchestratorService_GetRunTaskSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OrchestratorServiceServer).GetRunTaskSnapshot(ctx, req.(*GetRunTaskSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OrchestratorService_ExecutionStream_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(OrchestratorServiceServer).ExecutionStream(&grpc.GenericServerStream[ExecutionStreamRequest, ExecutionStreamResponse]{ServerStream: stream})
 }
@@ -330,6 +364,10 @@ var OrchestratorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRunTaskCompletion",
 			Handler:    _OrchestratorService_GetRunTaskCompletion_Handler,
+		},
+		{
+			MethodName: "GetRunTaskSnapshot",
+			Handler:    _OrchestratorService_GetRunTaskSnapshot_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

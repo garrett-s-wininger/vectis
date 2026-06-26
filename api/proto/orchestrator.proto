@@ -109,6 +109,19 @@ message GetRunTaskCompletionRequest {
     string run_id = 1;
 }
 
+message GetRunTaskSnapshotRequest {
+    string run_id = 1;
+    int64 cursor = 2;
+    int32 limit = 3;
+}
+
+message GetRunTaskSnapshotResponse {
+    string run_id = 1;
+    repeated OrchestratorTaskExecution executions = 2;
+    OrchestratorRunTaskCompletion summary = 3;
+    int64 next_cursor = 4;
+}
+
 message ExecutionStreamRequest {
     ClaimExecutionRequest claim = 1;
     RenewExecutionLeaseRequest renew = 2;
@@ -130,5 +143,6 @@ service OrchestratorService {
     rpc RenewExecutionLease(RenewExecutionLeaseRequest) returns (common.Empty);
     rpc CompleteExecution(CompleteExecutionRequest) returns (CompleteExecutionResponse);
     rpc GetRunTaskCompletion(GetRunTaskCompletionRequest) returns (OrchestratorRunTaskCompletion);
+    rpc GetRunTaskSnapshot(GetRunTaskSnapshotRequest) returns (GetRunTaskSnapshotResponse);
     rpc ExecutionStream(stream ExecutionStreamRequest) returns (stream ExecutionStreamResponse);
 }
