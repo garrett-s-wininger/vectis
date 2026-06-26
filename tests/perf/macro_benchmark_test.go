@@ -55,20 +55,22 @@ const (
 	defaultMacroWorkers        = 4
 	macroOrchestratorBufSize   = 1024 * 1024
 
-	envMacroDatabaseDriver       = "VECTIS_PERF_DATABASE_DRIVER"
-	envMacroDatabaseDSN          = "VECTIS_PERF_DATABASE_DSN"
-	envMacroDatabaseMaxOpenConns = "VECTIS_PERF_DATABASE_MAX_OPEN_CONNS"
-	envMacroDatabaseMaxIdleConns = "VECTIS_PERF_DATABASE_MAX_IDLE_CONNS"
-	envMacroFanoutWidths         = "VECTIS_PERF_FANOUT_WIDTHS"
-	envMacroWorkerCounts         = "VECTIS_PERF_WORKER_COUNTS"
-	envMacroPGStatStatements     = "VECTIS_PERF_PG_STAT_STATEMENTS"
-	envMacroPGStatStatementsOut  = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
-	envMacroPGStatsSnapshotOut   = "VECTIS_PERF_PG_STATS_SNAPSHOT_OUTPUT"
-	envMacroStatusReadClients    = "VECTIS_PERF_STATUS_READ_CLIENTS"
-	envMacroStatusReadsPerRun    = "VECTIS_PERF_STATUS_READS_PER_RUN"
+	envMacroDatabaseDriver                = "VECTIS_PERF_DATABASE_DRIVER"
+	envMacroDatabaseDSN                   = "VECTIS_PERF_DATABASE_DSN"
+	envMacroDatabaseMaxOpenConns          = "VECTIS_PERF_DATABASE_MAX_OPEN_CONNS"
+	envMacroDatabaseMaxIdleConns          = "VECTIS_PERF_DATABASE_MAX_IDLE_CONNS"
+	envMacroFanoutWidths                  = "VECTIS_PERF_FANOUT_WIDTHS"
+	envMacroWorkerCounts                  = "VECTIS_PERF_WORKER_COUNTS"
+	envMacroPGStatStatements              = "VECTIS_PERF_PG_STAT_STATEMENTS"
+	envMacroPGStatStatementsOut           = "VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT"
+	envMacroPGStatsSnapshotOut            = "VECTIS_PERF_PG_STATS_SNAPSHOT_OUTPUT"
+	envMacroStatusReadClients             = "VECTIS_PERF_STATUS_READ_CLIENTS"
+	envMacroStatusReadsPerRun             = "VECTIS_PERF_STATUS_READS_PER_RUN"
+	envMacroContinuationInlineJobMaxBytes = "VECTIS_PERF_CONTINUATION_INLINE_JOB_MAX_BYTES"
 
-	macroPGStatStatementsTopLimit = 12
-	macroPGStatQueryMaxLen        = 240
+	macroPGStatStatementsTopLimit             = 12
+	defaultMacroContinuationInlineJobMaxBytes = 65536
+	macroPGStatQueryMaxLen                    = 240
 )
 
 var macroJobSequence atomic.Uint64
@@ -94,18 +96,19 @@ func (noopLogStream) CloseSend() error {
 }
 
 type macroBenchEnv struct {
-	handler           http.Handler
-	queue             macroWorkerQueue
-	apiQueue          interfaces.QueueService
-	runs              dal.RunsRepository
-	choreo            macroChoreography
-	log               interfaces.Logger
-	db                *sql.DB
-	dbDriver          string
-	artifactPublisher action.ArtifactPublisher
-	actionResolver    actionregistry.Resolver
-	actionLocks       []actionregistry.ActionLock
-	payloadCache      *macroPayloadCache
+	handler                       http.Handler
+	queue                         macroWorkerQueue
+	apiQueue                      interfaces.QueueService
+	runs                          dal.RunsRepository
+	choreo                        macroChoreography
+	log                           interfaces.Logger
+	db                            *sql.DB
+	dbDriver                      string
+	artifactPublisher             action.ArtifactPublisher
+	actionResolver                actionregistry.Resolver
+	actionLocks                   []actionregistry.ActionLock
+	payloadCache                  *macroPayloadCache
+	continuationInlineJobMaxBytes int64
 }
 
 type macroPayloadCache struct {
@@ -419,6 +422,26 @@ func macroBenchmarkEnvInt(b *testing.B, name string, defaultValue int) int {
 	}
 
 	return value
+}
+
+func macroBenchmarkEnvNonNegativeInt64(b *testing.B, name string, defaultValue int64) int64 {
+	b.Helper()
+
+	raw := os.Getenv(name)
+	if raw == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value < 0 {
+		b.Fatalf("%s must be a nonnegative integer, got %q", name, raw)
+	}
+
+	return value
+}
+
+func macroBenchmarkContinuationInlineJobMaxBytes(b *testing.B) int64 {
+	return macroBenchmarkEnvNonNegativeInt64(b, envMacroContinuationInlineJobMaxBytes, defaultMacroContinuationInlineJobMaxBytes)
 }
 
 func macroBenchmarkTriggerClients(b *testing.B) int {
@@ -2265,18 +2288,19 @@ func newMacroBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 	job.SetLogSpoolDirForTest(b.TempDir())
 
 	return macroBenchEnv{
-		handler:           handler,
-		queue:             queueService,
-		apiQueue:          queueService,
-		runs:              runs,
-		choreo:            macroSQLChoreography{runs: runs},
-		log:               logger,
-		db:                db,
-		dbDriver:          dbConfig.driver,
-		artifactPublisher: artifactPublisher,
-		actionResolver:    actionResolver,
-		actionLocks:       actionLocks,
-		payloadCache:      &macroPayloadCache{jobs: make(map[string]*apipb.Job)},
+		handler:                       handler,
+		queue:                         queueService,
+		apiQueue:                      queueService,
+		runs:                          runs,
+		choreo:                        macroSQLChoreography{runs: runs},
+		log:                           logger,
+		db:                            db,
+		dbDriver:                      dbConfig.driver,
+		artifactPublisher:             artifactPublisher,
+		actionResolver:                actionResolver,
+		actionLocks:                   actionLocks,
+		payloadCache:                  &macroPayloadCache{jobs: make(map[string]*apipb.Job)},
+		continuationInlineJobMaxBytes: macroBenchmarkContinuationInlineJobMaxBytes(b),
 	}
 }
 
@@ -3768,7 +3792,11 @@ func enqueueMacroContinuationExecutions(
 		return 0, fmt.Errorf("source job is required")
 	}
 
-	payloadHash := macroExecutionPayloadHashForContinuation(ctx, env, source.RunID)
+	inlineJob := macroShouldInlineContinuationJob(jobDef, env.continuationInlineJobMaxBytes)
+	payloadHash := ""
+	if !inlineJob {
+		payloadHash = macroExecutionPayloadHashForContinuation(ctx, env, source.RunID)
+	}
 	enqueued := 0
 	for _, child := range result.children {
 		if child.ExecutionID == "" {
@@ -3777,7 +3805,10 @@ func enqueueMacroContinuationExecutions(
 
 		var childJob *apipb.Job
 		metadata := macroCloneStringMap(source.Metadata)
-		if payloadHash != "" {
+		if inlineJob {
+			delete(metadata, cell.ExecutionPayloadHashMetadataKey)
+			childJob = macroCloneJob(jobDef)
+		} else if payloadHash != "" {
 			childJob, err = macroCompactJobForTask(jobDef, child.TaskKey)
 			if err != nil {
 				return enqueued, err
@@ -3817,6 +3848,14 @@ func macroExecutionPayloadHashForContinuation(ctx context.Context, env macroBenc
 	}
 
 	return strings.TrimSpace(payloadHash)
+}
+
+func macroShouldInlineContinuationJob(j *apipb.Job, maxBytes int64) bool {
+	if j == nil || maxBytes <= 0 {
+		return false
+	}
+
+	return int64(proto.Size(j)) <= maxBytes
 }
 
 func macroCompactJobForTask(j *apipb.Job, taskKey string) (*apipb.Job, error) {

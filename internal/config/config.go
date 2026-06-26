@@ -300,11 +300,12 @@ type WorkerExecutionLimaDefaults struct {
 }
 
 type WorkerQueueDefaults struct {
-	Address                    string       `toml:"address"`
-	DequeuePollBaseInterval    tomlDuration `toml:"dequeue_poll_base_interval"`
-	DequeuePollJitterRatio     float64      `toml:"dequeue_poll_jitter_ratio"`
-	DequeuePollMaxInterval     tomlDuration `toml:"dequeue_poll_max_interval"`
-	DequeueStickySuccessBudget int          `toml:"dequeue_sticky_success_budget"`
+	Address                       string       `toml:"address"`
+	DequeuePollBaseInterval       tomlDuration `toml:"dequeue_poll_base_interval"`
+	DequeuePollJitterRatio        float64      `toml:"dequeue_poll_jitter_ratio"`
+	DequeuePollMaxInterval        tomlDuration `toml:"dequeue_poll_max_interval"`
+	DequeueStickySuccessBudget    int          `toml:"dequeue_sticky_success_budget"`
+	ContinuationInlineJobMaxBytes int64        `toml:"continuation_inline_job_max_bytes"`
 }
 
 type WorkerDefaults struct {
@@ -427,6 +428,7 @@ func init() {
 	_ = viper.BindEnv("worker.queue.dequeue_poll_jitter_ratio", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_JITTER_RATIO")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
+	_ = viper.BindEnv("worker.queue.continuation_inline_job_max_bytes", "VECTIS_WORKER_QUEUE_CONTINUATION_INLINE_JOB_MAX_BYTES")
 }
 
 func MustDefaults() Defaults {
@@ -642,6 +644,9 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.Queue.DequeueStickySuccessBudget <= 0 {
 		panic("config defaults: worker.queue.dequeue_sticky_success_budget must be > 0")
+	}
+	if d.Worker.Queue.ContinuationInlineJobMaxBytes < 0 {
+		panic("config defaults: worker.queue.continuation_inline_job_max_bytes must be >= 0")
 	}
 
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
@@ -1058,6 +1063,14 @@ func WorkerQueueDequeueStickySuccessBudget() int {
 	}
 
 	return MustDefaults().Worker.Queue.DequeueStickySuccessBudget
+}
+
+func WorkerQueueContinuationInlineJobMaxBytes() int64 {
+	if viper.IsSet("worker.queue.continuation_inline_job_max_bytes") {
+		return nonNegativeInt64(viper.GetInt64("worker.queue.continuation_inline_job_max_bytes"))
+	}
+
+	return MustDefaults().Worker.Queue.ContinuationInlineJobMaxBytes
 }
 
 func WorkerQueueDequeuePollBaseInterval() time.Duration {

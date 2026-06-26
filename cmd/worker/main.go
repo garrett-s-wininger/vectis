@@ -284,39 +284,40 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 
 	w := &worker{
-		ctx:                         shutdownCtx,
-		runCtx:                      runCtx,
-		logger:                      logger,
-		workerID:                    workerID,
-		cellID:                      config.CellID(),
-		clock:                       interfaces.SystemClock{},
-		renewInterval:               dal.DefaultRenewInterval,
-		queue:                       clients,
-		logClient:                   logClient,
-		core:                        executionCore,
-		coreShell:                   coreShell,
-		coreShellEndpoint:           coreShellEndpoint,
-		actionResolver:              actionResolver,
-		store:                       runsRepo,
-		artifactManifests:           repos.Artifacts(),
-		artifactMaxBytes:            config.WorkerArtifactMaxBytes(),
-		artifactMaxRunBytes:         config.WorkerArtifactMaxRunBytes(),
-		artifactMaxCount:            config.WorkerArtifactMaxCount(),
-		retryMetrics:                retryMetrics,
-		choreographer:               newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
-		hotStateOwnerID:             hotStateOwnerID(config.CellID()),
-		hotStateOwnerEpoch:          workerID,
-		secretResolverForWorkload:   secretResolverForWorkload,
-		catalog:                     cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
-		metrics:                     workerMetrics,
-		taskFinalizeMetrics:         taskFinalizeMetrics,
-		spiffeSVIDSource:            spiffeSVIDSource,
-		spiffeRegistrar:             spiffeRegistrar,
-		spiffeRegistrationParentID:  config.WorkerSPIFFERegistrationParentID(),
-		spiffeRegistrationSelectors: spiffeRegistrationSelectors,
-		spiffeRegistrationMinTTL:    config.WorkerSPIFFERegistrationMinTTL(),
-		spiffeRegistrationMaxTTL:    config.WorkerSPIFFERegistrationMaxTTL(),
-		cancelCh:                    make(chan string, 1),
+		ctx:                           shutdownCtx,
+		runCtx:                        runCtx,
+		logger:                        logger,
+		workerID:                      workerID,
+		cellID:                        config.CellID(),
+		clock:                         interfaces.SystemClock{},
+		renewInterval:                 dal.DefaultRenewInterval,
+		queue:                         clients,
+		logClient:                     logClient,
+		core:                          executionCore,
+		coreShell:                     coreShell,
+		coreShellEndpoint:             coreShellEndpoint,
+		actionResolver:                actionResolver,
+		store:                         runsRepo,
+		artifactManifests:             repos.Artifacts(),
+		artifactMaxBytes:              config.WorkerArtifactMaxBytes(),
+		artifactMaxRunBytes:           config.WorkerArtifactMaxRunBytes(),
+		artifactMaxCount:              config.WorkerArtifactMaxCount(),
+		continuationInlineJobMaxBytes: config.WorkerQueueContinuationInlineJobMaxBytes(),
+		retryMetrics:                  retryMetrics,
+		choreographer:                 newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
+		hotStateOwnerID:               hotStateOwnerID(config.CellID()),
+		hotStateOwnerEpoch:            workerID,
+		secretResolverForWorkload:     secretResolverForWorkload,
+		catalog:                       cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
+		metrics:                       workerMetrics,
+		taskFinalizeMetrics:           taskFinalizeMetrics,
+		spiffeSVIDSource:              spiffeSVIDSource,
+		spiffeRegistrar:               spiffeRegistrar,
+		spiffeRegistrationParentID:    config.WorkerSPIFFERegistrationParentID(),
+		spiffeRegistrationSelectors:   spiffeRegistrationSelectors,
+		spiffeRegistrationMinTTL:      config.WorkerSPIFFERegistrationMinTTL(),
+		spiffeRegistrationMaxTTL:      config.WorkerSPIFFERegistrationMaxTTL(),
+		cancelCh:                      make(chan string, 1),
 	}
 
 	// Start worker control server for remote cancellation.
@@ -504,50 +505,51 @@ func controlPublishAddress(addr string) string {
 }
 
 type worker struct {
-	ctx                         context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
-	runCtx                      context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
-	logger                      interfaces.Logger
-	workerID                    string
-	cellID                      string
-	clock                       interfaces.Clock
-	renewInterval               time.Duration
-	cancelPollInterval          time.Duration
-	queue                       interfaces.QueueClient
-	logClient                   interfaces.LogClient
-	core                        workercore.Core
-	coreShell                   *workercore.ShellServer
-	coreShellEndpoint           string
-	actionResolver              actionregistry.Resolver
-	store                       dal.RunsRepository
-	artifactManifests           dal.ArtifactsRepository
-	artifactMaxBytes            int64
-	artifactMaxRunBytes         int64
-	artifactMaxCount            int64
-	retryMetrics                backoff.RetryMetrics
-	choreographer               executionChoreographer
-	payloadMu                   sync.Mutex
-	payloadJobs                 map[string]*api.Job
-	hotStateOwnerID             string
-	hotStateOwnerEpoch          string
-	secretResolver              secrets.Resolver
-	secretResolverForWorkload   secretResolverFactory
-	catalog                     cell.CatalogEventPublisher
-	metrics                     *observability.WorkerMetrics
-	taskFinalizeMetrics         *observability.TaskFinalizeMetrics
-	spiffeSVIDSource            spire.X509SVIDSource
-	spiffeRegistrar             spire.Registrar
-	spiffeRegistrationParentID  string
-	spiffeRegistrationSelectors []spire.Selector
-	spiffeRegistrationMinTTL    time.Duration
-	spiffeRegistrationMaxTTL    time.Duration
-	dequeueFailAttempt          int
-	dbUnavailable               bool
-	dbFailAttempt               int
-	dbMu                        sync.Mutex
-	cancelCh                    chan string
-	currentRunID                string
-	currentClaimToken           string
-	currentMu                   sync.Mutex
+	ctx                           context.Context // canceled on SIGINT/SIGTERM; dequeue and between-job backoff only
+	runCtx                        context.Context // Background; execution, lease renew, ack, finalize survive SIGTERM until dequeue stops
+	logger                        interfaces.Logger
+	workerID                      string
+	cellID                        string
+	clock                         interfaces.Clock
+	renewInterval                 time.Duration
+	cancelPollInterval            time.Duration
+	queue                         interfaces.QueueClient
+	logClient                     interfaces.LogClient
+	core                          workercore.Core
+	coreShell                     *workercore.ShellServer
+	coreShellEndpoint             string
+	actionResolver                actionregistry.Resolver
+	store                         dal.RunsRepository
+	artifactManifests             dal.ArtifactsRepository
+	artifactMaxBytes              int64
+	artifactMaxRunBytes           int64
+	artifactMaxCount              int64
+	continuationInlineJobMaxBytes int64
+	retryMetrics                  backoff.RetryMetrics
+	choreographer                 executionChoreographer
+	payloadMu                     sync.Mutex
+	payloadJobs                   map[string]*api.Job
+	hotStateOwnerID               string
+	hotStateOwnerEpoch            string
+	secretResolver                secrets.Resolver
+	secretResolverForWorkload     secretResolverFactory
+	catalog                       cell.CatalogEventPublisher
+	metrics                       *observability.WorkerMetrics
+	taskFinalizeMetrics           *observability.TaskFinalizeMetrics
+	spiffeSVIDSource              spire.X509SVIDSource
+	spiffeRegistrar               spire.Registrar
+	spiffeRegistrationParentID    string
+	spiffeRegistrationSelectors   []spire.Selector
+	spiffeRegistrationMinTTL      time.Duration
+	spiffeRegistrationMaxTTL      time.Duration
+	dequeueFailAttempt            int
+	dbUnavailable                 bool
+	dbFailAttempt                 int
+	dbMu                          sync.Mutex
+	cancelCh                      chan string
+	currentRunID                  string
+	currentClaimToken             string
+	currentMu                     sync.Mutex
 }
 
 type secretResolverFactory func(*workloadidentity.Identity) (secrets.Resolver, func(), error)
@@ -1670,7 +1672,11 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 		trace.SpanFromContext(ctx).RecordError(persistErr)
 	}
 
-	payloadHash := w.executionPayloadHashForContinuation(ctx, source.RunID)
+	inlineJob := shouldInlineContinuationJob(j, w.continuationInlineJobMaxBytes)
+	payloadHash := ""
+	if !inlineJob {
+		payloadHash = w.executionPayloadHashForContinuation(ctx, source.RunID)
+	}
 	enqueued := 0
 	failed := 0
 	for _, child := range result.Children {
@@ -1680,7 +1686,10 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 
 		var childJob *api.Job
 		metadata := cloneMetadataForWorker(source.Metadata)
-		if payloadHash != "" {
+		if inlineJob {
+			delete(metadata, cell.ExecutionPayloadHashMetadataKey)
+			childJob = cloneJobForWorker(j)
+		} else if payloadHash != "" {
 			var err error
 			childJob, err = compactJobForWorker(j, child.TaskKey)
 			if err != nil {
@@ -1805,6 +1814,14 @@ func (w *worker) executionPayloadHashForContinuation(ctx context.Context, runID 
 
 	w.noteDBRecovered()
 	return strings.TrimSpace(payloadHash)
+}
+
+func shouldInlineContinuationJob(j *api.Job, maxBytes int64) bool {
+	if j == nil || maxBytes <= 0 {
+		return false
+	}
+
+	return int64(proto.Size(j)) <= maxBytes
 }
 
 func cloneMetadataForWorker(in map[string]string) map[string]string {
@@ -3588,6 +3605,7 @@ func init() {
 	rootCmd.PersistentFlags().Float64("queue-dequeue-poll-jitter-ratio", config.WorkerQueueDequeuePollJitterRatio(), "One-sided jitter ratio for bounded idle dequeue long-polls (0 disables, 0.2 means 80-100%)")
 	rootCmd.PersistentFlags().Duration("queue-dequeue-poll-max-interval", config.WorkerQueueDequeuePollMaxInterval(), "Maximum interval for exponential backoff of bounded idle dequeue long-polls")
 	rootCmd.PersistentFlags().Int("queue-dequeue-sticky-success-budget", config.WorkerQueueDequeueStickySuccessBudget(), "Successful dequeues to keep sampling a productive queue shard before probing another shard")
+	rootCmd.PersistentFlags().Int64("queue-continuation-inline-job-max-bytes", config.WorkerQueueContinuationInlineJobMaxBytes(), "Maximum serialized job bytes to inline in continuation queue deliveries instead of compacting behind the durable payload hash (0 disables)")
 	rootCmd.PersistentFlags().String("core-socket", workercore.DefaultCoreSocketPath(), "Unix socket for the remote worker core")
 	rootCmd.PersistentFlags().String("core-shell-socket", workercore.DefaultShellSocketPath(), "Unix socket exposed by the worker shell for core callbacks")
 	rootCmd.PersistentFlags().Duration("core-connect-timeout", 10*time.Second, "Timeout for connecting to the remote worker core")
@@ -3602,6 +3620,7 @@ func init() {
 	_ = viper.BindPFlag("worker.queue.dequeue_poll_jitter_ratio", rootCmd.PersistentFlags().Lookup("queue-dequeue-poll-jitter-ratio"))
 	_ = viper.BindPFlag("worker.queue.dequeue_poll_max_interval", rootCmd.PersistentFlags().Lookup("queue-dequeue-poll-max-interval"))
 	_ = viper.BindPFlag("worker.queue.dequeue_sticky_success_budget", rootCmd.PersistentFlags().Lookup("queue-dequeue-sticky-success-budget"))
+	_ = viper.BindPFlag("worker.queue.continuation_inline_job_max_bytes", rootCmd.PersistentFlags().Lookup("queue-continuation-inline-job-max-bytes"))
 	_ = viper.BindPFlag("worker.core.socket", rootCmd.PersistentFlags().Lookup("core-socket"))
 	_ = viper.BindPFlag("worker.core.shell_socket", rootCmd.PersistentFlags().Lookup("core-shell-socket"))
 	_ = viper.BindPFlag("worker.core.connect_timeout", rootCmd.PersistentFlags().Lookup("core-connect-timeout"))
@@ -3614,6 +3633,7 @@ func init() {
 	_ = viper.BindEnv("worker.queue.dequeue_poll_jitter_ratio", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_JITTER_RATIO")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
+	_ = viper.BindEnv("worker.queue.continuation_inline_job_max_bytes", "VECTIS_WORKER_QUEUE_CONTINUATION_INLINE_JOB_MAX_BYTES")
 	_ = viper.BindEnv("worker.queue.address", "VECTIS_WORKER_QUEUE_ADDRESS")
 	_ = viper.BindEnv("worker.log.address", "VECTIS_WORKER_LOG_ADDRESS")
 	_ = viper.BindEnv("worker.orchestrator.address", "VECTIS_WORKER_ORCHESTRATOR_ADDRESS")

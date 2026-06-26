@@ -214,6 +214,7 @@ queue.dequeue_poll_base_interval = "250ms"
 queue.dequeue_poll_jitter_ratio = 0.2
 queue.dequeue_poll_max_interval = "1s"
 queue.dequeue_sticky_success_budget = 64
+queue.continuation_inline_job_max_bytes = 65536
 
 [worker.execution]
 backend = "host"
