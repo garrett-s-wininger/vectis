@@ -15,6 +15,9 @@ const cells = data.cells.map((cell) => ({
   workers: cell.workersTotal > 0 ? `${cell.workersOnline}/${cell.workersTotal}` : "N/A"
 })) satisfies ExecutionTopologyCell[];
 
+const singleHealthyCell = cells.filter((cell) => cell.status === "healthy").slice(0, 1);
+const degradedAndOfflineCells = cells.filter((cell) => cell.status !== "healthy");
+
 const meta = {
   title: "Components/Data/ExecutionTopology",
   component: ExecutionTopology,
@@ -30,12 +33,19 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const MixedCells: Story = {};
+export const MixedStatus: Story = {};
 
-export const SingleLocalCell: Story = {
+export const SingleHealthyCell: Story = {
   args: {
-    cells: cells.slice(0, 1),
+    cells: singleHealthyCell,
     countLabel: "1 cell"
+  }
+};
+
+export const DegradedAndOfflineCells: Story = {
+  args: {
+    cells: degradedAndOfflineCells,
+    countLabel: "2 cells"
   }
 };
 

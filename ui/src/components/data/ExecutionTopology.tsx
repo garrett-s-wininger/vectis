@@ -101,15 +101,7 @@ function CellNode({ cell, onSelect }: { cell: ExecutionTopologyCell; onSelect?: 
   );
 }
 
-function TopologyFact({
-  icon: Icon,
-  label,
-  value
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}) {
+function TopologyFact({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
     <div className={styles.fact}>
       <span className={styles.factIcon} aria-hidden="true">

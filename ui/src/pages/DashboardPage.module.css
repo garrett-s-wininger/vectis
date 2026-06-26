@@ -59,6 +59,13 @@
   width: 100%;
 }
 
+.emptyState {
+  color: var(--text-subtle);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-compact);
+  margin: 0;
+}
+
 @media (max-width: 920px) {
   .layout {
     grid-template-columns: 1fr;

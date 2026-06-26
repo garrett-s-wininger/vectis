@@ -30,6 +30,13 @@ export const Cluster: Story = {
   render: () => <HealthPageHarness cells={data.cells} />
 };
 
+export const SingleCellCluster: Story = {
+  args: {
+    cells: data.cells.slice(0, 1),
+    onSelectCell: () => undefined
+  }
+};
+
 export const CellDrilldown: Story = {
   render: () => <DashboardPage cell={data.cells.find((cell) => cell.id === "cell-edge") ?? data.cells[0]} />
 };

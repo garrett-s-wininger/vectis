@@ -69,18 +69,22 @@ export function DashboardPage({ cell, onOpenHealth }: DashboardPageProps) {
           <SignalList signals={cell.components} variant="stretch" />
         </SectionPanel>
         <SectionPanel description={workloadDescription(cell)} title="Workload">
-          <div className={styles.progressStack}>
-            {cell.progress.map((progress) => (
-              <ProgressMeter
-                detail={progress.detail}
-                key={progress.id}
-                label={progress.label}
-                tone={progress.tone}
-                value={progress.value}
-                variant="card"
-              />
-            ))}
-          </div>
+          {cell.progress.length > 0 ? (
+            <div className={styles.progressStack}>
+              {cell.progress.map((progress) => (
+                <ProgressMeter
+                  detail={progress.detail}
+                  key={progress.id}
+                  label={progress.label}
+                  tone={progress.tone}
+                  value={progress.value}
+                  variant="card"
+                />
+              ))}
+            </div>
+          ) : (
+            <p className={styles.emptyState}>No workload telemetry reported.</p>
+          )}
         </SectionPanel>
       </div>
     </>
