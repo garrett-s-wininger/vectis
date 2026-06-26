@@ -26,46 +26,52 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
   return (
     <>
       <PageHeader description="Execution cells and their status." eyebrow="Cluster" title="Health" />
-      <div className={styles.metrics}>
+      <div className={styles.healthLayout}>
         <CellStatusDistribution cells={cells} />
-        {metrics.map((metric) => (
-          <MetricCard
-            detail={metric.detail}
-            key={metric.id}
-            label={metric.label}
-            tone={metric.tone}
-            value={metric.value}
+        <div className={styles.secondaryMetrics}>
+          {metrics.map((metric) => (
+            <MetricCard
+              detail={metric.detail}
+              key={metric.id}
+              label={metric.label}
+              tone={metric.tone}
+              value={metric.value}
+            />
+          ))}
+        </div>
+        <div className={styles.cellList}>
+          <RecordList
+            countLabel={cellCountLabel(cells.length)}
+            description="Execution Topology"
+            emptyMessage="No cells registered."
+            items={cells.map((cell) => ({
+              actions: (
+                <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>
+              ),
+              ariaLabel: `Inspect ${cell.name}`,
+              content: (
+                <RecordListSummary>
+                  <RecordListIdentity subtitle={cellListSubtitle(cell)} title={cell.name} />
+                  <RecordListMeta featuredFirst>
+                    <OperationalFact emphasis icon={Network} label={cellEndpointLabel(cell)} value={cell.endpoint} />
+                    <OperationalFact
+                      icon={Activity}
+                      label={cellWorkloadLabel(cell)}
+                      value={String(cellWorkloadValue(cell))}
+                    />
+                    <OperationalFact icon={Gauge} label="Queue" value={String(cell.queueDepth)} />
+                    <OperationalFact icon={Server} label="Workers" value={workerCapacityLabel(cell)} />
+                  </RecordListMeta>
+                </RecordListSummary>
+              ),
+              key: cell.id,
+              onSelect: () => onSelectCell(cell.id),
+              railTone: cellRailTone(cell.status)
+            }))}
+            title="Cells"
           />
-        ))}
+        </div>
       </div>
-      <RecordList
-        countLabel={cellCountLabel(cells.length)}
-        description="Execution Topology"
-        emptyMessage="No cells registered."
-        items={cells.map((cell) => ({
-          actions: <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>,
-          ariaLabel: `Inspect ${cell.name}`,
-          content: (
-            <RecordListSummary>
-              <RecordListIdentity subtitle={cell.region} title={cell.name} />
-              <RecordListMeta featuredFirst>
-                <OperationalFact emphasis icon={Network} label={cellEndpointLabel(cell)} value={cell.endpoint} />
-                <OperationalFact
-                  icon={Activity}
-                  label={cellWorkloadLabel(cell)}
-                  value={String(cellWorkloadValue(cell))}
-                />
-                <OperationalFact icon={Gauge} label="Queue" value={String(cell.queueDepth)} />
-                <OperationalFact icon={Server} label="Workers" value={workerCapacityLabel(cell)} />
-              </RecordListMeta>
-            </RecordListSummary>
-          ),
-          key: cell.id,
-          onSelect: () => onSelectCell(cell.id),
-          railTone: cellRailTone(cell.status)
-        }))}
-        title="Cells"
-      />
     </>
   );
 }
@@ -77,7 +83,7 @@ function CellStatusDistribution({ cells }: { cells: Cell[] }) {
 
   return (
     <article className={styles.statusMetric}>
-      <span className={styles.statusLabel}>Cells</span>
+      <span className={styles.statusLabel}>Cell Status</span>
       <strong className={styles.statusValue}>{total}</strong>
       <div aria-label={`Cell status distribution: ${summary}`} className={styles.statusBar} role="img">
         {statusSegments.map((segment) => {
@@ -107,6 +113,10 @@ function CellStatusDistribution({ cells }: { cells: Cell[] }) {
 
 function cellCountLabel(count: number) {
   return count === 1 ? "1 cell" : `${count} cells`;
+}
+
+function cellListSubtitle(cell: Cell) {
+  return cell.stuckRuns === undefined ? cell.region : undefined;
 }
 
 const statusSegments = [

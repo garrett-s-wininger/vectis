@@ -42,7 +42,7 @@ export function DashboardPage({ cell, onOpenHealth }: DashboardPageProps) {
         <div className={styles.summaryHeader}>
           <div>
             <h2 id="cell-summary-title">Cell Summary</h2>
-            <p>Reachability, identity, and worker capacity signals.</p>
+            <p>Reachability, identity, and capacity.</p>
           </div>
           <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>
         </div>
@@ -91,7 +91,7 @@ function cellDashboardMetrics(cell: Cell): DashboardMetric[] {
   const workloadValue = cell.stuckRuns ?? cell.activeRuns;
   const reportsStuckRuns = cell.stuckRuns !== undefined;
 
-  return [
+  const metrics: DashboardMetric[] = [
     {
       id: "active-runs",
       label: reportsStuckRuns ? "Stuck runs" : "Active runs",
@@ -105,15 +105,20 @@ function cellDashboardMetrics(cell: Cell): DashboardMetric[] {
       value: String(cell.queueDepth),
       detail: "Waiting in this cell",
       tone: cell.queueDepth > 5 ? "attention" : "neutral"
-    },
-    {
+    }
+  ];
+
+  if (cell.workersTotal > 0) {
+    metrics.push({
       id: "workers",
       label: "Workers",
       value: workerCapacityShortLabel(cell),
-      detail: cell.workersTotal > 0 ? "Online workers" : "Worker telemetry unavailable",
-      tone: cell.workersTotal === 0 ? "neutral" : cell.workersOnline < cell.workersTotal ? "attention" : "success"
-    }
-  ];
+      detail: "Online workers",
+      tone: cell.workersOnline < cell.workersTotal ? "attention" : "success"
+    });
+  }
+
+  return metrics;
 }
 
 function workloadDescription(cell: Cell) {
