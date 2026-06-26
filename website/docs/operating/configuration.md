@@ -146,7 +146,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-registry` | `VECTIS_REGISTRY` | `--port`; cluster membership uses `VECTIS_REGISTRY_CLUSTER_*` |
 | `vectis-log` | `VECTIS_LOG` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port`, `--max-run-buffers` |
 | `vectis-artifact` | `VECTIS_ARTIFACT` | `--instance-id`, `--storage-dir`, `--storage-read-only-min-free-bytes`, `--grpc-port`, `--metrics-host`, `--metrics-port` |
-| `vectis-secrets` | `VECTIS_SECRETS` | `--port`, `--metrics-host`, `--metrics-port`, `--encryptedfs-root`, `--encryptedfs-key-file`, `--allow-secret` |
+| `vectis-secrets` | `VECTIS_SECRETS` | `--port`, `--metrics-host`, `--metrics-port`, `--encryptedfs-root`, `--encryptedfs-key-file`, `--knox-url`, `--knox-auth-token-file`, `--knox-auth-token`, `--knox-insecure-skip-verify`, `--allow-secret` |
 | `vectis-spiffe` | `VECTIS_SPIFFE` | `--trust-domain`, `--data-dir`, `--runtime-dir`, `--workload-socket`, `--registration-socket`, `--bundle-file`, `--selector`, `--x509-svid-ttl`, `--init-only` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--queue-continuation-inline-job-max-bytes`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--checkout-cache-warm-interval`, `--checkout-cache-warm-timeout`, `--checkout-cache-warm-jitter-ratio`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--metrics-host`, `--metrics-port`, `--execution-backend`, `--workspace-root`, `--checkout-cache-root`, `--checkout-cache-generations-to-keep`, `--checkout-cache-lease-ttl`, `--checkout-cache-warm-parallelism`, `--lima-instance`, `--lima-start` |
@@ -253,7 +253,7 @@ Secret resolution requires internal gRPC TLS with server certificates, `grpc_tls
 
 For local end-to-end testing, `vectis-local` starts an embedded development-only `vectis-spiffe` authority when local gRPC TLS is enabled, exports its trust bundle, passes worker execution identity and SPIFFE registration settings to child processes, starts `vectis-secrets` with encryptedfs enabled, and writes a combined client-CA bundle containing the generated local Vectis CA plus the local SPIFFE bundle. This lets ordinary local service mTLS and dynamic per-execution SVID client certificates work in the same process group without external identity binaries. `vectis-local --grpc-insecure` skips the embedded authority and secrets service because plaintext gRPC cannot authenticate execution SVID client certificates. See [Local SPIFFE Secrets Smoke Test](./deployment/local-spiffe-secrets-smoke-test.md).
 
-`vectis-secrets` routes secret refs by URI scheme. `encryptedfs://...` is the first built-in provider scheme; future external providers such as Vault or Knox can register their own schemes behind the same authorization and delivery path.
+`vectis-secrets` routes secret refs by URI scheme. `encryptedfs://...` resolves encrypted envelope files below `--encryptedfs-root`. `knox://...` resolves the primary version of a key from a configured Knox service. Knox key IDs use Knox's `service:key` shape; Vectis accepts `knox://service/key`, `knox://service:key`, `knox:///service:key`, and `knox:service:key` forms. Enable Knox with `--knox-url` plus either `--knox-auth-token-file` or `--knox-auth-token`; prefer the token file so the Authorization header value is not visible in process arguments.
 
 Secret access policy is default-deny. Configure one or more allow rules with repeated `--allow-secret`, `VECTIS_SECRETS_POLICY_ALLOW`, or `secrets.policy.allow`. Each rule uses semicolon-separated `key=value` parts:
 
@@ -261,7 +261,7 @@ Secret access policy is default-deny. Configure one or more allow rules with rep
 namespace=/teams/build;job=release;task=publish;ref=encryptedfs://teams/build/npm-token
 ```
 
-`namespace`, `job`, and `task` default to `*` when omitted; `ref` is required. Values support exact match or a trailing `*` prefix wildcard, so `namespace=/teams/*;ref=encryptedfs://teams/*` allows matching refs only for executions in namespaces below `/teams/`. Every requested secret in a resolution call must match at least one allow rule.
+`namespace`, `job`, and `task` default to `*` when omitted; `ref` is required. Values support exact match or a trailing `*` prefix wildcard, so `namespace=/teams/*;ref=encryptedfs://teams/*` allows matching refs only for executions in namespaces below `/teams/`. For Knox, a matching rule might use `namespace=/teams/build;job=release;task=publish;ref=knox://release/deploy_token`. Every requested secret in a resolution call must match at least one allow rule.
 
 Create encryptedfs envelope files with `vectis-cli secrets encryptedfs put`. The command reads secret plaintext from stdin by default, refuses to overwrite existing envelope files unless `--force` is passed, and only creates a missing key file when `--create-key` is set:
 

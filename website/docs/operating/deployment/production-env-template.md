@@ -220,11 +220,16 @@ VECTIS_SECRETS_METRICS_PORT=9091
 VECTIS_SECRETS_ENCRYPTEDFS_ROOT=/var/lib/vectis/secrets/envelopes
 VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=/etc/vectis/secrets/encryptedfs.key
 VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;task=*;ref=encryptedfs://teams/build/*
+# Optional Knox provider:
+# VECTIS_SECRETS_KNOX_URL=https://knox.internal.example
+# VECTIS_SECRETS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
+# VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;task=*;ref=knox://release/*
 ```
 
-Store SPIFFE CA material, encryptedfs keys, API bootstrap tokens, database
-passwords, and TLS private keys in the operator's secret manager. Keep Workload
-API and registration sockets private to trusted service code.
+Store SPIFFE CA material, encryptedfs keys, Knox auth tokens, API bootstrap
+tokens, database passwords, and TLS private keys in the operator's secret
+manager. Keep Workload API and registration sockets private to trusted service
+code.
 
 ## Cron, Reconciler, Catalog, And Docs
 

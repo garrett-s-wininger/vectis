@@ -1,6 +1,6 @@
 # Secrets And Redaction
 
-Vectis provides an initial job secret path through the cell-local `vectis-secrets` broker and encrypted filesystem provider, but it does not provide a general run-log redaction layer. Treat job definitions, action output, service logs, run logs, database backups, queue persistence, secret stores, key files, and deployment config as potentially sensitive.
+Vectis provides a job secret path through the cell-local `vectis-secrets` broker with encrypted filesystem and Knox providers, but it does not provide a general run-log redaction layer. Treat job definitions, action output, service logs, run logs, database backups, queue persistence, secret stores, key files, and deployment config as potentially sensitive.
 
 This page is for operators deciding where secrets may appear and how to reduce accidental exposure.
 
@@ -15,7 +15,7 @@ For the broader security posture, see [Security](../../concepts/security.md). Fo
 | Bootstrap token | Used for initial setup when API auth is enabled. It remains a deploy/config secret until removed or rotated. |
 | Checkout URL validation | HTTP(S) checkout URLs with embedded user info are rejected. |
 | Log redaction | There is no general-purpose run-log redaction layer. Jobs can print secrets. |
-| Job secret backend | `vectis-secrets` can resolve top-level job secret references from an encrypted filesystem store and deliver task-scoped files under `.vectis/secrets`. Operators create encrypted envelopes with `vectis-cli secrets encryptedfs put`; the broker denies resolution unless an operator access-policy rule matches the execution scope and ref. Resolve logs, metrics, run detail, run task security events, and multi-cell catalog fan-in expose fixed outcome/reason/provider/count metadata without claim tokens, secret plaintext, delivery paths, or requested refs. Job definitions should not contain plaintext secrets. |
+| Job secret backend | `vectis-secrets` can resolve top-level job secret references from encrypted filesystem envelopes or a configured Knox service and deliver task-scoped files under `.vectis/secrets`. Operators create encryptedfs envelopes with `vectis-cli secrets encryptedfs put` or manage Knox keys in Knox; the broker denies resolution unless an operator access-policy rule matches the execution scope and ref. Resolve logs, metrics, run detail, run task security events, and multi-cell catalog fan-in expose fixed outcome/reason/provider/count metadata without claim tokens, secret plaintext, delivery paths, or requested refs. Job definitions should not contain plaintext secrets. |
 | Execution identity | Workers can derive an expected per-execution SPIFFE ID, and SPIFFE-enabled workers require their Workload API source to return a matching X.509-SVID before action code runs. Secret resolution uses that SVID as the mTLS client certificate, and the broker requires it to match the active execution. Run detail, task security events, and multi-cell catalog fan-in record only the SVID check outcome and reason, not SVID material. |
 | Storage encryption | Vectis relies on platform disk, volume, database, and backup encryption. |
 

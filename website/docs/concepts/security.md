@@ -167,7 +167,7 @@ Use this as the minimum checklist before treating a deployment as shared or prod
 4. Keep queue, registry, orchestrator, log, artifact, secrets, cell ingress, worker-control, and metrics ports off public networks.
 5. Enable internal gRPC TLS or mTLS on shared networks.
 6. Configure service identity allowlists for expected internal SPIFFE IDs.
-7. Store database DSNs, API tokens, bootstrap tokens, encryptedfs keys, and deploy TLS material in a secret manager.
+7. Store database DSNs, API tokens, bootstrap tokens, encryptedfs keys, Knox auth tokens, and deploy TLS material in a secret manager.
 8. Restrict who can define jobs, trigger jobs, and read logs.
 9. Protect SQL, SQLite, queue, log, artifact, job secret, and backup storage like sensitive application data.
 10. Run less-trusted workloads on separately isolated worker hosts or external sandboxing until built-in container or VM providers are available and configured.

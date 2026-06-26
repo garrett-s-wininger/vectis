@@ -37,7 +37,7 @@ Decide these deployment facts first:
 | Internal network | Keep gRPC, metrics, worker-control, cell-ingress, database, registry, log, artifact, and secrets endpoints private. |
 | Service discovery | Use registry discovery deliberately, or pin queue, orchestrator, log, and artifact addresses where the platform makes that safer. |
 | Storage | Assign durable directories or volumes for queue persistence, logs, artifacts, secret envelopes, SPIFFE CA material, and log-forwarder spools. |
-| Secrets | Store bootstrap token, API tokens, PostgreSQL credentials, TLS keys, SPIFFE CA material, and encryptedfs keys in a secret manager. |
+| Secrets | Store bootstrap token, API tokens, PostgreSQL credentials, TLS keys, SPIFFE CA material, encryptedfs keys, and external-provider auth tokens in a secret manager. |
 | Observability | Scrape Vectis metrics and also monitor hosts, filesystems, and PostgreSQL directly. |
 | Retention | Schedule `vectis-cli retention scheduled-cleanup` or assign cleanup to an operator runbook. |
 

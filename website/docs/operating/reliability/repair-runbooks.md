@@ -89,9 +89,9 @@ Use this when `VectisSecretsResolveFailures` fires or when `vectis_secrets_resol
 3. For fleet-wide scope, use the alert labels: `outcome`, `reason`, and `provider`. They are intentionally low-cardinality and do not include secret values, requested refs, run IDs, execution IDs, or SPIFFE IDs.
 4. Check `vectis-secrets` logs around the alert window. Resolve logs include run, execution, namespace, job, task, provider, outcome, reason, and secret count metadata.
 5. For `authorization_denied`, check worker SPIFFE SVID failures first with `vectis_worker_spiffe_svid_checks_total`, then compare `worker.execution_identity.*` settings on workers and `vectis-secrets`, and then inspect `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` rules for the run namespace, job, task, and requested refs.
-6. For `provider_not_found`, confirm the requested ref scheme has a provider registered on the broker. For `encryptedfs://` refs, also confirm the envelope exists below `--encryptedfs-root`.
-7. For `provider_denied`, inspect encryptedfs safety checks: unsafe refs, symlink escapes, invalid envelopes, decrypt failures from a wrong key, and oversized secret material.
-8. For `provider_error`, check broker logs and process configuration for encryptedfs root readability, key-file readability, database reachability, TLS, and filesystem availability.
+6. For `provider_not_found`, confirm the requested ref scheme has a provider registered on the broker. For `encryptedfs://` refs, also confirm the envelope exists below `--encryptedfs-root`. For `knox://` refs, confirm `--knox-url` is configured and the Knox key ID exists.
+7. For `provider_denied`, inspect encryptedfs safety checks: unsafe refs, symlink escapes, invalid envelopes, decrypt failures from a wrong key, and oversized secret material. For Knox, check broker-side ref validation, Knox authorization failures, mismatched response key IDs, and oversized secret material.
+8. For `provider_error`, check broker logs and process configuration for encryptedfs root readability, key-file readability, Knox URL/token-file readability, Knox network reachability, database reachability, TLS, and filesystem availability.
 9. Confirm `vectis-secrets` gRPC health is serving and the metrics listener is scrapeable from the trusted monitoring network.
 10. After repair, retry only runs that are safe to re-run and confirm the failed resolve counter no longer increases.
 

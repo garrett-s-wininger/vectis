@@ -121,7 +121,7 @@ Use the reference deployment as a starting checklist, then replace the demo assu
 3. Put the API behind HTTPS, trusted proxy configuration, allowed-host validation, and access controls.
 4. Keep internal gRPC, metrics, cell ingress, worker-control, log, and database ports private; configure cell ingress and metrics allowed Hosts if trusted internal clients must reach them off-host.
 5. Use internal TLS or mTLS consistently.
-6. Store bootstrap token, API tokens, Postgres password, encryptedfs key, SPIFFE CA, and TLS keys in a secret manager.
+6. Store bootstrap token, API tokens, Postgres password, encryptedfs key, external-provider auth tokens, SPIFFE CA, and TLS keys in a secret manager.
 7. Decide whether bundled Prometheus, Grafana, Jaeger, OpenSearch, and Fluent Bit are temporary or production-managed.
 8. Put queue persistence, log storage, and observability data on durable volumes with clear retention.
 9. Wire health probes to API HTTP health and gRPC health where supported.

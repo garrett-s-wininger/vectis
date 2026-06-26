@@ -232,7 +232,7 @@ Jobs can declare secret references at the top level. The worker asks the cell-lo
 
 Secret resolution requires per-execution SPIFFE identity: enable worker execution identity and SPIFFE SVID acquisition, configure `vectis-secrets` with the same `worker.execution_identity.*` values, run internal gRPC with client certificate verification so the broker can authenticate the execution SVID, and add a matching `--allow-secret` policy rule such as `namespace=*;job=secret-example;task=publish;ref=encryptedfs://team/npm-token`.
 
-The broker routes secret refs by URI scheme. With the first built-in provider, `encryptedfs://team/npm-token` maps to an encrypted envelope file below the broker's `--encryptedfs-root`, for example `<root>/team/npm-token`. Operators can create that envelope with the CLI:
+The broker routes secret refs by URI scheme. `encryptedfs://team/npm-token` maps to an encrypted envelope file below the broker's `--encryptedfs-root`, for example `<root>/team/npm-token`. `knox://service/key` maps to a Knox key ID of `service:key` when the broker is started with `--knox-url` and a Knox auth token. Operators can create encryptedfs envelopes with the CLI:
 
 ```sh
 ./bin/vectis-cli secrets encryptedfs put encryptedfs://team/npm-token \

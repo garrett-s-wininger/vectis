@@ -19,7 +19,7 @@ Back up the SQL database first and most carefully. It is the source of truth for
 | Log storage | Durable run logs served by `vectis-log` | `VECTIS_LOG_STORAGE_DIR`, `vectis-log --storage-dir`, or the default `$XDG_DATA_HOME/vectis/log/<instance-id>` |
 | Artifact storage | Durable content-addressed blobs served by `vectis-artifact` | `VECTIS_ARTIFACT_STORAGE_DIR`, `vectis-artifact --storage-dir`, or the default `$XDG_DATA_HOME/vectis/artifact/<instance-id>` |
 | Log-forwarder spool | Worker-side batches not yet delivered to log service | Configured log-forwarder spool directory |
-| Job secret store | Encrypted secret envelopes and provider key material used by `vectis-secrets` | `VECTIS_SECRETS_ENCRYPTEDFS_ROOT`, `VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE`, or matching deploy volumes |
+| Job secret store | Encrypted secret envelopes, Knox auth tokens, and provider key material used by `vectis-secrets` | `VECTIS_SECRETS_ENCRYPTEDFS_ROOT`, `VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE`, `VECTIS_SECRETS_KNOX_AUTH_TOKEN_FILE`, or matching deploy volumes |
 | Deployment secrets | Postgres password, API bootstrap token, rendered local deploy secrets | `VECTIS_DEPLOY_CONFIG_DIR/podman` or the OS user config Vectis deploy directory |
 | TLS material | gRPC CA, server certs, client certs, Postgres TLS CA/certs, local dev TLS | Paths configured under `VECTIS_GRPC_TLS_*`, Podman TLS volumes, and `$XDG_DATA_HOME/vectis/local-tls` for `vectis-local` |
 | Config and manifests | The exact deployment shape needed to interpret restored paths and credentials | Environment, rendered kube YAML, Podman/systemd/unit manifests, ConfigMaps, dashboards |

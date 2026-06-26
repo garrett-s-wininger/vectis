@@ -67,9 +67,9 @@ Job definitions store only secret references and delivery metadata. They never
 store plaintext values. Execution envelopes, queue payloads, dispatch records,
 and execution payload ledgers preserve the same rule.
 
-The broker exposes a provider-backed contract so future Vault, Knox, Kubernetes,
-or cloud-secret-manager providers can implement the same resolution behavior
-without changing the worker/action materialization path.
+The broker exposes a provider-backed contract so providers such as Knox, Vault,
+Kubernetes, or cloud-secret-manager integrations can implement the same
+resolution behavior without changing the worker/action materialization path.
 
 ## Consequences
 

@@ -43,7 +43,7 @@ For exact metric names, labels, and interpretation, see the
 | Artifacts | Upload failures through worker/run outcomes, local CAS blob/byte/free-space gauges, writable state, and artifact service process health. |
 | Cron | Due schedule backlog, schedule-to-run latency where available, cron claim failures through service logs, and repeated dispatch attempts. |
 | Catalog | Per-cell fan-in read/copy/backfill counts, pending/failed inbox counts, and global catalog apply progress. |
-| Secrets | Resolve request totals/duration by outcome/reason/provider, encryptedfs storage health, and worker SVID gate failures. |
+| Secrets | Resolve request totals/duration by outcome/reason/provider, encryptedfs storage health, Knox reachability when enabled, and worker SVID gate failures. |
 | Retention | SQL storage record gauges, oldest retained record age, scheduled cleanup evidence freshness, backup manifest freshness, restore-validation freshness, storage verification evidence status, retained waiver expiry, dry-run cleanup evidence, and database/storage growth. |
 
 ## Required Platform Signals

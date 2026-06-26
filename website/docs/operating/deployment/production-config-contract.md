@@ -23,7 +23,7 @@ variables, and flags. Production operators own the live values.
 | --- | --- |
 | Vectis | Defaults, validation, service-specific env names, health checks, migration command, and docs for supported settings. |
 | Config management | Writes live env files, secret mounts, service placement, allowed hosts, DSNs, TLS paths, storage paths, and instance IDs. |
-| Secret manager | Stores bootstrap token, API tokens, database credentials, TLS private keys, encryptedfs keys, SPIFFE CA material, and recovery credentials. |
+| Secret manager | Stores bootstrap token, API tokens, database credentials, TLS private keys, encryptedfs keys, Knox auth tokens, SPIFFE CA material, and recovery credentials. |
 | Platform | Keeps internal endpoints private, provides durable volumes, rotates certificates/secrets, monitors hosts and PostgreSQL, and runs backups. |
 
 Do not rely on checked-in `env/*.example` files as production config. They are
@@ -44,6 +44,7 @@ examples and may include local/demo defaults.
 | SPIFFE Workload API / Entry API authority sockets | Workers or dedicated registrar | Expose only to worker-controlled code or registrar components, never arbitrary job actions. |
 | encryptedfs key file | `vectis-secrets` and operator secret-loading flow | Store separately from encrypted envelopes where possible. Back up with the same sensitivity as plaintext secrets. |
 | encryptedfs secret envelopes | `vectis-secrets` | Store on durable private storage; include in backup and retention policy. |
+| Knox auth token file | `vectis-secrets` when the Knox provider is enabled | Store as deploy secret material. Rotate through Knox and restart or reload the broker process with the new token. |
 | Log-forwarder spool contents | `vectis-log-forwarder` | May contain job output. Protect and back up according to log policy. |
 
 ## Required Common Config
@@ -208,6 +209,10 @@ When `vectis-secrets` is enabled:
 VECTIS_SECRETS_ENCRYPTEDFS_ROOT=/var/lib/vectis/secrets/envelopes
 VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE=/etc/vectis/secrets/encryptedfs.key
 VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=encryptedfs://teams/build/*
+# Optional Knox provider:
+# VECTIS_SECRETS_KNOX_URL=https://knox.internal.example
+# VECTIS_SECRETS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
+# VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=knox://release/*
 ```
 
 Also configure matching execution identity settings on workers and
@@ -231,7 +236,7 @@ VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS=unix:uid:1000
 ```
 
 Do not mount SPIFFE Workload API sockets, SPIFFE Entry API sockets, SVID private
-keys, registration credentials, encryptedfs keys, or broad secret-store
+keys, registration credentials, encryptedfs keys, Knox auth tokens, or broad secret-store
 credentials into arbitrary job processes.
 
 ## Metrics And Logs Contract

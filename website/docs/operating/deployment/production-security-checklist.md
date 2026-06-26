@@ -61,7 +61,7 @@ for listener roles, not a replacement for keeping internal ports private.
 
 | Check | Required posture |
 | --- | --- |
-| Secret manager | Store API bootstrap token, API tokens, Postgres credentials, TLS keys, SPIFFE CA material, encryptedfs keys, and recovery credentials outside the repository. |
+| Secret manager | Store API bootstrap token, API tokens, Postgres credentials, TLS keys, SPIFFE CA material, encryptedfs keys, Knox auth tokens, and recovery credentials outside the repository. |
 | Secret policy | Keep `VECTIS_SECRETS_POLICY_ALLOW` narrow by namespace, job, task, and ref. Avoid broad wildcard policies in production. |
 | Execution identity | Enable and test worker execution identity before using Vectis-mediated job secrets. |
 | Workload API socket | Keep the SPIFFE Workload API socket private to worker-controlled code. |

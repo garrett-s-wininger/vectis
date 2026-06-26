@@ -40,7 +40,7 @@ That command shows status, dispatch events, and the latest failed worker-control
 | Retry exhaustion | Component label, dependency health, TLS mismatch, network policy. | [Repair Runbooks](./repair-runbooks.md#quick-map) |
 | DB pool saturation | Postgres availability, pool sizing, replica count, slow queries. | [Database Pool Pressure](./repair-runbooks.md#database-pool-pressure) |
 | API security rejection spike | `reason`, `route`, `status`, edge proxy logs, recent client or ingress changes. | [API Security Rejections](./repair-runbooks.md#api-security-rejections) |
-| Secret resolution failures | `runs show` latest failed gate, secret broker logs, `outcome`, `reason`, `provider`, SPIFFE SVID checks, policy rules, encryptedfs root/key. | [Secret Resolution](./repair-runbooks.md#secret-resolution) |
+| Secret resolution failures | `runs show` latest failed gate, secret broker logs, `outcome`, `reason`, `provider`, SPIFFE SVID checks, policy rules, encryptedfs root/key, Knox URL/token config. | [Secret Resolution](./repair-runbooks.md#secret-resolution) |
 | Old retained records or SQL growth | Retention policy, dry-run cleanup counts, backup status. | [Retention Cleanup](./repair-runbooks.md#retention-cleanup) |
 | A run needs manual action | Run status, dispatch events, worker ownership, automatic repair state. | [Manual Run Intervention](./repair-runbooks.md#manual-run-intervention) |
 

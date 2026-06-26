@@ -48,7 +48,7 @@ shape.
 | Cron | Run `vectis-cron` only if schedules are used. Multiple cron instances may coordinate through the shared database. |
 | Registry | Run one registry by default, or configure a deliberate registry HA cluster. Pin queue, orchestrator, log, or artifact addresses when registry availability should not be on the critical path. |
 | Docs | Treat `vectis-docs` as optional and expose it only to operators unless a separate public-docs posture is chosen. |
-| Secrets | Store API tokens, bootstrap token, PostgreSQL credentials, TLS keys, SPIFFE CA material, and encryptedfs keys in an operator-controlled secret manager. |
+| Secrets | Store API tokens, bootstrap token, PostgreSQL credentials, TLS keys, SPIFFE CA material, encryptedfs keys, and external-provider auth tokens in an operator-controlled secret manager. |
 | Storage | Put database data, queue persistence, logs, artifacts, secret envelopes, SPIFFE CA material, and observability data on durable storage with backup and retention policies. |
 | Observability | Use Vectis metrics plus host, database, and filesystem telemetry. The CLI health check is not a complete production monitoring system. |
 
@@ -127,7 +127,7 @@ Before calling a production v1 deployment ready, confirm:
 4. `vectis-reconciler` is running and visible in health checks and metrics.
 5. Queue, log, and artifact shards use stable IDs and durable, separate storage paths.
 6. Workers drain cleanly during restart and are paired with reachable worker cores.
-7. Secrets, TLS keys, SPIFFE CA material, and encryptedfs keys live in the operator's secret manager.
+7. Secrets, TLS keys, SPIFFE CA material, encryptedfs keys, and external-provider auth tokens live in the operator's secret manager.
 8. Retention cleanup is scheduled or explicitly assigned to an operator runbook.
 9. Monitoring covers Vectis metrics, host disk, database health, filesystem pressure, and service logs.
 10. A smoke run can be triggered, reaches a terminal state, streams logs, and records expected artifacts and audit events.

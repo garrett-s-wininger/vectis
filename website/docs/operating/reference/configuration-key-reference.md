@@ -131,6 +131,10 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | `secrets.metrics_port` | `9091` | Secrets metrics port. |
 | `secrets.encryptedfs.root` | `""` | Root directory for encryptedfs secret envelopes. |
 | `secrets.encryptedfs.key_file` | `""` | Key file for encryptedfs envelopes. |
+| `secrets.knox.url` | `""` | Knox base URL for external secret resolution. |
+| `secrets.knox.auth_token_file` | `""` | File containing the Knox bearer token. |
+| `secrets.knox.auth_token` | `""` | Knox bearer token value; prefer `secrets.knox.auth_token_file` for production. |
+| `secrets.knox.insecure_skip_verify` | `false` | Skips Knox TLS certificate verification; development only. |
 | `secrets.policy.allow` | `[]` | Default-deny secret policy allow rules. |
 | `action_registry.local_roots` | `[]` | Local custom action manifest roots. |
 | `action_registry.allowed_namespaces` | `[]` | Optional custom action namespace allowlist. |
@@ -209,6 +213,7 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.queue.continuation_inline_job_max_bytes` | `65536` | Max continuation job payload size kept inline before spillover behavior. |
 | `worker.execution.backend` | `host` | Worker-core execution backend. |
 | `worker.execution.workspace_root` | `""` | Workspace root used by execution backend. |
+| `worker.execution.lease_ttl` | `15m` | Worker execution lease TTL used to detect abandoned worker-core executions. |
 | `worker.execution.checkout_cache_root` | `""` | Worker-core checkout cache root; `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` enables persistent mirrors and worker-driven warming for source repositories with `worker_cache_mode=persistent`. |
 | `worker.execution.checkout_cache_generations_to_keep` | `2` | Number of immutable worker-core checkout cache mirror generations retained per persistent remote. Active checkout leases can temporarily keep older generations. |
 | `worker.execution.checkout_cache_lease_ttl` | `1h` | Maximum age for an unrefreshed worker-core checkout cache generation lease or abandoned receive directory before cleanup treats it as stale. Active cache-backed checkouts refresh their lease markers while in flight. |
@@ -226,6 +231,7 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.control.port` | `9084` | Static worker-control gRPC port. |
 | `worker.control.port_min` | `20000` | Dynamic worker-control port range minimum. |
 | `worker.control.port_max` | `30000` | Dynamic worker-control port range maximum. |
+| `worker.control.publish_address` | `""` | Worker-control address advertised to other services. |
 | `worker.execution_identity.enabled` | `false` | Enables per-execution identity derivation. |
 | `worker.execution_identity.trust_domain` | `""` | SPIFFE trust domain for derived execution identities. |
 | `worker.execution_identity.path_template` | `/cell/{cell}/namespace/{namespace}/job/{job}/run/{run}/execution/{execution}` | Template for derived execution SPIFFE paths. |

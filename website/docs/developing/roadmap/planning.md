@@ -48,7 +48,7 @@ These areas are intentionally not active implementation plans yet. They should b
 | Multi-replica semantics | Deferred | Long-term API rate-limit behavior, queue/log/artifact HA posture, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
 | Retention and storage pressure | Deferred | Production defaults, cleanup cadence, queue persistence, log-forwarder spools, backup/restore interaction, and deploy-specific disk pressure checks. |
 | Worker execution containment | Accepted design; implementation pending | Runner boundary, execution profiles, container provider, VM provider, resource limits, action policy, environment filtering, workspace controls, placement, and cleanup behavior. |
-| External secret providers | Deferred | Vault, Knox, Kubernetes, or cloud-provider integrations once the local encryptedfs broker, workload identity, policy, audit, and mount semantics are stable. |
+| External secret providers | In progress | Knox primary-version reads are wired through the broker. Vault, Kubernetes, cloud-provider stores, provider-specific auth rotation, and provider health checks still need decisions. |
 
 ## Federation Direction
 
