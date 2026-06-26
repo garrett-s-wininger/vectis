@@ -47,6 +47,7 @@ Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dis
 | Require custom action digest pins | `VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS=true` |
 | Set PostgreSQL | `VECTIS_DATABASE_DRIVER=pgx` and `VECTIS_DATABASE_DSN=postgres://...`, or role-specific `VECTIS_GLOBAL_DATABASE_DSN` / `VECTIS_CELL_DATABASE_DSN` |
 | Tune PostgreSQL pool | `VECTIS_DATABASE_PGX_*` |
+| Tune PostgreSQL plan caching | `VECTIS_DATABASE_PGX_PLAN_CACHE_MODE=force_generic_plan` after measuring the workload |
 | Use structured service logs | `VECTIS_LOG_FORMAT=json` |
 | Mirror service logs to files | `VECTIS_LOG_DIR=/path/to/dir` |
 | Enable API access logs | `VECTIS_API_SERVER_LOG_FORMAT=json` |
@@ -323,6 +324,7 @@ Database driver settings are global. DSNs can be shared for single-node deployme
 | `VECTIS_GLOBAL_DATABASE_DSN` | Overrides the shared DSN for global services: API, cron, reconciler, and catalog. |
 | `VECTIS_CELL_DATABASE_DSN` | Overrides the shared DSN for cell-local services: cell ingress and workers. |
 | `VECTIS_CATALOG_CELL_DATABASE_DSNS` | Comma-separated `cell_id=dsn` list that lets `vectis-catalog` fan in pending catalog events from cell-local databases. |
+| `VECTIS_DATABASE_PGX_PLAN_CACHE_MODE` | Optional pgx/PostgreSQL `plan_cache_mode` runtime parameter. Empty preserves PostgreSQL defaults; `force_generic_plan` can reduce planning overhead for Vectis write-heavy hot paths after local measurement. An explicit `plan_cache_mode` in the DSN takes precedence. |
 
 `vectis-local` uses split SQLite files by default when no database DSN is set: one global DB and one DB for each local execution cell. Standalone services keep using `VECTIS_DATABASE_DSN` unless the matching role-specific DSN is set. Multi-cell `vectis-local --cell ...` currently requires the default managed SQLite layout so each local cell gets its own DB.
 
@@ -348,6 +350,8 @@ When `VECTIS_DATABASE_DRIVER=pgx`, each DB-using process applies these `database
 | `VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME` | Maximum idle time before a connection is closed. |
 
 These limits are per process. When you run multiple APIs, workers, cron, reconciler, and catalog instances, add the limits together when sizing Postgres.
+
+`VECTIS_DATABASE_PGX_PLAN_CACHE_MODE` is separate from the pool limits. It maps to PostgreSQL's `plan_cache_mode` connection parameter and is intentionally unset by default because generic plans can hurt parameter-sensitive read queries. For write-heavy Vectis hot paths, benchmark `force_generic_plan` against the default before using it in an initial capacity envelope.
 
 ## Internal gRPC TLS {#internal-grpc-tls}
 

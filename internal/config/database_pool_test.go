@@ -8,6 +8,10 @@ import (
 )
 
 func TestDatabasePgxPool_FromEmbeddedDefaults(t *testing.T) {
+	if got := DatabasePgxPlanCacheMode(); got != "" {
+		t.Fatalf("DatabasePgxPlanCacheMode: want empty default, got %q", got)
+	}
+
 	if got := DatabasePgxPoolMaxOpenConns(); got != 25 {
 		t.Fatalf("DatabasePgxPoolMaxOpenConns: want 25, got %d", got)
 	}
@@ -29,10 +33,15 @@ func TestDatabasePgxPool_ViperOverrides(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
+	viper.Set("database.pgx.plan_cache_mode", "force_generic_plan")
 	viper.Set("database.pgx_pool.max_open_conns", 40)
 	viper.Set("database.pgx_pool.max_idle_conns", 8)
 	viper.Set("database.pgx_pool.conn_max_lifetime", 90*time.Minute)
 	viper.Set("database.pgx_pool.conn_max_idle_time", 5*time.Minute)
+
+	if got := DatabasePgxPlanCacheMode(); got != "force_generic_plan" {
+		t.Fatalf("plan cache mode: got %q", got)
+	}
 
 	if got := DatabasePgxPoolMaxOpenConns(); got != 40 {
 		t.Fatalf("max open: got %d", got)

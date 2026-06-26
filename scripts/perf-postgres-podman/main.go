@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,7 @@ const (
 	envDatabaseDriver           = "VECTIS_PERF_DATABASE_DRIVER"
 	envDatabaseDSN              = "VECTIS_PERF_DATABASE_DSN"
 	envPodman                   = "VECTIS_PERF_PODMAN"
+	envPostgresDSNParams        = "VECTIS_PERF_POSTGRES_DSN_PARAMS"
 	envPostgresImage            = "VECTIS_PERF_POSTGRES_IMAGE"
 	envPostgresProfile          = "VECTIS_PERF_POSTGRES_DURABILITY"
 	envPostgresPort             = "VECTIS_PERF_POSTGRES_PORT"
@@ -91,6 +93,11 @@ func main() {
 		hostPort,
 		postgresDatabase,
 	)
+	dsn, err = postgresDSNWithExtraParams(dsn)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "build postgres dsn: %v\n", err)
+		os.Exit(1)
+	}
 
 	waitSampler, err := startPostgresWaitSampler(context.Background(), dsn)
 	if err != nil {
@@ -146,6 +153,37 @@ func postgresHostPort() (string, error) {
 	}
 
 	return fmt.Sprintf("%d", addr.Port), nil
+}
+
+func postgresDSNWithExtraParams(dsn string) (string, error) {
+	raw := strings.TrimSpace(os.Getenv(envPostgresDSNParams))
+	if raw == "" {
+		return dsn, nil
+	}
+
+	parsedDSN, err := url.Parse(dsn)
+	if err != nil {
+		return "", err
+	}
+
+	raw = strings.TrimPrefix(raw, "?")
+	params, err := url.ParseQuery(raw)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", envPostgresDSNParams, err)
+	}
+
+	query := parsedDSN.Query()
+	for key, values := range params {
+		if len(values) == 0 {
+			continue
+		}
+		query.Del(key)
+		for _, value := range values {
+			query.Add(key, value)
+		}
+	}
+	parsedDSN.RawQuery = query.Encode()
+	return parsedDSN.String(), nil
 }
 
 func startPostgres(ctx context.Context, podman, image, containerName, hostPort string) (string, error) {

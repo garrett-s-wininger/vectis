@@ -90,6 +90,12 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		}
 
 		dbPath = sqliteDSNWithDefaults(dbPath)
+	} else if driver == "pgx" {
+		var err error
+		dbPath, err = pgxDSNWithDefaults(dbPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	db, err := sql.Open(driver, dbPath)
@@ -105,6 +111,56 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func pgxDSNWithDefaults(dsn string) (string, error) {
+	planCacheMode := config.DatabasePgxPlanCacheMode()
+	if planCacheMode == "" {
+		return dsn, nil
+	}
+
+	switch planCacheMode {
+	case "auto", "force_custom_plan", "force_generic_plan":
+	default:
+		return "", fmt.Errorf("database.pgx.plan_cache_mode must be one of auto, force_custom_plan, or force_generic_plan (got %q)", planCacheMode)
+	}
+
+	return pgxDSNWithParam(dsn, "plan_cache_mode", planCacheMode), nil
+}
+
+func pgxDSNWithParam(dsn, key, value string) string {
+	if pgxDSNHasParam(dsn, key) {
+		return dsn
+	}
+
+	if parsed, err := url.Parse(dsn); err == nil && parsed.Scheme != "" {
+		query := parsed.Query()
+		query.Set(key, value)
+		parsed.RawQuery = query.Encode()
+		return parsed.String()
+	}
+
+	sep := " "
+	if strings.TrimSpace(dsn) == "" {
+		sep = ""
+	}
+	return dsn + sep + key + "=" + value
+}
+
+func pgxDSNHasParam(dsn, key string) bool {
+	if parsed, err := url.Parse(dsn); err == nil && parsed.Scheme != "" {
+		_, ok := parsed.Query()[key]
+		return ok
+	}
+
+	for field := range strings.FieldsSeq(dsn) {
+		name, _, _ := strings.Cut(field, "=")
+		if name == key {
+			return true
+		}
+	}
+
+	return false
 }
 
 func sqliteDSNWithDefaults(dsn string) string {

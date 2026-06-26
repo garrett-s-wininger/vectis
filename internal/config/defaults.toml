@@ -185,6 +185,9 @@ require_digest_pins = false
 driver = "sqlite3"
 dsn = "{{data_home}}/vectis/db.sqlite3"
 
+[database.pgx]
+plan_cache_mode = ""
+
 [database.pgx_pool]
 max_open_conns = 25
 max_idle_conns = 10

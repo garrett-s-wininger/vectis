@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"net/url"
 	"path/filepath"
 	"testing"
 	"time"
@@ -74,6 +75,64 @@ func TestOpenDB_Pgx_InvalidDurationEnv(t *testing.T) {
 	_, err := OpenDB("postgres://user:pass@127.0.0.1:9/nope?sslmode=disable")
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestPgxDSNWithDefaults_PlanCacheModeURL(t *testing.T) {
+	t.Setenv("VECTIS_DATABASE_PGX_PLAN_CACHE_MODE", "force_generic_plan")
+
+	got, err := pgxDSNWithDefaults("postgres://user:pass@127.0.0.1:9/nope?sslmode=disable")
+	if err != nil {
+		t.Fatalf("pgxDSNWithDefaults: %v", err)
+	}
+
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse resulting dsn: %v", err)
+	}
+
+	if query := parsed.Query(); query.Get("plan_cache_mode") != "force_generic_plan" || query.Get("sslmode") != "disable" {
+		t.Fatalf("query = %v, want plan_cache_mode=force_generic_plan and sslmode=disable", query)
+	}
+}
+
+func TestPgxDSNWithDefaults_PreservesExplicitPlanCacheMode(t *testing.T) {
+	t.Setenv("VECTIS_DATABASE_PGX_PLAN_CACHE_MODE", "force_generic_plan")
+
+	got, err := pgxDSNWithDefaults("postgres://user:pass@127.0.0.1:9/nope?sslmode=disable&plan_cache_mode=force_custom_plan")
+	if err != nil {
+		t.Fatalf("pgxDSNWithDefaults: %v", err)
+	}
+
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse resulting dsn: %v", err)
+	}
+
+	if got := parsed.Query().Get("plan_cache_mode"); got != "force_custom_plan" {
+		t.Fatalf("plan_cache_mode = %q, want force_custom_plan", got)
+	}
+}
+
+func TestPgxDSNWithDefaults_PlanCacheModeKeywordDSN(t *testing.T) {
+	t.Setenv("VECTIS_DATABASE_PGX_PLAN_CACHE_MODE", "force_generic_plan")
+
+	got, err := pgxDSNWithDefaults("host=127.0.0.1 port=5432 dbname=vectis sslmode=disable")
+	if err != nil {
+		t.Fatalf("pgxDSNWithDefaults: %v", err)
+	}
+
+	want := "host=127.0.0.1 port=5432 dbname=vectis sslmode=disable plan_cache_mode=force_generic_plan"
+	if got != want {
+		t.Fatalf("pgxDSNWithDefaults keyword DSN = %q, want %q", got, want)
+	}
+}
+
+func TestPgxDSNWithDefaults_InvalidPlanCacheMode(t *testing.T) {
+	t.Setenv("VECTIS_DATABASE_PGX_PLAN_CACHE_MODE", "always")
+
+	if _, err := pgxDSNWithDefaults("postgres://user:pass@127.0.0.1:9/nope?sslmode=disable"); err == nil {
+		t.Fatal("pgxDSNWithDefaults succeeded with invalid plan cache mode")
 	}
 }
 

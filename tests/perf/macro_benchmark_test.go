@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,6 +68,7 @@ const (
 	envMacroStatusReadClients             = "VECTIS_PERF_STATUS_READ_CLIENTS"
 	envMacroStatusReadsPerRun             = "VECTIS_PERF_STATUS_READS_PER_RUN"
 	envMacroContinuationInlineJobMaxBytes = "VECTIS_PERF_CONTINUATION_INLINE_JOB_MAX_BYTES"
+	envVectisDatabasePgxPlanCacheMode     = "VECTIS_DATABASE_PGX_PLAN_CACHE_MODE"
 
 	macroPGStatStatementsTopLimit             = 12
 	defaultMacroContinuationInlineJobMaxBytes = 65536
@@ -538,6 +540,11 @@ func macroDatabaseConfigFromEnv(b *testing.B) macroDatabaseConfig {
 		if dsn == "" {
 			b.Fatalf("%s is required when %s=pgx", envMacroDatabaseDSN, envMacroDatabaseDriver)
 		}
+		var err error
+		dsn, err = macroPgxDSNWithPlanCacheMode(dsn)
+		if err != nil {
+			b.Fatal(err)
+		}
 
 		maxOpen := macroBenchmarkOptionalEnvInt(b, envMacroDatabaseMaxOpenConns, 32)
 		maxIdle := macroBenchmarkOptionalEnvInt(b, envMacroDatabaseMaxIdleConns, min(16, maxOpen))
@@ -550,6 +557,97 @@ func macroDatabaseConfigFromEnv(b *testing.B) macroDatabaseConfig {
 	default:
 		b.Fatalf("%s must be sqlite3 or pgx, got %q", envMacroDatabaseDriver, driver)
 		return macroDatabaseConfig{}
+	}
+}
+
+func macroPgxDSNWithPlanCacheMode(dsn string) (string, error) {
+	planCacheMode := strings.TrimSpace(os.Getenv(envVectisDatabasePgxPlanCacheMode))
+	if planCacheMode == "" {
+		return dsn, nil
+	}
+
+	switch planCacheMode {
+	case "auto", "force_custom_plan", "force_generic_plan":
+	default:
+		return "", fmt.Errorf("%s must be one of auto, force_custom_plan, or force_generic_plan (got %q)", envVectisDatabasePgxPlanCacheMode, planCacheMode)
+	}
+
+	return macroPgxDSNWithParam(dsn, "plan_cache_mode", planCacheMode), nil
+}
+
+func macroPgxDSNWithParam(dsn, key, value string) string {
+	if macroPgxDSNHasParam(dsn, key) {
+		return dsn
+	}
+
+	if parsed, err := url.Parse(dsn); err == nil && parsed.Scheme != "" {
+		query := parsed.Query()
+		query.Set(key, value)
+		parsed.RawQuery = query.Encode()
+		return parsed.String()
+	}
+
+	sep := " "
+	if strings.TrimSpace(dsn) == "" {
+		sep = ""
+	}
+	return dsn + sep + key + "=" + value
+}
+
+func macroPgxDSNHasParam(dsn, key string) bool {
+	if parsed, err := url.Parse(dsn); err == nil && parsed.Scheme != "" {
+		_, ok := parsed.Query()[key]
+		return ok
+	}
+
+	for field := range strings.FieldsSeq(dsn) {
+		name, _, _ := strings.Cut(field, "=")
+		if name == key {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMacroPgxDSNWithPlanCacheModeURL(t *testing.T) {
+	t.Setenv(envVectisDatabasePgxPlanCacheMode, "force_generic_plan")
+
+	got, err := macroPgxDSNWithPlanCacheMode("postgres://user:pass@127.0.0.1:5432/vectis?sslmode=disable")
+	if err != nil {
+		t.Fatalf("macroPgxDSNWithPlanCacheMode: %v", err)
+	}
+
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse resulting dsn: %v", err)
+	}
+	if query := parsed.Query(); query.Get("plan_cache_mode") != "force_generic_plan" || query.Get("sslmode") != "disable" {
+		t.Fatalf("query = %v, want plan_cache_mode=force_generic_plan and sslmode=disable", query)
+	}
+}
+
+func TestMacroPgxDSNWithPlanCacheModePreservesExplicitDSN(t *testing.T) {
+	t.Setenv(envVectisDatabasePgxPlanCacheMode, "force_generic_plan")
+
+	got, err := macroPgxDSNWithPlanCacheMode("postgres://user:pass@127.0.0.1:5432/vectis?sslmode=disable&plan_cache_mode=force_custom_plan")
+	if err != nil {
+		t.Fatalf("macroPgxDSNWithPlanCacheMode: %v", err)
+	}
+
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse resulting dsn: %v", err)
+	}
+	if got := parsed.Query().Get("plan_cache_mode"); got != "force_custom_plan" {
+		t.Fatalf("plan_cache_mode = %q, want force_custom_plan", got)
+	}
+}
+
+func TestMacroPgxDSNWithPlanCacheModeInvalid(t *testing.T) {
+	t.Setenv(envVectisDatabasePgxPlanCacheMode, "sometimes")
+
+	if _, err := macroPgxDSNWithPlanCacheMode("postgres://user:pass@127.0.0.1:5432/vectis?sslmode=disable"); err == nil {
+		t.Fatal("macroPgxDSNWithPlanCacheMode succeeded with invalid mode")
 	}
 }
 

@@ -234,7 +234,12 @@ type GRPCDefaults struct {
 type DatabaseDefaults struct {
 	Driver  string          `toml:"driver"`
 	DSN     string          `toml:"dsn"`
+	Pgx     PgxDefaults     `toml:"pgx"`
 	PgxPool PgxPoolDefaults `toml:"pgx_pool"`
+}
+
+type PgxDefaults struct {
+	PlanCacheMode string `toml:"plan_cache_mode"`
 }
 
 type SourceDefaults struct {
@@ -421,6 +426,7 @@ var (
 func init() {
 	_ = viper.BindEnv("api.host", "VECTIS_API_SERVER_HOST")
 	_ = viper.BindEnv("api.port", "VECTIS_API_SERVER_PORT")
+	_ = viper.BindEnv("database.pgx.plan_cache_mode", "VECTIS_DATABASE_PGX_PLAN_CACHE_MODE")
 	_ = viper.BindEnv("discovery.registry.address", "VECTIS_DISCOVERY_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
 	_ = viper.BindEnv("dispatch.start_ttl", "VECTIS_DISPATCH_START_TTL")
@@ -1526,6 +1532,14 @@ func DatabasePgxPoolMaxOpenConns() int {
 	}
 
 	return MustDefaults().Database.PgxPool.MaxOpenConns
+}
+
+func DatabasePgxPlanCacheMode() string {
+	if viper.IsSet("database.pgx.plan_cache_mode") {
+		return strings.TrimSpace(viper.GetString("database.pgx.plan_cache_mode"))
+	}
+
+	return strings.TrimSpace(MustDefaults().Database.Pgx.PlanCacheMode)
 }
 
 func DatabasePgxPoolMaxIdleConns() int {

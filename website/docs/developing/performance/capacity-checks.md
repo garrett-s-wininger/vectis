@@ -98,6 +98,7 @@ Useful knobs:
 | `VECTIS_PERF_DATABASE_DRIVER` | `sqlite3` | Database driver used by macro benchmarks when not running a matrix. |
 | `VECTIS_PERF_DATABASE_DSN` | `:memory:` for SQLite, required for `pgx` | Macro benchmark database DSN. Use only disposable databases. |
 | `VECTIS_PERF_POSTGRES_DSN` | unset | Postgres DSN used for `pgx` matrix entries, so SQLite entries can keep using `:memory:`. |
+| `VECTIS_PERF_POSTGRES_DSN_PARAMS` | unset | Extra URL query parameters appended to Podman-generated Postgres DSNs, such as `plan_cache_mode=force_generic_plan`, for disposable A/B runs. |
 | `VECTIS_PERF_POSTGRES_IMAGE` | `postgres:18-alpine` | Postgres image used by `pgx_podman` matrix entries. |
 | `VECTIS_PERF_POSTGRES_DURABILITY` | `safe` | Podman Postgres durability profile. `pgx_podman_unsafe` sets this to `unsafe`. |
 | `VECTIS_PERF_POSTGRES_PORT` | auto-selected | Optional fixed localhost port for `pgx_podman` matrix entries. |
@@ -170,6 +171,8 @@ make perf SUITE=macro
 The matrix tags parsed benchmark rows with `db_sqlite3`, `db_pgx_podman`, or `db_pgx_podman_unsafe`. The Podman entries start `postgres:18-alpine`, preload `pg_stat_statements`, run the Go benchmark with `VECTIS_PERF_DATABASE_DRIVER=pgx`, and force-remove the disposable container afterward. The Podman machine or socket must already be running; on macOS, start it with `podman machine start`.
 
 The `pgx_podman_unsafe` entry disables Postgres durability settings with `fsync=off`, `synchronous_commit=off`, and `full_page_writes=off`. Use it only for disposable local measurement. It approximates a lower bound for client/server, query, lock, and index overhead; it is not a deployable configuration.
+
+Use `VECTIS_PERF_POSTGRES_DSN_PARAMS` to A/B PostgreSQL connection parameters on the Podman-backed matrix without editing product configuration. For example, `VECTIS_PERF_POSTGRES_DSN_PARAMS=plan_cache_mode=force_generic_plan` appends that runtime parameter to the generated disposable DSN.
 
 The harness mirrors macro database settings into `VECTIS_DATABASE_DRIVER` for the benchmark child process so DAL SQL placeholder rebinding follows the selected backend. For Postgres macro benchmarks, the harness also writes `pg-stat-statements*.txt` sidecar artifacts, appends their `# pg_stat_statements` lines to the raw output after the Go benchmark rows, and includes the parsed final-iteration hot list in `summary.json` and `report.html`. Those lines show the top statements after setup has been reset out of the sample; when Go runs calibration passes, use the largest `iterations=` value for the representative sample. Podman-backed Postgres preloads `pg_stat_statements` with planning tracking enabled unless `VECTIS_PERF_PG_STAT_STATEMENTS=false`, so the hot list includes execution time, planning count, planning time, shared buffer counters, temp block counters, and WAL counters.
 
