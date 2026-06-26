@@ -358,13 +358,16 @@ func TestDurableLogStream_WarnsWhenWaitingForRecoveryDuringClose(t *testing.T) {
 	origRetryBase := LogRetryBaseForTest()
 	origRetryMax := LogRetryMaxForTest()
 	origFlushTimeout := LogFlushTimeoutForTest()
+	origInitialProbe := LogInitialProbeForTest()
 	SetLogRetryBaseForTest(1 * time.Millisecond)
 	SetLogRetryMaxForTest(5 * time.Millisecond)
 	SetLogFlushTimeoutForTest(80 * time.Millisecond)
+	SetLogInitialProbeForTest(20 * time.Millisecond)
 	t.Cleanup(func() {
 		SetLogRetryBaseForTest(origRetryBase)
 		SetLogRetryMaxForTest(origRetryMax)
 		SetLogFlushTimeoutForTest(origFlushTimeout)
+		SetLogInitialProbeForTest(origInitialProbe)
 	})
 
 	logger := mocks.NewMockLogger()

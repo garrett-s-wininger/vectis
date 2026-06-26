@@ -34,11 +34,12 @@ type LogStreamWaiter interface {
 }
 
 type Executor struct {
-	registry            *builtins.Registry
-	hostProcessExecutor interfaces.ExecExecutor
-	vmProcessExecutor   interfaces.ExecExecutor
-	defaultIsolation    string
-	workspaceRoot       string
+	registry              *builtins.Registry
+	hostProcessExecutor   interfaces.ExecExecutor
+	vmProcessExecutor     interfaces.ExecExecutor
+	defaultIsolation      string
+	workspaceRoot         string
+	asyncWorkspaceCleanup bool
 
 	// TestLogStreamHook is a test-only channel that receives the LogStreamWaiter
 	// created during ExecuteJob. It allows tests to wait for background flush
@@ -94,6 +95,15 @@ func WithDefaultIsolation(isolation string) ExecutorOption {
 func WithWorkspaceRoot(root string) ExecutorOption {
 	return func(e *Executor) {
 		e.workspaceRoot = strings.TrimSpace(root)
+	}
+}
+
+// WithAsyncWorkspaceCleanup removes automatically-created workspaces in a
+// bounded background cleaner. When the cleaner is saturated, cleanup falls back
+// to the synchronous path.
+func WithAsyncWorkspaceCleanup(enabled bool) ExecutorOption {
+	return func(e *Executor) {
+		e.asyncWorkspaceCleanup = enabled
 	}
 }
 
@@ -228,9 +238,11 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 
 	if cleanupWorkspace {
 		defer func() {
-			if err := os.RemoveAll(workspace); err != nil {
-				logger.Error("Failed to remove workspace %s: %v", workspace, err)
+			if e.asyncWorkspaceCleanup && enqueueAsyncWorkspaceCleanup(workspace, logger) {
+				return
 			}
+
+			cleanupWorkspacePath(workspace, logger)
 		}()
 	}
 

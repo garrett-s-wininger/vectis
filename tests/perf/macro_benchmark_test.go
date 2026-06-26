@@ -68,6 +68,7 @@ const (
 	envMacroStatusReadClients             = "VECTIS_PERF_STATUS_READ_CLIENTS"
 	envMacroStatusReadsPerRun             = "VECTIS_PERF_STATUS_READS_PER_RUN"
 	envMacroContinuationInlineJobMaxBytes = "VECTIS_PERF_CONTINUATION_INLINE_JOB_MAX_BYTES"
+	envMacroAsyncWorkspaceCleanup         = "VECTIS_PERF_ASYNC_WORKSPACE_CLEANUP"
 	envVectisDatabasePgxPlanCacheMode     = "VECTIS_DATABASE_PGX_PLAN_CACHE_MODE"
 
 	macroPGStatStatementsTopLimit             = 12
@@ -111,6 +112,7 @@ type macroBenchEnv struct {
 	actionLocks                   []actionregistry.ActionLock
 	payloadCache                  *macroPayloadCache
 	continuationInlineJobMaxBytes int64
+	asyncWorkspaceCleanup         bool
 }
 
 type macroPayloadCache struct {
@@ -444,6 +446,26 @@ func macroBenchmarkEnvNonNegativeInt64(b *testing.B, name string, defaultValue i
 
 func macroBenchmarkContinuationInlineJobMaxBytes(b *testing.B) int64 {
 	return macroBenchmarkEnvNonNegativeInt64(b, envMacroContinuationInlineJobMaxBytes, defaultMacroContinuationInlineJobMaxBytes)
+}
+
+func macroBenchmarkEnvBool(b *testing.B, name string, defaultValue bool) bool {
+	b.Helper()
+
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		b.Fatalf("%s must be a boolean, got %q", name, raw)
+	}
+
+	return value
+}
+
+func macroBenchmarkAsyncWorkspaceCleanup(b *testing.B) bool {
+	return macroBenchmarkEnvBool(b, envMacroAsyncWorkspaceCleanup, false)
 }
 
 func macroBenchmarkTriggerClients(b *testing.B) int {
@@ -2385,6 +2407,12 @@ func newMacroBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 
 	job.SetLogSpoolDirForTest(b.TempDir())
 
+	b.Cleanup(func() {
+		if err := job.WaitForAsyncWorkspaceCleanupForTest(5 * time.Second); err != nil {
+			b.Logf("wait for async workspace cleanup: %v", err)
+		}
+	})
+
 	return macroBenchEnv{
 		handler:                       handler,
 		queue:                         queueService,
@@ -2399,6 +2427,7 @@ func newMacroBenchEnv(b *testing.B, jobs []macroJobSpec) macroBenchEnv {
 		actionLocks:                   actionLocks,
 		payloadCache:                  &macroPayloadCache{jobs: make(map[string]*apipb.Job)},
 		continuationInlineJobMaxBytes: macroBenchmarkContinuationInlineJobMaxBytes(b),
+		asyncWorkspaceCleanup:         macroBenchmarkAsyncWorkspaceCleanup(b),
 	}
 }
 
@@ -4430,7 +4459,11 @@ func finishDequeuedMacroExecution(
 	}
 
 	logDone := make(chan job.LogStreamWaiter, 1)
-	exec := job.NewExecutor()
+	executorOptions := []job.ExecutorOption{}
+	if env.asyncWorkspaceCleanup {
+		executorOptions = append(executorOptions, job.WithAsyncWorkspaceCleanup(true))
+	}
+	exec := job.NewExecutor(executorOptions...)
 	exec.TestLogStreamHook = logDone
 
 	if env.choreo.DBBacked() {

@@ -120,6 +120,7 @@ Useful knobs:
 | `VECTIS_PERF_WORKERS` | `4` | Concurrent worker loops used by macro worker and trigger-to-terminal benchmarks. |
 | `VECTIS_PERF_WORKER_COUNTS` | `1,2,4,8,16` | Comma-separated worker counts used by worker-scale macro benchmarks. |
 | `VECTIS_PERF_FANOUT_WIDTHS` | `1,10,100` | Comma-separated fanout widths used by fanout and shallow distributed DAG macro benchmarks. |
+| `VECTIS_PERF_ASYNC_WORKSPACE_CLEANUP` | `false` | Macro benchmark A/B switch for moving automatic workspace removal onto the bounded async executor cleanup queue. Use it to test terminal-latency sensitivity to workspace cleanup; it can improve tiny in-process actions while hurting shell-heavy workloads through background filesystem contention. |
 | `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
 | `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
 | `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
@@ -152,6 +153,8 @@ To compare process-spawn overhead against an in-process action result, focus the
 ```sh
 VECTIS_PERF_JOB_BENCH='BenchmarkExecutor_Execute(ShellTrue|ResultTrue)' make perf SUITE=job
 ```
+
+The executor suite also includes `AsyncWorkspaceCleanup` variants. Use those when you need to distinguish terminal latency from synchronous workspace removal cost.
 
 ## Local Macro Benchmark Check
 

@@ -25,7 +25,7 @@ var (
 	logFlushTimeout = 30 * time.Second
 	logRetryBase    = 150 * time.Millisecond
 	logRetryMax     = 2 * time.Second
-	logInitialProbe = 200 * time.Millisecond
+	logInitialProbe = 0 * time.Millisecond
 	logSpoolDir     = ""
 	logTuneMu       sync.RWMutex
 )
@@ -75,7 +75,7 @@ func LogInitialProbeForTest() time.Duration {
 	return logInitialProbe
 }
 func SetLogInitialProbeForTest(d time.Duration) {
-	if d > 0 {
+	if d >= 0 {
 		logTuneMu.Lock()
 		logInitialProbe = d
 		logTuneMu.Unlock()

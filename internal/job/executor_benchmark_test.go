@@ -74,11 +74,19 @@ func BenchmarkExecutor_ExecuteShellTrue(b *testing.B) {
 	benchmarkExecutorLogSinkCases(b, benchmarkShellTrueJob)
 }
 
+func BenchmarkExecutor_ExecuteShellTrueAsyncWorkspaceCleanup(b *testing.B) {
+	benchmarkExecutorLogSinkCases(b, benchmarkShellTrueJob, job.WithAsyncWorkspaceCleanup(true))
+}
+
 func BenchmarkExecutor_ExecuteResultTrue(b *testing.B) {
 	benchmarkExecutorLogSinkCases(b, benchmarkResultTrueJob)
 }
 
-func benchmarkExecutorLogSinkCases(b *testing.B, jobFactory func(string) *api.Job) {
+func BenchmarkExecutor_ExecuteResultTrueAsyncWorkspaceCleanup(b *testing.B) {
+	benchmarkExecutorLogSinkCases(b, benchmarkResultTrueJob, job.WithAsyncWorkspaceCleanup(true))
+}
+
+func benchmarkExecutorLogSinkCases(b *testing.B, jobFactory func(string) *api.Job, opts ...job.ExecutorOption) {
 	b.Helper()
 
 	for _, tc := range []struct {
@@ -96,17 +104,17 @@ func benchmarkExecutorLogSinkCases(b *testing.B, jobFactory func(string) *api.Jo
 		}},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
-			benchmarkExecutorExecuteJob(b, jobFactory, tc.logSink(b))
+			benchmarkExecutorExecuteJob(b, jobFactory, tc.logSink(b), opts...)
 		})
 	}
 }
 
-func benchmarkExecutorExecuteJob(b *testing.B, jobFactory func(string) *api.Job, logSink interfaces.LogClient) {
+func benchmarkExecutorExecuteJob(b *testing.B, jobFactory func(string) *api.Job, logSink interfaces.LogClient, opts ...job.ExecutorOption) {
 	b.Helper()
 
 	ctx := context.Background()
 	logger := mocks.NopLogger{}
-	exec := job.NewExecutor()
+	exec := job.NewExecutor(opts...)
 	job.SetLogSpoolDirForTest(b.TempDir())
 
 	execSamples := make([]int64, 0, b.N)
@@ -140,6 +148,9 @@ func benchmarkExecutorExecuteJob(b *testing.B, jobFactory func(string) *api.Job,
 	elapsed := time.Since(start)
 	b.StopTimer()
 	exec.TestLogStreamHook = nil
+	if err := job.WaitForAsyncWorkspaceCleanupForTest(5 * time.Second); err != nil {
+		b.Fatal(err)
+	}
 
 	reportBenchmarkLatencyMetrics(b, "execute", execSamples)
 	reportBenchmarkLatencyMetrics(b, "log_flush", flushSamples)
