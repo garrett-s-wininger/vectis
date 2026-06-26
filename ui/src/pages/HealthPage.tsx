@@ -1,17 +1,5 @@
-import { Activity, Gauge, Network, Server } from "lucide-react";
-import {
-  MetricCard,
-  OperationalFact,
-  PageHeader,
-  RecordList,
-  RecordListIdentity,
-  RecordListMeta,
-  RecordListSummary,
-  ResourceStatus,
-  type RecordListRailTone
-} from "../components";
+import { ExecutionTopology, MetricCard, PageHeader } from "../components";
 import type { Cell } from "../domain/console";
-import { cellStatusLabel, cellStatusTone } from "../domain/consoleOptions";
 import { clusterHealthMetricsFor } from "../mocks/consoleData";
 import styles from "./HealthPage.module.css";
 
@@ -40,35 +28,11 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
           ))}
         </div>
         <div className={styles.cellList}>
-          <RecordList
+          <ExecutionTopology
+            cells={topologyCellsFor(cells)}
             countLabel={cellCountLabel(cells.length)}
-            description="Execution Topology"
             emptyMessage="No cells registered."
-            items={cells.map((cell) => ({
-              actions: (
-                <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>
-              ),
-              ariaLabel: `Inspect ${cell.name}`,
-              content: (
-                <RecordListSummary>
-                  <RecordListIdentity subtitle={cellListSubtitle(cell)} title={cell.name} />
-                  <RecordListMeta featuredFirst>
-                    <OperationalFact emphasis icon={Network} label={cellEndpointLabel(cell)} value={cell.endpoint} />
-                    <OperationalFact
-                      icon={Activity}
-                      label={cellWorkloadLabel(cell)}
-                      value={String(cellWorkloadValue(cell))}
-                    />
-                    <OperationalFact icon={Gauge} label="Queue" value={String(cell.queueDepth)} />
-                    <OperationalFact icon={Server} label="Workers" value={workerCapacityLabel(cell)} />
-                  </RecordListMeta>
-                </RecordListSummary>
-              ),
-              key: cell.id,
-              onSelect: () => onSelectCell(cell.id),
-              railTone: cellRailTone(cell.status)
-            }))}
-            title="Cells"
+            onSelectCell={onSelectCell}
           />
         </div>
       </div>
@@ -115,10 +79,6 @@ function cellCountLabel(count: number) {
   return count === 1 ? "1 cell" : `${count} cells`;
 }
 
-function cellListSubtitle(cell: Cell) {
-  return cell.stuckRuns === undefined ? cell.region : undefined;
-}
-
 const statusSegments = [
   { className: "healthySegment", label: "healthy", status: "healthy" },
   { className: "degradedSegment", label: "degraded", status: "degraded" },
@@ -151,17 +111,15 @@ function workerCapacityLabel(cell: Cell) {
   return cell.workersTotal > 0 ? `${cell.workersOnline}/${cell.workersTotal}` : "N/A";
 }
 
-function cellEndpointLabel(cell: Cell) {
-  return cell.stuckRuns === undefined ? "Endpoint" : "Ingress";
-}
-
-function cellRailTone(status: Cell["status"]): RecordListRailTone {
-  switch (status) {
-    case "healthy":
-      return "success";
-    case "degraded":
-      return "warning";
-    case "offline":
-      return "danger";
-  }
+function topologyCellsFor(cells: Cell[]) {
+  return cells.map((cell) => ({
+    endpoint: cell.endpoint,
+    id: cell.id,
+    name: cell.name,
+    queueDepth: cell.queueDepth,
+    status: cell.status,
+    workloadLabel: cellWorkloadLabel(cell),
+    workloadValue: String(cellWorkloadValue(cell)),
+    workers: workerCapacityLabel(cell)
+  }));
 }
