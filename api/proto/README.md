@@ -25,3 +25,8 @@ Non-Go providers should generate bindings from:
 worker shell callback `WorkerCoreShellService`. Keep providers on the protocol
 version reported by `sdk/workercore.ProtocolVersion` and validated by
 `DescribeCore`.
+
+Tests in this directory keep the worker-core import closure small and
+extension-friendly. Adding new imports to `worker_core.proto` should be treated
+as a protocol-surface decision because non-Go providers must be able to generate
+the full closure.

@@ -11,6 +11,11 @@ and its imports, currently `api/proto/common.proto` and `api/proto/secrets.proto
 Changes to those protocol files follow the repository's gRPC compatibility
 rules.
 
+In-repository standard providers live under `extensions/worker-core/`. Tests
+enforce that SDK and extension packages do not import `vectis/internal/...` or
+other core implementation packages. If a provider needs something from
+`internal/`, extract a supported SDK or protobuf contract first.
+
 ## When To Use It
 
 Use a worker core when Vectis is the source of truth for the work and the provider is the place where that work runs. Use an action when the provider is the source of truth for the side effect.

@@ -17,3 +17,7 @@ dependencies.
 Use `examples/` for minimal teaching samples. Use `extensions/` for reusable
 implementations that should be built, tested, documented, and packaged as
 first-class Vectis extension artifacts.
+
+The boundary is enforced by tests in this directory. Extension Go packages may
+import public Vectis SDK and generated API packages, but they must not import
+`vectis/internal/...`, `cmd/...`, or other core implementation packages.
