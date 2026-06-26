@@ -15,3 +15,6 @@ primary-version reads.
 Provider packages should return `sdk/secrets.ErrNotFound` or
 `sdk/secrets.ErrDenied` when those outcomes are known so the broker can preserve
 accurate audit and metrics classification.
+
+Standard providers should also run `sdk/secrets/conformance` in their package
+tests before adding provider-specific cases.

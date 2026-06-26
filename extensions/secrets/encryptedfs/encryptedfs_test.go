@@ -9,9 +9,39 @@ import (
 	"testing"
 
 	sdksecrets "vectis/sdk/secrets"
+	"vectis/sdk/secrets/conformance"
 )
 
 var testEncryptedFSKey = []byte("0123456789abcdef0123456789abcdef")
+
+func TestEncryptedFSProviderConformance(t *testing.T) {
+	conformance.RunProviderSuite(t, func(t *testing.T) sdksecrets.Provider {
+		t.Helper()
+
+		root := t.TempDir()
+		if err := WriteEncryptedFSSecretFile(root, "encryptedfs://team/conformance", []byte("conformance-secret"), testEncryptedFSKey); err != nil {
+			t.Fatalf("write conformance secret: %v", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(root, "team", "denied"), []byte("not-an-envelope"), 0o600); err != nil {
+			t.Fatalf("write denied fixture: %v", err)
+		}
+
+		provider, err := NewEncryptedFSProvider(root, WithEncryptedFSKey(testEncryptedFSKey))
+		if err != nil {
+			t.Fatalf("NewEncryptedFSProvider: %v", err)
+		}
+
+		return provider
+	}, conformance.Options{
+		ProviderKind: EncryptedFSScheme,
+		ValidRef:     encryptedFSConformanceRef("conformance", "encryptedfs://team/conformance"),
+		InvalidRef:   encryptedFSConformanceRef("invalid", "vault://team/conformance"),
+		NotFoundRef:  encryptedFSConformanceRef("missing", "encryptedfs://team/missing"),
+		DeniedRef:    encryptedFSConformanceRef("denied", "encryptedfs://team/denied"),
+		WantData:     []byte("conformance-secret"),
+	})
+}
 
 func TestEncryptedFSProviderResolveReadsEncryptedSecretFiles(t *testing.T) {
 	t.Parallel()
@@ -57,6 +87,17 @@ func TestEncryptedFSProviderResolveReadsEncryptedSecretFiles(t *testing.T) {
 	file := bundle.Files[0]
 	if file.ID != "npm-token" || file.Path != "npm/token" || string(file.Data) != "secret-value" || file.Mode != DefaultFileMode {
 		t.Fatalf("file = %+v", file)
+	}
+}
+
+func encryptedFSConformanceRef(id, ref string) sdksecrets.Reference {
+	return sdksecrets.Reference{
+		ID:  id,
+		Ref: ref,
+		Delivery: sdksecrets.Delivery{
+			Type: sdksecrets.DeliveryTypeFile,
+			Path: id,
+		},
 	}
 }
 

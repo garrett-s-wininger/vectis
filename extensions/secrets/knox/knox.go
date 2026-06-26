@@ -153,6 +153,10 @@ func (p *KnoxProvider) ValidateRef(_ context.Context, ref Reference) error {
 		return fmt.Errorf("%w: knox provider is not configured", ErrNotFound)
 	}
 
+	if err := sdksecrets.ValidateFileDelivery(ref); err != nil {
+		return err
+	}
+
 	if _, err := knoxKeyIDFromRef(ref.Ref); err != nil {
 		return err
 	}
@@ -168,6 +172,10 @@ func (p *KnoxProvider) Resolve(ctx context.Context, req ResolveRequest) (Bundle,
 	files := make([]FileMaterial, 0, len(req.Secrets))
 	for _, ref := range req.Secrets {
 		if err := ctx.Err(); err != nil {
+			return Bundle{}, err
+		}
+
+		if err := sdksecrets.ValidateFileDelivery(ref); err != nil {
 			return Bundle{}, err
 		}
 

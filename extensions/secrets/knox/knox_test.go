@@ -13,7 +13,42 @@ import (
 	"testing"
 
 	sdksecrets "vectis/sdk/secrets"
+	"vectis/sdk/secrets/conformance"
 )
+
+func TestKnoxProviderConformance(t *testing.T) {
+	conformance.RunProviderSuite(t, func(t *testing.T) sdksecrets.Provider {
+		t.Helper()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.EscapedPath() {
+			case "/v0/keys/team:conformance_token/":
+				writeKnoxKeyResponse(t, w, "team:conformance_token", []knoxTestVersion{{ID: 1, Data: []byte("conformance-secret"), Status: "Primary"}})
+			case "/v0/keys/team:missing_token/":
+				writeKnoxErrorResponse(t, w, knoxResponseCodeNoKey)
+			case "/v0/keys/team:denied_token/":
+				writeKnoxErrorResponse(t, w, knoxResponseCodeDenied)
+			default:
+				writeKnoxErrorResponse(t, w, knoxResponseCodeNotFound)
+			}
+		}))
+		t.Cleanup(server.Close)
+
+		provider, err := NewKnoxProvider(server.URL, WithKnoxAuthToken("0m-test-token"))
+		if err != nil {
+			t.Fatalf("NewKnoxProvider: %v", err)
+		}
+
+		return provider
+	}, conformance.Options{
+		ProviderKind: KnoxScheme,
+		ValidRef:     knoxConformanceRef("conformance", "knox://team/conformance_token"),
+		InvalidRef:   knoxConformanceRef("invalid", "encryptedfs://team/token"),
+		NotFoundRef:  knoxConformanceRef("missing", "knox://team/missing_token"),
+		DeniedRef:    knoxConformanceRef("denied", "knox://team/denied_token"),
+		WantData:     []byte("conformance-secret"),
+	})
+}
 
 func TestKnoxProviderResolveFetchesPrimaryVersion(t *testing.T) {
 	t.Parallel()
@@ -322,5 +357,30 @@ func writeKnoxKeyResponse(t *testing.T, w http.ResponseWriter, keyID string, ver
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		t.Fatalf("encode response: %v", err)
+	}
+}
+
+func writeKnoxErrorResponse(t *testing.T, w http.ResponseWriter, code int) {
+	t.Helper()
+
+	resp := map[string]any{
+		"status":  "error",
+		"code":    code,
+		"message": "knox failed",
+		"data":    nil,
+	}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		t.Fatalf("encode error response: %v", err)
+	}
+}
+
+func knoxConformanceRef(id, ref string) sdksecrets.Reference {
+	return sdksecrets.Reference{
+		ID:  id,
+		Ref: ref,
+		Delivery: sdksecrets.Delivery{
+			Type: sdksecrets.DeliveryTypeFile,
+			Path: id,
+		},
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 )
 
 var (
@@ -138,6 +139,18 @@ type KindedProvider interface {
 
 type RequestKindedProvider interface {
 	ProviderKindForRefs(refs []Reference) string
+}
+
+func ValidateFileDelivery(ref Reference) error {
+	if ref.Delivery.Type != DeliveryTypeFile {
+		return fmt.Errorf("secrets: reference %q uses unsupported delivery type %q", ref.ID, ref.Delivery.Type)
+	}
+
+	if strings.TrimSpace(ref.Delivery.Path) == "" {
+		return fmt.Errorf("secrets: reference %q file delivery path is required", ref.ID)
+	}
+
+	return nil
 }
 
 func (r ResolveRequest) String() string {

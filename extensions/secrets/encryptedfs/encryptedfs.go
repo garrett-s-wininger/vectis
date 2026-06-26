@@ -218,6 +218,10 @@ func (p *EncryptedFSProvider) ValidateRef(_ context.Context, ref Reference) erro
 		return fmt.Errorf("%w: encryptedfs provider is not configured", ErrNotFound)
 	}
 
+	if err := sdksecrets.ValidateFileDelivery(ref); err != nil {
+		return err
+	}
+
 	if _, err := p.pathForRef(ref.Ref); err != nil {
 		return err
 	}
@@ -233,6 +237,10 @@ func (p *EncryptedFSProvider) Resolve(ctx context.Context, req ResolveRequest) (
 	files := make([]FileMaterial, 0, len(req.Secrets))
 	for _, ref := range req.Secrets {
 		if err := ctx.Err(); err != nil {
+			return Bundle{}, err
+		}
+
+		if err := sdksecrets.ValidateFileDelivery(ref); err != nil {
 			return Bundle{}, err
 		}
 
