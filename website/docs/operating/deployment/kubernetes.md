@@ -17,14 +17,14 @@ make deploy-kubernetes-render
 ```
 
 For local cluster validation, use kind as the cluster provider and choose the
-container runtime with Make variables:
+container runtime with Make variables. The Make lane also creates the local
+cluster, loads images, and runs the extended smoke matrix:
 
 ```sh
 make k8s-kind-up
 make k8s-kind-load-images
-make k8s-kind-apply
-make k8s-kind-smoke
-make k8s-kind-run-smoke
+make k8s-kind-validate-core
+make k8s-kind-run-worker-core-smoke
 make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
@@ -40,6 +40,8 @@ container tooling already uses Podman:
 | `K8S_PROVIDER` | `kind` | Provider used by generic `k8s-*` aliases. |
 | `K8S_CLUSTER` | `vectis` | Local cluster name. |
 | `K8S_NAMESPACE` | `vectis` | Namespace rendered into the manifest. |
+| `DEPLOY_KUBERNETES_MANIFEST` | `deploy/kubernetes/manifests.yaml.tmpl` | Manifest template used by render and core validation targets. |
+| `DEPLOY_KUBERNETES_OUT` | `artifacts/deploy/kubernetes/vectis.yaml` | Rendered manifest path used by apply and validation targets. |
 | `K8S_IMAGE_REGISTRY` | `localhost` | Local image registry/name prefix rendered for kind and used when tagging images. |
 | `K8S_IMAGE_TAG` | `dev-local` | Local image tag built and loaded into kind. |
 | `K8S_API_LOCAL_PORT` | `18080` | Local port used by the canonical smoke API port-forward. |
@@ -72,7 +74,12 @@ Docker or Docker-compatible Colima profiles can use the same targets:
 make k8s-kind-validate CONTAINER_CMD=docker KIND_PROVIDER=docker
 ```
 
-The workload smoke is a Go harness under the Make target:
+`make k8s-kind-validate` runs the configured `K8S_KIND_VALIDATE_STEPS`.
+`k8s-kind-validate-core` uses the repo-local Go validation harness to render,
+apply, wait for readiness, and run the canonical workload smoke; the later
+targets run the worker-core, cancel, scale, orphan, and repair smokes.
+
+The smoke harnesses can also be run directly:
 
 ```sh
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis

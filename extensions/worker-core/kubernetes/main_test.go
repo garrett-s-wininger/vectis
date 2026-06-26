@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +79,7 @@ func TestKubernetesCoreDescribesWorkerCompatibleIsolation(t *testing.T) {
 func TestExecuteTaskAppliesKubernetesJob(t *testing.T) {
 	runner := &fakeRunner{outcome: jobOutcome{Phase: jobSucceeded}}
 	core := newTestCore(runner)
-	result, err := core.ExecuteTask(context.Background(), testTask(t, "builtins/shell", "printf hi"))
+	result, err := core.ExecuteTask(context.Background(), testTask(t, "builtins/script", "printf hi"))
 	if err != nil {
 		t.Fatalf("ExecuteTask: %v", err)
 	}
@@ -149,7 +151,7 @@ func TestExecuteTaskMapsFailedJobToProviderFailure(t *testing.T) {
 		ExitCode: 17,
 	}})
 
-	result, err := core.ExecuteTask(context.Background(), testTask(t, "builtins/shell", "false"))
+	result, err := core.ExecuteTask(context.Background(), testTask(t, "builtins/script", "false"))
 	if err != nil {
 		t.Fatalf("ExecuteTask: %v", err)
 	}
@@ -176,7 +178,7 @@ func TestExecuteTaskMapsUnknownJobToProviderUnknown(t *testing.T) {
 		Message: "lost watch before terminal state",
 	}})
 
-	result, err := core.ExecuteTask(context.Background(), testTask(t, "builtins/shell", "sleep 1"))
+	result, err := core.ExecuteTask(context.Background(), testTask(t, "builtins/script", "sleep 1"))
 	if err != nil {
 		t.Fatalf("ExecuteTask: %v", err)
 	}
@@ -277,6 +279,88 @@ func TestExecuteTaskRejectsInvalidCustomInputs(t *testing.T) {
 	}
 }
 
+func TestExecuteTaskDrainsTerminalLogsWhenStreamMissesFastJob(t *testing.T) {
+	runner := &fakeRunner{
+		readLogs: []byte("kubernetes-worker-core-smoke-ok\n"),
+		outcome:  jobOutcome{Phase: jobSucceeded},
+	}
+
+	core := newTestCore(runner)
+	task, shell := testTaskWithLogSession(t, "session-fast-logs", "builtins/script", "printf hi")
+
+	result, err := core.ExecuteTask(context.Background(), task)
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	if result.Outcome != api.RunOutcome_RUN_OUTCOME_SUCCESS {
+		t.Fatalf("outcome = %s message=%q", result.Outcome, result.Message)
+	}
+
+	if logs := shell.logString(); !strings.Contains(logs, "kubernetes-worker-core-smoke-ok") {
+		t.Fatalf("logs = %q, want terminal pod output", logs)
+	}
+}
+
+func TestExecuteTaskRetriesEmptyTerminalLogRead(t *testing.T) {
+	runner := &fakeRunner{
+		readLogResponses: [][]byte{
+			nil,
+			[]byte("late-terminal-log\n"),
+		},
+		outcome: jobOutcome{Phase: jobSucceeded},
+	}
+
+	core := newTestCore(runner)
+	task, shell := testTaskWithLogSession(t, "session-retry-terminal-logs", "builtins/script", "printf hi")
+
+	result, err := core.ExecuteTask(context.Background(), task)
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	if result.Outcome != api.RunOutcome_RUN_OUTCOME_SUCCESS {
+		t.Fatalf("outcome = %s message=%q", result.Outcome, result.Message)
+	}
+
+	if logs := shell.logString(); !strings.Contains(logs, "late-terminal-log") {
+		t.Fatalf("logs = %q, want retried terminal pod output", logs)
+	}
+
+	if got := runner.readLogCallCount(); got < 2 {
+		t.Fatalf("ReadLogs calls = %d, want retry", got)
+	}
+}
+
+func TestExecuteTaskTerminalLogDrainSkipsStreamedPrefix(t *testing.T) {
+	runner := &fakeRunner{
+		streamLines: []string{"already-streamed\n"},
+		readLogs:    []byte("already-streamed\nterminal-only\n"),
+		outcome:     jobOutcome{Phase: jobSucceeded},
+	}
+
+	core := newTestCore(runner)
+	task, shell := testTaskWithLogSession(t, "session-terminal-tail", "builtins/script", "printf hi")
+
+	result, err := core.ExecuteTask(context.Background(), task)
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	if result.Outcome != api.RunOutcome_RUN_OUTCOME_SUCCESS {
+		t.Fatalf("outcome = %s message=%q", result.Outcome, result.Message)
+	}
+
+	logs := shell.logString()
+	if strings.Count(logs, "already-streamed") != 1 {
+		t.Fatalf("logs = %q, want streamed prefix once", logs)
+	}
+
+	if !strings.Contains(logs, "terminal-only") {
+		t.Fatalf("logs = %q, want terminal-only output", logs)
+	}
+}
+
 func TestCancelTaskDeletesDerivedJob(t *testing.T) {
 	runner := &fakeRunner{}
 	core := newTestCore(runner)
@@ -314,7 +398,7 @@ func TestExecuteTaskObservesExplicitCancel(t *testing.T) {
 	core := newTestCore(runner)
 	done := make(chan sdk.Result, 1)
 	go func() {
-		result, err := core.ExecuteTask(context.Background(), testTaskWithSession(t, "session-observe-cancel", "builtins/shell", "sleep 300"))
+		result, err := core.ExecuteTask(context.Background(), testTaskWithSession(t, "session-observe-cancel", "builtins/script", "sleep 300"))
 		if err != nil {
 			t.Errorf("ExecuteTask: %v", err)
 		}
@@ -398,7 +482,7 @@ func testTaskWithSession(t *testing.T, sessionID, uses, command string) sdk.Task
 	}
 
 	if command != "" {
-		root.With = map[string]string{"command": command}
+		root.With = map[string]string{"script": command}
 	}
 
 	return sdk.Task{
@@ -410,6 +494,38 @@ func testTaskWithSession(t *testing.T, sessionID, uses, command string) sdk.Task
 		TaskKey: "root",
 		Session: session,
 	}
+}
+
+func testTaskWithLogSession(t *testing.T, sessionID, uses, command string) (sdk.Task, *recordingShell) {
+	t.Helper()
+
+	socketPath := shortSocketPath(t, sessionID+".sock")
+	shell := &recordingShell{}
+	server, listener, err := sdk.NewUnixShellServer(socketPath, shell)
+	if err != nil {
+		t.Fatalf("NewUnixShellServer: %v", err)
+	}
+	t.Cleanup(server.Stop)
+
+	go func() {
+		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+			t.Errorf("shell server: %v", err)
+		}
+	}()
+
+	session, err := sdk.NewSession(&api.WorkerCoreTaskSession{
+		SessionId:     proto.String(sessionID),
+		ShellEndpoint: proto.String(sdk.UnixEndpoint(socketPath)),
+		LogsEnabled:   proto.Bool(true),
+	})
+
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	task := testTaskWithSession(t, sessionID, uses, command)
+	task.Session = session
+	return task, shell
 }
 
 func customProcessTask(t *testing.T, descriptor *api.WorkerCoreActionDescriptor, with map[string]string) sdk.Task {
@@ -486,12 +602,16 @@ type fakeRunner struct {
 	applied []appliedJob
 	deleted []deletedJob
 
-	streamLines []string
-	outcome     jobOutcome
-	waitErr     error
-	waitBlock   chan struct{}
-	waitStarted chan struct{}
-	waitOnce    sync.Once
+	streamLines      []string
+	readLogs         []byte
+	readErr          error
+	readLogResponses [][]byte
+	readLogCalls     int
+	outcome          jobOutcome
+	waitErr          error
+	waitBlock        chan struct{}
+	waitStarted      chan struct{}
+	waitOnce         sync.Once
 }
 
 type appliedJob struct {
@@ -525,6 +645,32 @@ func (r *fakeRunner) StreamLogs(ctx context.Context, _ string, _ string, send fu
 		}
 	}
 	return nil
+}
+
+func (r *fakeRunner) ReadLogs(_ context.Context, _ string, _ string) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.readErr != nil {
+		return nil, r.readErr
+	}
+
+	if len(r.readLogResponses) > 0 {
+		index := r.readLogCalls
+		if index >= len(r.readLogResponses) {
+			index = len(r.readLogResponses) - 1
+		}
+
+		r.readLogCalls++
+		return append([]byte(nil), r.readLogResponses[index]...), nil
+	}
+
+	r.readLogCalls++
+	if r.readLogs == nil && len(r.streamLines) > 0 {
+		return []byte(strings.Join(r.streamLines, "")), nil
+	}
+
+	return append([]byte(nil), r.readLogs...), nil
 }
 
 func (r *fakeRunner) WaitJob(ctx context.Context, _ string, _ string, _ time.Duration, _ time.Duration) (jobOutcome, error) {
@@ -577,4 +723,42 @@ func (r *fakeRunner) deletedJob(t *testing.T) string {
 	}
 
 	return r.deleted[0].name
+}
+
+func (r *fakeRunner) readLogCallCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.readLogCalls
+}
+
+type recordingShell struct {
+	api.UnimplementedWorkerCoreShellServiceServer
+
+	mu   sync.Mutex
+	logs bytes.Buffer
+}
+
+func (s *recordingShell) StreamLogs(stream api.WorkerCoreShellService_StreamLogsServer) error {
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			return stream.SendAndClose(&api.Empty{})
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if chunk := msg.GetChunk(); chunk != nil {
+			s.mu.Lock()
+			_, _ = s.logs.Write(chunk.GetData())
+			s.mu.Unlock()
+		}
+	}
+}
+
+func (s *recordingShell) logString() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.logs.String()
 }

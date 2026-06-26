@@ -2,7 +2,6 @@
 .git/
 .gitignore
 .pre-commit-config.yaml
-api/proto/
 bin/
 build/
 buf.gen.yaml

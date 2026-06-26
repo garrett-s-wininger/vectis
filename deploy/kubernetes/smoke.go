@@ -130,8 +130,9 @@ type smokeRunDetail struct {
 }
 
 type smokeLogEntry struct {
-	Stream int    `json:"stream"`
-	Data   string `json:"data"`
+	Stream   int    `json:"stream"`
+	Sequence int64  `json:"sequence"`
+	Data     string `json:"data"`
 }
 
 type smokeDeployment struct {
@@ -2217,7 +2218,44 @@ func fetchSmokeRunDetail(client *http.Client, baseURL, token, runID string) (smo
 }
 
 func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, markers []string, out io.Writer) error {
-	req, err := newSmokeAPIRequest(http.MethodGet, baseURL, fmt.Sprintf("/api/v1/runs/%s/logs", url.PathEscape(runID)), token, nil)
+	state := smokeLogMarkerState{
+		seen:    map[string]bool{},
+		printed: map[int64]bool{},
+	}
+	for {
+		if err := readSmokeLogMarkerStream(ctx, baseURL, token, runID, markers, out, &state); err != nil {
+			if ctx.Err() != nil {
+				return missingSmokeLogMarkers(markers, state.seen)
+			}
+
+			return err
+		}
+
+		if smokeLogMarkersComplete(markers, state.seen) {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return missingSmokeLogMarkers(markers, state.seen)
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+type smokeLogMarkerState struct {
+	seen        map[string]bool
+	printed     map[int64]bool
+	maxSequence int64
+}
+
+func readSmokeLogMarkerStream(ctx context.Context, baseURL, token, runID string, markers []string, out io.Writer, state *smokeLogMarkerState) error {
+	path := fmt.Sprintf("/api/v1/runs/%s/logs", url.PathEscape(runID))
+	if state.maxSequence > 0 {
+		path += "?since_sequence=" + strconv.FormatInt(state.maxSequence, 10)
+	}
+
+	req, err := newSmokeAPIRequest(http.MethodGet, baseURL, path, token, nil)
 	if err != nil {
 		return err
 	}
@@ -2236,15 +2274,16 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 		return smokeUnexpectedStatus("connect to run log stream", resp)
 	}
 
-	seen := map[string]bool{}
 	reader := bufio.NewReader(resp.Body)
 	var dataBuf strings.Builder
+	var eventSequence int64
+	eventHasSequence := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF || ctx.Err() != nil {
-				return missingSmokeLogMarkers(markers, seen)
+				return nil
 			}
 
 			return err
@@ -2252,6 +2291,13 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 
 		line = strings.TrimRight(line, "\r\n")
 		if line != "" {
+			if after, ok := strings.CutPrefix(line, "id:"); ok {
+				if n, err := strconv.ParseInt(strings.TrimSpace(after), 10, 64); err == nil {
+					eventSequence = n
+					eventHasSequence = true
+				}
+			}
+
 			if after, ok := strings.CutPrefix(line, "data:"); ok {
 				dataBuf.WriteString(strings.TrimSpace(after))
 			}
@@ -2260,6 +2306,8 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 		}
 
 		if dataBuf.Len() == 0 {
+			eventSequence = 0
+			eventHasSequence = false
 			continue
 		}
 
@@ -2268,24 +2316,50 @@ func waitForSmokeLogMarkers(ctx context.Context, baseURL, token, runID string, m
 
 		var entry smokeLogEntry
 		if err := json.Unmarshal(message, &entry); err != nil {
+			eventSequence = 0
+			eventHasSequence = false
 			continue
 		}
 
+		sequence := entry.Sequence
+		if eventHasSequence && eventSequence >= 0 {
+			sequence = eventSequence
+		}
+		if sequence > state.maxSequence {
+			state.maxSequence = sequence
+		}
+
 		lineText := smokeLogEntryDisplayText(entry)
-		if strings.TrimSpace(lineText) != "" {
+		if strings.TrimSpace(lineText) != "" && !state.printed[sequence] {
 			fmt.Fprintln(out, lineText)
+			if sequence >= 0 {
+				state.printed[sequence] = true
+			}
 		}
 
 		for _, marker := range markers {
 			if !strings.HasPrefix(lineText, "$ ") && strings.Contains(lineText, marker) {
-				seen[marker] = true
+				state.seen[marker] = true
 			}
 		}
 
-		if len(seen) == len(markers) {
+		eventSequence = 0
+		eventHasSequence = false
+
+		if smokeLogMarkersComplete(markers, state.seen) {
 			return nil
 		}
 	}
+}
+
+func smokeLogMarkersComplete(markers []string, seen map[string]bool) bool {
+	for _, marker := range markers {
+		if !seen[marker] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func smokeLogEntryDisplayText(entry smokeLogEntry) string {

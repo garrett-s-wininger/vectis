@@ -107,10 +107,10 @@ func TestKubernetesSmokeJobContract(t *testing.T) {
 		`"uses": "examples/flaky-once@v1"`,
 		`"name": "e2e-smoke-report"`,
 		`"name": "e2e-registry-retry"`,
-		"canonical-control-%s",
-		"canonical-secret-%s",
-		"canonical-artifact-%s",
-		"canonical-fanout-%s",
+		"canonical-control-start",
+		"canonical-secret-ok",
+		"canonical-artifact-written",
+		"canonical-fanout-ok",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke job missing %q", want)
@@ -147,7 +147,7 @@ func TestKubernetesWorkerCoreSmokeJobContract(t *testing.T) {
 	text := string(b)
 	for _, want := range []string{
 		`"id": "e2e-kubernetes-worker-core-smoke"`,
-		`"uses": "builtins/shell"`,
+		`"uses": "builtins/script"`,
 		"kubernetes-worker-core-smoke-ok",
 	} {
 		if !strings.Contains(text, want) {
@@ -286,27 +286,67 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 	}
 }
 
-func TestKubernetesMakefileValidationDiagnosticsContract(t *testing.T) {
-	b, err := os.ReadFile("../../Makefile")
+func TestKubernetesValidationEntrypointContract(t *testing.T) {
+	b, err := os.ReadFile("validate/main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	text := string(b)
 	for _, want := range []string{
-		"K8S_DIAGNOSTICS_DIR ?= artifacts/deploy/kubernetes/diagnostics",
-		"K8S_VALIDATE_DIAGNOSTICS ?= 1",
-		"K8S_KIND_VALIDATE_STEPS ?= k8s-kind-up k8s-kind-load-images k8s-kind-apply",
-		".PHONY: k8s-diagnostics",
-		".PHONY: k8s-validate",
-		".PHONY: k8s-kind-diagnostics",
-		"cluster-info > \"$$out/cluster-info.txt\"",
-		"describe pods > \"$$out/pods-describe.txt\"",
-		"logs \"$$pod\" --all-containers --tail=$(K8S_DIAGNOSTICS_LOG_TAIL)",
-		"$(MAKE) k8s-kind-diagnostics || true",
+		"RunValidate",
+		`"manifest"`,
+		`"output"`,
+		`"image-registry"`,
+		`"image-tag"`,
+		`"skip-smoke"`,
+		`"job"`,
+		`"cli-image"`,
+		`"seed-secret"`,
+		`"api-local-port"`,
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("Makefile missing %q", want)
+			t.Fatalf("validate entrypoint missing %q", want)
+		}
+	}
+
+	b, err = os.ReadFile("smoke/main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text = string(b)
+	for _, want := range []string{
+		"RunSmoke",
+		`"worker-core-job"`,
+		`"cancel-job"`,
+		`"scale-job"`,
+		`"orphan-job"`,
+		`"repair-job"`,
+		`"worker-core-only"`,
+		`"cancel-only"`,
+		`"scale-only"`,
+		`"orphan-only"`,
+		`"repair-only"`,
+		`"worker-core-image"`,
+		`"worker-core-task-image"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("smoke entrypoint missing %q", want)
+		}
+	}
+}
+
+func TestKubernetesContainerBuildContextIncludesWorkerCoreProtos(t *testing.T) {
+	b, err := os.ReadFile("../../.containerignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "api/proto/" || line == "api/proto" {
+			t.Fatalf(".containerignore must not exclude api/proto; container builds need worker_core.proto for the worker-core Kubernetes binary")
 		}
 	}
 }

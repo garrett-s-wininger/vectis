@@ -8,7 +8,7 @@ It is intentionally small:
 - `ExecuteTask` renders and applies a `batch/v1 Job` with one `task` container.
 - The core advertises Vectis `host` isolation compatibility; `provider=kubernetes`
   metadata identifies where commands actually run.
-- `builtins/shell` runs `sh -c <with.command>`.
+- `builtins/script` runs `sh -c <with.script>`.
 - Frozen custom `runtime=process` actions run `sh -c <runtime_config.command>`
   or `sh -c <runtime_config.entrypoint>`.
 - Custom process inputs from `with` are exposed as `VECTIS_INPUT_*` variables,
@@ -49,7 +49,7 @@ Useful flags:
 | --- | --- | --- |
 | `--socket` | `$VECTIS_WORKER_CORE_SOCKET` or `/tmp/vectis-worker-core-kubernetes.sock` | Worker-core Unix socket. |
 | `--namespace` | `$KUBERNETES_NAMESPACE` or `default` | Namespace for task Jobs. |
-| `--image` | `$VECTIS_KUBERNETES_WORKER_CORE_IMAGE` or `busybox:1.36` | Shell task image. |
+| `--image` | `$VECTIS_KUBERNETES_WORKER_CORE_IMAGE` or `busybox:1.36` | Script task image. |
 | `--kubectl` | `$KUBECTL` or `kubectl` | `kubectl` binary. |
 | `--wait-timeout` | `$VECTIS_KUBERNETES_WORKER_CORE_WAIT_TIMEOUT` or `30m` | Maximum wait for a task Job to become terminal. |
 | `--poll-interval` | `$VECTIS_KUBERNETES_WORKER_CORE_POLL_INTERVAL` or `1s` | Job status poll interval. |

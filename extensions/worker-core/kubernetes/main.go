@@ -36,6 +36,9 @@ const (
 	defaultKubectl      = "kubectl"
 	defaultWaitTimeout  = 30 * time.Minute
 	defaultPollInterval = time.Second
+	logDrainTimeout     = 2 * time.Second
+	logReadTimeout      = 5 * time.Second
+	logReadPollInterval = 250 * time.Millisecond
 
 	reasonUnsupportedTask = "kubernetes.unsupported_task"
 	reasonJobFailed       = "kubernetes.job_failed"
@@ -47,7 +50,7 @@ var scpURLRe = regexp.MustCompile(`^[\w.-]+@[\w.-]+:[\w./~-]+$`)
 func main() {
 	socketPath := flag.String("socket", envDefault("VECTIS_WORKER_CORE_SOCKET", defaultSocketPath), "Unix socket served by the Kubernetes worker core")
 	namespace := flag.String("namespace", envDefault("KUBERNETES_NAMESPACE", defaultNamespace), "Kubernetes namespace for task Jobs")
-	image := flag.String("image", envDefault("VECTIS_KUBERNETES_WORKER_CORE_IMAGE", defaultTaskImage), "Container image used for shell task Jobs")
+	image := flag.String("image", envDefault("VECTIS_KUBERNETES_WORKER_CORE_IMAGE", defaultTaskImage), "Container image used for script task Jobs")
 	kubectl := flag.String("kubectl", envDefault("KUBECTL", defaultKubectl), "kubectl executable")
 	waitTimeout := flag.Duration("wait-timeout", envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_WAIT_TIMEOUT", defaultWaitTimeout), "Maximum time to wait for a Kubernetes Job to complete")
 	pollInterval := flag.Duration("poll-interval", envDurationDefault("VECTIS_KUBERNETES_WORKER_CORE_POLL_INTERVAL", defaultPollInterval), "Kubernetes Job status poll interval")
@@ -194,9 +197,10 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 
 	logCtx, stopLogs := context.WithCancel(ctx)
 	logDone := make(chan error, 1)
+	deliveredLogs := &deliveredLogBuffer{}
 	go func() {
 		logDone <- c.runner.StreamLogs(logCtx, c.cfg.Namespace, jobName, func(line []byte) error {
-			return sendLog(ctx, task, string(line))
+			return deliveredLogs.send(ctx, task, line)
 		})
 	}()
 
@@ -205,7 +209,7 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 	select {
 	case <-logDone:
 		logDrained = true
-	case <-time.After(2 * time.Second):
+	case <-time.After(logDrainTimeout):
 	}
 
 	stopLogs()
@@ -213,6 +217,12 @@ func (c *kubernetesCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Re
 		select {
 		case <-logDone:
 		case <-time.After(500 * time.Millisecond):
+		}
+	}
+
+	if waitErr == nil && outcome.Phase != jobRunning && task.Session.LogsEnabled() {
+		if err := c.drainTerminalLogs(ctx, task, jobName, deliveredLogs); err != nil {
+			return sdk.ExternalUnavailable(fmt.Sprintf("read Kubernetes Job logs for %s/%s: %v", c.cfg.Namespace, jobName, err)), nil
 		}
 	}
 
@@ -295,25 +305,25 @@ func executableTaskSpec(task sdk.Task) (executableSpec, error) {
 	}
 
 	uses := strings.TrimSpace(node.GetUses())
-	if uses == "builtins/shell" {
-		return shellTaskSpec(task, node)
+	if uses == "builtins/script" {
+		return scriptTaskSpec(task, node)
 	}
 
 	if strings.HasPrefix(uses, "builtins/") {
-		return executableSpec{}, fmt.Errorf("Kubernetes worker core example supports builtins/shell and frozen custom process actions only, got %q", uses)
+		return executableSpec{}, fmt.Errorf("Kubernetes worker core example supports builtins/script and frozen custom process actions only, got %q", uses)
 	}
 
 	return customProcessTaskSpec(task, node, uses)
 }
 
-func shellTaskSpec(task sdk.Task, node *api.Node) (executableSpec, error) {
+func scriptTaskSpec(task sdk.Task, node *api.Node) (executableSpec, error) {
 	if hasChildTasks(node) {
-		return executableSpec{}, fmt.Errorf("builtins/shell task %q must be a leaf task for Kubernetes execution", task.TaskKey)
+		return executableSpec{}, fmt.Errorf("builtins/script task %q must be a leaf task for Kubernetes execution", task.TaskKey)
 	}
 
-	command := strings.TrimSpace(node.GetWith()["command"])
+	command := strings.TrimSpace(node.GetWith()["script"])
 	if command == "" {
-		return executableSpec{}, fmt.Errorf("builtins/shell task %q requires with.command", task.TaskKey)
+		return executableSpec{}, fmt.Errorf("builtins/script task %q requires with.script", task.TaskKey)
 	}
 
 	return executableSpec{Command: command}, nil
@@ -613,6 +623,75 @@ func sendLog(ctx context.Context, task sdk.Task, message string) error {
 	})
 }
 
+type deliveredLogBuffer struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+func (b *deliveredLogBuffer) send(ctx context.Context, task sdk.Task, chunk []byte) error {
+	if err := sendLog(ctx, task, string(chunk)); err != nil {
+		return err
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.data = append(b.data, chunk...)
+	return nil
+}
+
+func (b *deliveredLogBuffer) remaining(logs []byte) []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if bytes.HasPrefix(logs, b.data) {
+		return logs[len(b.data):]
+	}
+
+	return logs
+}
+
+func (c *kubernetesCore) drainTerminalLogs(ctx context.Context, task sdk.Task, jobName string, delivered *deliveredLogBuffer) error {
+	deadline := time.NewTimer(logReadTimeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(logReadPollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		logs, err := c.runner.ReadLogs(ctx, c.cfg.Namespace, jobName)
+		if err == nil {
+			lastErr = nil
+			remaining := delivered.remaining(logs)
+			if len(remaining) > 0 {
+				return delivered.send(ctx, task, remaining)
+			}
+
+			if len(logs) > 0 {
+				return nil
+			}
+		} else {
+			lastErr = err
+		}
+
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return lastErr
+			}
+
+			return nil
+		case <-deadline.C:
+			if lastErr != nil {
+				return lastErr
+			}
+
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
 type jobPhase string
 
 const (
@@ -654,6 +733,7 @@ func (o jobOutcome) MessageOrDefault(fallback string) string {
 type kubeRunner interface {
 	ApplyJob(context.Context, string, []byte) error
 	StreamLogs(context.Context, string, string, func([]byte) error) error
+	ReadLogs(context.Context, string, string) ([]byte, error)
 	WaitJob(context.Context, string, string, time.Duration, time.Duration) (jobOutcome, error)
 	DeleteJob(context.Context, string, string) error
 }
@@ -713,6 +793,10 @@ func (r kubectlRunner) StreamLogs(ctx context.Context, namespace, name string, s
 	}
 
 	return nil
+}
+
+func (r kubectlRunner) ReadLogs(ctx context.Context, namespace, name string) ([]byte, error) {
+	return r.run(ctx, namespace, nil, "logs", "job/"+name, "--container", "task")
 }
 
 func (r kubectlRunner) WaitJob(ctx context.Context, namespace, name string, timeout, pollInterval time.Duration) (jobOutcome, error) {

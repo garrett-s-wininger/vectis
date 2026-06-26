@@ -2,9 +2,9 @@
   "id": "e2e-kubernetes-worker-core-smoke",
   "root": {
     "id": "root",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "printf 'kubernetes-worker-core-smoke-ok\\n'"
+      "script": "printf 'kubernetes-worker-core-smoke-ok\\n'"
     }
   }
 }

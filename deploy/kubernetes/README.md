@@ -17,6 +17,15 @@ Or:
 make deploy-kubernetes-render
 ```
 
+Validate an already reachable cluster by rendering the manifest, applying it,
+waiting for workload readiness, and running the canonical workload smoke:
+
+```sh
+go run ./deploy/kubernetes/validate \
+  --context kind-vectis \
+  --output artifacts/deploy/kubernetes/vectis.yaml
+```
+
 For local cluster validation, the repo treats kind as the Kubernetes provider
 and keeps the container runtime configurable. The defaults match the existing
 Podman-based build posture:
@@ -24,9 +33,7 @@ Podman-based build posture:
 ```sh
 make k8s-kind-up
 make k8s-kind-load-images
-make k8s-kind-apply
-make k8s-kind-smoke
-make k8s-kind-run-smoke
+make k8s-kind-validate-core
 make k8s-kind-run-worker-core-smoke
 make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
@@ -34,7 +41,7 @@ make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
 ```
 
-Or run the full local lifecycle and smoke matrix:
+Or run the full local lifecycle, image-load step, and smoke matrix:
 
 ```sh
 make k8s-kind-validate
@@ -47,6 +54,8 @@ The local contract is:
 | `K8S_PROVIDER` | `kind` | Dispatch target for generic `k8s-*` aliases. |
 | `K8S_CLUSTER` | `vectis` | Local cluster name. |
 | `K8S_NAMESPACE` | `vectis` | Namespace rendered into the manifest. |
+| `DEPLOY_KUBERNETES_MANIFEST` | `deploy/kubernetes/manifests.yaml.tmpl` | Manifest template used by render and core validation targets. |
+| `DEPLOY_KUBERNETES_OUT` | `artifacts/deploy/kubernetes/vectis.yaml` | Rendered manifest path used by apply and validation targets. |
 | `K8S_IMAGE_REGISTRY` | `localhost` | Local image registry/name prefix rendered for kind and used when tagging images. |
 | `K8S_IMAGE_TAG` | `dev-local` | Tag used for images loaded into kind. |
 | `K8S_KIND_VALIDATE_STEPS` | `k8s-kind-up ... k8s-kind-run-repair-smoke` | Ordered targets run by `make k8s-kind-validate`. |
@@ -93,11 +102,15 @@ For nerdctl-backed setups:
 make k8s-kind-validate CONTAINER_CMD=nerdctl KIND_PROVIDER=nerdctl
 ```
 
-`make k8s-kind-validate` runs `K8S_KIND_VALIDATE_STEPS` in order. If a step
-fails and `K8S_VALIDATE_DIAGNOSTICS` is not `0`, it writes a timestamped bundle
-under `K8S_DIAGNOSTICS_DIR` with context metadata, cluster info, nodes,
-namespace resources, events, pod descriptions, and current/previous pod logs.
-Run `make k8s-kind-diagnostics` to capture the same bundle on demand.
+`make k8s-kind-validate` runs `K8S_KIND_VALIDATE_STEPS` in order.
+`k8s-kind-validate-core` renders the manifest, applies it, waits for core
+workload readiness, and runs the canonical workload smoke through
+`go run ./deploy/kubernetes/validate`; the later targets run the specialized
+worker-core, cancel, scale, orphan, and repair smokes. If a step fails and
+`K8S_VALIDATE_DIAGNOSTICS` is not `0`, it writes a timestamped bundle under
+`K8S_DIAGNOSTICS_DIR` with context metadata, cluster info, nodes, namespace
+resources, events, pod descriptions, and current/previous pod logs. Run
+`make k8s-kind-diagnostics` to capture the same bundle on demand.
 
 The default manifest creates:
 

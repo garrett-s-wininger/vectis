@@ -2,9 +2,9 @@
   "id": "e2e-kubernetes-orphan-smoke",
   "root": {
     "id": "orphan-long-running",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "printf 'orphan-task-started\\n'; sleep 300; printf 'unexpected-orphan-finished\\n'"
+      "script": "printf 'orphan-task-started\\n'; sleep 300; printf 'unexpected-orphan-finished\\n'"
     }
   }
 }

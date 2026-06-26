@@ -2,9 +2,9 @@
   "id": "e2e-kubernetes-cancel-smoke",
   "root": {
     "id": "cancel-long-running",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "printf 'canonical-cancel-%s\\n' started; sleep 60; printf 'canonical-cancel-%s\\n' unexpected-finished"
+      "script": "printf 'canonical-cancel-%s\\n' started; sleep 60; printf 'canonical-cancel-%s\\n' unexpected-finished"
     }
   }
 }
