@@ -10,6 +10,7 @@ artifacts/deploy/
 artifacts/packages/
 artifacts/perf/
 artifacts/release-readiness/
+artifacts/sdk/
 bin/
 build/packer/**/output-*/
 build/packer/**/packer_cache/

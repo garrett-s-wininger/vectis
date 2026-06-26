@@ -21,6 +21,9 @@ Non-Go providers should generate bindings from:
 - `common.proto`
 - `secrets.proto`
 
+Run `make sdk-worker-core-protos` to copy that supported proto closure to
+`artifacts/sdk/workercore/proto/`.
+
 `worker_core.proto` defines both the worker-facing `WorkerCoreService` and the
 worker shell callback `WorkerCoreShellService`. Keep providers on the protocol
 version reported by `sdk/workercore.ProtocolVersion` and validated by

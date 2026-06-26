@@ -3,6 +3,8 @@ package actionregistry
 import (
 	"fmt"
 	"strings"
+
+	sdkaction "vectis/sdk/action"
 )
 
 type DescriptorStatusError struct {
@@ -37,21 +39,11 @@ func (e *DescriptorStatusError) Error() string {
 }
 
 func NormalizeDescriptorStatus(status DescriptorStatus) DescriptorStatus {
-	status = DescriptorStatus(strings.TrimSpace(strings.ToLower(string(status))))
-	if status == "" {
-		return DescriptorStatusActive
-	}
-
-	return status
+	return sdkaction.NormalizeDescriptorStatus(status)
 }
 
 func ValidateDescriptorStatus(status DescriptorStatus) error {
-	switch NormalizeDescriptorStatus(status) {
-	case DescriptorStatusActive, DescriptorStatusYanked, DescriptorStatusRevoked, DescriptorStatusPurged:
-		return nil
-	default:
-		return fmt.Errorf("unsupported action descriptor status %q", status)
-	}
+	return sdkaction.ValidateDescriptorStatus(status)
 }
 
 func ValidateDescriptorUse(uses string, descriptor Descriptor) error {

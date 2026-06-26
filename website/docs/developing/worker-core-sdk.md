@@ -8,13 +8,16 @@ The worker-core protocol is an extension contract, not an implementation
 detail. Go providers should import `sdk/workercore` and generated message types
 from `api/gen/go`. Non-Go providers should generate from `api/proto/worker_core.proto`
 and its imports, currently `api/proto/common.proto` and `api/proto/secrets.proto`.
+Run `make sdk-worker-core-protos` to copy that supported proto closure to
+`artifacts/sdk/workercore/proto/`.
 Changes to those protocol files follow the repository's gRPC compatibility
 rules.
 
 In-repository standard providers live under `extensions/worker-core/`. Tests
 enforce that SDK and extension packages do not import `vectis/internal/...` or
-other core implementation packages. If a provider needs something from
-`internal/`, extract a supported SDK or protobuf contract first.
+other core implementation packages. Run `make test-boundaries` for the narrow
+extension-contract checks. If a provider needs something from `internal/`,
+extract a supported SDK or protobuf contract first.
 
 ## When To Use It
 

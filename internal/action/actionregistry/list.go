@@ -1,33 +1,14 @@
 package actionregistry
 
-import "sort"
+import sdkaction "vectis/sdk/action"
 
 func SortForDisplay(descriptors []Descriptor) []Descriptor {
-	out := append([]Descriptor(nil), descriptors...)
-	sortDescriptors(out)
-	return out
+	return sdkaction.SortForDisplay(descriptors)
 }
 
 func sortDescriptors(descriptors []Descriptor) {
-	sort.SliceStable(descriptors, func(i, j int) bool {
-		if descriptors[i].CanonicalName != descriptors[j].CanonicalName {
-			return descriptors[i].CanonicalName < descriptors[j].CanonicalName
-		}
-
-		if descriptors[i].Version != descriptors[j].Version {
-			return descriptors[i].Version < descriptors[j].Version
-		}
-
-		if descriptors[i].Source != descriptors[j].Source {
-			return descriptors[i].Source < descriptors[j].Source
-		}
-
-		if descriptors[i].Runtime != descriptors[j].Runtime {
-			return descriptors[i].Runtime < descriptors[j].Runtime
-		}
-
-		return descriptors[i].Digest < descriptors[j].Digest
-	})
+	sorted := sdkaction.SortForDisplay(descriptors)
+	copy(descriptors, sorted)
 }
 
 func deduplicateDescriptors(descriptors []Descriptor) []Descriptor {

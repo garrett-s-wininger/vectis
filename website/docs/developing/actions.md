@@ -28,6 +28,11 @@ Custom user actions should not be added as new builtins unless they are meant to
 
 ## Local Descriptor Registry
 
+The reusable action boundary is descriptor-first. Go packages that need to
+construct, validate, digest, or inspect action descriptors should import
+`sdk/action`; the in-process execution interfaces under `internal/action` remain
+private worker implementation details.
+
 Vectis can resolve descriptor-only custom actions from local filesystem roots. Configure roots with `action_registry.local_roots` or the comma-separated `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS` environment variable. Builtins remain available automatically.
 
 The local source looks for manifests at:

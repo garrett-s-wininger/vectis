@@ -123,7 +123,7 @@ func (s *LocalManifestSource) ListDescriptors() ([]Descriptor, error) {
 
 	descriptors := []Descriptor{}
 	for _, namespaceEntry := range namespaces {
-		if !namespaceEntry.IsDir() || namespaceEntry.Name() == "builtins" || !referencePartRe.MatchString(namespaceEntry.Name()) {
+		if !namespaceEntry.IsDir() || namespaceEntry.Name() == "builtins" || !validReferencePart(namespaceEntry.Name()) {
 			continue
 		}
 
@@ -134,7 +134,7 @@ func (s *LocalManifestSource) ListDescriptors() ([]Descriptor, error) {
 		}
 
 		for _, actionEntry := range actionEntries {
-			if !actionEntry.IsDir() || !referencePartRe.MatchString(actionEntry.Name()) {
+			if !actionEntry.IsDir() || !validReferencePart(actionEntry.Name()) {
 				continue
 			}
 
@@ -407,11 +407,11 @@ func (m LocalManifest) validate(ref Reference) error {
 		return fmt.Errorf("local action manifest version is required")
 	}
 
-	if !selectorRe.MatchString(version) || strings.HasPrefix(version, "sha256:") {
+	if !validSelector(version) || strings.HasPrefix(version, "sha256:") {
 		return fmt.Errorf("local action manifest version %q is invalid", version)
 	}
 
-	if digest := strings.TrimSpace(m.Digest); digest != "" && !sha256DigestRe.MatchString(digest) {
+	if digest := strings.TrimSpace(m.Digest); digest != "" && !validSHA256Digest(digest) {
 		return fmt.Errorf("local action manifest digest %q is invalid", digest)
 	}
 
@@ -532,7 +532,7 @@ func validatePortSchema(schema []PortSpec) error {
 			return fmt.Errorf("local action manifest port_schema name is required")
 		}
 
-		if !referencePartRe.MatchString(name) {
+		if !validReferencePart(name) {
 			return fmt.Errorf("local action manifest port_schema name %q is invalid", name)
 		}
 

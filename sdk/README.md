@@ -15,5 +15,10 @@ Current SDKs:
 
 | Package | Purpose |
 | --- | --- |
+| `sdk/action` | Public descriptor, reference, schema, lifecycle, and digest types for action extensions. |
 | `sdk/workercore` | Go SDK for worker-core execution providers. |
 | `sdk/workercore/conformance` | Provider conformance tests for worker-core implementations. |
+
+Run `make test-boundaries` before widening SDK dependencies, and run
+`make sdk-worker-core-protos` when a non-Go worker-core provider needs the
+supported protobuf closure.

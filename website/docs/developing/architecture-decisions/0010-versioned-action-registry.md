@@ -99,7 +99,8 @@ Resolution policy is configurable by namespace, source, and digest pin requireme
 - [CLI Guide](../../using/cli-guide.md#resolve-an-action)
 - [Configuration](../../operating/configuration.md#action-registry)
 - [ADR 0006: Global coordination and cell-local execution](./0006-global-coordination-cell-local-execution.md)
-- `internal/action/actionregistry/` - action references, descriptors, policy, local manifests, and locks
+- `sdk/action` - public action reference, descriptor, schema, lifecycle, capability, and digest model
+- `internal/action/actionregistry/` - policy, local manifests, locks, and internal resolver assembly over the public descriptor model
 - `internal/action/actionconfig/` - config-backed registry assembly
 - `internal/action/custom/process.go` - process runtime adapter
 - `internal/job/validation/validation.go` - action validation path

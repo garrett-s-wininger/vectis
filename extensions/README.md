@@ -10,7 +10,7 @@ dependencies.
 
 | Directory | Contract | Purpose |
 | --- | --- | --- |
-| `actions/` | Action registry descriptors and future action runtime packages | Workflow vocabulary integrations such as review/report/deploy actions. |
+| `actions/` | `sdk/action` descriptors and future action runtime packages | Workflow vocabulary integrations such as review/report/deploy actions. |
 | `secrets/` | Future public secrets-provider SDK or provider protocol | Secret-store integrations that run behind the Vectis broker authorization path. |
 | `worker-core/` | `sdk/workercore` plus `api/proto/worker_core.proto` | Execution backends that run claimed Vectis tasks somewhere other than the default host core. |
 

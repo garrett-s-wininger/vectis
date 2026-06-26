@@ -43,7 +43,14 @@ func (a *ProcessAction) InputSchema() []action.FieldSpec {
 func (a *ProcessAction) PortSchema() []action.PortSpec {
 	out := make([]action.PortSpec, 0, len(a.descriptor.PortSchema))
 	for _, port := range a.descriptor.PortSchema {
-		out = append(out, port.ActionPortSpec())
+		out = append(out, action.PortSpec{
+			Name:     port.Name,
+			Min:      port.Min,
+			Max:      port.Max,
+			Primary:  port.Primary,
+			Ordered:  port.Ordered,
+			Required: port.Required,
+		})
 	}
 	return out
 }
