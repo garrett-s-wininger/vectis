@@ -4,20 +4,28 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	apigen "vectis/api/gen/go"
 	"vectis/internal/api"
 	"vectis/internal/cell"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/migrations"
+	"vectis/internal/orchestrator"
 
 	_ "github.com/mattn/go-sqlite3"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
+
+const benchmarkOrchestratorBufSize = 1024 * 1024
 
 func BenchmarkAPIServer_RunRead_GetRun(b *testing.B) {
 	for _, mode := range []string{"live", "final_facts"} {
@@ -66,6 +74,52 @@ func BenchmarkAPIServer_RunRead_GetRunTasks(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+func BenchmarkAPIServer_RunRead_GetRun_HotState(b *testing.B) {
+	for _, childTasks := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("tasks_%d", childTasks), func(b *testing.B) {
+			server, repos := newBenchmarkAPIServer(b)
+			runID := seedBenchmarkAPIRunReadHotStateTasks(b, context.Background(), server, repos, childTasks)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
+				req.SetPathValue("id", runID)
+				rec := httptest.NewRecorder()
+
+				server.GetRun(rec, req)
+				if rec.Code != http.StatusOK {
+					b.Fatalf("GetRun status=%d: %s", rec.Code, rec.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkAPIServer_RunRead_GetRunTasks_HotState(b *testing.B) {
+	for _, childTasks := range []int{100, 1000, 5000} {
+		b.Run(fmt.Sprintf("tasks_%d/limit_200", childTasks), func(b *testing.B) {
+			server, repos := newBenchmarkAPIServer(b)
+			runID := seedBenchmarkAPIRunReadHotStateTasks(b, context.Background(), server, repos, childTasks)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks?limit=200", nil)
+				req.SetPathValue("id", runID)
+				rec := httptest.NewRecorder()
+
+				server.GetRunTasks(rec, req)
+				if rec.Code != http.StatusOK {
+					b.Fatalf("GetRunTasks status=%d: %s", rec.Code, rec.Body.String())
+				}
+			}
+		})
 	}
 }
 
@@ -599,6 +653,39 @@ func newBenchmarkAPIServerWithDB(b *testing.B) (*api.APIServer, *dal.SQLReposito
 	return api.NewAPIServer(mocks.NopLogger{}, db), dal.NewSQLRepositories(db), db
 }
 
+func newBenchmarkOrchestratorClient(b testing.TB, svc *orchestrator.Service) apigen.OrchestratorServiceClient {
+	b.Helper()
+
+	listener := bufconn.Listen(benchmarkOrchestratorBufSize)
+	grpcServer := grpc.NewServer()
+	orchestrator.RegisterOrchestratorService(grpcServer, svc, mocks.NopLogger{})
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+
+	conn, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return listener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+
+	if err != nil {
+		grpcServer.Stop()
+		_ = listener.Close()
+		b.Fatalf("dial benchmark orchestrator: %v", err)
+	}
+
+	b.Cleanup(func() {
+		_ = conn.Close()
+		grpcServer.Stop()
+		_ = listener.Close()
+	})
+
+	return apigen.NewOrchestratorServiceClient(conn)
+}
+
 func newBenchmarkAPIHTTPRequest(method, target, body string) *http.Request {
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -735,6 +822,70 @@ func seedBenchmarkAPIRunReadLiveTasks(b *testing.B, ctx context.Context, repos *
 		}
 	}
 
+	return runID
+}
+
+func seedBenchmarkAPIRunReadHotStateTasks(b *testing.B, ctx context.Context, server *api.APIServer, repos *dal.SQLRepositories, childTasks int) string {
+	b.Helper()
+
+	jobID := fmt.Sprintf("bench-api-run-read-hot-state-%d", childTasks)
+	if err := repos.Jobs().Create(ctx, jobID, fmt.Sprintf(benchAPIJobDefinition, jobID), 1); err != nil {
+		b.Fatalf("create benchmark job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		b.Fatalf("create benchmark run: %v", err)
+	}
+
+	dispatch, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		b.Fatalf("get root execution: %v", err)
+	}
+
+	if err := repos.Runs().UpsertRunHotStateOwner(ctx, dal.RunHotStateOwnerUpdate{
+		RunID:      runID,
+		CellID:     dal.DefaultCellID,
+		OwnerID:    "orchestrator:registry:" + dal.DefaultCellID,
+		OwnerEpoch: "bench-hot-state",
+		LeaseUntil: time.Now().Add(time.Hour),
+	}); err != nil {
+		b.Fatalf("upsert hot-state owner: %v", err)
+	}
+
+	tasks := make([]orchestrator.TaskSpec, 0, childTasks)
+	for i := 0; i < childTasks; i++ {
+		taskKey := benchmarkAPIRunReadTaskKey(i)
+		tasks = append(tasks, orchestrator.TaskSpec{
+			TaskKey:       taskKey,
+			ParentTaskKey: dal.RootTaskKey,
+			Name:          taskKey,
+			CellID:        dal.DefaultCellID,
+		})
+	}
+
+	svc := orchestrator.New(1)
+	b.Cleanup(svc.Close)
+	if _, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+		RunID:  runID,
+		CellID: dal.DefaultCellID,
+		Root: dal.TaskExecutionRecord{
+			RunID:         dispatch.RunID,
+			TaskID:        dispatch.TaskID,
+			TaskKey:       dispatch.TaskKey,
+			Name:          dispatch.TaskName,
+			TaskAttemptID: dispatch.TaskAttemptID,
+			SegmentID:     dispatch.SegmentID,
+			ExecutionID:   dispatch.ExecutionID,
+			CellID:        dispatch.CellID,
+			Attempt:       dispatch.Attempt,
+		},
+		Tasks: tasks,
+	}); err != nil {
+		b.Fatalf("load hot-state run: %v", err)
+	}
+
+	server.SetOrchestratorClient(newBenchmarkOrchestratorClient(b, svc))
 	return runID
 }
 
