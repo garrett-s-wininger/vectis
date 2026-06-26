@@ -3,7 +3,6 @@ package job
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
 	"vectis/internal/interfaces"
+	"vectis/internal/logrecord"
 
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
@@ -165,7 +165,10 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 		return fmt.Errorf("marshal log chunk: %w", err)
 	}
 
-	line := base64.RawStdEncoding.EncodeToString(payload) + "\n"
+	record, err := logrecord.Append(nil, payload)
+	if err != nil {
+		return fmt.Errorf("frame log chunk: %w", err)
+	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -174,7 +177,7 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 		return fmt.Errorf("log stream already closed")
 	}
 
-	if d.writeOffset+int64(len(line)) > d.maxSpoolSize {
+	if d.writeOffset+int64(len(record)) > d.maxSpoolSize {
 		if d.logger != nil {
 			d.logger.Warn("Log spool full for run; dropping log chunk (max %d bytes)", d.maxSpoolSize)
 		}
@@ -182,9 +185,13 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 		return nil
 	}
 
-	n, err := d.spool.WriteString(line)
+	n, err := d.spool.Write(record)
 	if err != nil {
 		return fmt.Errorf("write spool chunk: %w", err)
+	}
+
+	if n != len(record) {
+		return io.ErrShortWrite
 	}
 
 	d.writeOffset += int64(n)
@@ -270,7 +277,7 @@ func (d *durableLogStream) senderLoop() {
 	reader := bufio.NewReader(readFile)
 	var readOffset int64
 	retryAttempt := 0
-	pending := ""
+	maxRecordPayload := maxSpoolRecordPayload(d.maxSpoolSize)
 
 	for {
 		d.mu.Lock()
@@ -283,7 +290,7 @@ func (d *durableLogStream) senderLoop() {
 		deadlineExceeded := d.closed && time.Since(d.closeTime) > flushTimeout
 		d.mu.Unlock()
 
-		if shouldExit && pending == "" {
+		if shouldExit {
 			if err := d.finalizeCurrentStream(); err != nil {
 				d.setSenderErr(fmt.Errorf("finalize log stream: %w", err))
 			}
@@ -292,66 +299,34 @@ func (d *durableLogStream) senderLoop() {
 		}
 
 		if deadlineExceeded {
-			if pending != "" {
-				if d.logger != nil {
-					d.logger.Warn("Log flush deadline exceeded with unsent chunks; giving up after %s", flushTimeout)
-				}
+			if d.logger != nil {
+				d.logger.Warn("Log flush deadline exceeded with unsent chunks; giving up after %s", flushTimeout)
 			}
 
 			d.setSenderErr(fmt.Errorf("log flush deadline exceeded after %s", flushTimeout))
 			return
 		}
 
-		if shouldExit && pending != "" {
-			chunk, err := decodeSpoolLine(pending)
-			pending = ""
-			if err != nil {
-				d.setSenderErr(fmt.Errorf("decode trailing spool line: %w", err))
-				if d.logger != nil {
-					d.logger.Warn("Skipping invalid trailing spool line: %v", err)
-				}
-
-				continue
-			}
-
-			if err := d.sendWithRetry(chunk, &retryAttempt); err != nil {
-				d.setSenderErr(err)
-				return
-			}
-
-			continue
-		}
-
-		line, err := reader.ReadString('\n')
+		payload, n, err := logrecord.ReadWithMax(reader, maxRecordPayload)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				if line != "" {
-					pending += line
-					readOffset += int64(len(line))
-				}
-
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				time.Sleep(20 * time.Millisecond)
 				continue
 			}
 
+			d.setSenderErr(fmt.Errorf("read spool record: %w", err))
 			if d.logger != nil {
 				d.logger.Warn("Spool read error: %v", err)
 			}
 
-			time.Sleep(20 * time.Millisecond)
-			continue
+			return
 		}
 
-		readOffset += int64(len(line))
-		if pending != "" {
-			line = pending + line
-			pending = ""
-		}
-
-		chunk, err := decodeSpoolLine(line)
+		readOffset += int64(n)
+		chunk, err := decodeSpoolRecord(payload)
 		if err != nil {
 			if d.logger != nil {
-				d.logger.Warn("Skipping invalid spool line: %v", err)
+				d.logger.Warn("Skipping invalid spool record: %v", err)
 			}
 
 			continue
@@ -546,6 +521,15 @@ func defaultMaxSpoolBytes() int64 {
 	return 10 * 1024 * 1024 // 10 MB
 }
 
+func maxSpoolRecordPayload(maxSpoolSize int64) int {
+	maxInt := int64(int(^uint(0) >> 1))
+	if maxSpoolSize <= 0 || maxSpoolSize > maxInt {
+		return int(maxInt)
+	}
+
+	return int(maxSpoolSize)
+}
+
 func spoolBaseDir() string {
 	logTuneMu.RLock()
 	dir := logSpoolDir
@@ -583,17 +567,7 @@ func (d *durableLogStream) moveSpoolToPending() error {
 	return nil
 }
 
-func decodeSpoolLine(line string) (*api.LogChunk, error) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil, fmt.Errorf("empty line")
-	}
-
-	payload, err := base64.RawStdEncoding.DecodeString(line)
-	if err != nil {
-		return nil, fmt.Errorf("decode base64: %w", err)
-	}
-
+func decodeSpoolRecord(payload []byte) (*api.LogChunk, error) {
 	var chunk api.LogChunk
 	if err := proto.Unmarshal(payload, &chunk); err != nil {
 		return nil, fmt.Errorf("unmarshal chunk: %w", err)

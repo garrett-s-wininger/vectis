@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"vectis/internal/interfaces"
+	"vectis/internal/logrecord"
 	"vectis/internal/logspool"
 )
 
@@ -157,20 +158,21 @@ func (f *LogSpoolForwarder) forwardFile(path string) error {
 	var stream interfaces.LogStream
 	var streamRunID string
 	reader := bufio.NewReader(file)
+	maxRecordPayload := maxSpoolRecordPayload(defaultMaxSpoolBytes())
 	for {
-		line, err := reader.ReadString('\n')
+		payload, _, err := logrecord.ReadWithMax(reader, maxRecordPayload)
 		if err != nil {
-			if errors.Is(err, io.EOF) && line == "" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 
 			return fmt.Errorf("read spool: %w", err)
 		}
 
-		chunk, err := decodeSpoolLine(line)
+		chunk, err := decodeSpoolRecord(payload)
 		if err != nil {
 			if f.logger != nil {
-				f.logger.Warn("Skipping invalid spool line in %s: %v", path, err)
+				f.logger.Warn("Skipping invalid spool record in %s: %v", path, err)
 			}
 
 			continue
