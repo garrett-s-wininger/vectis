@@ -334,18 +334,25 @@ func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, even
 	}
 }
 
-func (s *APIServer) recordDispatchSuccess(ctx context.Context, runID, source, targetCell string) error {
+func (s *APIServer) recordDispatchAttemptOutcome(ctx context.Context, runID, source, outcomeEventType, targetCell string, message *string) error {
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, source, dal.DispatchEventAttempt, targetCell)
+		if outcomeEventType != dal.DispatchEventSuccess {
+			s.dispatchMetrics.RecordDispatchEvent(ctx, source, outcomeEventType, targetCell)
+		}
+	}
+
 	if s.dispatchEvents != nil {
-		if err := s.dispatchEvents.RecordDispatchSuccess(ctx, runID, source); err != nil {
+		if err := s.dispatchEvents.RecordDispatchAttemptOutcome(ctx, runID, source, outcomeEventType, message); err != nil {
 			return err
 		}
-	} else if s.runs != nil {
+	} else if outcomeEventType == dal.DispatchEventSuccess && s.runs != nil {
 		if err := s.runs.TouchDispatched(ctx, runID); err != nil {
 			return err
 		}
 	}
 
-	if s.dispatchMetrics != nil {
+	if outcomeEventType == dal.DispatchEventSuccess && s.dispatchMetrics != nil {
 		s.dispatchMetrics.RecordDispatchEvent(ctx, source, dal.DispatchEventSuccess, targetCell)
 	}
 

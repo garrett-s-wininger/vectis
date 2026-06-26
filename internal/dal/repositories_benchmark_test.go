@@ -190,6 +190,44 @@ func BenchmarkDAL_DispatchEvents_Record(b *testing.B) {
 	}
 }
 
+func BenchmarkDAL_DispatchEvents_RecordDispatchSuccess(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkRepos(b)
+	jobID := "bench-dispatch-success"
+
+	seedBenchmarkJob(b, ctx, repos, jobID)
+	runID := createBenchmarkRun(b, ctx, repos.Runs(), jobID, 1)
+	dispatch := repos.DispatchEvents()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		if err := dispatch.RecordDispatchSuccess(ctx, runID, dal.DispatchSourceAPI); err != nil {
+			b.Fatalf("record dispatch success: %v", err)
+		}
+	}
+}
+
+func BenchmarkDAL_DispatchEvents_RecordAttemptOutcomeSuccess(b *testing.B) {
+	ctx := context.Background()
+	repos := newBenchmarkRepos(b)
+	jobID := "bench-dispatch-attempt-outcome-success"
+
+	seedBenchmarkJob(b, ctx, repos, jobID)
+	runID := createBenchmarkRun(b, ctx, repos.Runs(), jobID, 1)
+	dispatch := repos.DispatchEvents()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		if err := dispatch.RecordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil); err != nil {
+			b.Fatalf("record dispatch attempt outcome: %v", err)
+		}
+	}
+}
+
 func BenchmarkDAL_TryClaimExecution(b *testing.B) {
 	ctx := context.Background()
 	repos := newBenchmarkRepos(b)

@@ -4423,6 +4423,85 @@ func TestDispatchEventsRepository_RecordAndListByRun(t *testing.T) {
 	}
 }
 
+func TestDispatchEventsRepository_RecordDispatchAttemptOutcome(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	runs := repos.Runs()
+	dispatch := repos.DispatchEvents()
+	ctx := context.Background()
+
+	successRunID, _, err := runs.CreateRun(ctx, "job-dispatch-success", nil, 1)
+	if err != nil {
+		t.Fatalf("create success run: %v", err)
+	}
+
+	if err := dispatch.RecordDispatchAttemptOutcome(ctx, successRunID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil); err != nil {
+		t.Fatalf("record success outcome: %v", err)
+	}
+
+	successEvents, err := dispatch.ListByRun(ctx, successRunID)
+	if err != nil {
+		t.Fatalf("list success dispatch events: %v", err)
+	}
+
+	if len(successEvents) != 2 {
+		t.Fatalf("expected 2 success events, got %+v", successEvents)
+	}
+
+	if successEvents[0].EventType != dal.DispatchEventAttempt || successEvents[0].Message != nil {
+		t.Fatalf("unexpected success attempt event: %+v", successEvents[0])
+	}
+
+	if successEvents[1].EventType != dal.DispatchEventSuccess || successEvents[1].Message != nil {
+		t.Fatalf("unexpected success event: %+v", successEvents[1])
+	}
+
+	var lastDispatchedAt sql.NullInt64
+	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", successRunID).Scan(&lastDispatchedAt); err != nil {
+		t.Fatalf("query success last_dispatched_at: %v", err)
+	}
+
+	if !lastDispatchedAt.Valid || lastDispatchedAt.Int64 == 0 {
+		t.Fatalf("expected success outcome to touch run, got %+v", lastDispatchedAt)
+	}
+
+	failureRunID, _, err := runs.CreateRun(ctx, "job-dispatch-failure", nil, 1)
+	if err != nil {
+		t.Fatalf("create failure run: %v", err)
+	}
+
+	msg := "queue unavailable"
+	if err := dispatch.RecordDispatchAttemptOutcome(ctx, failureRunID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg); err != nil {
+		t.Fatalf("record failure outcome: %v", err)
+	}
+
+	failureEvents, err := dispatch.ListByRun(ctx, failureRunID)
+	if err != nil {
+		t.Fatalf("list failure dispatch events: %v", err)
+	}
+
+	if len(failureEvents) != 2 {
+		t.Fatalf("expected 2 failure events, got %+v", failureEvents)
+	}
+
+	if failureEvents[0].EventType != dal.DispatchEventAttempt || failureEvents[0].Message != nil {
+		t.Fatalf("unexpected failure attempt event: %+v", failureEvents[0])
+	}
+
+	if failureEvents[1].EventType != dal.DispatchEventFailure || failureEvents[1].Message == nil || *failureEvents[1].Message != msg {
+		t.Fatalf("unexpected failure event: %+v", failureEvents[1])
+	}
+
+	lastDispatchedAt = sql.NullInt64{}
+	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", failureRunID).Scan(&lastDispatchedAt); err != nil {
+		t.Fatalf("query failure last_dispatched_at: %v", err)
+	}
+
+	if lastDispatchedAt.Valid {
+		t.Fatalf("expected failure outcome not to touch run, got %+v", lastDispatchedAt)
+	}
+}
+
 func TestRunsRepository_MarkExpiredRunningAsOrphaned(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

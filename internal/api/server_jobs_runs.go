@@ -796,15 +796,18 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, crea
 	}
 
 	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeAttempt)
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "record execution payload")
 		span.End()
 		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
+
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
+
 		return
 	}
 
@@ -820,13 +823,15 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, crea
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
 		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedEnqueue)
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.recordDispatchSuccess(ctx, runID, dal.DispatchSourceAPI, targetCellID); err != nil {
+	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil); err != nil {
 		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
@@ -1390,7 +1395,6 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 	}
 
 	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeAttempt)
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, targetCellID, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
 	if err != nil {
 		span.RecordError(err)
@@ -1398,7 +1402,9 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 		span.End()
 		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
 		return
 	}
 
@@ -1414,13 +1420,15 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
 		s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeFailedEnqueue)
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.recordDispatchSuccess(ctx, runID, dal.DispatchSourceAPI, targetCellID); err != nil {
+	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil); err != nil {
 		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)

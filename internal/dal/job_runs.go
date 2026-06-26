@@ -2062,19 +2062,56 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 		return existingPayload, nil
 	}
 
-	var currentPayloadHash string
-	if err := tx.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT execution_payload_hash FROM job_runs WHERE run_id = ?"),
+	payloadHash := ExecutionPayloadHash(payloadJSON)
+	result, err := tx.ExecContext(ctx,
+		rebindQueryForPgx("UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''"),
+		payloadHash,
 		runID,
-	).Scan(&currentPayloadHash); err != nil {
-		if err == sql.ErrNoRows {
-			return "", "", fmt.Errorf("%w: run %s", ErrNotFound, runID)
-		}
+	)
 
+	if err != nil {
 		return "", "", normalizeSQLError(err)
 	}
 
-	if currentPayloadHash != "" {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return "", "", normalizeSQLError(err)
+	}
+
+	var currentPayloadHash string
+	if rowsAffected == 0 {
+		if err := tx.QueryRowContext(ctx,
+			rebindQueryForPgx("SELECT execution_payload_hash FROM job_runs WHERE run_id = ?"),
+			runID,
+		).Scan(&currentPayloadHash); err != nil {
+			if err == sql.ErrNoRows {
+				return "", "", fmt.Errorf("%w: run %s", ErrNotFound, runID)
+			}
+
+			return "", "", normalizeSQLError(err)
+		}
+
+		if currentPayloadHash == "" {
+			return "", "", fmt.Errorf("%w: execution payload not recorded for run %s", ErrConflict, runID)
+		}
+
+		if currentPayloadHash == payloadHash {
+			recordedPayloadJSON, err := lookupPayload(payloadHash)
+			if err != nil {
+				return "", "", err
+			}
+
+			if recordedPayloadJSON != payloadJSON {
+				return "", "", fmt.Errorf("%w: execution payload hash %s has different payload", ErrConflict, payloadHash)
+			}
+
+			if err := tx.Commit(); err != nil {
+				return "", "", err
+			}
+
+			return payloadHash, recordedPayloadJSON, nil
+		}
+
 		recordedPayloadJSON, err := lookupPayload(currentPayloadHash)
 		if err != nil {
 			return "", "", err
@@ -2087,7 +2124,6 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 		return currentPayloadHash, recordedPayloadJSON, nil
 	}
 
-	payloadHash := ExecutionPayloadHash(payloadJSON)
 	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO execution_payloads (payload_hash, payload_json, definition_hash)
 		VALUES (?, ?, ?)
@@ -2112,44 +2148,6 @@ func (r *SQLRunsRepository) RecordExecutionPayload(ctx context.Context, runID, p
 		if existingPayload != payloadJSON {
 			return "", "", fmt.Errorf("%w: execution payload hash %s has different payload", ErrConflict, payloadHash)
 		}
-	}
-
-	result, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE job_runs SET execution_payload_hash = ? WHERE run_id = ? AND execution_payload_hash = ''"),
-		payloadHash,
-		runID,
-	)
-	if err != nil {
-		return "", "", normalizeSQLError(err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return "", "", normalizeSQLError(err)
-	}
-
-	if rowsAffected == 0 {
-		if err := tx.QueryRowContext(ctx,
-			rebindQueryForPgx("SELECT execution_payload_hash FROM job_runs WHERE run_id = ?"),
-			runID,
-		).Scan(&currentPayloadHash); err != nil {
-			return "", "", normalizeSQLError(err)
-		}
-
-		if currentPayloadHash == "" {
-			return "", "", fmt.Errorf("%w: execution payload not recorded for run %s", ErrConflict, runID)
-		}
-
-		recordedPayloadJSON, err := lookupPayload(currentPayloadHash)
-		if err != nil {
-			return "", "", err
-		}
-
-		if err := tx.Commit(); err != nil {
-			return "", "", err
-		}
-
-		return currentPayloadHash, recordedPayloadJSON, nil
 	}
 
 	if err := tx.Commit(); err != nil {

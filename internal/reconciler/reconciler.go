@@ -146,18 +146,25 @@ func (s *Service) recordDispatchEvent(ctx context.Context, runID, targetCellID, 
 	}
 }
 
-func (s *Service) recordDispatchSuccess(ctx context.Context, runID, targetCellID string) error {
+func (s *Service) recordDispatchAttemptOutcome(ctx context.Context, runID, targetCellID, outcomeEventType string, message *string) error {
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, dal.DispatchSourceReconciler, dal.DispatchEventAttempt, targetCellID)
+		if outcomeEventType != dal.DispatchEventSuccess {
+			s.dispatchMetrics.RecordDispatchEvent(ctx, dal.DispatchSourceReconciler, outcomeEventType, targetCellID)
+		}
+	}
+
 	if s.dispatch != nil {
-		if err := s.dispatch.RecordDispatchSuccess(ctx, runID, dal.DispatchSourceReconciler); err != nil {
+		if err := s.dispatch.RecordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceReconciler, outcomeEventType, message); err != nil {
 			return err
 		}
-	} else if s.runs != nil {
+	} else if outcomeEventType == dal.DispatchEventSuccess && s.runs != nil {
 		if err := s.runs.TouchDispatched(ctx, runID); err != nil {
 			return err
 		}
 	}
 
-	if s.dispatchMetrics != nil {
+	if outcomeEventType == dal.DispatchEventSuccess && s.dispatchMetrics != nil {
 		s.dispatchMetrics.RecordDispatchEvent(ctx, dal.DispatchSourceReconciler, dal.DispatchEventSuccess, targetCellID)
 	}
 
@@ -496,13 +503,15 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	job.Id = &jobID
 	job.RunId = &runID
 
-	s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventAttempt, nil)
 	reqs, pendingCount, err := s.dispatchRequestsForQueuedRun(ctx, runID, &job, qr.DefinitionHash)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "build dispatch requests")
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+			s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
+
 		if s.metrics != nil {
 			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
 		}
@@ -520,7 +529,9 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "cell ingress endpoints")
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+			s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
 
 		if s.metrics != nil {
 			s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
@@ -537,7 +548,9 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 			span.SetStatus(codes.Error, "execution submission")
 			msg := err.Error()
 
-			s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+			if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+				s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+			}
 			if s.metrics != nil {
 				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
 			}
@@ -550,7 +563,9 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 			span.SetStatus(codes.Error, "enqueue")
 			msg := err.Error()
 
-			s.recordDispatchEvent(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg)
+			if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+				s.logger.Error("reconciler: failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+			}
 			if s.metrics != nil {
 				s.metrics.RecordReenqueueOutcome(ctx, observability.ReconcilerOutcomeFailedEnqueue)
 			}
@@ -561,7 +576,7 @@ func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 		enqueued++
 	}
 
-	if err := s.recordDispatchSuccess(ctx, runID, qr.OwningCell); err != nil {
+	if err := s.recordDispatchAttemptOutcome(ctx, runID, qr.OwningCell, dal.DispatchEventSuccess, nil); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "touch dispatched")
 		msg := "touch dispatched: " + err.Error()

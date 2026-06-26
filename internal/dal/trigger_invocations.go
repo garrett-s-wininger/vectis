@@ -23,6 +23,12 @@ func (r *SQLTriggerInvocationsRepository) Record(ctx context.Context, invocation
 		triggerID = *normalized.TriggerID
 	}
 
+	var recordTriggerID *int64
+	if normalized.TriggerID != nil {
+		v := *normalized.TriggerID
+		recordTriggerID = &v
+	}
+
 	if _, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO trigger_invocations
 			(invocation_id, trigger_id, job_id, trigger_type, trigger_payload_hash, requested_cells)
@@ -38,30 +44,14 @@ func (r *SQLTriggerInvocationsRepository) Record(ctx context.Context, invocation
 		return TriggerInvocationRecord{}, normalizeSQLError(err)
 	}
 
-	var rec TriggerInvocationRecord
-	var nullableTriggerID sql.NullInt64
-	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT id, invocation_id, trigger_id, job_id, trigger_type, trigger_payload_hash, requested_cells
-		FROM trigger_invocations
-		WHERE invocation_id = ?
-	`), normalized.InvocationID).Scan(
-		&rec.ID,
-		&rec.InvocationID,
-		&nullableTriggerID,
-		&rec.JobID,
-		&rec.TriggerType,
-		&rec.TriggerPayloadHash,
-		&rec.RequestedCellsJSON,
-	); err != nil {
-		return TriggerInvocationRecord{}, normalizeSQLError(err)
-	}
-
-	if nullableTriggerID.Valid {
-		v := nullableTriggerID.Int64
-		rec.TriggerID = &v
-	}
-
-	return rec, nil
+	return TriggerInvocationRecord{
+		InvocationID:       normalized.InvocationID,
+		TriggerID:          recordTriggerID,
+		JobID:              normalized.JobID,
+		TriggerType:        normalized.TriggerType,
+		TriggerPayloadHash: normalized.TriggerPayloadHash,
+		RequestedCellsJSON: requestedCellsJSON,
+	}, nil
 }
 
 func normalizeTriggerInvocation(invocation TriggerInvocation) (TriggerInvocation, string, error) {

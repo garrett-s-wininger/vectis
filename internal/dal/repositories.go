@@ -595,6 +595,7 @@ type IdempotencyRepository interface {
 type DispatchEventsRepository interface {
 	Record(ctx context.Context, runID, source, eventType string, message *string) error
 	RecordDispatchSuccess(ctx context.Context, runID, source string) error
+	RecordDispatchAttemptOutcome(ctx context.Context, runID, source, outcomeEventType string, message *string) error
 	ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error)
 	LastReconcilerActivity(ctx context.Context) (*int64, error)
 }

@@ -207,16 +207,12 @@ func (s *CronService) recordDispatchEvent(ctx context.Context, runID, eventType 
 	}
 }
 
-func (s *CronService) recordDispatchSuccess(ctx context.Context, runID string) error {
+func (s *CronService) recordDispatchAttemptOutcome(ctx context.Context, runID, outcomeEventType string, message *string) error {
 	if s.dispatch != nil {
-		if err := s.dispatch.RecordDispatchSuccess(ctx, runID, dal.DispatchSourceCron); err != nil {
-			return err
-		}
-
-		return nil
+		return s.dispatch.RecordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceCron, outcomeEventType, message)
 	}
 
-	if s.runs != nil {
+	if outcomeEventType == dal.DispatchEventSuccess && s.runs != nil {
 		return s.runs.TouchDispatched(ctx, runID)
 	}
 
@@ -450,11 +446,13 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 		s.logger.Error("Failed to attach execution envelope for cron run %s: %v", runID, err)
 	}
 
-	s.recordDispatchEvent(ctx, runID, dal.DispatchEventAttempt, nil)
 	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
 	if err != nil {
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
+		}
+
 		return err
 	}
 
@@ -464,7 +462,10 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 		endpoints, err := config.CellIngressEndpoints()
 		if err != nil {
 			msg := err.Error()
-			s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+			if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+				s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
+			}
+
 			return err
 		}
 
@@ -480,17 +481,23 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 	submission, err := cell.NewExecutionSubmission(req)
 	if err != nil {
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
+		}
+
 		return err
 	}
 
 	if err := ingress.SubmitExecution(ctx, submission); err != nil {
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
+		}
+
 		return err
 	}
 
-	if err := s.recordDispatchSuccess(ctx, runID); err != nil {
+	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventSuccess, nil); err != nil {
 		s.logger.Error("TouchDispatched after enqueue for run %s: %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
 		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
