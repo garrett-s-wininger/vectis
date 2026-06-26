@@ -254,35 +254,6 @@ h1 {
   white-space: nowrap;
 }
 
-.resource-status {
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  display: inline-flex;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-tight);
-  padding: var(--space-xs) var(--space-status-x);
-}
-
-.resource-status--enabled,
-.resource-status--active {
-  background: var(--status-success-bg);
-  border-color: var(--status-success-border);
-  color: var(--status-success-text);
-}
-
-.resource-status--paused {
-  background: var(--status-warning-bg);
-  border-color: var(--status-warning-border-muted);
-  color: var(--status-warning-muted-text);
-}
-
-.resource-status--disabled {
-  background: var(--status-neutral-bg);
-  border-color: var(--status-neutral-border);
-  color: var(--text-muted);
-}
-
 .console-panel {
   align-items: center;
   display: flex;

@@ -102,10 +102,10 @@ export function cellStatusLabel(status: CellStatus) {
 export function cellStatusTone(status: CellStatus) {
   switch (status) {
     case "healthy":
-      return "active";
+      return "success";
     case "degraded":
-      return "paused";
+      return "warning";
     case "offline":
-      return "disabled";
+      return "danger";
   }
 }

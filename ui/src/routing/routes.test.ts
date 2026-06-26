@@ -26,6 +26,13 @@ describe("routes", () => {
     });
   });
 
+  it("extracts encoded health cell IDs", () => {
+    expect(routeFromPath("/health/prod%20west")).toMatchObject({
+      kind: "health",
+      cellID: "prod west"
+    });
+  });
+
   it("extracts run job filters from run list search", () => {
     expect(routeFromPath("/runs", "?job=docs-publish")).toMatchObject({
       kind: "runs",

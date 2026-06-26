@@ -311,14 +311,14 @@ const roleBindings: RoleBinding[] = [
 export function createMockConsoleDataSnapshot(): MockConsoleData {
   return withUserRoleBindings(
     cloneData({
-    cells,
-    jobs,
-    namespaces,
-    progress: workloadProgress,
-    roleBindings,
-    runs: activeRuns,
-    signals: instanceSignals,
-    users
+      cells,
+      jobs,
+      namespaces,
+      progress: workloadProgress,
+      roleBindings,
+      runs: activeRuns,
+      signals: instanceSignals,
+      users
     })
   );
 }
@@ -328,25 +328,16 @@ export async function loadMockConsoleData(): Promise<MockConsoleData> {
 }
 
 export function clusterHealthMetricsFor(cells: MockCell[]): DashboardMetric[] {
-  const healthy = cells.filter((cell) => cell.status === "healthy").length;
-  const degraded = cells.filter((cell) => cell.status === "degraded").length;
-  const offline = cells.filter((cell) => cell.status === "offline").length;
-  const activeRuns = cells.reduce((total, cell) => total + cell.activeRuns, 0);
+  const reportsStuckRuns = cells.some((cell) => cell.stuckRuns !== undefined);
+  const activeRuns = cells.reduce((total, cell) => total + (cell.stuckRuns ?? cell.activeRuns), 0);
   const queueDepth = cells.reduce((total, cell) => total + cell.queueDepth, 0);
 
   return [
     {
-      id: "cells",
-      label: "Cells",
-      value: String(cells.length),
-      detail: `${healthy} healthy, ${degraded} degraded, ${offline} offline`,
-      tone: offline > 0 || degraded > 0 ? "attention" : "success"
-    },
-    {
       id: "active-runs",
-      label: "Active runs",
+      label: reportsStuckRuns ? "Stuck runs" : "Active runs",
       value: String(activeRuns),
-      detail: "Across all reachable cells"
+      detail: reportsStuckRuns ? "Awaiting dispatch recovery" : "Across all reachable cells"
     },
     {
       id: "queue-depth",
@@ -354,13 +345,6 @@ export function clusterHealthMetricsFor(cells: MockCell[]): DashboardMetric[] {
       value: String(queueDepth),
       detail: "Across all reachable cells",
       tone: queueDepth > 5 ? "attention" : "neutral"
-    },
-    {
-      id: "offline",
-      label: "Offline cells",
-      value: String(offline),
-      detail: offline === 1 ? "1 cell unreachable" : `${offline} cells unreachable`,
-      tone: offline > 0 ? "attention" : "success"
     }
   ];
 }
@@ -463,9 +447,7 @@ export function updateMockNamespace(
   return {
     ...data,
     namespaces: data.namespaces.map((namespace) =>
-      namespace.id === namespaceID
-        ? { ...namespace, description: input.description?.trim() || undefined }
-        : namespace
+      namespace.id === namespaceID ? { ...namespace, description: input.description?.trim() || undefined } : namespace
     )
   };
 }
@@ -533,10 +515,21 @@ export function deleteMockUser(data: MockConsoleData, userID: string): MockConso
   });
 }
 
-export function grantMockRoleBinding(data: MockConsoleData, userID: string, namespaceID: number, role: RoleBindingRole): MockConsoleData {
+export function grantMockRoleBinding(
+  data: MockConsoleData,
+  userID: string,
+  namespaceID: number,
+  role: RoleBindingRole
+): MockConsoleData {
   const namespace = data.namespaces.find((candidate) => candidate.id === namespaceID);
   const user = data.users.find((candidate) => candidate.id === userID);
-  if (!namespace || !user || data.roleBindings.some((binding) => binding.userID === userID && binding.namespaceID === namespaceID && binding.role === role)) {
+  if (
+    !namespace ||
+    !user ||
+    data.roleBindings.some(
+      (binding) => binding.userID === userID && binding.namespaceID === namespaceID && binding.role === role
+    )
+  ) {
     return data;
   }
 
@@ -556,7 +549,12 @@ export function grantMockRoleBinding(data: MockConsoleData, userID: string, name
   });
 }
 
-export function revokeMockRoleBinding(data: MockConsoleData, userID: string, namespaceID: number, role: RoleBindingRole): MockConsoleData {
+export function revokeMockRoleBinding(
+  data: MockConsoleData,
+  userID: string,
+  namespaceID: number,
+  role: RoleBindingRole
+): MockConsoleData {
   return withUserRoleBindings({
     ...data,
     roleBindings: data.roleBindings.filter(
@@ -729,7 +727,6 @@ function withUserRoleBindings(data: MockConsoleData): MockConsoleData {
     })
   };
 }
-
 
 function nextMockRunNumber(data: MockConsoleData) {
   return Math.max(0, ...data.runs.map((run) => run.runNumber)) + 1;

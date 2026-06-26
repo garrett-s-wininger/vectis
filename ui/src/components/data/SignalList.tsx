@@ -1,3 +1,4 @@
+import { ResourceStatus, type ResourceStatusTone } from "../status/ResourceStatus";
 import styles from "./SignalList.module.css";
 
 const stateLabels = {
@@ -37,9 +38,22 @@ export function SignalList({ signals, variant = "default" }: SignalListProps) {
             <strong>{signal.label}</strong>
             {signal.detail ? <small>{signal.detail}</small> : null}
           </div>
-          <span className={`${styles.state} ${styles[`${signal.state}State`]}`}>{stateLabels[signal.state]}</span>
+          <ResourceStatus tone={signalStateTone(signal.state)}>{stateLabels[signal.state]}</ResourceStatus>
         </li>
       ))}
     </ul>
   );
+}
+
+function signalStateTone(state: SignalState): ResourceStatusTone {
+  switch (state) {
+    case "healthy":
+      return "success";
+    case "degraded":
+      return "warning";
+    case "offline":
+      return "danger";
+    case "unknown":
+      return "neutral";
+  }
 }

@@ -33,13 +33,11 @@ describe("mock console data", () => {
 
     expect(clusterHealthMetricsFor(data.cells)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          id: "cells",
-          detail: "1 healthy, 1 degraded, 1 offline"
-        }),
-        expect.objectContaining({ id: "offline", value: "1" })
+        expect.objectContaining({ id: "active-runs", value: "10" }),
+        expect.objectContaining({ id: "queue-depth", value: "11" })
       ])
     );
+    expect(clusterHealthMetricsFor(data.cells).map((metric) => metric.id)).not.toContain("offline");
   });
 
   it("derives dashboard metrics", async () => {

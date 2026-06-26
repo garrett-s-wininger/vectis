@@ -7,10 +7,11 @@ import { EmptyStatePanel } from "../components";
 import { FormField } from "../components";
 import { MetricCard } from "../components";
 import { PageHeader } from "../components";
+import { ResourceStatus } from "../components";
 import { SelectField } from "../components";
 import type { Job, Namespace, NewNamespace, RoleBindingRole, UpdateNamespace, User } from "../domain/console";
 import { roleBindingRoleOptions } from "../domain/consoleOptions";
-import { EmptyStateRail, PageMissingState, ResourceStatus, ResourceTitle, RoleBindingPanel } from "./shared";
+import { EmptyStateRail, PageMissingState, ResourceTitle, RoleBindingPanel } from "./shared";
 import styles from "./NamespacesPage.module.css";
 
 type NamespacesPageProps = {

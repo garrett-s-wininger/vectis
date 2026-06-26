@@ -1,9 +1,9 @@
 import type { FormEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { BreadcrumbTrail, Button, PageHeader } from "../../components";
+import { BreadcrumbTrail, Button, PageHeader, ResourceStatus } from "../../components";
 import type { Namespace, RoleBindingRole, User, UserStatus } from "../../domain/console";
 import { roleBindingRoleOptions } from "../../domain/consoleOptions";
-import { ResourceStatus, RoleBindingPanel } from "../shared";
+import { RoleBindingPanel } from "../shared";
 import styles from "../UsersPage.module.css";
 import { roleTone } from "./UserPresentation";
 

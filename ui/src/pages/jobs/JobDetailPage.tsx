@@ -1,6 +1,5 @@
-import { BreadcrumbTrail, Button, PageHeader, StatusBadge, type RunListItem } from "../../components";
+import { BreadcrumbTrail, Button, PageHeader, ResourceStatus, StatusBadge, type RunListItem } from "../../components";
 import type { Job } from "../../domain/console";
-import { ResourceStatus } from "../shared";
 import { JobTriggers } from "./JobTriggers";
 import { jobDetailBreadcrumbItems } from "./JobBreadcrumbs";
 import {

@@ -1,5 +1,5 @@
+import { ResourceStatus } from "../../components";
 import type { Job } from "../../domain/console";
-import { ResourceStatus } from "../shared";
 import styles from "./JobsPage.module.css";
 import { getJobSourceDetail } from "./JobPresentation";
 

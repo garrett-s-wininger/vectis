@@ -7,12 +7,12 @@ import {
   RecordListIdentity,
   RecordListMeta,
   RecordListSummary,
+  ResourceStatus,
   type RecordListRailTone
 } from "../components";
 import type { Cell } from "../domain/console";
 import { cellStatusLabel, cellStatusTone } from "../domain/consoleOptions";
 import { clusterHealthMetricsFor } from "../mocks/consoleData";
-import { ResourceStatus } from "./shared";
 import styles from "./HealthPage.module.css";
 
 type HealthPageProps = {
@@ -25,12 +25,9 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
 
   return (
     <>
-      <PageHeader
-        description="Gateway-visible cells and their local control-plane health."
-        eyebrow="Cluster"
-        title="Health"
-      />
+      <PageHeader description="Execution cells and their status." eyebrow="Cluster" title="Health" />
       <div className={styles.metrics}>
+        <CellStatusDistribution cells={cells} />
         {metrics.map((metric) => (
           <MetricCard
             detail={metric.detail}
@@ -43,7 +40,7 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
       </div>
       <RecordList
         countLabel={cellCountLabel(cells.length)}
-        description="Gateway-visible execution topology"
+        description="Execution Topology"
         emptyMessage="No cells registered."
         items={cells.map((cell) => ({
           actions: <ResourceStatus tone={cellStatusTone(cell.status)}>{cellStatusLabel(cell.status)}</ResourceStatus>,
@@ -52,10 +49,14 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
             <RecordListSummary>
               <RecordListIdentity subtitle={cell.region} title={cell.name} />
               <RecordListMeta featuredFirst>
-                <OperationalFact emphasis icon={Network} label="Endpoint" value={cell.endpoint} />
-                <OperationalFact icon={Activity} label="Runs" value={String(cell.activeRuns)} />
+                <OperationalFact emphasis icon={Network} label={cellEndpointLabel(cell)} value={cell.endpoint} />
+                <OperationalFact
+                  icon={Activity}
+                  label={cellWorkloadLabel(cell)}
+                  value={String(cellWorkloadValue(cell))}
+                />
                 <OperationalFact icon={Gauge} label="Queue" value={String(cell.queueDepth)} />
-                <OperationalFact icon={Server} label="Workers" value={`${cell.workersOnline}/${cell.workersTotal}`} />
+                <OperationalFact icon={Server} label="Workers" value={workerCapacityLabel(cell)} />
               </RecordListMeta>
             </RecordListSummary>
           ),
@@ -69,8 +70,79 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
   );
 }
 
+function CellStatusDistribution({ cells }: { cells: Cell[] }) {
+  const counts = cellStatusCounts(cells);
+  const total = cells.length;
+  const summary = cellStatusSummary(counts);
+
+  return (
+    <article className={styles.statusMetric}>
+      <span className={styles.statusLabel}>Cells</span>
+      <strong className={styles.statusValue}>{total}</strong>
+      <div aria-label={`Cell status distribution: ${summary}`} className={styles.statusBar} role="img">
+        {statusSegments.map((segment) => {
+          const count = counts[segment.status];
+          const width = total > 0 ? `${(count / total) * 100}%` : "0%";
+
+          return count > 0 ? (
+            <span
+              className={`${styles.statusSegment} ${styles[segment.className]}`}
+              key={segment.status}
+              style={{ width }}
+            />
+          ) : null;
+        })}
+      </div>
+      <div className={styles.statusLegend}>
+        {statusSegments.map((segment) => (
+          <span className={styles.legendItem} key={segment.status}>
+            <span className={`${styles.legendMarker} ${styles[segment.className]}`} />
+            {counts[segment.status]} {segment.label}
+          </span>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function cellCountLabel(count: number) {
   return count === 1 ? "1 cell" : `${count} cells`;
+}
+
+const statusSegments = [
+  { className: "healthySegment", label: "healthy", status: "healthy" },
+  { className: "degradedSegment", label: "degraded", status: "degraded" },
+  { className: "offlineSegment", label: "offline", status: "offline" }
+] as const;
+
+function cellStatusCounts(cells: Cell[]) {
+  return cells.reduce(
+    (counts, cell) => ({
+      ...counts,
+      [cell.status]: counts[cell.status] + 1
+    }),
+    { degraded: 0, healthy: 0, offline: 0 } satisfies Record<Cell["status"], number>
+  );
+}
+
+function cellStatusSummary(counts: Record<Cell["status"], number>) {
+  return `${counts.healthy} healthy, ${counts.degraded} degraded, ${counts.offline} offline`;
+}
+
+function cellWorkloadLabel(cell: Cell) {
+  return cell.stuckRuns === undefined ? "Runs" : "Stuck";
+}
+
+function cellWorkloadValue(cell: Cell) {
+  return cell.stuckRuns ?? cell.activeRuns;
+}
+
+function workerCapacityLabel(cell: Cell) {
+  return cell.workersTotal > 0 ? `${cell.workersOnline}/${cell.workersTotal}` : "N/A";
+}
+
+function cellEndpointLabel(cell: Cell) {
+  return cell.stuckRuns === undefined ? "Endpoint" : "Ingress";
 }
 
 function cellRailTone(status: Cell["status"]): RecordListRailTone {

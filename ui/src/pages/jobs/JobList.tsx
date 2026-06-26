@@ -1,6 +1,5 @@
-import { DataTable, StatusBadge, type DataTableColumn, type RunListItem } from "../../components";
+import { DataTable, ResourceStatus, StatusBadge, type DataTableColumn, type RunListItem } from "../../components";
 import type { Job } from "../../domain/console";
-import { ResourceStatus } from "../shared";
 import { JobIdentity } from "./JobIdentity";
 import { getLatestRunForJob } from "./JobPresentation";
 import { JobTriggers } from "./JobTriggers";

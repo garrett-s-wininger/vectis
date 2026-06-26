@@ -11,14 +11,9 @@ import { FormError } from "./components";
 import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
 import { createConsoleDataSource, type CreatedUserCredential } from "./data/consoleDataSource";
-import type { NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
+import type { Cell, NewJob, NewNamespace, UpdateJob, UpdateNamespace } from "./domain/console";
 import type { NewUser, RoleBindingRole, UserStatus } from "./domain/console";
-import {
-  canDeleteMockNamespace,
-  nextMockRunID,
-  scopeMockConsoleData,
-  type MockConsoleData
-} from "./mocks/consoleData";
+import { canDeleteMockNamespace, nextMockRunID, scopeMockConsoleData, type MockConsoleData } from "./mocks/consoleData";
 import { DashboardPage } from "./pages/DashboardPage";
 import { HealthPage } from "./pages/HealthPage";
 import { JobsPage } from "./pages/JobsPage";
@@ -71,6 +66,7 @@ export function App() {
   const [consoleData, setConsoleData] = useState<MockConsoleData | null>(null);
   const [consoleError, setConsoleError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [healthCells, setHealthCells] = useState<Cell[] | null>(null);
   const [missingRunID, setMissingRunID] = useState<string | null>(null);
   const [selectedNamespacePath, setSelectedNamespacePath] = useState("/");
   const loadingRunIDRef = useRef<string | null>(null);
@@ -148,6 +144,32 @@ export function App() {
       .catch((error: unknown) => {
         if (!ignore) {
           setConsoleError(errorMessage(error, "Unable to load console data."));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [route.kind]);
+
+  useEffect(() => {
+    if (route.kind !== "health") {
+      return;
+    }
+
+    let ignore = false;
+
+    consoleDataSourceRef.current
+      .loadCells()
+      .then((cells) => {
+        if (!ignore) {
+          setHealthCells(cells);
+          setActionError("");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          setActionError(errorMessage(error, "Unable to load cell status."));
         }
       });
 
@@ -500,6 +522,8 @@ export function App() {
         actionError={actionError}
         consoleData={consoleData}
         consoleError={consoleError}
+        healthCells={healthCells}
+        loadingHealthCells={route.kind === "health" && healthCells === null && !actionError}
         missingRunID={missingRunID}
         namespacePath={selectedNamespacePath}
         onCreateJob={handleCreateJob}
@@ -644,6 +668,8 @@ function RouteContent({
   actionError,
   consoleData,
   consoleError,
+  healthCells,
+  loadingHealthCells,
   missingRunID,
   namespacePath,
   onCreateNamespace,
@@ -664,6 +690,8 @@ function RouteContent({
   actionError: string;
   consoleData: MockConsoleData | null;
   consoleError: string;
+  healthCells: Cell[] | null;
+  loadingHealthCells: boolean;
   missingRunID: string | null;
   namespacePath: string;
   onCreateJob: (input: NewJob) => Promise<void> | void;
@@ -703,15 +731,28 @@ function RouteContent({
   );
 
   switch (route.kind) {
-    case "health":
+    case "health": {
+      const cells = healthCells ?? consoleData.cells;
+
+      if (loadingHealthCells && cells.length === 0) {
+        return (
+          <CenteredAppState>
+            <AppState title="Loading cell status" tone="loading" />
+          </CenteredAppState>
+        );
+      }
+
       if (route.cellID) {
-        const cell = consoleData.cells.find((candidate) => candidate.id === route.cellID);
+        const cell = cells.find((candidate) => candidate.id === route.cellID);
 
         if (!cell) {
           return withActionAlert(
             <PageMissingState
               actionLabel="Go to Health"
-              breadcrumbs={[{ label: "Health", onClick: () => navigateTo("/health") }, { label: "Missing Cell", current: true }]}
+              breadcrumbs={[
+                { label: "Health", onClick: () => navigateTo("/health") },
+                { label: "Missing Cell", current: true }
+              ]}
               description="The requested cell is not registered with this console."
               label="Health breadcrumbs"
               onAction={() => navigateTo("/health")}
@@ -727,11 +768,9 @@ function RouteContent({
       }
 
       return withActionAlert(
-        <HealthPage
-          cells={consoleData.cells}
-          onSelectCell={(cellID) => navigateTo(`/health/${cellID}`)}
-        />
+        <HealthPage cells={cells} onSelectCell={(cellID) => navigateTo(`/health/${encodeURIComponent(cellID)}`)} />
       );
+    }
     case "runs":
       if (route.runID) {
         const run = consoleData.runs.find((candidate) => candidate.id === route.runID);

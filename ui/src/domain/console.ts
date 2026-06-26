@@ -12,6 +12,10 @@ export type Cell = {
   detail: string;
   activeRuns: number;
   queueDepth: number;
+  stuckRuns?: number;
+  catalogPending?: number;
+  catalogFailed?: number;
+  catalogTotal?: number;
   workersOnline: number;
   workersTotal: number;
   components: SignalItem[];

@@ -1,4 +1,4 @@
-import styles from "./StatusBadge.module.css";
+import { ResourceStatus, type ResourceStatusTone } from "./ResourceStatus";
 
 const runStatusLabels = {
   queued: "Queued",
@@ -24,9 +24,28 @@ type StatusBadgeProps = {
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
-  return <span className={`${styles.root} ${styles[status]}`}>{statusLabels[status]}</span>;
+  return <ResourceStatus tone={statusBadgeTone(status)}>{statusLabels[status]}</ResourceStatus>;
 }
 
 export function statusBadgeLabel(status: StatusBadgeTone) {
   return statusLabels[status];
+}
+
+function statusBadgeTone(status: StatusBadgeTone): ResourceStatusTone {
+  switch (status) {
+    case "running":
+      return "info";
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "danger";
+    case "cancelled":
+    case "abandoned":
+    case "orphaned":
+    case "aborted":
+      return "warning";
+    case "empty":
+    case "queued":
+      return "neutral";
+  }
 }

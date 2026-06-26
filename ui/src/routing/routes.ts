@@ -60,7 +60,7 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
     return {
       kind: "health",
       activeHref: "/health",
-      cellID: pathname.slice("/health/".length),
+      cellID: decodeRouteSegment(pathname.slice("/health/".length)),
       pathname
     };
   }
@@ -150,6 +150,14 @@ export function routeFromPath(pathname: string, search = ""): AppRoute {
 function jobFilterFromSearch(search: string) {
   const job = new URLSearchParams(search).get("job")?.trim();
   return job || undefined;
+}
+
+function decodeRouteSegment(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 export function navigateTo(path: string) {

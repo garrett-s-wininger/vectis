@@ -56,13 +56,6 @@
   font-size: var(--font-size-md);
 }
 
-.state {
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  padding: var(--space-2xs) var(--space-sm);
-}
-
 .healthyMarker {
   background: var(--status-success-accent);
 }
@@ -77,26 +70,6 @@
 
 .unknownMarker {
   background: var(--color-neutral-strong);
-}
-
-.healthyState {
-  background: var(--status-success-bg);
-  color: var(--status-success-text);
-}
-
-.degradedState {
-  background: var(--status-warning-bg);
-  color: var(--status-warning-text);
-}
-
-.offlineState {
-  background: var(--status-danger-bg);
-  color: var(--status-danger-text);
-}
-
-.unknownState {
-  background: var(--status-neutral-bg);
-  color: var(--text-muted);
 }
 
 .empty {

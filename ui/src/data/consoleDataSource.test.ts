@@ -184,6 +184,72 @@ describe("console data source", () => {
     });
   });
 
+  it("loads live cell status from the API source", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        cells: [
+          {
+            cell_id: "local",
+            ingress_required: false,
+            ingress_configured: false,
+            ingress_reachable: false,
+            status: "local",
+            queued: 3,
+            stuck: 1,
+            catalog_pending: 2,
+            catalog_failed: 1,
+            catalog_total: 5
+          },
+          {
+            cell_id: "edge",
+            ingress_required: true,
+            ingress_configured: true,
+            ingress_reachable: true,
+            status: "ready",
+            queued: 0,
+            stuck: 0,
+            catalog_pending: 0,
+            catalog_failed: 0,
+            catalog_total: 0
+          }
+        ]
+      })
+    );
+
+    const cells = await createConsoleDataSource().loadCells();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/cells/status", expect.any(Object));
+    expect(cells[0]).toMatchObject({
+      id: "local",
+      name: "local",
+      endpoint: "Local process",
+      region: "Name",
+      status: "degraded",
+      activeRuns: 1,
+      queueDepth: 3,
+      stuckRuns: 1,
+      catalogPending: 2,
+      catalogFailed: 1,
+      catalogTotal: 5,
+      workersOnline: 0,
+      workersTotal: 0
+    });
+    expect(cells[0].components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Ingress", state: "healthy" }),
+        expect.objectContaining({ label: "Reconciler", detail: "1 stuck", state: "degraded" }),
+        expect.objectContaining({ label: "Catalog", detail: "2 pending, 1 failed, 5 total", state: "degraded" })
+      ])
+    );
+    expect(cells[1]).toMatchObject({
+      endpoint: "Route configured",
+      region: "Name",
+      status: "healthy"
+    });
+  });
+
   it("creates stored jobs through the API source", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 
@@ -589,9 +655,7 @@ describe("console data source", () => {
   it("deletes users through the API source", async () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
 
-    fetchMock
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
-      .mockResolvedValueOnce(jsonResponse([]));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 })).mockResolvedValueOnce(jsonResponse([]));
 
     await createConsoleDataSource().deleteUser("12");
 

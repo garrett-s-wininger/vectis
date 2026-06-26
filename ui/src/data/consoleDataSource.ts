@@ -1,5 +1,6 @@
 import type { RunListItem, RunStatus } from "../components";
 import type {
+  Cell,
   ConsoleData,
   Job,
   Namespace,
@@ -87,6 +88,25 @@ type APIRoleBinding = {
   username?: string;
 };
 
+type APICellsStatusResponse = {
+  cells: APICellStatus[];
+};
+
+type APICellStatus = {
+  catalog_failed?: number;
+  catalog_pending?: number;
+  catalog_total?: number;
+  cell_id: string;
+  error?: string;
+  http_status?: number;
+  ingress_configured: boolean;
+  ingress_reachable: boolean;
+  ingress_required: boolean;
+  queued?: number;
+  status: string;
+  stuck?: number;
+};
+
 export type CreatedUserCredential = {
   password: string;
   username: string;
@@ -104,6 +124,7 @@ export type ConsoleDataSource = {
   deleteNamespace(namespaceID: number): Promise<ConsoleData>;
   deleteUser(userID: string): Promise<User[]>;
   grantRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
+  loadCells(): Promise<Cell[]>;
   loadConsole(): Promise<ConsoleData>;
   loadRun(runID: string): Promise<RunListItem>;
   revokeRoleBinding(userID: string, namespaceID: number, role: RoleBindingRole): Promise<ConsoleData>;
@@ -165,6 +186,9 @@ function createMockConsoleDataSource(): ConsoleDataSource {
     async grantRoleBinding(userID, namespaceID, role) {
       data = grantMockRoleBinding(data, userID, namespaceID, role);
       return cloneConsoleData(data);
+    },
+    async loadCells() {
+      return cloneConsoleData(data).cells;
     },
     async loadConsole() {
       return cloneConsoleData(data);
@@ -275,6 +299,7 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
       return loadAPIConsoleData();
     },
     loadConsole: loadAPIConsoleData,
+    loadCells: loadAPICells,
     async loadRun(runID) {
       const [run, jobsPage] = await Promise.all([loadAPIRun(runID), loadAPIJobs()]);
       const jobs = jobsPage.data.map(apiJobToConsoleJob);
@@ -366,6 +391,7 @@ async function loadAPIConsoleData(): Promise<ConsoleData> {
 
   return {
     ...mockBase,
+    cells: [],
     jobs: jobs.map((job) => ({
       ...job,
       lastRunStatus: runs.find((run) => run.jobName === job.name && run.namespacePath === job.namespacePath)?.status
@@ -385,6 +411,12 @@ async function loadAPINamespaces() {
 
 async function loadAPIJobs() {
   return requestJSON<PaginatedResponse<APIJob>>("/api/v1/jobs?limit=200");
+}
+
+async function loadAPICells() {
+  const response = await requestJSON<APICellsStatusResponse>("/api/v1/cells/status");
+
+  return response.cells.map(apiCellStatusToConsoleCell);
 }
 
 async function loadAPIRuns(jobs: Job[]) {
@@ -442,6 +474,195 @@ function apiUserToConsoleUser(user: APIUser): User {
   };
 }
 
+function apiCellStatusToConsoleCell(cell: APICellStatus): Cell {
+  const queued = safeCount(cell.queued);
+  const stuck = safeCount(cell.stuck);
+  const catalogPending = safeCount(cell.catalog_pending);
+  const catalogFailed = safeCount(cell.catalog_failed);
+  const catalogTotal = safeCount(cell.catalog_total);
+
+  return {
+    id: cell.cell_id,
+    name: cell.cell_id,
+    endpoint: apiCellEndpointLabel(cell),
+    region: apiCellRegionLabel(),
+    status: apiCellStatusToConsoleStatus(cell),
+    detail: apiCellDetail(cell),
+    activeRuns: stuck,
+    queueDepth: queued,
+    stuckRuns: stuck,
+    catalogPending,
+    catalogFailed,
+    catalogTotal,
+    workersOnline: 0,
+    workersTotal: 0,
+    components: apiCellComponents(cell),
+    progress: apiCellProgress(cell)
+  };
+}
+
+function apiCellStatusToConsoleStatus(cell: APICellStatus): Cell["status"] {
+  if (cell.status === "unreachable" || cell.status === "missing_route" || cell.status === "invalid") {
+    return "offline";
+  }
+
+  if (cell.status === "unhealthy" || safeCount(cell.stuck) > 0 || safeCount(cell.catalog_failed) > 0) {
+    return "degraded";
+  }
+
+  return "healthy";
+}
+
+function apiCellEndpointLabel(cell: APICellStatus) {
+  if (!cell.ingress_required) {
+    return "Local process";
+  }
+
+  return cell.ingress_configured ? "Route configured" : "Not configured";
+}
+
+function apiCellRegionLabel() {
+  return "Name";
+}
+
+function apiCellDetail(cell: APICellStatus) {
+  if (cell.error?.trim()) {
+    return cell.error.trim();
+  }
+
+  if (cell.status === "ready") {
+    return "Cell ingress is ready.";
+  }
+
+  if (cell.status === "local") {
+    return "Local cell inferred from run and catalog state.";
+  }
+
+  if (cell.status === "missing_route") {
+    return "Cell ingress endpoint is not configured.";
+  }
+
+  if (cell.status === "unhealthy" && cell.http_status) {
+    return `Cell ingress returned HTTP ${cell.http_status}.`;
+  }
+
+  return "Cell health details are unavailable.";
+}
+
+function apiCellComponents(cell: APICellStatus): Cell["components"] {
+  return [
+    {
+      id: `${cell.cell_id}-ingress`,
+      label: "Ingress",
+      detail: apiCellIngressDetail(cell),
+      state: apiCellIngressState(cell)
+    },
+    {
+      id: `${cell.cell_id}-queue`,
+      label: "Queue",
+      detail: `${safeCount(cell.queued)} queued`,
+      state: safeCount(cell.queued) > 5 ? "degraded" : "healthy"
+    },
+    {
+      id: `${cell.cell_id}-reconciler`,
+      label: "Reconciler",
+      detail: safeCount(cell.stuck) > 0 ? `${safeCount(cell.stuck)} stuck` : "No stuck runs",
+      state: safeCount(cell.stuck) > 0 ? "degraded" : "healthy"
+    },
+    {
+      id: `${cell.cell_id}-catalog`,
+      label: "Catalog",
+      detail: apiCellCatalogDetail(cell),
+      state: safeCount(cell.catalog_failed) > 0 || safeCount(cell.catalog_pending) > 0 ? "degraded" : "healthy"
+    }
+  ];
+}
+
+function apiCellIngressDetail(cell: APICellStatus) {
+  if (!cell.ingress_required) {
+    return "Local cell";
+  }
+
+  if (!cell.ingress_configured) {
+    return "Endpoint not configured";
+  }
+
+  if (cell.ingress_reachable) {
+    return "Ready";
+  }
+
+  return cell.error?.trim() || cell.status;
+}
+
+function apiCellIngressState(cell: APICellStatus): Cell["components"][number]["state"] {
+  if (!cell.ingress_required || cell.ingress_reachable) {
+    return "healthy";
+  }
+
+  if (cell.status === "unhealthy") {
+    return "degraded";
+  }
+
+  return "offline";
+}
+
+function apiCellCatalogDetail(cell: APICellStatus) {
+  const pending = safeCount(cell.catalog_pending);
+  const failed = safeCount(cell.catalog_failed);
+  const total = safeCount(cell.catalog_total);
+
+  if (total === 0) {
+    return "No catalog events";
+  }
+
+  return `${pending} pending, ${failed} failed, ${total} total`;
+}
+
+function apiCellProgress(cell: APICellStatus): Cell["progress"] {
+  const queued = safeCount(cell.queued);
+  const stuck = safeCount(cell.stuck);
+  const catalogPending = safeCount(cell.catalog_pending);
+  const catalogFailed = safeCount(cell.catalog_failed);
+  const catalogTotal = safeCount(cell.catalog_total);
+  const catalogBacklog = catalogPending + catalogFailed;
+
+  return [
+    {
+      id: `${cell.cell_id}-queue-pressure`,
+      label: "Queue pressure",
+      value: percentFromCount(queued, 10),
+      detail: `${queued} queued`,
+      tone: queued > 10 ? "critical" : queued > 5 ? "warning" : "neutral"
+    },
+    {
+      id: `${cell.cell_id}-dispatch-attention`,
+      label: "Dispatch attention",
+      value: stuck > 0 ? 100 : 0,
+      detail: stuck > 0 ? `${stuck} stuck` : "No stuck runs",
+      tone: stuck > 0 ? "critical" : "neutral"
+    },
+    {
+      id: `${cell.cell_id}-catalog-backlog`,
+      label: "Catalog backlog",
+      value: catalogTotal > 0 ? Math.round((catalogBacklog / catalogTotal) * 100) : 0,
+      detail: apiCellCatalogDetail(cell),
+      tone: catalogFailed > 0 ? "critical" : catalogPending > 0 ? "warning" : "neutral"
+    }
+  ];
+}
+
+function percentFromCount(count: number, fullScale: number) {
+  if (fullScale <= 0) {
+    return 0;
+  }
+
+  return Math.min(100, Math.round((count / fullScale) * 100));
+}
+
+function safeCount(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 function consoleRoleBindingRole(role: string): RoleBindingRole {
   switch (role) {
     case "admin":
@@ -459,7 +680,6 @@ function consoleRoleBindingRole(role: string): RoleBindingRole {
 function apiRoleBindingRole(role: RoleBindingRole) {
   return role.toLowerCase();
 }
-
 
 function apiNamespaceToConsoleNamespace(namespace: APINamespace): Namespace {
   return {
