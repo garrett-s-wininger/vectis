@@ -74,6 +74,24 @@ describe("DataTable", () => {
     expect(onRowClick).toHaveBeenCalledWith({ id: "2", name: "docs-publish", status: "Paused" });
   });
 
+  it("can hide the visible row indicator while keeping row clicks", () => {
+    render(
+      <DataTable
+        columns={columns}
+        getRowActionLabel={(row) => `View ${row.name}`}
+        getRowKey={(row) => row.id}
+        onRowClick={() => undefined}
+        rows={[{ id: "1", name: "api-test-suite", status: "Enabled" }]}
+        showRowIndicator={false}
+      />
+    );
+
+    const row = screen.getByRole("button", { name: "View api-test-suite" });
+
+    expect(row).toHaveAttribute("data-clickable", "true");
+    expect(row).not.toHaveAttribute("data-row-indicator");
+  });
+
   it("does not trigger row clicks from interactive cell content", () => {
     const onRowClick = vi.fn();
     const onButtonClick = vi.fn();

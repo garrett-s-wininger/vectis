@@ -55,6 +55,7 @@ export function JobList({ jobs, onOpen, runs }: JobListProps) {
         getRowKey={(job) => job.id}
         onRowClick={(job) => onOpen(job.id)}
         rows={jobs}
+        showRowIndicator={false}
       />
     </div>
   );

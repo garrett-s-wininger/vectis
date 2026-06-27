@@ -19,6 +19,7 @@ type DataTableProps<TRow> = {
   isRowSelected?: (row: TRow) => boolean;
   onRowClick?: (row: TRow) => void;
   rows: TRow[];
+  showRowIndicator?: boolean;
 };
 
 function columnStyle(width: CSSProperties["width"] | undefined): CSSProperties | undefined {
@@ -32,7 +33,8 @@ export function DataTable<TRow>({
   getRowKey,
   isRowSelected,
   onRowClick,
-  rows
+  rows,
+  showRowIndicator = true
 }: DataTableProps<TRow>) {
   function handleRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, row: TRow) {
     if (!onRowClick || (event.key !== "Enter" && event.key !== " ")) {
@@ -76,6 +78,7 @@ export function DataTable<TRow>({
                 aria-label={getRowActionLabel?.(row)}
                 aria-selected={isRowSelected?.(row) || undefined}
                 data-clickable={onRowClick ? true : undefined}
+                data-row-indicator={onRowClick && showRowIndicator ? true : undefined}
                 key={getRowKey(row)}
                 onClick={onRowClick ? (event) => handleRowClick(event, row) : undefined}
                 onKeyDown={(event) => handleRowKeyDown(event, row)}
