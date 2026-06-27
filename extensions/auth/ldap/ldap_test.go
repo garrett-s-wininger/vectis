@@ -150,15 +150,20 @@ func newTestProvider(t *testing.T, c *fakeConn) *Provider {
 }
 
 type fakeConn struct {
-	binds         [][2]string
-	searchRequest *goldap.SearchRequest
-	searchResult  *goldap.SearchResult
-	userBindErr   error
+	binds             [][2]string
+	searchRequest     *goldap.SearchRequest
+	searchResult      *goldap.SearchResult
+	userBindErr       error
+	validUserPassword string
 }
 
 func (f *fakeConn) Bind(username, password string) error {
 	f.binds = append(f.binds, [2]string{username, password})
 	if username != "cn=svc,dc=example,dc=org" {
+		if f.validUserPassword != "" && password != f.validUserPassword {
+			return goldap.NewError(goldap.LDAPResultInvalidCredentials, errors.New("invalid"))
+		}
+
 		return f.userBindErr
 	}
 

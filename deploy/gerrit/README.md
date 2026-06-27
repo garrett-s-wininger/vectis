@@ -34,8 +34,42 @@ Stop the container without deleting its state:
 make gerrit-down
 ```
 
+## Real Service Smoke
+
+The real-service smoke automates the local proof:
+
+```sh
+make gerrit-smoke
+```
+
+The smoke logs into Gerrit's development admin account, generates an HTTP token,
+creates a project, pushes a real review change, checks out the Gerrit change ref
+with `builtins/checkout`, posts a `builtins/gerrit-review` message and label
+vote, and verifies that a wrong password is rejected.
+
+Useful knobs:
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `GERRIT_SMOKE_URL` | `http://127.0.0.1:18088` | Gerrit base URL passed to the smoke. |
+| `GERRIT_SMOKE_ACCOUNT_ID` | `1000000` | Development auth admin account id. |
+| `GERRIT_SMOKE_USERNAME` | `admin` | Gerrit username used for generated HTTP token auth. |
+| `GERRIT_SMOKE_PROJECT` | empty | Project to use; generated when empty. |
+| `GERRIT_SMOKE_PROJECT_PREFIX` | `vectis-smoke` | Prefix for generated project names. |
+| `GERRIT_SMOKE_LABEL` | `Code-Review` | Review label posted by the action. |
+| `GERRIT_SMOKE_VALUE` | `+1` | Review label vote posted by the action. |
+| `GERRIT_SMOKE_TIMEOUT` | `90s` | Maximum wait for setup and smoke operations. |
+| `GERRIT_SMOKE_GIT` | `git` | Git executable used to push and checkout the change. |
+
+To run only the check against an already running Gerrit:
+
+```sh
+make gerrit-smoke-check
+```
+
 ## Seed A Change
 
+The manual flow below is still useful when debugging a specific Gerrit instance.
 Open `http://localhost:18088`, sign in through Gerrit's development account
 flow, and create a project named `vectis-smoke`.
 

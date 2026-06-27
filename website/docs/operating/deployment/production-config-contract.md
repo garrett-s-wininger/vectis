@@ -234,8 +234,16 @@ VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=encryptedfs:/
 # Optional Knox provider:
 # VECTIS_SECRETS_PROVIDERS_KNOX_URL=https://knox.internal.example
 # VECTIS_SECRETS_PROVIDERS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
+# VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_CERT_FILE=/etc/vectis/secrets/knox-client.crt
+# VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_KEY_FILE=/etc/vectis/secrets/knox-client.key
 # VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=knox://release/*
 ```
+
+For Knox compatibility validation, run `make knox-smoke` to clone/build a local
+Knox smoke image and resolve a seeded secret through a live Knox server process.
+For a managed endpoint, point `make knox-smoke-check` at a known `knox://` ref
+and the expected secret SHA-256 digest. The smoke resolves the primary key
+version and can also verify wrong-token denial and missing-key behavior.
 
 Also configure matching execution identity settings on workers and
 `vectis-secrets`:

@@ -1,0 +1,113 @@
+//go:build knox_smoke_server
+
+package main
+
+import (
+	"crypto/subtle"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/pinterest/knox"
+	"github.com/pinterest/knox/server"
+	"github.com/pinterest/knox/server/auth"
+	"github.com/pinterest/knox/server/keydb"
+)
+
+const (
+	defaultAddr      = ":9000"
+	defaultAuthToken = "0tknox-smoke"
+	defaultKeyID     = "team:smoke_token"
+	defaultSecret    = "knox-smoke-secret"
+)
+
+type staticMachineProvider struct {
+	token string
+}
+
+func (p staticMachineProvider) Name() string { return "vectis-smoke-machine" }
+func (p staticMachineProvider) Version() byte { return '0' }
+func (p staticMachineProvider) Type() byte { return 't' }
+
+func (p staticMachineProvider) Authenticate(token string, _ *http.Request) (knox.Principal, error) {
+	if subtle.ConstantTimeCompare([]byte(token), []byte(p.token)) != 1 {
+		return nil, fmt.Errorf("invalid smoke token")
+	}
+	return auth.NewMachine(token), nil
+}
+
+func main() {
+	addr := envDefault("KNOX_SMOKE_ADDR", defaultAddr)
+	authHeader := envDefault("KNOX_SMOKE_AUTH_TOKEN", defaultAuthToken)
+	principalID, err := machinePrincipalID(authHeader)
+	if err != nil {
+		panic(err)
+	}
+
+	cryptor := keydb.NewAESGCMCryptor(0, []byte("testtesttesttest"))
+	keyManager := server.NewKeyManager(cryptor, keydb.NewTempDB())
+	key := seededKey(
+		envDefault("KNOX_SMOKE_KEY_ID", defaultKeyID),
+		[]byte(envDefault("KNOX_SMOKE_SECRET", defaultSecret)),
+		principalID,
+	)
+	if err := keyManager.AddNewKey(&key); err != nil {
+		panic(err)
+	}
+
+	router, err := server.GetRouterFromKeyManager(
+		cryptor,
+		keyManager,
+		[]func(http.HandlerFunc) http.HandlerFunc{
+			server.AddHeader("Content-Type", "application/json"),
+			server.AddHeader("X-Content-Type-Options", "nosniff"),
+			server.Authentication([]auth.Provider{staticMachineProvider{token: principalID}}, nil),
+		},
+		nil,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Fprintf(os.Stderr, "knox smoke server listening on %s with key %s\n", addr, key.ID)
+	if err := http.ListenAndServe(addr, router); err != nil {
+		panic(err)
+	}
+}
+
+func seededKey(id string, data []byte, principalID string) knox.Key {
+	versions := knox.KeyVersionList{{
+		ID:           1,
+		Data:         append([]byte(nil), data...),
+		Status:       knox.Primary,
+		CreationTime: time.Now().UnixNano(),
+	}}
+	return knox.Key{
+		ID: id,
+		ACL: knox.ACL{}.Add(knox.Access{
+			Type:       knox.Machine,
+			ID:         principalID,
+			AccessType: knox.Read,
+		}),
+		VersionList: versions,
+		VersionHash: versions.Hash(),
+	}
+}
+
+func machinePrincipalID(authHeader string) (string, error) {
+	authHeader = strings.TrimSpace(authHeader)
+	if len(authHeader) < 3 || authHeader[0] != '0' || authHeader[1] != 't' {
+		return "", fmt.Errorf("KNOX_SMOKE_AUTH_TOKEN must use Knox machine auth form 0t<principal>")
+	}
+	return authHeader[2:], nil
+}
+
+func envDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}

@@ -46,11 +46,15 @@ type knoxHTTPClient interface {
 }
 
 type KnoxProvider struct {
-	baseURL        *url.URL
-	authToken      string
-	client         knoxHTTPClient
-	maxSecretBytes int64
-	userAgent      string
+	baseURL            *url.URL
+	authToken          string
+	client             knoxHTTPClient
+	customClient       bool
+	insecureSkipVerify bool
+	clientCertFile     string
+	clientKeyFile      string
+	maxSecretBytes     int64
+	userAgent          string
 }
 
 type KnoxOption func(*KnoxProvider) error
@@ -86,23 +90,32 @@ func WithKnoxHTTPClient(client knoxHTTPClient) KnoxOption {
 		}
 
 		p.client = client
+		p.customClient = true
 		return nil
 	}
 }
 
 func WithKnoxInsecureSkipVerify(enabled bool) KnoxOption {
 	return func(p *KnoxProvider) error {
-		if !enabled {
+		p.insecureSkipVerify = enabled
+		return p.rebuildHTTPClient()
+	}
+}
+
+func WithKnoxClientCertificateFiles(certFile, keyFile string) KnoxOption {
+	return func(p *KnoxProvider) error {
+		certFile = strings.TrimSpace(certFile)
+		keyFile = strings.TrimSpace(keyFile)
+		if certFile == "" && keyFile == "" {
 			return nil
 		}
-
-		p.client = &http.Client{
-			Timeout: DefaultKnoxTimeout,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // Explicit local-dev compatibility option.
-			},
+		if certFile == "" || keyFile == "" {
+			return fmt.Errorf("secrets: knox client cert and key files must be configured together")
 		}
-		return nil
+
+		p.clientCertFile = certFile
+		p.clientKeyFile = keyFile
+		return p.rebuildHTTPClient()
 	}
 }
 
@@ -144,6 +157,36 @@ func NewKnoxProvider(rawBaseURL string, opts ...KnoxOption) (*KnoxProvider, erro
 	}
 
 	return p, nil
+}
+
+func (p *KnoxProvider) rebuildHTTPClient() error {
+	if p.customClient {
+		return nil
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	tlsConfig := &tls.Config{} //nolint:gosec // Options below are explicitly configured by callers.
+	if p.insecureSkipVerify {
+		tlsConfig.InsecureSkipVerify = true
+	}
+
+	if p.clientCertFile != "" || p.clientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(p.clientCertFile, p.clientKeyFile)
+		if err != nil {
+			return fmt.Errorf("secrets: load knox client certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	if p.insecureSkipVerify || len(tlsConfig.Certificates) > 0 {
+		transport.TLSClientConfig = tlsConfig
+	}
+
+	p.client = &http.Client{
+		Timeout:   DefaultKnoxTimeout,
+		Transport: transport,
+	}
+	return nil
 }
 
 func (*KnoxProvider) ProviderKind() string { return KnoxScheme }

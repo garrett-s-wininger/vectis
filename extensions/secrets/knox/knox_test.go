@@ -312,6 +312,15 @@ func TestKnoxProviderLoadsAuthTokenFile(t *testing.T) {
 	}
 }
 
+func TestKnoxProviderRequiresClientCertificatePair(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewKnoxProvider("https://knox.example", WithKnoxAuthToken("0t-token"), WithKnoxClientCertificateFiles("/tmp/client.crt", ""))
+	if err == nil || !strings.Contains(err.Error(), "client cert and key files") {
+		t.Fatalf("NewKnoxProvider error = %v, want client cert/key pair error", err)
+	}
+}
+
 func TestKnoxProviderPreservesBaseURLPath(t *testing.T) {
 	t.Parallel()
 

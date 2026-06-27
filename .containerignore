@@ -29,6 +29,12 @@ deploy/linux/*
 !deploy/linux/artifacts.go
 !deploy/linux/vm_smoke.go
 !deploy/linux/services.toml
+!deploy/knox/
+deploy/knox/*
+!deploy/knox/smoke-server/
+deploy/knox/smoke-server/*
+!deploy/knox/smoke-server/Dockerfile
+!deploy/knox/smoke-server/main.go.tmpl
 docs/
 LICENSE
 states/
