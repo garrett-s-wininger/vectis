@@ -410,9 +410,9 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit docs-publish" }));
 
-    expect(await screen.findByRole("heading", { name: "Configure" })).toBeInTheDocument();
-    expect(screen.getByText("Review the saved definition, state, and trigger policy.")).toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: "Job Definition" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Configure Job" })).toBeInTheDocument();
+    expect(screen.getByText("Update editable settings, trigger policy, and definition JSON.")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Definition" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/jobs/job-docs-publish/config");
     expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/jobs/job-docs-publish");
 
@@ -510,7 +510,7 @@ describe("App", () => {
       target: { value: "Hourly" }
     });
 
-    fireEvent.change(screen.getByLabelText("JSON"), {
+    fireEvent.change(screen.getByLabelText("Payload"), {
       target: {
         value: JSON.stringify({
           id: "cache-warmup",
@@ -527,15 +527,12 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "View cache-warmup" }));
     expect(await screen.findByRole("heading", { name: "cache-warmup" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit cache-warmup" }));
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "cache-prime" }
-    });
     fireEvent.click(screen.getByLabelText("State"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect((await screen.findAllByText("cache-prime")).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Trigger cache-prime" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete cache-prime" })).not.toBeInTheDocument();
+    expect((await screen.findAllByText("cache-warmup")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Paused")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run cache-warmup" })).not.toBeInTheDocument();
   });
 
   it("opens job creation through browser navigation and backs out", async () => {
@@ -547,7 +544,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByRole("region", { name: "Job Definition" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Definition" })).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(window.location.pathname).toBe("/jobs/create");
 
@@ -556,7 +553,7 @@ describe("App", () => {
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/jobs"));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Job Definition" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Definition" })).not.toBeInTheDocument());
   });
 
   it("scopes jobs by selected namespace", async () => {

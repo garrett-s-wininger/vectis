@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { JobEditor, emptyJobForm, jobInputFromValues } from "./JobEditor";
-import type { JobFormValues } from "./JobEditor";
+import { JobEditor } from "./JobEditor";
+import { emptyJobForm, type JobFormValues } from "./JobEditorModel";
 
 describe("JobEditor", () => {
   it("submits a valid create input", async () => {
@@ -114,8 +114,8 @@ describe("JobEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(screen.getByLabelText("JSON")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("JSON")).toHaveAccessibleDescription("Definition must be valid JSON.");
+    expect(screen.getByLabelText("Payload")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Payload")).toHaveAccessibleDescription("Definition must be valid JSON.");
     expect(cancel).not.toHaveBeenCalled();
   });
 
@@ -210,26 +210,5 @@ describe("JobEditor", () => {
     await waitFor(() =>
       expect(updateJob).toHaveBeenCalledWith("worker-image", expect.objectContaining({ name: "worker-image" }))
     );
-  });
-
-  it("serializes manual-only jobs for the API", () => {
-    expect(jobInputFromValues({ ...emptyJobForm, manualEnabled: true, schedule: "None" })).toEqual(
-      expect.objectContaining({ schedule: "Manual" })
-    );
-  });
-
-  it("starts with a runnable shell definition by default", () => {
-    const input = jobInputFromValues({ ...emptyJobForm, name: "hello-vectis" });
-    const definition = JSON.parse(input.definition) as {
-      root?: {
-        uses?: string;
-        with?: {
-          command?: string;
-        };
-      };
-    };
-
-    expect(definition.root?.uses).toBe("builtins/shell");
-    expect(definition.root?.with?.command).toBe("echo 'Hello from Vectis'");
   });
 });

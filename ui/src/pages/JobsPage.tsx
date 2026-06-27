@@ -6,7 +6,7 @@ import { PageHeader } from "../components";
 import type { RunListItem } from "../components";
 import type { Job, Namespace, NewJob, UpdateJob } from "../domain/console";
 import { JobDetailPage } from "./jobs/JobDetailPage";
-import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEditor";
+import { emptyJobForm, type JobEditorMode, valuesFromJob } from "./jobs/JobEditorModel";
 import { JobList } from "./jobs/JobList";
 import { jobEditorBreadcrumbItems, jobsIndexBreadcrumbItems } from "./jobs/JobBreadcrumbs";
 import { getLatestRunForJob, getRunsForJob } from "./jobs/JobPresentation";
@@ -62,12 +62,12 @@ export function JobsPage({
   const editorInitialValues = editorJob ? valuesFromJob(editorJob) : emptyJobForm;
   const editorKey = editorMode?.kind === "edit" ? `edit:${editorMode.jobID}` : (editorMode?.kind ?? "");
   const editorNamespacePath = editorJob?.namespacePath ?? namespacePath;
-  const editorJobName = editorJob?.name ?? "Create";
-  const pageTitle = editorMode ? (editorMode.kind === "edit" ? "Configure" : "New Job") : "Jobs";
+  const editorJobName = editorJob?.name ?? (editorMode?.kind === "edit" ? editorMode.jobID : "Create");
+  const pageTitle = editorMode ? (editorMode.kind === "edit" ? "Configure Job" : "Create Job") : "Jobs";
   const pageDescription = editorMode
     ? editorMode.kind === "edit"
-      ? "Review the saved definition, state, and trigger policy."
-      : "Create a saved job definition and choose how it can be triggered."
+      ? "Update editable settings, trigger policy, and definition JSON."
+      : "Create a saved definition and choose how it can be triggered."
     : "Stored definitions and triggers.";
 
   function startEditJob(job: Job) {
@@ -173,9 +173,7 @@ export function JobsPage({
           />
         </EmptyStateRail>
       ) : null}
-      {!editorMode && jobs.length > 0 ? (
-        <JobList jobs={jobs} onOpen={onOpenJob} runs={runs} />
-      ) : null}
+      {!editorMode && jobs.length > 0 ? <JobList jobs={jobs} onOpen={onOpenJob} runs={runs} /> : null}
     </>
   );
 }

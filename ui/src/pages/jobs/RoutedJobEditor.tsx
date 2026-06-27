@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { NewJob, UpdateJob } from "../../domain/console";
-import { JobEditor, type JobEditorMode, type JobFormValues } from "./JobEditor";
+import { JobEditor } from "./JobEditor";
+import type { JobEditorMode, JobFormValues } from "./JobEditorModel";
 
 type RoutedJobEditorProps = {
   initialValues: JobFormValues;

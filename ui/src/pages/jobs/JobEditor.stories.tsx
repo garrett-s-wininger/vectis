@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { PageStoryFrame } from "../../mocks/pageHarnesses";
-import { emptyJobForm, JobEditor, type JobEditorMode, type JobFormValues } from "./JobEditor";
+import { JobEditor } from "./JobEditor";
+import { emptyJobForm, type JobEditorMode, type JobFormValues } from "./JobEditorModel";
 
 function JobEditorStory({ mode }: { mode: JobEditorMode }) {
   const [error, setError] = useState("");

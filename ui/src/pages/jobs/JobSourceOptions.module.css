@@ -1,7 +1,7 @@
 .sourceChoices {
   display: grid;
   gap: var(--space-sm);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
 }
 
 .sourceChoice {
@@ -17,9 +17,7 @@
 }
 
 .sourceChoiceSelected {
-  background:
-    linear-gradient(90deg, rgb(30 116 139 / 9%), transparent 58%),
-    var(--surface-panel);
+  background: linear-gradient(90deg, rgb(30 116 139 / 9%), transparent 58%), var(--surface-panel);
   border-color: var(--status-info-border);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 72%),
@@ -40,6 +38,10 @@
   color: var(--text-subtle);
 }
 
+.sourceChoice > div {
+  min-width: 0;
+}
+
 .sourceChoice strong {
   color: var(--text-primary);
   display: block;
@@ -52,6 +54,7 @@
   font-size: var(--font-size-sm);
   line-height: var(--line-height-body);
   margin-top: var(--space-xs);
+  overflow-wrap: break-word;
 }
 
 .sourceChoice span {
@@ -60,10 +63,4 @@
   font-weight: var(--font-weight-strong);
   justify-self: end;
   text-transform: uppercase;
-}
-
-@media (max-width: 700px) {
-  .sourceChoices {
-    grid-template-columns: 1fr;
-  }
 }

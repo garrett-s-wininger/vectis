@@ -2,7 +2,7 @@
   align-items: start;
   display: grid;
   gap: var(--space-lg);
-  grid-template-columns: minmax(176px, 0.72fr) minmax(0, 1.28fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
 }
 
 .triggerGroup {
@@ -49,13 +49,12 @@
   align-items: start;
   display: grid;
   gap: var(--space-lg);
-  grid-template-columns: minmax(152px, 0.7fr) minmax(220px, 1.3fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   min-width: 0;
 }
 
 @media (max-width: 700px) {
-  .scheduleFields,
-  .triggerConfigurator {
+  .scheduleFields {
     grid-template-columns: 1fr;
   }
 }

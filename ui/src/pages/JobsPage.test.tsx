@@ -77,7 +77,7 @@ describe("JobsPage", () => {
     fireEvent.click(screen.getByLabelText("Manual"));
     fireEvent.change(screen.getByLabelText("Cadence"), { target: { value: "Custom" } });
     fireEvent.change(screen.getByLabelText("Cron Spec"), { target: { value: "*/15 * * * *" } });
-    fireEvent.change(screen.getByLabelText("JSON"), {
+    fireEvent.change(screen.getByLabelText("Payload"), {
       target: {
         value: JSON.stringify({
           id: "worker-image",
@@ -328,5 +328,30 @@ describe("JobsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
     expect(closeEditor).toHaveBeenCalled();
+  });
+
+  it("uses the routed job id in configure breadcrumbs while job data loads", () => {
+    render(
+      <JobsPage
+        editorMode={{ kind: "edit", jobID: "pending-job" }}
+        jobs={[]}
+        namespaces={namespaces}
+        namespacePath="/"
+        onCloseEditor={() => undefined}
+        onCreateJob={() => undefined}
+        onOpenCreate={() => undefined}
+        onOpenEditor={() => undefined}
+        onOpenJob={() => undefined}
+        onOpenJobRuns={() => undefined}
+        onSelectNamespace={() => undefined}
+        onSelectRun={() => undefined}
+        onTriggerRun={() => undefined}
+        onUpdateJob={() => undefined}
+        runs={[]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "pending-job" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create" })).not.toBeInTheDocument();
   });
 });

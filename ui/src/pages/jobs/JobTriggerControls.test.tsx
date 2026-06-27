@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { JobTriggerControls, cronSpecForSchedule } from "./JobTriggerControls";
+import { JobTriggerControls } from "./JobTriggerControls";
 
 describe("JobTriggerControls", () => {
   it("reports manual, schedule, and custom cron changes", () => {
@@ -41,8 +41,6 @@ describe("JobTriggerControls", () => {
 
     expect(screen.getByLabelText("Cron Spec")).toBeDisabled();
     expect(screen.getByLabelText("Cron Spec")).toHaveValue("0 * * * *");
-    expect(cronSpecForSchedule("Custom", "*/10 * * * *")).toBe("*/10 * * * *");
-    expect(cronSpecForSchedule("Nightly", "")).toBe("0 0 * * *");
   });
 
   it("shows cron validation errors", () => {

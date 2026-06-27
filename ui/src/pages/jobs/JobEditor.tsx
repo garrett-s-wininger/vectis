@@ -1,27 +1,14 @@
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Button, FormError, FormField, TextAreaField, ToggleField } from "../../components";
-import type { Job, JobStatus, NewJob, UpdateJob } from "../../domain/console";
-import { defaultJobDefinition } from "../../domain/consoleOptions";
+import type { NewJob, UpdateJob } from "../../domain/console";
 import { cronSpec, jsonObject, required } from "../../validation/FormValidation";
 import { ResourceTitle } from "../shared";
+import { jobInputFromValues, type JobEditorMode, type JobFormValues } from "./JobEditorModel";
 import { JobSourceOptions } from "./JobSourceOptions";
-import { cronSpecFromSchedule, scheduleMode, schedulePresetSpec, JobTriggerControls } from "./JobTriggerControls";
+import { schedulePresetSpec } from "./JobSchedule";
+import { JobTriggerControls } from "./JobTriggerControls";
 import styles from "./JobEditor.module.css";
-
-export type JobEditorMode = { kind: "create" } | { kind: "edit"; jobID: string };
-
-export type JobFormValues = {
-  branch: string;
-  cronSpec: string;
-  description: string;
-  definition: string;
-  manualEnabled: boolean;
-  name: string;
-  repository: string;
-  schedule: string;
-  status: JobStatus;
-};
 
 type JobEditorProps = {
   error: string;
@@ -37,45 +24,13 @@ type JobEditorProps = {
 
 type JobEditorFieldErrors = Partial<Record<"cronSpec" | "definition" | "name", string>>;
 
-export const emptyJobForm: JobFormValues = {
-  branch: "main",
-  cronSpec: "",
-  description: "",
-  definition: defaultJobDefinition,
-  manualEnabled: true,
-  name: "",
-  repository: "",
-  schedule: "None",
-  status: "enabled"
+type EditorSectionProps = {
+  children: ReactNode;
+  description: string;
+  fullWidth?: boolean;
+  title: string;
+  titleID: string;
 };
-
-export function valuesFromJob(job: Job): JobFormValues {
-  return {
-    branch: job.branch,
-    description: job.description ?? "",
-    definition: job.definition ?? defaultJobDefinition,
-    cronSpec: cronSpecFromSchedule(job.schedule),
-    manualEnabled: job.triggers.some((trigger) => trigger.kind === "manual"),
-    name: job.name,
-    repository: job.repository,
-    schedule: job.schedule === "Manual" ? "None" : scheduleMode(job.schedule),
-    status: job.status
-  };
-}
-
-export function jobInputFromValues(values: JobFormValues) {
-  const schedule = values.schedule === "Custom" ? `Cron: ${values.cronSpec}` : values.schedule;
-  return {
-    branch: values.branch,
-    description: values.description.trim() || undefined,
-    definition: values.definition,
-    manualEnabled: values.manualEnabled,
-    name: values.name,
-    repository: values.repository,
-    schedule: schedule === "None" && values.manualEnabled ? "Manual" : schedule,
-    status: values.status
-  };
-}
 
 export function JobEditor({
   error,
@@ -91,6 +46,8 @@ export function JobEditor({
   const [fieldErrors, setFieldErrors] = useState<JobEditorFieldErrors>({});
   const [cronSpecEdited, setCronSpecEdited] = useState(false);
   const isConfigureMode = mode.kind === "edit";
+  const editorTitle = "Definition";
+  const editorSubtitle = "Basics, source, triggers, and JSON payload.";
 
   function setValues(nextValues: JobFormValues) {
     onValuesChange(nextValues);
@@ -158,23 +115,23 @@ export function JobEditor({
     <section className={`${styles.editorPanel} resource-editor-panel`} aria-labelledby="job-editor-title">
       <div className={styles.editorHeader}>
         <ResourceTitle
+          className={styles.editorTitle}
           id="job-editor-title"
-          subtitle={
-            isConfigureMode
-              ? "Adjust editable fields for this saved job."
-              : "Set the identity, source, triggers, and definition."
-          }
-          title="Job Definition"
+          subtitle={editorSubtitle}
+          title={editorTitle}
         />
-        <Button onClick={onCancel}>Cancel</Button>
+        <Button className={styles.editorHeaderAction} onClick={onCancel} variant="quiet">
+          Cancel
+        </Button>
       </div>
       <form className={`${styles.editorForm} resource-editor-form`} onSubmit={submitJob}>
         <div className={styles.editorLayout}>
-          <section className={styles.editorSection} aria-labelledby="job-basics-title">
-            <div className={styles.sectionIntro}>
-              <h3 id="job-basics-title">Identity</h3>
-              <p>Name the saved definition and decide whether it can accept new runs.</p>
-            </div>
+          <EditorSection
+            description="Display details and whether new runs can be submitted."
+            fullWidth
+            title="Basics"
+            titleID="job-basics-title"
+          >
             <div className={styles.fieldGrid}>
               <FormField
                 disabled={isConfigureMode}
@@ -212,19 +169,19 @@ export function JobEditor({
                 onText="Enabled"
               />
             </div>
-          </section>
-          <section className={styles.editorSection} aria-labelledby="job-source-title">
-            <div className={styles.sectionIntro}>
-              <h3 id="job-source-title">Source</h3>
-              <p>Choose where Vectis should treat the job definition as authoritative.</p>
-            </div>
+          </EditorSection>
+          <EditorSection
+            description="Choose where Vectis treats this as authoritative."
+            title="Source"
+            titleID="job-source-title"
+          >
             <JobSourceOptions />
-          </section>
-          <section className={styles.editorSection} aria-labelledby="job-triggers-title">
-            <div className={styles.sectionIntro}>
-              <h3 id="job-triggers-title">Triggers</h3>
-              <p>Allow manual starts, scheduled starts, or both.</p>
-            </div>
+          </EditorSection>
+          <EditorSection
+            description="Allow manual starts, scheduled starts, or both."
+            title="Triggers"
+            titleID="job-triggers-title"
+          >
             <JobTriggerControls
               cronSpec={values.cronSpec}
               cronSpecError={fieldErrors.cronSpec}
@@ -246,16 +203,17 @@ export function JobEditor({
               }}
               schedule={values.schedule}
             />
-          </section>
-          <section className={styles.editorSection} aria-labelledby="job-definition-title">
-            <div className={styles.sectionIntro}>
-              <h3 id="job-definition-title">Definition</h3>
-              <p>Edit the JSON payload Vectis stores and submits when this job runs.</p>
-            </div>
+          </EditorSection>
+          <EditorSection
+            description="Payload Vectis stores and submits when this job starts."
+            fullWidth
+            title="JSON"
+            titleID="job-definition-title"
+          >
             <TextAreaField
               code
               error={fieldErrors.definition}
-              label="JSON"
+              label="Payload"
               name="jobDefinition"
               onChange={(event) => {
                 clearFieldError("definition");
@@ -266,14 +224,30 @@ export function JobEditor({
               value={values.definition}
               wide
             />
-          </section>
+          </EditorSection>
         </div>
         <FormError message={error} />
         <div className="resource-editor-form__actions">
           <Button type="submit">{mode.kind === "create" ? "Create" : "Save"}</Button>
-          <Button onClick={onCancel}>Cancel</Button>
+          <Button onClick={onCancel} variant="quiet">
+            Cancel
+          </Button>
         </div>
       </form>
+    </section>
+  );
+}
+
+function EditorSection({ children, description, fullWidth, title, titleID }: EditorSectionProps) {
+  const sectionClassName = fullWidth ? `${styles.editorSection} ${styles.fullWidthSection}` : styles.editorSection;
+
+  return (
+    <section className={sectionClassName} aria-labelledby={titleID}>
+      <div className={styles.sectionIntro}>
+        <h3 id={titleID}>{title}</h3>
+        <p>{description}</p>
+      </div>
+      {children}
     </section>
   );
 }

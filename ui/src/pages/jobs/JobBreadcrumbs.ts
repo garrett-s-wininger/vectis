@@ -1,5 +1,5 @@
 import type { BreadcrumbItem } from "../../components";
-import type { JobEditorMode } from "./JobEditor";
+import type { JobEditorMode } from "./JobEditorModel";
 
 export function jobsIndexBreadcrumbItems(namespacePath: string): BreadcrumbItem[] {
   return [{ label: formatNamespaceCrumb(namespacePath) }, { label: "Jobs", current: true }];

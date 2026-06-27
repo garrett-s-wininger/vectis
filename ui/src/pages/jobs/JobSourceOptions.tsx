@@ -2,22 +2,20 @@ import styles from "./JobSourceOptions.module.css";
 
 const sourceOptions = [
   {
-    description:
-      "Store the job definition in Vectis. Best for local workflows, quick jobs, and definitions managed through the API.",
+    description: "Store JSON directly in Vectis for quick jobs and API-managed workflows.",
     label: "Inline",
-    status: "Available"
+    status: "Selected"
   },
   {
-    description:
-      "Use a repository path as the source of truth. Vectis will read definitions from the configured repo browser once enabled.",
+    description: "Point to a reviewed repo path once the repo browser is configured.",
     label: "Source Control",
-    status: "Coming soon"
+    status: "Planned"
   }
 ];
 
 export function JobSourceOptions() {
   return (
-    <div className={styles.sourceChoices} role="list" aria-label="Definition source options">
+    <div className={styles.sourceChoices} role="list" aria-label="Source options">
       {sourceOptions.map((option, index) => (
         <div
           aria-disabled={index === 0 ? undefined : true}

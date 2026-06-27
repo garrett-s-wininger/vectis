@@ -1,5 +1,6 @@
 import { FormField, SelectField, ToggleField } from "../../components";
 import { jobScheduleOptions } from "../../domain/consoleOptions";
+import { cronSpecForSchedule } from "./JobSchedule";
 import styles from "./JobTriggerControls.module.css";
 
 type JobTriggerControlsProps = {
@@ -11,31 +12,6 @@ type JobTriggerControlsProps = {
   onScheduleChange: (schedule: string) => void;
   schedule: string;
 };
-
-const schedulePresetSpecs: Record<string, string> = {
-  Hourly: "0 * * * *",
-  Nightly: "0 0 * * *"
-};
-
-export function cronSpecFromSchedule(schedule: string) {
-  if (!schedule.startsWith("Cron:")) {
-    return schedulePresetSpecs[schedule] ?? "";
-  }
-
-  return schedule.replace(/^Cron:\s*/, "").trim() || "0 0 * * *";
-}
-
-export function cronSpecForSchedule(schedule: string, cronSpec: string) {
-  return schedule === "Custom" ? cronSpec : schedulePresetSpecs[schedule] ?? "";
-}
-
-export function scheduleMode(schedule: string) {
-  return schedule.startsWith("Cron:") ? "Custom" : schedule;
-}
-
-export function schedulePresetSpec(schedule: string) {
-  return schedulePresetSpecs[schedule];
-}
 
 export function JobTriggerControls({
   cronSpec,
@@ -66,7 +42,7 @@ export function JobTriggerControls({
       <div className={`${styles.triggerGroup} ${styles.scheduleGroup}`}>
         <div className={styles.triggerIntro}>
           <h4>Schedule</h4>
-          <p>Periodically run this job from a preset or custom cron schedule.</p>
+          <p>Periodically start this job from a preset or custom cron expression.</p>
         </div>
         <div className={styles.scheduleFields}>
           <SelectField
