@@ -29,7 +29,7 @@ func TestProviderAuthenticate(t *testing.T) {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
-	if identity.Provider != providerName ||
+	if identity.Provider != DefaultProviderID ||
 		identity.Subject != "uid=alice,ou=people,dc=example,dc=org" ||
 		identity.Username != "alice" ||
 		identity.DisplayName != "Alice Example" {
@@ -115,6 +115,7 @@ func TestNewProviderValidation(t *testing.T) {
 	}{
 		{name: "url", opts: ProviderOptions{BaseDN: "dc=example,dc=org"}},
 		{name: "base", opts: ProviderOptions{URL: "ldap://ldap.example.org"}},
+		{name: "provider id", opts: ProviderOptions{ProviderID: "corp ldap", URL: "ldap://ldap.example.org", BaseDN: "dc=example,dc=org"}},
 		{name: "filter placeholder", opts: ProviderOptions{URL: "ldap://ldap.example.org", BaseDN: "dc=example,dc=org", UserFilter: "(uid=*)"}},
 		{name: "bind password without dn", opts: ProviderOptions{URL: "ldap://ldap.example.org", BaseDN: "dc=example,dc=org", BindPassword: "secret"}},
 	} {

@@ -19,6 +19,7 @@ func TestConfigBindAndLoadFromViper(t *testing.T) {
 	}
 
 	if err := flags.Parse([]string{
+		"--ldap-provider-id", "corp-ldap",
 		"--ldap-url", "ldap://127.0.0.1:389",
 		"--ldap-bind-dn", "cn=svc,dc=example,dc=org",
 		"--ldap-bind-password", "secret",
@@ -38,7 +39,8 @@ func TestConfigBindAndLoadFromViper(t *testing.T) {
 		t.Fatal("config should be enabled")
 	}
 
-	if cfg.URL != "ldap://127.0.0.1:389" ||
+	if cfg.ProviderID != "corp-ldap" ||
+		cfg.URL != "ldap://127.0.0.1:389" ||
 		cfg.BindDN != "cn=svc,dc=example,dc=org" ||
 		cfg.BindPassword != "secret" ||
 		cfg.BaseDN != "ou=people,dc=example,dc=org" ||
@@ -78,6 +80,7 @@ func TestConfigReadsBindPasswordFile(t *testing.T) {
 }
 
 func TestConfigBindsEnv(t *testing.T) {
+	t.Setenv(EnvProviderID, "env-ldap")
 	t.Setenv(EnvURL, "ldap://ldap.env:389")
 	t.Setenv(EnvBaseDN, "dc=env,dc=example")
 	t.Setenv(EnvAutoCreateUsers, "true")
@@ -90,7 +93,7 @@ func TestConfigBindsEnv(t *testing.T) {
 	}
 
 	cfg := ConfigFromViper(v)
-	if cfg.URL != "ldap://ldap.env:389" || cfg.BaseDN != "dc=env,dc=example" || !cfg.AutoCreateUsers {
+	if cfg.ProviderID != "env-ldap" || cfg.URL != "ldap://ldap.env:389" || cfg.BaseDN != "dc=env,dc=example" || !cfg.AutoCreateUsers {
 		t.Fatalf("unexpected env config: %+v", cfg)
 	}
 }

@@ -60,6 +60,8 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "retention_holds")
 	assertTableExists(t, db, "source_repositories")
 	assertTableExists(t, db, "job_definition_sources")
+	assertTableExists(t, db, "auth_providers")
+	assertTableExists(t, db, "external_identities")
 	assertColumnExists(t, db, "job_runs", "namespace_path")
 	for _, column := range []string{
 		"checkout_mode",
@@ -114,6 +116,8 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableMissing(t, db, "retention_holds")
 	assertTableMissing(t, db, "source_repositories")
 	assertTableMissing(t, db, "job_definition_sources")
+	assertTableMissing(t, db, "auth_providers")
+	assertTableMissing(t, db, "external_identities")
 }
 
 func assertNamespaceExists(t *testing.T, db *sql.DB, path string) {

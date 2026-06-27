@@ -8,15 +8,21 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	goldap "github.com/go-ldap/ldap/v3"
 
 	sdkauth "vectis/sdk/auth"
 )
 
-const providerName = "ldap"
+const (
+	ProviderKind      = "ldap"
+	DefaultProviderID = ProviderKind
+	maxProviderIDLen  = 128
+)
 
 type ProviderOptions struct {
+	ProviderID           string
 	URL                  string
 	BindDN               string
 	BindPassword         string
@@ -31,6 +37,7 @@ type ProviderOptions struct {
 }
 
 type Provider struct {
+	providerID           string
 	url                  string
 	bindDN               string
 	bindPassword         string
@@ -52,6 +59,15 @@ type conn interface {
 }
 
 func NewProvider(opts ProviderOptions) (*Provider, error) {
+	providerID := strings.TrimSpace(opts.ProviderID)
+	if providerID == "" {
+		providerID = DefaultProviderID
+	}
+
+	if !validProviderID(providerID) {
+		return nil, fmt.Errorf("ldap provider id is invalid")
+	}
+
 	rawURL := strings.TrimSpace(opts.URL)
 	if rawURL == "" {
 		return nil, fmt.Errorf("ldap url is required")
@@ -91,6 +107,7 @@ func NewProvider(opts ProviderOptions) (*Provider, error) {
 	}
 
 	p := &Provider{
+		providerID:           providerID,
 		url:                  rawURL,
 		bindDN:               strings.TrimSpace(opts.BindDN),
 		bindPassword:         opts.BindPassword,
@@ -114,6 +131,10 @@ func NewProvider(opts ProviderOptions) (*Provider, error) {
 
 	return p, nil
 }
+
+func (p *Provider) ProviderID() string { return p.providerID }
+
+func (p *Provider) ProviderKind() string { return ProviderKind }
 
 func (p *Provider) Authenticate(ctx context.Context, username, password string) (sdkauth.Identity, error) {
 	if ctx == nil {
@@ -165,7 +186,7 @@ func (p *Provider) Authenticate(ctx context.Context, username, password string) 
 	}
 
 	return sdkauth.Identity{
-		Provider:    providerName,
+		Provider:    p.providerID,
 		Subject:     entry.DN,
 		Username:    mappedUsername,
 		DisplayName: strings.TrimSpace(entry.GetAttributeValue(p.displayNameAttribute)),
@@ -246,4 +267,11 @@ func ldapServerName(rawURL string) string {
 	}
 
 	return host
+}
+
+func validProviderID(providerID string) bool {
+	return len(providerID) > 0 &&
+		len(providerID) <= maxProviderIDLen &&
+		utf8.ValidString(providerID) &&
+		!strings.ContainsAny(providerID, "\x00\r\n\t ")
 }

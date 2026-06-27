@@ -59,6 +59,18 @@ func (m *mockAuthRepo) CreateAPIToken(_ context.Context, _ int64, _, _ string, _
 func (m *mockAuthRepo) DeleteAPIToken(_ context.Context, _ int64) error               { return nil }
 func (m *mockAuthRepo) GetAPITokenOwner(_ context.Context, _ int64) (int64, error)    { return 0, nil }
 func (m *mockAuthRepo) CreateLocalUser(_ context.Context, _, _ string) (int64, error) { return 0, nil }
+func (m *mockAuthRepo) EnsureAuthProvider(_ context.Context, _, _ string) (*dal.AuthProviderRecord, error) {
+	return nil, nil
+}
+func (m *mockAuthRepo) GetExternalIdentity(_ context.Context, _, _ string) (*dal.ExternalIdentityRecord, error) {
+	return nil, nil
+}
+func (m *mockAuthRepo) LinkExternalIdentity(_ context.Context, _ int64, _, _, _, _ string) (*dal.ExternalIdentityRecord, error) {
+	return nil, nil
+}
+func (m *mockAuthRepo) TouchExternalIdentity(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
 func (m *mockAuthRepo) ListLocalUsers(_ context.Context) ([]*dal.LocalUserRecord, error) {
 	return []*dal.LocalUserRecord{}, nil
 }

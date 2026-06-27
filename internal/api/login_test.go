@@ -308,7 +308,7 @@ func TestLogin_externalProvider(t *testing.T) {
 			Username: "alice",
 		}}
 
-		s.SetLoginProviders([]sdkauth.LoginProvider{provider})
+		setFakeExternalLoginProvider(s, "ldap", provider)
 		s.SetExternalLoginAutoProvision(true)
 
 		out := postLoginForTest(t, h, map[string]any{
@@ -328,6 +328,18 @@ func TestLogin_externalProvider(t *testing.T) {
 
 		if count != 1 {
 			t.Fatalf("alice user count = %d, want 1", count)
+		}
+
+		var linkCount int
+		if err := db.QueryRow(`SELECT COUNT(*)
+FROM external_identities ei
+JOIN auth_providers ap ON ap.id = ei.auth_provider_id
+WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=alice,ou=people,dc=example,dc=org'`).Scan(&linkCount); err != nil {
+			t.Fatalf("count alice external identity: %v", err)
+		}
+
+		if linkCount != 1 {
+			t.Fatalf("alice external identity count = %d, want 1", linkCount)
 		}
 	})
 
@@ -354,7 +366,7 @@ func TestLogin_externalProvider(t *testing.T) {
 			Username: "dana",
 		}}
 
-		s.SetLoginProviders([]sdkauth.LoginProvider{provider})
+		setFakeExternalLoginProvider(s, "ldap", provider)
 		out := postLoginForTest(t, h, map[string]any{
 			"username": "dana",
 			"password": "ldap-secret",
@@ -362,6 +374,18 @@ func TestLogin_externalProvider(t *testing.T) {
 
 		if out.UserID != localUserID {
 			t.Fatalf("UserID = %d, want %d", out.UserID, localUserID)
+		}
+
+		var linkedUserID int64
+		if err := db.QueryRow(`SELECT ei.local_user_id
+FROM external_identities ei
+JOIN auth_providers ap ON ap.id = ei.auth_provider_id
+WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc=org'`).Scan(&linkedUserID); err != nil {
+			t.Fatalf("lookup dana external identity: %v", err)
+		}
+
+		if linkedUserID != localUserID {
+			t.Fatalf("external identity local_user_id = %d, want %d", linkedUserID, localUserID)
 		}
 	})
 
@@ -378,9 +402,120 @@ func TestLogin_externalProvider(t *testing.T) {
 			Username: "bob",
 		}}
 
-		s.SetLoginProviders([]sdkauth.LoginProvider{provider})
+		setFakeExternalLoginProvider(s, "ldap", provider)
 		postLoginForTest(t, h, map[string]any{
 			"username": "bob",
+			"password": "ldap-secret",
+		}, http.StatusUnauthorized)
+	})
+
+	t.Run("reuses_subject_link_when_claimed_username_changes", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=alice,ou=people,dc=example,dc=org",
+			Username: "alice",
+		}}
+
+		setFakeExternalLoginProvider(s, "ldap", provider)
+		s.SetExternalLoginAutoProvision(true)
+
+		first := postLoginForTest(t, h, map[string]any{
+			"username": "alice",
+			"password": "ldap-secret",
+		}, http.StatusOK)
+
+		provider.identity.Username = "alice-renamed"
+		second := postLoginForTest(t, h, map[string]any{
+			"username": "alice-renamed",
+			"password": "ldap-secret",
+		}, http.StatusOK)
+
+		if second.UserID != first.UserID {
+			t.Fatalf("renamed subject UserID = %d, want %d", second.UserID, first.UserID)
+		}
+
+		var renamedUsers int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM local_users WHERE username = 'alice-renamed'`).Scan(&renamedUsers); err != nil {
+			t.Fatalf("count renamed users: %v", err)
+		}
+
+		if renamedUsers != 0 {
+			t.Fatalf("renamed local user count = %d, want 0", renamedUsers)
+		}
+	})
+
+	t.Run("rejects_second_subject_for_same_provider_and_local_user", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		localUserID, err := s.authRepo.CreateLocalUser(context.Background(), "alice", string(passHash))
+		if err != nil {
+			t.Fatalf("CreateLocalUser: %v", err)
+		}
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=alice,ou=people,dc=example,dc=org",
+			Username: "alice",
+		}}
+
+		setFakeExternalLoginProvider(s, "ldap", provider)
+		postLoginForTest(t, h, map[string]any{
+			"username": "alice",
+			"password": "ldap-secret",
+		}, http.StatusOK)
+
+		provider.identity.Subject = "uid=alice2,ou=people,dc=example,dc=org"
+		postLoginForTest(t, h, map[string]any{
+			"username": "alice",
+			"password": "ldap-secret",
+		}, http.StatusUnauthorized)
+
+		var linkCount int
+		if err := db.QueryRow(`SELECT COUNT(*)
+FROM external_identities ei
+JOIN auth_providers ap ON ap.id = ei.auth_provider_id
+WHERE ap.provider_id = 'ldap' AND ei.local_user_id = ?`, localUserID).Scan(&linkCount); err != nil {
+			t.Fatalf("count local user links: %v", err)
+		}
+
+		if linkCount != 1 {
+			t.Fatalf("local user provider link count = %d, want 1", linkCount)
+		}
+	})
+
+	t.Run("rejects_provider_id_mismatch", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "other-ldap",
+			Subject:  "uid=alice,ou=people,dc=example,dc=org",
+			Username: "alice",
+		}}
+
+		setFakeExternalLoginProvider(s, "corp-ldap", provider)
+		s.SetExternalLoginAutoProvision(true)
+
+		postLoginForTest(t, h, map[string]any{
+			"username": "alice",
 			"password": "ldap-secret",
 		}, http.StatusUnauthorized)
 	})
@@ -392,7 +527,7 @@ func TestLogin_externalProvider(t *testing.T) {
 		h := s.Handler()
 		completeLoginTestSetup(t, h)
 
-		s.SetLoginProviders([]sdkauth.LoginProvider{&fakeLoginProvider{err: sdkauth.ErrUnavailable}})
+		setFakeExternalLoginProvider(s, "ldap", &fakeLoginProvider{err: sdkauth.ErrUnavailable})
 
 		postLoginForTest(t, h, map[string]any{
 			"username": "erin",
@@ -408,11 +543,11 @@ func TestLogin_externalProvider(t *testing.T) {
 		completeLoginTestSetup(t, h)
 
 		s.authRepo = &conflictDisabledAuthRepo{AuthRepository: s.authRepo}
-		s.SetLoginProviders([]sdkauth.LoginProvider{&fakeLoginProvider{identity: sdkauth.Identity{
+		setFakeExternalLoginProvider(s, "ldap", &fakeLoginProvider{identity: sdkauth.Identity{
 			Provider: "ldap",
 			Subject:  "uid=casey,ou=people,dc=example,dc=org",
 			Username: "casey",
-		}}})
+		}})
 
 		s.SetExternalLoginAutoProvision(true)
 
@@ -1017,6 +1152,14 @@ func postLoginForTest(t *testing.T, h http.Handler, body map[string]any, wantSta
 type fakeLoginProvider struct {
 	identity sdkauth.Identity
 	err      error
+}
+
+func setFakeExternalLoginProvider(s *APIServer, providerID string, provider *fakeLoginProvider) {
+	s.SetLoginProviderRegistrations([]LoginProviderRegistration{{
+		ID:       providerID,
+		Kind:     "test",
+		Provider: provider,
+	}})
 }
 
 func (p *fakeLoginProvider) Authenticate(context.Context, string, string) (sdkauth.Identity, error) {

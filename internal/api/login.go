@@ -24,6 +24,11 @@ import (
 // Generated with: bcrypt.GenerateFromPassword([]byte("dummy"), bcrypt.DefaultCost)
 var dummyBcryptHash = "$2a$10$RgvvFjOSrsWHTjz69BrUGOXOjgsfHXpxy0wLzBRDoIYPRlpTl/Xly"
 
+const (
+	maxExternalProviderIDLen = 128
+	maxExternalSubjectLen    = 1024
+)
+
 type loginRequest struct {
 	Username    string `json:"username"`
 	Password    string `json:"password"`
@@ -213,7 +218,7 @@ func (s *APIServer) authenticateLogin(ctx context.Context, w http.ResponseWriter
 	}
 
 	s.mu.RLock()
-	providers := append([]sdkauth.LoginProvider(nil), s.loginProviders...)
+	providers := append([]registeredLoginProvider(nil), s.loginProviders...)
 	s.mu.RUnlock()
 
 	if len(providers) > 0 {
@@ -237,15 +242,38 @@ func (s *APIServer) authenticateLogin(ctx context.Context, w http.ResponseWriter
 	return loginPrincipal{}, false
 }
 
-func (s *APIServer) authenticateExternalLogin(ctx context.Context, w http.ResponseWriter, r *http.Request, req loginRequest, providers []sdkauth.LoginProvider) (loginPrincipal, bool, bool) {
-	for _, provider := range providers {
-		if provider == nil {
+func (s *APIServer) authenticateExternalLogin(ctx context.Context, w http.ResponseWriter, r *http.Request, req loginRequest, providers []registeredLoginProvider) (loginPrincipal, bool, bool) {
+	for _, registration := range providers {
+		if registration.provider == nil {
 			continue
 		}
 
-		identity, err := provider.Authenticate(ctx, req.Username, req.Password)
+		identity, err := registration.provider.Authenticate(ctx, req.Username, req.Password)
 		if err == nil {
-			principal, ok := s.localPrincipalForExternalIdentity(ctx, w, r, identity)
+			providerID := strings.TrimSpace(identity.Provider)
+			if providerID == "" {
+				providerID = registration.id
+				identity.Provider = providerID
+			}
+
+			if registration.id != "" && providerID != registration.id {
+				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+					"reason":              "external_provider_mismatch",
+					"registered_provider": registration.id,
+					"identity_provider":   providerID,
+					"subject":             identity.Subject,
+				})
+
+				writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+				return loginPrincipal{}, false, true
+			}
+
+			providerKind := registration.kind
+			if providerKind == "" {
+				providerKind = providerID
+			}
+
+			principal, ok := s.localPrincipalForExternalIdentity(ctx, w, r, identity, providerKind)
 			return principal, ok, true
 		}
 
@@ -271,16 +299,56 @@ func (s *APIServer) authenticateExternalLogin(ctx context.Context, w http.Respon
 	return loginPrincipal{}, false, false
 }
 
-func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w http.ResponseWriter, r *http.Request, identity sdkauth.Identity) (loginPrincipal, bool) {
+func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w http.ResponseWriter, r *http.Request, identity sdkauth.Identity, providerKind string) (loginPrincipal, bool) {
+	providerID := strings.TrimSpace(identity.Provider)
+	subject := strings.TrimSpace(identity.Subject)
 	username := strings.TrimSpace(identity.Username)
-	if !validExternalLoginUsername(username) {
+	displayName := strings.TrimSpace(identity.DisplayName)
+	if !validExternalProviderID(providerID) || !validExternalSubject(subject) || !validExternalLoginUsername(username) {
 		s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
 			"reason":   "invalid_external_identity",
-			"provider": identity.Provider,
-			"subject":  identity.Subject,
+			"provider": providerID,
+			"subject":  subject,
 		})
 
 		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+		return loginPrincipal{}, false
+	}
+
+	provider, err := s.authRepo.EnsureAuthProvider(ctx, providerID, providerKind)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return loginPrincipal{}, false
+		}
+
+		s.logger.Error("Database error ensuring external auth provider: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return loginPrincipal{}, false
+	}
+
+	if !provider.Enabled {
+		s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+			"reason":   "external_provider_disabled",
+			"provider": providerID,
+			"subject":  subject,
+		})
+
+		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+		return loginPrincipal{}, false
+	}
+
+	externalIdentity, err := s.authRepo.GetExternalIdentity(ctx, providerID, subject)
+	if err == nil {
+		return s.principalForLinkedExternalIdentity(ctx, w, r, externalIdentity, username, displayName)
+	}
+
+	if !dal.IsNotFound(err) {
+		if s.handleDBUnavailableError(w, err) {
+			return loginPrincipal{}, false
+		}
+
+		s.logger.Error("Database error looking up external identity: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return loginPrincipal{}, false
 	}
 
@@ -290,15 +358,15 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 			s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
 				"reason":   "user_disabled",
 				"username": username,
-				"provider": identity.Provider,
-				"subject":  identity.Subject,
+				"provider": providerID,
+				"subject":  subject,
 			})
 
 			writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 			return loginPrincipal{}, false
 		}
 
-		return loginPrincipal{LocalUserID: uid, Username: username, Method: externalLoginMethod(identity.Provider)}, true
+		return s.linkExternalIdentityToLocalUser(ctx, w, r, uid, username, providerID, subject, displayName)
 	}
 
 	if !dal.IsNotFound(err) {
@@ -319,8 +387,8 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 		s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
 			"reason":   "external_user_not_provisioned",
 			"username": username,
-			"provider": identity.Provider,
-			"subject":  identity.Subject,
+			"provider": providerID,
+			"subject":  subject,
 		})
 
 		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
@@ -348,14 +416,14 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 			uid, _, enabled, lookupErr = s.authRepo.GetLocalUserByUsername(ctx, username)
 			if lookupErr == nil {
 				if enabled {
-					return loginPrincipal{LocalUserID: uid, Username: username, Method: externalLoginMethod(identity.Provider)}, true
+					return s.linkExternalIdentityToLocalUser(ctx, w, r, uid, username, providerID, subject, displayName)
 				}
 
 				s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
 					"reason":   "user_disabled",
 					"username": username,
-					"provider": identity.Provider,
-					"subject":  identity.Subject,
+					"provider": providerID,
+					"subject":  subject,
 				})
 
 				writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
@@ -374,7 +442,75 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 		return loginPrincipal{}, false
 	}
 
-	return loginPrincipal{LocalUserID: uid, Username: username, Method: externalLoginMethod(identity.Provider)}, true
+	return s.linkExternalIdentityToLocalUser(ctx, w, r, uid, username, providerID, subject, displayName)
+}
+
+func (s *APIServer) principalForLinkedExternalIdentity(ctx context.Context, w http.ResponseWriter, r *http.Request, identity *dal.ExternalIdentityRecord, username, displayName string) (loginPrincipal, bool) {
+	if !identity.LocalUserEnabled {
+		s.auditLog(r.Context(), audit.EventAuthFailure, identity.LocalUserID, 0, map[string]any{
+			"reason":   "user_disabled",
+			"username": identity.LocalUsername,
+			"provider": identity.ProviderID,
+			"subject":  identity.Subject,
+		})
+
+		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+		return loginPrincipal{}, false
+	}
+
+	if err := s.authRepo.TouchExternalIdentity(ctx, identity.ID, username, displayName); err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return loginPrincipal{}, false
+		}
+
+		s.logger.Error("Database error updating external identity: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return loginPrincipal{}, false
+	}
+
+	return loginPrincipal{LocalUserID: identity.LocalUserID, Username: identity.LocalUsername, Method: externalLoginMethod(identity.ProviderID)}, true
+}
+
+func (s *APIServer) linkExternalIdentityToLocalUser(ctx context.Context, w http.ResponseWriter, r *http.Request, localUserID int64, username, providerID, subject, displayName string) (loginPrincipal, bool) {
+	identity, err := s.authRepo.LinkExternalIdentity(ctx, localUserID, providerID, subject, username, displayName)
+	if err == nil {
+		return loginPrincipal{LocalUserID: localUserID, Username: username, Method: externalLoginMethod(identity.ProviderID)}, true
+	}
+
+	if dal.IsConflict(err) {
+		existing, lookupErr := s.authRepo.GetExternalIdentity(ctx, providerID, subject)
+		if lookupErr == nil {
+			return s.principalForLinkedExternalIdentity(ctx, w, r, existing, username, displayName)
+		}
+
+		if !dal.IsNotFound(lookupErr) {
+			if s.handleDBUnavailableError(w, lookupErr) {
+				return loginPrincipal{}, false
+			}
+
+			s.logger.Error("Database error looking up conflicting external identity: %v", lookupErr)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return loginPrincipal{}, false
+		}
+
+		s.auditLog(r.Context(), audit.EventAuthFailure, localUserID, 0, map[string]any{
+			"reason":   "external_identity_conflict",
+			"username": username,
+			"provider": providerID,
+			"subject":  subject,
+		})
+
+		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+		return loginPrincipal{}, false
+	}
+
+	if s.handleDBUnavailableError(w, err) {
+		return loginPrincipal{}, false
+	}
+
+	s.logger.Error("Database error linking external identity: %v", err)
+	writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+	return loginPrincipal{}, false
 }
 
 func validExternalLoginUsername(username string) bool {
@@ -382,6 +518,20 @@ func validExternalLoginUsername(username string) bool {
 		len(username) <= adminUsernameMaxLen &&
 		utf8.ValidString(username) &&
 		!strings.ContainsAny(username, "\x00\r\n")
+}
+
+func validExternalProviderID(providerID string) bool {
+	return len(providerID) > 0 &&
+		len(providerID) <= maxExternalProviderIDLen &&
+		utf8.ValidString(providerID) &&
+		!strings.ContainsAny(providerID, "\x00\r\n\t ")
+}
+
+func validExternalSubject(subject string) bool {
+	return len(subject) > 0 &&
+		len(subject) <= maxExternalSubjectLen &&
+		utf8.ValidString(subject) &&
+		!strings.ContainsAny(subject, "\x00\r\n")
 }
 
 func externalLoginMethod(provider string) string {

@@ -199,9 +199,13 @@ func runAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmokeResult,
 	apiServer := api.NewAPIServer(interfaces.NewLogger("ldap-api-smoke").WithOutput(io.Discard), db)
 	apiServer.SetCacheService(cacheService)
 	apiServer.SetRateLimiter(ratelimit.NewCacheRateLimiter(cacheService))
-	apiServer.SetLoginProviders([]sdkauth.LoginProvider{provider})
-	apiServer.SetExternalLoginAutoProvision(true)
+	apiServer.SetLoginProviderRegistrations([]api.LoginProviderRegistration{{
+		ID:       ldapauth.DefaultProviderID,
+		Kind:     ldapauth.ProviderKind,
+		Provider: provider,
+	}})
 
+	apiServer.SetExternalLoginAutoProvision(true)
 	httpServer := httptest.NewServer(apiServer.Handler())
 	defer httpServer.Close()
 

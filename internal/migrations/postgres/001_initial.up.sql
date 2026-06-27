@@ -550,6 +550,32 @@ CREATE TABLE local_users (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE auth_providers (
+    id BIGSERIAL PRIMARY KEY,
+    global_id TEXT UNIQUE,
+    provider_id TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE external_identities (
+    id BIGSERIAL PRIMARY KEY,
+    global_id TEXT UNIQUE,
+    local_user_id BIGINT NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
+    auth_provider_id BIGINT NOT NULL REFERENCES auth_providers(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    username TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(auth_provider_id, subject),
+    UNIQUE(local_user_id, auth_provider_id)
+);
+
+CREATE INDEX idx_external_identities_local_user ON external_identities(local_user_id);
+CREATE INDEX idx_external_identities_provider ON external_identities(auth_provider_id);
+
 CREATE TABLE api_tokens (
     id BIGSERIAL PRIMARY KEY,
     global_id TEXT UNIQUE,

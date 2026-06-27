@@ -6,6 +6,7 @@ Enable API auth and configure the provider on the API server:
 
 ```sh
 VECTIS_API_AUTH_ENABLED=true
+VECTIS_API_AUTH_LDAP_PROVIDER_ID=corp-ldap
 VECTIS_API_AUTH_LDAP_URL=ldap://openldap:389
 VECTIS_API_AUTH_LDAP_BIND_DN=cn=vectis,ou=service-accounts,dc=example,dc=org
 VECTIS_API_AUTH_LDAP_BIND_PASSWORD_FILE=/run/secrets/vectis-ldap-bind-password
@@ -16,8 +17,8 @@ VECTIS_API_AUTH_LDAP_DISPLAY_NAME_ATTRIBUTE=cn
 VECTIS_API_AUTH_LDAP_AUTO_CREATE_USERS=false
 ```
 
-Equivalent flags are available on `vectis-api-server`: `--ldap-url`,
-`--ldap-bind-dn`, `--ldap-bind-password-file`, `--ldap-base-dn`,
+Equivalent flags are available on `vectis-api-server`: `--ldap-provider-id`,
+`--ldap-url`, `--ldap-bind-dn`, `--ldap-bind-password-file`, `--ldap-base-dn`,
 `--ldap-user-filter`, `--ldap-username-attribute`,
 `--ldap-display-name-attribute`, `--ldap-start-tls`, `--ldap-timeout`, and
 `--ldap-auto-create-users`.
@@ -30,14 +31,23 @@ Login flow:
 3. LDAP binds with the service account when configured, searches for exactly one
    user entry under `base_dn`, then binds as that user with the submitted
    password.
-4. The LDAP username attribute maps to a Vectis local user. If
-   `auto_create_users` is false, that local user must already exist. If true,
-   Vectis creates a local user row with a random unknown local password.
-5. Sessions, API tokens, role bindings, and audit actor IDs remain tied to the
+4. The configured LDAP provider ID and LDAP subject are linked to a Vectis
+   local user. If the link already exists, Vectis uses that local user even if
+   the current username claim changed.
+5. If no link exists, the LDAP username attribute maps to a Vectis local user.
+   If `auto_create_users` is false, that local user must already exist. If
+   true, Vectis creates a local user row with a random unknown local password.
+   The successful login then records the provider/subject link.
+6. Sessions, API tokens, role bindings, and audit actor IDs remain tied to the
    local Vectis user ID.
 
 Group-to-role synchronization is intentionally not part of this provider slice.
 Grant roles to the mapped local users through Vectis role bindings.
+
+Provider IDs are instance IDs, not only provider kinds. Use distinct values such
+as `corp-ldap` and `contractor-ldap` when multiple directories can authenticate
+users. Vectis stores external identity links by `(provider_id, subject)` and
+allows at most one subject from the same provider to link to a local user.
 
 ## Real Service Smoke
 
@@ -66,6 +76,7 @@ Useful knobs:
 
 | Variable | Default | Purpose |
 | --- | ---: | --- |
+| `VECTIS_API_AUTH_LDAP_PROVIDER_ID` | `ldap` | Stable provider instance ID used by the API login path. |
 | `LDAP_SMOKE_IMAGE` | `docker.io/osixia/openldap:1.5.0` | Local OpenLDAP image. |
 | `LDAP_SMOKE_CONTAINER` | `vectis-openldap` | Reusable local container name. |
 | `LDAP_SMOKE_PORT` | `1389` | Host port mapped to LDAP. |

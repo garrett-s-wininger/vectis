@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	FlagProviderID           = "ldap-provider-id"
 	FlagURL                  = "ldap-url"
 	FlagBindDN               = "ldap-bind-dn"
 	FlagBindPassword         = "ldap-bind-password"
@@ -23,6 +24,7 @@ const (
 	FlagTimeout              = "ldap-timeout"
 	FlagAutoCreateUsers      = "ldap-auto-create-users"
 
+	ConfigKeyProviderID           = "api.auth.ldap.provider_id"
 	ConfigKeyURL                  = "api.auth.ldap.url"
 	ConfigKeyBindDN               = "api.auth.ldap.bind_dn"
 	ConfigKeyBindPassword         = "api.auth.ldap.bind_password"
@@ -35,6 +37,7 @@ const (
 	ConfigKeyTimeout              = "api.auth.ldap.timeout"
 	ConfigKeyAutoCreateUsers      = "api.auth.ldap.auto_create_users"
 
+	EnvProviderID           = "VECTIS_API_AUTH_LDAP_PROVIDER_ID"
 	EnvURL                  = "VECTIS_API_AUTH_LDAP_URL"
 	EnvBindDN               = "VECTIS_API_AUTH_LDAP_BIND_DN"
 	EnvBindPassword         = "VECTIS_API_AUTH_LDAP_BIND_PASSWORD"
@@ -56,6 +59,7 @@ const (
 )
 
 type Config struct {
+	ProviderID           string
 	URL                  string
 	BindDN               string
 	BindPassword         string
@@ -74,6 +78,7 @@ func AddConfigFlags(flags *pflag.FlagSet) {
 		return
 	}
 
+	flags.String(FlagProviderID, DefaultProviderID, "Stable auth provider instance ID for LDAP login")
 	flags.String(FlagURL, "", "LDAP server URL for API login authentication")
 	flags.String(FlagBindDN, "", "LDAP service-account bind DN used before user search")
 	flags.String(FlagBindPassword, "", "LDAP service-account bind password; prefer --ldap-bind-password-file")
@@ -102,6 +107,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		v.SetDefault(key, "")
 	}
 
+	v.SetDefault(ConfigKeyProviderID, DefaultProviderID)
 	v.SetDefault(ConfigKeyUserFilter, defaultUserFilter)
 	v.SetDefault(ConfigKeyUsernameAttribute, defaultUsernameAttribute)
 	v.SetDefault(ConfigKeyDisplayNameAttribute, defaultDisplayNameAttribute)
@@ -125,6 +131,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		key  string
 		flag string
 	}{
+		{ConfigKeyProviderID, FlagProviderID},
 		{ConfigKeyURL, FlagURL},
 		{ConfigKeyBindDN, FlagBindDN},
 		{ConfigKeyBindPassword, FlagBindPassword},
@@ -146,6 +153,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		key string
 		env string
 	}{
+		{ConfigKeyProviderID, EnvProviderID},
 		{ConfigKeyURL, EnvURL},
 		{ConfigKeyBindDN, EnvBindDN},
 		{ConfigKeyBindPassword, EnvBindPassword},
@@ -172,6 +180,7 @@ func ConfigFromViper(v *viper.Viper) Config {
 	}
 
 	return Config{
+		ProviderID:           configStringWithDefault(v, DefaultProviderID, ConfigKeyProviderID),
 		URL:                  configString(v, ConfigKeyURL),
 		BindDN:               configString(v, ConfigKeyBindDN),
 		BindPassword:         configString(v, ConfigKeyBindPassword),
@@ -197,6 +206,7 @@ func (c Config) NewProvider() (*Provider, error) {
 	}
 
 	return NewProvider(ProviderOptions{
+		ProviderID:           c.ProviderID,
 		URL:                  c.URL,
 		BindDN:               c.BindDN,
 		BindPassword:         bindPassword,

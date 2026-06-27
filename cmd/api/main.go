@@ -28,7 +28,6 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/registry"
 	"vectis/internal/resolver"
-	sdkauth "vectis/sdk/auth"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -336,9 +335,20 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 				return
 			}
 
-			server.SetLoginProviders([]sdkauth.LoginProvider{ldapProvider})
+			if _, err := dal.NewSQLRepositories(db).Auth().EnsureAuthProvider(cmd.Context(), ldapConfig.ProviderID, ldapauth.ProviderKind); err != nil {
+				logger.Error("Failed to register LDAP auth provider: %v", err)
+				exitCode = 1
+				return
+			}
+
+			server.SetLoginProviderRegistrations([]api.LoginProviderRegistration{{
+				ID:       ldapConfig.ProviderID,
+				Kind:     ldapauth.ProviderKind,
+				Provider: ldapProvider,
+			}})
+
 			server.SetExternalLoginAutoProvision(ldapConfig.AutoCreateUsers)
-			logger.Info("LDAP login provider enabled url=%s base_dn=%s auto_create_users=%t", ldapConfig.URL, ldapConfig.BaseDN, ldapConfig.AutoCreateUsers)
+			logger.Info("LDAP login provider enabled provider_id=%s url=%s base_dn=%s auto_create_users=%t", ldapConfig.ProviderID, ldapConfig.URL, ldapConfig.BaseDN, ldapConfig.AutoCreateUsers)
 		}
 	}
 

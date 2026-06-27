@@ -29,6 +29,33 @@ type LocalUserRecord struct {
 	CreatedAt sql.NullTime
 }
 
+// AuthProviderRecord represents a configured external login provider instance.
+type AuthProviderRecord struct {
+	ID         int64
+	GlobalID   string
+	ProviderID string
+	Kind       string
+	Enabled    bool
+	CreatedAt  sql.NullTime
+}
+
+// ExternalIdentityRecord links a provider-qualified external identity to a local user.
+type ExternalIdentityRecord struct {
+	ID               int64
+	GlobalID         string
+	LocalUserID      int64
+	AuthProviderID   int64
+	ProviderID       string
+	ProviderKind     string
+	Subject          string
+	Username         string
+	DisplayName      string
+	LocalUsername    string
+	LocalUserEnabled bool
+	CreatedAt        sql.NullTime
+	LastSeenAt       sql.NullTime
+}
+
 // TokenScopeRecord represents a scope restriction on an API token.
 type TokenScopeRecord struct {
 	Action      string
@@ -81,6 +108,10 @@ type AuthRepository interface {
 	GetAPITokenOwner(ctx context.Context, id int64) (localUserID int64, err error)
 	GetTokenScopes(ctx context.Context, tokenID int64) ([]*TokenScopeRecord, error)
 	CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error)
+	EnsureAuthProvider(ctx context.Context, providerID, kind string) (*AuthProviderRecord, error)
+	GetExternalIdentity(ctx context.Context, providerID, subject string) (*ExternalIdentityRecord, error)
+	LinkExternalIdentity(ctx context.Context, localUserID int64, providerID, subject, username, displayName string) (*ExternalIdentityRecord, error)
+	TouchExternalIdentity(ctx context.Context, externalIdentityID int64, username, displayName string) error
 	ListLocalUsers(ctx context.Context) ([]*LocalUserRecord, error)
 	GetLocalUser(ctx context.Context, id int64) (*LocalUserRecord, error)
 	UpdateLocalUserEnabled(ctx context.Context, id int64, enabled bool) error
@@ -457,6 +488,126 @@ func (r *SQLAuthRepository) CreateLocalUser(ctx context.Context, username, passw
 	}
 
 	return id, nil
+}
+
+func (r *SQLAuthRepository) EnsureAuthProvider(ctx context.Context, providerID, kind string) (*AuthProviderRecord, error) {
+	providerID = strings.TrimSpace(providerID)
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = providerID
+	}
+
+	rec, err := r.getAuthProviderByProviderID(ctx, providerID)
+	if err == nil {
+		return rec, nil
+	}
+
+	if !IsNotFound(err) {
+		return nil, err
+	}
+
+	var id int64
+	err = r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`INSERT INTO auth_providers (global_id, provider_id, kind) VALUES (?, ?, ?) RETURNING id`),
+		newGlobalID(), providerID, kind,
+	).Scan(&id)
+
+	if err != nil {
+		if IsConflict(normalizeSQLError(err)) {
+			return r.getAuthProviderByProviderID(ctx, providerID)
+		}
+
+		return nil, normalizeSQLError(err)
+	}
+
+	return r.getAuthProviderByProviderID(ctx, providerID)
+}
+
+func (r *SQLAuthRepository) getAuthProviderByProviderID(ctx context.Context, providerID string) (*AuthProviderRecord, error) {
+	var rec AuthProviderRecord
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT id, COALESCE(global_id, ''), provider_id, kind, enabled, created_at FROM auth_providers WHERE provider_id = ?`),
+		strings.TrimSpace(providerID),
+	).Scan(&rec.ID, &rec.GlobalID, &rec.ProviderID, &rec.Kind, &rec.Enabled, &rec.CreatedAt)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+
+		return nil, normalizeSQLError(err)
+	}
+
+	return &rec, nil
+}
+
+func (r *SQLAuthRepository) GetExternalIdentity(ctx context.Context, providerID, subject string) (*ExternalIdentityRecord, error) {
+	var rec ExternalIdentityRecord
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`SELECT ei.id, COALESCE(ei.global_id, ''), ei.local_user_id, ap.id, ap.provider_id, ap.kind,
+       ei.subject, ei.username, ei.display_name, u.username, u.enabled, ei.created_at, ei.last_seen_at
+FROM external_identities ei
+JOIN auth_providers ap ON ap.id = ei.auth_provider_id
+JOIN local_users u ON u.id = ei.local_user_id
+WHERE ap.provider_id = ? AND ei.subject = ?`),
+		strings.TrimSpace(providerID), strings.TrimSpace(subject),
+	).Scan(
+		&rec.ID, &rec.GlobalID, &rec.LocalUserID, &rec.AuthProviderID, &rec.ProviderID, &rec.ProviderKind,
+		&rec.Subject, &rec.Username, &rec.DisplayName, &rec.LocalUsername, &rec.LocalUserEnabled, &rec.CreatedAt, &rec.LastSeenAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+
+		return nil, normalizeSQLError(err)
+	}
+
+	return &rec, nil
+}
+
+func (r *SQLAuthRepository) LinkExternalIdentity(ctx context.Context, localUserID int64, providerID, subject, username, displayName string) (*ExternalIdentityRecord, error) {
+	providerID = strings.TrimSpace(providerID)
+	subject = strings.TrimSpace(subject)
+	username = strings.TrimSpace(username)
+	displayName = strings.TrimSpace(displayName)
+
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`INSERT INTO external_identities (global_id, local_user_id, auth_provider_id, subject, username, display_name)
+SELECT ?, ?, id, ?, ?, ? FROM auth_providers WHERE provider_id = ?
+RETURNING id`),
+		newGlobalID(), localUserID, subject, username, displayName, providerID,
+	).Scan(&id)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return r.GetExternalIdentity(ctx, providerID, subject)
+}
+
+func (r *SQLAuthRepository) TouchExternalIdentity(ctx context.Context, externalIdentityID int64, username, displayName string) error {
+	res, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`UPDATE external_identities SET username = ?, display_name = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`),
+		strings.TrimSpace(username), strings.TrimSpace(displayName), externalIdentityID,
+	)
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 func (r *SQLAuthRepository) ListLocalUsers(ctx context.Context) ([]*LocalUserRecord, error) {

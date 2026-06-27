@@ -12,6 +12,8 @@ var (
 )
 
 type Identity struct {
+	// Provider is the stable provider instance ID that authenticated the identity.
+	// It is part of the durable external identity key along with Subject.
 	Provider    string
 	Subject     string
 	Username    string

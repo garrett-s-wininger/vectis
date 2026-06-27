@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -139,7 +140,7 @@ type APIServer struct {
 	cacheService cache.Service
 
 	// loginProviders authenticate external username/password login attempts.
-	loginProviders []sdkauth.LoginProvider
+	loginProviders []registeredLoginProvider
 
 	// externalLoginAutoProvision creates local Vectis users for successful
 	// external identities that do not already have a local user row.
@@ -196,6 +197,20 @@ type routeSpec struct {
 	Query     routeQueryPolicy
 	Headers   routeHeaderPolicy
 	RateLimit ratelimit.Rule
+}
+
+// LoginProviderRegistration identifies a configured external login provider
+// instance that the API may accept.
+type LoginProviderRegistration struct {
+	ID       string
+	Kind     string
+	Provider sdkauth.LoginProvider
+}
+
+type registeredLoginProvider struct {
+	id       string
+	kind     string
+	provider sdkauth.LoginProvider
 }
 
 type dispatchMetrics interface {
@@ -752,9 +767,35 @@ func (s *APIServer) SetCacheService(cacheService cache.Service) {
 }
 
 func (s *APIServer) SetLoginProviders(providers []sdkauth.LoginProvider) {
+	registrations := make([]LoginProviderRegistration, 0, len(providers))
+	for _, provider := range providers {
+		registrations = append(registrations, LoginProviderRegistration{Provider: provider})
+	}
+
+	s.SetLoginProviderRegistrations(registrations)
+}
+
+func (s *APIServer) SetLoginProviderRegistrations(registrations []LoginProviderRegistration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.loginProviders = append([]sdkauth.LoginProvider(nil), providers...)
+	s.loginProviders = s.loginProviders[:0]
+	for _, registration := range registrations {
+		if registration.Provider == nil {
+			continue
+		}
+
+		id := strings.TrimSpace(registration.ID)
+		kind := strings.TrimSpace(registration.Kind)
+		if kind == "" {
+			kind = id
+		}
+
+		s.loginProviders = append(s.loginProviders, registeredLoginProvider{
+			id:       id,
+			kind:     kind,
+			provider: registration.Provider,
+		})
+	}
 }
 
 func (s *APIServer) SetExternalLoginAutoProvision(enabled bool) {

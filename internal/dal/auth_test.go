@@ -37,6 +37,81 @@ func TestLocalUsers_usernameUniqueConstraint(t *testing.T) {
 	}
 }
 
+func TestAuthRepository_ExternalIdentities(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+
+	provider, err := repo.EnsureAuthProvider(ctx, "corp-ldap", "ldap")
+	if err != nil {
+		t.Fatalf("EnsureAuthProvider: %v", err)
+	}
+
+	if provider.ID == 0 || provider.ProviderID != "corp-ldap" || provider.Kind != "ldap" || !provider.Enabled {
+		t.Fatalf("unexpected provider: %+v", provider)
+	}
+
+	sameProvider, err := repo.EnsureAuthProvider(ctx, "corp-ldap", "ldap")
+	if err != nil {
+		t.Fatalf("EnsureAuthProvider existing: %v", err)
+	}
+
+	if sameProvider.ID != provider.ID {
+		t.Fatalf("existing provider id = %d, want %d", sameProvider.ID, provider.ID)
+	}
+
+	userID, err := repo.CreateLocalUser(ctx, "alice", "hash")
+	if err != nil {
+		t.Fatalf("CreateLocalUser: %v", err)
+	}
+
+	link, err := repo.LinkExternalIdentity(ctx, userID, "corp-ldap", "uid=alice,ou=people,dc=example,dc=org", "alice", "Alice")
+	if err != nil {
+		t.Fatalf("LinkExternalIdentity: %v", err)
+	}
+
+	if link.LocalUserID != userID || link.ProviderID != "corp-ldap" || link.Subject != "uid=alice,ou=people,dc=example,dc=org" || link.LocalUsername != "alice" {
+		t.Fatalf("unexpected link: %+v", link)
+	}
+
+	found, err := repo.GetExternalIdentity(ctx, "corp-ldap", "uid=alice,ou=people,dc=example,dc=org")
+	if err != nil {
+		t.Fatalf("GetExternalIdentity: %v", err)
+	}
+
+	if found.ID != link.ID {
+		t.Fatalf("found identity id = %d, want %d", found.ID, link.ID)
+	}
+
+	if err := repo.TouchExternalIdentity(ctx, link.ID, "alice.renamed", "Alice Renamed"); err != nil {
+		t.Fatalf("TouchExternalIdentity: %v", err)
+	}
+
+	found, err = repo.GetExternalIdentity(ctx, "corp-ldap", "uid=alice,ou=people,dc=example,dc=org")
+	if err != nil {
+		t.Fatalf("GetExternalIdentity after touch: %v", err)
+	}
+
+	if found.Username != "alice.renamed" || found.DisplayName != "Alice Renamed" {
+		t.Fatalf("touched identity = %+v", found)
+	}
+
+	_, err = repo.LinkExternalIdentity(ctx, userID, "corp-ldap", "uid=alice2,ou=people,dc=example,dc=org", "alice", "Alice")
+	if !IsConflict(err) {
+		t.Fatalf("second subject for provider/local user error = %v, want conflict", err)
+	}
+
+	if _, err := repo.EnsureAuthProvider(ctx, "contractor-ldap", "ldap"); err != nil {
+		t.Fatalf("EnsureAuthProvider contractor: %v", err)
+	}
+
+	if _, err := repo.LinkExternalIdentity(ctx, userID, "contractor-ldap", "uid=alice,ou=people,dc=example,dc=org", "alice", "Alice"); err != nil {
+		t.Fatalf("same subject under different provider should link: %v", err)
+	}
+}
+
 func TestAuthRepository_IsSetupComplete_initiallyFalse(t *testing.T) {
 	t.Parallel()
 

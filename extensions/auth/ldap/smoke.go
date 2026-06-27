@@ -239,8 +239,8 @@ func smokeBindPassword(opts SmokeOptions) (string, error) {
 }
 
 func validateSmokeIdentity(opts SmokeOptions, identity sdkauth.Identity) error {
-	if identity.Provider != providerName {
-		return fmt.Errorf("ldap smoke provider = %q, want %q", identity.Provider, providerName)
+	if identity.Provider != DefaultProviderID {
+		return fmt.Errorf("ldap smoke provider = %q, want %q", identity.Provider, DefaultProviderID)
 	}
 
 	if opts.ExpectedSubject != "" && identity.Subject != opts.ExpectedSubject {
