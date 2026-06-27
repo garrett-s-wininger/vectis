@@ -86,7 +86,7 @@ function isGeneratedID(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function shortRunID(runID: string) {
+export function shortRunID(runID: string) {
   const uuid = runID.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-([89ab][0-9a-f]{3})-([0-9a-f]{12})/i);
   if (uuid) {
     return `${uuid[1]}-${uuid[2]}`;

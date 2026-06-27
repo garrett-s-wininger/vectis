@@ -3,15 +3,15 @@ import {
   formatRunDefinition,
   referenceLabel,
   runDefinitionDescription,
-  runDetailDescription,
   runDefinitionTitle,
+  runDetailDescription,
   runGraphDescription,
   runLogLines,
+  preferredRunTaskID,
   runTaskExecutionLabel,
   runTaskStatusLabel,
   runTaskTimingLabel,
   runTasksForDisplay,
-  preferredRunTaskID,
   runTimelineEvents,
   sourceLabel
 } from "./RunDetailPresentation";
@@ -68,6 +68,12 @@ describe("run detail presentation", () => {
       expect.objectContaining({ label: "Dispatched", detail: "Worker selected on local.", delta: "+5s" }),
       expect.objectContaining({ label: "Finished", detail: "Worker finished execution.", delta: "+37s" })
     ]);
+  });
+
+  it("uses the compact run identifier in persisted timeline copy", () => {
+    expect(runTimelineEvents({ ...run, id: "123e4567-e89b-12d3-a456-426614174000" })[1]).toEqual(
+      expect.objectContaining({ detail: "Assigned ID a456-426614174000." })
+    );
   });
 
   it("uses concise generated log lines without run-id prefixes", () => {

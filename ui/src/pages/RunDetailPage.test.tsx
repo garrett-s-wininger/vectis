@@ -72,4 +72,23 @@ describe("RunDetailPage", () => {
     expect(screen.getAllByText("Report").length).toBeGreaterThan(0);
     expect(screen.getByText("No execution attempt yet")).toBeInTheDocument();
   });
+
+  it("opens the run definition disclosure on request", async () => {
+    render(<RunDetailPage onBack={() => undefined} run={run} runID={run.id} />);
+
+    const summary = screen.getByText("Job Definition").closest("summary");
+    const details = summary?.closest("details");
+
+    expect(summary).toBeInTheDocument();
+    expect(details).toBeInTheDocument();
+    if (!summary || !details) {
+      throw new Error("Expected the job definition to render as a disclosure");
+    }
+
+    expect(details).not.toHaveAttribute("open");
+
+    await userEvent.click(summary);
+
+    expect(details).toHaveAttribute("open");
+  });
 });

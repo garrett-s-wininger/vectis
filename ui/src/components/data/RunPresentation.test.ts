@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel } from "./RunPresentation";
+import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel, shortRunID } from "./RunPresentation";
 
 describe("run presentation", () => {
   it("labels run timing by status", () => {
@@ -32,5 +32,10 @@ describe("run presentation", () => {
     expect(runDisplayName({ jobName: "2a5ed99c-6d51-4c50-97e9-e31b23da7469", source: "stored" })).toBe(
       "2a5ed99c-6d51-4c50-97e9-e31b23da7469"
     );
+  });
+
+  it("shortens generated run IDs with stable trailing context", () => {
+    expect(shortRunID("run-2a5ed99c-6d51-4c50-97e9-e31b23da7469")).toBe("97e9-e31b23da7469");
+    expect(shortRunID("run-1240")).toBe("run-1240");
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, Code2, FileText, History, Server, User, Zap } from "lucide-react";
+import { ChevronDown, Clock, Code2, FileText, Server, User, Zap } from "lucide-react";
 import { BreadcrumbTrail, ErrorAlert, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
 import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel } from "../components/data/RunPresentation";
 import { streamRunLogs, type RunLogEntry } from "../data/runLogs";
@@ -15,8 +15,8 @@ import {
   runTaskStatusLabel,
   runTaskTimingLabel,
   runTasksForDisplay,
-  runTimelineEvents,
   preferredRunTaskID,
+  runTimelineEvents,
   type RunTaskDisplayNode,
   sourceLabel
 } from "./RunDetailPresentation";
@@ -122,8 +122,8 @@ function RunDetailContent({
       <section className={styles.layout} aria-label="Run investigation">
         <RunTaskGraph onSelectTask={selectTask} selectedTaskID={selectedTask?.taskID} tasks={tasks} />
         <RunLogs run={run} selectedTask={selectedTask} />
-        <RunDefinition run={run} />
         <RunTimeline run={run} />
+        <RunDefinition run={run} />
       </section>
     </>
   );
@@ -192,28 +192,30 @@ function formatRunLogEntries(entries: RunLogEntry[]) {
 function RunTimeline({ run }: { run: RunListItem }) {
   return (
     <section
-      className={`${styles.panel} polished-panel polished-panel--accent-top`}
+      className={`${styles.panel} ${styles.timelinePanel} polished-panel polished-panel--accent-top`}
       aria-labelledby="run-timeline-title"
     >
       <div className={styles.panelHeader}>
         <div>
           <h2 id="run-timeline-title">Timeline</h2>
-          <p>How this run moved through the system.</p>
+          <p>System checkpoints and elapsed time.</p>
         </div>
       </div>
-      <ol className={styles.eventList}>
+      <ol className={styles.timelineList}>
         {runTimelineEvents(run).map((event) => (
           <li key={event.label}>
-            <History aria-hidden="true" />
-            <div>
-              <strong>
-                {event.label}
+            <span className={styles.timelineMarker}>
+              <Clock aria-hidden="true" />
+            </span>
+            <div className={styles.timelineBody}>
+              <div className={styles.timelineHeader}>
+                <strong>{event.label}</strong>
                 <span className={styles.eventTime}>
                   {event.time}
                   {event.delta ? <small>{event.delta}</small> : null}
                 </span>
-              </strong>
-              <span>{event.detail}</span>
+              </div>
+              <p>{event.detail}</p>
             </div>
           </li>
         ))}
@@ -225,16 +227,24 @@ function RunTimeline({ run }: { run: RunListItem }) {
 function RunDefinition({ run }: { run: RunListItem }) {
   return (
     <section
-      className={`${styles.panel} polished-panel polished-panel--accent-top`}
+      className={`${styles.panel} ${styles.definitionPanel} polished-panel polished-panel--accent-top`}
       aria-labelledby="run-definition-title"
     >
-      <div className={styles.panelHeader}>
-        <div>
-          <h2 id="run-definition-title">{runDefinitionTitle(run)}</h2>
-          <p>{runDefinitionDescription(run)}</p>
-        </div>
-      </div>
-      <pre className="definition-preview">{formatRunDefinition(run)}</pre>
+      <details className={styles.definitionDetails}>
+        <summary className={styles.definitionSummary}>
+          <span className={styles.definitionIcon}>
+            <FileText aria-hidden="true" />
+          </span>
+          <div>
+            <h2 id="run-definition-title">{runDefinitionTitle(run)}</h2>
+            <p>{runDefinitionDescription(run)}</p>
+          </div>
+          <span className={styles.definitionDisclosure} aria-hidden="true">
+            <ChevronDown />
+          </span>
+        </summary>
+        <pre className={`definition-preview ${styles.definitionPreview}`}>{formatRunDefinition(run)}</pre>
+      </details>
     </section>
   );
 }
