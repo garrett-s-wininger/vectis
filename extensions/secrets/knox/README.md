@@ -10,8 +10,8 @@ cell-local `vectis-secrets` broker to deliver to workers.
 ## Real Service Smoke
 
 The default local smoke clones upstream Knox source, builds a local smoke image
-around Knox's real server/key-manager packages, starts a live Knox-compatible
-process, and resolves a seeded key through the Vectis provider:
+around Knox's real server/key-manager packages, starts a live mTLS
+Knox-compatible process, and resolves a seeded key through the Vectis provider:
 
 ```sh
 make knox-smoke
@@ -46,7 +46,8 @@ Useful knobs:
 | `KNOX_SMOKE_IMAGE` | `localhost/vectis-knox-smoke:dev-local` | Local Knox smoke image tag. |
 | `KNOX_SMOKE_CONTAINER` | `vectis-knox` | Local Knox smoke container name. |
 | `KNOX_SMOKE_PORT` | `19000` | Local Knox smoke host port. |
-| `KNOX_SMOKE_URL` | `http://127.0.0.1:19000` | Knox base URL. |
+| `KNOX_SMOKE_CERT_DIR` | `artifacts/integrations/knox/certs` | Generated local CA and client/server certificates. |
+| `KNOX_SMOKE_URL` | `https://127.0.0.1:19000` | Knox base URL. |
 | `KNOX_SMOKE_KEY_ID` | `team:smoke_token` | Key seeded into the local Knox smoke server. |
 | `KNOX_SMOKE_SECRET` | `knox-smoke-secret` | Local smoke secret data. |
 | `KNOX_SMOKE_AUTH_TOKEN_FILE` | empty | File containing the Knox Authorization header value. |
@@ -59,6 +60,7 @@ Useful knobs:
 | `KNOX_SMOKE_WRONG_AUTH_TOKEN` | `0twrong-knox-smoke` | Optional token expected to be denied. |
 | `KNOX_SMOKE_MISSING_REF` | `knox://team/missing_token` | Optional ref expected to be missing. |
 | `KNOX_SMOKE_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification for local compatibility endpoints. |
-| `KNOX_SMOKE_CLIENT_CERT_FILE` | empty | Optional mTLS client certificate file for managed Knox endpoints. |
-| `KNOX_SMOKE_CLIENT_KEY_FILE` | empty | Optional mTLS client key file for managed Knox endpoints. |
+| `KNOX_SMOKE_CA_FILE` | `artifacts/integrations/knox/certs/ca.crt` | Knox server CA certificate file. |
+| `KNOX_SMOKE_CLIENT_CERT_FILE` | `artifacts/integrations/knox/certs/client.crt` | Optional mTLS client certificate file for managed Knox endpoints. |
+| `KNOX_SMOKE_CLIENT_KEY_FILE` | `artifacts/integrations/knox/certs/client.key` | Optional mTLS client key file for managed Knox endpoints. |
 | `KNOX_SMOKE_TIMEOUT` | `30s` | Maximum wait for the endpoint and smoke operations. |

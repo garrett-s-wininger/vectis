@@ -13,6 +13,7 @@ const (
 	FlagAuthTokenFile      = "knox-auth-token-file"
 	FlagAuthToken          = "knox-auth-token"
 	FlagInsecureSkipVerify = "knox-insecure-skip-verify"
+	FlagCAFile             = "knox-ca-file"
 	FlagClientCertFile     = "knox-client-cert-file"
 	FlagClientKeyFile      = "knox-client-key-file"
 
@@ -20,6 +21,7 @@ const (
 	ConfigKeyAuthTokenFile      = "secrets.providers.knox.auth_token_file"
 	ConfigKeyAuthToken          = "secrets.providers.knox.auth_token"
 	ConfigKeyInsecureSkipVerify = "secrets.providers.knox.insecure_skip_verify"
+	ConfigKeyCAFile             = "secrets.providers.knox.ca_file"
 	ConfigKeyClientCertFile     = "secrets.providers.knox.client_cert_file"
 	ConfigKeyClientKeyFile      = "secrets.providers.knox.client_key_file"
 
@@ -27,6 +29,7 @@ const (
 	EnvAuthTokenFile      = "VECTIS_SECRETS_PROVIDERS_KNOX_AUTH_TOKEN_FILE"
 	EnvAuthToken          = "VECTIS_SECRETS_PROVIDERS_KNOX_AUTH_TOKEN"
 	EnvInsecureSkipVerify = "VECTIS_SECRETS_PROVIDERS_KNOX_INSECURE_SKIP_VERIFY"
+	EnvCAFile             = "VECTIS_SECRETS_PROVIDERS_KNOX_CA_FILE"
 	EnvClientCertFile     = "VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_CERT_FILE"
 	EnvClientKeyFile      = "VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_KEY_FILE"
 )
@@ -36,6 +39,7 @@ type Config struct {
 	AuthTokenFile      string
 	AuthToken          string
 	InsecureSkipVerify bool
+	CAFile             string
 	ClientCertFile     string
 	ClientKeyFile      string
 }
@@ -49,6 +53,7 @@ func AddConfigFlags(flags *pflag.FlagSet) {
 	flags.String(FlagAuthTokenFile, "", "File containing the Knox Authorization header value")
 	flags.String(FlagAuthToken, "", "Knox Authorization header value; prefer --knox-auth-token-file")
 	flags.Bool(FlagInsecureSkipVerify, false, "Skip Knox server TLS certificate verification for local development")
+	flags.String(FlagCAFile, "", "Knox server CA certificate file")
 	flags.String(FlagClientCertFile, "", "Knox mTLS client certificate file")
 	flags.String(FlagClientKeyFile, "", "Knox mTLS client private key file")
 }
@@ -62,6 +67,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		ConfigKeyURL,
 		ConfigKeyAuthTokenFile,
 		ConfigKeyAuthToken,
+		ConfigKeyCAFile,
 		ConfigKeyClientCertFile,
 		ConfigKeyClientKeyFile,
 	} {
@@ -93,6 +99,12 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 			}
 		}
 
+		if flag := flags.Lookup(FlagCAFile); flag != nil {
+			if err := v.BindPFlag(ConfigKeyCAFile, flag); err != nil {
+				return err
+			}
+		}
+
 		if flag := flags.Lookup(FlagClientCertFile); flag != nil {
 			if err := v.BindPFlag(ConfigKeyClientCertFile, flag); err != nil {
 				return err
@@ -118,6 +130,9 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 	if err := v.BindEnv(ConfigKeyInsecureSkipVerify, EnvInsecureSkipVerify); err != nil {
 		return err
 	}
+	if err := v.BindEnv(ConfigKeyCAFile, EnvCAFile); err != nil {
+		return err
+	}
 	if err := v.BindEnv(ConfigKeyClientCertFile, EnvClientCertFile); err != nil {
 		return err
 	}
@@ -138,6 +153,7 @@ func ConfigFromViper(v *viper.Viper) Config {
 		AuthTokenFile:      configString(v, ConfigKeyAuthTokenFile),
 		AuthToken:          configString(v, ConfigKeyAuthToken),
 		InsecureSkipVerify: configBool(v, ConfigKeyInsecureSkipVerify),
+		CAFile:             configString(v, ConfigKeyCAFile),
 		ClientCertFile:     configString(v, ConfigKeyClientCertFile),
 		ClientKeyFile:      configString(v, ConfigKeyClientKeyFile),
 	}
@@ -157,6 +173,7 @@ func (c Config) NewProvider() (*KnoxProvider, error) {
 		WithKnoxAuthToken(c.AuthToken),
 		WithKnoxAuthTokenFile(c.AuthTokenFile),
 		WithKnoxInsecureSkipVerify(c.InsecureSkipVerify),
+		WithKnoxCAFile(c.CAFile),
 		WithKnoxClientCertificateFiles(c.ClientCertFile, c.ClientKeyFile),
 	)
 }

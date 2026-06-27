@@ -20,6 +20,7 @@ func main() {
 	flag.StringVar(&opts.AuthToken, "auth-token", os.Getenv(knoxsecrets.EnvAuthToken), "Knox Authorization header value; prefer --auth-token-file")
 	flag.StringVar(&opts.AuthTokenFile, "auth-token-file", os.Getenv(knoxsecrets.EnvAuthTokenFile), "File containing the Knox Authorization header value")
 	flag.BoolVar(&opts.InsecureSkipVerify, "insecure-skip-verify", envBoolDefault(knoxsecrets.EnvInsecureSkipVerify, false), "Skip Knox TLS certificate verification")
+	flag.StringVar(&opts.CAFile, "ca-file", os.Getenv(knoxsecrets.EnvCAFile), "Knox server CA certificate file")
 	flag.StringVar(&opts.ClientCertFile, "client-cert-file", os.Getenv(knoxsecrets.EnvClientCertFile), "Knox mTLS client certificate file")
 	flag.StringVar(&opts.ClientKeyFile, "client-key-file", os.Getenv(knoxsecrets.EnvClientKeyFile), "Knox mTLS client private key file")
 	flag.StringVar(&opts.Ref, "ref", knoxsecrets.DefaultSmokeRef, "Knox secret ref")

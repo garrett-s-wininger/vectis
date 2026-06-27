@@ -234,6 +234,7 @@ VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=encryptedfs:/
 # Optional Knox provider:
 # VECTIS_SECRETS_PROVIDERS_KNOX_URL=https://knox.internal.example
 # VECTIS_SECRETS_PROVIDERS_KNOX_AUTH_TOKEN_FILE=/etc/vectis/secrets/knox-token
+# VECTIS_SECRETS_PROVIDERS_KNOX_CA_FILE=/etc/vectis/secrets/knox-ca.crt
 # VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_CERT_FILE=/etc/vectis/secrets/knox-client.crt
 # VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_KEY_FILE=/etc/vectis/secrets/knox-client.key
 # VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=knox://release/*

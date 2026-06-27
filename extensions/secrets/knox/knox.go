@@ -3,6 +3,7 @@ package knox
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,6 +52,7 @@ type KnoxProvider struct {
 	client             knoxHTTPClient
 	customClient       bool
 	insecureSkipVerify bool
+	caFile             string
 	clientCertFile     string
 	clientKeyFile      string
 	maxSecretBytes     int64
@@ -98,6 +100,18 @@ func WithKnoxHTTPClient(client knoxHTTPClient) KnoxOption {
 func WithKnoxInsecureSkipVerify(enabled bool) KnoxOption {
 	return func(p *KnoxProvider) error {
 		p.insecureSkipVerify = enabled
+		return p.rebuildHTTPClient()
+	}
+}
+
+func WithKnoxCAFile(path string) KnoxOption {
+	return func(p *KnoxProvider) error {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return nil
+		}
+
+		p.caFile = path
 		return p.rebuildHTTPClient()
 	}
 }
@@ -170,6 +184,22 @@ func (p *KnoxProvider) rebuildHTTPClient() error {
 		tlsConfig.InsecureSkipVerify = true
 	}
 
+	if p.caFile != "" {
+		certPool, err := x509.SystemCertPool()
+		if err != nil || certPool == nil {
+			certPool = x509.NewCertPool()
+		}
+
+		caPEM, err := os.ReadFile(p.caFile)
+		if err != nil {
+			return fmt.Errorf("secrets: read knox CA file: %w", err)
+		}
+		if !certPool.AppendCertsFromPEM(caPEM) {
+			return fmt.Errorf("secrets: knox CA file contains no certificates")
+		}
+		tlsConfig.RootCAs = certPool
+	}
+
 	if p.clientCertFile != "" || p.clientKeyFile != "" {
 		cert, err := tls.LoadX509KeyPair(p.clientCertFile, p.clientKeyFile)
 		if err != nil {
@@ -178,7 +208,7 @@ func (p *KnoxProvider) rebuildHTTPClient() error {
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	if p.insecureSkipVerify || len(tlsConfig.Certificates) > 0 {
+	if p.insecureSkipVerify || tlsConfig.RootCAs != nil || len(tlsConfig.Certificates) > 0 {
 		transport.TLSClientConfig = tlsConfig
 	}
 

@@ -175,6 +175,9 @@ func allowedAuthProviderImportFile(path string) bool {
 	if strings.HasPrefix(path, "../extensions/auth/") {
 		return true
 	}
+	if strings.HasPrefix(path, "../deploy/ldap/") {
+		return true
+	}
 
 	switch path {
 	case "../cmd/api/main.go":

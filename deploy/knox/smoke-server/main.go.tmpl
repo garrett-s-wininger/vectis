@@ -3,10 +3,19 @@
 package main
 
 import (
-	"crypto/subtle"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	crypto_rand "crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,29 +28,21 @@ import (
 const (
 	defaultAddr      = ":9000"
 	defaultAuthToken = "0tknox-smoke"
+	defaultCertDir   = "/certs"
 	defaultKeyID     = "team:smoke_token"
 	defaultSecret    = "knox-smoke-secret"
 )
 
-type staticMachineProvider struct {
-	token string
-}
-
-func (p staticMachineProvider) Name() string { return "vectis-smoke-machine" }
-func (p staticMachineProvider) Version() byte { return '0' }
-func (p staticMachineProvider) Type() byte { return 't' }
-
-func (p staticMachineProvider) Authenticate(token string, _ *http.Request) (knox.Principal, error) {
-	if subtle.ConstantTimeCompare([]byte(token), []byte(p.token)) != 1 {
-		return nil, fmt.Errorf("invalid smoke token")
-	}
-	return auth.NewMachine(token), nil
-}
-
 func main() {
 	addr := envDefault("KNOX_SMOKE_ADDR", defaultAddr)
+	certDir := envDefault("KNOX_SMOKE_CERT_DIR", defaultCertDir)
 	authHeader := envDefault("KNOX_SMOKE_AUTH_TOKEN", defaultAuthToken)
 	principalID, err := machinePrincipalID(authHeader)
+	if err != nil {
+		panic(err)
+	}
+
+	certs, err := writeSmokeCertificates(certDir, principalID)
 	if err != nil {
 		panic(err)
 	}
@@ -63,7 +64,7 @@ func main() {
 		[]func(http.HandlerFunc) http.HandlerFunc{
 			server.AddHeader("Content-Type", "application/json"),
 			server.AddHeader("X-Content-Type-Options", "nosniff"),
-			server.Authentication([]auth.Provider{staticMachineProvider{token: principalID}}, nil),
+			server.Authentication([]auth.Provider{auth.NewMTLSAuthProvider(certs.clientCAs)}, nil),
 		},
 		nil,
 	)
@@ -71,8 +72,16 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Fprintf(os.Stderr, "knox smoke server listening on %s with key %s\n", addr, key.ID)
-	if err := http.ListenAndServe(addr, router); err != nil {
+	tlsConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    certs.clientCAs,
+		Certificates: []tls.Certificate{certs.serverCert},
+	}
+
+	fmt.Fprintf(os.Stderr, "knox smoke server listening with mTLS on %s with key %s\n", addr, key.ID)
+	httpServer := &http.Server{Addr: addr, Handler: router, TLSConfig: tlsConfig}
+	if err := httpServer.ListenAndServeTLS("", ""); err != nil {
 		panic(err)
 	}
 }
@@ -102,6 +111,155 @@ func machinePrincipalID(authHeader string) (string, error) {
 		return "", fmt.Errorf("KNOX_SMOKE_AUTH_TOKEN must use Knox machine auth form 0t<principal>")
 	}
 	return authHeader[2:], nil
+}
+
+type smokeCertificates struct {
+	clientCAs  *x509.CertPool
+	serverCert tls.Certificate
+}
+
+func writeSmokeCertificates(dir, principalID string) (smokeCertificates, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return smokeCertificates{}, err
+	}
+
+	caPEM, caKey, err := newCertificateAuthority()
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	serverCertPEM, serverKeyPEM, err := newLeafCertificate(caPEM, caKey, leafCertificateOptions{
+		commonName: "localhost",
+		dnsNames:   []string{"localhost"},
+		ipAddresses: []net.IP{
+			net.ParseIP("127.0.0.1"),
+			net.ParseIP("::1"),
+		},
+		keyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	clientCertPEM, clientKeyPEM, err := newLeafCertificate(caPEM, caKey, leafCertificateOptions{
+		commonName: principalID,
+		dnsNames:   []string{principalID},
+		keyUsages:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	})
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	for _, file := range []struct {
+		name string
+		data []byte
+		mode os.FileMode
+	}{
+		{"ca.crt", caPEM, 0o644},
+		{"server.crt", serverCertPEM, 0o644},
+		{"server.key", serverKeyPEM, 0o600},
+		{"client.crt", clientCertPEM, 0o644},
+		{"client.key", clientKeyPEM, 0o600},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, file.name), file.data, file.mode); err != nil {
+			return smokeCertificates{}, err
+		}
+	}
+
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(caPEM) {
+		return smokeCertificates{}, fmt.Errorf("generated CA certificate could not be parsed")
+	}
+
+	serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	return smokeCertificates{
+		clientCAs:  certPool,
+		serverCert: serverCert,
+	}, nil
+}
+
+func newCertificateAuthority() ([]byte, *ecdsa.PrivateKey, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), crypto_rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	template := baseCertificateTemplate("vectis-knox-smoke-ca")
+	template.IsCA = true
+	template.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature
+	template.BasicConstraintsValid = true
+
+	der, err := x509.CreateCertificate(crypto_rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), key, nil
+}
+
+type leafCertificateOptions struct {
+	commonName  string
+	dnsNames    []string
+	ipAddresses []net.IP
+	keyUsages   []x509.ExtKeyUsage
+}
+
+func newLeafCertificate(caPEM []byte, caKey *ecdsa.PrivateKey, opts leafCertificateOptions) ([]byte, []byte, error) {
+	block, _ := pem.Decode(caPEM)
+	if block == nil {
+		return nil, nil, fmt.Errorf("generated CA PEM could not be decoded")
+	}
+
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), crypto_rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	template := baseCertificateTemplate(opts.commonName)
+	template.KeyUsage = x509.KeyUsageDigitalSignature
+	template.ExtKeyUsage = opts.keyUsages
+	template.DNSNames = opts.dnsNames
+	template.IPAddresses = opts.ipAddresses
+
+	der, err := x509.CreateCertificate(crypto_rand.Reader, &template, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keyBytes, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes}),
+		nil
+}
+
+func baseCertificateTemplate(commonName string) x509.Certificate {
+	notBefore := time.Now().Add(-time.Minute)
+	notAfter := notBefore.Add(24 * time.Hour)
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := crypto_rand.Int(crypto_rand.Reader, serialNumberLimit)
+	if err != nil {
+		panic(err)
+	}
+
+	return x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+	}
 }
 
 func envDefault(key, fallback string) string {

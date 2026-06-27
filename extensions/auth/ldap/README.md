@@ -42,17 +42,25 @@ Grant roles to the mapped local users through Vectis role bindings.
 ## Real Service Smoke
 
 Provider unit tests use a fake LDAP connection. The real-service smoke exercises
-an actual OpenLDAP server with the same provider code used by `vectis-api`:
+an actual OpenLDAP server with the same provider code used by `vectis-api`, then
+runs an in-memory Vectis API login/session/token flow against that provider:
 
 ```sh
-make ldap-smoke-up
-make ldap-smoke-check
+make ldap-smoke
 ```
 
 `ldap-smoke-up` starts a local OpenLDAP container with a read-only bind user and
 a seeded login user from `extensions/auth/ldap/testdata/bootstrap`.
 `ldap-smoke-check` authenticates the seeded user, checks the mapped subject,
 username, and display name, and verifies that a wrong password is rejected.
+`ldap-api-smoke-check` completes API setup in an in-memory SQLite database, logs
+in through `POST /api/v1/login` with LDAP credentials, verifies the returned
+bearer token against an authenticated API endpoint, and verifies that a wrong
+LDAP password is rejected through the API path.
+
+Run `make ldap-smoke-check` for the provider-only check or
+`make ldap-api-smoke-check` when OpenLDAP is already running and only the API
+login path needs to be rechecked.
 
 Useful knobs:
 

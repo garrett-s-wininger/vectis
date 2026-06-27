@@ -25,6 +25,7 @@ type SmokeOptions struct {
 	AuthToken          string
 	AuthTokenFile      string
 	InsecureSkipVerify bool
+	CAFile             string
 	ClientCertFile     string
 	ClientKeyFile      string
 	Ref                string
@@ -84,6 +85,7 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.URL = strings.TrimSpace(opts.URL)
 	opts.AuthToken = strings.TrimSpace(opts.AuthToken)
 	opts.AuthTokenFile = strings.TrimSpace(opts.AuthTokenFile)
+	opts.CAFile = strings.TrimSpace(opts.CAFile)
 	opts.ClientCertFile = strings.TrimSpace(opts.ClientCertFile)
 	opts.ClientKeyFile = strings.TrimSpace(opts.ClientKeyFile)
 	opts.Ref = strings.TrimSpace(opts.Ref)
@@ -151,6 +153,7 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 		WithKnoxAuthToken(opts.AuthToken),
 		WithKnoxAuthTokenFile(opts.AuthTokenFile),
 		WithKnoxInsecureSkipVerify(opts.InsecureSkipVerify),
+		WithKnoxCAFile(opts.CAFile),
 		WithKnoxClientCertificateFiles(opts.ClientCertFile, opts.ClientKeyFile),
 	)
 
@@ -194,6 +197,7 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 			opts.URL,
 			WithKnoxAuthToken(opts.WrongAuthToken),
 			WithKnoxInsecureSkipVerify(opts.InsecureSkipVerify),
+			WithKnoxCAFile(opts.CAFile),
 			WithKnoxClientCertificateFiles(opts.ClientCertFile, opts.ClientKeyFile),
 		)
 
