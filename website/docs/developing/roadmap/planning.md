@@ -103,7 +103,7 @@ Before a major user-facing feature, answer yes to:
 
 These are not required before the next useful feature, but they remain part of the broader direction:
 
-- OIDC and LDAP integration.
+- OIDC integration and LDAP provider hardening beyond the first login-provider slice.
 - Production-grade Kubernetes variants beyond the initial single-cell reference manifest.
 - Autoscaling workers.
 - Frontend SPA.

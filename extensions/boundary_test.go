@@ -68,6 +68,10 @@ func TestCoreImportsArtifactProvidersOnlyAtCompositionPoints(t *testing.T) {
 	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/artifacts/", allowedArtifactProviderImportFile, "artifact storage providers")
 }
 
+func TestCoreImportsAuthProvidersOnlyAtCompositionPoints(t *testing.T) {
+	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/auth/", allowedAuthProviderImportFile, "auth providers")
+}
+
 func assertExtensionImportsOnlyAtCompositionPoints(t *testing.T, importPrefix string, allowFile func(string) bool, label string) {
 	t.Helper()
 
@@ -160,6 +164,20 @@ func allowedArtifactProviderImportFile(path string) bool {
 
 	switch path {
 	case "../cmd/artifact/main.go":
+		return true
+	default:
+		return false
+	}
+}
+
+func allowedAuthProviderImportFile(path string) bool {
+	path = filepath.ToSlash(path)
+	if strings.HasPrefix(path, "../extensions/auth/") {
+		return true
+	}
+
+	switch path {
+	case "../cmd/api/main.go":
 		return true
 	default:
 		return false

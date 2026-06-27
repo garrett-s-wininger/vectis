@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	apigen "vectis/api/gen/go"
+	ldapauth "vectis/extensions/auth/ldap"
 	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/action/actionconfig"
 	"vectis/internal/api"
@@ -27,6 +28,7 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/registry"
 	"vectis/internal/resolver"
+	sdkauth "vectis/sdk/auth"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -322,6 +324,24 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetCacheService(cacheService)
 	server.SetRateLimiter(ratelimit.NewCacheRateLimiter(cacheService))
 
+	ldapConfig := ldapauth.ConfigFromViper(viper.GetViper())
+	if ldapConfig.Enabled() {
+		if !config.APIAuthEnabled() {
+			logger.Warn("LDAP login provider is configured but API auth is disabled")
+		} else {
+			ldapProvider, err := ldapConfig.NewProvider()
+			if err != nil {
+				logger.Error("Invalid LDAP auth config: %v", err)
+				exitCode = 1
+				return
+			}
+
+			server.SetLoginProviders([]sdkauth.LoginProvider{ldapProvider})
+			server.SetExternalLoginAutoProvision(ldapConfig.AutoCreateUsers)
+			logger.Info("LDAP login provider enabled url=%s base_dn=%s auto_create_users=%t", ldapConfig.URL, ldapConfig.BaseDN, ldapConfig.AutoCreateUsers)
+		}
+	}
+
 	accessLogger, closeAccessLogger := buildAccessLogger(config.APILogFormat())
 	if closeAccessLogger != nil {
 		defer func() { _ = closeAccessLogger() }()
@@ -464,21 +484,22 @@ func init() {
 	rootCmd.PersistentFlags().String("tls-key-file", config.APIHTTPSKeyFile(), "Private key file for browser-facing HTTPS")
 	rootCmd.PersistentFlags().Duration("tls-reload-interval", config.APIHTTPSReloadInterval(), "How often to poll API HTTPS cert/key files for reload; 0 disables polling")
 	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
-
+	ldapauth.AddConfigFlags(rootCmd.PersistentFlags())
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("cell_ingress_endpoints", rootCmd.PersistentFlags().Lookup("cell-ingress-endpoint"))
 	_ = viper.BindPFlag("api.tls.cert_file", rootCmd.PersistentFlags().Lookup("tls-cert-file"))
 	_ = viper.BindPFlag("api.tls.key_file", rootCmd.PersistentFlags().Lookup("tls-key-file"))
 	_ = viper.BindPFlag("api.tls.reload_interval", rootCmd.PersistentFlags().Lookup("tls-reload-interval"))
+	mustBindAuthProviderConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
+	mustBindAuthProviderConfig(ldapauth.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
 	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
-	mustBindEncryptedFSConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
 
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()
 }
 
-func mustBindEncryptedFSConfig(err error) {
+func mustBindAuthProviderConfig(err error) {
 	if err != nil {
 		panic(err)
 	}

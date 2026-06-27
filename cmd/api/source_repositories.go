@@ -720,9 +720,9 @@ func configuredSourceRepositoryGitCredentials(ctx context.Context, rec dal.Sourc
 }
 
 func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourceRepositoryCredentialResolver, error) {
-	encryptedFSConfig := encryptedfs.ConfigFromViper(viper.GetViper())
-	root := strings.TrimSpace(encryptedFSConfig.Root)
-	keyFile := strings.TrimSpace(encryptedFSConfig.KeyFile)
+	cfg := encryptedfs.ConfigFromViper(viper.GetViper())
+	root := strings.TrimSpace(cfg.Root)
+	keyFile := strings.TrimSpace(cfg.KeyFile)
 	if root == "" && keyFile == "" {
 		return nil, nil //nolint:nilnil // A nil resolver means source repository credentials are disabled.
 	}
@@ -731,7 +731,7 @@ func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (
 		return nil, fmt.Errorf("source repository credentials require both %s and %s", encryptedfs.ConfigKeyRoot, encryptedfs.ConfigKeyKeyFile)
 	}
 
-	provider, err := encryptedFSConfig.NewProvider()
+	provider, err := cfg.NewProvider()
 	if err != nil {
 		return nil, fmt.Errorf("source repository credential provider: %w", err)
 	}

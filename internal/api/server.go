@@ -35,6 +35,7 @@ import (
 	"vectis/internal/queueclient"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/version"
+	sdkauth "vectis/sdk/auth"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -136,6 +137,13 @@ type APIServer struct {
 
 	// cacheService stores shared API sessions and rate-limit buckets.
 	cacheService cache.Service
+
+	// loginProviders authenticate external username/password login attempts.
+	loginProviders []sdkauth.LoginProvider
+
+	// externalLoginAutoProvision creates local Vectis users for successful
+	// external identities that do not already have a local user row.
+	externalLoginAutoProvision bool
 
 	// auditor, when set, logs audit events for auth operations.
 	auditor audit.Auditor
@@ -741,6 +749,18 @@ func (s *APIServer) SetCacheService(cacheService cache.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cacheService = cacheService
+}
+
+func (s *APIServer) SetLoginProviders(providers []sdkauth.LoginProvider) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loginProviders = append([]sdkauth.LoginProvider(nil), providers...)
+}
+
+func (s *APIServer) SetExternalLoginAutoProvision(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.externalLoginAutoProvision = enabled
 }
 
 func (s *APIServer) SetActionResolver(resolver action.Resolver) {

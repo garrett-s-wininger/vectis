@@ -13,8 +13,12 @@ import (
 	"time"
 
 	"vectis/internal/api/audit"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
+	sdkauth "vectis/sdk/auth"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestLogin_endToEnd(t *testing.T) {
@@ -285,6 +289,138 @@ func TestLogin_setupNotComplete(t *testing.T) {
 	if errResp.Code != string(apiErrSetupRequired) {
 		t.Fatalf("expected setup_required, got %q", errResp.Code)
 	}
+}
+
+func TestLogin_externalProvider(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	t.Run("auto_provisions_local_user", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=alice,ou=people,dc=example,dc=org",
+			Username: "alice",
+		}}
+
+		s.SetLoginProviders([]sdkauth.LoginProvider{provider})
+		s.SetExternalLoginAutoProvision(true)
+
+		out := postLoginForTest(t, h, map[string]any{
+			"username":     "alice",
+			"password":     "ldap-secret",
+			"return_token": true,
+		}, http.StatusOK)
+
+		if out.UserID == 0 || out.Token == "" {
+			t.Fatalf("bad login response: %+v", out)
+		}
+
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM local_users WHERE username = 'alice'`).Scan(&count); err != nil {
+			t.Fatalf("count alice user: %v", err)
+		}
+
+		if count != 1 {
+			t.Fatalf("alice user count = %d, want 1", count)
+		}
+	})
+
+	t.Run("reuses_existing_local_user", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		localUserID, err := s.authRepo.CreateLocalUser(context.Background(), "dana", string(passHash))
+		if err != nil {
+			t.Fatalf("CreateLocalUser: %v", err)
+		}
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=dana,ou=people,dc=example,dc=org",
+			Username: "dana",
+		}}
+
+		s.SetLoginProviders([]sdkauth.LoginProvider{provider})
+		out := postLoginForTest(t, h, map[string]any{
+			"username": "dana",
+			"password": "ldap-secret",
+		}, http.StatusOK)
+
+		if out.UserID != localUserID {
+			t.Fatalf("UserID = %d, want %d", out.UserID, localUserID)
+		}
+	})
+
+	t.Run("requires_local_user_without_auto_provision", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=bob,ou=people,dc=example,dc=org",
+			Username: "bob",
+		}}
+
+		s.SetLoginProviders([]sdkauth.LoginProvider{provider})
+		postLoginForTest(t, h, map[string]any{
+			"username": "bob",
+			"password": "ldap-secret",
+		}, http.StatusUnauthorized)
+	})
+
+	t.Run("provider_unavailable", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		s.SetLoginProviders([]sdkauth.LoginProvider{&fakeLoginProvider{err: sdkauth.ErrUnavailable}})
+
+		postLoginForTest(t, h, map[string]any{
+			"username": "erin",
+			"password": "ldap-secret",
+		}, http.StatusServiceUnavailable)
+	})
+
+	t.Run("auto_provision_conflict_with_disabled_user_is_rejected", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		s.authRepo = &conflictDisabledAuthRepo{AuthRepository: s.authRepo}
+		s.SetLoginProviders([]sdkauth.LoginProvider{&fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=casey,ou=people,dc=example,dc=org",
+			Username: "casey",
+		}}})
+
+		s.SetExternalLoginAutoProvision(true)
+
+		postLoginForTest(t, h, map[string]any{
+			"username": "casey",
+			"password": "ldap-secret",
+		}, http.StatusUnauthorized)
+	})
 }
 
 func TestLogin_sessionSharedAcrossAPIServers(t *testing.T) {
@@ -833,4 +969,77 @@ func TestLogin_authDisabled(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+func completeLoginTestSetup(t *testing.T, h http.Handler) {
+	t.Helper()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(setupBody)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func postLoginForTest(t *testing.T, h http.Handler, body map[string]any, wantStatus int) loginResponse {
+	t.Helper()
+
+	b, _ := json.Marshal(body)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != wantStatus {
+		t.Fatalf("login status=%d want %d body=%s", rec.Code, wantStatus, rec.Body.String())
+	}
+
+	if wantStatus != http.StatusOK {
+		return loginResponse{}
+	}
+
+	var out loginResponse
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	return out
+}
+
+type fakeLoginProvider struct {
+	identity sdkauth.Identity
+	err      error
+}
+
+func (p *fakeLoginProvider) Authenticate(context.Context, string, string) (sdkauth.Identity, error) {
+	if p.err != nil {
+		return sdkauth.Identity{}, p.err
+	}
+
+	return p.identity, nil
+}
+
+type conflictDisabledAuthRepo struct {
+	dal.AuthRepository
+}
+
+func (r *conflictDisabledAuthRepo) CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error) {
+	id, err := r.AuthRepository.CreateLocalUser(ctx, username, passwordHash)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := r.AuthRepository.UpdateLocalUserEnabled(ctx, id, false); err != nil {
+		return 0, err
+	}
+
+	return 0, fmt.Errorf("%w: injected disabled user conflict", dal.ErrConflict)
 }

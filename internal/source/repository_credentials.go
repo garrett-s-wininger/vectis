@@ -39,12 +39,9 @@ func NewRepositoryCredentialResolverFromSecrets(resolver secrets.Resolver) Repos
 				JobID: "source-repository:" + strings.TrimSpace(rec.RepositoryID),
 			},
 			Secrets: []secrets.Reference{{
-				ID:  "git-credential",
-				Ref: ref,
-				Delivery: secrets.Delivery{
-					Type: secrets.DeliveryTypeFile,
-					Path: "git-credential",
-				},
+				ID:       "git-credential",
+				Ref:      ref,
+				Delivery: secrets.Delivery{Type: secrets.DeliveryTypeFile, Path: "git-credential"},
 			}},
 		})
 

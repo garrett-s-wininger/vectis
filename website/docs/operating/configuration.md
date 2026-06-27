@@ -171,12 +171,25 @@ Standalone API authentication is off by default. `vectis-local` enables HTTP API
 | `VECTIS_API_AUTH_BOOTSTRAP_TOKEN` / `api.auth.bootstrap_token` | Shared secret for `POST /api/v1/setup/complete` on a new database. Must be at least 16 characters until setup is recorded in the database. |
 | `VECTIS_API_AUTHZ_ENGINE` / `api.authz.engine` | Selects authorization policy: `hierarchical_rbac` by default, or `authenticated_full` for simpler trusted setups. |
 | `VECTIS_API_ALLOWED_HOSTS` / `api.host_validation.allowed_hosts` | Comma-separated exact Host header allowlist for the browser-facing API. Defaults to the API listen host plus loopback names; configure external DNS names when serving behind an ingress or binding to `0.0.0.0`. |
+| `VECTIS_API_AUTH_LDAP_URL` / `api.auth.ldap.url` | Enables the LDAP login provider when paired with `base_dn`, for example `ldap://openldap:389` or `ldaps://ldap.example.org:636`. |
+| `VECTIS_API_AUTH_LDAP_BIND_DN` / `api.auth.ldap.bind_dn` | Optional LDAP service-account DN used before user search. |
+| `VECTIS_API_AUTH_LDAP_BIND_PASSWORD_FILE` / `api.auth.ldap.bind_password_file` | File containing the LDAP service-account password. Prefer this over `VECTIS_API_AUTH_LDAP_BIND_PASSWORD`. |
+| `VECTIS_API_AUTH_LDAP_BASE_DN` / `api.auth.ldap.base_dn` | Base DN for user search, such as `ou=people,dc=example,dc=org`. |
+| `VECTIS_API_AUTH_LDAP_USER_FILTER` / `api.auth.ldap.user_filter` | User search filter. Defaults to `(uid={username})`; `{username}` is LDAP-filter escaped. |
+| `VECTIS_API_AUTH_LDAP_USERNAME_ATTRIBUTE` / `api.auth.ldap.username_attribute` | LDAP attribute mapped to the Vectis local username. Defaults to `uid`. |
+| `VECTIS_API_AUTH_LDAP_AUTO_CREATE_USERS` / `api.auth.ldap.auto_create_users` | When `true`, successful LDAP logins create missing local Vectis user rows. Defaults to `false`; pre-create users when you want explicit provisioning. |
 
 `vectis-cli login` calls `POST /api/v1/login` and saves the returned token in the OS user config directory. You can override the saved token for one shell session with:
 
 ```sh
 export VECTIS_API_TOKEN=<token>
 ```
+
+LDAP login is additive to local username/password login. After LDAP authenticates
+a user, Vectis maps the LDAP username attribute to a local user row and uses that
+local user ID for sessions, API tokens, role bindings, and audit actor IDs.
+LDAP groups do not grant Vectis roles in this slice; assign roles through Vectis
+role bindings.
 
 For the auth model and operational posture, see [Security](../concepts/security.md). For CLI auth commands, see [CLI Guide](../using/cli-guide.md).
 
