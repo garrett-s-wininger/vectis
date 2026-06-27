@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
 	"vectis/internal/config"
@@ -17,7 +18,6 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/platform"
 	"vectis/internal/registry"
-	"vectis/internal/secrets"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/workercore"
 	workersdk "vectis/sdk/workercore"
@@ -293,17 +293,18 @@ func workerCoreSourceRepositoryCredentials(ctx context.Context, decl config.Sour
 }
 
 func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourcepkg.RepositoryCredentialResolver, error) {
-	root := strings.TrimSpace(config.SecretsEncryptedFSRoot())
-	keyFile := strings.TrimSpace(config.SecretsEncryptedFSKeyFile())
+	encryptedFSConfig := encryptedfs.ConfigFromViper(viper.GetViper())
+	root := strings.TrimSpace(encryptedFSConfig.Root)
+	keyFile := strings.TrimSpace(encryptedFSConfig.KeyFile)
 	if root == "" && keyFile == "" {
 		return nil, nil
 	}
 
 	if root == "" || keyFile == "" {
-		return nil, fmt.Errorf("source repository credentials require both secrets.encryptedfs.root and secrets.encryptedfs.key_file")
+		return nil, fmt.Errorf("source repository credentials require both %s and %s", encryptedfs.ConfigKeyRoot, encryptedfs.ConfigKeyKeyFile)
 	}
 
-	provider, err := secrets.NewEncryptedFSProvider(root, secrets.WithEncryptedFSKeyFile(keyFile))
+	provider, err := encryptedFSConfig.NewProvider()
 	if err != nil {
 		return nil, fmt.Errorf("source repository credential provider: %w", err)
 	}
@@ -390,6 +391,7 @@ func init() {
 	rootCmd.PersistentFlags().String("lima-guest-workspace-root", "", "Guest-side parent directory for Lima workspaces")
 	rootCmd.PersistentFlags().Bool("lima-start", false, "Start the Lima instance before each command when --execution-backend=lima")
 	rootCmd.PersistentFlags().Bool("lima-preserve-env", false, "Preserve host environment variables in Lima shell commands")
+	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
 
 	_ = viper.BindPFlag("socket", rootCmd.PersistentFlags().Lookup("socket"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
@@ -406,9 +408,16 @@ func init() {
 	_ = viper.BindPFlag("lima_guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))
 	_ = viper.BindPFlag("lima_start", rootCmd.PersistentFlags().Lookup("lima-start"))
 	_ = viper.BindPFlag("lima_preserve_env", rootCmd.PersistentFlags().Lookup("lima-preserve-env"))
+	mustBindEncryptedFSConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
 
 	viper.SetEnvPrefix("VECTIS_WORKER_CORE")
 	viper.AutomaticEnv()
+}
+
+func mustBindEncryptedFSConfig(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func main() {

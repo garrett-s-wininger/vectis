@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"github.com/spf13/viper"
 
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -718,17 +720,18 @@ func configuredSourceRepositoryGitCredentials(ctx context.Context, rec dal.Sourc
 }
 
 func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourceRepositoryCredentialResolver, error) {
-	root := strings.TrimSpace(config.SecretsEncryptedFSRoot())
-	keyFile := strings.TrimSpace(config.SecretsEncryptedFSKeyFile())
+	encryptedFSConfig := encryptedfs.ConfigFromViper(viper.GetViper())
+	root := strings.TrimSpace(encryptedFSConfig.Root)
+	keyFile := strings.TrimSpace(encryptedFSConfig.KeyFile)
 	if root == "" && keyFile == "" {
 		return nil, nil //nolint:nilnil // A nil resolver means source repository credentials are disabled.
 	}
 
 	if root == "" || keyFile == "" {
-		return nil, fmt.Errorf("source repository credentials require both secrets.encryptedfs.root and secrets.encryptedfs.key_file")
+		return nil, fmt.Errorf("source repository credentials require both %s and %s", encryptedfs.ConfigKeyRoot, encryptedfs.ConfigKeyKeyFile)
 	}
 
-	provider, err := secrets.NewEncryptedFSProvider(root, secrets.WithEncryptedFSKeyFile(keyFile))
+	provider, err := encryptedFSConfig.NewProvider()
 	if err != nil {
 		return nil, fmt.Errorf("source repository credential provider: %w", err)
 	}

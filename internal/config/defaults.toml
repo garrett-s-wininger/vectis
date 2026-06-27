@@ -106,6 +106,7 @@ register_with_registry = true
 advertise_address = ""
 
 [artifact]
+storage_backend = "local"
 metrics_host = "localhost"
 metrics_port = 9089
 storage_read_only_min_free_bytes = 1073741824

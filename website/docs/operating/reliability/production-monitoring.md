@@ -40,7 +40,7 @@ For exact metric names, labels, and interpretation, see the
 | Workers | Jobs received, job duration/outcomes, worker lifecycle/drain state, DB unavailable state, orchestrator recovery count, and SPIFFE SVID check outcomes when enabled. |
 | Orchestrator | gRPC health, claim/renew/complete pressure through worker/retry signals, and process availability. |
 | Logs | Append failures, shard route failures, memory/subscriber drops, chunk ingest rate, storage read-only state, and log-forwarder spool age/size where used. |
-| Artifacts | Upload failures through worker/run outcomes, local CAS blob/byte/free-space gauges, writable state, and artifact service process health. |
+| Artifacts | Upload failures through worker/run outcomes, artifact blob/byte gauges, local filesystem free-space gauges where applicable, writable state, artifact service process health, and S3-compatible object-store health when that backend is used. |
 | Cron | Due schedule backlog, schedule-to-run latency where available, cron claim failures through service logs, and repeated dispatch attempts. |
 | Catalog | Per-cell fan-in read/copy/backfill counts, pending/failed inbox counts, and global catalog apply progress. |
 | Secrets | Resolve request totals/duration by outcome/reason/provider, encryptedfs storage health, Knox reachability when enabled, and worker SVID gate failures. |
@@ -100,7 +100,7 @@ At handoff, dashboards should show:
 - worker throughput, duration, failure ratio, lifecycle/drain state, and SVID gate outcomes;
 - reconciler reenqueue and task repair outcomes;
 - log append failures, drops, route failures, and forwarder spool backlog;
-- artifact storage bytes, free bytes/inodes, blob count, and writable state;
+- artifact storage bytes, blob count, writable state, local free bytes/inodes where applicable, and S3-compatible object-store health when that backend is used;
 - PostgreSQL pool pressure from Vectis plus database-platform health;
 - retention surfaces, oldest retained record age, retained evidence age, storage verification status, and waiver expiry;
 - host disk and inode pressure for all configured durable paths.
@@ -116,7 +116,7 @@ with thresholds, ownership, and runbook links tuned for the environment.
 | No direct queued-run-age metric yet. | Use `vectis-cli health check`, stuck-run checks, dispatch events, queue backlog alerts, and reconciler outcomes together. |
 | Non-API dispatch failure counters are partial. | Correlate API enqueue outcomes, reconciler metrics, per-run dispatch events, and service logs. |
 | No rate-limit accepted metric yet. | Use rejection metrics for denied traffic, plus edge/API access logs and HTTP status monitoring for accepted traffic. |
-| File-backed queue/log/artifact/spool pressure needs host telemetry. | Monitor the configured paths directly for free bytes, inodes, and latency. |
+| File-backed queue/log/artifact/spool pressure needs host telemetry. | Monitor the configured paths directly for free bytes, inodes, and latency. For S3-compatible artifact storage, monitor bucket/object-store availability, latency, lifecycle, and provider-side capacity separately. |
 | Retained evidence freshness is textfile-collected. | Run `vectis-cli retention evidence metrics` after scheduled cleanup, backup verification, restore-validation, audit export, hold review, or waiver changes, then scrape the generated `.prom` file through platform telemetry. |
 | Dashboard panels are not yet annotated with runbook links by default. | Put runbook URLs in production alert annotations and dashboard panel descriptions. |
 | Orchestrator hot-state pressure is mostly indirect. | Watch worker claim/renew/complete failures, retry exhaustion, worker orchestrator recoveries, queue backlog after task completions, and orchestrator process health. |

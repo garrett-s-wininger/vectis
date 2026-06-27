@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 )
 
 func TestSecretsReferenceMentionsContractConstants(t *testing.T) {
@@ -29,8 +31,8 @@ func TestSecretsReferenceMentionsContractConstants(t *testing.T) {
 		WorkspaceSecretsDir,
 		"VECTIS_SECRETS_DIR",
 		fmt.Sprintf("%04o", DefaultFileMode.Perm()),
-		EncryptedFSScheme,
-		fmt.Sprintf("%d", EncryptedFSKeySize),
+		encryptedfs.EncryptedFSScheme,
+		fmt.Sprintf("%d", encryptedfs.EncryptedFSKeySize),
 		fmt.Sprintf("%d", DefaultMaxSecretBytes),
 		"AES-256-GCM",
 		"ResolveSecrets",
@@ -51,10 +53,10 @@ func TestSecretsReferenceMentionsContractConstants(t *testing.T) {
 		"secret_ref",
 		"worker.secrets.address",
 		"VECTIS_WORKER_SECRETS_ADDRESS",
-		"secrets.encryptedfs.root",
-		"VECTIS_SECRETS_ENCRYPTEDFS_ROOT",
-		"secrets.encryptedfs.key_file",
-		"VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE",
+		"secrets.providers.encryptedfs.root",
+		"VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_ROOT",
+		"secrets.providers.encryptedfs.key_file",
+		"VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE",
 		"secrets.policy.allow",
 		"VECTIS_SECRETS_POLICY_ALLOW",
 		"worker.execution_identity.enabled",

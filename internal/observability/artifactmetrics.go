@@ -65,8 +65,14 @@ func RegisterArtifactStorageMetrics(store artifactStorageStatsProvider) error {
 
 		o.ObserveInt64(blobsG, stats.BlobFiles)
 		o.ObserveInt64(bytesG, stats.BlobBytes)
-		o.ObserveInt64(freeBytesG, int64FromUint64ForGauge(stats.FreeBytes))
-		o.ObserveInt64(freeInodesG, int64FromUint64ForGauge(stats.FreeInodes))
+		if stats.FreeBytesKnown {
+			o.ObserveInt64(freeBytesG, int64FromUint64ForGauge(stats.FreeBytes))
+		}
+
+		if stats.FreeInodesKnown {
+			o.ObserveInt64(freeInodesG, int64FromUint64ForGauge(stats.FreeInodes))
+		}
+
 		writable := int64(0)
 		if stats.NewBlobWritable {
 			writable = 1

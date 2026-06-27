@@ -109,12 +109,12 @@ The first implementation should reject oversized artifacts, record producer iden
 - Local development and single-node deployments get artifact support without external object storage.
 - Content addressing gives deduplication, idempotent uploads, and a clean future migration path to object stores.
 - Artifact availability depends on the owning shard and cell unless a later replication design changes that.
-- SQL backup captures artifact metadata, but operators must also back up artifact storage directories when artifact bytes matter.
+- SQL backup captures artifact metadata, but operators must also back up local artifact storage directories or preserve object-store buckets when artifact bytes matter.
 - Retention must handle two phases: metadata removal and CAS garbage collection.
 
 ## Deferred
 
-- S3/GCS/Azure backends
+- GCS/Azure backends; S3-compatible storage is available as a standard extension provider.
 - Cross-cell replication
 - Signed direct download URLs
 - Resumable multipart upload

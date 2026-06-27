@@ -27,6 +27,7 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 	"vectis/api/gen/go"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/retention"
 	"vectis/internal/testutil/socktest"
 )
@@ -6191,8 +6192,8 @@ func TestDoctorEncryptedFSFiles_validConfiguredFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", root)
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", keyFile)
+	t.Setenv(encryptedfs.EnvRoot, root)
+	t.Setenv(encryptedfs.EnvKeyFile, keyFile)
 
 	check := doctorEncryptedFSFiles()
 	if check.Status != doctorOK {
@@ -6207,7 +6208,7 @@ func TestDoctorEncryptedFSFiles_validConfiguredFiles(t *testing.T) {
 }
 
 func TestDoctorEncryptedFSFiles_warnsForPartialConfig(t *testing.T) {
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", t.TempDir())
+	t.Setenv(encryptedfs.EnvRoot, t.TempDir())
 
 	check := doctorEncryptedFSFiles()
 	if check.Status != doctorWarn {
@@ -6627,6 +6628,18 @@ func TestDoctorFilesystemPressure_existingWritableDirectory(t *testing.T) {
 
 	if !strings.Contains(check.Evidence, "path="+dir) {
 		t.Fatalf("expected path evidence, got %q", check.Evidence)
+	}
+}
+
+func TestDoctorArtifactFilesystemCheck_skipsForS3Backend(t *testing.T) {
+	t.Setenv("VECTIS_ARTIFACT_STORAGE_BACKEND", "s3")
+
+	check := doctorArtifactFilesystemCheck()
+	if check.Status != doctorOK {
+		t.Fatalf("expected artifact filesystem check to pass, got %#v", check)
+	}
+	if !strings.Contains(check.Summary, "backend is s3") {
+		t.Fatalf("expected s3 skip summary, got %q", check.Summary)
 	}
 }
 

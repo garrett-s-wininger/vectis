@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -853,7 +854,9 @@ func TestSourceRepositoryCredentialResolverUsesSecretsResolver(t *testing.T) {
 
 	if len(secretResolver.req.Secrets) != 1 ||
 		secretResolver.req.Secrets[0].ID != "git-credential" ||
-		secretResolver.req.Secrets[0].Ref != "secret://git/private-repo" {
+		secretResolver.req.Secrets[0].Ref != "secret://git/private-repo" ||
+		secretResolver.req.Secrets[0].Delivery.Type != secrets.DeliveryTypeFile ||
+		secretResolver.req.Secrets[0].Delivery.Path != "git-credential" {
 		t.Fatalf("secret request = %+v", secretResolver.req.Secrets)
 	}
 }
@@ -861,8 +864,8 @@ func TestSourceRepositoryCredentialResolverUsesSecretsResolver(t *testing.T) {
 func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", "")
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", "")
+	t.Setenv(encryptedfs.EnvRoot, "")
+	t.Setenv(encryptedfs.EnvKeyFile, "")
 
 	root := t.TempDir()
 	key := []byte("0123456789abcdef0123456789abcdef")
@@ -872,12 +875,12 @@ func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.
 	}
 
 	ref := "encryptedfs://git/private-repo"
-	if err := secrets.WriteEncryptedFSSecretFile(root, ref, []byte(`{"username":"oauth2","token":"ghp_private"}`), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(root, ref, []byte(`{"username":"oauth2","token":"ghp_private"}`), key); err != nil {
 		t.Fatalf("write encrypted source credential: %v", err)
 	}
 
-	viper.Set("secrets.encryptedfs.root", root)
-	viper.Set("secrets.encryptedfs.key_file", keyFile)
+	viper.Set(encryptedfs.ConfigKeyRoot, root)
+	viper.Set(encryptedfs.ConfigKeyKeyFile, keyFile)
 	resolver, err := newConfiguredSourceRepositoryCredentialResolver(nil)
 	if err != nil {
 		t.Fatalf("new credential resolver: %v", err)
@@ -902,7 +905,7 @@ func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.
 
 	sshRef := "encryptedfs://git/private-repo-ssh"
 	sshPrivateKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----"
-	if err := secrets.WriteEncryptedFSSecretFile(root, sshRef, []byte(`{"ssh_private_key":"-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----","known_hosts":"git.example ssh-ed25519 AAAA"}`), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(root, sshRef, []byte(`{"ssh_private_key":"-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----","known_hosts":"git.example ssh-ed25519 AAAA"}`), key); err != nil {
 		t.Fatalf("write encrypted source SSH credential: %v", err)
 	}
 

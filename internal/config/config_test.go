@@ -554,6 +554,10 @@ func TestArtifactConfig_DefaultAndOverride(t *testing.T) {
 		t.Fatalf("ArtifactStorageReadOnlyMinFreeBytes default: got %d", got)
 	}
 
+	if got := ArtifactStorageBackend(); got != "local" {
+		t.Fatalf("ArtifactStorageBackend default: got %q", got)
+	}
+
 	if !ArtifactRegisterWithRegistry() {
 		t.Fatal("ArtifactRegisterWithRegistry default: got false, want true")
 	}
@@ -562,6 +566,7 @@ func TestArtifactConfig_DefaultAndOverride(t *testing.T) {
 	viper.Set("metrics_host", "127.0.0.1")
 	viper.Set("metrics_port", 19089)
 	viper.Set("storage_read_only_min_free_bytes", uint64(2048))
+	viper.Set("storage_backend", "S3")
 	viper.Set("artifact.grpc.register_with_registry", false)
 	viper.Set("artifact.grpc.advertise_address", "artifact.local:8086")
 	viper.Set("artifact.registry.address", "registry.local:8082")
@@ -577,6 +582,10 @@ func TestArtifactConfig_DefaultAndOverride(t *testing.T) {
 
 	if got := ArtifactStorageReadOnlyMinFreeBytes(); got != 2048 {
 		t.Fatalf("ArtifactStorageReadOnlyMinFreeBytes override: got %d", got)
+	}
+
+	if got := ArtifactStorageBackend(); got != "s3" {
+		t.Fatalf("ArtifactStorageBackend override: got %q", got)
 	}
 
 	if ArtifactRegisterWithRegistry() {

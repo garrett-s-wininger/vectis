@@ -201,6 +201,7 @@ type LogDefaults struct {
 }
 
 type ArtifactDefaults struct {
+	StorageBackend              string       `toml:"storage_backend"`
 	MetricsHost                 string       `toml:"metrics_host"`
 	MetricsPort                 int          `toml:"metrics_port"`
 	StorageReadOnlyMinFreeBytes uint64       `toml:"storage_read_only_min_free_bytes"`
@@ -631,6 +632,10 @@ func validateDefaults(d Defaults) {
 
 	if d.Log.MetricsPort == d.Queue.MetricsPort || d.Log.MetricsPort == d.Worker.MetricsPort {
 		panic("config defaults: log.metrics_port must differ from queue.metrics_port and worker.metrics_port")
+	}
+
+	if backend := strings.ToLower(strings.TrimSpace(d.Artifact.StorageBackend)); backend != "local" {
+		panic("config defaults: artifact.storage_backend must be local")
 	}
 
 	validateHost(d.LogForwarder.MetricsHost, "log_forwarder.metrics_host")
@@ -1780,6 +1785,27 @@ func ArtifactStorageReadOnlyMinFreeBytes() uint64 {
 	}
 
 	return MustDefaults().Artifact.StorageReadOnlyMinFreeBytes
+}
+
+func ArtifactStorageBackend() string {
+	if viper.IsSet("storage_backend") {
+		if backend := strings.ToLower(strings.TrimSpace(viper.GetString("storage_backend"))); backend != "" {
+			return backend
+		}
+	}
+
+	if viper.IsSet("artifact.storage_backend") {
+		if backend := strings.ToLower(strings.TrimSpace(viper.GetString("artifact.storage_backend"))); backend != "" {
+			return backend
+		}
+	}
+
+	backend := strings.ToLower(strings.TrimSpace(MustDefaults().Artifact.StorageBackend))
+	if backend == "" {
+		return "local"
+	}
+
+	return backend
 }
 
 func APIListenAddr() string {

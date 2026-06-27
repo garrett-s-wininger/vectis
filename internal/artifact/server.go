@@ -7,6 +7,7 @@ import (
 	"io"
 
 	api "vectis/api/gen/go"
+	sdkartifact "vectis/sdk/artifact"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,11 +15,7 @@ import (
 
 const defaultReadBlobChunkBytes = defaultArtifactChunkBytes
 
-type Store interface {
-	Put(context.Context, io.Reader, PutOptions) (BlobDescriptor, error)
-	Stat(context.Context, string) (BlobDescriptor, error)
-	Open(context.Context, string) (BlobDescriptor, io.ReadCloser, error)
-}
+type Store = sdkartifact.Store
 
 type ServerOptions struct {
 	ReadBlobChunkBytes int

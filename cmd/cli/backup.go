@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	linuxdeploy "vectis/deploy/linux"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/artifact"
 	"vectis/internal/config"
 	"vectis/internal/database"
@@ -1005,14 +1006,14 @@ func backupLinuxExpectedTopology(manifest linuxdeploy.Manifest) backupExpectedTo
 	}
 
 	if env, ok := backupLinuxUnitEnv(manifest, "secrets"); ok {
-		if path := strings.TrimSpace(env["VECTIS_SECRETS_ENCRYPTEDFS_ROOT"]); path != "" {
+		if path := strings.TrimSpace(env[encryptedfs.EnvRoot]); path != "" {
 			expected.Paths = append(expected.Paths, backupExpectedPath{
 				Category: "secret_stores",
 				ID:       "secrets.encryptedfs.root",
 				Path:     path,
 			})
 		}
-		if path := strings.TrimSpace(env["VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE"]); path != "" {
+		if path := strings.TrimSpace(env[encryptedfs.EnvKeyFile]); path != "" {
 			expected.Paths = append(expected.Paths, backupExpectedPath{
 				Category: "secret_stores",
 				ID:       "secrets.encryptedfs.key_file",
@@ -1894,13 +1895,13 @@ func backupSanitizeQueuePathComponent(value string) string {
 
 func backupSecretStorePaths() []backupPathInventory {
 	paths := []backupPathInventory{}
-	root := backupEnvOrDefault("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", config.SecretsEncryptedFSRoot())
-	keyFile := backupEnvOrDefault("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", config.SecretsEncryptedFSKeyFile())
+	root := backupEnvOrDefault(encryptedfs.EnvRoot, "")
+	keyFile := backupEnvOrDefault(encryptedfs.EnvKeyFile, "")
 	if root != "" {
-		paths = append(paths, backupPath("secrets.encryptedfs.root", "directory", root, backupPathSource("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", "config/default"), true, "Back up encrypted secret envelopes."))
+		paths = append(paths, backupPath("secrets.encryptedfs.root", "directory", root, backupPathSource(encryptedfs.EnvRoot, "extension config"), true, "Back up encrypted secret envelopes."))
 	}
 	if keyFile != "" {
-		paths = append(paths, backupPath("secrets.encryptedfs.key_file", "file", keyFile, backupPathSource("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", "config/default"), true, "Back up provider key material separately with secret-handling controls."))
+		paths = append(paths, backupPath("secrets.encryptedfs.key_file", "file", keyFile, backupPathSource(encryptedfs.EnvKeyFile, "extension config"), true, "Back up provider key material separately with secret-handling controls."))
 	}
 	return paths
 }

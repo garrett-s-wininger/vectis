@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/viper"
 
 	api "vectis/api/gen/go"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/action"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
@@ -142,10 +143,8 @@ func TestWorkerCorePersistentCheckoutCacheRemotesRequireCredentialResolver(t *te
 		}
 	]`)
 
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", "")
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", "")
-	t.Setenv("VECTIS_WORKER_CORE_ENCRYPTEDFS_ROOT", "")
-	t.Setenv("VECTIS_WORKER_CORE_ENCRYPTEDFS_KEY_FILE", "")
+	t.Setenv(encryptedfs.EnvRoot, "")
+	t.Setenv(encryptedfs.EnvKeyFile, "")
 
 	_, err := workerCorePersistentCheckoutCacheRemotes()
 	if err == nil || !strings.Contains(err.Error(), "credential_ref") {

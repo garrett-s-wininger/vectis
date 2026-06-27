@@ -115,6 +115,7 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | `log.grpc.advertise_address` | `""` | Log gRPC address advertised through registry. |
 | `artifact.metrics_host` | `localhost` | Artifact metrics bind host. |
 | `artifact.metrics_port` | `9089` | Artifact metrics port. |
+| `artifact.storage_backend` | `local` | Artifact blob storage backend; `local` stores blobs on the artifact service filesystem. |
 | `artifact.storage_read_only_min_free_bytes` | `1073741824` | Free-byte floor before artifact storage turns read-only. |
 | `artifact.grpc.port` | `8086` | Artifact gRPC port. |
 | `artifact.grpc.register_with_registry` | `true` | Registers artifact gRPC endpoint with the registry. |
@@ -129,12 +130,12 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | `secrets.port` | `8090` | Secrets gRPC port. |
 | `secrets.metrics_host` | `localhost` | Secrets metrics bind host. |
 | `secrets.metrics_port` | `9091` | Secrets metrics port. |
-| `secrets.encryptedfs.root` | `""` | Root directory for encryptedfs secret envelopes. |
-| `secrets.encryptedfs.key_file` | `""` | Key file for encryptedfs envelopes. |
-| `secrets.knox.url` | `""` | Knox base URL for external secret resolution. |
-| `secrets.knox.auth_token_file` | `""` | File containing the Knox bearer token. |
-| `secrets.knox.auth_token` | `""` | Knox bearer token value; prefer `secrets.knox.auth_token_file` for production. |
-| `secrets.knox.insecure_skip_verify` | `false` | Skips Knox TLS certificate verification; development only. |
+| `secrets.providers.encryptedfs.root` | `""` | Root directory for encryptedfs secret envelopes. |
+| `secrets.providers.encryptedfs.key_file` | `""` | Key file for encryptedfs envelopes. |
+| `secrets.providers.knox.url` | `""` | Knox base URL for external secret resolution. |
+| `secrets.providers.knox.auth_token_file` | `""` | File containing the Knox bearer token. |
+| `secrets.providers.knox.auth_token` | `""` | Knox bearer token value; prefer `secrets.providers.knox.auth_token_file` for production. |
+| `secrets.providers.knox.insecure_skip_verify` | `false` | Skips Knox TLS certificate verification; development only. |
 | `secrets.policy.allow` | `[]` | Default-deny secret policy allow rules. |
 | `action_registry.local_roots` | `[]` | Local custom action manifest roots. |
 | `action_registry.allowed_namespaces` | `[]` | Optional custom action namespace allowlist. |

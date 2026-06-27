@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/database"
 	"vectis/internal/storageverify"
 )
@@ -63,8 +64,8 @@ func TestBackupInventoryJSONIncludesRedactedLocalEvidence(t *testing.T) {
 	t.Setenv("VECTIS_ARTIFACT_STORAGE_DIR", artifactDir)
 	t.Setenv("VECTIS_LOG_FORWARDER_SPOOL_DIR", spoolDir)
 	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", sourceRoot)
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", secretRoot)
-	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", keyFile)
+	t.Setenv(encryptedfs.EnvRoot, secretRoot)
+	t.Setenv(encryptedfs.EnvKeyFile, keyFile)
 	t.Setenv("VECTIS_GRPC_TLS_CERT_FILE", tlsCert)
 
 	var buf bytes.Buffer

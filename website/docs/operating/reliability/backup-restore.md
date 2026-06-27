@@ -185,7 +185,7 @@ Prefer backups that capture these pieces close together:
 
 1. SQL database.
 2. Queue persistence directory.
-3. Log storage, artifact storage, job secret store, and log-forwarder spools.
+3. Log storage, artifact storage directories or object-store buckets, job secret store, and log-forwarder spools.
 4. Deployment secrets, TLS material, config, and manifests.
 5. Observability rules and dashboards.
 
@@ -222,7 +222,7 @@ Recommended drill flow:
 4. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
 5. Restore config, secrets, TLS material, and manifests before starting services.
 6. Restore PostgreSQL through the database platform's documented process.
-7. Restore queue persistence, log storage, artifact storage, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
+7. Restore queue persistence, log storage, artifact storage directories or object-store buckets, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
 8. Run `vectis-cli storage verify --format json` against the restored file stores before starting services, then rerun `backup verify` with the restored storage reports attached.
 9. Run migrations against every restored database.
 10. Start services in dependency order.
@@ -243,7 +243,7 @@ Restore in dependency order, then start services in dependency order.
 2. Restore deployment config, secrets, and TLS material to the same paths or update environment variables before starting services.
 3. Restore the SQL database.
 4. Run `vectis-cli database migrate` for each restored SQL database using the same `VECTIS_DATABASE_DRIVER` and DSN settings that services will use.
-5. Restore queue persistence, log storage, artifact storage, and job secret store when available.
+5. Restore queue persistence, log storage, artifact storage directories or object-store buckets, and job secret store when available.
 6. Restore log-forwarder spools on worker hosts if they are part of the backup set.
 7. Start registry, queue, orchestrator, log, artifact, spiffe, and secrets first; then cell ingress, API, worker-core, workers, cron, reconciler, catalog, and log-forwarder.
 8. Run the restore smoke test below.
@@ -259,7 +259,7 @@ Use this table when a restore cannot use one clean backup point.
 | Database restored, queue persistence missing | Runs may be `queued` in the database but absent from the queue | Run `vectis-reconciler`; use manual run retry only after checking reconciler failures |
 | Queue restored, database older than queue | Queue entries may reference missing or stale runs | Prefer restoring database and queue from the same backup point; otherwise drain cautiously and inspect failed dequeues |
 | Database restored, log storage missing | Completed runs still exist but logs may be unavailable | Mark as data loss in the incident record; rerun jobs only when safe |
-| Database restored, artifact storage missing | Runs and manifests may reference blobs that are no longer available | Mark as data loss in the incident record; rerun producing jobs only when safe |
+| Database restored, artifact byte storage missing | Runs and manifests may reference blobs that are no longer available | Mark as data loss in the incident record; rerun producing jobs only when safe |
 | Log storage restored, database missing run rows | Logs may be orphaned and not discoverable through API run history | Keep logs for forensic review, but restore the database from a better backup if possible |
 | Secrets/TLS missing | Services may fail auth, database TLS, or gRPC TLS | Restore secrets from backup; rotating secrets may require coordinated config changes and client re-login |
 | Dashboard/config missing | Core Vectis may run, but operators lose visibility | Restore dashboards/alerts before declaring DR complete |
@@ -321,7 +321,7 @@ reference topology.
 2. Stop API, cell ingress, cron, reconciler, catalog, workers, worker-core, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder containers/processes.
 3. Restore or recreate deployment config, secrets, and TLS volumes. If secrets are recreated instead of restored, update all DSNs, trust bundles, client credentials, and service identity allowlists consistently.
 4. Restore Postgres from the database backup using the database platform's restore process.
-5. Restore queue persistence, log storage, artifact storage, job secret store, SPIFFE CA material, and log-forwarder spools from matching backups when available.
+5. Restore queue persistence, log storage, artifact storage directories or object-store buckets, job secret store, SPIFFE CA material, and log-forwarder spools from matching backups when available.
 6. Verify file ownership and permissions for restored volumes before services start.
 7. Run `vectis-cli database migrate` against each restored Postgres DSN from the same host/network path used for deployment migrations.
 8. Start registry, queue, orchestrator, log, artifact, spiffe, and secrets first.
@@ -335,9 +335,9 @@ reference topology.
 16. Run the restore smoke test and confirm dashboards/alerts are receiving fresh data.
 
 If queue persistence was not restored, expect the reconciler to redispatch
-queued runs that still exist in the database. If log or artifact storage was not
-restored, mark that as data loss; Vectis cannot reconstruct those bytes from SQL
-metadata.
+queued runs that still exist in the database. If log storage or artifact byte
+storage was not restored, mark that as data loss; Vectis cannot reconstruct
+those bytes from SQL metadata.
 
 ## Restore Smoke Test
 

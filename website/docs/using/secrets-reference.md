@@ -138,8 +138,8 @@ These are the main knobs that connect job secret resolution. The full list of fl
 | Component | Key | Purpose |
 | --- | --- | --- |
 | Worker | `worker.secrets.address` / `VECTIS_WORKER_SECRETS_ADDRESS` / `--secrets-address` | Address of `vectis-secrets`. Empty, `disabled`, `none`, `off`, or `-` disables broker-backed resolution. |
-| Secrets broker | `secrets.encryptedfs.root` / `VECTIS_SECRETS_ENCRYPTEDFS_ROOT` / `--encryptedfs-root` | Root directory that stores encryptedfs envelope files. |
-| Secrets broker | `secrets.encryptedfs.key_file` / `VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE` / `--encryptedfs-key-file` | Key file used to decrypt encryptedfs envelopes. |
+| Secrets broker | `secrets.providers.encryptedfs.root` / `VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_ROOT` / `--encryptedfs-root` | Root directory that stores encryptedfs envelope files. |
+| Secrets broker | `secrets.providers.encryptedfs.key_file` / `VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE` / `--encryptedfs-key-file` | Key file used to decrypt encryptedfs envelopes. |
 | Secrets broker | `secrets.policy.allow` / `VECTIS_SECRETS_POLICY_ALLOW` / `--allow-secret` | Default-deny access-policy allow rules. |
 | Worker and secrets broker | `worker.execution_identity.*` | Shared settings used to derive the expected execution SPIFFE ID. Required when encryptedfs is configured. |
 | Worker | `worker.spiffe.enabled` and `worker.spiffe.*` | SPIFFE Workload API and optional registration settings used to obtain the execution X.509-SVID. |

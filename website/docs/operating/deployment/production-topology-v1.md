@@ -42,14 +42,14 @@ shape.
 | Orchestrator | Run one active `vectis-orchestrator`. Do not place multiple active orchestrators behind a non-sticky resolver. |
 | Queue | Run one or more independent queue shards. Each shard needs a stable instance ID and its own durable persistence directory. |
 | Logs | Run one or more independent log shards. Each shard needs a stable instance ID and its own durable storage directory. |
-| Artifacts | Run one or more independent artifact shards. Each shard needs a stable instance ID and its own durable storage directory. |
+| Artifacts | Run one or more artifact shards. Each shard needs a stable instance ID; local storage needs its own durable directory, while S3-compatible storage needs an operator-managed bucket/prefix and credentials. |
 | Workers | Scale job execution by adding `vectis-worker` processes. Pair each worker with its own `vectis-worker-core` unless a different provider topology has been deliberately tested. |
 | Reconciler | Run `vectis-reconciler` as required infrastructure. Multiple instances are allowed as active/passive standbys through the database service lease. |
 | Cron | Run `vectis-cron` only if schedules are used. Multiple cron instances may coordinate through the shared database. |
 | Registry | Run one registry by default, or configure a deliberate registry HA cluster. Pin queue, orchestrator, log, or artifact addresses when registry availability should not be on the critical path. |
 | Docs | Treat `vectis-docs` as optional and expose it only to operators unless a separate public-docs posture is chosen. |
 | Secrets | Store API tokens, bootstrap token, PostgreSQL credentials, TLS keys, SPIFFE CA material, encryptedfs keys, and external-provider auth tokens in an operator-controlled secret manager. |
-| Storage | Put database data, queue persistence, logs, artifacts, secret envelopes, SPIFFE CA material, and observability data on durable storage with backup and retention policies. |
+| Storage | Put database data, queue persistence, logs, local artifact blobs, secret envelopes, SPIFFE CA material, and observability data on durable storage with backup and retention policies. For S3-compatible artifact storage, apply equivalent bucket durability, lifecycle, and credential controls. |
 | Observability | Use Vectis metrics plus host, database, and filesystem telemetry. The CLI health check is not a complete production monitoring system. |
 
 ## Optional Components
@@ -73,7 +73,7 @@ Production v1 scales by adding capacity at the supported boundaries:
 | More parallel job execution | Add workers, each with a paired worker core. |
 | More queue capacity | Add independent queue shards with separate persistence. |
 | More log ingest or replay capacity | Add independent log shards with separate storage. |
-| More artifact capacity | Add independent artifact shards with separate storage. |
+| More artifact capacity | Add independent artifact shards. Use separate local storage directories for the local backend, or deliberately shared S3-compatible bucket/prefixes when object storage is the capacity boundary. |
 | More API request capacity | Add API replicas after validating load balancer behavior, shared cache/rate-limit posture, and SSE reconnect behavior. |
 | More schedule resilience | Add cron replicas against the same database. |
 | More repair resilience | Add reconciler standbys; only the DB lease holder repairs at a time. |
@@ -108,8 +108,8 @@ These shapes are outside the production v1 contract:
 | Multi-region active/active Vectis | Not supported. |
 | Multiple active orchestrators for the same run space | Not supported. |
 | Vectis-managed database failover | Not provided; use the operator's PostgreSQL platform and restore/failover procedures. |
-| Shared multi-writer queue, log, or artifact storage | Not supported. Add independent shards instead. |
-| External object-store artifact backend | Not available yet. |
+| Shared multi-writer queue, log, or local artifact storage | Not supported. Add independent shards instead. S3-compatible artifact storage is a separate backend with object-store consistency and durability owned by the operator. |
+| Automatic artifact read failover between shards | Not available yet. The artifact metadata still records the shard selected for the upload. |
 | Artifact replication between cells | Not available yet. |
 | Cross-cell DAG execution | Not available yet. Model cross-cell workflows as multiple runs. |
 | Public cell ingress | Not supported. Cell ingress is internal infrastructure. |

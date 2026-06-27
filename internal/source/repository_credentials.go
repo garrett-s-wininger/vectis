@@ -41,6 +41,10 @@ func NewRepositoryCredentialResolverFromSecrets(resolver secrets.Resolver) Repos
 			Secrets: []secrets.Reference{{
 				ID:  "git-credential",
 				Ref: ref,
+				Delivery: secrets.Delivery{
+					Type: secrets.DeliveryTypeFile,
+					Path: "git-credential",
+				},
 			}},
 		})
 

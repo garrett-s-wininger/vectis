@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/config"
 	"vectis/internal/platform"
-	secretstore "vectis/internal/secrets"
 	"vectis/internal/serviceidentity"
 	"vectis/internal/utils"
 	"vectis/internal/workercore"
@@ -112,7 +112,7 @@ func doctor(w io.Writer) error {
 		doctorFilesystemPressure("queue.persistence.filesystem", "Queue persistence filesystem", "queue persistence", envOrDefaultAllowEmpty("VECTIS_QUEUE_PERSISTENCE_DIR", defaultDoctorQueuePersistenceDir())),
 		doctorFilesystemPressure("log.storage.filesystem", "Log storage filesystem", "log storage", envOrDefault("VECTIS_LOG_STORAGE_DIR", defaultDoctorLogStorageDir())),
 		doctorFilesystemPressure("log.forwarder.spool.filesystem", "Log forwarder spool filesystem", "log-forwarder spool", envOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir())),
-		doctorFilesystemPressure("artifact.storage.filesystem", "Artifact storage filesystem", "artifact storage", envOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", defaultDoctorArtifactStorageDir())),
+		doctorArtifactFilesystemCheck(),
 	)
 
 	if doctorJSON || outputIsJSON() {
@@ -1872,10 +1872,10 @@ func doctorEncryptedFSFiles() doctorCheck {
 	const id = "secrets.encryptedfs.files"
 	title := "EncryptedFS secret files valid"
 	doc := "website/docs/operating/reference/health-check-catalog.md"
-	action := "Check VECTIS_SECRETS_ENCRYPTEDFS_ROOT and VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE"
+	action := fmt.Sprintf("Check %s and %s", encryptedfs.EnvRoot, encryptedfs.EnvKeyFile)
 
-	root, rootConfigured := envValue("VECTIS_SECRETS_ENCRYPTEDFS_ROOT")
-	keyFile, keyConfigured := envValue("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE")
+	root, rootConfigured := envValue(encryptedfs.EnvRoot)
+	keyFile, keyConfigured := envValue(encryptedfs.EnvKeyFile)
 
 	if !rootConfigured && !keyConfigured {
 		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "encryptedfs secret provider is not configured", DocLink: doc}
@@ -1915,7 +1915,7 @@ func doctorEncryptedFSFiles() doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file permissions are too broad: %s", info.Mode().Perm()), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Restrict encryptedfs key file permissions to the service owner", DocLink: doc}
 	}
 
-	if _, err := secretstore.LoadEncryptedFSKeyFile(keyFile); err != nil {
+	if _, err := encryptedfs.LoadEncryptedFSKeyFile(keyFile); err != nil {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file is invalid: %v", err), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
 	}
 
@@ -2937,6 +2937,21 @@ func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 	}
 
 	return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: fmt.Sprintf("filesystem ok: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, DocLink: doc}
+}
+
+func doctorArtifactFilesystemCheck() doctorCheck {
+	const (
+		id    = "artifact.storage.filesystem"
+		title = "Artifact storage filesystem"
+		doc   = "website/docs/operating/reference/health-check-catalog.md"
+	)
+
+	backend := strings.ToLower(strings.TrimSpace(os.Getenv("VECTIS_ARTIFACT_STORAGE_BACKEND")))
+	if backend == "s3" {
+		return doctorCheck{ID: id, Title: title, Status: doctorOK, Severity: severityWarning, Summary: "filesystem check skipped; artifact storage backend is s3", Evidence: "storage_backend=s3", DocLink: doc}
+	}
+
+	return doctorFilesystemPressure(id, title, "artifact storage", envOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", defaultDoctorArtifactStorageDir()))
 }
 
 type doctorFSStats struct {

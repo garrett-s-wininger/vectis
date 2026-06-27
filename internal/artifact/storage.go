@@ -14,46 +14,31 @@ import (
 	"strings"
 
 	"vectis/internal/platform"
+	sdkartifact "vectis/sdk/artifact"
 )
 
 const (
-	HashSHA256              = "sha256"
+	HashSHA256              = sdkartifact.HashSHA256
 	artifactBlobFileSuffix  = ".blob"
 	artifactStorageLockFile = "artifact.lock"
 )
 
 var (
-	ErrBlobNotFound          = errors.New("artifact blob not found")
-	ErrBlobDigestMismatch    = errors.New("artifact blob digest mismatch")
-	ErrBlobSizeMismatch      = errors.New("artifact blob size mismatch")
-	ErrBlobTooLarge          = errors.New("artifact blob exceeds size limit")
-	ErrInvalidBlobKey        = errors.New("invalid artifact blob key")
-	ErrInvalidBlobDescriptor = errors.New("invalid artifact blob descriptor")
-	ErrInvalidDigest         = errors.New("invalid artifact digest")
-	ErrStoreReadOnly         = errors.New("artifact storage is read-only for new blobs")
+	ErrBlobNotFound          = sdkartifact.ErrBlobNotFound
+	ErrBlobDigestMismatch    = sdkartifact.ErrBlobDigestMismatch
+	ErrBlobSizeMismatch      = sdkartifact.ErrBlobSizeMismatch
+	ErrBlobTooLarge          = sdkartifact.ErrBlobTooLarge
+	ErrInvalidBlobKey        = sdkartifact.ErrInvalidBlobKey
+	ErrInvalidBlobDescriptor = sdkartifact.ErrInvalidBlobDescriptor
+	ErrInvalidDigest         = sdkartifact.ErrInvalidDigest
+	ErrStoreReadOnly         = sdkartifact.ErrStoreReadOnly
 )
 
-type BlobDescriptor struct {
-	Key       string
-	Algorithm string
-	Digest    string
-	Size      int64
-}
+type BlobDescriptor = sdkartifact.BlobDescriptor
 
-type StorageStats struct {
-	BlobFiles       int64
-	BlobBytes       int64
-	FreeBytes       uint64
-	FreeInodes      uint64
-	NewBlobWritable bool
-}
+type StorageStats = sdkartifact.StorageStats
 
-type PutOptions struct {
-	ExpectedSHA256 string
-	ExpectedSize   int64
-	RequireSize    bool
-	MaxBytes       int64
-}
+type PutOptions = sdkartifact.PutOptions
 
 type LocalStoreOptions struct {
 	NewBlobMinFreeBytes uint64
@@ -355,6 +340,8 @@ func (s *LocalStore) StorageStats(ctx context.Context) (StorageStats, error) {
 
 	out.FreeBytes = fsStats.freeBytes
 	out.FreeInodes = fsStats.freeInodes
+	out.FreeBytesKnown = true
+	out.FreeInodesKnown = true
 	out.NewBlobWritable = s.newBlobWritableForStats(fsStats)
 	return out, nil
 }
@@ -452,59 +439,19 @@ func blobPublishSyncDirs(finalPath string) []string {
 }
 
 func BlobKeySHA256(digest string) string {
-	return HashSHA256 + ":" + digest
+	return sdkartifact.BlobKeySHA256(digest)
 }
 
 func descriptorForSHA256(digest string, size int64) BlobDescriptor {
-	return BlobDescriptor{
-		Key:       BlobKeySHA256(digest),
-		Algorithm: HashSHA256,
-		Digest:    digest,
-		Size:      size,
-	}
+	return sdkartifact.DescriptorForSHA256(digest, size)
 }
 
 func ValidateBlobDescriptor(desc BlobDescriptor) error {
-	key := strings.TrimSpace(desc.Key)
-	algorithm := strings.TrimSpace(desc.Algorithm)
-	digest := strings.TrimSpace(desc.Digest)
-
-	if key == "" {
-		return fmt.Errorf("%w: artifact blob key is required", ErrInvalidBlobDescriptor)
-	}
-
-	if algorithm != HashSHA256 {
-		return fmt.Errorf("%w: artifact blob algorithm %q is not supported", ErrInvalidBlobDescriptor, algorithm)
-	}
-
-	keyDigest, err := parseSHA256BlobKey(key)
-	if err != nil {
-		return err
-	}
-
-	normalizedDigest, err := normalizeSHA256Digest(digest)
-	if err != nil {
-		return err
-	}
-
-	if keyDigest != normalizedDigest {
-		return fmt.Errorf("%w: blob key digest %q does not match descriptor digest %q", ErrInvalidBlobDescriptor, keyDigest, normalizedDigest)
-	}
-
-	if desc.Size < 0 {
-		return fmt.Errorf("%w: artifact blob size must be >= 0", ErrInvalidBlobDescriptor)
-	}
-
-	return nil
+	return sdkartifact.ValidateBlobDescriptor(desc)
 }
 
 func parseSHA256BlobKey(key string) (string, error) {
-	prefix := HashSHA256 + ":"
-	if !strings.HasPrefix(key, prefix) {
-		return "", fmt.Errorf("%w: must use %s prefix", ErrInvalidBlobKey, prefix)
-	}
-
-	return normalizeSHA256Digest(strings.TrimPrefix(key, prefix))
+	return sdkartifact.ParseSHA256BlobKey(key)
 }
 
 func validSHA256BlobPath(root, path string) bool {
@@ -531,19 +478,7 @@ func validSHA256BlobPath(root, path string) bool {
 }
 
 func normalizeSHA256Digest(digest string) (string, error) {
-	if len(digest) != sha256.Size*2 {
-		return "", fmt.Errorf("%w: sha256 digest must be %d lowercase hex characters", ErrInvalidDigest, sha256.Size*2)
-	}
-
-	if strings.ToLower(digest) != digest {
-		return "", fmt.Errorf("%w: sha256 digest must be lowercase hex", ErrInvalidDigest)
-	}
-
-	if _, err := hex.DecodeString(digest); err != nil {
-		return "", fmt.Errorf("%w: sha256 digest must be lowercase hex: %w", ErrInvalidDigest, err)
-	}
-
-	return digest, nil
+	return sdkartifact.NormalizeSHA256Digest(digest)
 }
 
 func copyHashing(ctx context.Context, w io.Writer, r io.Reader, h hash.Hash, maxBytes int64) (int64, error) {

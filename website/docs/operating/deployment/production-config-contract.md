@@ -152,8 +152,8 @@ Choose one discovery posture per deployment:
 | Registry discovery | `VECTIS_DISCOVERY_REGISTRY_ADDRESS` or `VECTIS_DISCOVERY_REGISTRY_ADDRESSES`, plus service registration flags and advertise addresses where needed. |
 | Fixed addresses | Role-specific queue, orchestrator, log, and artifact addresses such as `VECTIS_WORKER_QUEUE_ADDRESS` and `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`. |
 
-Every stateful shard needs a stable instance ID and a durable, exclusive storage
-path:
+Every stateful shard needs a stable instance ID. Queue, log, and local artifact
+storage also need durable, exclusive storage paths:
 
 ```sh
 VECTIS_QUEUE_POOL=default
@@ -167,8 +167,27 @@ VECTIS_ARTIFACT_INSTANCE_ID=artifact-1
 VECTIS_ARTIFACT_STORAGE_DIR=/var/lib/vectis/artifact/artifact-1
 ```
 
-Do not run two active queue, log, or artifact processes against the same storage
-directory. Do not reuse active instance IDs for different shards.
+Do not run two active queue, log, or local artifact processes against the same
+storage directory. Do not reuse active instance IDs for different shards.
+
+To store artifact blobs in an S3-compatible object store instead of a local
+artifact directory, configure the artifact service with the S3 backend:
+
+```sh
+VECTIS_ARTIFACT_STORAGE_BACKEND=s3
+VECTIS_ARTIFACT_STORAGE_S3_ENDPOINT=https://s3.internal
+VECTIS_ARTIFACT_STORAGE_S3_REGION=us-east-1
+VECTIS_ARTIFACT_STORAGE_S3_BUCKET=vectis-artifacts
+VECTIS_ARTIFACT_STORAGE_S3_PREFIX=prod
+VECTIS_ARTIFACT_STORAGE_S3_ACCESS_KEY_ID=vectis-artifact
+VECTIS_ARTIFACT_STORAGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/vectis-artifact-s3
+VECTIS_ARTIFACT_STORAGE_S3_PATH_STYLE=true
+```
+
+The S3 backend changes where artifact bytes are stored; it does not change the
+internal artifact gRPC API, artifact shard identity, or run metadata routing.
+Keep the bucket private and apply operator-managed retention, backup, lifecycle,
+and credential rotation controls.
 
 ## Worker And Isolation Contract
 

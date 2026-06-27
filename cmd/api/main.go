@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	apigen "vectis/api/gen/go"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/action/actionconfig"
 	"vectis/internal/api"
 	"vectis/internal/api/audit"
@@ -462,8 +463,7 @@ func init() {
 	rootCmd.PersistentFlags().String("tls-cert-file", config.APIHTTPSCertFile(), "Certificate file for browser-facing HTTPS")
 	rootCmd.PersistentFlags().String("tls-key-file", config.APIHTTPSKeyFile(), "Private key file for browser-facing HTTPS")
 	rootCmd.PersistentFlags().Duration("tls-reload-interval", config.APIHTTPSReloadInterval(), "How often to poll API HTTPS cert/key files for reload; 0 disables polling")
-	rootCmd.PersistentFlags().String("encryptedfs-root", config.SecretsEncryptedFSRoot(), "Root directory for encryptedfs secret files")
-	rootCmd.PersistentFlags().String("encryptedfs-key-file", config.SecretsEncryptedFSKeyFile(), "32-byte, hex, or base64 key file for encryptedfs secret envelopes")
+	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
 
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
@@ -471,24 +471,17 @@ func init() {
 	_ = viper.BindPFlag("api.tls.cert_file", rootCmd.PersistentFlags().Lookup("tls-cert-file"))
 	_ = viper.BindPFlag("api.tls.key_file", rootCmd.PersistentFlags().Lookup("tls-key-file"))
 	_ = viper.BindPFlag("api.tls.reload_interval", rootCmd.PersistentFlags().Lookup("tls-reload-interval"))
-	_ = viper.BindPFlag("encryptedfs_root", rootCmd.PersistentFlags().Lookup("encryptedfs-root"))
-	_ = viper.BindPFlag("encryptedfs_key_file", rootCmd.PersistentFlags().Lookup("encryptedfs-key-file"))
 	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
-
-	_ = viper.BindEnv(
-		"secrets.encryptedfs.root",
-		"VECTIS_API_SERVER_SECRETS_ENCRYPTEDFS_ROOT",
-		"VECTIS_SECRETS_ENCRYPTEDFS_ROOT",
-	)
-
-	_ = viper.BindEnv(
-		"secrets.encryptedfs.key_file",
-		"VECTIS_API_SERVER_SECRETS_ENCRYPTEDFS_KEY_FILE",
-		"VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE",
-	)
+	mustBindEncryptedFSConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
 
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()
+}
+
+func mustBindEncryptedFSConfig(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func main() {

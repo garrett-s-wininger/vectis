@@ -26,6 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	api "vectis/api/gen/go"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
 	"vectis/internal/action"
 	"vectis/internal/action/actionconfig"
 	"vectis/internal/action/actionregistry"
@@ -613,17 +614,18 @@ func newSecretsResolverFactory(logger interfaces.Logger) (secretResolverFactory,
 }
 
 func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourcepkg.RepositoryCredentialResolver, error) {
-	root := strings.TrimSpace(config.SecretsEncryptedFSRoot())
-	keyFile := strings.TrimSpace(config.SecretsEncryptedFSKeyFile())
+	encryptedFSConfig := encryptedfs.ConfigFromViper(viper.GetViper())
+	root := strings.TrimSpace(encryptedFSConfig.Root)
+	keyFile := strings.TrimSpace(encryptedFSConfig.KeyFile)
 	if root == "" && keyFile == "" {
 		return nil, nil
 	}
 
 	if root == "" || keyFile == "" {
-		return nil, fmt.Errorf("source repository credentials require both secrets.encryptedfs.root and secrets.encryptedfs.key_file")
+		return nil, fmt.Errorf("source repository credentials require both %s and %s", encryptedfs.ConfigKeyRoot, encryptedfs.ConfigKeyKeyFile)
 	}
 
-	provider, err := secrets.NewEncryptedFSProvider(root, secrets.WithEncryptedFSKeyFile(keyFile))
+	provider, err := encryptedFSConfig.NewProvider()
 	if err != nil {
 		return nil, fmt.Errorf("source repository credential provider: %w", err)
 	}
@@ -4303,6 +4305,7 @@ func init() {
 	rootCmd.PersistentFlags().Duration("checkout-cache-warm-timeout", config.WorkerExecutionCheckoutCacheWarmTimeout(), "Timeout for one worker-driven checkout cache warm pass")
 	rootCmd.PersistentFlags().Float64("checkout-cache-warm-jitter-ratio", config.WorkerExecutionCheckoutCacheWarmJitterRatio(), "Stable jitter ratio applied to checkout cache warm scheduling (0 disables, 0.2 adds up to 20%)")
 	rootCmd.PersistentFlags().String("secrets-address", config.WorkerSecretsAddress(), "gRPC address for the cell-local secrets service")
+	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
 
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
@@ -4349,9 +4352,16 @@ func init() {
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_interval", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL")
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_timeout", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT")
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_jitter_ratio", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO")
+	mustBindEncryptedFSConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
 
 	viper.SetEnvPrefix("VECTIS_WORKER")
 	viper.AutomaticEnv()
+}
+
+func mustBindEncryptedFSConfig(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func main() {

@@ -61,6 +61,16 @@ func TestExtensionsDoNotImportVectisInternals(t *testing.T) {
 }
 
 func TestCoreImportsSecretProvidersOnlyAtCompositionPoints(t *testing.T) {
+	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/secrets/", allowedSecretProviderImportFile, "standard secret providers")
+}
+
+func TestCoreImportsArtifactProvidersOnlyAtCompositionPoints(t *testing.T) {
+	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/artifacts/", allowedArtifactProviderImportFile, "artifact storage providers")
+}
+
+func assertExtensionImportsOnlyAtCompositionPoints(t *testing.T, importPrefix string, allowFile func(string) bool, label string) {
+	t.Helper()
+
 	root := ".."
 	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -93,8 +103,8 @@ func TestCoreImportsSecretProvidersOnlyAtCompositionPoints(t *testing.T) {
 				continue
 			}
 
-			if strings.HasPrefix(importPath, "vectis/extensions/secrets/") && !allowedSecretProviderImportFile(path) {
-				t.Errorf("%s imports %q; standard secret providers may only be imported at composition points", path, importPath)
+			if strings.HasPrefix(importPath, importPrefix) && !allowFile(path) {
+				t.Errorf("%s imports %q; %s may only be imported at composition points", path, importPath, label)
 			}
 		}
 
@@ -136,6 +146,20 @@ func allowedSecretProviderImportFile(path string) bool {
 		"../cmd/secrets/main.go",
 		"../internal/localspiffe/authority_test.go",
 		"../tests/integration/local/secrets_spiffe_test.go":
+		return true
+	default:
+		return false
+	}
+}
+
+func allowedArtifactProviderImportFile(path string) bool {
+	path = filepath.ToSlash(path)
+	if strings.HasPrefix(path, "../extensions/artifacts/") {
+		return true
+	}
+
+	switch path {
+	case "../cmd/artifact/main.go":
 		return true
 	default:
 		return false
