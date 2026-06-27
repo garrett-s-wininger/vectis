@@ -215,7 +215,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	}
 	defer func() { _ = clients.Close() }()
 
-	orchestratorConn, stopOrchestrator, err := resolver.DialOrchestrator(shutdownCtx, logger, config.PinnedOrchestratorAddress(), config.WorkerRegistryDialAddress(), retryMetrics)
+	orchestratorDial, stopOrchestrator, err := resolver.DialOrchestratorWithOwner(shutdownCtx, logger, config.PinnedOrchestratorAddress(), config.WorkerRegistryDialAddress(), config.CellID(), workerID, retryMetrics)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			logger.Info("Worker graceful shutdown before connecting to orchestrator service")
@@ -304,8 +304,8 @@ func runWorker(cmd *cobra.Command, args []string) {
 		artifactMaxCount:              config.WorkerArtifactMaxCount(),
 		continuationInlineJobMaxBytes: config.WorkerQueueContinuationInlineJobMaxBytes(),
 		retryMetrics:                  retryMetrics,
-		choreographer:                 newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorConn)),
-		hotStateOwnerID:               hotStateOwnerID(config.CellID()),
+		choreographer:                 newGRPCExecutionChoreographer(api.NewOrchestratorServiceClient(orchestratorDial.Conn)),
+		hotStateOwnerID:               orchestratorDial.OwnerID,
 		hotStateOwnerEpoch:            workerID,
 		secretResolverForWorkload:     secretResolverForWorkload,
 		catalog:                       cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
@@ -657,15 +657,10 @@ func (w *worker) executionDefersStartedPersistence(env *cell.ExecutionEnvelope) 
 
 func hotStateOwnerID(cellID string) string {
 	if pinned := strings.TrimSpace(config.PinnedOrchestratorAddress()); pinned != "" {
-		return "orchestrator:pinned:" + pinned
+		return resolver.OrchestratorPinnedOwnerID(pinned)
 	}
 
-	cellID = strings.TrimSpace(cellID)
-	if cellID == "" {
-		cellID = dal.DefaultCellID
-	}
-
-	return "orchestrator:registry:" + cellID
+	return resolver.OrchestratorRegistryOwnerID(cellID)
 }
 
 func (w *worker) publishRunHotStateOwner(ctx context.Context, env *cell.ExecutionEnvelope, leaseUntil time.Time) error {

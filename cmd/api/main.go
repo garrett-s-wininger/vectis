@@ -322,7 +322,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetSourceSyncCheckoutStatus(sourceSyncStatus)
 
 	logger.Info("Establishing orchestrator read client connection...")
-	orchestratorConn, stopOrchestrator, err := resolver.DialOrchestrator(cmd.Context(), logger, config.PinnedOrchestratorAddress(), config.APIRegistryDialAddress(), retryMetrics)
+	orchestratorDial, stopOrchestrator, err := resolver.DialOrchestratorWithOwner(cmd.Context(), logger, config.PinnedOrchestratorAddress(), config.APIRegistryDialAddress(), config.CellID(), "api:"+config.CellID(), retryMetrics)
 	if err != nil {
 		logger.Error("Failed to connect to orchestrator: %v", err)
 		exitCode = 1
@@ -330,7 +330,19 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	}
 
 	defer stopOrchestrator()
-	server.SetOrchestratorClient(apigen.NewOrchestratorServiceClient(orchestratorConn))
+	orchestratorClient := apigen.NewOrchestratorServiceClient(orchestratorDial.Conn)
+	server.SetOrchestratorClient(orchestratorClient)
+	orchestratorOwnerClients := resolver.NewOrchestratorOwnerClientResolver(logger, config.APIRegistryDialAddress(), retryMetrics)
+	defer func() { _ = orchestratorOwnerClients.Close() }()
+
+	server.SetOrchestratorOwnerClientResolver(func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
+		if owner.OwnerID == orchestratorDial.OwnerID {
+			return orchestratorClient, true, nil
+		}
+
+		return orchestratorOwnerClients.Client(ctx, owner.OwnerID, owner.CellID, owner.RunID)
+	})
+
 	logger.Info("Orchestrator read client ready")
 
 	// Wire up worker address resolution via registry for cancel endpoint.

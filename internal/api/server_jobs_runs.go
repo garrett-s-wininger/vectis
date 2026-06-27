@@ -1971,7 +1971,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
 	}
 
-	_, activeHotOwner, err := s.activeRunHotStateOwner(ctx, rec.RunID, time.Now())
+	hotOwner, activeHotOwner, err := s.activeRunHotStateOwner(ctx, rec.RunID, time.Now())
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -1983,7 +1983,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if activeHotOwner {
-		if summary, ok := s.orchestratorRunTaskCompletion(ctx, runID); ok {
+		if summary, ok := s.orchestratorRunTaskCompletion(ctx, hotOwner, runID); ok {
 			taskCompletionSummary = summary
 		}
 	}
@@ -2219,8 +2219,8 @@ func effectiveRunStatusFromHotOwner(status string, activeHotOwner bool) string {
 	return status
 }
 
-func (s *APIServer) orchestratorRunTaskCompletion(ctx context.Context, runID string) (dal.RunTaskCompletion, bool) {
-	client := s.orchestratorReadClient()
+func (s *APIServer) orchestratorRunTaskCompletion(ctx context.Context, owner dal.RunHotStateOwnerRecord, runID string) (dal.RunTaskCompletion, bool) {
+	client := s.orchestratorReadClientForOwner(ctx, owner)
 	if client == nil {
 		return dal.RunTaskCompletion{}, false
 	}
@@ -2353,8 +2353,8 @@ func (s *APIServer) runHasPendingTaskContinuation(ctx context.Context, runID str
 	return false, nil
 }
 
-func (s *APIServer) orchestratorRunTaskRows(ctx context.Context, runID string, params pageParams) ([]runTaskRow, int64, bool) {
-	client := s.orchestratorReadClient()
+func (s *APIServer) orchestratorRunTaskRows(ctx context.Context, owner dal.RunHotStateOwnerRecord, runID string, params pageParams) ([]runTaskRow, int64, bool) {
+	client := s.orchestratorReadClientForOwner(ctx, owner)
 	if client == nil {
 		return nil, 0, false
 	}
@@ -2545,7 +2545,7 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, activeHotOwner, err := s.activeRunHotStateOwner(ctx, runID, time.Now())
+	hotOwner, activeHotOwner, err := s.activeRunHotStateOwner(ctx, runID, time.Now())
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -2558,7 +2558,7 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	if activeHotOwner {
-		if tasks, nextCursor, ok := s.orchestratorRunTaskRows(ctx, runID, params); ok {
+		if tasks, nextCursor, ok := s.orchestratorRunTaskRows(ctx, hotOwner, runID, params); ok {
 			s.writeRunTasksResponse(w, tasks, nextCursor)
 			return
 		}

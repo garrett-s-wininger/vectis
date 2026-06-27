@@ -11,6 +11,7 @@ import (
 
 	apigen "vectis/api/gen/go"
 	"vectis/internal/dal"
+	"vectis/internal/resolver"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -240,6 +241,164 @@ func TestAPIServer_GetRunTasks_ActiveHotStateOwnerUsesOrchestratorSnapshot(t *te
 
 	if len(got.Data) != 1 {
 		t.Fatalf("fallback should return sparse database task rows, got %d: %+v", len(got.Data), got.Data)
+	}
+}
+
+func TestAPIServer_GetRunTasks_RoutesToExactHotStateOwner(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	runID := createRunForReadRoutingTest(t, db, "job-read-route-owner")
+	ownerID := resolver.OrchestratorAddressOwnerID("owner-orchestrator:8085")
+	runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+	if err := runs.UpsertRunHotStateOwner(context.Background(), dal.RunHotStateOwnerUpdate{
+		RunID:      runID,
+		CellID:     "local",
+		OwnerID:    ownerID,
+		OwnerEpoch: "epoch-owner-route",
+		LeaseUntil: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert active hot-state owner: %v", err)
+	}
+
+	taskID := "task-owner-routed"
+	taskKey := dal.RootTaskKey
+	taskName := "root"
+	attemptID := "attempt-owner-routed"
+	executionID := "execution-owner-routed"
+	cellID := "local"
+	attempt := int32(1)
+	statusValue := dal.ExecutionStatusRunning
+
+	defaultClient := &fakeOrchestratorReadClient{
+		snapshotErr: status.Error(codes.NotFound, "default client should not be used"),
+	}
+
+	ownerClient := &fakeOrchestratorReadClient{
+		snapshot: &apigen.GetRunTaskSnapshotResponse{
+			RunId: &runID,
+			Executions: []*apigen.OrchestratorTaskExecution{{
+				RunId:         &runID,
+				TaskId:        &taskID,
+				TaskKey:       &taskKey,
+				Name:          &taskName,
+				TaskAttemptId: &attemptID,
+				ExecutionId:   &executionID,
+				CellId:        &cellID,
+				Attempt:       &attempt,
+				Status:        &statusValue,
+			}},
+		},
+	}
+
+	server.SetOrchestratorClient(defaultClient)
+	server.SetOrchestratorOwnerClientResolver(func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
+		if owner.OwnerID != ownerID {
+			t.Fatalf("owner resolver got owner %q, want %q", owner.OwnerID, ownerID)
+		}
+
+		return ownerClient, true, nil
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks?limit=200", nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+	server.GetRunTasks(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetRunTasks: expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	if ownerClient.snapshotCalls != 1 {
+		t.Fatalf("owner client snapshot calls: got %d, want 1", ownerClient.snapshotCalls)
+	}
+
+	if defaultClient.snapshotCalls != 0 {
+		t.Fatalf("default client snapshot calls: got %d, want 0", defaultClient.snapshotCalls)
+	}
+
+	var got struct {
+		Data []struct {
+			TaskID   string `json:"task_id"`
+			Attempts []struct {
+				ExecutionID string `json:"execution_id"`
+			} `json:"attempts"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode task response: %v", err)
+	}
+
+	if len(got.Data) != 1 || got.Data[0].TaskID != taskID || got.Data[0].Attempts[0].ExecutionID != executionID {
+		t.Fatalf("unexpected owner-routed task response: %+v", got.Data)
+	}
+}
+
+func TestAPIServer_GetRun_RoutesToExactHotStateOwner(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	runID := createRunForReadRoutingTest(t, db, "job-read-route-completion-owner")
+	ownerID := resolver.OrchestratorAddressOwnerID("owner-orchestrator:8085")
+	runs := dal.NewSQLRepositoriesWithCellID(db, "local").Runs()
+	if err := runs.UpsertRunHotStateOwner(context.Background(), dal.RunHotStateOwnerUpdate{
+		RunID:      runID,
+		CellID:     "local",
+		OwnerID:    ownerID,
+		OwnerEpoch: "epoch-owner-completion-route",
+		LeaseUntil: time.Now().Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("upsert active hot-state owner: %v", err)
+	}
+
+	total := int32(5)
+	incomplete := int32(5)
+	defaultClient := &fakeOrchestratorReadClient{
+		completionErr: status.Error(codes.NotFound, "default client should not be used"),
+	}
+
+	ownerClient := &fakeOrchestratorReadClient{
+		completion: &apigen.OrchestratorRunTaskCompletion{
+			RunId:      &runID,
+			Total:      &total,
+			Incomplete: &incomplete,
+		},
+	}
+
+	server.SetOrchestratorClient(defaultClient)
+	server.SetOrchestratorOwnerClientResolver(func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
+		if owner.OwnerID != ownerID {
+			t.Fatalf("owner resolver got owner %q, want %q", owner.OwnerID, ownerID)
+		}
+
+		return ownerClient, true, nil
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
+	req.SetPathValue("id", runID)
+	rec := httptest.NewRecorder()
+	server.GetRun(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	if ownerClient.completionCalls != 1 {
+		t.Fatalf("owner client completion calls: got %d, want 1", ownerClient.completionCalls)
+	}
+
+	if defaultClient.completionCalls != 0 {
+		t.Fatalf("default client completion calls: got %d, want 0", defaultClient.completionCalls)
+	}
+
+	var got struct {
+		TaskCompletion *struct {
+			Total      int `json:"total"`
+			Incomplete int `json:"incomplete"`
+		} `json:"task_completion"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+
+	if got.TaskCompletion == nil || got.TaskCompletion.Total != int(total) || got.TaskCompletion.Incomplete != int(incomplete) {
+		t.Fatalf("unexpected owner-routed task completion: %+v", got.TaskCompletion)
 	}
 }
 

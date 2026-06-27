@@ -65,6 +65,10 @@ type orchestratorClientHolder struct {
 	client api.OrchestratorServiceClient
 }
 
+type orchestratorOwnerClientResolverHolder struct {
+	resolve func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (api.OrchestratorServiceClient, bool, error)
+}
+
 type logReaderClient interface {
 	GetLogs(ctx context.Context, in *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error)
 }
@@ -93,6 +97,7 @@ type APIServer struct {
 	queueClient              atomic.Pointer[queueClientHolder]
 	logClient                atomic.Pointer[logClientHolder]
 	orchestratorClient       atomic.Pointer[orchestratorClientHolder]
+	orchestratorOwnerClient  atomic.Pointer[orchestratorOwnerClientResolverHolder]
 	runBroadcaster           *RunBroadcaster
 	dbUnavailable            atomic.Bool
 	draining                 atomic.Bool
@@ -638,6 +643,29 @@ func (s *APIServer) orchestratorReadClient() api.OrchestratorServiceClient {
 	}
 
 	return holder.client
+}
+
+func (s *APIServer) SetOrchestratorOwnerClientResolver(resolve func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (api.OrchestratorServiceClient, bool, error)) {
+	if resolve == nil {
+		s.orchestratorOwnerClient.Store(nil)
+		return
+	}
+
+	s.orchestratorOwnerClient.Store(&orchestratorOwnerClientResolverHolder{resolve: resolve})
+}
+
+func (s *APIServer) orchestratorReadClientForOwner(ctx context.Context, owner dal.RunHotStateOwnerRecord) api.OrchestratorServiceClient {
+	holder := s.orchestratorOwnerClient.Load()
+	if holder != nil {
+		client, ok, err := holder.resolve(ctx, owner)
+		if err != nil {
+			s.logger.Warn("Orchestrator owner route %q for run %s failed; falling back to default orchestrator client: %v", owner.OwnerID, owner.RunID, err)
+		} else if ok && client != nil {
+			return client
+		}
+	}
+
+	return s.orchestratorReadClient()
 }
 
 func (s *APIServer) SetCatalogEventsRepository(repo dal.CatalogEventsRepository) {

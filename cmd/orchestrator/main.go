@@ -80,7 +80,7 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 			Component:       api.Component_COMPONENT_ORCHESTRATOR,
 			InstanceID:      defaultOrchestratorInstanceID(port),
 			PublishAddress:  publishAddr,
-			Metadata:        map[string]string{"cell": config.CellID()},
+			Metadata:        registry.DefaultServiceMetadataForCell(config.CellID()),
 			RefreshInterval: config.RegistryRegistrationRefresh(),
 			Logger:          logger,
 		})
