@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { createMockConsoleDataSnapshot, submitMockEphemeralRun } from "../mocks/consoleData";
+import { mockRunTasks } from "../mocks/fixtures";
 import { PageStoryFrame } from "../mocks/pageHarnesses";
 import { RunDetailPage } from "./RunDetailPage";
 
@@ -63,22 +64,49 @@ export const RunningRun: Story = {
       duration: "18s",
       finishedAt: undefined,
       id: "run-running",
-      status: "running"
+      status: "running",
+      tasks: mockRunTasks("run-running", [
+        { key: "root", name: "api-test-suite", status: "running" },
+        { key: "checkout", name: "Checkout", parentKey: "root", status: "succeeded" },
+        { key: "unit", name: "Unit tests", parentKey: "root", status: "succeeded" },
+        { key: "api", name: "API tests", parentKey: "root", status: "running" },
+        { key: "api-auth", name: "Auth routes", parentKey: "api", status: "succeeded" },
+        { key: "api-jobs", name: "Job routes", parentKey: "api", status: "running" },
+        { key: "report", name: "Report", parentKey: "root", status: "planned" }
+      ])
     },
     runID: "run-running"
   }
 };
 
-export const FailedRun: Story = {
+export const FailedTaskTree: Story = {
   args: {
     run: {
       ...data.runs[0],
       duration: "42s",
       finishedAt: "2026-05-31T12:00:42Z",
       id: "run-failed",
-      status: "failed"
+      status: "failed",
+      tasks: mockRunTasks("run-failed", [
+        { key: "root", name: "api-test-suite", status: "failed" },
+        { key: "checkout", name: "Checkout", parentKey: "root", status: "succeeded" },
+        { key: "unit", name: "Unit tests", parentKey: "root", status: "succeeded" },
+        { key: "api", name: "API tests", parentKey: "root", status: "failed" },
+        { key: "report", name: "Report", parentKey: "root", status: "planned" }
+      ])
     },
     runID: "run-failed"
+  }
+};
+
+export const NoTaskTelemetry: Story = {
+  args: {
+    run: {
+      ...data.runs[2],
+      id: "run-legacy",
+      tasks: undefined
+    },
+    runID: "run-legacy"
   }
 };
 

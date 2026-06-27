@@ -121,7 +121,7 @@ export function App() {
   useEffect(() => {
     let ignore = false;
 
-    if (route.kind === "login" || route.kind === "setup") {
+    if (route.kind === "login" || route.kind === "setup" || route.kind === "health") {
       return () => {
         ignore = true;
       };
@@ -183,7 +183,8 @@ export function App() {
       return;
     }
 
-    if (consoleData.runs.some((run) => run.id === route.runID)) {
+    const currentRun = consoleData.runs.find((run) => run.id === route.runID);
+    if (currentRun?.tasks) {
       loadingRunIDRef.current = null;
       return;
     }
@@ -207,8 +208,15 @@ export function App() {
         }
 
         setConsoleData((data) => {
-          if (!data || data.runs.some((candidate) => candidate.id === run.id)) {
+          if (!data) {
             return data;
+          }
+
+          if (data.runs.some((candidate) => candidate.id === run.id)) {
+            return {
+              ...data,
+              runs: data.runs.map((candidate) => (candidate.id === run.id ? run : candidate))
+            };
           }
 
           return {
@@ -709,6 +717,51 @@ function RouteContent({
   onSelectNamespace: (namespacePath: string) => void;
   route: AppRoute;
 }) {
+  const withActionAlert = (children: ReactNode) => (
+    <PageWithActionAlert actionError={actionError}>{children}</PageWithActionAlert>
+  );
+
+  if (route.kind === "health") {
+    const cells = healthCells ?? [];
+
+    if (loadingHealthCells && cells.length === 0) {
+      return (
+        <CenteredAppState>
+          <AppState title="Loading cell status" tone="loading" />
+        </CenteredAppState>
+      );
+    }
+
+    if (route.cellID) {
+      const cell = cells.find((candidate) => candidate.id === route.cellID);
+
+      if (!cell) {
+        return withActionAlert(
+          <PageMissingState
+            actionLabel="Go to Health"
+            breadcrumbs={[
+              { label: "Health", onClick: () => navigateTo("/health") },
+              { label: "Missing Cell", current: true }
+            ]}
+            description="The requested cell is not registered with this console."
+            label="Health breadcrumbs"
+            onAction={() => navigateTo("/health")}
+            panelDescription="The cell may have been removed, renamed, or never registered."
+            panelEyebrow="Missing"
+            panelTitle="Cell Not Found"
+            title="Cell Not Found"
+          />
+        );
+      }
+
+      return withActionAlert(<DashboardPage cell={cell} onOpenHealth={() => navigateTo("/health")} />);
+    }
+
+    return withActionAlert(
+      <HealthPage cells={cells} onSelectCell={(cellID) => navigateTo(`/health/${encodeURIComponent(cellID)}`)} />
+    );
+  }
+
   if (consoleError && !consoleData) {
     return (
       <CenteredAppState>
@@ -726,51 +779,8 @@ function RouteContent({
   }
 
   const scopedConsoleData = scopeMockConsoleData(consoleData, namespacePath);
-  const withActionAlert = (children: ReactNode) => (
-    <PageWithActionAlert actionError={actionError}>{children}</PageWithActionAlert>
-  );
 
   switch (route.kind) {
-    case "health": {
-      const cells = healthCells ?? consoleData.cells;
-
-      if (loadingHealthCells && cells.length === 0) {
-        return (
-          <CenteredAppState>
-            <AppState title="Loading cell status" tone="loading" />
-          </CenteredAppState>
-        );
-      }
-
-      if (route.cellID) {
-        const cell = cells.find((candidate) => candidate.id === route.cellID);
-
-        if (!cell) {
-          return withActionAlert(
-            <PageMissingState
-              actionLabel="Go to Health"
-              breadcrumbs={[
-                { label: "Health", onClick: () => navigateTo("/health") },
-                { label: "Missing Cell", current: true }
-              ]}
-              description="The requested cell is not registered with this console."
-              label="Health breadcrumbs"
-              onAction={() => navigateTo("/health")}
-              panelDescription="The cell may have been removed, renamed, or never registered."
-              panelEyebrow="Missing"
-              panelTitle="Cell Not Found"
-              title="Cell Not Found"
-            />
-          );
-        }
-
-        return withActionAlert(<DashboardPage cell={cell} onOpenHealth={() => navigateTo("/health")} />);
-      }
-
-      return withActionAlert(
-        <HealthPage cells={cells} onSelectCell={(cellID) => navigateTo(`/health/${encodeURIComponent(cellID)}`)} />
-      );
-    }
     case "runs":
       if (route.runID) {
         const run = consoleData.runs.find((candidate) => candidate.id === route.runID);

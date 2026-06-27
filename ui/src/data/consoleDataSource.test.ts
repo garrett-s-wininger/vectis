@@ -736,18 +736,62 @@ describe("console data source", () => {
           owning_cell: "local"
         })
       )
-      .mockResolvedValueOnce(jsonResponse({ data: [] }));
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              task_id: "run-inline-1:root",
+              task_key: "root",
+              name: "ad-hoc-backfill",
+              status: "pending",
+              attempts: [
+                {
+                  attempt: 1,
+                  attempt_id: "run-inline-1:root:attempt:1",
+                  cell_id: "local",
+                  execution_id: "run-inline-1:root:execution:1",
+                  execution_status: "accepted",
+                  started_at: "2026-05-31T12:00:03Z",
+                  status: "accepted"
+                }
+              ]
+            }
+          ]
+        })
+      );
 
     const run = await createConsoleDataSource().loadRun("run-inline-1");
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/v1/runs/run-inline-1", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/jobs?limit=200", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/v1/runs/run-inline-1/tasks?limit=200", expect.any(Object));
     expect(run).toMatchObject({
       id: "run-inline-1",
       jobName: "ad-hoc-backfill",
       namespacePath: "/",
       source: "ephemeral",
       status: "queued",
-      definitionVersion: 1
+      definitionVersion: 1,
+      tasks: [
+        {
+          attempts: [
+            {
+              attempt: 1,
+              attemptID: "run-inline-1:root:attempt:1",
+              cellID: "local",
+              executionID: "run-inline-1:root:execution:1",
+              executionStatus: "accepted",
+              startedAt: "2026-05-31T12:00:03Z",
+              status: "accepted"
+            }
+          ],
+          name: "ad-hoc-backfill",
+          status: "pending",
+          taskID: "run-inline-1:root",
+          taskKey: "root"
+        }
+      ]
     });
     expect(run.definition).toContain('"id": "ad-hoc-backfill"');
   });

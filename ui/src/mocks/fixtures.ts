@@ -1,6 +1,6 @@
 import type { MetricCardProps } from "../components";
 import type { ProgressMeterProps } from "../components";
-import type { RunListItem } from "../components";
+import type { RunListItem, RunTaskItem, RunTaskStatus } from "../components";
 import type { SignalItem } from "../components";
 
 export type DashboardMetric = MetricCardProps & {
@@ -65,6 +65,15 @@ export const activeRuns: RunListItem[] = [
     source: "stored",
     startedAt: "2026-05-31T12:00:05Z",
     submittedBy: "mira",
+    tasks: mockRunTasks("run-1240", [
+      { key: "root", name: "api-test-suite", status: "running" },
+      { key: "checkout", name: "Checkout", parentKey: "root", status: "succeeded" },
+      { key: "unit", name: "Unit tests", parentKey: "root", status: "succeeded" },
+      { key: "api", name: "API tests", parentKey: "root", status: "running" },
+      { key: "api-auth", name: "Auth routes", parentKey: "api", status: "succeeded" },
+      { key: "api-jobs", name: "Job routes", parentKey: "api", status: "running" },
+      { key: "report", name: "Report", parentKey: "root", status: "planned" }
+    ]),
     trigger: "manual",
     status: "running"
   },
@@ -91,6 +100,11 @@ export const activeRuns: RunListItem[] = [
     namespacePath: "/team-a/edge",
     source: "stored",
     submittedBy: "cron",
+    tasks: mockRunTasks("run-1239", [
+      { key: "root", name: "docs-publish", status: "pending" },
+      { key: "build", name: "Build docs", parentKey: "root", status: "planned" },
+      { key: "publish", name: "Publish", parentKey: "root", status: "planned" }
+    ]),
     trigger: "schedule",
     status: "queued"
   },
@@ -119,10 +133,55 @@ export const activeRuns: RunListItem[] = [
     source: "stored",
     startedAt: "2026-05-31T10:00:05Z",
     submittedBy: "admin",
+    tasks: mockRunTasks("run-1238", [
+      { key: "root", name: "worker-image", status: "succeeded" },
+      { key: "build", name: "Build image", parentKey: "root", status: "succeeded" },
+      { key: "scan", name: "Scan image", parentKey: "root", status: "succeeded" },
+      { key: "publish", name: "Publish image", parentKey: "root", status: "succeeded" }
+    ]),
     trigger: "manual",
     status: "succeeded"
   }
 ];
+
+type MockTaskInput = {
+  key: string;
+  name: string;
+  parentKey?: string;
+  status: RunTaskStatus;
+};
+
+export function mockRunTasks(runID: string, tasks: MockTaskInput[]): RunTaskItem[] {
+  return tasks.map((task, index) => ({
+    attempts:
+      task.status === "planned" || task.status === "pending" ? [] : [mockTaskAttempt(runID, task.key, task.status)],
+    name: task.name,
+    parentTaskID: task.parentKey ? mockTaskID(runID, task.parentKey) : undefined,
+    status: task.status,
+    taskID: mockTaskID(runID, task.key),
+    taskKey: task.key || String(index + 1)
+  }));
+}
+
+function mockTaskAttempt(runID: string, taskKey: string, status: RunTaskStatus) {
+  const hasStarted = status !== "accepted";
+  const hasFinished = ["aborted", "cancelled", "failed", "succeeded"].includes(status);
+
+  return {
+    attempt: 1,
+    attemptID: `${mockTaskID(runID, taskKey)}:attempt:1`,
+    cellID: "local",
+    executionID: `${mockTaskID(runID, taskKey)}:execution:1`,
+    executionStatus: status,
+    finishedAt: hasFinished ? "2026-05-31T12:00:42Z" : undefined,
+    startedAt: hasStarted ? "2026-05-31T12:00:05Z" : undefined,
+    status
+  };
+}
+
+function mockTaskID(runID: string, taskKey: string) {
+  return `${runID}:${taskKey}`;
+}
 
 export const instanceSignals: SignalItem[] = [
   {

@@ -220,6 +220,52 @@ describe("App", () => {
     expect(screen.getByText("Offline")).toBeInTheDocument();
   });
 
+  it("loads health directly from cell status without console fan-out", async () => {
+    vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
+    window.history.replaceState(null, "", "/health");
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            auth_enabled: false,
+            principal: { kind: "auth_disabled", username: "Anonymous" }
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            cells: [
+              {
+                cell_id: "local",
+                ingress_required: false,
+                ingress_configured: false,
+                ingress_reachable: false,
+                status: "local",
+                queued: 0,
+                stuck: 0,
+                catalog_pending: 0,
+                catalog_failed: 0,
+                catalog_total: 0
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      );
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Health" })).toBeInTheDocument();
+    expect(screen.getByText("local")).toBeInTheDocument();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/ui/api/context", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/v1/cells/status", expect.any(Object));
+  });
+
   it("drills into individual cell health", async () => {
     window.history.replaceState(null, "", "/health");
 
@@ -273,7 +319,9 @@ describe("App", () => {
     expect(screen.getByRole("heading", { level: 1, name: "taylor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove User" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Remove User" })).getByRole("button", { name: "Remove User" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Remove User" })).getByRole("button", { name: "Remove User" })
+    );
 
     await waitFor(() => {
       expect(screen.queryByText("taylor")).not.toBeInTheDocument();

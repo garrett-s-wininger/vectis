@@ -7,7 +7,11 @@ import {
   runDefinitionTitle,
   runGraphDescription,
   runLogLines,
-  runOutcomeCopy,
+  runTaskExecutionLabel,
+  runTaskStatusLabel,
+  runTaskTimingLabel,
+  runTasksForDisplay,
+  preferredRunTaskID,
   runTimelineEvents,
   sourceLabel
 } from "./RunDetailPresentation";
@@ -34,13 +38,7 @@ const run: RunListItem = {
 describe("run detail presentation", () => {
   it("describes run investigation states", () => {
     expect(runDetailDescription()).toBe("Execution graph, logs, timeline, and definition context.");
-    expect(runOutcomeCopy(run)).toContain("completed successfully");
-    expect(runOutcomeCopy({ ...run, status: "failed" })).toContain("Execution failed");
-    expect(runGraphDescription({ ...run, status: "running" })).toBe(
-      "Task topology and the currently selected execution node."
-    );
-
-    expect(runGraphDescription(run)).toBe("Task topology and final status for this execution.");
+    expect(runGraphDescription()).toBe("Execution flow for the run.");
   });
 
   it("formats source and reference labels", () => {
@@ -79,5 +77,54 @@ describe("run detail presentation", () => {
       "worker claimed run on local",
       "streaming output"
     ]);
+  });
+
+  it("builds task display state", () => {
+    const tasks = runTasksForDisplay({
+      ...run,
+      tasks: [
+        {
+          attempts: [],
+          name: "root",
+          status: "succeeded",
+          taskID: "task-root",
+          taskKey: "root"
+        },
+        {
+          attempts: [
+            {
+              attempt: 1,
+              attemptID: "attempt-build",
+              cellID: "local",
+              executionID: "execution-build",
+              executionStatus: "running",
+              startedAt: "2026-05-31T12:00:05Z",
+              status: "running"
+            }
+          ],
+          name: "build",
+          parentTaskID: "task-root",
+          status: "running",
+          taskID: "task-build",
+          taskKey: "build"
+        }
+      ]
+    });
+
+    expect(tasks.map((task) => [task.taskKey, task.depth])).toEqual([
+      ["root", 0],
+      ["build", 1]
+    ]);
+
+    expect(preferredRunTaskID(tasks)).toBe("task-build");
+    expect(runTaskStatusLabel("accepted")).toBe("Accepted");
+    expect(runTaskTimingLabel(tasks[1])).toMatch(/^Running /);
+    expect(runTaskExecutionLabel(tasks[1])).toBe("execuild");
+    expect(
+      runTaskTimingLabel({
+        ...tasks[1],
+        attempts: [{ ...tasks[1].attempts[0], finishedAt: "2026-05-31T12:00:42Z" }]
+      })
+    ).toBe("37s");
   });
 });

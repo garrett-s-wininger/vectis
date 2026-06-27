@@ -17,7 +17,7 @@ export function streamRunLogs(
   onEntry: (entry: RunLogEntry) => void,
   onError: (message: string) => void
 ) {
-  if (typeof EventSource === "undefined") {
+  if (typeof EventSource === "undefined" || shouldSkipLogStream()) {
     return () => {};
   }
 
@@ -45,6 +45,10 @@ export function streamRunLogs(
   };
 
   return () => source.close();
+}
+
+function shouldSkipLogStream() {
+  return import.meta.env.VITE_CONSOLE_DATA_SOURCE === "mock" || import.meta.env.STORYBOOK === "true";
 }
 
 export function parseRunLogEvent(data: string): RunLogEntry | null {

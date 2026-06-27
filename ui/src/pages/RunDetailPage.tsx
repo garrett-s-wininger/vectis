@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
 import { Clock, Code2, FileText, History, Server, User, Zap } from "lucide-react";
-import {
-  BreadcrumbTrail,
-  ErrorAlert,
-  OperationalFact,
-  PageHeader,
-  StatusBadge,
-  type RunListItem
-} from "../components";
+import { BreadcrumbTrail, ErrorAlert, OperationalFact, PageHeader, StatusBadge, type RunListItem } from "../components";
 import { runActorLabel, runDisplayName, runDurationLabel, runTriggerLabel } from "../components/data/RunPresentation";
 import { streamRunLogs, type RunLogEntry } from "../data/runLogs";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
@@ -17,12 +10,17 @@ import {
   runDefinitionDescription,
   runDefinitionTitle,
   runDetailDescription,
-  runGraphDescription,
   runLogLines,
-  runOutcomeCopy,
+  runTaskExecutionLabel,
+  runTaskStatusLabel,
+  runTaskTimingLabel,
+  runTasksForDisplay,
   runTimelineEvents,
+  preferredRunTaskID,
+  type RunTaskDisplayNode,
   sourceLabel
 } from "./RunDetailPresentation";
+import { RunTaskGraph } from "./RunTaskGraph";
 import { PageMissingState } from "./shared";
 import styles from "./RunDetailPage.module.css";
 
@@ -52,6 +50,28 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
       />
     );
   }
+
+  return <RunDetailContent onBack={onBack} onOpenJob={onOpenJob} run={run} />;
+}
+
+function RunDetailContent({
+  onBack,
+  onOpenJob,
+  run
+}: {
+  onBack: () => void;
+  onOpenJob?: (jobName: string) => void;
+  run: RunListItem;
+}) {
+  const tasks = runTasksForDisplay(run);
+  const taskSignature = tasks.map((task) => `${task.taskID}:${task.status}`).join("|");
+  const preferredTaskID = preferredRunTaskID(tasks);
+  const [selection, setSelection] = useState({ runID: run.id, taskID: preferredTaskID, taskSignature });
+  const selectedTaskID =
+    selection.runID === run.id && selection.taskSignature === taskSignature ? selection.taskID : preferredTaskID;
+
+  const selectedTask = tasks.find((task) => task.taskID === selectedTaskID) ?? tasks[0];
+  const selectTask = (taskID: string) => setSelection({ runID: run.id, taskID, taskSignature });
 
   return (
     <>
@@ -85,7 +105,6 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
           </div>
           <StatusBadge status={run.status} />
         </div>
-        <p className={styles.outcome}>{runOutcomeCopy(run)}</p>
         <dl className={styles.facts}>
           <OperationalFact emphasis icon={Clock} label={runDurationLabel(run.status)} value={run.duration} />
           <OperationalFact icon={Server} label="Cell" value={run.cellName ?? "Unassigned"} />
@@ -101,8 +120,8 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
       </section>
 
       <section className={styles.layout} aria-label="Run investigation">
-        <RunGraph run={run} />
-        <RunLogs run={run} />
+        <RunTaskGraph onSelectTask={selectTask} selectedTaskID={selectedTask?.taskID} tasks={tasks} />
+        <RunLogs run={run} selectedTask={selectedTask} />
         <RunDefinition run={run} />
         <RunTimeline run={run} />
       </section>
@@ -110,29 +129,7 @@ export function RunDetailPage({ onBack, onOpenJob, run, runID }: RunDetailPagePr
   );
 }
 
-function RunGraph({ run }: { run: RunListItem }) {
-  return (
-    <section
-      className={`${styles.panel} ${styles.graphPanel} polished-panel polished-panel--accent-top`}
-      aria-labelledby="run-graph-title"
-    >
-      <div className={styles.panelHeader}>
-        <div>
-          <h2 id="run-graph-title">Graph</h2>
-          <p>{runGraphDescription(run)}</p>
-        </div>
-      </div>
-      <div className={styles.graph} aria-label="Execution graph">
-        <span className={`${styles.graphNode} ${styles[run.status]}`}>
-          <span className={styles.graphIndicator} aria-hidden="true" />
-          <span className={styles.graphLabel}>root</span>
-        </span>
-      </div>
-    </section>
-  );
-}
-
-function RunLogs({ run }: { run: RunListItem }) {
+function RunLogs({ run, selectedTask }: { run: RunListItem; selectedTask?: RunTaskDisplayNode }) {
   const [logState, setLogState] = useState<{ entries: RunLogEntry[]; error: string; runID: string }>({
     entries: [],
     error: "",
@@ -161,10 +158,7 @@ function RunLogs({ run }: { run: RunListItem }) {
   }, [run.id]);
 
   const visibleLogState = logState.runID === run.id ? logState : { entries: [], error: "", runID: run.id };
-  const logLines =
-    visibleLogState.entries.length > 0
-      ? formatRunLogEntries(visibleLogState.entries)
-      : runLogLines(run);
+  const logLines = visibleLogState.entries.length > 0 ? formatRunLogEntries(visibleLogState.entries) : runLogLines(run);
 
   return (
     <section
@@ -174,9 +168,17 @@ function RunLogs({ run }: { run: RunListItem }) {
       <div className={styles.panelHeader}>
         <div>
           <h2 id="run-logs-title">Task Logs</h2>
-          <p>Worker output for the selected execution context.</p>
+          <p>Worker output for the selected task.</p>
         </div>
       </div>
+      {selectedTask ? (
+        <dl className={styles.taskContext}>
+          <OperationalFact icon={FileText} label="Task" value={selectedTask.name || selectedTask.taskKey} />
+          <OperationalFact icon={Zap} label="Status" value={runTaskStatusLabel(selectedTask.status)} />
+          <OperationalFact icon={Clock} label="Duration" value={runTaskTimingLabel(selectedTask)} />
+          <OperationalFact icon={Server} label="Execution" value={runTaskExecutionLabel(selectedTask)} />
+        </dl>
+      ) : null}
       <ErrorAlert message={visibleLogState.error} title="Log Stream Unavailable" />
       <pre className={`code-block ${styles.logs}`}>{logLines.join("\n")}</pre>
     </section>

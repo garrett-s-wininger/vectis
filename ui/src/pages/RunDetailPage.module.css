@@ -26,14 +26,6 @@
   margin: var(--space-2xs) 0 0;
 }
 
-.outcome {
-  color: var(--text-subtle);
-  font-size: var(--font-size-md);
-  line-height: var(--line-height-body);
-  margin: 0;
-  max-width: 72ch;
-}
-
 .facts {
   display: grid;
   gap: var(--space-lg);
@@ -56,14 +48,13 @@
 }
 
 .primaryPanel {
+  gap: var(--space-md);
   grid-column: 1 / -1;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-height: 340px;
 }
 
 .logs {
-  height: 100%;
-  min-height: 0;
+  max-height: 320px;
+  min-height: 96px;
 }
 
 .panelHeader {
@@ -88,119 +79,11 @@
   margin: 0;
 }
 
-.graphPanel {
-  gap: var(--space-lg);
-  grid-column: 1 / -1;
-}
-
-.graph {
-  align-items: center;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 72%), rgb(255 255 255 / 22%)),
-    linear-gradient(180deg, #f4f7f9 0%, #e7eef2 100%);
-  border: var(--control-border);
-  border-radius: var(--control-radius);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  justify-content: center;
-  min-height: 88px;
-  padding: var(--space-lg);
-}
-
-.graphNode {
-  align-items: center;
-  color: var(--text-navigation);
+.taskContext {
   display: grid;
-  gap: var(--space-xs);
-  justify-items: center;
-}
-
-.graphIndicator {
-  align-items: center;
-  background: rgb(255 255 255 / 72%);
-  border: 3px solid rgb(151 168 177 / 40%);
-  border-radius: 50%;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 86%),
-    0 10px 18px rgb(24 31 36 / 9%);
-  display: grid;
-  height: 52px;
-  justify-items: center;
-  position: relative;
-  width: 52px;
-}
-
-.graphIndicator::after {
-  background: var(--text-navigation);
-  border-radius: 50%;
-  content: "";
-  height: var(--space-lg);
-  width: var(--space-lg);
-}
-
-.graphLabel {
-  color: var(--text-navigation);
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-}
-
-.running .graphIndicator {
-  border-color: var(--color-primary);
-}
-
-.running .graphIndicator::after {
-  background: var(--color-primary);
-}
-
-.succeeded .graphIndicator {
-  border-color: var(--status-success-border);
-}
-
-.succeeded .graphIndicator::after {
-  background: transparent;
-  border: solid var(--status-success-text);
-  border-width: 0 4px 4px 0;
-  border-radius: 0;
-  height: var(--space-2xl);
-  transform: rotate(45deg) translate(-1px, -2px);
-  width: var(--space-lg);
-}
-
-.failed .graphIndicator,
-.cancelled .graphIndicator,
-.abandoned .graphIndicator,
-.aborted .graphIndicator {
-  border-color: var(--status-danger-border);
-}
-
-.failed .graphIndicator::after,
-.cancelled .graphIndicator::after,
-.abandoned .graphIndicator::after,
-.aborted .graphIndicator::after {
-  background: var(--status-danger-text);
-}
-
-.queued .graphIndicator,
-.orphaned .graphIndicator {
-  border-color: var(--status-warning-border);
-}
-
-.queued .graphIndicator::after,
-.orphaned .graphIndicator::after {
-  background: var(--status-warning-text);
-}
-
-.running .graphLabel,
-.succeeded .graphLabel,
-.failed .graphLabel,
-.cancelled .graphLabel,
-.abandoned .graphLabel,
-.orphaned .graphLabel,
-.aborted .graphLabel,
-.queued .graphLabel {
-  color: var(--text-primary);
+  gap: var(--space-md);
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  margin: 0;
 }
 
 .eventList {
@@ -284,10 +167,6 @@
   .heroHeader,
   .panelHeader {
     grid-template-columns: 1fr;
-  }
-
-  .primaryPanel {
-    min-height: 320px;
   }
 
   .facts {

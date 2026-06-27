@@ -32,8 +32,39 @@ export type RunListItem = {
   source?: "stored" | "ephemeral";
   startedAt?: string;
   submittedBy?: string;
+  tasks?: RunTaskItem[];
   trigger?: RunTrigger;
   status: RunStatus;
+};
+
+export type RunTaskStatus =
+  | "planned"
+  | "pending"
+  | "accepted"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "aborted";
+
+export type RunTaskAttemptItem = {
+  attempt: number;
+  attemptID: string;
+  cellID: string;
+  executionID?: string;
+  executionStatus?: RunTaskStatus;
+  finishedAt?: string;
+  startedAt?: string;
+  status: RunTaskStatus;
+};
+
+export type RunTaskItem = {
+  attempts: RunTaskAttemptItem[];
+  name: string;
+  parentTaskID?: string;
+  status: RunTaskStatus;
+  taskID: string;
+  taskKey: string;
 };
 
 type RunListProps = {

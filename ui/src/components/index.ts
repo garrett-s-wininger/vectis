@@ -23,7 +23,7 @@ export type { ProgressMeterProps, ProgressTone } from "./data/ProgressMeter";
 export { RecordList, RecordListIdentity, RecordListMeta, RecordListSummary } from "./data/RecordList";
 export type { RecordListItem, RecordListRailTone } from "./data/RecordList";
 export { RunList } from "./data/RunList";
-export type { RunListItem } from "./data/RunList";
+export type { RunListItem, RunTaskAttemptItem, RunTaskItem, RunTaskStatus } from "./data/RunList";
 export { SectionPanel } from "./layout/SectionPanel";
 export { SelectField } from "./primitives/SelectField";
 export { TextAreaField } from "./primitives/TextAreaField";

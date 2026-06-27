@@ -1,4 +1,4 @@
-import type { RunListItem, RunStatus } from "../components";
+import type { RunListItem, RunStatus, RunTaskAttemptItem, RunTaskItem, RunTaskStatus } from "../components";
 import type {
   Cell,
   ConsoleData,
@@ -67,6 +67,26 @@ type APIRun = {
   run_index: number;
   started_at?: string;
   status: string;
+};
+
+type APIRunTaskAttempt = {
+  attempt: number;
+  attempt_id: string;
+  cell_id: string;
+  execution_id?: string;
+  execution_status?: string;
+  finished_at?: string;
+  started_at?: string;
+  status: string;
+};
+
+type APIRunTask = {
+  attempts: APIRunTaskAttempt[];
+  name: string;
+  parent_task_id?: string;
+  status: string;
+  task_id: string;
+  task_key: string;
 };
 
 type APIEphemeralRunResponse = {
@@ -301,10 +321,13 @@ function createAPIConsoleDataSource(): ConsoleDataSource {
     loadConsole: loadAPIConsoleData,
     loadCells: loadAPICells,
     async loadRun(runID) {
-      const [run, jobsPage] = await Promise.all([loadAPIRun(runID), loadAPIJobs()]);
+      const [run, jobsPage, tasks] = await Promise.all([loadAPIRun(runID), loadAPIJobs(), loadAPIRunTasks(runID)]);
       const jobs = jobsPage.data.map(apiJobToConsoleJob);
       const job = jobs.find((candidate) => candidate.id === run.job_id);
-      return apiRunToConsoleRun(run, runDetailJob(run, job));
+      return {
+        ...apiRunToConsoleRun(run, runDetailJob(run, job)),
+        tasks
+      };
     },
     async submitEphemeralRun(input) {
       const definition = parseJobDefinition(input.definition);
@@ -460,6 +483,14 @@ async function loadAPIRoleBindings(namespaces: Namespace[], users: User[]) {
 
 async function loadAPIRun(runID: string) {
   return requestJSON<APIRun>(`/api/v1/runs/${encodeURIComponent(runID)}`);
+}
+
+async function loadAPIRunTasks(runID: string) {
+  const response = await requestJSON<PaginatedResponse<APIRunTask>>(
+    `/api/v1/runs/${encodeURIComponent(runID)}/tasks?limit=200`
+  );
+
+  return response.data.map(apiRunTaskToConsoleTask);
 }
 
 function apiUserToConsoleUser(user: APIUser): User {
@@ -740,6 +771,30 @@ function apiRunToConsoleRun(run: APIRun, job: Job): RunListItem {
   };
 }
 
+function apiRunTaskToConsoleTask(task: APIRunTask): RunTaskItem {
+  return {
+    attempts: task.attempts.map(apiRunTaskAttemptToConsoleAttempt),
+    name: task.name || task.task_key,
+    parentTaskID: task.parent_task_id,
+    status: apiTaskStatus(task.status),
+    taskID: task.task_id,
+    taskKey: task.task_key
+  };
+}
+
+function apiRunTaskAttemptToConsoleAttempt(attempt: APIRunTaskAttempt): RunTaskAttemptItem {
+  return {
+    attempt: attempt.attempt,
+    attemptID: attempt.attempt_id,
+    cellID: attempt.cell_id,
+    executionID: attempt.execution_id,
+    executionStatus: attempt.execution_status ? apiTaskStatus(attempt.execution_status) : undefined,
+    finishedAt: attempt.finished_at,
+    startedAt: attempt.started_at,
+    status: apiTaskStatus(attempt.status)
+  };
+}
+
 function runDetailJob(run: APIRun, job?: Job): Job {
   if (job) {
     return job;
@@ -818,6 +873,22 @@ function apiRunStatusToConsoleStatus(status: string): RunStatus {
       return status;
     default:
       return "queued";
+  }
+}
+
+function apiTaskStatus(status: string): RunTaskStatus {
+  switch (status) {
+    case "planned":
+    case "pending":
+    case "accepted":
+    case "running":
+    case "succeeded":
+    case "failed":
+    case "cancelled":
+    case "aborted":
+      return status;
+    default:
+      return "pending";
   }
 }
 

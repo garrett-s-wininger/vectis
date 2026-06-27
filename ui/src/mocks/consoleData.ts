@@ -19,7 +19,7 @@ import type {
 } from "../domain/console";
 import { summarizeRoleBindings } from "../domain/roleBindings";
 import type { DashboardMetric } from "./fixtures";
-import { activeRuns, instanceSignals, workloadProgress } from "./fixtures";
+import { activeRuns, instanceSignals, mockRunTasks, workloadProgress } from "./fixtures";
 
 export type MockCellStatus = CellStatus;
 export type MockCell = Cell;
@@ -647,6 +647,10 @@ export function triggerMockRun(data: MockConsoleData, jobID: string): MockConsol
     source: "stored",
     startedAt: "2026-05-31T12:00:05Z",
     submittedBy: "admin",
+    tasks: mockRunTasks(`run-${nextRunNumber}`, [
+      { key: "root", name: job.name, status: "pending" },
+      { key: "execute", name: "Execute", parentKey: "root", status: "planned" }
+    ]),
     trigger: "ui",
     status: "queued"
   };
@@ -680,6 +684,10 @@ export function submitMockEphemeralRun(data: MockConsoleData, input: NewMockEphe
     source: "ephemeral",
     startedAt: "2026-05-31T12:00:04Z",
     submittedBy: input.submittedBy ?? "admin",
+    tasks: mockRunTasks(`run-${nextRunNumber}`, [
+      { key: "root", name: jobNameFromDefinition(definition), status: "pending" },
+      { key: "inline", name: "Inline definition", parentKey: "root", status: "planned" }
+    ]),
     trigger: "ui",
     status: "queued"
   };
@@ -705,7 +713,13 @@ function cloneData(data: MockConsoleData): MockConsoleData {
     namespaces: data.namespaces.map((namespace) => ({ ...namespace })),
     progress: data.progress.map((progress) => ({ ...progress })),
     roleBindings: data.roleBindings.map((binding) => ({ ...binding })),
-    runs: data.runs.map((run) => ({ ...run })),
+    runs: data.runs.map((run) => ({
+      ...run,
+      tasks: run.tasks?.map((task) => ({
+        ...task,
+        attempts: task.attempts.map((attempt) => ({ ...attempt }))
+      }))
+    })),
     signals: data.signals.map((signal) => ({ ...signal })),
     users: data.users.map((user) => ({
       ...user,
