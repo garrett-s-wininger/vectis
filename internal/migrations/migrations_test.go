@@ -240,18 +240,23 @@ func assertSQLiteForeignKeyTargetsExist(t *testing.T, db *sql.DB) {
 	}
 
 	for _, table := range tables {
-		assertSQLiteForeignKeyTargetsExistForTable(t, db, table, existing)
+		assertSQLiteForeignKeysReferenceExistingTables(t, db, table, existing)
 	}
 }
 
-func assertSQLiteForeignKeyTargetsExistForTable(t *testing.T, db *sql.DB, table string, existing map[string]struct{}) {
+func assertSQLiteForeignKeysReferenceExistingTables(t *testing.T, db *sql.DB, table string, existing map[string]struct{}) {
 	t.Helper()
 
 	fkRows, err := db.Query(fmt.Sprintf("PRAGMA foreign_key_list(%s)", sqliteIdentifier(table)))
 	if err != nil {
 		t.Fatalf("list foreign keys for %s: %v", table, err)
 	}
-	defer fkRows.Close()
+
+	defer func() {
+		if err := fkRows.Close(); err != nil {
+			t.Fatalf("close foreign keys for %s: %v", table, err)
+		}
+	}()
 
 	for fkRows.Next() {
 		var (

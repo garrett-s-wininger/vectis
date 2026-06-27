@@ -248,6 +248,7 @@ func TestWorkerArtifactPublisherMaterializesSparseChildTaskPath(t *testing.T) {
 
 	if childTask == nil {
 		t.Fatalf("materialized child task missing from tasks: %+v", tasks)
+		return
 	}
 
 	if childTask.Status != dal.TaskStatusPlanned || len(childTask.Attempts) != 1 {

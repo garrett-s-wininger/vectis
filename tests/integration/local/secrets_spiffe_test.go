@@ -386,7 +386,7 @@ func allEntriesJoined(t *testing.T, store *logserver.LocalRunLogStore, runID str
 
 	parts := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		parts = append(parts, entry.Data)
+		parts = append(parts, string(entry.Data))
 	}
 
 	return strings.Join(parts, "\n")

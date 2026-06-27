@@ -578,6 +578,7 @@ func applyEntryUpdate(existing, incoming *spiretypes.Entry, mask *spiretypes.Ent
 			proto.Reset(existing)
 			proto.Merge(existing, replacement)
 		}
+
 		return
 	}
 

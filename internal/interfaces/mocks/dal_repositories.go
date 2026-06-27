@@ -705,14 +705,7 @@ func (m *MockRunsRepository) UpsertRunHotStateOwner(ctx context.Context, update 
 
 	m.mu.Lock()
 	m.LastHotStateOwner = update
-	m.HotStateOwner = dal.RunHotStateOwnerRecord{
-		RunID:        update.RunID,
-		CellID:       update.CellID,
-		OwnerID:      update.OwnerID,
-		OwnerEpoch:   update.OwnerEpoch,
-		LeaseUntil:   update.LeaseUntil,
-		LastSequence: update.LastSequence,
-	}
+	m.HotStateOwner = dal.RunHotStateOwnerRecord(update)
 	m.HotStateOwnerFound = true
 	m.mu.Unlock()
 

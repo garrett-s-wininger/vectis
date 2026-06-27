@@ -102,7 +102,7 @@ func waitForStoreContains(t *testing.T, store *logserver.LocalRunLogStore, runID
 		entries, err := store.List(runID)
 		if err == nil {
 			for _, e := range entries {
-				if strings.Contains(e.Data, want) {
+				if strings.Contains(string(e.Data), want) {
 					return
 				}
 			}
@@ -123,7 +123,7 @@ func allEntriesJoined(t *testing.T, store *logserver.LocalRunLogStore, runID str
 
 	parts := make([]string, 0, len(entries))
 	for _, e := range entries {
-		parts = append(parts, e.Data)
+		parts = append(parts, string(e.Data))
 	}
 
 	return strings.Join(parts, "\n")

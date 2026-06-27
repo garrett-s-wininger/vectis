@@ -83,14 +83,15 @@ func expandDSN(dsn string) string {
 
 func OpenDB(dbPath string) (*sql.DB, error) {
 	driver := EffectiveDBDriver()
-	if driver == "sqlite3" {
+	switch driver {
+	case "sqlite3":
 		dir := filepath.Dir(dbPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create data directory: %w", err)
 		}
 
 		dbPath = sqliteDSNWithDefaults(dbPath)
-	} else if driver == "pgx" {
+	case "pgx":
 		var err error
 		dbPath, err = pgxDSNWithDefaults(dbPath)
 		if err != nil {

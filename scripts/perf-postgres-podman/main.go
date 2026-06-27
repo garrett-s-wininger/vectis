@@ -105,7 +105,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	cmd := exec.Command(args[0], args[1:]...) // #nosec G204 -- perf wrapper intentionally runs the caller-provided benchmark command.
+	// #nosec G204 -- this harness intentionally executes the benchmark command supplied after "--".
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -249,7 +250,8 @@ func startPostgres(ctx context.Context, podman, image, containerName, hostPort s
 		)
 	}
 
-	output, err := exec.CommandContext(ctx, podman, args...).CombinedOutput() // #nosec G204 -- podman path and args are built by this local perf helper.
+	// #nosec G204 -- podman executable and arguments are explicit perf harness configuration.
+	output, err := exec.CommandContext(ctx, podman, args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%s %v: %w\n%s", podman, args, err, string(output))
 	}
@@ -438,6 +440,7 @@ func samplePostgresWaits(ctx context.Context, db *sql.DB, file *os.File) {
 	`)
 
 	if err != nil {
+		writePostgresWaitSampleError(file, err)
 		return
 	}
 	defer rows.Close()
@@ -450,6 +453,7 @@ func samplePostgresWaits(ctx context.Context, db *sql.DB, file *os.File) {
 		}
 
 		if err := rows.Scan(scan...); err != nil {
+			writePostgresWaitSampleError(file, err)
 			return
 		}
 
@@ -459,6 +463,15 @@ func samplePostgresWaits(ctx context.Context, db *sql.DB, file *os.File) {
 
 		_, _ = fmt.Fprintln(file, strings.Join(fields, "\t"))
 	}
+
+	if err := rows.Err(); err != nil {
+		writePostgresWaitSampleError(file, err)
+		return
+	}
+}
+
+func writePostgresWaitSampleError(file *os.File, err error) {
+	_, _ = fmt.Fprintf(file, "# sample error: %s\n", sanitizeTSVField(err.Error()))
 }
 
 func sanitizeTSVField(value string) string {

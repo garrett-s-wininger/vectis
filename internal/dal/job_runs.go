@@ -4239,32 +4239,30 @@ func verifyBatchParentTasksTx(ctx context.Context, tx *sql.Tx, runID string, par
 	for start := 0; start < len(parentTaskIDs); start += terminalSnapshotBatchRows {
 		end := min(start+terminalSnapshotBatchRows, len(parentTaskIDs))
 		chunk := parentTaskIDs[start:end]
-		rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
-			SELECT task_id, run_id
-			FROM run_tasks
-			WHERE task_id IN (`+questionPlaceholders(len(chunk))+`)
-		`), stringsToAny(chunk)...)
+		if err := func() error {
+			rows, err := tx.QueryContext(ctx, rebindQueryForPgx(`
+				SELECT task_id, run_id
+				FROM run_tasks
+				WHERE task_id IN (`+questionPlaceholders(len(chunk))+`)
+			`), stringsToAny(chunk)...)
 
-		if err != nil {
-			return normalizeSQLError(err)
-		}
-
-		for rows.Next() {
-			var taskID, taskRunID string
-			if err := rows.Scan(&taskID, &taskRunID); err != nil {
-				_ = rows.Close()
+			if err != nil {
 				return normalizeSQLError(err)
 			}
+			defer rows.Close()
 
-			found[taskID] = taskRunID
-		}
+			for rows.Next() {
+				var taskID, taskRunID string
+				if err := rows.Scan(&taskID, &taskRunID); err != nil {
+					return normalizeSQLError(err)
+				}
 
-		if err := rows.Close(); err != nil {
-			return normalizeSQLError(err)
-		}
+				found[taskID] = taskRunID
+			}
 
-		if err := rows.Err(); err != nil {
-			return normalizeSQLError(err)
+			return normalizeSQLError(rows.Err())
+		}(); err != nil {
+			return err
 		}
 	}
 

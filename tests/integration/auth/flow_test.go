@@ -17,6 +17,7 @@ import (
 func TestIntegrationAuth_Flow(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+	t.Setenv("VECTIS_API_ALLOWED_HOSTS", "example.com")
 
 	db := dbtest.NewTestDB(t)
 	logger := mocks.NewMockLogger()
@@ -102,8 +103,9 @@ func TestIntegrationAuth_Flow(t *testing.T) {
 	var authToken string
 	{
 		body, _ := json.Marshal(map[string]any{
-			"username": "admin",
-			"password": "admin-password-123",
+			"username":     "admin",
+			"password":     "admin-password-123",
+			"return_token": true,
 		})
 
 		rec := httptest.NewRecorder()
@@ -197,8 +199,9 @@ func TestIntegrationAuth_Flow(t *testing.T) {
 	var viewerToken string
 	{
 		body, _ := json.Marshal(map[string]any{
-			"username": "viewer-user",
-			"password": "viewer-password-123",
+			"username":     "viewer-user",
+			"password":     "viewer-password-123",
+			"return_token": true,
 		})
 
 		rec := httptest.NewRecorder()
@@ -216,6 +219,10 @@ func TestIntegrationAuth_Flow(t *testing.T) {
 
 		if err := json.Unmarshal(rec.Body.Bytes(), &loginResp); err != nil {
 			t.Fatalf("decode viewer login: %v", err)
+		}
+
+		if loginResp.Token == "" {
+			t.Fatal("expected non-empty viewer token after login")
 		}
 
 		viewerToken = loginResp.Token

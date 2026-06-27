@@ -1211,6 +1211,7 @@ func TestRunsRepository_EnsurePendingTaskExecutionCreatesLinkedRows(t *testing.T
 
 	if childTask == nil {
 		t.Fatalf("child task %q missing from list: %+v", child.TaskID, tasks)
+		return
 	}
 
 	if childTask.ParentTaskID == nil || *childTask.ParentTaskID != runID+":root" || childTask.SpecHash != "sha256:child" {
@@ -2990,6 +2991,7 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 
 	if child == nil {
 		t.Fatalf("child task missing from final facts: %+v", tasks)
+		return
 	}
 
 	if child.Status != dal.TaskStatusSucceeded || len(child.Attempts) != 1 {

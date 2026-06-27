@@ -260,7 +260,7 @@ func greetDescriptor() actionregistry.Descriptor {
 
 func logEntriesContain(entries []logserver.LogEntry, needle string) bool {
 	for _, entry := range entries {
-		if strings.Contains(entry.Data, needle) {
+		if strings.Contains(string(entry.Data), needle) {
 			return true
 		}
 	}

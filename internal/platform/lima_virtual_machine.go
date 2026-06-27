@@ -186,7 +186,8 @@ func (e *limaVirtualMachine) StartCommand(ctx context.Context, command VirtualMa
 		return nil, fmt.Errorf("lima command path is required")
 	}
 
-	cmd := exec.CommandContext(ctx, e.limactlPath, e.commandArgsWithEnv(command.Path, command.Args, command.WorkDir, command.Env)...) // #nosec G204 -- limactl path and guest command are selected by the configured VM executor.
+	// #nosec G204 -- limactl path and guest command are explicit VM execution configuration.
+	cmd := exec.CommandContext(ctx, e.limactlPath, e.commandArgsWithEnv(command.Path, command.Args, command.WorkDir, command.Env)...)
 	return interfaces.StartProcess(cmd)
 }
 
