@@ -172,6 +172,91 @@ func TestStoreReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestStorePutStatAndOpenUnsigned(t *testing.T) {
+	fake := newFakeS3(t)
+	fake.requireAuthorization = false
+	defer fake.server.Close()
+
+	store, err := NewStore(StoreOptions{
+		Endpoint:  fake.server.URL,
+		Region:    "us-west-2",
+		Bucket:    "vectis-artifacts",
+		Prefix:    "public",
+		PathStyle: true,
+	})
+
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	desc, err := store.Put(context.Background(), strings.NewReader("public s3"), sdkartifact.PutOptions{})
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	if fake.lastHeader("Authorization") != "" {
+		t.Fatalf("unsigned store sent Authorization header %q", fake.lastHeader("Authorization"))
+	}
+
+	if _, err := store.Stat(context.Background(), desc.Key); err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+
+	_, rc, err := store.Open(context.Background(), desc.Key)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer rc.Close()
+
+	body, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("read open body: %v", err)
+	}
+
+	if string(body) != "public s3" {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestStoreRequiresAccessKeyIDAndSecretAccessKeyTogether(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		accessKeyID     string
+		secretAccessKey string
+	}{
+		{name: "access key without secret", accessKeyID: "AKIA_TEST"},
+		{name: "secret without access key", secretAccessKey: "SECRET_TEST"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := newFakeS3(t)
+			defer fake.server.Close()
+
+			store, err := NewStore(StoreOptions{
+				Endpoint:        fake.server.URL,
+				Region:          "us-west-2",
+				Bucket:          "vectis-artifacts",
+				Prefix:          "prefix",
+				AccessKeyID:     tt.accessKeyID,
+				SecretAccessKey: tt.secretAccessKey,
+				PathStyle:       true,
+			})
+
+			if err != nil {
+				t.Fatalf("NewStore: %v", err)
+			}
+
+			_, err = store.Stat(context.Background(), sdkartifact.BlobKeySHA256(sha256Hex("missing")))
+			if err == nil || !strings.Contains(err.Error(), "must be configured together") {
+				t.Fatalf("Stat error = %v, want credential pair validation", err)
+			}
+
+			if got := fake.methodCount(http.MethodHead); got != 0 {
+				t.Fatalf("HEAD count = %d, want request to fail before reaching endpoint", got)
+			}
+		})
+	}
+}
+
 func newTestStore(t *testing.T, endpoint string) *Store {
 	t.Helper()
 
@@ -203,16 +288,19 @@ type fakeS3 struct {
 	objects map[string][]byte
 	methods map[string]int
 	headers http.Header
+
+	requireAuthorization bool
 }
 
 func newFakeS3(t *testing.T) *fakeS3 {
 	t.Helper()
 
 	f := &fakeS3{
-		t:       t,
-		objects: map[string][]byte{},
-		methods: map[string]int{},
-		headers: http.Header{},
+		t:                    t,
+		objects:              map[string][]byte{},
+		methods:              map[string]int{},
+		headers:              http.Header{},
+		requireAuthorization: true,
 	}
 
 	f.server = httptest.NewServer(http.HandlerFunc(f.serveHTTP))
@@ -225,12 +313,12 @@ func (f *fakeS3) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	f.headers = r.Header.Clone()
 	f.mu.Unlock()
 
-	if r.Header.Get("Authorization") == "" {
+	if f.requireAuthorization && r.Header.Get("Authorization") == "" {
 		http.Error(w, "missing authorization", http.StatusForbidden)
 		return
 	}
 
-	if r.Header.Get("x-amz-content-sha256") == "" || r.Header.Get("x-amz-date") == "" {
+	if f.requireAuthorization && (r.Header.Get("x-amz-content-sha256") == "" || r.Header.Get("x-amz-date") == "") {
 		http.Error(w, "missing sigv4 headers", http.StatusForbidden)
 		return
 	}

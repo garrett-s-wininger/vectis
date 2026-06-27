@@ -1,0 +1,20 @@
+{
+  "identities": [
+    {
+      "name": "vectis-smoke",
+      "credentials": [
+        {
+          "accessKey": "vectis-smoke",
+          "secretKey": "vectis-smoke-secret"
+        }
+      ],
+      "actions": [
+        "Admin",
+        "Read",
+        "List",
+        "Tagging",
+        "Write"
+      ]
+    }
+  ]
+}
