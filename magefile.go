@@ -34,6 +34,26 @@ var appNames = []string{
 	"worker-core",
 }
 
+var imageComponentNames = []string{
+	"cli",
+	"api",
+	"artifact",
+	"catalog",
+	"cell-ingress",
+	"cron",
+	"log",
+	"log-forwarder",
+	"orchestrator",
+	"queue",
+	"reconciler",
+	"registry",
+	"secrets",
+	"spiffe",
+	"worker",
+	"worker-core",
+	"docs",
+}
+
 type buildConfig struct {
 	args      []string
 	cgo       string
@@ -114,6 +134,34 @@ func BuildContainer() error {
 	})
 }
 
+// CiQuick runs the local CI workflow in a clean temporary worktree.
+func CiQuick() error {
+	status, err := gitStatusPorcelain()
+	if err != nil {
+		return err
+	}
+
+	if status != "" {
+		return fmt.Errorf("ci-quick requires a clean git tree. Commit, stash, or discard local changes before running it.\n%s", status)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "vectis-ci-quick.*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	worktree := filepath.Join(tmpDir, "worktree")
+	if err := run("", nil, "git", "worktree", "add", "--detach", worktree, "HEAD"); err != nil {
+		return err
+	}
+	defer func() {
+		_ = run("", nil, "git", "worktree", "remove", "--force", worktree)
+	}()
+
+	return run(worktree, nil, goCommand(), "run", "./cmd/worker", "run-local", ".vectis/ci.json", "--workspace", ".")
+}
+
 // Clean removes generated local build, test, and docs artifacts.
 func Clean() error {
 	paths := []string{
@@ -154,6 +202,25 @@ func PodmanGrafanaConfigmaps() error {
 // DocsAssets rebuilds and embeds the documentation site assets.
 func DocsAssets() error {
 	return buildDocsAssets()
+}
+
+// WebsiteA11y runs the website accessibility test suite.
+func WebsiteA11y() error {
+	browsersPath, err := filepath.Abs(filepath.Join("website", "node_modules", ".cache", "ms-playwright"))
+	if err != nil {
+		return err
+	}
+
+	env := map[string]string{"PLAYWRIGHT_BROWSERS_PATH": browsersPath}
+	if err := run("website", env, "npm", "ci"); err != nil {
+		return err
+	}
+
+	if err := run("website", env, "npx", "playwright", "install", "chromium"); err != nil {
+		return err
+	}
+
+	return run("website", env, "npm", "run", "test:a11y")
 }
 
 // DeployArtifactsRender renders Linux deployment artifacts.
@@ -211,6 +278,32 @@ func Format() error {
 	return run("", nil, goCommand(), "mod", "tidy")
 }
 
+// FormalVerification runs all configured TLA+ formal models.
+func FormalVerification() error {
+	models := strings.Fields(envDefault("FORMAL_MODELS", "execution reconciliation"))
+	if len(models) == 0 {
+		return fmt.Errorf("FORMAL_MODELS is empty")
+	}
+
+	for _, model := range models {
+		if err := runFormalVerification(model); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// FormalVerificationModel runs one TLA+ formal model named by FORMAL_MODEL.
+func FormalVerificationModel() error {
+	model := os.Getenv("FORMAL_MODEL")
+	if model == "" {
+		return fmt.Errorf("FORMAL_MODEL is required")
+	}
+
+	return runFormalVerification(model)
+}
+
 // FuzzAPIAuth runs the API auth fuzz targets.
 func FuzzAPIAuth() error {
 	fuzztime := envDefault("FUZZTIME", "30s")
@@ -238,6 +331,44 @@ func Lint() error {
 // LintAPIRoutes runs the API route security lint.
 func LintAPIRoutes() error {
 	return run("", nil, goCommand(), "run", "./tools/vectis-lint", "./internal/api")
+}
+
+// Image builds one component container image. Usage: mage image <component>.
+func Image(component string) error {
+	if !validImageComponent(component) {
+		return fmt.Errorf("unknown image component %q", component)
+	}
+
+	return podmanBuild("vectis-"+component+":latest", component)
+}
+
+// ImageFull builds the all-in-one container image.
+func ImageFull() error {
+	return podmanBuild("vectis:latest", "all-in-one")
+}
+
+// ImagesAll builds the all-in-one image and all component images.
+func ImagesAll() error {
+	if err := ImageFull(); err != nil {
+		return err
+	}
+
+	return ImagesComponents()
+}
+
+// ImagesComponents builds the component container images.
+func ImagesComponents() error {
+	for _, component := range imageComponentNames {
+		if component == "docs" && truthy(os.Getenv("SKIP_WEB_BUILD")) {
+			continue
+		}
+
+		if err := Image(component); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Perf runs a benchmark suite through the perf helper.
@@ -387,6 +518,26 @@ func buildPerf() (string, error) {
 	return bin, nil
 }
 
+func podmanBuild(tag, target string) error {
+	return run("", nil, envDefault("PODMAN", "podman"),
+		"build",
+		"-t", tag,
+		"-f", filepath.Join("build", "Containerfile"),
+		"--target", target,
+		".",
+	)
+}
+
+func validImageComponent(component string) bool {
+	for _, valid := range imageComponentNames {
+		if component == valid {
+			return true
+		}
+	}
+
+	return false
+}
+
 func buildDocsAssets() error {
 	if err := run("website", nil, "npm", "ci"); err != nil {
 		return err
@@ -521,6 +672,26 @@ func gitOutput(fallback string, args ...string) string {
 	}
 
 	return value
+}
+
+func gitStatusPorcelain() (string, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
+func runFormalVerification(model string) error {
+	return run("", nil,
+		envDefault("JAVA", "java"),
+		"-jar", envDefault("TLA_TOOLS_JAR", "/opt/tla+/tla2tools.jar"),
+		"-workers", "auto",
+		filepath.Join("formal", "tla", model+".tla"),
+		"-config", filepath.Join("formal", "tla", model+".cfg"),
+	)
 }
 
 func protocPlugin(envName, tool string) string {

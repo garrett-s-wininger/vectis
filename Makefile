@@ -46,6 +46,7 @@ TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
 
 GO ?= go
 MAGE ?= mage
+PODMAN ?= podman
 SUITE ?= queue
 PERF_ARGS ?=
 PERF_BIN ?= $(OUT_DIR)/vectis-perf
@@ -94,13 +95,14 @@ doctor:
 
 .PHONY: ci-quick
 ci-quick:
-	@sh .vectis/ci-quick.sh
+	GO="$(GO)" $(MAGE) ciQuick
 
 formal-verification-%: formal/tla/%.tla
-	${JAVA} -jar $(TLA_TOOLS_JAR) -workers auto formal/tla/${*}.tla -config formal/tla/${*}.cfg
+	FORMAL_MODEL="${*}" JAVA="$(JAVA)" TLA_TOOLS_JAR="$(TLA_TOOLS_JAR)" GO="$(GO)" $(MAGE) formalVerificationModel
 
 .PHONY: formal-verification
-formal-verification: $(addprefix formal-verification-, $(FORMAL_MODELS))
+formal-verification:
+	FORMAL_MODELS="$(FORMAL_MODELS)" JAVA="$(JAVA)" TLA_TOOLS_JAR="$(TLA_TOOLS_JAR)" GO="$(GO)" $(MAGE) formalVerification
 
 .PHONY: format
 format:
@@ -552,10 +554,7 @@ test-e2e-vm:
 
 .PHONY: website-a11y
 website-a11y:
-	cd website && \
-	PLAYWRIGHT_BROWSERS_PATH="$$PWD/node_modules/.cache/ms-playwright" npm ci && \
-	PLAYWRIGHT_BROWSERS_PATH="$$PWD/node_modules/.cache/ms-playwright" npx playwright install chromium && \
-	PLAYWRIGHT_BROWSERS_PATH="$$PWD/node_modules/.cache/ms-playwright" npm run test:a11y
+	GO="$(GO)" $(MAGE) websiteA11y
 
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOVULNCHECK_VERSION ?= v1.1.4
@@ -598,12 +597,12 @@ clean:
 
 .PHONY: image-full
 image-full:
-	podman build -t vectis:latest -f build/Containerfile --target all-in-one .
+	PODMAN="$(PODMAN)" GO="$(GO)" $(MAGE) imageFull
 
 # NOTE(garrett): Slight hack to ensure .PHONY applies to individual image builds while
 # getting around the copy-pasta Podman build commands.
 image-internal-%:
-	podman build -t vectis-${*}:latest -f build/Containerfile --target ${*} .
+	PODMAN="$(PODMAN)" GO="$(GO)" $(MAGE) image ${*}
 
 .PHONY: $(addprefix image-, $(COMPONENTS))
 image-api: image-internal-api
@@ -614,6 +613,7 @@ image-cli: image-internal-cli
 image-cron: image-internal-cron
 image-docs: image-internal-docs
 image-spiffe: image-internal-spiffe
+image-orchestrator: image-internal-orchestrator
 image-queue: image-internal-queue
 image-log: image-internal-log
 image-log-forwarder: image-internal-log-forwarder
@@ -624,7 +624,9 @@ image-worker: image-internal-worker
 image-worker-core: image-internal-worker-core
 
 .PHONY: images-all
-images-all: image-full images-components
+images-all:
+	SKIP_WEB_BUILD="$(SKIP_WEB_BUILD)" PODMAN="$(PODMAN)" GO="$(GO)" $(MAGE) imagesAll
 
 .PHONY: images-components
-images-components: image-cli $(addprefix image-, $(COMPONENTS))
+images-components:
+	SKIP_WEB_BUILD="$(SKIP_WEB_BUILD)" PODMAN="$(PODMAN)" GO="$(GO)" $(MAGE) imagesComponents
