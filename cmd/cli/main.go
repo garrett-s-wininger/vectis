@@ -305,7 +305,8 @@ func init() {
 	rootCmd.AddCommand(databaseCmd)
 
 	backupExpectPodmanCmd.Flags().StringVar(&backupExpectPodmanProfile, "profile", podmanProfileSimple, "Podman deployment profile: simple or ha")
-	backupExpectCmd.AddCommand(backupExpectPodmanCmd)
+	backupExpectLinuxCmd.Flags().StringVar(&backupExpectLinuxManifestPath, "manifest", backupExpectLinuxManifestPath, "Path to the Linux deploy services TOML manifest")
+	backupExpectCmd.AddCommand(backupExpectPodmanCmd, backupExpectLinuxCmd)
 	backupVerifyCmd.Flags().StringVar(&backupVerifyExpectPath, "expect", "", "Expected backup topology JSON file")
 	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupExpectCmd, backupVerifyCmd)
 	rootCmd.AddCommand(backupCmd)

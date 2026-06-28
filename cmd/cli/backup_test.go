@@ -468,6 +468,96 @@ func TestBackupPodmanExpectedTopologyHA(t *testing.T) {
 	}
 }
 
+func TestBackupLinuxExpectedTopology(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	var buf bytes.Buffer
+	if err := writeBackupLinuxExpectedTopology(&buf, backupExpectLinuxManifestPath); err != nil {
+		t.Fatalf("write linux expected topology: %v", err)
+	}
+
+	var expected backupExpectedTopology
+	if err := json.Unmarshal(buf.Bytes(), &expected); err != nil {
+		t.Fatalf("expected topology JSON: %v\n%s", err, buf.String())
+	}
+
+	if expected.SchemaVersion != backupExpectedTopologySchemaVersion {
+		t.Fatalf("schema version = %d", expected.SchemaVersion)
+	}
+
+	if len(expected.DatabaseRoles) != 3 {
+		t.Fatalf("database roles = %+v", expected.DatabaseRoles)
+	}
+
+	if len(expected.Instances) != 4 {
+		t.Fatalf("instances = %+v", expected.Instances)
+	}
+
+	if len(expected.Paths) != 7 {
+		t.Fatalf("paths = %+v", expected.Paths)
+	}
+
+	pathSet := backupExpectedPathSet(expected.Paths)
+	for _, key := range []string{
+		"local_state/queue.persistence//var/lib/vectis/queue/default/queue-1",
+		"local_state/log.storage//var/lib/vectis/log/log-1",
+		"local_state/artifact.storage//var/lib/vectis/artifact/artifact-1",
+		"local_state/log_forwarder.spool//var/lib/vectis/log-forwarder/spool",
+		"secret_stores/secrets.encryptedfs.root//var/lib/vectis/secrets/envelopes",
+		"secret_stores/secrets.encryptedfs.key_file//etc/vectis/secrets/encryptedfs.key",
+		"config_paths/linux.config_dir//etc/vectis",
+	} {
+		if !pathSet[key] {
+			t.Fatalf("expected paths missing %s: %+v", key, expected.Paths)
+		}
+	}
+
+	manifest := backupManifest{
+		SchemaVersion: backupManifestSchemaVersion,
+		GeneratedAt:   "2026-06-28T13:00:00Z",
+		Inventories: []backupManifestInventory{
+			{Source: "linux.inventory.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "pgx"},
+		},
+	}
+
+	version := 42
+	dirty := false
+	for _, role := range expected.DatabaseRoles {
+		manifest.DatabaseRoles = append(manifest.DatabaseRoles, backupManifestDatabaseRole{
+			InventorySource: "linux.inventory.json",
+			Role:            role.Role,
+			Driver:          role.Driver,
+			DSN:             "postgres://vectis:REDACTED@127.0.0.1:5432/vectis",
+			Schema:          backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty},
+		})
+	}
+
+	for _, instance := range expected.Instances {
+		manifest.Instances = append(manifest.Instances, backupManifestInstance{
+			InventorySource: "linux.inventory.json",
+			Service:         instance.Service,
+			InstanceID:      instance.InstanceID,
+		})
+	}
+
+	for _, path := range expected.Paths {
+		manifest.RequiredPaths = append(manifest.RequiredPaths, backupManifestPath{
+			InventorySource: "linux.inventory.json",
+			Category:        path.Category,
+			ID:              path.ID,
+			Path:            path.Path,
+			Enabled:         true,
+			Exists:          true,
+			Readable:        true,
+		})
+	}
+
+	result := verifyBackupManifest(manifest, &backupExpectedTopologyInput{Source: "linux-expected.json", Expectations: expected}, time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC))
+	if result.Status != backupManifestStatusOK || len(result.Errors) != 0 {
+		t.Fatalf("linux expected topology verification = %+v", result)
+	}
+}
+
 func backupPathsByID(paths []backupPathInventory) map[string]backupPathInventory {
 	out := map[string]backupPathInventory{}
 	for _, path := range paths {

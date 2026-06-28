@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	linuxdeploy "vectis/deploy/linux"
 	"vectis/internal/artifact"
 	"vectis/internal/config"
 	"vectis/internal/database"
@@ -219,6 +220,7 @@ type backupExpectedPath struct {
 
 var backupVerifyExpectPath string
 var backupExpectPodmanProfile = podmanProfileSimple
+var backupExpectLinuxManifestPath = linuxdeploy.DefaultManifestPath
 
 var backupCmd = &cobra.Command{
 	Use:     "backup",
@@ -278,6 +280,21 @@ submitted manifest without assuming inventory file names.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		runCLIError(writeBackupPodmanExpectedTopology(os.Stdout, backupExpectPodmanProfile))
+	},
+}
+
+var backupExpectLinuxCmd = &cobra.Command{
+	Use:   "linux",
+	Short: "Generate expected topology from Linux service artifacts",
+	Long: `Generate expected backup topology JSON from the Linux service artifact manifest.
+
+The Linux artifact manifest contains example environment for the standard
+single-host service set. Config management still owns real host placement and
+overrides, so treat this output as a baseline expectation that can be edited or
+augmented for production topology.`,
+	Args: cobra.NoArgs,
+	Run: func(cmd *cobra.Command, args []string) {
+		runCLIError(writeBackupLinuxExpectedTopology(os.Stdout, backupExpectLinuxManifestPath))
 	},
 }
 
@@ -367,6 +384,20 @@ func writeBackupPodmanExpectedTopology(w io.Writer, profile string) error {
 	}
 
 	return writeBackupExpectedTopologyText(w, "podman", normalizedProfile, expected)
+}
+
+func writeBackupLinuxExpectedTopology(w io.Writer, manifestPath string) error {
+	manifest, err := linuxdeploy.LoadManifest(manifestPath)
+	if err != nil {
+		return fmt.Errorf("load Linux deploy manifest: %w", err)
+	}
+
+	expected := backupLinuxExpectedTopology(manifest)
+	if outputIsJSON() {
+		return writeJSON(w, expected)
+	}
+
+	return writeBackupExpectedTopologyText(w, "linux", manifestPath, expected)
 }
 
 func collectBackupInventory(generatedAt time.Time) backupInventory {
@@ -663,6 +694,128 @@ func backupPodmanExpectedTopology(profile string) (backupExpectedTopology, strin
 	)
 
 	return expected, profile, nil
+}
+
+func backupLinuxExpectedTopology(manifest linuxdeploy.Manifest) backupExpectedTopology {
+	driver := strings.TrimSpace(manifest.CommonEnvExample["VECTIS_DATABASE_DRIVER"])
+	expected := backupExpectedTopology{
+		SchemaVersion: backupExpectedTopologySchemaVersion,
+		DatabaseRoles: []backupExpectedDatabaseRole{
+			{Role: "default", Driver: driver},
+			{Role: "global", Driver: driver},
+			{Role: "cell", Driver: driver},
+		},
+		RequireCategories: []string{"local_state", "secret_stores", "config_paths"},
+	}
+
+	if env, ok := backupLinuxUnitEnv(manifest, "queue"); ok {
+		expected.Instances = append(expected.Instances, backupExpectedInstance{
+			Service:    "queue",
+			InstanceID: strings.TrimSpace(env["VECTIS_QUEUE_INSTANCE_ID"]),
+		})
+		if path := strings.TrimSpace(env["VECTIS_QUEUE_PERSISTENCE_DIR"]); path != "" {
+			expected.Paths = append(expected.Paths, backupExpectedPath{
+				Category: "local_state",
+				ID:       "queue.persistence",
+				Path:     path,
+			})
+		}
+	}
+
+	if env, ok := backupLinuxUnitEnv(manifest, "log"); ok {
+		expected.Instances = append(expected.Instances, backupExpectedInstance{
+			Service:    "log",
+			InstanceID: strings.TrimSpace(env["VECTIS_LOG_INSTANCE_ID"]),
+		})
+		if path := strings.TrimSpace(env["VECTIS_LOG_STORAGE_DIR"]); path != "" {
+			expected.Paths = append(expected.Paths, backupExpectedPath{
+				Category: "local_state",
+				ID:       "log.storage",
+				Path:     path,
+			})
+		}
+	}
+
+	if env, ok := backupLinuxUnitEnv(manifest, "artifact"); ok {
+		expected.Instances = append(expected.Instances, backupExpectedInstance{
+			Service:    "artifact",
+			InstanceID: strings.TrimSpace(env["VECTIS_ARTIFACT_INSTANCE_ID"]),
+		})
+		if path := strings.TrimSpace(env["VECTIS_ARTIFACT_STORAGE_DIR"]); path != "" {
+			expected.Paths = append(expected.Paths, backupExpectedPath{
+				Category: "local_state",
+				ID:       "artifact.storage",
+				Path:     path,
+			})
+		}
+	}
+
+	if env, ok := backupLinuxUnitEnv(manifest, "cron"); ok {
+		expected.Instances = append(expected.Instances, backupExpectedInstance{
+			Service:    "cron",
+			InstanceID: strings.TrimSpace(env["VECTIS_CRON_INSTANCE_ID"]),
+		})
+	}
+
+	if env, ok := backupLinuxUnitEnv(manifest, "log-forwarder"); ok {
+		if path := strings.TrimSpace(env["VECTIS_LOG_FORWARDER_SPOOL_DIR"]); path != "" {
+			expected.Paths = append(expected.Paths, backupExpectedPath{
+				Category: "local_state",
+				ID:       "log_forwarder.spool",
+				Path:     path,
+			})
+		}
+	}
+
+	if env, ok := backupLinuxUnitEnv(manifest, "secrets"); ok {
+		if path := strings.TrimSpace(env["VECTIS_SECRETS_ENCRYPTEDFS_ROOT"]); path != "" {
+			expected.Paths = append(expected.Paths, backupExpectedPath{
+				Category: "secret_stores",
+				ID:       "secrets.encryptedfs.root",
+				Path:     path,
+			})
+		}
+		if path := strings.TrimSpace(env["VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE"]); path != "" {
+			expected.Paths = append(expected.Paths, backupExpectedPath{
+				Category: "secret_stores",
+				ID:       "secrets.encryptedfs.key_file",
+				Path:     path,
+			})
+		}
+	}
+
+	if configDir := backupLinuxConfigDir(manifest); configDir != "" {
+		expected.Paths = append(expected.Paths, backupExpectedPath{
+			Category: "config_paths",
+			ID:       "linux.config_dir",
+			Path:     configDir,
+		})
+	}
+
+	return expected
+}
+
+func backupLinuxUnitEnv(manifest linuxdeploy.Manifest, id string) (map[string]string, bool) {
+	for _, unit := range manifest.Units {
+		if unit.ID == id {
+			return unit.EnvExample, true
+		}
+	}
+	return nil, false
+}
+
+func backupLinuxConfigDir(manifest linuxdeploy.Manifest) string {
+	envFile := strings.TrimSpace(manifest.Defaults.CommonEnvFile)
+	envFile = strings.TrimPrefix(envFile, "-")
+	if envFile != "" {
+		return filepath.Dir(envFile)
+	}
+
+	if configHome := strings.TrimSpace(manifest.CommonEnvExample["XDG_CONFIG_HOME"]); configHome != "" {
+		return filepath.Join(configHome, "vectis")
+	}
+
+	return ""
 }
 
 func backupNormalizePodmanProfile(profile string) (string, error) {
@@ -1341,6 +1494,9 @@ func backupConfigPaths() []backupPathInventory {
 	paths := []backupPathInventory{}
 	if deployDir := strings.TrimSpace(os.Getenv("VECTIS_DEPLOY_CONFIG_DIR")); deployDir != "" {
 		paths = append(paths, backupPath("deploy.config_dir", "directory", deployDir, "VECTIS_DEPLOY_CONFIG_DIR", true, "Back up rendered deployment secrets and manifests when using reference deploy helpers."))
+	}
+	if configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); configHome != "" {
+		paths = append(paths, backupPath("linux.config_dir", "directory", filepath.Join(configHome, "vectis"), "XDG_CONFIG_HOME", true, "Back up Linux service environment files and host-local Vectis configuration."))
 	}
 	return paths
 }

@@ -63,6 +63,19 @@ vectis-cli backup expect podman --profile ha --format json > expected-topology.j
 vectis-cli backup verify --expect expected-topology.json backup-manifest.json
 ```
 
+For the Linux service artifacts, generate a baseline from the services manifest:
+
+```sh
+vectis-cli backup expect linux --manifest deploy/linux/services.toml --format json > expected-topology.json
+vectis-cli backup verify --expect expected-topology.json backup-manifest.json
+```
+
+Linux expectation output uses the manifest's example environment. Config
+management still owns real host placement, extra shards, and overrides; edit or
+augment the generated file for production-specific topology. When collecting
+inventory for Linux service hosts, run with the service environment loaded so
+`XDG_CONFIG_HOME=/etc` records `/etc/vectis` as config evidence.
+
 Expected topology files are JSON. `inventory_sources` and each
 `inventory_source` matcher must use the same source strings passed to
 `backup manifest`.
