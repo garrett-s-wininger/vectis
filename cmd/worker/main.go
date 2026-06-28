@@ -3521,11 +3521,11 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 
 	select {
 	case <-cancelled:
-		if err != nil {
-			return fmt.Errorf("%w: %v", errRunCancelled, err)
+		if err == nil {
+			return nil
 		}
 
-		return errRunCancelled
+		return fmt.Errorf("%w: %v", errRunCancelled, err)
 	default:
 	}
 

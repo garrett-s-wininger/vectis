@@ -474,6 +474,20 @@ func (c errorWorkerCore) ExecuteTask(context.Context, workercore.ExecuteTaskRequ
 	return c.err
 }
 
+type successAfterContextCancelCore struct {
+	started chan struct{}
+}
+
+func (c *successAfterContextCancelCore) ExecuteTask(ctx context.Context, _ workercore.ExecuteTaskRequest) error {
+	close(c.started)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(time.Second):
+		return errors.New("timed out waiting for execution context cancellation")
+	}
+}
+
 type recordingSecretsResolver struct {
 	req    secrets.ResolveRequest
 	bundle secrets.Bundle
@@ -4191,6 +4205,57 @@ func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 
 	if !found {
 		t.Fatalf("expected cancelled catalog event %q, got %+v", wantKey, events)
+	}
+}
+
+func TestWorkerExecuteWithLeaseRenewal_CancelDoesNotOverrideSuccessfulCoreResult(t *testing.T) {
+	core := &successAfterContextCancelCore{started: make(chan struct{})}
+	store := &mocks.MockRunsRepository{}
+	runID := "run-cancel-success-race"
+	env := &cell.ExecutionEnvelope{
+		RunID:       runID,
+		TaskID:      runID + ":root",
+		TaskKey:     dal.RootTaskKey,
+		ExecutionID: runID + ":root:attempt:1:execution",
+		CellID:      "local",
+	}
+
+	w := &worker{
+		ctx:           context.Background(),
+		runCtx:        context.Background(),
+		logger:        interfaces.NewLogger("worker-test"),
+		workerID:      "worker-cancel-success-race",
+		clock:         interfaces.SystemClock{},
+		renewInterval: time.Hour,
+		core:          core,
+		store:         store,
+		choreographer: sqlExecutionChoreographer{runs: store},
+		cancelCh:      make(chan string, 1),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- w.executeWithLeaseRenewal(context.Background(), runID, newExecutionClaimState("claim-race"), &api.Job{
+			Id:    workerStrp("job-cancel-success-race"),
+			RunId: workerStrp(runID),
+		}, env)
+	}()
+
+	select {
+	case <-core.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for core execution to start")
+	}
+
+	w.cancelCh <- runID
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("executeWithLeaseRenewal returned %v, want nil success", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for executeWithLeaseRenewal")
 	}
 }
 
