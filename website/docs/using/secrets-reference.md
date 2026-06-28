@@ -112,6 +112,8 @@ The protobuf response is `ResolveSecretsResponse`; its `files` array contains `S
 | Active claim | `execution_claim_token` must validate for the active execution. |
 | Access policy | Every requested `ref` must match at least one allow rule. |
 
+An active execution claim requires the run itself to still be `running`; orphaned, terminal, expired, or otherwise non-running runs cannot receive new secret material.
+
 Secret access policy is default-deny. Configure allow rules with repeated `--allow-secret`, `VECTIS_SECRETS_POLICY_ALLOW`, or `secrets.policy.allow`.
 
 Rules are semicolon-separated `key=value` parts:

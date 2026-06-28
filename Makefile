@@ -40,7 +40,7 @@ BINARIES := $(addprefix $(OUT_DIR)/vectis-, $(APPS))
 NON_DOC_BINARIES := $(filter-out $(OUT_DIR)/vectis-docs,$(BINARIES))
 INTERNAL := $(shell find internal -name '*.go' 2>/dev/null)
 
-FORMAL_MODELS := execution reconciliation terminalization cancellation continuation queue_handoff action_timeout worker_choreography cron_schedule cell_ingress_handoff
+FORMAL_MODELS := execution reconciliation terminalization cancellation continuation queue_handoff action_timeout worker_choreography cron_schedule cell_ingress_handoff secrets_authorization
 JAVA ?= java
 TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
 

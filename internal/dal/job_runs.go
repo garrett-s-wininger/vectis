@@ -4850,7 +4850,7 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runI
 		LEFT JOIN namespaces ns ON ns.id = sr.namespace_id
 		WHERE jr.run_id = ?
 			AND se.execution_id = ?
-			AND jr.status IN (?, ?)
+			AND jr.status = ?
 			AND rs.status IN (?, ?)
 			AND se.status IN (?, ?)
 			AND rt.status IN (?, ?)
@@ -4860,7 +4860,6 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runI
 		runID,
 		executionID,
 		RunStatusRunning,
-		RunStatusOrphaned,
 		SegmentStatusAccepted,
 		SegmentStatusRunning,
 		ExecutionStatusAccepted,
@@ -5488,7 +5487,7 @@ func (r *SQLRunsRepository) ValidateActiveExecutionClaim(ctx context.Context, ru
 		return normalizeSQLError(err)
 	}
 
-	if !statusIn(runStatus, []string{RunStatusRunning, RunStatusOrphaned}) {
+	if runStatus != RunStatusRunning {
 		return fmt.Errorf("%w: run %s status %s does not have active execution claims", ErrConflict, runID, runStatus)
 	}
 

@@ -2364,6 +2364,24 @@ func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
 		t.Fatalf("expected not found for wrong run, got %v", err)
 	}
 
+	orphanedRunID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create orphaned run: %v", err)
+	}
+
+	orphanedDispatch, orphanedClaim := claimPendingRunExecution(t, ctx, repos.Runs(), orphanedRunID, "worker-orphaned", time.Now().Add(time.Minute))
+	if err := repos.Runs().MarkRunOrphaned(ctx, orphanedRunID, dal.OrphanReasonAckUncertain); err != nil {
+		t.Fatalf("mark run orphaned: %v", err)
+	}
+
+	if err := validator.ValidateActiveExecutionClaim(ctx, orphanedRunID, orphanedDispatch.ExecutionID, orphanedClaim.ClaimToken); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for orphaned execution claim, got %v", err)
+	}
+
+	if _, err := activeDispatches.GetActiveExecutionDispatch(ctx, orphanedRunID, orphanedDispatch.ExecutionID); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found for orphaned active dispatch, got %v", err)
+	}
+
 	expiredRunID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
 	if err != nil {
 		t.Fatalf("create expired run: %v", err)
