@@ -349,7 +349,13 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	req.CheckoutMode = strings.TrimSpace(req.CheckoutMode)
 	req.AuthoringMode = strings.TrimSpace(req.AuthoringMode)
 	req.CanonicalURL = strings.TrimSpace(req.CanonicalURL)
-	req.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(req.FallbackRemoteURLs)
+	fallbackRemoteURLs, err := normalizeSourceRepositoryFallbackRemoteURLs(req.FallbackRemoteURLs)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_fallback_remote_url", "fallback_remote_urls contains an unsafe Git remote", nil)
+		return
+	}
+
+	req.FallbackRemoteURLs = fallbackRemoteURLs
 	req.DefaultRef = strings.TrimSpace(req.DefaultRef)
 	req.CredentialRef = strings.TrimSpace(req.CredentialRef)
 
@@ -2115,7 +2121,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	if req.FallbackRemoteURLs != nil {
-		updated.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(*req.FallbackRemoteURLs)
+		fallbackRemoteURLs, err := normalizeSourceRepositoryFallbackRemoteURLs(*req.FallbackRemoteURLs)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_fallback_remote_url", "fallback_remote_urls contains an unsafe Git remote", nil)
+			return
+		}
+
+		updated.FallbackRemoteURLs = fallbackRemoteURLs
 	}
 
 	if req.DefaultRef != nil {
@@ -2680,17 +2692,21 @@ func sourceRepositorySyncRef(rec dal.SourceRepositoryRecord) string {
 	return ref
 }
 
-func normalizeSourceRepositoryFallbackRemoteURLs(in []string) []string {
+func normalizeSourceRepositoryFallbackRemoteURLs(in []string) ([]string, error) {
 	if len(in) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	out := make([]string, 0, len(in))
 	seen := make(map[string]struct{}, len(in))
 	for _, raw := range in {
-		remoteURL := strings.TrimSpace(raw)
-		if remoteURL == "" {
+		if strings.TrimSpace(raw) == "" {
 			continue
+		}
+
+		remoteURL, err := sourcepkg.NormalizeGitRemoteURL(raw)
+		if err != nil {
+			return nil, err
 		}
 
 		if _, ok := seen[remoteURL]; ok {
@@ -2702,10 +2718,10 @@ func normalizeSourceRepositoryFallbackRemoteURLs(in []string) []string {
 	}
 
 	if len(out) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	return out
+	return out, nil
 }
 
 func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string {

@@ -3244,6 +3244,39 @@ func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
 	assertAPIError(t, updateRec, http.StatusBadRequest, "invalid_source_reference")
 }
 
+func TestAPIServer_SourceRepositoryRejectsInvalidFallbackRemoteURL(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+
+	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id":        "invalid-fallback",
+		"source_kind":          dal.SourceKindLocalCheckout,
+		"checkout_path":        t.TempDir(),
+		"fallback_remote_urls": []string{"-config"},
+	})
+
+	assertAPIError(t, createRec, http.StatusBadRequest, "invalid_fallback_remote_url")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "vectis-local",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": t.TempDir(),
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"fallback_remote_urls": []string{"https://example.invalid/repo.git\n"},
+	})
+
+	assertAPIError(t, updateRec, http.StatusBadRequest, "invalid_fallback_remote_url")
+}
+
 func TestAPIServer_UpdateSourceRepositoryRejectsDuplicateCheckoutPath(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 

@@ -294,6 +294,24 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 		t.Fatalf("configured second fallback remote: got %q, want %q", got, upstream)
 	}
 
+	status = HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath:       checkoutPath,
+		Ref:                "feature/upstream-only",
+		FallbackRemoteURLs: []string{upstream},
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("hydrate after fallback remote update failed: %+v", status)
+	}
+
+	if got := gitOutput(t, checkoutPath, "remote", "get-url", "vectis-fallback-1"); got != upstream {
+		t.Fatalf("rewritten first fallback remote: got %q, want %q", got, upstream)
+	}
+
+	if got := gitOutput(t, checkoutPath, "remote"); strings.Contains(got, "vectis-fallback-2") {
+		t.Fatalf("fallback remote update should remove stale tier 2 remote, got remotes:\n%s", got)
+	}
+
 	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/vectis/candidates"); got != "" {
 		t.Fatalf("fallback hydrate should clean candidate refs, got %q", got)
 	}

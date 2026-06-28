@@ -589,7 +589,7 @@ func validManagedBranchName(ctx context.Context, checkoutPath, branch string) bo
 	return err == nil
 }
 
-func normalizeGitRemoteURL(remoteURL string) (string, error) {
+func NormalizeGitRemoteURL(remoteURL string) (string, error) {
 	if strings.ContainsAny(remoteURL, "\x00\n\r") {
 		return "", fmt.Errorf("%w: canonical_url is not a safe Git remote", ErrInvalidReference)
 	}
@@ -604,6 +604,10 @@ func normalizeGitRemoteURL(remoteURL string) (string, error) {
 	}
 
 	return remoteURL, nil
+}
+
+func normalizeGitRemoteURL(remoteURL string) (string, error) {
+	return NormalizeGitRemoteURL(remoteURL)
 }
 
 func normalizeManagedGitFallbackRemoteURLs(remoteURLs []string) ([]string, error) {

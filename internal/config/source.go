@@ -270,7 +270,11 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 		repo.CheckoutMode = strings.TrimSpace(repo.CheckoutMode)
 		repo.AuthoringMode = strings.TrimSpace(repo.AuthoringMode)
 		repo.CanonicalURL = strings.TrimSpace(repo.CanonicalURL)
-		repo.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(repo.FallbackRemoteURLs)
+		fallbackRemoteURLs, err := normalizeSourceRepositoryFallbackRemoteURLs(repo.FallbackRemoteURLs)
+		if err != nil {
+			return nil, fmt.Errorf("source.repositories[%d].fallback_remote_urls: %w", i, err)
+		}
+		repo.FallbackRemoteURLs = fallbackRemoteURLs
 		repo.DefaultRef = strings.TrimSpace(repo.DefaultRef)
 		repo.CredentialRef = strings.TrimSpace(repo.CredentialRef)
 
@@ -330,17 +334,21 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 	return out, nil
 }
 
-func normalizeSourceRepositoryFallbackRemoteURLs(in []string) []string {
+func normalizeSourceRepositoryFallbackRemoteURLs(in []string) ([]string, error) {
 	if len(in) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	out := make([]string, 0, len(in))
 	seen := make(map[string]struct{}, len(in))
-	for _, raw := range in {
-		remoteURL := strings.TrimSpace(raw)
-		if remoteURL == "" {
+	for i, raw := range in {
+		if strings.TrimSpace(raw) == "" {
 			continue
+		}
+
+		remoteURL := strings.TrimSpace(raw)
+		if !safeSourceRepositoryGitRemoteURL(remoteURL) {
+			return nil, fmt.Errorf("[%d] is not a safe Git remote", i)
 		}
 
 		if _, ok := seen[remoteURL]; ok {
@@ -352,10 +360,16 @@ func normalizeSourceRepositoryFallbackRemoteURLs(in []string) []string {
 	}
 
 	if len(out) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	return out
+	return out, nil
+}
+
+func safeSourceRepositoryGitRemoteURL(remoteURL string) bool {
+	return remoteURL != "" &&
+		!strings.HasPrefix(remoteURL, "-") &&
+		!strings.ContainsAny(remoteURL, "\x00\n\r")
 }
 
 func validSourceRepositoryCheckoutMode(mode string) bool {

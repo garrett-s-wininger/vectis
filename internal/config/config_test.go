@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -712,6 +713,11 @@ func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_path":"/work/vectis","default_ref":"HEAD~1"}]`)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected invalid default_ref error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_path":"/work/vectis","fallback_remote_urls":["-config"]}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil || !strings.Contains(err.Error(), "fallback_remote_urls") {
+		t.Fatalf("expected invalid fallback_remote_urls error, got %v", err)
 	}
 
 	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","source_kind":"archive","checkout_path":"/work/vectis"}]`)
