@@ -114,6 +114,36 @@ func TestDirectExecutorCancellationSignalsProcessGroup(t *testing.T) {
 	}
 }
 
+func TestTerminateActiveProcessesSignalsProcessGroup(t *testing.T) {
+	previousGrace := commandProcessGroupCancelGrace
+	commandProcessGroupCancelGrace = 50 * time.Millisecond
+	t.Cleanup(func() { commandProcessGroupCancelGrace = previousGrace })
+
+	process, err := NewDirectExecutor().Start(
+		context.Background(),
+		"sh",
+		[]string{"-c", "trap '' TERM; sleep 30"},
+		t.TempDir(),
+		[]string{"PATH=" + os.Getenv("PATH")},
+	)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if osProcess, ok := process.(*osProcess); ok && osProcess.cmd.Process != nil {
+			_ = osProcess.cmd.Process.Kill()
+		}
+		_ = process.Wait()
+	})
+
+	TerminateActiveProcesses()
+	if err := process.Wait(); err == nil {
+		t.Fatal("Wait error = nil, want active process termination error")
+	}
+}
+
 func TestDirectExecutorSignalGroupHelper(t *testing.T) {
 	if os.Getenv(directExecutorSignalGroupHelperEnv) != "1" {
 		return

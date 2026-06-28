@@ -137,6 +137,8 @@ func NewUnixCoreServerContext(ctx context.Context, socketPath string, core api.W
 		return nil, nil, fmt.Errorf("listen worker core socket: %w", err)
 	}
 
+	ln = newPeerCredentialListener(ln, os.Getuid())
+
 	if err := os.Chmod(socketPath, unixSocketFileMode); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(socketPath)
@@ -172,6 +174,8 @@ func NewUnixShellServerContext(ctx context.Context, socketPath string, shell api
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen worker core shell socket: %w", err)
 	}
+
+	ln = newPeerCredentialListener(ln, os.Getuid())
 
 	if err := os.Chmod(socketPath, unixSocketFileMode); err != nil {
 		_ = ln.Close()

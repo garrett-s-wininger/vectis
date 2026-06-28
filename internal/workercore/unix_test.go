@@ -3,6 +3,7 @@ package workercore
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -99,6 +100,60 @@ func TestUnixShellServerSecuresSocketPath(t *testing.T) {
 	defer listener.Close()
 
 	assertSocketPathModes(t, socketPath)
+}
+
+func TestUnixPeerCredentialsRequireCurrentUID(t *testing.T) {
+	socketPath := socktest.ShortPath(t, "peercred.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan net.Conn, 1)
+	acceptErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			acceptErr <- err
+			return
+		}
+
+		accepted <- conn
+	}()
+
+	client, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial unix: %v", err)
+	}
+	defer client.Close()
+
+	var serverConn net.Conn
+	select {
+	case err := <-acceptErr:
+		t.Fatalf("accept unix: %v", err)
+	case serverConn = <-accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out accepting unix peer")
+	}
+	defer serverConn.Close()
+
+	_, ok, err := unixPeerUID(serverConn)
+	if err != nil {
+		t.Fatalf("unixPeerUID: %v", err)
+	}
+
+	if !ok {
+		t.Skip("peer credentials are not supported on this platform")
+	}
+
+	if err := verifyUnixPeerCredentials(serverConn, os.Getuid()); err != nil {
+		t.Fatalf("verify current uid: %v", err)
+	}
+
+	if err := verifyUnixPeerCredentials(serverConn, os.Getuid()+1); err == nil {
+		t.Fatal("verify wrong uid succeeded")
+	}
 }
 
 func assertSocketPathModes(t *testing.T, socketPath string) {

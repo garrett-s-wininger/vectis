@@ -15,6 +15,15 @@ func TestSanitizedProcessEnvAllowsOnlyStableExecutionVariables(t *testing.T) {
 		"VECTIS_API_AUTH_BOOTSTRAP_TOKEN=secret",
 		"SPIFFE_ENDPOINT_SOCKET=unix:///tmp/spire.sock",
 		"AWS_SECRET_ACCESS_KEY=secret",
+		"AWS_ACCESS_KEY_ID=secret",
+		"AWS_SESSION_TOKEN=secret",
+		"DYLD_INSERT_LIBRARIES=/tmp/hook.dylib",
+		"GITHUB_TOKEN=secret",
+		"GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp.json",
+		"KUBECONFIG=/tmp/kubeconfig",
+		"LD_PRELOAD=/tmp/hook.so",
+		"NPM_TOKEN=secret",
+		"SSH_AUTH_SOCK=/tmp/agent.sock",
 	})
 
 	assertEnvValue(t, got, "PATH", "/custom/bin")
@@ -28,6 +37,15 @@ func TestSanitizedProcessEnvAllowsOnlyStableExecutionVariables(t *testing.T) {
 		"VECTIS_API_AUTH_BOOTSTRAP_TOKEN",
 		"SPIFFE_ENDPOINT_SOCKET",
 		"AWS_SECRET_ACCESS_KEY",
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SESSION_TOKEN",
+		"DYLD_INSERT_LIBRARIES",
+		"GITHUB_TOKEN",
+		"GOOGLE_APPLICATION_CREDENTIALS",
+		"KUBECONFIG",
+		"LD_PRELOAD",
+		"NPM_TOKEN",
+		"SSH_AUTH_SOCK",
 	} {
 		if _, ok := envLookup(got, key); ok {
 			t.Fatalf("SanitizedProcessEnv leaked %s in %v", key, got)

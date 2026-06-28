@@ -14,6 +14,7 @@ const asyncWorkspaceCleanupQueueSize = 4096
 
 type workspaceCleanupRequest struct {
 	path   string
+	root   string
 	logger interfaces.Logger
 }
 
@@ -23,12 +24,12 @@ var (
 	asyncWorkspaceCleanupWG    sync.WaitGroup
 )
 
-func enqueueAsyncWorkspaceCleanup(path string, logger interfaces.Logger) bool {
+func enqueueAsyncWorkspaceCleanup(path, root string, logger interfaces.Logger) bool {
 	queue := ensureAsyncWorkspaceCleanupQueue()
 
 	asyncWorkspaceCleanupWG.Add(1)
 	select {
-	case queue <- workspaceCleanupRequest{path: path, logger: logger}:
+	case queue <- workspaceCleanupRequest{path: path, root: root, logger: logger}:
 		return true
 	default:
 		asyncWorkspaceCleanupWG.Done()
@@ -53,7 +54,7 @@ func ensureAsyncWorkspaceCleanupQueue() chan workspaceCleanupRequest {
 		for range workerCount {
 			go func() {
 				for req := range queue {
-					cleanupWorkspacePath(req.path, req.logger)
+					cleanupWorkspacePath(req.path, req.root, req.logger)
 					asyncWorkspaceCleanupWG.Done()
 				}
 			}()
@@ -63,7 +64,15 @@ func ensureAsyncWorkspaceCleanupQueue() chan workspaceCleanupRequest {
 	return asyncWorkspaceCleanupQueue
 }
 
-func cleanupWorkspacePath(path string, logger interfaces.Logger) {
+func cleanupWorkspacePath(path, root string, logger interfaces.Logger) {
+	if err := validateAutoWorkspaceCleanupPath(path, root); err != nil {
+		if logger != nil {
+			logger.Error("Refusing to remove workspace %s: %v", path, err)
+		}
+
+		return
+	}
+
 	if err := os.RemoveAll(path); err != nil && logger != nil {
 		logger.Error("Failed to remove workspace %s: %v", path, err)
 	}

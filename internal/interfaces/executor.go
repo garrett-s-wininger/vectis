@@ -38,15 +38,19 @@ func StartProcess(cmd *exec.Cmd) (Process, error) {
 
 	configureCommandProcessIsolation(cmd)
 
+	registerActiveProcess(cmd)
 	if err := cmd.Start(); err != nil {
+		unregisterActiveProcess(cmd)
 		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
 
-	return &osProcess{
+	process := &osProcess{
 		cmd:    cmd,
 		stdout: stdout,
 		stderr: stderr,
-	}, nil
+	}
+
+	return process, nil
 }
 
 func NewDirectExecutor() *DirectExecutor {
@@ -82,6 +86,7 @@ type osProcess struct {
 }
 
 func (p *osProcess) Wait() error {
+	defer unregisterActiveProcess(p.cmd)
 	return p.cmd.Wait()
 }
 

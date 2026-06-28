@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
 	"vectis/internal/dal"
+	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
 	"vectis/internal/secrets"
@@ -1213,6 +1216,96 @@ func TestExecutor_ExecuteJob_UsesConfiguredWorkspaceRoot(t *testing.T) {
 	}
 }
 
+func TestExecutor_ExecuteJob_AutoWorkspaceIsOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("workspace mode checks use Unix permissions")
+	}
+
+	process := mocks.NewMockProcess()
+	process.SetStdout("")
+	process.SetStderr("")
+
+	modeExecutor := &workspaceModeExecutor{process: process}
+	workspaceRoot := t.TempDir()
+	executor := job.NewExecutor(
+		job.WithProcessExecutor(modeExecutor),
+		job.WithWorkspaceRoot(workspaceRoot),
+	)
+
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	jobID := "test-job-workspace-mode"
+	runID := "test-job-workspace-mode-run"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "pwd",
+			},
+		},
+	}
+
+	if err := executor.ExecuteJob(context.Background(), testJob, mockLogClient, mockLogger); err != nil {
+		t.Fatalf("ExecuteJob: %v", err)
+	}
+
+	if modeExecutor.mode != 0o700 {
+		t.Fatalf("auto workspace mode = %v, want %v", modeExecutor.mode, os.FileMode(0o700))
+	}
+}
+
+func TestExecutor_ExecuteJobInWorkspace_WarnsForBroadWorkspacePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("workspace mode checks use Unix permissions")
+	}
+
+	mockProcessExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcessExecutor.SetProcess(mockProcess)
+
+	executor := job.NewExecutor(job.WithProcessExecutor(mockProcessExecutor))
+	mockLogClient := mocks.NewMockLogClient()
+	mockLogger := mocks.NewMockLogger()
+
+	workspace := t.TempDir()
+	if err := os.Chmod(workspace, 0o755); err != nil {
+		t.Fatalf("chmod workspace: %v", err)
+	}
+
+	jobID := "test-job-explicit-workspace-mode"
+	runID := "test-job-explicit-workspace-mode-run"
+	nodeID := "node-1"
+	uses := "builtins/shell"
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+			With: map[string]string{
+				"command": "pwd",
+			},
+		},
+	}
+
+	if err := executor.ExecuteJobInWorkspace(context.Background(), testJob, mockLogClient, mockLogger, workspace); err != nil {
+		t.Fatalf("ExecuteJobInWorkspace: %v", err)
+	}
+
+	warns := strings.Join(mockLogger.GetWarnCalls(), "\n")
+	if !strings.Contains(warns, "group/world accessible") {
+		t.Fatalf("expected broad workspace permission warning, got %v", mockLogger.GetWarnCalls())
+	}
+}
+
 func TestExecutor_ExecuteJob_WithAsyncWorkspaceCleanupRemovesWorkspaceEventually(t *testing.T) {
 	mockProcessExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()
@@ -1303,6 +1396,25 @@ func TestExecutor_ExecuteJobInWorkspace_DoesNotRemoveWorkspace(t *testing.T) {
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("expected marker to remain: %v", err)
 	}
+}
+
+type workspaceModeExecutor struct {
+	process interfaces.Process
+	mode    os.FileMode
+}
+
+func (e *workspaceModeExecutor) Start(_ context.Context, _ string, _ []string, workDir string, _ []string) (interfaces.Process, error) {
+	info, err := os.Stat(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	e.mode = info.Mode().Perm()
+	if e.process == nil {
+		return nil, io.ErrClosedPipe
+	}
+
+	return e.process, nil
 }
 
 func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing.T) {

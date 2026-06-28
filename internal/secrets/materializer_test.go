@@ -46,12 +46,105 @@ func TestMaterializeFilesWritesUnderWorkspaceSecretsDir(t *testing.T) {
 		t.Fatalf("secret mode = %v, want %v", gotMode, DefaultFileMode)
 	}
 
+	parentInfo, err := os.Stat(filepath.Join(wantDir, "npm"))
+	if err != nil {
+		t.Fatalf("stat materialized secret parent: %v", err)
+	}
+
+	if gotMode := parentInfo.Mode().Perm(); gotMode != 0o700 {
+		t.Fatalf("secret parent mode = %v, want %v", gotMode, os.FileMode(0o700))
+	}
+
 	if err := CleanupMaterialized(workspace); err != nil {
 		t.Fatalf("CleanupMaterialized: %v", err)
 	}
 
 	if _, err := os.Stat(wantDir); !os.IsNotExist(err) {
 		t.Fatalf("secret dir still exists after cleanup: %v", err)
+	}
+}
+
+func TestMaterializeFilesRejectsGroupReadableMode(t *testing.T) {
+	t.Parallel()
+
+	if _, err := MaterializeFiles(t.TempDir(), []FileMaterial{{
+		ID:   "bad-mode",
+		Path: "token",
+		Data: []byte("x"),
+		Mode: 0o640,
+	}}); err == nil {
+		t.Fatal("MaterializeFiles accepted group-readable mode")
+	}
+}
+
+func TestMaterializeFilesRejectsSymlinkParent(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	root := filepath.Join(workspace, ".vectis", "secrets")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("mkdir secrets root: %v", err)
+	}
+
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "npm")); err != nil {
+		t.Fatalf("symlink secret parent: %v", err)
+	}
+
+	if _, err := MaterializeFiles(workspace, []FileMaterial{{
+		ID:   "npm-token",
+		Path: "npm/token",
+		Data: []byte("secret"),
+	}}); err == nil {
+		t.Fatal("MaterializeFiles accepted symlink parent")
+	}
+
+	if _, err := os.Stat(filepath.Join(outside, "token")); !os.IsNotExist(err) {
+		t.Fatalf("secret written through symlink parent: %v", err)
+	}
+}
+
+func TestMaterializeFilesRejectsSymlinkVectisDirectory(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(workspace, ".vectis")); err != nil {
+		t.Fatalf("symlink .vectis: %v", err)
+	}
+
+	if _, err := MaterializeFiles(workspace, []FileMaterial{{
+		ID:   "npm-token",
+		Path: "npm/token",
+		Data: []byte("secret"),
+	}}); err == nil {
+		t.Fatal("MaterializeFiles accepted symlink .vectis directory")
+	}
+
+	if _, err := os.Stat(filepath.Join(outside, "secrets")); !os.IsNotExist(err) {
+		t.Fatalf("materializer created secrets directory through symlink: %v", err)
+	}
+}
+
+func TestCleanupMaterializedRejectsSymlinkComponent(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "keep.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write outside marker: %v", err)
+	}
+
+	if err := os.Symlink(outside, filepath.Join(workspace, ".vectis")); err != nil {
+		t.Fatalf("symlink .vectis: %v", err)
+	}
+
+	if err := CleanupMaterialized(workspace); err == nil {
+		t.Fatal("CleanupMaterialized accepted symlink component")
+	}
+
+	if _, err := os.Stat(filepath.Join(outside, "keep.txt")); err != nil {
+		t.Fatalf("outside marker removed: %v", err)
 	}
 }
 

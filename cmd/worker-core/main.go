@@ -67,6 +67,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 
 	go func() {
 		<-ctx.Done()
+		interfaces.TerminateActiveProcesses()
 		grpcServer.GracefulStop()
 		_ = os.Remove(socketPath)
 	}()

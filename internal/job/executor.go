@@ -221,6 +221,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	}
 
 	cleanupWorkspace := false
+	cleanupWorkspaceRoot := ""
 	if workspace == "" {
 		prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetRunId()) + "-"
 		workspaceRoot := e.workspaceRoot
@@ -233,16 +234,24 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 			return fmt.Errorf("failed to create workspace: %w", err)
 		}
 
+		if err := secureAutoWorkspace(workspace, workspaceRoot); err != nil {
+			_ = os.RemoveAll(workspace)
+			return fmt.Errorf("secure auto workspace: %w", err)
+		}
+
 		cleanupWorkspace = true
+		cleanupWorkspaceRoot = workspaceRoot
+	} else if err := warnIfExplicitWorkspaceBroadPermissions(workspace, logger); err != nil {
+		return err
 	}
 
 	if cleanupWorkspace {
 		defer func() {
-			if e.asyncWorkspaceCleanup && enqueueAsyncWorkspaceCleanup(workspace, logger) {
+			if e.asyncWorkspaceCleanup && enqueueAsyncWorkspaceCleanup(workspace, cleanupWorkspaceRoot, logger) {
 				return
 			}
 
-			cleanupWorkspacePath(workspace, logger)
+			cleanupWorkspacePath(workspace, cleanupWorkspaceRoot, logger)
 		}()
 	}
 

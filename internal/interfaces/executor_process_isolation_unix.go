@@ -74,6 +74,19 @@ func scheduleCommandProcessGroupKill(cmd *exec.Cmd, grace time.Duration) {
 		timer := time.NewTimer(grace)
 		defer timer.Stop()
 		<-timer.C
+
+		if !isActiveProcess(cmd) {
+			return
+		}
+
 		_ = signalCommandProcessGroup(cmd, syscall.SIGKILL)
 	}()
+}
+
+func terminateActiveProcess(cmd *exec.Cmd) {
+	if err := signalCommandProcessGroup(cmd, syscall.SIGTERM); err != nil {
+		return
+	}
+
+	scheduleCommandProcessGroupKill(cmd, commandProcessGroupCancelGrace)
 }
