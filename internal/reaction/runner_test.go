@@ -2,6 +2,7 @@ package reaction_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +85,86 @@ func TestRunnerRunOnceExecutesLocalNotification(t *testing.T) {
 	}
 }
 
+func TestRunnerRunOnceRetriesLocalNotificationWithoutDuplicateMessage(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := store.RecordEvent(ctx, dal.ReactionEventCreate{
+		Source:      dal.ReactionEventSourceManual,
+		EventType:   dal.ReactionEventTypeManualNotice,
+		Actor:       "operator",
+		PayloadJSON: []byte(`{"message":"retry local path"}`),
+	})
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "runner-local-retry-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"runner-retry"}`),
+	})
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	invocation, err := store.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+		MaxAttempts:          2,
+		NextAttemptAt:        time.Now().UnixNano(),
+	})
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	action := &crashAfterLocalNotifyAction{store: store, failNext: true}
+	runner := &reaction.Runner{
+		Store:      store,
+		Owner:      "runner-test",
+		RetryDelay: time.Nanosecond,
+		Actions:    []reaction.Action{action},
+	}
+
+	first, err := runner.RunOnce(ctx, 10)
+	if err != nil {
+		t.Fatalf("first run once: %v", err)
+	}
+	if first.Succeeded != 0 || first.Failed != 1 {
+		t.Fatalf("first summary: %+v", first)
+	}
+
+	time.Sleep(time.Millisecond)
+	second, err := runner.RunOnce(ctx, 10)
+	if err != nil {
+		t.Fatalf("second run once: %v", err)
+	}
+	if second.Succeeded != 1 || second.Failed != 0 {
+		t.Fatalf("second summary: %+v", second)
+	}
+
+	updated, err := store.GetInvocation(ctx, invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+	if updated.Status != dal.ReactionInvocationStatusSucceeded || updated.Attempts != 2 {
+		t.Fatalf("updated invocation: %+v", updated)
+	}
+
+	messages, _, err := store.ListLocalMessages(ctx, "runner-retry", 0, 10)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0].InvocationID != invocation.InvocationID {
+		t.Fatalf("messages: %+v", messages)
+	}
+}
+
 func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	store := dal.NewSQLRepositories(db).Reactions()
@@ -145,4 +226,26 @@ func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 	if updated.LastError == nil || !strings.Contains(*updated.LastError, dal.ReactionActionTriggerJob) {
 		t.Fatalf("last error: %v", updated.LastError)
 	}
+}
+
+type crashAfterLocalNotifyAction struct {
+	store    dal.ReactionsRepository
+	failNext bool
+}
+
+func (a *crashAfterLocalNotifyAction) Type() string {
+	return dal.ReactionActionNotifyLocal
+}
+
+func (a *crashAfterLocalNotifyAction) ExecuteInvocation(ctx context.Context, req reaction.ActionRequest) error {
+	if err := (&reaction.LocalNotifyAction{Store: a.store}).ExecuteInvocation(ctx, req); err != nil {
+		return err
+	}
+
+	if a.failNext {
+		a.failNext = false
+		return fmt.Errorf("simulated crash after local notification write")
+	}
+
+	return nil
 }

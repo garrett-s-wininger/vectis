@@ -135,6 +135,11 @@ manual invocations, and direct manual target IDs still flow through durable even
 and invocation rows. Stored invocation errors are bounded so pathological action
 failures do not turn reaction state into an unbounded log sink.
 
+The local notification sink is idempotent per reaction invocation. If the
+reaction runner crashes after recording a local message but before marking the
+invocation succeeded, a retry reuses the existing local message instead of
+creating duplicate assertion data.
+
 The minimum durable tables are:
 
 | Table | Purpose |

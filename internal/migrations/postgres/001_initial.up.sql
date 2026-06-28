@@ -423,6 +423,7 @@ CREATE TABLE reaction_local_messages (
 
 CREATE INDEX idx_reaction_local_messages_mailbox_id ON reaction_local_messages(mailbox, id);
 CREATE INDEX idx_reaction_local_messages_event ON reaction_local_messages(event_id, id);
+CREATE UNIQUE INDEX idx_reaction_local_messages_invocation ON reaction_local_messages(invocation_id);
 
 CREATE TABLE cell_catalog_events (
     id BIGSERIAL PRIMARY KEY,

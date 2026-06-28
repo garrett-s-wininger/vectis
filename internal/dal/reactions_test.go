@@ -205,6 +205,72 @@ func TestReactionsRepository_CreateInvocationIsIdempotentForSameEventTarget(t *t
 	}
 }
 
+func TestReactionsRepository_RecordLocalMessageIsIdempotentForInvocation(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"same local message"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "local-idempotent-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"local-idempotent"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	invocation, err := repo.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+	})
+
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	create := dal.ReactionLocalMessageCreate{
+		MessageID:    "local-message-idempotent",
+		EventID:      event.EventID,
+		InvocationID: invocation.InvocationID,
+		Mailbox:      "local-idempotent",
+		PayloadJSON:  event.PayloadJSON,
+	}
+
+	first, err := repo.RecordLocalMessage(ctx, create)
+	if err != nil {
+		t.Fatalf("record local message: %v", err)
+	}
+
+	create.MessageID = "local-message-idempotent-retry"
+	duplicate, err := repo.RecordLocalMessage(ctx, create)
+	if err != nil {
+		t.Fatalf("record duplicate local message: %v", err)
+	}
+
+	if duplicate.MessageID != first.MessageID || duplicate.ID != first.ID {
+		t.Fatalf("duplicate local message: got %+v want %+v", duplicate, first)
+	}
+
+	create.PayloadJSON = []byte(`{"message":"different local message"}`)
+	if _, err := repo.RecordLocalMessage(ctx, create); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting duplicate local message, got %v", err)
+	}
+}
+
 func TestReactionsRepository_ListMatchingSubscriptionsFiltersEventMetadata(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repo := dal.NewSQLRepositoriesWithCellID(db, "iad-a").Reactions()

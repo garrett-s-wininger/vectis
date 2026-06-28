@@ -19,6 +19,7 @@ DROP INDEX IF EXISTS idx_service_leases_lease_until;
 DROP INDEX IF EXISTS idx_cron_schedule_fires_run_id;
 DROP INDEX IF EXISTS idx_run_dispatch_events_type;
 DROP INDEX IF EXISTS idx_run_dispatch_events_run_id_created_at;
+DROP INDEX IF EXISTS idx_reaction_local_messages_invocation;
 DROP INDEX IF EXISTS idx_reaction_local_messages_event;
 DROP INDEX IF EXISTS idx_reaction_local_messages_mailbox_id;
 DROP INDEX IF EXISTS idx_reaction_invocations_target;

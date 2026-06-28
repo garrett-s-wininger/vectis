@@ -582,13 +582,28 @@ func (r *SQLReactionsRepository) RecordLocalMessage(ctx context.Context, create 
 		INSERT INTO reaction_local_messages
 			(message_id, event_id, invocation_id, mailbox, payload_json, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(invocation_id) DO NOTHING
 	`), messageID, eventID, invocationID, mailbox, string(payload), createdAt)
 
 	if err != nil {
 		return ReactionLocalMessageRecord{}, normalizeSQLError(err)
 	}
 
-	return r.getLocalMessage(ctx, messageID)
+	message, err := r.getLocalMessageByInvocation(ctx, invocationID)
+	if err != nil {
+		return ReactionLocalMessageRecord{}, err
+	}
+
+	if !sameReactionLocalMessage(message, ReactionLocalMessageRecord{
+		EventID:      eventID,
+		InvocationID: invocationID,
+		Mailbox:      mailbox,
+		PayloadJSON:  payload,
+	}) {
+		return ReactionLocalMessageRecord{}, fmt.Errorf("%w: reaction local message for invocation %s already exists with different content", ErrConflict, invocationID)
+	}
+
+	return message, nil
 }
 
 func (r *SQLReactionsRepository) ListLocalMessages(ctx context.Context, mailbox string, cursor int64, limit int) ([]ReactionLocalMessageRecord, int64, error) {
@@ -694,6 +709,16 @@ func (r *SQLReactionsRepository) getLocalMessage(ctx context.Context, messageID 
 		FROM reaction_local_messages
 		WHERE message_id = ?
 	`), messageID)
+
+	return scanReactionLocalMessage(row)
+}
+
+func (r *SQLReactionsRepository) getLocalMessageByInvocation(ctx context.Context, invocationID string) (ReactionLocalMessageRecord, error) {
+	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT id, message_id, event_id, invocation_id, mailbox, payload_json, created_at
+		FROM reaction_local_messages
+		WHERE invocation_id = ?
+	`), invocationID)
 
 	return scanReactionLocalMessage(row)
 }
@@ -925,6 +950,13 @@ func sameReactionInvocation(left, right ReactionInvocationRecord) bool {
 		left.ActionDigest == right.ActionDigest &&
 		bytes.Equal(bytes.TrimSpace(left.TargetConfigJSON), bytes.TrimSpace(right.TargetConfigJSON)) &&
 		left.MaxAttempts == right.MaxAttempts
+}
+
+func sameReactionLocalMessage(left, right ReactionLocalMessageRecord) bool {
+	return left.EventID == right.EventID &&
+		left.InvocationID == right.InvocationID &&
+		left.Mailbox == right.Mailbox &&
+		bytes.Equal(bytes.TrimSpace(left.PayloadJSON), bytes.TrimSpace(right.PayloadJSON))
 }
 
 func sameNullableInt64(left, right *int64) bool {
