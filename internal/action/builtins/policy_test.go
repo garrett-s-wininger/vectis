@@ -46,6 +46,21 @@ func (n *cancelAwareNode) Execute(ctx context.Context, _ *action.ExecutionState,
 	return action.NewFailureResult(ctx.Err())
 }
 
+type sleepIgnoringContextNode struct {
+	started atomic.Int32
+	sleep   time.Duration
+}
+
+func (n *sleepIgnoringContextNode) Type() string { return "test/sleep-ignore-context" }
+
+func (n *sleepIgnoringContextNode) ValidateWith(map[string]string) []action.FieldError { return nil }
+
+func (n *sleepIgnoringContextNode) Execute(context.Context, *action.ExecutionState, map[string]any, action.Ports) action.Result {
+	n.started.Add(1)
+	time.Sleep(n.sleep)
+	return action.NewSuccessResult(nil)
+}
+
 func TestRetryNodeExecuteRetriesUntilSuccess(t *testing.T) {
 	child := &flakyNode{failUntil: 1, successOut: map[string]any{"value": "ok"}}
 	state := policyTestState(testResolver{"test/flaky": child})
@@ -119,6 +134,38 @@ func TestTimeoutNodeExecuteReturnsBodySuccess(t *testing.T) {
 
 	if got := result.Outputs["value"]; got != "ok" {
 		t.Fatalf("outputs: got %+v, want value=ok", result.Outputs)
+	}
+}
+
+func TestTimeoutNodeExecuteDoesNotStartNextBodyNodeAfterDeadline(t *testing.T) {
+	first := &sleepIgnoringContextNode{sleep: 25 * time.Millisecond}
+	secondCount := &atomic.Int32{}
+	state := policyTestState(testResolver{
+		"test/sleep-ignore-context": first,
+		"test/counted":              &countedNode{count: secondCount, result: action.NewSuccessResult(nil)},
+	})
+
+	result := (&TimeoutNode{}).Execute(context.Background(), state, map[string]any{"duration": "5ms"}, action.Ports{
+		taskgraph.BodyPort: {
+			ifTestNode("first", "test/sleep-ignore-context"),
+			ifTestNode("second", "test/counted"),
+		},
+	})
+
+	if result.Status != action.StatusFailure {
+		t.Fatalf("status: got %s, want failure", result.Status)
+	}
+
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "timeout exceeded after") {
+		t.Fatalf("error: got %v, want timeout", result.Error)
+	}
+
+	if got := first.started.Load(); got != 1 {
+		t.Fatalf("first started: got %d, want 1", got)
+	}
+
+	if got := secondCount.Load(); got != 0 {
+		t.Fatalf("second started: got %d, want 0", got)
 	}
 }
 

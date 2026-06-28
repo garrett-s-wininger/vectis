@@ -73,8 +73,24 @@ func (i *IfNode) Execute(ctx context.Context, state *action.ExecutionState, _ ma
 }
 
 func executeOrderedChildren(ctx context.Context, state *action.ExecutionState, branchName string, children []*api.Node) action.Result {
+	return executeOrderedChildrenWithContextPolicy(ctx, state, branchName, children, false)
+}
+
+func executeOrderedChildrenUntilContextDone(ctx context.Context, state *action.ExecutionState, branchName string, children []*api.Node) action.Result {
+	return executeOrderedChildrenWithContextPolicy(ctx, state, branchName, children, true)
+}
+
+func executeOrderedChildrenWithContextPolicy(ctx context.Context, state *action.ExecutionState, branchName string, children []*api.Node, stopWhenContextDone bool) action.Result {
 	var outputs map[string]any
 	for idx, child := range children {
+		if stopWhenContextDone {
+			if err := ctx.Err(); err != nil {
+				state.Logger.Error("%s port stopped before node %d: %v", branchName, idx+1, err)
+				sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("%s node %d skipped: %v", branchName, idx+1, err))
+				return action.NewFailureResult(err)
+			}
+		}
+
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing %s node %d/%d", branchName, idx+1, len(children)))
 		result := executeChildNode(ctx, child, state)
 		if result.Status == action.StatusFailure {

@@ -61,7 +61,7 @@ func (t *TimeoutNode) Execute(ctx context.Context, state *action.ExecutionState,
 	timeoutCtx, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 
-	result := executeOrderedChildren(timeoutCtx, state, taskgraph.BodyPort, body)
+	result := executeOrderedChildrenUntilContextDone(timeoutCtx, state, taskgraph.BodyPort, body)
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		err := fmt.Errorf("timeout exceeded after %s", duration)
 		state.Logger.Error("%v", err)
