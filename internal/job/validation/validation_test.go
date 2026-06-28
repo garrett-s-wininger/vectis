@@ -1149,6 +1149,112 @@ func TestValidateJob_TimeoutRequiresDuration(t *testing.T) {
 	}
 }
 
+func TestValidateJob_TimeoutRejectsDistributedParallelBody(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("timed-build"),
+		Uses: strp("builtins/timeout"),
+		With: map[string]string{"duration": "5m"},
+		Ports: map[string]*api.NodePort{
+			taskgraph.BodyPort: nodePort(&api.Node{
+				Id:   strp("checks"),
+				Uses: strp("builtins/parallel"),
+				Ports: map[string]*api.NodePort{
+					taskgraph.BranchesPort: nodePort(&api.Node{
+						Id:   strp("unit"),
+						Uses: strp("builtins/shell"),
+						With: map[string]string{"command": "go test ./..."},
+					}),
+				},
+			}),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for distributed parallel inside timeout")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `action "builtins/timeout" only supports local child ports for now; root.ports.body.nodes[0] is a distributed boundary`) {
+		t.Fatalf("expected timeout distributed boundary error, got %q", msg)
+	}
+}
+
+func TestValidateJob_TimeoutAllowsLocalParallelBody(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("timed-build"),
+		Uses: strp("builtins/timeout"),
+		With: map[string]string{"duration": "5m"},
+		Ports: map[string]*api.NodePort{
+			taskgraph.BodyPort: nodePort(&api.Node{
+				Id:   strp("checks"),
+				Uses: strp("builtins/parallel"),
+				With: map[string]string{"execution": "local"},
+				Ports: map[string]*api.NodePort{
+					taskgraph.BranchesPort: nodePort(&api.Node{
+						Id:   strp("unit"),
+						Uses: strp("builtins/shell"),
+						With: map[string]string{"command": "go test ./..."},
+					}),
+				},
+			}),
+		},
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected local parallel inside timeout to validate: %v", err)
+	}
+}
+
+func TestValidateJob_TimeoutRejectsNestedDistributedBoundary(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Root = &api.Node{
+		Id:   strp("timed-build"),
+		Uses: strp("builtins/timeout"),
+		With: map[string]string{"duration": "5m"},
+		Ports: map[string]*api.NodePort{
+			taskgraph.BodyPort: nodePort(&api.Node{
+				Id:   strp("build-flow"),
+				Uses: strp("builtins/sequence"),
+				Steps: []*api.Node{
+					{
+						Id:   strp("prepare"),
+						Uses: strp("builtins/shell"),
+						With: map[string]string{"command": "make prepare"},
+					},
+					{
+						Id:   strp("checks"),
+						Uses: strp("builtins/parallel"),
+						Ports: map[string]*api.NodePort{
+							taskgraph.BranchesPort: nodePort(&api.Node{
+								Id:   strp("unit"),
+								Uses: strp("builtins/shell"),
+								With: map[string]string{"command": "go test ./..."},
+							}),
+						},
+					},
+				},
+			}),
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error for nested distributed boundary inside timeout")
+	}
+
+	if msg := err.Error(); !strings.Contains(msg, `action "builtins/timeout" only supports local child ports for now; root.ports.body.nodes[0].steps[1] is a distributed boundary`) {
+		t.Fatalf("expected nested timeout distributed boundary error, got %q", msg)
+	}
+}
+
 func TestValidateJob_FinallyRequiresAlwaysPort(t *testing.T) {
 	t.Parallel()
 

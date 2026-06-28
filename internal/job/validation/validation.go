@@ -333,11 +333,29 @@ func (v *validator) validateExecutionScope(path string, node *api.Node, resolved
 	}
 
 	for _, ref := range taskgraph.ChildRefs(node, path) {
-		if taskgraph.ContainsDistributedBoundary(ref.Node) {
-			v.add(path+".ports", fmt.Sprintf("action %q only supports local child ports for now; %s contains a distributed boundary", resolved.Type(), ref.Path))
+		if boundaryPath, ok := distributedBoundaryPath(ref.Node, ref.Path); ok {
+			v.add(path+".ports", fmt.Sprintf("action %q only supports local child ports for now; %s is a distributed boundary", resolved.Type(), boundaryPath))
 			return
 		}
 	}
+}
+
+func distributedBoundaryPath(node *api.Node, path string) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+
+	if taskgraph.ExecutionMode(node) == taskgraph.ExecutionDistributed {
+		return path, true
+	}
+
+	for _, ref := range taskgraph.ChildRefs(node, path) {
+		if boundaryPath, ok := distributedBoundaryPath(ref.Node, ref.Path); ok {
+			return boundaryPath, true
+		}
+	}
+
+	return "", false
 }
 
 func (v *validator) validatePortCardinality(path, portName string, count int, spec action.PortSpec) {

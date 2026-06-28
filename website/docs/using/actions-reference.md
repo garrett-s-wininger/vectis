@@ -48,6 +48,21 @@ Short built-in names such as `shell` can resolve internally, but job files shoul
 
 `execution` is reserved for Vectis execution policy. When omitted, `builtins/parallel` defaults to distributed execution and other built-ins default to local execution.
 
+### Timeout Composition
+
+`builtins/timeout` is an explicit local wrapper, not a job-level default. It cancels its `body` when the duration expires; process-launching children receive the normal worker cancellation behavior, including Unix process-group termination on supported hosts.
+
+Timeout bodies must stay within one local execution scope. A distributed boundary inside the body is rejected during validation. Because `builtins/parallel` defaults to distributed execution, set `with.execution: local` when using parallel branches inside a timeout, or place separate timeout nodes inside each distributed branch.
+
+Ordering matters when combining timeout and retry:
+
+| Shape | Meaning |
+| --- | --- |
+| `timeout { retry { shell } }` | One total deadline for all retry attempts. |
+| `retry { timeout { shell } }` | Each retry attempt gets its own deadline. |
+
+Use the first shape for a total task budget, and the second when each attempt may legitimately take the full duration.
+
 ## Ports
 
 | Port | Action | Cardinality | Ordering |
