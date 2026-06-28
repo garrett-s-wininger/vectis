@@ -304,6 +304,7 @@ func init() {
 	databaseCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(databaseCmd)
 
+	backupVerifyCmd.Flags().StringVar(&backupVerifyExpectPath, "expect", "", "Expected backup topology JSON file")
 	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupVerifyCmd)
 	rootCmd.AddCommand(backupCmd)
 

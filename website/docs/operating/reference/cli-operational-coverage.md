@@ -20,7 +20,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Role bindings | Grant or revoke namespace roles. | `vectis-cli role-bindings list`, `grant`, `revoke` |
 | Source control | Register, sync, inspect, author, and clean up source repositories and schedules. | `vectis-cli sources overview`, `list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--format json`, `--strict` |
-| Backup evidence | Capture local backup scope evidence, aggregate host inventories, and verify manifest completeness for restore drills. | `vectis-cli backup inventory --format json`, `backup manifest --format json`, `backup verify` |
+| Backup evidence | Capture local backup scope evidence, aggregate host inventories, and verify manifest completeness or expected topology for restore drills. | `vectis-cli backup inventory --format json`, `backup manifest --format json`, `backup verify`, `backup verify --expect` |
 | Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
 | Retention | Preview or apply cleanup for old durable records. | `vectis-cli retention cleanup --dry-run`, `--yes` |
 | Reference deploy | Render, start, stop, and inspect the Podman reference deployment, including `--profile simple` and `--profile ha`. | `vectis-cli deploy podman init`, `render`, `up`, `status`, `down` |
@@ -44,7 +44,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Inspect source repository health | `vectis-cli sources status <repository-id>` |
 | Check config-as-code readiness | `vectis-cli health check --strict` |
 | Capture backup scope evidence | `vectis-cli backup inventory --format json` |
-| Build and verify backup manifest evidence | `vectis-cli backup manifest --format json <inventory.json...>`, then `vectis-cli backup verify <manifest.json>` |
+| Build and verify backup manifest evidence | `vectis-cli backup manifest --format json <inventory.json...>`, then `vectis-cli backup verify [--expect expected-topology.json] <manifest.json>` |
 | List stale source repositories | `vectis-cli sources list --stale` |
 | List stale source schedules | `vectis-cli sources schedules --stale` |
 | Trigger a source-defined job | `vectis-cli jobs trigger <job-id> --repository <repository-id>` |
@@ -64,7 +64,7 @@ Most operational commands use stable, line-oriented text:
 - `health check --format json` emits a summary object with the full check model in `checks`.
 - `health check --strict` exits non-zero on warnings (for CI).
 - `backup inventory --format json` emits local backup scope evidence with redacted database DSNs and path readability.
-- `backup manifest --format json` aggregates inventory files into backup-set evidence; `backup verify` exits non-zero when core database, queue, log, or artifact evidence is incomplete.
+- `backup manifest --format json` aggregates inventory files into backup-set evidence; `backup verify` exits non-zero when core database, queue, log, or artifact evidence is incomplete, and `--expect` also fails when expected host inventory sources, service instances, database roles, paths, or path categories are absent.
 - `retention cleanup` prints `key=value` summary lines for cutoffs and delete counts.
 - Errors are written to stderr by command runners and return a non-zero process exit.
 

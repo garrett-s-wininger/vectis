@@ -26,6 +26,7 @@ import (
 const backupSchemaInspectTimeout = 2 * time.Second
 const backupDefaultQueuePool = "default"
 const backupManifestSchemaVersion = 1
+const backupExpectedTopologySchemaVersion = 1
 
 const (
 	backupManifestStatusOK     = "ok"
@@ -153,16 +154,22 @@ type backupManifestVerification struct {
 	Status              string                            `json:"status"`
 	CheckedAt           string                            `json:"checked_at"`
 	ManifestGeneratedAt string                            `json:"manifest_generated_at,omitempty"`
+	ExpectationSource   string                            `json:"expectation_source,omitempty"`
 	Summary             backupManifestVerificationSummary `json:"summary"`
 	Errors              []backupManifestFinding           `json:"errors,omitempty"`
 	Warnings            []backupManifestFinding           `json:"warnings,omitempty"`
 }
 
 type backupManifestVerificationSummary struct {
-	Inventories   int `json:"inventories"`
-	DatabaseRoles int `json:"database_roles"`
-	Instances     int `json:"instances"`
-	RequiredPaths int `json:"required_paths"`
+	Inventories                int `json:"inventories"`
+	DatabaseRoles              int `json:"database_roles"`
+	Instances                  int `json:"instances"`
+	RequiredPaths              int `json:"required_paths"`
+	ExpectedInventorySources   int `json:"expected_inventory_sources,omitempty"`
+	ExpectedDatabaseRoles      int `json:"expected_database_roles,omitempty"`
+	ExpectedInstances          int `json:"expected_instances,omitempty"`
+	ExpectedPaths              int `json:"expected_paths,omitempty"`
+	ExpectedRequiredCategories int `json:"expected_required_categories,omitempty"`
 }
 
 type backupManifestFinding struct {
@@ -174,6 +181,43 @@ type backupManifestFinding struct {
 	PathID          string `json:"path_id,omitempty"`
 	Path            string `json:"path,omitempty"`
 }
+
+type backupExpectedTopologyInput struct {
+	Source       string
+	Expectations backupExpectedTopology
+}
+
+type backupExpectedTopology struct {
+	SchemaVersion     int                          `json:"schema_version,omitempty"`
+	InventorySources  []string                     `json:"inventory_sources,omitempty"`
+	DatabaseRoles     []backupExpectedDatabaseRole `json:"database_roles,omitempty"`
+	Instances         []backupExpectedInstance     `json:"instances,omitempty"`
+	Paths             []backupExpectedPath         `json:"paths,omitempty"`
+	RequireCategories []string                     `json:"require_categories,omitempty"`
+}
+
+type backupExpectedDatabaseRole struct {
+	InventorySource string `json:"inventory_source,omitempty"`
+	Role            string `json:"role,omitempty"`
+	Driver          string `json:"driver,omitempty"`
+	LocalPath       string `json:"local_path,omitempty"`
+	DSNSource       string `json:"dsn_source,omitempty"`
+}
+
+type backupExpectedInstance struct {
+	InventorySource string `json:"inventory_source,omitempty"`
+	Service         string `json:"service,omitempty"`
+	InstanceID      string `json:"instance_id,omitempty"`
+}
+
+type backupExpectedPath struct {
+	InventorySource string `json:"inventory_source,omitempty"`
+	Category        string `json:"category,omitempty"`
+	ID              string `json:"id,omitempty"`
+	Path            string `json:"path,omitempty"`
+}
+
+var backupVerifyExpectPath string
 
 var backupCmd = &cobra.Command{
 	Use:     "backup",
@@ -217,10 +261,12 @@ var backupVerifyCmd = &cobra.Command{
 
 The verifier checks for core database, queue, log, and artifact evidence,
 missing or unreadable paths, dirty schema markers, and optional evidence gaps
-such as secret store, TLS, or config paths.`,
+such as secret store, TLS, or config paths. Pass --expect with an expected
+topology JSON file to fail when a required host, service instance, database
+role, path, or path category is absent from the submitted manifest.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		runCLIError(writeBackupManifestVerification(os.Stdout, args[0], time.Now().UTC()))
+		runCLIError(writeBackupManifestVerification(os.Stdout, args[0], backupVerifyExpectPath, time.Now().UTC()))
 	},
 }
 
@@ -247,13 +293,27 @@ func writeBackupManifest(w io.Writer, inventoryPaths []string, generatedAt time.
 	return writeBackupManifestText(w, manifest)
 }
 
-func writeBackupManifestVerification(w io.Writer, manifestPath string, checkedAt time.Time) error {
+func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath string, checkedAt time.Time) error {
+	if manifestPath == "-" && expectPath == "-" {
+		return fmt.Errorf("manifest and expected topology cannot both be read from stdin")
+	}
+
 	manifest, err := readBackupManifestFile(manifestPath)
 	if err != nil {
 		return err
 	}
 
-	result := verifyBackupManifest(manifest, checkedAt)
+	var expected *backupExpectedTopologyInput
+	if strings.TrimSpace(expectPath) != "" {
+		input, err := readBackupExpectedTopologyFile(expectPath)
+		if err != nil {
+			return err
+		}
+
+		expected = &input
+	}
+
+	result := verifyBackupManifest(manifest, expected, checkedAt)
 	if outputIsJSON() {
 		if err := writeJSON(w, result); err != nil {
 			return err
@@ -392,6 +452,28 @@ func readBackupManifestFile(path string) (backupManifest, error) {
 	return manifest, nil
 }
 
+func readBackupExpectedTopologyFile(path string) (backupExpectedTopologyInput, error) {
+	var r io.Reader
+	if path == "-" {
+		r = os.Stdin
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return backupExpectedTopologyInput{}, fmt.Errorf("open backup expected topology %s: %w", path, err)
+		}
+		defer f.Close()
+
+		r = f
+	}
+
+	var expectations backupExpectedTopology
+	if err := json.NewDecoder(r).Decode(&expectations); err != nil {
+		return backupExpectedTopologyInput{}, fmt.Errorf("decode backup expected topology %s: %w", path, err)
+	}
+
+	return backupExpectedTopologyInput{Source: path, Expectations: expectations}, nil
+}
+
 func buildBackupManifest(inputs []backupInventoryInput, generatedAt time.Time) backupManifest {
 	manifest := backupManifest{
 		SchemaVersion: backupManifestSchemaVersion,
@@ -508,7 +590,7 @@ func appendBackupManifestPaths(out []backupManifestPath, inventorySource, catego
 	return out
 }
 
-func verifyBackupManifest(manifest backupManifest, checkedAt time.Time) backupManifestVerification {
+func verifyBackupManifest(manifest backupManifest, expected *backupExpectedTopologyInput, checkedAt time.Time) backupManifestVerification {
 	result := backupManifestVerification{
 		Status:              backupManifestStatusOK,
 		CheckedAt:           checkedAt.Format(time.RFC3339),
@@ -519,6 +601,15 @@ func verifyBackupManifest(manifest backupManifest, checkedAt time.Time) backupMa
 			Instances:     len(manifest.Instances),
 			RequiredPaths: len(manifest.RequiredPaths),
 		},
+	}
+
+	if expected != nil {
+		result.ExpectationSource = expected.Source
+		result.Summary.ExpectedInventorySources = len(expected.Expectations.InventorySources)
+		result.Summary.ExpectedDatabaseRoles = len(expected.Expectations.DatabaseRoles)
+		result.Summary.ExpectedInstances = len(expected.Expectations.Instances)
+		result.Summary.ExpectedPaths = len(expected.Expectations.Paths)
+		result.Summary.ExpectedRequiredCategories = len(expected.Expectations.RequireCategories)
 	}
 
 	addError := func(id, message string) {
@@ -647,11 +738,143 @@ func verifyBackupManifest(manifest backupManifest, checkedAt time.Time) backupMa
 		result.Warnings = append(result.Warnings, warning)
 	}
 
+	if expected != nil {
+		verifyBackupExpectedTopology(manifest, expected.Source, expected.Expectations, &result)
+	}
+
 	if len(result.Errors) > 0 {
 		result.Status = backupManifestStatusFailed
 	}
 
 	return result
+}
+
+func verifyBackupExpectedTopology(manifest backupManifest, source string, expected backupExpectedTopology, result *backupManifestVerification) {
+	if expected.SchemaVersion != 0 && expected.SchemaVersion != backupExpectedTopologySchemaVersion {
+		result.Errors = append(result.Errors, backupManifestFinding{
+			Severity: backupFindingSeverityError,
+			ID:       "expectation.schema_version",
+			Message:  fmt.Sprintf("unsupported expected topology schema version %d", expected.SchemaVersion),
+		})
+	}
+
+	for _, inventorySource := range expected.InventorySources {
+		inventorySource = strings.TrimSpace(inventorySource)
+		if inventorySource == "" {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "expectation.inventory_source_empty",
+				Message:  "expected topology contains an empty inventory source",
+			})
+
+			continue
+		}
+
+		if !manifestHasInventorySource(manifest, inventorySource) {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "expectation.inventory_missing",
+				Message:         fmt.Sprintf("expected inventory source %s is missing", inventorySource),
+				InventorySource: inventorySource,
+			})
+		}
+	}
+
+	for _, role := range expected.DatabaseRoles {
+		if backupExpectedDatabaseRoleEmpty(role) {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "expectation.database_role_empty",
+				Message:  "expected topology contains an empty database role matcher",
+			})
+
+			continue
+		}
+
+		if !manifestHasExpectedDatabaseRole(manifest, role) {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "expectation.database_role_missing",
+				Message:         "expected database role is missing from manifest",
+				InventorySource: role.InventorySource,
+			})
+		}
+	}
+
+	for _, instance := range expected.Instances {
+		if strings.TrimSpace(instance.Service) == "" {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "expectation.instance_service_missing",
+				Message:  "expected service instance is missing service",
+			})
+
+			continue
+		}
+
+		if !manifestHasExpectedInstance(manifest, instance) {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "expectation.instance_missing",
+				Message:         fmt.Sprintf("expected %s instance is missing from manifest", instance.Service),
+				InventorySource: instance.InventorySource,
+			})
+		}
+	}
+
+	for _, path := range expected.Paths {
+		if backupExpectedPathEmpty(path) {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "expectation.path_empty",
+				Message:  "expected topology contains an empty path matcher",
+			})
+
+			continue
+		}
+
+		if !manifestHasExpectedPath(manifest, path) {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "expectation.path_missing",
+				Message:         "expected path is missing from manifest",
+				InventorySource: path.InventorySource,
+				Category:        path.Category,
+				PathID:          path.ID,
+				Path:            path.Path,
+			})
+		}
+	}
+
+	for _, category := range expected.RequireCategories {
+		category = strings.TrimSpace(category)
+		if category == "" {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "expectation.category_empty",
+				Message:  "expected topology contains an empty required category",
+			})
+
+			continue
+		}
+
+		if !manifestHasPathCategory(manifest, category) {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "expectation.category_missing",
+				Message:  fmt.Sprintf("expected path category %s is missing from manifest", category),
+				Category: category,
+			})
+		}
+	}
+
+	if backupExpectedTopologyEmpty(expected) {
+		result.Warnings = append(result.Warnings, backupManifestFinding{
+			Severity: backupFindingSeverityWarning,
+			ID:       "expectation.empty",
+			Message:  fmt.Sprintf("expected topology %s did not define any requirements", source),
+		})
+	}
 }
 
 func manifestHasPathID(manifest backupManifest, id string) bool {
@@ -672,6 +895,98 @@ func manifestHasPathCategory(manifest backupManifest, category string) bool {
 	}
 
 	return false
+}
+
+func manifestHasInventorySource(manifest backupManifest, source string) bool {
+	for _, inventory := range manifest.Inventories {
+		if inventory.Source == source {
+			return true
+		}
+	}
+	return false
+}
+
+func manifestHasExpectedDatabaseRole(manifest backupManifest, expected backupExpectedDatabaseRole) bool {
+	for _, role := range manifest.DatabaseRoles {
+		if expected.InventorySource != "" && role.InventorySource != expected.InventorySource {
+			continue
+		}
+		if expected.Role != "" && role.Role != expected.Role {
+			continue
+		}
+		if expected.Driver != "" && role.Driver != expected.Driver {
+			continue
+		}
+		if expected.LocalPath != "" && role.LocalPath != expected.LocalPath {
+			continue
+		}
+		if expected.DSNSource != "" && role.DSNSource != expected.DSNSource {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func manifestHasExpectedInstance(manifest backupManifest, expected backupExpectedInstance) bool {
+	for _, instance := range manifest.Instances {
+		if expected.InventorySource != "" && instance.InventorySource != expected.InventorySource {
+			continue
+		}
+		if instance.Service != expected.Service {
+			continue
+		}
+		if expected.InstanceID != "" && instance.InstanceID != expected.InstanceID {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func manifestHasExpectedPath(manifest backupManifest, expected backupExpectedPath) bool {
+	for _, path := range manifest.RequiredPaths {
+		if !path.Enabled {
+			continue
+		}
+		if expected.InventorySource != "" && path.InventorySource != expected.InventorySource {
+			continue
+		}
+		if expected.Category != "" && path.Category != expected.Category {
+			continue
+		}
+		if expected.ID != "" && path.ID != expected.ID {
+			continue
+		}
+		if expected.Path != "" && path.Path != expected.Path {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func backupExpectedTopologyEmpty(expected backupExpectedTopology) bool {
+	return len(expected.InventorySources) == 0 &&
+		len(expected.DatabaseRoles) == 0 &&
+		len(expected.Instances) == 0 &&
+		len(expected.Paths) == 0 &&
+		len(expected.RequireCategories) == 0
+}
+
+func backupExpectedDatabaseRoleEmpty(expected backupExpectedDatabaseRole) bool {
+	return strings.TrimSpace(expected.InventorySource) == "" &&
+		strings.TrimSpace(expected.Role) == "" &&
+		strings.TrimSpace(expected.Driver) == "" &&
+		strings.TrimSpace(expected.LocalPath) == "" &&
+		strings.TrimSpace(expected.DSNSource) == ""
+}
+
+func backupExpectedPathEmpty(expected backupExpectedPath) bool {
+	return strings.TrimSpace(expected.InventorySource) == "" &&
+		strings.TrimSpace(expected.Category) == "" &&
+		strings.TrimSpace(expected.ID) == "" &&
+		strings.TrimSpace(expected.Path) == ""
 }
 
 func backupDatabase() backupDatabaseInventory {
@@ -1109,8 +1424,20 @@ func writeBackupManifestVerificationText(w io.Writer, result backupManifestVerif
 		}
 	}
 
+	if result.ExpectationSource != "" {
+		if _, err := fmt.Fprintf(w, "Expected topology: %s\n", result.ExpectationSource); err != nil {
+			return err
+		}
+	}
+
 	if _, err := fmt.Fprintf(w, "Summary: inventories=%d database_roles=%d instances=%d required_paths=%d\n", result.Summary.Inventories, result.Summary.DatabaseRoles, result.Summary.Instances, result.Summary.RequiredPaths); err != nil {
 		return err
+	}
+
+	if result.ExpectationSource != "" {
+		if _, err := fmt.Fprintf(w, "Expected: inventory_sources=%d database_roles=%d instances=%d paths=%d required_categories=%d\n", result.Summary.ExpectedInventorySources, result.Summary.ExpectedDatabaseRoles, result.Summary.ExpectedInstances, result.Summary.ExpectedPaths, result.Summary.ExpectedRequiredCategories); err != nil {
+			return err
+		}
 	}
 
 	if len(result.Errors) > 0 {

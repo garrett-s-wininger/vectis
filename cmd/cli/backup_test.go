@@ -223,9 +223,35 @@ func TestBackupManifestAggregatesInventoryFiles(t *testing.T) {
 		}
 	}
 
-	result := verifyBackupManifest(manifest, when)
+	expected := &backupExpectedTopologyInput{
+		Source: "expected.json",
+		Expectations: backupExpectedTopology{
+			SchemaVersion:    backupExpectedTopologySchemaVersion,
+			InventorySources: []string{inventoryPath},
+			DatabaseRoles: []backupExpectedDatabaseRole{
+				{InventorySource: inventoryPath, Role: "default", Driver: "sqlite3"},
+			},
+			Instances: []backupExpectedInstance{
+				{InventorySource: inventoryPath, Service: "queue", InstanceID: "queue-a"},
+				{InventorySource: inventoryPath, Service: "log", InstanceID: "log-a"},
+				{InventorySource: inventoryPath, Service: "artifact", InstanceID: "artifact-a"},
+			},
+			Paths: []backupExpectedPath{
+				{InventorySource: inventoryPath, Category: "local_state", ID: "queue.persistence"},
+				{InventorySource: inventoryPath, Category: "local_state", ID: "log.storage"},
+				{InventorySource: inventoryPath, Category: "local_state", ID: "artifact.storage"},
+			},
+			RequireCategories: []string{"database", "local_state", "secret_stores", "tls_files", "config_paths"},
+		},
+	}
+
+	result := verifyBackupManifest(manifest, expected, when)
 	if result.Status != backupManifestStatusOK || len(result.Errors) != 0 {
 		t.Fatalf("manifest verification = %+v", result)
+	}
+
+	if result.ExpectationSource != "expected.json" || result.Summary.ExpectedInventorySources != 1 || result.Summary.ExpectedInstances != 3 {
+		t.Fatalf("expected topology summary = %+v", result)
 	}
 }
 
@@ -255,7 +281,7 @@ func TestBackupManifestVerificationReportsMissingRequiredPath(t *testing.T) {
 	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
 	var buf bytes.Buffer
 	when := time.Date(2026, 6, 28, 14, 0, 0, 0, time.UTC)
-	err := writeBackupManifestVerification(&buf, manifestPath, when)
+	err := writeBackupManifestVerification(&buf, manifestPath, "", when)
 	if err == nil {
 		t.Fatalf("verify backup manifest succeeded unexpectedly")
 	}
@@ -271,6 +297,73 @@ func TestBackupManifestVerificationReportsMissingRequiredPath(t *testing.T) {
 
 	if !backupFindingsContain(result.Errors, "path.missing") {
 		t.Fatalf("verification errors = %+v, want path.missing", result.Errors)
+	}
+}
+
+func TestBackupManifestVerificationReportsMissingExpectedTopology(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	version := 42
+	dirty := false
+	manifest := backupManifest{
+		SchemaVersion: backupManifestSchemaVersion,
+		GeneratedAt:   "2026-06-28T13:00:00Z",
+		Inventories: []backupManifestInventory{
+			{Source: "host-a.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "sqlite3"},
+		},
+		DatabaseRoles: []backupManifestDatabaseRole{
+			{InventorySource: "host-a.json", Role: "default", Driver: "sqlite3", DSN: "sqlite.db", LocalPath: "sqlite.db", Schema: backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty}},
+		},
+		Instances: []backupManifestInstance{
+			{InventorySource: "host-a.json", Service: "queue", InstanceID: "queue-a"},
+			{InventorySource: "host-a.json", Service: "log", InstanceID: "log-a"},
+			{InventorySource: "host-a.json", Service: "artifact", InstanceID: "artifact-a"},
+		},
+		RequiredPaths: []backupManifestPath{
+			{InventorySource: "host-a.json", Category: "database", ID: "database.default", Kind: "file", Path: "sqlite.db", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "local_state", ID: "queue.persistence", Kind: "directory", Path: "/var/lib/vectis/queue", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "local_state", ID: "log.storage", Kind: "directory", Path: "/var/lib/vectis/log", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "local_state", ID: "artifact.storage", Kind: "directory", Path: "/var/lib/vectis/artifact", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "secret_stores", ID: "secrets.encryptedfs.root", Kind: "directory", Path: "/var/lib/vectis/secrets", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "tls_files", ID: "grpc.cert_file", Kind: "file", Path: "/etc/vectis/tls/grpc.crt", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "config_paths", ID: "deploy.config_dir", Kind: "directory", Path: "/etc/vectis/deploy", Enabled: true, Exists: true, Readable: true},
+		},
+	}
+	expected := backupExpectedTopology{
+		SchemaVersion:    backupExpectedTopologySchemaVersion,
+		InventorySources: []string{"host-a.json", "host-b.json"},
+		Instances: []backupExpectedInstance{
+			{Service: "queue", InstanceID: "queue-a"},
+			{Service: "log", InstanceID: "log-b"},
+		},
+		Paths: []backupExpectedPath{
+			{InventorySource: "host-b.json", Category: "local_state", ID: "queue.persistence"},
+		},
+		RequireCategories: []string{"secret_stores", "tls_files", "config_paths"},
+	}
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
+	expectPath := writeBackupJSONFile(t, root, "expected.json", expected)
+	var buf bytes.Buffer
+	when := time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC)
+	err := writeBackupManifestVerification(&buf, manifestPath, expectPath, when)
+	if err == nil {
+		t.Fatalf("verify backup manifest succeeded unexpectedly")
+	}
+
+	var result backupManifestVerification
+	if decodeErr := json.Unmarshal(buf.Bytes(), &result); decodeErr != nil {
+		t.Fatalf("verification JSON: %v\n%s", decodeErr, buf.String())
+	}
+
+	if result.Status != backupManifestStatusFailed || result.ExpectationSource != expectPath {
+		t.Fatalf("verification result = %+v", result)
+	}
+	for _, id := range []string{"expectation.inventory_missing", "expectation.instance_missing", "expectation.path_missing"} {
+		if !backupFindingsContain(result.Errors, id) {
+			t.Fatalf("verification errors = %+v, want %s", result.Errors, id)
+		}
 	}
 }
 

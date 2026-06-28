@@ -48,6 +48,34 @@ or unreadable during inventory capture, or when a database schema was marked
 dirty. Missing secret store, TLS, or config paths are warnings because some
 deployments intentionally delegate those surfaces to external systems.
 
+When you know the intended deployment shape, make absent hosts or shards hard
+failures with an expected topology file:
+
+```sh
+vectis-cli backup verify --expect expected-topology.json backup-manifest.json
+```
+
+Expected topology files are JSON. `inventory_sources` and each
+`inventory_source` matcher must use the same source strings passed to
+`backup manifest`.
+
+```json
+{
+  "schema_version": 1,
+  "inventory_sources": ["host-a.inventory.json", "host-b.inventory.json"],
+  "instances": [
+    {"service": "queue", "instance_id": "queue-1"},
+    {"service": "log", "instance_id": "log-1"},
+    {"service": "artifact", "instance_id": "artifact-1"}
+  ],
+  "paths": [
+    {"inventory_source": "host-a.inventory.json", "category": "local_state", "id": "queue.persistence"},
+    {"inventory_source": "host-b.inventory.json", "category": "local_state", "id": "artifact.storage"}
+  ],
+  "require_categories": ["database", "local_state", "secret_stores", "tls_files", "config_paths"]
+}
+```
+
 ## Backup Timing
 
 Prefer backups that capture these pieces close together:
@@ -86,7 +114,7 @@ rollback proof, see [Production Drills](./production-drills.md).
 Recommended drill flow:
 
 1. Run `vectis-cli backup inventory --format json` from each relevant host and record the expected restore point.
-2. Build a backup manifest from those inventories and run `vectis-cli backup verify`.
+2. Build a backup manifest from those inventories and run `vectis-cli backup verify`, preferably with `--expect` for the intended topology.
 3. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
 4. Restore config, secrets, TLS material, and manifests before starting services.
 5. Restore PostgreSQL through the database platform's documented process.
