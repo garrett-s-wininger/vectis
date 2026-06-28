@@ -110,7 +110,7 @@ If digest pins are already required, use `--ignore-policy` while preparing the p
 
 `--ignore-policy` also shows yanked, revoked, and purged tombstones so operators can inspect why an action was removed.
 
-For `runtime: "process"`, set `runtime_config.command` to the command the worker should run. If a worker resolves the descriptor from a local manifest, relative commands run from that manifest's directory. The process receives a sanitized environment plus action metadata and inputs:
+For `runtime: "process"`, set `runtime_config.command` to the command the worker should run. If a worker resolves the descriptor from a local manifest, commands run from that manifest's directory by default. Set `runtime_config.working_directory` only when the action needs a subdirectory below that action base directory; the value must be relative and cannot contain parent-directory escapes. The process receives a sanitized environment plus action metadata and inputs:
 
 ```text
 VECTIS_ACTION_NAME
@@ -166,3 +166,5 @@ Pipeline-as-code should eventually layer more validation before storage:
 The current JSON/proto job validator should remain reusable as the action-input validation layer after pipeline syntax lands.
 
 Process-launching actions must use the `ExecutionState` command environment rather than `os.Environ()`. The default child environment is intentionally small so worker deployment secrets and future SPIFFE Workload API sockets are not inherited by arbitrary job commands.
+
+Process-launching actions must also use the worker-provided `interfaces.ExecExecutor` path instead of `os/exec` directly. That keeps process-group cancellation, explicit working-directory checks, stdin/file-descriptor defaults, and VM execution backends behind one launch boundary.

@@ -5,8 +5,10 @@ package interfaces
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -58,6 +60,38 @@ func TestDirectExecutorStartsChildInSeparateProcessGroup(t *testing.T) {
 
 	if childPGID != osProcess.cmd.Process.Pid {
 		t.Fatalf("child process group = %d, want child pid %d", childPGID, osProcess.cmd.Process.Pid)
+	}
+}
+
+func TestDirectExecutorChildResetsParentSignalHandlers(t *testing.T) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM)
+	t.Cleanup(func() { signal.Stop(signals) })
+
+	process, err := NewDirectExecutor().Start(
+		context.Background(),
+		"sh",
+		[]string{"-c", "kill -TERM $$; echo survived"},
+		t.TempDir(),
+		[]string{"PATH=" + os.Getenv("PATH")},
+	)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	stdoutDone := make(chan []byte, 1)
+	go func() {
+		output, _ := io.ReadAll(process.Stdout())
+		stdoutDone <- output
+	}()
+
+	if err := process.Wait(); err == nil {
+		t.Fatal("Wait error = nil, want child termination by SIGTERM")
+	}
+
+	if output := <-stdoutDone; strings.Contains(string(output), "survived") {
+		t.Fatalf("child survived SIGTERM with output %q", output)
 	}
 }
 

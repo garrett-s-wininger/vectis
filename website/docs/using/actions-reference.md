@@ -166,6 +166,8 @@ Manifest rules:
 - local runtime may be `process`, `container`, `wasm`, or `grpc`;
 - local runtime `builtin` is reserved;
 - local `process` actions do not support `port_schema`;
+- local `process` actions run from the manifest directory by default;
+- `runtime_config.working_directory`, when set for a local `process` action, must be relative to that action base directory and must not contain parent-directory escapes;
 - input field name `execution` is reserved;
 - input field types currently support `string`, `url`, and `number`;
 - unknown manifest fields are rejected.
