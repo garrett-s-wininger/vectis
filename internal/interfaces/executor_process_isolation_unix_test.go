@@ -95,6 +95,55 @@ func TestDirectExecutorChildResetsParentSignalHandlers(t *testing.T) {
 	}
 }
 
+func TestDirectExecutorLauncherAppliesPrivateUmask(t *testing.T) {
+	workspace := t.TempDir()
+	process, err := NewDirectExecutor().Start(
+		context.Background(),
+		"sh",
+		[]string{"-c", ": > created"},
+		workspace,
+		[]string{"PATH=" + os.Getenv("PATH")},
+	)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if err := process.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(workspace, "created"))
+	if err != nil {
+		t.Fatalf("stat created file: %v", err)
+	}
+
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("created file mode = %v, want 0600", got)
+	}
+}
+
+func TestDirectExecutorLauncherClearsInheritedSignalMask(t *testing.T) {
+	restore := blockSignalForTest(t, syscall.SIGUSR1)
+	defer restore()
+
+	process, err := NewDirectExecutor().Start(
+		context.Background(),
+		"sh",
+		[]string{"-c", "trap 'exit 0' USR1; kill -USR1 $$; sleep 1; exit 7"},
+		t.TempDir(),
+		[]string{"PATH=" + os.Getenv("PATH")},
+	)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if err := process.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+}
+
 func TestDirectExecutorIsolatesChildSignalGroup(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDirectExecutorSignalGroupHelper$")
 	cmd.Env = append(os.Environ(), directExecutorSignalGroupHelperEnv+"=1")

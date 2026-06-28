@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
+
+	"vectis/internal/actionlauncher"
 )
 
 type CommandExecutor interface {
@@ -20,6 +23,10 @@ type Process interface {
 	Wait() error
 	Stdout() io.ReadCloser
 	Stderr() io.ReadCloser
+}
+
+func init() {
+	actionlauncher.MaybeRun()
 }
 
 // StartProcess starts cmd with worker-safe process defaults and adapts it to
@@ -61,14 +68,7 @@ func NewDirectExecutor() *DirectExecutor {
 type DirectExecutor struct{}
 
 func (e *DirectExecutor) Start(ctx context.Context, path string, args []string, workDir string, env []string) (Process, error) {
-	if strings.TrimSpace(workDir) == "" {
-		return nil, fmt.Errorf("work directory is required")
-	}
-
-	cmd := exec.CommandContext(ctx, path, args...)
-	cmd.Dir = workDir
-	cmd.Env = append([]string{}, env...)
-	return StartProcess(cmd)
+	return startExecProcess(ctx, path, args, workDir, env)
 }
 
 type OSExecutor struct{}
@@ -78,14 +78,45 @@ func NewOSExecutor() *OSExecutor {
 }
 
 func (e *OSExecutor) Start(ctx context.Context, command string, workDir string, env []string) (Process, error) {
+	return startExecProcess(ctx, "sh", []string{"-c", command}, workDir, env)
+}
+
+func startExecProcess(ctx context.Context, path string, args []string, workDir string, env []string) (Process, error) {
 	if strings.TrimSpace(workDir) == "" {
 		return nil, fmt.Errorf("work directory is required")
 	}
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	resolvedPath, err := resolveExecutablePath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	launcherPath, launcherArgs, err := actionlauncher.Command(resolvedPath, args)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.CommandContext(ctx, launcherPath, launcherArgs...)
 	cmd.Dir = workDir
 	cmd.Env = append([]string{}, env...)
 	return StartProcess(cmd)
+}
+
+func resolveExecutablePath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("command path is required")
+	}
+
+	if strings.ContainsRune(path, os.PathSeparator) {
+		return path, nil
+	}
+
+	resolved, err := exec.LookPath(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve command path %q: %w", path, err)
+	}
+
+	return resolved, nil
 }
 
 type osProcess struct {
