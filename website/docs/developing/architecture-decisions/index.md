@@ -24,6 +24,7 @@ New decisions add the next numbered file. Keep older decisions in place; when a 
 | [0010](./0010-versioned-action-registry.md) | Accepted | Versioned action registry |
 | [0011](./0011-artifact-service-local-cas.md) | Accepted | Artifact service with local content-addressed storage |
 | [0012](./0012-spiffe-secret-broker.md) | Accepted | SPIFFE-authenticated secret broker |
+| [0013](./0013-durable-event-reactions.md) | Proposed | Durable event reactions |
 
 ## Writing Style
 

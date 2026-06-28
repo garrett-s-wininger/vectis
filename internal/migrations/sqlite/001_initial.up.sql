@@ -326,6 +326,102 @@ CREATE TABLE run_dispatch_events (
 CREATE INDEX idx_run_dispatch_events_run_id_created_at ON run_dispatch_events(run_id, created_at, id);
 CREATE INDEX idx_run_dispatch_events_type ON run_dispatch_events(event_type);
 
+CREATE TABLE reaction_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE NOT NULL,
+    source TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    namespace_id INTEGER REFERENCES namespaces(id) ON DELETE SET NULL,
+    job_id TEXT NOT NULL DEFAULT '',
+    run_id TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL,
+    source_cell TEXT NOT NULL DEFAULT 'local',
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_reaction_events_type_created ON reaction_events(event_type, created_at, id);
+CREATE INDEX idx_reaction_events_run_created ON reaction_events(run_id, created_at, id);
+CREATE INDEX idx_reaction_events_job_created ON reaction_events(job_id, created_at, id);
+CREATE INDEX idx_reaction_events_namespace_created ON reaction_events(namespace_id, created_at, id);
+
+CREATE TABLE reaction_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_id TEXT UNIQUE NOT NULL,
+    namespace_id INTEGER REFERENCES namespaces(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    uses TEXT NOT NULL,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    secret_refs_json TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(namespace_id, name)
+);
+
+CREATE INDEX idx_reaction_targets_kind ON reaction_targets(kind);
+CREATE INDEX idx_reaction_targets_enabled ON reaction_targets(enabled);
+
+CREATE TABLE reaction_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id TEXT UNIQUE NOT NULL,
+    namespace_id INTEGER REFERENCES namespaces(id) ON DELETE CASCADE,
+    target_id TEXT NOT NULL REFERENCES reaction_targets(target_id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    event_type TEXT NOT NULL DEFAULT '',
+    job_id TEXT NOT NULL DEFAULT '',
+    run_status TEXT NOT NULL DEFAULT '',
+    trigger_type TEXT NOT NULL DEFAULT '',
+    owning_cell TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(namespace_id, name)
+);
+
+CREATE INDEX idx_reaction_subscriptions_target ON reaction_subscriptions(target_id);
+CREATE INDEX idx_reaction_subscriptions_event ON reaction_subscriptions(event_type, enabled);
+
+CREATE TABLE reaction_invocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invocation_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL REFERENCES reaction_events(event_id) ON DELETE CASCADE,
+    target_id TEXT NOT NULL REFERENCES reaction_targets(target_id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    action_uses TEXT NOT NULL,
+    action_descriptor_json TEXT NOT NULL DEFAULT '{}',
+    action_digest TEXT NOT NULL DEFAULT '',
+    target_config_json TEXT NOT NULL DEFAULT '{}',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 5,
+    next_attempt_at INTEGER NOT NULL,
+    claimed_by TEXT NOT NULL DEFAULT '',
+    claim_until INTEGER,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    completed_at INTEGER,
+    UNIQUE(event_id, target_id)
+);
+
+CREATE INDEX idx_reaction_invocations_pending ON reaction_invocations(status, next_attempt_at, id);
+CREATE INDEX idx_reaction_invocations_event ON reaction_invocations(event_id, id);
+CREATE INDEX idx_reaction_invocations_target ON reaction_invocations(target_id, id);
+
+CREATE TABLE reaction_local_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL REFERENCES reaction_events(event_id) ON DELETE CASCADE,
+    invocation_id TEXT NOT NULL REFERENCES reaction_invocations(invocation_id) ON DELETE CASCADE,
+    mailbox TEXT NOT NULL DEFAULT 'default',
+    payload_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_reaction_local_messages_mailbox_id ON reaction_local_messages(mailbox, id);
+CREATE INDEX idx_reaction_local_messages_event ON reaction_local_messages(event_id, id);
+
 CREATE TABLE cell_catalog_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_cell TEXT NOT NULL,

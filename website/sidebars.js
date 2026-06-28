@@ -127,6 +127,8 @@ const sidebars = {
             'developing/architecture-decisions/worker-execution-containment-providers',
             'developing/architecture-decisions/versioned-action-registry',
             'developing/architecture-decisions/artifact-service-local-cas',
+            'developing/architecture-decisions/spiffe-secret-broker',
+            'developing/architecture-decisions/durable-event-reactions',
           ],
         },
       ],

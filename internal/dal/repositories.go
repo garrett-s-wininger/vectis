@@ -120,6 +120,17 @@ const (
 	CatalogEventStatusPending = "pending"
 	CatalogEventStatusApplied = "applied"
 	CatalogEventStatusFailed  = "failed"
+
+	ReactionEventSourceLifecycle = "lifecycle"
+	ReactionEventSourceManual    = "manual"
+
+	ReactionInvocationStatusPending   = "pending"
+	ReactionInvocationStatusRunning   = "running"
+	ReactionInvocationStatusSucceeded = "succeeded"
+	ReactionInvocationStatusFailed    = "failed"
+
+	ReactionTargetKindLocal   = "local"
+	ReactionActionNotifyLocal = "builtins/notify-local"
 )
 
 const FailureCodeInvalidEnvelope = "invalid_execution_envelope"
@@ -572,6 +583,111 @@ type CatalogEventSourceSummary struct {
 	LastAppliedUnix  *int64
 }
 
+type ReactionEventCreate struct {
+	EventID     string
+	Source      string
+	EventType   string
+	NamespaceID int64
+	JobID       string
+	RunID       string
+	Actor       string
+	PayloadJSON []byte
+	SourceCell  string
+	CreatedAt   int64
+}
+
+type ReactionEventRecord struct {
+	ID          int64
+	EventID     string
+	Source      string
+	EventType   string
+	NamespaceID *int64
+	JobID       string
+	RunID       string
+	Actor       string
+	PayloadJSON []byte
+	SourceCell  string
+	CreatedAt   int64
+}
+
+type ReactionTargetCreate struct {
+	TargetID       string
+	NamespaceID    int64
+	Name           string
+	Kind           string
+	Uses           string
+	ConfigJSON     []byte
+	SecretRefsJSON []byte
+	CreatedAt      int64
+}
+
+type ReactionTargetRecord struct {
+	ID             int64
+	TargetID       string
+	NamespaceID    *int64
+	Name           string
+	Kind           string
+	Uses           string
+	ConfigJSON     []byte
+	SecretRefsJSON []byte
+	Enabled        bool
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
+type ReactionInvocationCreate struct {
+	InvocationID         string
+	EventID              string
+	TargetID             string
+	ActionUses           string
+	ActionDescriptorJSON []byte
+	ActionDigest         string
+	TargetConfigJSON     []byte
+	MaxAttempts          int
+	NextAttemptAt        int64
+	CreatedAt            int64
+}
+
+type ReactionInvocationRecord struct {
+	ID                   int64
+	InvocationID         string
+	EventID              string
+	TargetID             string
+	Status               string
+	ActionUses           string
+	ActionDescriptorJSON []byte
+	ActionDigest         string
+	TargetConfigJSON     []byte
+	Attempts             int
+	MaxAttempts          int
+	NextAttemptAt        int64
+	ClaimedBy            string
+	ClaimUntil           *int64
+	LastError            *string
+	CreatedAt            int64
+	UpdatedAt            int64
+	CompletedAt          *int64
+}
+
+type ReactionLocalMessageCreate struct {
+	MessageID    string
+	EventID      string
+	InvocationID string
+	Mailbox      string
+	PayloadJSON  []byte
+	CreatedAt    int64
+}
+
+type ReactionLocalMessageRecord struct {
+	ID           int64
+	MessageID    string
+	EventID      string
+	InvocationID string
+	Mailbox      string
+	PayloadJSON  []byte
+	CreatedAt    int64
+}
+
 type TriggerInvocation struct {
 	InvocationID       string
 	TriggerID          *int64
@@ -622,6 +738,18 @@ type CatalogEventsRepository interface {
 	MarkRetryable(ctx context.Context, id int64, message string) error
 	Summary(ctx context.Context) (CatalogEventSummary, error)
 	SummaryBySource(ctx context.Context) ([]CatalogEventSourceSummary, error)
+}
+
+type ReactionsRepository interface {
+	RecordEvent(ctx context.Context, create ReactionEventCreate) (ReactionEventRecord, error)
+	CreateTarget(ctx context.Context, create ReactionTargetCreate) (ReactionTargetRecord, error)
+	CreateInvocation(ctx context.Context, create ReactionInvocationCreate) (ReactionInvocationRecord, error)
+	ListPendingInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error)
+	MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error)
+	MarkInvocationSucceeded(ctx context.Context, invocationID string, completedAtUnixNano int64) error
+	MarkInvocationFailed(ctx context.Context, invocationID, message string, nextAttemptAtUnixNano int64) error
+	RecordLocalMessage(ctx context.Context, create ReactionLocalMessageCreate) (ReactionLocalMessageRecord, error)
+	ListLocalMessages(ctx context.Context, mailbox string, cursor int64, limit int) ([]ReactionLocalMessageRecord, int64, error)
 }
 
 type TriggerInvocationsRepository interface {
@@ -892,6 +1020,7 @@ type SQLRepositories struct {
 	triggers      *SQLTriggerInvocationsRepository
 	catalog       *SQLCatalogEventsRepository
 	catalogState  *SQLCatalogStatusBackfillRepository
+	reactions     *SQLReactionsRepository
 	cellAccept    *SQLCellExecutionAcceptancesRepository
 	serviceLeases *SQLServiceLeasesRepository
 	sources       *SQLSourcesRepository
@@ -918,6 +1047,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		triggers:      &SQLTriggerInvocationsRepository{db: db},
 		catalog:       &SQLCatalogEventsRepository{db: db},
 		catalogState:  &SQLCatalogStatusBackfillRepository{db: db},
+		reactions:     &SQLReactionsRepository{db: db, cellID: cellID},
 		cellAccept:    &SQLCellExecutionAcceptancesRepository{db: db, cellID: cellID},
 		serviceLeases: &SQLServiceLeasesRepository{db: db},
 		sources:       &SQLSourcesRepository{db: db},
@@ -1314,6 +1444,10 @@ func (r *SQLRepositories) CatalogEvents() CatalogEventsRepository {
 
 func (r *SQLRepositories) CatalogStatusBackfill() CatalogStatusBackfillRepository {
 	return r.catalogState
+}
+
+func (r *SQLRepositories) Reactions() ReactionsRepository {
+	return r.reactions
 }
 
 func (r *SQLRepositories) CellExecutionAcceptances() CellExecutionAcceptancesRepository {
