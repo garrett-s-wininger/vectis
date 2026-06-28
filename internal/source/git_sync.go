@@ -109,7 +109,7 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 				return checkoutStatus
 			}
 
-			if err := fetchManagedGitCheckout(ctx, checkoutPath, credentialEnv); err != nil {
+			if err := fetchManagedGitCheckout(ctx, checkoutPath, credentialEnv, defaultRef); err != nil {
 				checkoutStatus.DefaultRef = defaultRef
 				checkoutStatus.setError("git_fetch_failed", err.Error())
 				return checkoutStatus
@@ -247,9 +247,61 @@ func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string
 	return nil
 }
 
-func fetchManagedGitCheckout(ctx context.Context, checkoutPath string, env []string) error {
+func fetchManagedGitCheckout(ctx context.Context, checkoutPath string, env []string, defaultRef string) error {
+	if ref, ok := managedGitSyncFetchRef(ctx, checkoutPath, defaultRef); ok {
+		if _, err := fetchManagedGitRef(ctx, checkoutPath, env, ref, ""); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil
+			}
+
+			return err
+		}
+
+		return nil
+	}
+
 	_, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--prune", "--no-tags", "--no-auto-gc", "origin")...)
 	return err
+}
+
+func managedGitSyncFetchRef(ctx context.Context, checkoutPath, defaultRef string) (string, bool) {
+	ref := strings.TrimSpace(defaultRef)
+	if ref == "" || ref == "HEAD" {
+		branch, ok := managedGitOriginHEADBranch(ctx, checkoutPath)
+		if !ok {
+			return "", false
+		}
+
+		return "refs/heads/" + branch, true
+	}
+
+	ref, err := normalizeRef(ref)
+	if err != nil || looksLikeFullObjectID(ref) {
+		return "", false
+	}
+
+	switch {
+	case strings.HasPrefix(ref, "refs/heads/"), strings.HasPrefix(ref, "refs/tags/"):
+		return ref, true
+	case strings.HasPrefix(ref, "refs/"):
+		return "", false
+	default:
+		return ref, true
+	}
+}
+
+func managedGitOriginHEADBranch(ctx context.Context, checkoutPath string) (string, bool) {
+	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", false
+	}
+
+	branch := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"))
+	if branch == "" || !validManagedBranchName(ctx, checkoutPath, branch) {
+		return "", false
+	}
+
+	return branch, true
 }
 
 func fetchManagedGitMissingDefaultRef(ctx context.Context, checkoutPath, defaultRef string, env []string) error {

@@ -572,7 +572,7 @@ func TestManagedGitCheckoutCommitFileContextExpiresWaitingForManagedWriterLock(t
 	}
 }
 
-func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) {
+func TestManagedGitCheckoutResolvesHydratedRemoteBranchByPlainName(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -600,14 +600,27 @@ func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) 
 	})
 
 	if status.ErrorCode != "" {
-		t.Fatalf("fetch feature branch failed: %+v", status)
+		t.Fatalf("resync default branch failed: %+v", status)
+	}
+
+	managed := NewManagedGitCheckout(checkoutPath)
+	if _, err := managed.ResolveRevision(context.Background(), "feature/ref-fallback"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("managed resync should not broad-fetch feature branch, got %v", err)
+	}
+
+	status = HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath: checkoutPath,
+		Ref:          "feature/ref-fallback",
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("hydrate feature branch failed: %+v", status)
 	}
 
 	if _, err := NewGitCheckout(checkoutPath).ResolveRevision(context.Background(), "feature/ref-fallback"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("plain GitCheckout should not resolve remote-only branch by plain name, got %v", err)
 	}
 
-	managed := NewManagedGitCheckout(checkoutPath)
 	rev, err := managed.ResolveRevision(context.Background(), "feature/ref-fallback")
 	if err != nil {
 		t.Fatalf("managed ResolveRevision plain branch: %v", err)
