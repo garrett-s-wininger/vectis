@@ -491,6 +491,82 @@ func TestServiceCompleteExecutionActivatesChildrenInMemory(t *testing.T) {
 	}
 }
 
+func TestServiceCompleteExecutionHonorsSequenceReadiness(t *testing.T) {
+	ctx := context.Background()
+	clock := newManualClock()
+	svc := orchestrator.New(2, orchestrator.WithClock(clock))
+	t.Cleanup(svc.Close)
+
+	loaded, err := svc.LoadRun(ctx, orchestrator.RunSpec{
+		RunID:    "run-sequence-readiness",
+		RootUses: "builtins/sequence",
+		Tasks: []orchestrator.TaskSpec{
+			{TaskKey: "build", ParentTaskKey: dal.RootTaskKey, Name: "build", CellID: "iad-a", Uses: "builtins/parallel"},
+			{TaskKey: "compile", ParentTaskKey: "build", Name: "compile", CellID: "iad-a", Uses: "builtins/shell"},
+			{TaskKey: "test", ParentTaskKey: "build", Name: "test", CellID: "iad-a", Uses: "builtins/shell"},
+			{TaskKey: "deploy", ParentTaskKey: dal.RootTaskKey, Name: "deploy", CellID: "iad-a", Uses: "builtins/shell"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("load run: %v", err)
+	}
+
+	rootResult := claimAndCompleteForTest(t, ctx, svc, clock, loaded.RunID, loaded.Root, "worker-root")
+	if rootResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || rootResult.Activated != 1 {
+		t.Fatalf("root result: %+v", rootResult)
+	}
+
+	assertResultTaskKeys(t, rootResult.Children, "build")
+	assertPendingTaskKeys(t, ctx, svc, loaded.RunID, "build")
+
+	deploy := orchestratorTestRecord(loaded.RunID, "deploy", dal.RootTaskKey, "deploy", "iad-a")
+	if claim, err := svc.ClaimExecution(ctx, loaded.RunID, deploy.ExecutionID, "worker-deploy-early", clock.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("claim early deploy: %v", err)
+	} else if claim.Claimed {
+		t.Fatalf("deploy should not be claimable before build subtree succeeds: %+v", claim)
+	}
+
+	build := taskRecordByKey(t, rootResult.Children, "build")
+	buildResult := claimAndCompleteForTest(t, ctx, svc, clock, loaded.RunID, build, "worker-build")
+	if buildResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || buildResult.Activated != 2 {
+		t.Fatalf("build result: %+v", buildResult)
+	}
+
+	assertResultTaskKeys(t, buildResult.Children, "compile", "test")
+	assertPendingTaskKeys(t, ctx, svc, loaded.RunID, "compile", "test")
+
+	compile := taskRecordByKey(t, buildResult.Children, "compile")
+	compileResult := claimAndCompleteForTest(t, ctx, svc, clock, loaded.RunID, compile, "worker-compile")
+	if compileResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || compileResult.Activated != 0 {
+		t.Fatalf("compile result: %+v", compileResult)
+	}
+
+	assertResultTaskKeys(t, compileResult.Children, "test")
+	assertPendingTaskKeys(t, ctx, svc, loaded.RunID, "test")
+
+	if claim, err := svc.ClaimExecution(ctx, loaded.RunID, deploy.ExecutionID, "worker-deploy-still-early", clock.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("claim deploy before test: %v", err)
+	} else if claim.Claimed {
+		t.Fatalf("deploy should not be claimable before test succeeds: %+v", claim)
+	}
+
+	test := taskRecordByKey(t, buildResult.Children, "test")
+	testResult := claimAndCompleteForTest(t, ctx, svc, clock, loaded.RunID, test, "worker-test")
+	if testResult.Outcome != dal.ExecutionFinalizationOutcomeContinued || testResult.Activated != 1 {
+		t.Fatalf("test result: %+v", testResult)
+	}
+
+	assertResultTaskKeys(t, testResult.Children, "deploy")
+	assertPendingTaskKeys(t, ctx, svc, loaded.RunID, "deploy")
+
+	deploy = taskRecordByKey(t, testResult.Children, "deploy")
+	deployResult := claimAndCompleteForTest(t, ctx, svc, clock, loaded.RunID, deploy, "worker-deploy")
+	if deployResult.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
+		t.Fatalf("deploy result: %+v", deployResult)
+	}
+}
+
 func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *testing.T) {
 	ctx := context.Background()
 	clock := newManualClock()
@@ -537,6 +613,70 @@ func TestServiceCompleteExecutionRejectsDuplicateAfterActivatingChildren(t *test
 	if len(pending) != 1 || pending[0].ExecutionID != rootResult.Children[0].ExecutionID {
 		t.Fatalf("pending children after duplicate completion = %+v, want only %+v", pending, rootResult.Children[0])
 	}
+}
+
+func claimAndCompleteForTest(t *testing.T, ctx context.Context, svc *orchestrator.Service, clock *manualClock, runID string, record dal.TaskExecutionRecord, owner string) dal.ExecutionFinalizationResult {
+	t.Helper()
+
+	claim, err := svc.ClaimExecution(ctx, runID, record.ExecutionID, owner, clock.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim %s: %v", record.TaskKey, err)
+	}
+
+	if !claim.Claimed {
+		t.Fatalf("expected claim for %s: %+v", record.TaskKey, claim)
+	}
+
+	result, err := svc.CompleteExecutionByClaim(ctx, runID, record.ExecutionID, owner, claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("complete %s: %v", record.TaskKey, err)
+	}
+
+	return result
+}
+
+func assertPendingTaskKeys(t *testing.T, ctx context.Context, svc *orchestrator.Service, runID string, want ...string) {
+	t.Helper()
+
+	pending, err := svc.ListPending(ctx, runID, 20)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+
+	got := make([]string, len(pending))
+	for i, rec := range pending {
+		got[i] = rec.TaskKey
+	}
+
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("pending task keys: got %+v, want %+v", got, want)
+	}
+}
+
+func assertResultTaskKeys(t *testing.T, records []dal.TaskExecutionRecord, want ...string) {
+	t.Helper()
+
+	got := make([]string, len(records))
+	for i, rec := range records {
+		got[i] = rec.TaskKey
+	}
+
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("result task keys: got %+v, want %+v", got, want)
+	}
+}
+
+func taskRecordByKey(t *testing.T, records []dal.TaskExecutionRecord, taskKey string) dal.TaskExecutionRecord {
+	t.Helper()
+
+	for _, rec := range records {
+		if rec.TaskKey == taskKey {
+			return rec
+		}
+	}
+
+	t.Fatalf("task %s not found in %+v", taskKey, records)
+	return dal.TaskExecutionRecord{}
 }
 
 func orchestratorTestRecord(runID, taskKey, parentTaskKey, name, cellID string) dal.TaskExecutionRecord {

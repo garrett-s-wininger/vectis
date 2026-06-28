@@ -42,6 +42,7 @@ func (s *grpcServer) LoadRun(ctx context.Context, req *api.LoadRunRequest) (*api
 	result, err := s.service.LoadRunWithOptions(ctx, RunSpec{
 		RunID:      req.GetRunId(),
 		Root:       taskExecutionFromProto(req.GetRoot()),
+		RootUses:   req.GetRootUses(),
 		CellID:     req.GetCellId(),
 		Tasks:      taskSpecsFromProto(req.GetTasks()),
 		Executions: taskExecutionSnapshotsFromProto(req.GetExecutions()),
@@ -252,6 +253,7 @@ func taskSpecsFromProto(in []*api.OrchestratorTaskSpec) []TaskSpec {
 			Name:          spec.GetName(),
 			CellID:        spec.GetCellId(),
 			ChildTaskKeys: append([]string(nil), spec.GetChildTaskKeys()...),
+			Uses:          spec.GetUses(),
 		})
 	}
 

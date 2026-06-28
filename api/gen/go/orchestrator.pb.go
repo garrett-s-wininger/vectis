@@ -28,6 +28,7 @@ type OrchestratorTaskSpec struct {
 	Name          *string                `protobuf:"bytes,3,opt,name=name" json:"name,omitempty"`
 	CellId        *string                `protobuf:"bytes,4,opt,name=cell_id,json=cellId" json:"cell_id,omitempty"`
 	ChildTaskKeys []string               `protobuf:"bytes,5,rep,name=child_task_keys,json=childTaskKeys" json:"child_task_keys,omitempty"`
+	Uses          *string                `protobuf:"bytes,6,opt,name=uses" json:"uses,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -95,6 +96,13 @@ func (x *OrchestratorTaskSpec) GetChildTaskKeys() []string {
 		return x.ChildTaskKeys
 	}
 	return nil
+}
+
+func (x *OrchestratorTaskSpec) GetUses() string {
+	if x != nil && x.Uses != nil {
+		return *x.Uses
+	}
+	return ""
 }
 
 type OrchestratorTaskExecution struct {
@@ -337,6 +345,7 @@ type LoadRunRequest struct {
 	Root          *OrchestratorTaskExecution   `protobuf:"bytes,4,opt,name=root" json:"root,omitempty"`
 	Executions    []*OrchestratorTaskExecution `protobuf:"bytes,5,rep,name=executions" json:"executions,omitempty"`
 	OmitPending   *bool                        `protobuf:"varint,6,opt,name=omit_pending,json=omitPending" json:"omit_pending,omitempty"`
+	RootUses      *string                      `protobuf:"bytes,7,opt,name=root_uses,json=rootUses" json:"root_uses,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -411,6 +420,13 @@ func (x *LoadRunRequest) GetOmitPending() bool {
 		return *x.OmitPending
 	}
 	return false
+}
+
+func (x *LoadRunRequest) GetRootUses() string {
+	if x != nil && x.RootUses != nil {
+		return *x.RootUses
+	}
+	return ""
 }
 
 type LoadRunResponse struct {
@@ -1285,13 +1301,14 @@ var File_orchestrator_proto protoreflect.FileDescriptor
 
 const file_orchestrator_proto_rawDesc = "" +
 	"\n" +
-	"\x12orchestrator.proto\x1a\fcommon.proto\"\xae\x01\n" +
+	"\x12orchestrator.proto\x1a\fcommon.proto\"\xc2\x01\n" +
 	"\x14OrchestratorTaskSpec\x12\x19\n" +
 	"\btask_key\x18\x01 \x01(\tR\ataskKey\x12&\n" +
 	"\x0fparent_task_key\x18\x02 \x01(\tR\rparentTaskKey\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x17\n" +
 	"\acell_id\x18\x04 \x01(\tR\x06cellId\x12&\n" +
-	"\x0fchild_task_keys\x18\x05 \x03(\tR\rchildTaskKeys\"\x8f\x04\n" +
+	"\x0fchild_task_keys\x18\x05 \x03(\tR\rchildTaskKeys\x12\x12\n" +
+	"\x04uses\x18\x06 \x01(\tR\x04uses\"\x8f\x04\n" +
 	"\x19OrchestratorTaskExecution\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x17\n" +
 	"\atask_id\x18\x02 \x01(\tR\x06taskId\x12$\n" +
@@ -1317,7 +1334,7 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\x0fterminal_failed\x18\x04 \x01(\x05R\x0eterminalFailed\x12\x1e\n" +
 	"\n" +
 	"incomplete\x18\x05 \x01(\x05R\n" +
-	"incomplete\"\xfc\x01\n" +
+	"incomplete\"\x99\x02\n" +
 	"\x0eLoadRunRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x17\n" +
 	"\acell_id\x18\x02 \x01(\tR\x06cellId\x12+\n" +
@@ -1326,7 +1343,8 @@ const file_orchestrator_proto_rawDesc = "" +
 	"\n" +
 	"executions\x18\x05 \x03(\v2\x1a.OrchestratorTaskExecutionR\n" +
 	"executions\x12!\n" +
-	"\fomit_pending\x18\x06 \x01(\bR\vomitPending\"\xc8\x01\n" +
+	"\fomit_pending\x18\x06 \x01(\bR\vomitPending\x12\x1b\n" +
+	"\troot_uses\x18\a \x01(\tR\brootUses\"\xc8\x01\n" +
 	"\x0fLoadRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12.\n" +
 	"\x04root\x18\x02 \x01(\v2\x1a.OrchestratorTaskExecutionR\x04root\x124\n" +

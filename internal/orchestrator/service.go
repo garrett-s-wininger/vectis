@@ -12,6 +12,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
+	"vectis/internal/taskgraph"
 
 	"github.com/google/uuid"
 )
@@ -38,6 +39,7 @@ type Service struct {
 type RunSpec struct {
 	RunID      string
 	Root       dal.TaskExecutionRecord
+	RootUses   string
 	CellID     string
 	Tasks      []TaskSpec
 	Executions []TaskExecutionSnapshot
@@ -49,6 +51,7 @@ type TaskSpec struct {
 	Name          string
 	CellID        string
 	ChildTaskKeys []string
+	Uses          string
 }
 
 type TaskExecutionSnapshot = dal.TaskExecutionSnapshot
@@ -101,6 +104,7 @@ type runState struct {
 type taskState struct {
 	record        dal.TaskExecutionRecord
 	status        string
+	uses          string
 	parentTaskKey string
 	childTaskKeys []string
 	leaseOwner    string
@@ -152,6 +156,7 @@ func RunSpecFromTaskPlan(runID string, plan []job.TaskPlanEntry, cellID string) 
 			Name:          entry.Name,
 			CellID:        cellID,
 			ChildTaskKeys: append([]string(nil), entry.ChildTaskKeys...),
+			Uses:          entry.Uses,
 		})
 	}
 
@@ -370,7 +375,7 @@ func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, execution
 		var children []dal.TaskExecutionRecord
 		activated := 0
 		if status == dal.ExecutionStatusSucceeded {
-			children, activated, err = run.activateChildren(task)
+			children, activated, err = run.activateReadyTasks()
 			if err != nil {
 				return dal.ExecutionFinalizationResult{}, err
 			}
@@ -379,7 +384,7 @@ func (s *Service) CompleteExecutionByClaim(ctx context.Context, runID, execution
 		result := dal.ExecutionFinalizationResult{
 			ExecutionID: executionID,
 			RunID:       runID,
-			Outcome:     run.finalizationOutcome(status, activated),
+			Outcome:     run.finalizationOutcome(status, children),
 			Summary:     run.summary,
 			Children:    children,
 			Activated:   activated,
@@ -572,6 +577,7 @@ func buildRunState(spec RunSpec) (*runState, error) {
 	root := &taskState{
 		record:        rootRecord,
 		status:        dal.ExecutionStatusPending,
+		uses:          spec.RootUses,
 		childTaskKeys: append([]string(nil), childrenByParent[dal.RootTaskKey]...),
 	}
 
@@ -580,6 +586,7 @@ func buildRunState(spec RunSpec) (*runState, error) {
 		taskState := &taskState{
 			record:        taskExecutionRecord(runID, task.TaskKey, task.ParentTaskKey, task.Name, task.CellID),
 			status:        dal.ExecutionStatusPlanned,
+			uses:          task.Uses,
 			parentTaskKey: task.ParentTaskKey,
 			childTaskKeys: append([]string(nil), childrenByParent[task.TaskKey]...),
 		}
@@ -987,33 +994,93 @@ func (r *runState) applyCompletion(status string) {
 	}
 }
 
-func (r *runState) activateChildren(parent *taskState) ([]dal.TaskExecutionRecord, int, error) {
-	children := make([]dal.TaskExecutionRecord, 0, len(parent.childTaskKeys))
+func (r *runState) activateReadyTasks() ([]dal.TaskExecutionRecord, int, error) {
+	children := make([]dal.TaskExecutionRecord, 0)
 	activated := 0
-	for _, childKey := range parent.childTaskKeys {
-		child, ok := r.tasks[childKey]
-		if !ok {
-			return nil, 0, fmt.Errorf("%w: child task %s", dal.ErrNotFound, childKey)
+	for _, taskKey := range r.order {
+		task := r.tasks[taskKey]
+		if taskKey == dal.RootTaskKey || !r.taskReady(taskKey) {
+			continue
 		}
 
-		switch child.status {
+		switch task.status {
 		case dal.ExecutionStatusPlanned:
-			child.status = dal.ExecutionStatusPending
-			children = append(children, child.record)
+			task.status = dal.ExecutionStatusPending
+			children = append(children, task.record)
 			activated++
 		case dal.ExecutionStatusPending:
-			children = append(children, child.record)
+			children = append(children, task.record)
 		case dal.ExecutionStatusRunning, dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
 			continue
 		default:
-			return nil, 0, fmt.Errorf("%w: child task %s status %s cannot activate", dal.ErrConflict, childKey, child.status)
+			return nil, 0, fmt.Errorf("%w: task %s status %s cannot activate", dal.ErrConflict, taskKey, task.status)
 		}
 	}
 
 	return children, activated, nil
 }
 
-func (r *runState) finalizationOutcome(status string, activated int) dal.ExecutionFinalizationOutcome {
+func (r *runState) taskReady(taskKey string) bool {
+	task, ok := r.tasks[taskKey]
+	if !ok {
+		return false
+	}
+
+	parentKey := task.parentTaskKey
+	if parentKey == "" {
+		parentKey = dal.RootTaskKey
+	}
+
+	parent, ok := r.tasks[parentKey]
+	if !ok || parent.status != dal.ExecutionStatusSucceeded {
+		return false
+	}
+
+	if !usesSequence(parent.uses) {
+		return true
+	}
+
+	siblings := parent.childTaskKeys
+	for i, siblingKey := range siblings {
+		if siblingKey != taskKey {
+			continue
+		}
+
+		if i == 0 {
+			return true
+		}
+
+		return r.subtreeSucceeded(siblings[i-1])
+	}
+
+	return false
+}
+
+func (r *runState) subtreeSucceeded(taskKey string) bool {
+	task, ok := r.tasks[taskKey]
+	if !ok || task.status != dal.ExecutionStatusSucceeded {
+		return false
+	}
+
+	for _, childKey := range task.childTaskKeys {
+		if !r.subtreeSucceeded(childKey) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func usesSequence(uses string) bool {
+	uses = strings.TrimSpace(uses)
+	if uses == "" {
+		return false
+	}
+
+	return taskgraph.NormalizeUses(uses) == "builtins/sequence"
+}
+
+func (r *runState) finalizationOutcome(status string, children []dal.TaskExecutionRecord) dal.ExecutionFinalizationOutcome {
 	if r.summary.TerminalFailed > 0 {
 		if status == dal.ExecutionStatusCancelled || status == dal.ExecutionStatusAborted {
 			return dal.ExecutionFinalizationOutcomeRunCancelled
@@ -1026,7 +1093,7 @@ func (r *runState) finalizationOutcome(status string, activated int) dal.Executi
 		return dal.ExecutionFinalizationOutcomeRunSucceeded
 	}
 
-	if activated > 0 {
+	if len(children) > 0 {
 		return dal.ExecutionFinalizationOutcomeContinued
 	}
 
@@ -1045,6 +1112,18 @@ func (r *runState) applyRunStatus(outcome dal.ExecutionFinalizationOutcome) {
 		r.status = dal.RunStatusCancelled
 	default:
 		r.status = dal.RunStatusRunning
+	}
+
+	if isTerminalFinalizationOutcome(outcome) {
+		r.clearExecutionClaims()
+	}
+}
+
+func (r *runState) clearExecutionClaims() {
+	for _, task := range r.tasks {
+		task.leaseOwner = ""
+		task.claimToken = ""
+		task.leaseUntil = time.Time{}
 	}
 }
 

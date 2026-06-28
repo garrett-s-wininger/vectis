@@ -57,12 +57,14 @@ func (c *grpcExecutionChoreographer) LoadRun(ctx context.Context, job *api.Job, 
 			Name:          stringPtr(task.Name),
 			CellId:        stringPtr(task.CellID),
 			ChildTaskKeys: append([]string(nil), task.ChildTaskKeys...),
+			Uses:          stringPtr(task.Uses),
 		})
 	}
 
 	_, err = c.loadRun(ctx, &api.LoadRunRequest{
 		RunId:       stringPtr(spec.RunID),
 		Root:        taskExecutionToProto(spec.Root),
+		RootUses:    stringPtr(spec.RootUses),
 		CellId:      stringPtr(spec.CellID),
 		Tasks:       tasks,
 		Executions:  taskExecutionSnapshotsToProto(snapshots),

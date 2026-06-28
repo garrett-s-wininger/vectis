@@ -10,6 +10,7 @@ message OrchestratorTaskSpec {
     string name = 3;
     string cell_id = 4;
     repeated string child_task_keys = 5;
+    string uses = 6;
 }
 
 message OrchestratorTaskExecution {
@@ -45,6 +46,7 @@ message LoadRunRequest {
     OrchestratorTaskExecution root = 4;
     repeated OrchestratorTaskExecution executions = 5;
     bool omit_pending = 6;
+    string root_uses = 7;
 }
 
 message LoadRunResponse {
