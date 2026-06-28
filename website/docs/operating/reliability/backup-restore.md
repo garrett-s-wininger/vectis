@@ -34,6 +34,20 @@ paths, configured secret and TLS paths, service instance IDs, and path
 readability evidence. It does not perform a backup; store its JSON output as
 scope evidence next to the backup set.
 
+After collecting host inventories, build and verify a backup manifest:
+
+```sh
+vectis-cli backup manifest --format json host-a.inventory.json host-b.inventory.json > backup-manifest.json
+vectis-cli backup verify backup-manifest.json
+```
+
+The manifest records the database roles, service instance IDs, and required
+paths from every inventory input. Verification fails when core database,
+queue, log, or artifact evidence is missing, when a required path was missing
+or unreadable during inventory capture, or when a database schema was marked
+dirty. Missing secret store, TLS, or config paths are warnings because some
+deployments intentionally delegate those surfaces to external systems.
+
 ## Backup Timing
 
 Prefer backups that capture these pieces close together:
@@ -72,16 +86,17 @@ rollback proof, see [Production Drills](./production-drills.md).
 Recommended drill flow:
 
 1. Run `vectis-cli backup inventory --format json` from each relevant host and record the expected restore point.
-2. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
-3. Restore config, secrets, TLS material, and manifests before starting services.
-4. Restore PostgreSQL through the database platform's documented process.
-5. Restore queue persistence, log storage, artifact storage, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
-6. Run migrations against every restored database.
-7. Start services in dependency order.
-8. Run `vectis-cli health check --strict`.
-9. Save `vectis-cli health check --json` output as machine-readable evidence.
-10. Run the restore smoke test below.
-11. Record evidence and update the backup, config, or runbook gaps found during the drill.
+2. Build a backup manifest from those inventories and run `vectis-cli backup verify`.
+3. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
+4. Restore config, secrets, TLS material, and manifests before starting services.
+5. Restore PostgreSQL through the database platform's documented process.
+6. Restore queue persistence, log storage, artifact storage, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
+7. Run migrations against every restored database.
+8. Start services in dependency order.
+9. Run `vectis-cli health check --strict`.
+10. Save `vectis-cli health check --json` output as machine-readable evidence.
+11. Run the restore smoke test below.
+12. Record evidence and update the backup, config, or runbook gaps found during the drill.
 
 Do not run retention cleanup during a restore drill until the restored deployment
 passes the smoke test and the operator has accepted the restore point.

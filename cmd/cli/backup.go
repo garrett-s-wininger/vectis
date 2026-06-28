@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -24,6 +25,15 @@ import (
 
 const backupSchemaInspectTimeout = 2 * time.Second
 const backupDefaultQueuePool = "default"
+const backupManifestSchemaVersion = 1
+
+const (
+	backupManifestStatusOK     = "ok"
+	backupManifestStatusFailed = "failed"
+
+	backupFindingSeverityError   = "error"
+	backupFindingSeverityWarning = "warning"
+)
 
 type backupInventory struct {
 	GeneratedAt  string                    `json:"generated_at"`
@@ -80,6 +90,91 @@ type backupPathInventory struct {
 	BackupNote string `json:"backup_note,omitempty"`
 }
 
+type backupInventoryInput struct {
+	Source    string
+	Inventory backupInventory
+}
+
+type backupManifest struct {
+	SchemaVersion int                          `json:"schema_version"`
+	GeneratedAt   string                       `json:"generated_at"`
+	Version       string                       `json:"version"`
+	Inventories   []backupManifestInventory    `json:"inventories"`
+	DatabaseRoles []backupManifestDatabaseRole `json:"database_roles"`
+	Instances     []backupManifestInstance     `json:"instances"`
+	RequiredPaths []backupManifestPath         `json:"required_paths"`
+	Warnings      []backupManifestFinding      `json:"warnings,omitempty"`
+}
+
+type backupManifestInventory struct {
+	Source          string   `json:"source"`
+	GeneratedAt     string   `json:"generated_at"`
+	Version         string   `json:"version"`
+	DatabaseDriver  string   `json:"database_driver"`
+	SplitGlobalCell bool     `json:"split_global_cell"`
+	Warnings        []string `json:"warnings,omitempty"`
+}
+
+type backupManifestDatabaseRole struct {
+	InventorySource string                `json:"inventory_source"`
+	Role            string                `json:"role"`
+	Driver          string                `json:"driver"`
+	DSN             string                `json:"dsn"`
+	DSNSource       string                `json:"dsn_source"`
+	LocalPath       string                `json:"local_path,omitempty"`
+	Schema          backupSchemaInventory `json:"schema"`
+	SameAsRole      string                `json:"same_as_role,omitempty"`
+}
+
+type backupManifestInstance struct {
+	InventorySource string `json:"inventory_source"`
+	Service         string `json:"service"`
+	InstanceID      string `json:"instance_id"`
+	Source          string `json:"source"`
+}
+
+type backupManifestPath struct {
+	InventorySource string `json:"inventory_source"`
+	Category        string `json:"category"`
+	ID              string `json:"id"`
+	Kind            string `json:"kind"`
+	Path            string `json:"path,omitempty"`
+	Source          string `json:"source"`
+	Enabled         bool   `json:"enabled"`
+	Exists          bool   `json:"exists"`
+	IsDir           bool   `json:"is_dir,omitempty"`
+	IsFile          bool   `json:"is_file,omitempty"`
+	Readable        bool   `json:"readable"`
+	Error           string `json:"error,omitempty"`
+	BackupNote      string `json:"backup_note,omitempty"`
+}
+
+type backupManifestVerification struct {
+	Status              string                            `json:"status"`
+	CheckedAt           string                            `json:"checked_at"`
+	ManifestGeneratedAt string                            `json:"manifest_generated_at,omitempty"`
+	Summary             backupManifestVerificationSummary `json:"summary"`
+	Errors              []backupManifestFinding           `json:"errors,omitempty"`
+	Warnings            []backupManifestFinding           `json:"warnings,omitempty"`
+}
+
+type backupManifestVerificationSummary struct {
+	Inventories   int `json:"inventories"`
+	DatabaseRoles int `json:"database_roles"`
+	Instances     int `json:"instances"`
+	RequiredPaths int `json:"required_paths"`
+}
+
+type backupManifestFinding struct {
+	Severity        string `json:"severity"`
+	ID              string `json:"id"`
+	Message         string `json:"message"`
+	InventorySource string `json:"inventory_source,omitempty"`
+	Category        string `json:"category,omitempty"`
+	PathID          string `json:"path_id,omitempty"`
+	Path            string `json:"path,omitempty"`
+}
+
 var backupCmd = &cobra.Command{
 	Use:     "backup",
 	Short:   "Inspect backup and restore inputs",
@@ -101,6 +196,34 @@ not perform a backup and does not read secret key material.`,
 	},
 }
 
+var backupManifestCmd = &cobra.Command{
+	Use:   "manifest [inventory-json ...]",
+	Short: "Build a backup manifest from inventory JSON",
+	Long: `Build a machine-readable backup manifest from one or more inventory JSON files.
+
+Run vectis-cli backup inventory --format json on each host that owns Vectis
+state, then pass those JSON files here. The manifest records the database roles,
+service instance IDs, and required local paths that the backup set must capture.`,
+	Args: cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		runCLIError(writeBackupManifest(os.Stdout, args, time.Now().UTC()))
+	},
+}
+
+var backupVerifyCmd = &cobra.Command{
+	Use:   "verify [manifest-json]",
+	Short: "Verify backup manifest completeness",
+	Long: `Verify a backup manifest before using it as restore evidence.
+
+The verifier checks for core database, queue, log, and artifact evidence,
+missing or unreadable paths, dirty schema markers, and optional evidence gaps
+such as secret store, TLS, or config paths.`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		runCLIError(writeBackupManifestVerification(os.Stdout, args[0], time.Now().UTC()))
+	},
+}
+
 func writeBackupInventory(w io.Writer, generatedAt time.Time) error {
 	inventory := collectBackupInventory(generatedAt)
 	if outputIsJSON() {
@@ -108,6 +231,42 @@ func writeBackupInventory(w io.Writer, generatedAt time.Time) error {
 	}
 
 	return writeBackupInventoryText(w, inventory)
+}
+
+func writeBackupManifest(w io.Writer, inventoryPaths []string, generatedAt time.Time) error {
+	inputs, err := readBackupInventoryInputs(inventoryPaths)
+	if err != nil {
+		return err
+	}
+
+	manifest := buildBackupManifest(inputs, generatedAt)
+	if outputIsJSON() {
+		return writeJSON(w, manifest)
+	}
+
+	return writeBackupManifestText(w, manifest)
+}
+
+func writeBackupManifestVerification(w io.Writer, manifestPath string, checkedAt time.Time) error {
+	manifest, err := readBackupManifestFile(manifestPath)
+	if err != nil {
+		return err
+	}
+
+	result := verifyBackupManifest(manifest, checkedAt)
+	if outputIsJSON() {
+		if err := writeJSON(w, result); err != nil {
+			return err
+		}
+	} else if err := writeBackupManifestVerificationText(w, result); err != nil {
+		return err
+	}
+
+	if result.Status != backupManifestStatusOK {
+		return fmt.Errorf("backup manifest verification failed: %d error(s)", len(result.Errors))
+	}
+
+	return nil
 }
 
 func collectBackupInventory(generatedAt time.Time) backupInventory {
@@ -156,6 +315,363 @@ func collectBackupInventory(generatedAt time.Time) backupInventory {
 		ConfigPaths:  configPaths,
 		Warnings:     warnings,
 	}
+}
+
+func readBackupInventoryInputs(paths []string) ([]backupInventoryInput, error) {
+	inputs := make([]backupInventoryInput, 0, len(paths))
+	stdinUsed := false
+	for _, path := range paths {
+		source := strings.TrimSpace(path)
+		if source == "" {
+			return nil, fmt.Errorf("inventory path cannot be empty")
+		}
+
+		if source == "-" {
+			if stdinUsed {
+				return nil, fmt.Errorf("stdin inventory can only be read once")
+			}
+			stdinUsed = true
+		}
+
+		inventory, err := readBackupInventoryFile(source)
+		if err != nil {
+			return nil, err
+		}
+
+		inputs = append(inputs, backupInventoryInput{Source: source, Inventory: inventory})
+	}
+
+	return inputs, nil
+}
+
+func readBackupInventoryFile(path string) (backupInventory, error) {
+	var r io.Reader
+	if path == "-" {
+		r = os.Stdin
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return backupInventory{}, fmt.Errorf("open backup inventory %s: %w", path, err)
+		}
+		defer f.Close()
+
+		r = f
+	}
+
+	var inventory backupInventory
+	if err := json.NewDecoder(r).Decode(&inventory); err != nil {
+		return backupInventory{}, fmt.Errorf("decode backup inventory %s: %w", path, err)
+	}
+
+	if strings.TrimSpace(inventory.GeneratedAt) == "" {
+		return backupInventory{}, fmt.Errorf("backup inventory %s is missing generated_at", path)
+	}
+
+	return inventory, nil
+}
+
+func readBackupManifestFile(path string) (backupManifest, error) {
+	var r io.Reader
+	if path == "-" {
+		r = os.Stdin
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return backupManifest{}, fmt.Errorf("open backup manifest %s: %w", path, err)
+		}
+		defer f.Close()
+
+		r = f
+	}
+
+	var manifest backupManifest
+	if err := json.NewDecoder(r).Decode(&manifest); err != nil {
+		return backupManifest{}, fmt.Errorf("decode backup manifest %s: %w", path, err)
+	}
+
+	return manifest, nil
+}
+
+func buildBackupManifest(inputs []backupInventoryInput, generatedAt time.Time) backupManifest {
+	manifest := backupManifest{
+		SchemaVersion: backupManifestSchemaVersion,
+		GeneratedAt:   generatedAt.Format(time.RFC3339),
+		Version:       version.String(),
+		Inventories:   make([]backupManifestInventory, 0, len(inputs)),
+	}
+
+	seenDatabasePaths := map[string]bool{}
+	for _, input := range inputs {
+		source := input.Source
+		inventory := input.Inventory
+		manifest.Inventories = append(manifest.Inventories, backupManifestInventory{
+			Source:          source,
+			GeneratedAt:     inventory.GeneratedAt,
+			Version:         inventory.Version,
+			DatabaseDriver:  inventory.Database.Driver,
+			SplitGlobalCell: inventory.Database.SplitGlobalCell,
+			Warnings:        inventory.Warnings,
+		})
+
+		for _, warning := range inventory.Warnings {
+			manifest.Warnings = append(manifest.Warnings, backupManifestFinding{
+				Severity:        backupFindingSeverityWarning,
+				ID:              "inventory.warning",
+				Message:         warning,
+				InventorySource: source,
+			})
+		}
+
+		for _, role := range inventory.Database.Roles {
+			manifest.DatabaseRoles = append(manifest.DatabaseRoles, backupManifestDatabaseRole{
+				InventorySource: source,
+				Role:            role.Role,
+				Driver:          inventory.Database.Driver,
+				DSN:             role.DSN,
+				DSNSource:       role.DSNSource,
+				LocalPath:       role.LocalPath,
+				Schema:          role.Schema,
+				SameAsRole:      role.SameAsRole,
+			})
+
+			if role.LocalPath == "" || role.LocalPath == ":memory:" {
+				continue
+			}
+
+			pathKey := source + "\x00" + role.LocalPath
+			if seenDatabasePaths[pathKey] {
+				continue
+			}
+
+			seenDatabasePaths[pathKey] = true
+			manifest.RequiredPaths = append(manifest.RequiredPaths, backupManifestPath{
+				InventorySource: source,
+				Category:        "database",
+				ID:              "database." + role.Role,
+				Kind:            "file",
+				Path:            role.LocalPath,
+				Source:          role.DSNSource,
+				Enabled:         true,
+				Exists:          role.Schema.Inspectable,
+				IsFile:          true,
+				Readable:        role.Schema.Inspectable,
+				Error:           role.Schema.Error,
+				BackupNote:      "Back up this SQLite database file.",
+			})
+		}
+
+		for _, instance := range inventory.Instances {
+			if strings.TrimSpace(instance.Service) == "" {
+				continue
+			}
+
+			manifest.Instances = append(manifest.Instances, backupManifestInstance{
+				InventorySource: source,
+				Service:         instance.Service,
+				InstanceID:      instance.InstanceID,
+				Source:          instance.Source,
+			})
+		}
+
+		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "local_state", inventory.LocalState)
+		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "secret_stores", inventory.SecretStores)
+		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "tls_files", inventory.TLSFiles)
+		manifest.RequiredPaths = appendBackupManifestPaths(manifest.RequiredPaths, source, "config_paths", inventory.ConfigPaths)
+	}
+
+	return manifest
+}
+
+func appendBackupManifestPaths(out []backupManifestPath, inventorySource, category string, paths []backupPathInventory) []backupManifestPath {
+	for _, path := range paths {
+		if !path.Enabled {
+			continue
+		}
+
+		out = append(out, backupManifestPath{
+			InventorySource: inventorySource,
+			Category:        category,
+			ID:              path.ID,
+			Kind:            path.Kind,
+			Path:            path.Path,
+			Source:          path.Source,
+			Enabled:         path.Enabled,
+			Exists:          path.Exists,
+			IsDir:           path.IsDir,
+			IsFile:          path.IsFile,
+			Readable:        path.Readable,
+			Error:           path.Error,
+			BackupNote:      path.BackupNote,
+		})
+	}
+
+	return out
+}
+
+func verifyBackupManifest(manifest backupManifest, checkedAt time.Time) backupManifestVerification {
+	result := backupManifestVerification{
+		Status:              backupManifestStatusOK,
+		CheckedAt:           checkedAt.Format(time.RFC3339),
+		ManifestGeneratedAt: manifest.GeneratedAt,
+		Summary: backupManifestVerificationSummary{
+			Inventories:   len(manifest.Inventories),
+			DatabaseRoles: len(manifest.DatabaseRoles),
+			Instances:     len(manifest.Instances),
+			RequiredPaths: len(manifest.RequiredPaths),
+		},
+	}
+
+	addError := func(id, message string) {
+		result.Errors = append(result.Errors, backupManifestFinding{
+			Severity: backupFindingSeverityError,
+			ID:       id,
+			Message:  message,
+		})
+	}
+
+	addWarning := func(id, message string) {
+		result.Warnings = append(result.Warnings, backupManifestFinding{
+			Severity: backupFindingSeverityWarning,
+			ID:       id,
+			Message:  message,
+		})
+	}
+
+	if manifest.SchemaVersion != backupManifestSchemaVersion {
+		addError("manifest.schema_version", fmt.Sprintf("unsupported manifest schema version %d", manifest.SchemaVersion))
+	}
+
+	if len(manifest.Inventories) == 0 {
+		addError("manifest.inventories.missing", "manifest has no inventory inputs")
+	}
+
+	if len(manifest.DatabaseRoles) == 0 {
+		addError("database.roles.missing", "manifest has no database role evidence")
+	}
+
+	for _, role := range manifest.DatabaseRoles {
+		if role.Schema.Dirty != nil && *role.Schema.Dirty {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "database.schema_dirty",
+				Message:         fmt.Sprintf("database role %s schema is dirty", role.Role),
+				InventorySource: role.InventorySource,
+			})
+		}
+
+		if !role.Schema.Inspectable {
+			result.Warnings = append(result.Warnings, backupManifestFinding{
+				Severity:        backupFindingSeverityWarning,
+				ID:              "database.schema_uninspectable",
+				Message:         fmt.Sprintf("database role %s schema was not inspectable", role.Role),
+				InventorySource: role.InventorySource,
+			})
+		} else if role.Schema.CurrentVersion == nil {
+			result.Warnings = append(result.Warnings, backupManifestFinding{
+				Severity:        backupFindingSeverityWarning,
+				ID:              "database.schema_version_missing",
+				Message:         fmt.Sprintf("database role %s schema version was not recorded", role.Role),
+				InventorySource: role.InventorySource,
+			})
+		}
+	}
+
+	for _, path := range manifest.RequiredPaths {
+		if !path.Enabled {
+			continue
+		}
+
+		if strings.TrimSpace(path.Path) == "" {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "path.empty",
+				Message:         fmt.Sprintf("required path %s has no path value", path.ID),
+				InventorySource: path.InventorySource,
+				Category:        path.Category,
+				PathID:          path.ID,
+			})
+
+			continue
+		}
+
+		if !path.Exists {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "path.missing",
+				Message:         fmt.Sprintf("required path %s is missing", path.ID),
+				InventorySource: path.InventorySource,
+				Category:        path.Category,
+				PathID:          path.ID,
+				Path:            path.Path,
+			})
+
+			continue
+		}
+
+		if !path.Readable {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "path.unreadable",
+				Message:         fmt.Sprintf("required path %s is not readable", path.ID),
+				InventorySource: path.InventorySource,
+				Category:        path.Category,
+				PathID:          path.ID,
+				Path:            path.Path,
+			})
+		}
+	}
+
+	for _, required := range []string{"queue.persistence", "log.storage", "artifact.storage"} {
+		if !manifestHasPathID(manifest, required) {
+			addError("path."+required+".missing", "manifest is missing required local state path "+required)
+		}
+	}
+
+	if !manifestHasPathCategory(manifest, "database") {
+		addWarning("database.local_path.missing", "manifest has no local database path; this is expected for Postgres-only deployments")
+	}
+
+	if !manifestHasPathCategory(manifest, "secret_stores") {
+		addWarning("secret_stores.missing", "manifest has no secret store paths")
+	}
+
+	if !manifestHasPathCategory(manifest, "tls_files") {
+		addWarning("tls_files.missing", "manifest has no TLS material paths")
+	}
+
+	if !manifestHasPathCategory(manifest, "config_paths") {
+		addWarning("config_paths.missing", "manifest has no deployment config paths")
+	}
+
+	for _, warning := range manifest.Warnings {
+		result.Warnings = append(result.Warnings, warning)
+	}
+
+	if len(result.Errors) > 0 {
+		result.Status = backupManifestStatusFailed
+	}
+
+	return result
+}
+
+func manifestHasPathID(manifest backupManifest, id string) bool {
+	for _, path := range manifest.RequiredPaths {
+		if path.Enabled && path.ID == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+func manifestHasPathCategory(manifest backupManifest, category string) bool {
+	for _, path := range manifest.RequiredPaths {
+		if path.Enabled && path.Category == category {
+			return true
+		}
+	}
+
+	return false
 }
 
 func backupDatabase() backupDatabaseInventory {
@@ -440,6 +956,7 @@ func backupReadable(path string, info os.FileInfo) bool {
 	if err != nil {
 		return false
 	}
+
 	_ = f.Close()
 	return true
 }
@@ -448,23 +965,28 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 	if _, err := fmt.Fprintf(w, "Backup inventory generated: %s\n", inventory.GeneratedAt); err != nil {
 		return err
 	}
+
 	if _, err := fmt.Fprintf(w, "Vectis version: %s\n", inventory.Version); err != nil {
 		return err
 	}
+
 	if _, err := fmt.Fprintf(w, "Database driver: %s (%s)\n", inventory.Database.Driver, inventory.Database.DriverSource); err != nil {
 		return err
 	}
+
 	for _, role := range inventory.Database.Roles {
 		sameAs := ""
 		if role.SameAsRole != "" {
 			sameAs = " same_as=" + role.SameAsRole
 		}
+
 		schema := "schema=unknown"
 		if role.Schema.CurrentVersion != nil {
 			schema = fmt.Sprintf("schema=%d dirty=%t", *role.Schema.CurrentVersion, role.Schema.Dirty != nil && *role.Schema.Dirty)
 		} else if role.Schema.Error != "" {
 			schema = "schema_error=" + role.Schema.Error
 		}
+
 		if _, err := fmt.Fprintf(w, "  db[%s]: %s source=%s%s %s\n", role.Role, role.DSN, role.DSNSource, sameAs, schema); err != nil {
 			return err
 		}
@@ -473,6 +995,7 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 	if _, err := fmt.Fprintln(w, "Instances:"); err != nil {
 		return err
 	}
+
 	for _, instance := range inventory.Instances {
 		if _, err := fmt.Fprintf(w, "  %s: %s (%s)\n", instance.Service, backupDash(instance.InstanceID), instance.Source); err != nil {
 			return err
@@ -482,12 +1005,15 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 	if err := writeBackupPathText(w, "Local state", inventory.LocalState); err != nil {
 		return err
 	}
+
 	if err := writeBackupPathText(w, "Secret stores", inventory.SecretStores); err != nil {
 		return err
 	}
+
 	if err := writeBackupPathText(w, "TLS files", inventory.TLSFiles); err != nil {
 		return err
 	}
+
 	if err := writeBackupPathText(w, "Config paths", inventory.ConfigPaths); err != nil {
 		return err
 	}
@@ -496,6 +1022,7 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 		if _, err := fmt.Fprintln(w, "Warnings:"); err != nil {
 			return err
 		}
+
 		for _, warning := range inventory.Warnings {
 			if _, err := fmt.Fprintf(w, "  - %s\n", warning); err != nil {
 				return err
@@ -506,13 +1033,141 @@ func writeBackupInventoryText(w io.Writer, inventory backupInventory) error {
 	return nil
 }
 
+func writeBackupManifestText(w io.Writer, manifest backupManifest) error {
+	if _, err := fmt.Fprintf(w, "Backup manifest generated: %s\n", manifest.GeneratedAt); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintf(w, "Schema version: %d\n", manifest.SchemaVersion); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintf(w, "Inventories: %d\n", len(manifest.Inventories)); err != nil {
+		return err
+	}
+
+	for _, inventory := range manifest.Inventories {
+		if _, err := fmt.Fprintf(w, "  %s: generated=%s version=%s db_driver=%s split_global_cell=%t\n", inventory.Source, inventory.GeneratedAt, inventory.Version, inventory.DatabaseDriver, inventory.SplitGlobalCell); err != nil {
+			return err
+		}
+	}
+
+	if _, err := fmt.Fprintf(w, "Database roles: %d\n", len(manifest.DatabaseRoles)); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintf(w, "Instances: %d\n", len(manifest.Instances)); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintf(w, "Required paths: %d\n", len(manifest.RequiredPaths)); err != nil {
+		return err
+	}
+
+	for _, path := range manifest.RequiredPaths {
+		status := "missing"
+		if !path.Enabled {
+			status = "disabled"
+		} else if path.Readable {
+			status = "readable"
+		} else if path.Exists {
+			status = "unreadable"
+		}
+
+		if _, err := fmt.Fprintf(w, "  %s/%s: %s [%s] source=%s inventory=%s\n", path.Category, path.ID, backupDash(path.Path), status, path.Source, path.InventorySource); err != nil {
+			return err
+		}
+	}
+
+	if len(manifest.Warnings) > 0 {
+		if _, err := fmt.Fprintln(w, "Warnings:"); err != nil {
+			return err
+		}
+
+		for _, warning := range manifest.Warnings {
+			if _, err := fmt.Fprintf(w, "  - %s: %s\n", backupDash(warning.InventorySource), warning.Message); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func writeBackupManifestVerificationText(w io.Writer, result backupManifestVerification) error {
+	if _, err := fmt.Fprintf(w, "Backup manifest verification: %s\n", result.Status); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintf(w, "Checked at: %s\n", result.CheckedAt); err != nil {
+		return err
+	}
+
+	if result.ManifestGeneratedAt != "" {
+		if _, err := fmt.Fprintf(w, "Manifest generated: %s\n", result.ManifestGeneratedAt); err != nil {
+			return err
+		}
+	}
+
+	if _, err := fmt.Fprintf(w, "Summary: inventories=%d database_roles=%d instances=%d required_paths=%d\n", result.Summary.Inventories, result.Summary.DatabaseRoles, result.Summary.Instances, result.Summary.RequiredPaths); err != nil {
+		return err
+	}
+
+	if len(result.Errors) > 0 {
+		if _, err := fmt.Fprintln(w, "Errors:"); err != nil {
+			return err
+		}
+
+		for _, finding := range result.Errors {
+			if err := writeBackupFindingText(w, finding); err != nil {
+				return err
+			}
+		}
+	}
+
+	if len(result.Warnings) > 0 {
+		if _, err := fmt.Fprintln(w, "Warnings:"); err != nil {
+			return err
+		}
+
+		for _, finding := range result.Warnings {
+			if err := writeBackupFindingText(w, finding); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func writeBackupFindingText(w io.Writer, finding backupManifestFinding) error {
+	context := finding.InventorySource
+	if finding.PathID != "" {
+		context = strings.TrimSpace(context + " " + finding.PathID)
+	}
+
+	if finding.Path != "" {
+		context = strings.TrimSpace(context + " " + finding.Path)
+	}
+
+	if context == "" {
+		_, err := fmt.Fprintf(w, "  - %s: %s\n", finding.ID, finding.Message)
+		return err
+	}
+
+	_, err := fmt.Fprintf(w, "  - %s: %s (%s)\n", finding.ID, finding.Message, context)
+	return err
+}
+
 func writeBackupPathText(w io.Writer, title string, paths []backupPathInventory) error {
 	if len(paths) == 0 {
 		return nil
 	}
+
 	if _, err := fmt.Fprintf(w, "%s:\n", title); err != nil {
 		return err
 	}
+
 	for _, path := range paths {
 		status := "missing"
 		if !path.Enabled {
@@ -522,10 +1177,12 @@ func writeBackupPathText(w io.Writer, title string, paths []backupPathInventory)
 		} else if path.Exists {
 			status = "unreadable"
 		}
+
 		if _, err := fmt.Fprintf(w, "  %s: %s [%s] source=%s\n", path.ID, backupDash(path.Path), status, path.Source); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -551,6 +1208,7 @@ func redactDSN(dsn string) string {
 				query.Set(key, "REDACTED")
 			}
 		}
+
 		parsed.RawQuery = query.Encode()
 		return parsed.String()
 	}
@@ -561,10 +1219,12 @@ func redactDSN(dsn string) string {
 		if !ok || value == "" {
 			continue
 		}
+
 		if dsnKeyIsSensitive(key) {
 			fields[i] = key + "=REDACTED"
 		}
 	}
+
 	if len(fields) > 0 {
 		return strings.Join(fields, " ")
 	}
@@ -591,9 +1251,11 @@ func sqliteLocalPath(dsn string) string {
 	if path == "" || path == ":memory:" {
 		return path
 	}
+
 	if before, _, ok := strings.Cut(path, "?"); ok {
 		return before
 	}
+
 	return path
 }
 
@@ -616,6 +1278,7 @@ func backupEnvSource(envName, fallback string) string {
 	if os.Getenv(envName) != "" {
 		return envName
 	}
+
 	return fallback
 }
 
@@ -623,6 +1286,7 @@ func backupPathSource(envName, fallback string) string {
 	if _, ok := os.LookupEnv(envName); ok {
 		return envName
 	}
+
 	return fallback
 }
 
@@ -632,6 +1296,7 @@ func backupSourceCheckoutRootSource() string {
 			return envName
 		}
 	}
+
 	return "defaults.toml"
 }
 
@@ -639,6 +1304,7 @@ func backupEnvOrDefault(envName, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
 		return value
 	}
+
 	return fallback
 }
 
@@ -646,6 +1312,7 @@ func backupEnvOrEmpty(envName string) (string, string) {
 	if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
 		return value, envName
 	}
+
 	return "", "unset"
 }
 
@@ -653,6 +1320,7 @@ func backupDash(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "-"
 	}
+
 	return value
 }
 
@@ -661,8 +1329,10 @@ func parsePositiveInt(raw string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	if n <= 0 {
 		return 0, fmt.Errorf("not positive")
 	}
+
 	return n, nil
 }

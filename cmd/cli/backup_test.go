@@ -138,6 +138,142 @@ func TestRedactDSN(t *testing.T) {
 	}
 }
 
+func TestBackupManifestAggregatesInventoryFiles(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	root := t.TempDir()
+	version := 42
+	dirty := false
+	inventory := backupInventory{
+		GeneratedAt: "2026-06-28T12:00:00Z",
+		Version:     "test-version",
+		Database: backupDatabaseInventory{
+			Driver: "sqlite3",
+			Roles: []backupDatabaseRoleInventory{
+				{
+					Role:      "default",
+					DSN:       filepath.Join(root, "vectis.db"),
+					DSNSource: database.EnvDatabaseDSN,
+					LocalPath: filepath.Join(root, "vectis.db"),
+					Schema: backupSchemaInventory{
+						Inspectable:    true,
+						CurrentVersion: &version,
+						Dirty:          &dirty,
+					},
+				},
+			},
+		},
+		Instances: []backupInstanceInventory{
+			{Service: "queue", InstanceID: "queue-a", Source: "test"},
+			{Service: "log", InstanceID: "log-a", Source: "test"},
+			{Service: "artifact", InstanceID: "artifact-a", Source: "test"},
+		},
+		LocalState: []backupPathInventory{
+			{ID: "queue.persistence", Kind: "directory", Path: filepath.Join(root, "queue"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+			{ID: "log.storage", Kind: "directory", Path: filepath.Join(root, "log"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+			{ID: "artifact.storage", Kind: "directory", Path: filepath.Join(root, "artifact"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+		},
+		SecretStores: []backupPathInventory{
+			{ID: "secrets.encryptedfs.root", Kind: "directory", Path: filepath.Join(root, "secrets"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+		},
+		TLSFiles: []backupPathInventory{
+			{ID: "grpc.cert_file", Kind: "file", Path: filepath.Join(root, "tls", "grpc.crt"), Source: "test", Enabled: true, Exists: true, IsFile: true, Readable: true},
+		},
+		ConfigPaths: []backupPathInventory{
+			{ID: "deploy.config_dir", Kind: "directory", Path: filepath.Join(root, "deploy"), Source: "test", Enabled: true, Exists: true, IsDir: true, Readable: true},
+		},
+	}
+
+	inventoryPath := writeBackupJSONFile(t, root, "inventory.json", inventory)
+	var buf bytes.Buffer
+	when := time.Date(2026, 6, 28, 13, 0, 0, 0, time.UTC)
+	if err := writeBackupManifest(&buf, []string{inventoryPath}, when); err != nil {
+		t.Fatalf("write backup manifest: %v", err)
+	}
+
+	var manifest backupManifest
+	if err := json.Unmarshal(buf.Bytes(), &manifest); err != nil {
+		t.Fatalf("manifest JSON: %v\n%s", err, buf.String())
+	}
+
+	if manifest.SchemaVersion != backupManifestSchemaVersion || manifest.GeneratedAt != "2026-06-28T13:00:00Z" {
+		t.Fatalf("manifest header = %+v", manifest)
+	}
+
+	if len(manifest.Inventories) != 1 || manifest.Inventories[0].Source != inventoryPath {
+		t.Fatalf("manifest inventories = %+v", manifest.Inventories)
+	}
+
+	if len(manifest.DatabaseRoles) != 1 {
+		t.Fatalf("manifest database roles = %+v", manifest.DatabaseRoles)
+	}
+
+	paths := backupManifestPathsByCategoryID(manifest.RequiredPaths)
+	for key := range map[string]bool{
+		"database/database.default":              true,
+		"local_state/queue.persistence":          true,
+		"local_state/log.storage":                true,
+		"local_state/artifact.storage":           true,
+		"secret_stores/secrets.encryptedfs.root": true,
+		"tls_files/grpc.cert_file":               true,
+		"config_paths/deploy.config_dir":         true,
+	} {
+		if !paths[key].Readable {
+			t.Fatalf("manifest path %s = %+v, want readable", key, paths[key])
+		}
+	}
+
+	result := verifyBackupManifest(manifest, when)
+	if result.Status != backupManifestStatusOK || len(result.Errors) != 0 {
+		t.Fatalf("manifest verification = %+v", result)
+	}
+}
+
+func TestBackupManifestVerificationReportsMissingRequiredPath(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	version := 42
+	dirty := false
+	manifest := backupManifest{
+		SchemaVersion: backupManifestSchemaVersion,
+		GeneratedAt:   "2026-06-28T13:00:00Z",
+		Inventories: []backupManifestInventory{
+			{Source: "host-a.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "sqlite3"},
+		},
+		DatabaseRoles: []backupManifestDatabaseRole{
+			{InventorySource: "host-a.json", Role: "default", Driver: "sqlite3", DSN: "sqlite.db", LocalPath: "sqlite.db", Schema: backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty}},
+		},
+		RequiredPaths: []backupManifestPath{
+			{InventorySource: "host-a.json", Category: "database", ID: "database.default", Kind: "file", Path: "sqlite.db", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "local_state", ID: "queue.persistence", Kind: "directory", Path: "/missing/queue", Enabled: true, Exists: false, Readable: false},
+			{InventorySource: "host-a.json", Category: "local_state", ID: "log.storage", Kind: "directory", Path: "/var/lib/vectis/log", Enabled: true, Exists: true, Readable: true},
+			{InventorySource: "host-a.json", Category: "local_state", ID: "artifact.storage", Kind: "directory", Path: "/var/lib/vectis/artifact", Enabled: true, Exists: true, Readable: true},
+		},
+	}
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
+	var buf bytes.Buffer
+	when := time.Date(2026, 6, 28, 14, 0, 0, 0, time.UTC)
+	err := writeBackupManifestVerification(&buf, manifestPath, when)
+	if err == nil {
+		t.Fatalf("verify backup manifest succeeded unexpectedly")
+	}
+
+	var result backupManifestVerification
+	if decodeErr := json.Unmarshal(buf.Bytes(), &result); decodeErr != nil {
+		t.Fatalf("verification JSON: %v\n%s", decodeErr, buf.String())
+	}
+
+	if result.Status != backupManifestStatusFailed {
+		t.Fatalf("verification status = %q", result.Status)
+	}
+
+	if !backupFindingsContain(result.Errors, "path.missing") {
+		t.Fatalf("verification errors = %+v, want path.missing", result.Errors)
+	}
+}
+
 func backupPathsByID(paths []backupPathInventory) map[string]backupPathInventory {
 	out := map[string]backupPathInventory{}
 	for _, path := range paths {
@@ -145,4 +281,39 @@ func backupPathsByID(paths []backupPathInventory) map[string]backupPathInventory
 	}
 
 	return out
+}
+
+func backupManifestPathsByCategoryID(paths []backupManifestPath) map[string]backupManifestPath {
+	out := map[string]backupManifestPath{}
+	for _, path := range paths {
+		out[path.Category+"/"+path.ID] = path
+	}
+
+	return out
+}
+
+func backupFindingsContain(findings []backupManifestFinding, id string) bool {
+	for _, finding := range findings {
+		if finding.ID == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+func writeBackupJSONFile(t *testing.T, dir, name string, v any) string {
+	t.Helper()
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", name, err)
+	}
+
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+
+	return path
 }

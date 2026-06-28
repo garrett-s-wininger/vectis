@@ -304,7 +304,7 @@ func init() {
 	databaseCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(databaseCmd)
 
-	backupCmd.AddCommand(backupInventoryCmd)
+	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupVerifyCmd)
 	rootCmd.AddCommand(backupCmd)
 
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")
