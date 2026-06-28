@@ -76,6 +76,16 @@ var (
 	retentionBackupManifest     string
 	retentionBackupExpect       string
 	retentionBackupMaxAge       time.Duration
+	retentionHoldRunID          string
+	retentionHoldReason         string
+	retentionHoldOwner          string
+	retentionHoldExternalRef    string
+	retentionHoldCreatedBy      string
+	retentionHoldExpiresAt      string
+	retentionHoldListRunID      string
+	retentionHoldListAll        bool
+	retentionHoldReleasedBy     string
+	retentionHoldReleaseReason  string
 	runListJobID                string
 	runListRepositoryID         string
 	runListLimit                int
@@ -350,7 +360,19 @@ func init() {
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupManifest, "backup-manifest", "", "Optional backup manifest JSON to verify before cleanup")
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupExpect, "backup-expect", "", "Optional expected topology JSON for backup manifest verification")
 	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", 0, "Maximum accepted backup manifest age before cleanup (0 disables)")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldReason, "reason", "", "Compliance or incident reason for the hold")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldOwner, "owner", "", "Accountable owner for the hold")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldExternalRef, "external-ref", "", "Optional ticket, case, or legal matter reference")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldCreatedBy, "created-by", "", "Operator creating the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldExpiresAt, "expires-at", "", "Optional RFC3339 expiry time for the hold")
+	retentionHoldListCmd.Flags().StringVar(&retentionHoldListRunID, "run", "", "Only list holds for this run ID")
+	retentionHoldListCmd.Flags().BoolVar(&retentionHoldListAll, "all", false, "Include released and expired holds")
+	retentionHoldReleaseCmd.Flags().StringVar(&retentionHoldReleaseReason, "reason", "", "Reason for releasing the hold")
+	retentionHoldReleaseCmd.Flags().StringVar(&retentionHoldReleasedBy, "released-by", "", "Operator releasing the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionHoldsCmd.AddCommand(retentionHoldCreateCmd, retentionHoldListCmd, retentionHoldReleaseCmd)
 	retentionCmd.AddCommand(retentionCleanupCmd)
+	retentionCmd.AddCommand(retentionHoldsCmd)
 	rootCmd.AddCommand(retentionCmd)
 }
 

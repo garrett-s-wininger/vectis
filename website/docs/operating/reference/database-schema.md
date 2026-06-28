@@ -230,6 +230,29 @@ Constraints and indexes: `actor_id` references `local_users(id)`; indexes on `ev
 
 For the current event names, metadata keys, and default durability policy, see [Audit Event Catalog](./audit-event-catalog.md).
 
+### `retention_holds`
+
+Stores compliance, incident, legal, or audit holds that exempt selected durable
+evidence from retention cleanup. The first supported scope is `run`.
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Local hold row key. |
+| `hold_id` | Stable CLI-facing hold identifier. |
+| `scope` | Hold scope. Currently `run`. |
+| `target_id` | Target identifier for the scope, currently a `job_runs.run_id`. |
+| `reason` | Operator-supplied preservation reason. |
+| `owner` | Accountable person, team, or control owner. |
+| `external_ref` | Optional ticket, case, legal matter, or audit reference. |
+| `created_by` | Operator recorded by the CLI when the hold was created. |
+| `created_at` | Creation timestamp. |
+| `expires_at` | Optional expiry. Expired holds no longer protect cleanup candidates. |
+| `released_by` | Operator recorded by the CLI when the hold was released. |
+| `release_reason` | Operator-supplied release reason. |
+| `released_at` | Release timestamp. Null while unreleased. |
+
+Constraints and indexes: `hold_id` unique; indexes on `(scope, target_id)`, `(scope, target_id, released_at, expires_at)`, and `expires_at`. Run-scoped holds are logical references to `job_runs.run_id`; they intentionally do not cascade so released/expired hold records remain available for review.
+
 ### `api_rate_limit_buckets`
 
 Stores distributed API rate-limit token buckets.

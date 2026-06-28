@@ -125,6 +125,153 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.cleanup'`, 1)
 }
 
+func TestSQLCleanerActiveHoldProtectsTerminalRunState(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	now := fixedNow()
+	seedRetentionRows(t, db, now)
+
+	hold, err := NewSQLHoldStore(db).Create(ctx, CreateHoldOptions{
+		Scope:       HoldScopeRun,
+		TargetID:    "old-success",
+		Reason:      "INC-1234 evidence preservation",
+		Owner:       "security",
+		ExternalRef: "INC-1234",
+		CreatedBy:   "operator",
+	}, now.Add(-time.Hour))
+
+	if err != nil {
+		t.Fatalf("create hold: %v", err)
+	}
+
+	if hold.Status != HoldStatusActive {
+		t.Fatalf("hold status = %q", hold.Status)
+	}
+
+	cleaner := NewSQLCleaner(db)
+	preview, err := cleaner.Preview(ctx, testPolicy(), now)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	if preview.Counts.TerminalRuns != 2 || preview.HeldCounts.TerminalRuns != 1 {
+		t.Fatalf("preview counts = delete %+v held %+v", preview.Counts, preview.HeldCounts)
+	}
+
+	if preview.Counts.RunArtifacts != 2 || preview.HeldCounts.RunArtifacts != 1 {
+		t.Fatalf("preview artifact counts = delete %+v held %+v", preview.Counts, preview.HeldCounts)
+	}
+
+	runIDs, err := cleaner.TerminalRunIDs(ctx, testPolicy().TerminalRuns, now)
+	if err != nil {
+		t.Fatalf("terminal run IDs: %v", err)
+	}
+
+	if strings.Join(runIDs, ",") != "old-failed,old-aborted" {
+		t.Fatalf("terminal run IDs = %+v", runIDs)
+	}
+
+	refs, err := cleaner.ReferencedArtifactBlobKeysExcludingTerminalRuns(ctx, testPolicy().TerminalRuns, now)
+	if err != nil {
+		t.Fatalf("referenced keys: %v", err)
+	}
+
+	if !refs[artifactBlobKeyPrefix+strings.Repeat("a", 64)] || !refs[artifactBlobKeyPrefix+strings.Repeat("d", 64)] || len(refs) != 2 {
+		t.Fatalf("referenced keys after cleanup = %+v", refs)
+	}
+
+	report, err := cleaner.Apply(ctx, testPolicy(), now)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if report.Counts.TerminalRuns != 2 || report.HeldCounts.TerminalRuns != 1 {
+		t.Fatalf("apply counts = delete %+v held %+v", report.Counts, report.HeldCounts)
+	}
+
+	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id = 'old-success'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = 'old-success'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts WHERE run_id = 'old-success'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks WHERE run_id = 'old-success'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id = 'old-success'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id = 'old-success'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id = 'old-success'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'old-success-job'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('old-failed', 'old-aborted')`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.hold.created'`, 1)
+}
+
+func TestSQLHoldStoreListAndRelease(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	now := fixedNow()
+	insertRun(t, db, "held-run", "held-job", "succeeded", sqlStamp(now.Add(-40*24*time.Hour)))
+
+	expiresAt := now.Add(24 * time.Hour)
+	store := NewSQLHoldStore(db)
+	hold, err := store.Create(ctx, CreateHoldOptions{
+		Scope:       HoldScopeRun,
+		TargetID:    "held-run",
+		Reason:      "legal matter",
+		Owner:       "legal",
+		ExternalRef: "CASE-9",
+		CreatedBy:   "alice",
+		ExpiresAt:   &expiresAt,
+	}, now)
+
+	if err != nil {
+		t.Fatalf("create hold: %v", err)
+	}
+
+	if hold.HoldID == "" || hold.ExpiresAt == nil {
+		t.Fatalf("hold = %+v", hold)
+	}
+
+	active, err := store.List(ctx, ListHoldOptions{Scope: HoldScopeRun}, now)
+	if err != nil {
+		t.Fatalf("list active: %v", err)
+	}
+
+	if len(active) != 1 || active[0].HoldID != hold.HoldID || active[0].Status != HoldStatusActive {
+		t.Fatalf("active holds = %+v", active)
+	}
+
+	released, err := store.Release(ctx, ReleaseHoldOptions{
+		HoldID:        hold.HoldID,
+		ReleasedBy:    "bob",
+		ReleaseReason: "case closed",
+	}, now.Add(time.Hour))
+
+	if err != nil {
+		t.Fatalf("release hold: %v", err)
+	}
+
+	if released.Status != HoldStatusReleased || released.ReleasedAt == nil || released.ReleaseReason != "case closed" {
+		t.Fatalf("released hold = %+v", released)
+	}
+
+	active, err = store.List(ctx, ListHoldOptions{Scope: HoldScopeRun}, now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("list active after release: %v", err)
+	}
+
+	if len(active) != 0 {
+		t.Fatalf("active holds after release = %+v", active)
+	}
+
+	all, err := store.List(ctx, ListHoldOptions{Scope: HoldScopeRun, IncludeClosed: true}, now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+
+	if len(all) != 1 || all[0].Status != HoldStatusReleased {
+		t.Fatalf("all holds = %+v", all)
+	}
+
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.hold.created'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.hold.released'`, 1)
+}
+
 func TestSQLCleanerReferencedArtifactBlobKeys(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

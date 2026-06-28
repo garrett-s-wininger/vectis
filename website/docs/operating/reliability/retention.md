@@ -6,7 +6,7 @@ Vectis keeps durable SQL state for runs, artifact manifests, dispatch visibility
 
 ## What Cleanup Does
 
-`vectis-cli retention cleanup` deletes retention-eligible records from the configured Vectis database. It can also delete matching local durable run log files when you pass `--log-storage-dir`, and unreferenced local artifact CAS blobs when you pass `--artifact-storage-dir`.
+`vectis-cli retention cleanup` deletes retention-eligible records from the configured Vectis database. It can also delete matching local durable run log files when you pass `--log-storage-dir`, and unreferenced local artifact CAS blobs when you pass `--artifact-storage-dir`. Active run-scoped retention holds protect matching terminal runs and their related run state from cleanup.
 
 Cleanup is intentionally explicit today:
 
@@ -16,6 +16,11 @@ Cleanup is intentionally explicit today:
 - `--backup-expect` makes the manifest match an expected topology file.
 - `--backup-max-age` rejects stale manifest evidence, based on `generated_at`.
 - Running without either flag fails.
+
+`vectis-cli retention holds` creates, lists, and releases run-scoped compliance
+holds. Use holds for incident response, legal discovery, customer evidence
+preservation, or other cases where a specific run must survive automated
+cleanup while the normal policy continues elsewhere.
 
 The command prints `key=value` output so it can be captured in runbooks, incident notes, or automation logs.
 
@@ -53,10 +58,35 @@ Before applying cleanup in production, decide:
 | Whether local run log files should be pruned | SQL cleanup and log file cleanup are separate; logs may contain sensitive output. |
 | Whether local artifact blobs should be pruned | Artifact metadata cleanup and CAS garbage collection are separate; shared blobs must stay while any manifest references them. |
 | Whether backups have already captured the data | Cleanup should normally happen after a successful backup or accepted retention window. |
+| Whether any runs are under compliance hold | Active holds preserve selected run rows, task graph rows, dispatch events, artifact manifests, and local run logs. |
 
 Keep the production idempotency window longer than the longest realistic client retry window. Keep audit retention aligned with your security policy, not just disk capacity.
 
 ## Operator Flow
+
+Create a compliance hold before cleanup when a run must be preserved for an
+incident, legal matter, customer case, or audit review:
+
+```sh
+vectis-cli retention holds create \
+  --run run-123 \
+  --owner security \
+  --reason "INC-1234 evidence preservation" \
+  --external-ref INC-1234
+```
+
+List active holds before applying cleanup:
+
+```sh
+vectis-cli retention holds list
+```
+
+Release a hold only after the preservation requirement has ended:
+
+```sh
+vectis-cli retention holds release hold-abc123 \
+  --reason "INC-1234 closed"
+```
 
 Always preview first:
 
@@ -283,7 +313,9 @@ Cleanup also protects:
 | Recently orphaned blobs | Unreferenced blobs are skipped until their file mtime is older than the artifact blob cutoff. |
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
 | Optional backup gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. |
+| Active retention holds | Active run-scoped holds skip matching terminal runs, related SQL child rows, local run log deletion, and artifact reference removal. |
 | Audit trail of cleanup | Applied SQL cleanup inserts a `retention.cleanup` audit event. |
+| Audit trail of holds | Creating or releasing a hold inserts `retention.hold.created` or `retention.hold.released` in `audit_log`. |
 
 The SQL cleanup happens in one transaction. Local run log and artifact blob deletion is filesystem work and cannot share that transaction; use dry-run output to confirm the file counts before applying it.
 
@@ -313,6 +345,13 @@ would_delete.run_log_files=42
 would_delete.run_log_bytes=1048576
 would_delete.artifact_blob_files=12
 would_delete.artifact_blob_bytes=8388608
+held.terminal_runs=3
+held.run_dispatch_events=6
+held.run_artifacts=3
+held.run_tasks=6
+held.task_attempts=6
+held.run_segments=3
+held.segment_executions=6
 Cleanup not applied.
 ```
 
@@ -331,6 +370,13 @@ deleted.run_log_files=42
 deleted.run_log_bytes=1048576
 deleted.artifact_blob_files=12
 deleted.artifact_blob_bytes=8388608
+held.terminal_runs=3
+held.run_dispatch_events=6
+held.run_artifacts=3
+held.run_tasks=6
+held.task_attempts=6
+held.run_segments=3
+held.segment_executions=6
 audit_event_inserted=true
 Cleanup applied.
 ```

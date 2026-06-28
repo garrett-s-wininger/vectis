@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -61,8 +62,7 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 		return err
 	}
 
-	dbPath := database.GetDBPath()
-	db, err := database.OpenDB(dbPath)
+	db, err := openRetentionDatabase()
 	if err != nil {
 		return err
 	}
@@ -167,11 +167,22 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 				"artifact_blob_files": fileReport.ArtifactBlobFiles,
 				"artifact_blob_bytes": fileReport.ArtifactBlobBytes,
 			},
+			"held_counts": map[string]int64{
+				"terminal_runs":       report.HeldCounts.TerminalRuns,
+				"run_dispatch_events": report.HeldCounts.RunDispatchEvents,
+				"run_artifacts":       report.HeldCounts.RunArtifacts,
+				"run_tasks":           report.HeldCounts.RunTasks,
+				"task_attempts":       report.HeldCounts.TaskAttempts,
+				"run_segments":        report.HeldCounts.RunSegments,
+				"segment_executions":  report.HeldCounts.SegmentExecutions,
+			},
 			"audit": map[string]bool{"event_inserted": report.AuditEventInserted},
 		}
+
 		if backupEvidence != nil {
 			payload["backup"] = backupEvidence
 		}
+
 		return writeJSON(w, payload)
 	}
 
@@ -183,6 +194,21 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 
 	fmt.Fprintln(w, "Cleanup applied.")
 	return nil
+}
+
+func openRetentionDatabase() (*sql.DB, error) {
+	dbPath := database.GetDBPath()
+	db, err := database.OpenDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := database.WaitForMigrations(db, nil); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return db, nil
 }
 
 func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt time.Time) (*retentionBackupEvidence, error) {
@@ -297,7 +323,193 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 	fmt.Fprintf(w, "%s.run_log_bytes=%d\n", prefix, fileReport.RunLogBytes)
 	fmt.Fprintf(w, "%s.artifact_blob_files=%d\n", prefix, fileReport.ArtifactBlobFiles)
 	fmt.Fprintf(w, "%s.artifact_blob_bytes=%d\n", prefix, fileReport.ArtifactBlobBytes)
+	fmt.Fprintf(w, "held.terminal_runs=%d\n", report.HeldCounts.TerminalRuns)
+	fmt.Fprintf(w, "held.run_dispatch_events=%d\n", report.HeldCounts.RunDispatchEvents)
+	fmt.Fprintf(w, "held.run_artifacts=%d\n", report.HeldCounts.RunArtifacts)
+	fmt.Fprintf(w, "held.run_tasks=%d\n", report.HeldCounts.RunTasks)
+	fmt.Fprintf(w, "held.task_attempts=%d\n", report.HeldCounts.TaskAttempts)
+	fmt.Fprintf(w, "held.run_segments=%d\n", report.HeldCounts.RunSegments)
+	fmt.Fprintf(w, "held.segment_executions=%d\n", report.HeldCounts.SegmentExecutions)
 	fmt.Fprintf(w, "audit_event_inserted=%t\n", report.AuditEventInserted)
+}
+
+func runRetentionHoldCreate(cmd *cobra.Command, args []string) {
+	expiresAt, err := parseRetentionHoldExpiresAt(retentionHoldExpiresAt)
+	if err != nil {
+		runCLIError(err)
+	}
+
+	db, err := openRetentionDatabase()
+	if err != nil {
+		runCLIError(err)
+	}
+	defer db.Close()
+
+	createdBy := strings.TrimSpace(retentionHoldCreatedBy)
+	if createdBy == "" {
+		createdBy = defaultRetentionHoldActor()
+	}
+
+	hold, err := retention.NewSQLHoldStore(db).Create(cmd.Context(), retention.CreateHoldOptions{
+		Scope:       retention.HoldScopeRun,
+		TargetID:    retentionHoldRunID,
+		Reason:      retentionHoldReason,
+		Owner:       retentionHoldOwner,
+		ExternalRef: retentionHoldExternalRef,
+		CreatedBy:   createdBy,
+		ExpiresAt:   expiresAt,
+	}, time.Now().UTC())
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(writeRetentionHold(os.Stdout, hold))
+}
+
+func runRetentionHoldList(cmd *cobra.Command, args []string) {
+	db, err := openRetentionDatabase()
+	if err != nil {
+		runCLIError(err)
+	}
+	defer db.Close()
+
+	holds, err := retention.NewSQLHoldStore(db).List(cmd.Context(), retention.ListHoldOptions{
+		Scope:         retention.HoldScopeRun,
+		TargetID:      retentionHoldListRunID,
+		IncludeClosed: retentionHoldListAll,
+	}, time.Now().UTC())
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(writeRetentionHoldList(os.Stdout, holds))
+}
+
+func runRetentionHoldRelease(cmd *cobra.Command, args []string) {
+	db, err := openRetentionDatabase()
+	if err != nil {
+		runCLIError(err)
+	}
+	defer db.Close()
+
+	releasedBy := strings.TrimSpace(retentionHoldReleasedBy)
+	if releasedBy == "" {
+		releasedBy = defaultRetentionHoldActor()
+	}
+
+	hold, err := retention.NewSQLHoldStore(db).Release(cmd.Context(), retention.ReleaseHoldOptions{
+		HoldID:        args[0],
+		ReleasedBy:    releasedBy,
+		ReleaseReason: retentionHoldReleaseReason,
+	}, time.Now().UTC())
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(writeRetentionHold(os.Stdout, hold))
+}
+
+func writeRetentionHold(w io.Writer, hold retention.Hold) error {
+	if outputIsJSON() {
+		return writeJSON(w, hold)
+	}
+
+	fmt.Fprintf(w, "hold_id=%s\n", hold.HoldID)
+	fmt.Fprintf(w, "scope=%s\n", hold.Scope)
+	fmt.Fprintf(w, "target_id=%s\n", hold.TargetID)
+	fmt.Fprintf(w, "status=%s\n", hold.Status)
+	fmt.Fprintf(w, "owner=%s\n", hold.Owner)
+	fmt.Fprintf(w, "reason=%s\n", hold.Reason)
+	if hold.ExternalRef != "" {
+		fmt.Fprintf(w, "external_ref=%s\n", hold.ExternalRef)
+	}
+
+	if hold.CreatedBy != "" {
+		fmt.Fprintf(w, "created_by=%s\n", hold.CreatedBy)
+	}
+
+	fmt.Fprintf(w, "created_at=%s\n", hold.CreatedAt.UTC().Format(time.RFC3339))
+	if hold.ExpiresAt != nil {
+		fmt.Fprintf(w, "expires_at=%s\n", hold.ExpiresAt.UTC().Format(time.RFC3339))
+	}
+
+	if hold.ReleasedAt != nil {
+		fmt.Fprintf(w, "released_by=%s\n", hold.ReleasedBy)
+		fmt.Fprintf(w, "release_reason=%s\n", hold.ReleaseReason)
+		fmt.Fprintf(w, "released_at=%s\n", hold.ReleasedAt.UTC().Format(time.RFC3339))
+	}
+
+	return nil
+}
+
+func writeRetentionHoldList(w io.Writer, holds []retention.Hold) error {
+	if outputIsJSON() {
+		return writeJSON(w, map[string]any{"holds": holds})
+	}
+
+	if len(holds) == 0 {
+		_, err := fmt.Fprintln(w, "holds=0")
+		return err
+	}
+
+	for _, hold := range holds {
+		parts := []string{
+			"hold_id=" + hold.HoldID,
+			"scope=" + hold.Scope,
+			"target_id=" + hold.TargetID,
+			"status=" + hold.Status,
+			"owner=" + hold.Owner,
+			"reason=" + hold.Reason,
+			"created_at=" + hold.CreatedAt.UTC().Format(time.RFC3339),
+		}
+
+		if hold.ExternalRef != "" {
+			parts = append(parts, "external_ref="+hold.ExternalRef)
+		}
+
+		if hold.ExpiresAt != nil {
+			parts = append(parts, "expires_at="+hold.ExpiresAt.UTC().Format(time.RFC3339))
+		}
+
+		if hold.ReleasedAt != nil {
+			parts = append(parts,
+				"released_by="+hold.ReleasedBy,
+				"release_reason="+hold.ReleaseReason,
+				"released_at="+hold.ReleasedAt.UTC().Format(time.RFC3339),
+			)
+		}
+
+		if _, err := fmt.Fprintln(w, strings.Join(parts, " ")); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func parseRetentionHoldExpiresAt(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("--expires-at must be RFC3339: %w", err)
+	}
+
+	t = t.UTC()
+	return &t, nil
+}
+
+func defaultRetentionHoldActor() string {
+	for _, key := range []string{"VECTIS_OPERATOR", "USER", "USERNAME"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+
+	return "vectis-cli"
 }
 
 func retentionCutoff(t *time.Time) string {
@@ -328,4 +540,38 @@ Use --backup-expect to enforce a topology file and --backup-max-age to require
 fresh manifest evidence.`,
 	Args: cobra.NoArgs,
 	Run:  runRetentionCleanup,
+}
+
+var retentionHoldsCmd = &cobra.Command{
+	Use:   "holds",
+	Short: "Manage retention compliance holds",
+	Long: `Manage run-scoped compliance holds that prevent retention cleanup from
+deleting protected run state, task graph rows, dispatch events, artifact
+manifests, and matching local run log files while the hold is active.`,
+	Args: cobra.NoArgs,
+	Run:  showCommandHelp,
+}
+
+var retentionHoldCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a run retention hold",
+	Long: `Create a run-scoped retention hold. Active holds protect retention-eligible
+terminal runs and their related durable state from cleanup until released or
+expired.`,
+	Args: cobra.NoArgs,
+	Run:  runRetentionHoldCreate,
+}
+
+var retentionHoldListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List retention holds",
+	Args:  cobra.NoArgs,
+	Run:   runRetentionHoldList,
+}
+
+var retentionHoldReleaseCmd = &cobra.Command{
+	Use:   "release <hold-id>",
+	Short: "Release a retention hold",
+	Args:  cobra.ExactArgs(1),
+	Run:   runRetentionHoldRelease,
 }

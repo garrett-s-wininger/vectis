@@ -179,16 +179,27 @@ vectis-cli database migrate
 Use this when SQL storage pressure grows, old retained records alert, or a maintenance window calls for cleanup.
 
 1. Read [Retention](./retention.md) and confirm the retention window, scheduling posture, and backup freshness expectations are acceptable for the environment.
-2. Preview cleanup:
+2. Create or confirm retention holds for any runs that must remain preserved:
+
+```sh
+vectis-cli retention holds create \
+  --run <run-id> \
+  --owner <team-or-owner> \
+  --reason "<incident, legal, or audit reason>" \
+  --external-ref <ticket-or-case-id>
+vectis-cli retention holds list
+```
+
+3. Preview cleanup:
 
 ```sh
 vectis-cli retention cleanup --dry-run
 ```
 
-3. Include `--log-storage-dir` only when pruning local durable run log files for the same deployment.
-4. Include `--artifact-storage-dir` only when pruning local artifact CAS blobs for the same deployment. Apply-time artifact blob pruning requires the artifact storage directory lock, so stop that shard or use a maintenance window.
-5. Review delete counts, cutoffs, backup manifest evidence, and any incident/restore holds before applying.
-6. Apply during a maintenance window:
+4. Include `--log-storage-dir` only when pruning local durable run log files for the same deployment.
+5. Include `--artifact-storage-dir` only when pruning local artifact CAS blobs for the same deployment. Apply-time artifact blob pruning requires the artifact storage directory lock, so stop that shard or use a maintenance window.
+6. Review delete counts, `held.*` counts, cutoffs, backup manifest evidence, and any incident/restore holds before applying.
+7. Apply during a maintenance window:
 
 ```sh
 vectis-cli retention cleanup --yes \
@@ -197,8 +208,8 @@ vectis-cli retention cleanup --yes \
   --backup-max-age 24h
 ```
 
-7. Run `vectis-cli health check --strict`.
-8. Check storage pressure metrics after cleanup.
+8. Run `vectis-cli health check --strict`.
+9. Check storage pressure metrics after cleanup.
 
 ## Manual Run Intervention
 

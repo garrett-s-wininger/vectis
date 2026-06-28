@@ -57,6 +57,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "service_leases")
 	assertTableExists(t, db, "api_rate_limit_buckets")
 	assertTableExists(t, db, "api_sessions")
+	assertTableExists(t, db, "retention_holds")
 	assertTableExists(t, db, "source_repositories")
 	assertTableExists(t, db, "job_definition_sources")
 	assertColumnExists(t, db, "job_runs", "namespace_path")
@@ -110,6 +111,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableMissing(t, db, "service_leases")
 	assertTableMissing(t, db, "api_rate_limit_buckets")
 	assertTableMissing(t, db, "api_sessions")
+	assertTableMissing(t, db, "retention_holds")
 	assertTableMissing(t, db, "source_repositories")
 	assertTableMissing(t, db, "job_definition_sources")
 }

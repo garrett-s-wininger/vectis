@@ -122,6 +122,15 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 			IdempotencyKeys:   11,
 			AuditLog:          12,
 		},
+		HeldCounts: retention.Counts{
+			TerminalRuns:      1,
+			RunDispatchEvents: 2,
+			RunArtifacts:      3,
+			RunTasks:          4,
+			TaskAttempts:      5,
+			RunSegments:       6,
+			SegmentExecutions: 7,
+		},
 	}
 
 	var buf bytes.Buffer
@@ -143,6 +152,13 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 		"would_delete.run_log_bytes=15",
 		"would_delete.artifact_blob_files=16",
 		"would_delete.artifact_blob_bytes=17",
+		"held.terminal_runs=1",
+		"held.run_dispatch_events=2",
+		"held.run_artifacts=3",
+		"held.run_tasks=4",
+		"held.task_attempts=5",
+		"held.run_segments=6",
+		"held.segment_executions=7",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)

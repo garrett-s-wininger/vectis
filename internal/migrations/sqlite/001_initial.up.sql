@@ -620,6 +620,26 @@ CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
 CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
 CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
 
+CREATE TABLE retention_holds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hold_id TEXT UNIQUE NOT NULL,
+    scope TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    external_ref TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    released_by TEXT NOT NULL DEFAULT '',
+    release_reason TEXT NOT NULL DEFAULT '',
+    released_at TIMESTAMP
+);
+
+CREATE INDEX idx_retention_holds_scope_target ON retention_holds(scope, target_id);
+CREATE INDEX idx_retention_holds_active ON retention_holds(scope, target_id, released_at, expires_at);
+CREATE INDEX idx_retention_holds_expires_at ON retention_holds(expires_at);
+
 CREATE INDEX idx_job_runs_status_dispatched ON job_runs(status, last_dispatched_at);
 CREATE INDEX idx_job_runs_lease_until ON job_runs(lease_until);
 CREATE INDEX idx_job_runs_status ON job_runs(status);
