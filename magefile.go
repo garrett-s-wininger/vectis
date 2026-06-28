@@ -145,6 +145,19 @@ func buildBinaries(cfg buildConfig) error {
 	return nil
 }
 
+// Format applies standard Go fixes, formatting, and module tidying.
+func Format() error {
+	if err := run("", nil, goCommand(), "fix", "./..."); err != nil {
+		return err
+	}
+
+	if err := run("", nil, goCommand(), "fmt", "./..."); err != nil {
+		return err
+	}
+
+	return run("", nil, goCommand(), "mod", "tidy")
+}
+
 // Test runs the full Go test suite.
 func Test() error {
 	return run("", nil, goCommand(), "test", "./...")

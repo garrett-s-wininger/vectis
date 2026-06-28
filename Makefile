@@ -109,9 +109,7 @@ formal-verification: $(addprefix formal-verification-, $(FORMAL_MODELS))
 
 .PHONY: format
 format:
-	go fix ./...
-	go fmt ./...
-	go mod tidy
+	GO="$(GO)" $(MAGE) format
 
 .PHONY: test
 test:
