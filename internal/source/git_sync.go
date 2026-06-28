@@ -746,9 +746,7 @@ func runGitCommand(ctx context.Context, args ...string) ([]byte, error) {
 
 func runGitCommandWithEnv(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = gitCommandEnv(env)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

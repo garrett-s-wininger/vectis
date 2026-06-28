@@ -1157,10 +1157,8 @@ func (execGitRunner) RunGitWithInputEnv(ctx context.Context, checkoutPath string
 	if len(input) > 0 {
 		cmd.Stdin = bytes.NewReader(input)
 	}
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
 
+	cmd.Env = gitCommandEnv(env)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -1200,6 +1198,7 @@ var errStopGitStream = errors.New("stop git stream")
 func (execGitRunner) StreamGitRecords(ctx context.Context, checkoutPath string, args []string, handle func([]byte) error) error {
 	gitArgs := append([]string{"-C", checkoutPath}, args...)
 	cmd := exec.CommandContext(ctx, "git", gitArgs...) // #nosec G204 -- Git arguments are assembled by source-control helpers after ref/path normalization.
+	cmd.Env = gitCommandEnv(nil)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1267,4 +1266,42 @@ func (execGitRunner) StreamGitRecords(ctx context.Context, checkoutPath string, 
 	}
 
 	return nil
+}
+
+func gitCommandEnv(env []string) []string {
+	env = append([]string(nil), env...)
+	envKeys := make(map[string]struct{}, len(env)+1)
+	for _, pair := range env {
+		if key := gitEnvKey(pair); key != "" {
+			envKeys[key] = struct{}{}
+		}
+	}
+
+	if _, ok := envKeys["GIT_OPTIONAL_LOCKS"]; !ok {
+		env = append([]string{"GIT_OPTIONAL_LOCKS=0"}, env...)
+		envKeys["GIT_OPTIONAL_LOCKS"] = struct{}{}
+	}
+
+	out := make([]string, 0, len(os.Environ())+len(env))
+	for _, pair := range os.Environ() {
+		key := gitEnvKey(pair)
+		if key != "" {
+			if _, ok := envKeys[key]; ok {
+				continue
+			}
+		}
+
+		out = append(out, pair)
+	}
+
+	return append(out, env...)
+}
+
+func gitEnvKey(pair string) string {
+	key, _, ok := strings.Cut(pair, "=")
+	if !ok || key == "" {
+		return ""
+	}
+
+	return key
 }

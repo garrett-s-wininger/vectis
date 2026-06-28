@@ -106,6 +106,24 @@ func TestGitCheckoutReadFileHonorsMaxFileBytes(t *testing.T) {
 	}
 }
 
+func TestGitCommandEnvDisablesOptionalLocks(t *testing.T) {
+	t.Setenv("GIT_OPTIONAL_LOCKS", "1")
+
+	env := gitCommandEnv([]string{"GIT_INDEX_FILE=/tmp/vectis-index"})
+	if got := envValue(env, "GIT_OPTIONAL_LOCKS"); got != "0" {
+		t.Fatalf("GIT_OPTIONAL_LOCKS=%q, want 0; env=%v", got, env)
+	}
+
+	if got := envValue(env, "GIT_INDEX_FILE"); got != "/tmp/vectis-index" {
+		t.Fatalf("GIT_INDEX_FILE=%q, want /tmp/vectis-index; env=%v", got, env)
+	}
+
+	explicit := gitCommandEnv([]string{"GIT_OPTIONAL_LOCKS=1"})
+	if got := envValue(explicit, "GIT_OPTIONAL_LOCKS"); got != "1" {
+		t.Fatalf("explicit GIT_OPTIONAL_LOCKS=%q, want 1; env=%v", got, explicit)
+	}
+}
+
 func TestNormalizeRefAcceptsSafeRefs(t *testing.T) {
 	for _, ref := range []string{
 		"HEAD",
