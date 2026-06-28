@@ -355,6 +355,105 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 	}
 }
 
+func TestHydrateManagedGitRefFetchesProviderRefs(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	git(t, remote, "checkout", "-b", "review/provider-ref")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "update-ref", "refs/pull/123/head", reviewCommit)
+	git(t, remote, "update-ref", "refs/changes/34/1234/5", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	managed := NewManagedGitCheckout(checkoutPath)
+	for _, ref := range []string{"refs/pull/123/head", "refs/changes/34/1234/5"} {
+		t.Run(ref, func(t *testing.T) {
+			if _, err := managed.ResolveRevision(context.Background(), ref); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("provider ref should be missing before hydration, got %v", err)
+			}
+
+			status := HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
+				CheckoutPath: checkoutPath,
+				Ref:          ref,
+			})
+
+			if status.ErrorCode != "" {
+				t.Fatalf("hydrate provider ref failed: %+v", status)
+			}
+
+			if !status.DefaultRefResolved || status.ResolvedCommit != reviewCommit {
+				t.Fatalf("provider ref status mismatch: %+v", status)
+			}
+
+			if got := gitOutput(t, checkoutPath, "rev-parse", managedGitHydratedRef(ref)); got != reviewCommit {
+				t.Fatalf("hydrated provider ref target: got %q, want %q", got, reviewCommit)
+			}
+
+			if _, err := NewGitCheckout(checkoutPath).ResolveRevision(context.Background(), ref); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("plain checkout should not resolve provider hydrated ref, got %v", err)
+			}
+
+			rev, err := managed.ResolveRevision(context.Background(), ref)
+			if err != nil {
+				t.Fatalf("resolve hydrated provider ref: %v", err)
+			}
+
+			if rev.Commit != reviewCommit {
+				t.Fatalf("hydrated provider ref commit: got %q, want %q", rev.Commit, reviewCommit)
+			}
+		})
+	}
+}
+
+func TestSyncManagedGitCheckoutFetchesProviderDefaultRefOnDemand(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	git(t, remote, "checkout", "-b", "review/default-provider-ref")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "update-ref", "refs/pull/456/head", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   "refs/pull/456/head",
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("sync provider default ref failed: %+v", status)
+	}
+
+	if !status.DefaultRefResolved || status.ResolvedCommit != reviewCommit {
+		t.Fatalf("provider default ref status mismatch: %+v", status)
+	}
+
+	rev, err := NewManagedGitCheckout(checkoutPath).ResolveRevision(context.Background(), "refs/pull/456/head")
+	if err != nil {
+		t.Fatalf("resolve provider default ref: %v", err)
+	}
+
+	if rev.Commit != reviewCommit {
+		t.Fatalf("provider default ref commit: got %q, want %q", rev.Commit, reviewCommit)
+	}
+}
+
 func TestManagedGitFetchRemotesSortsFallbacksByNumericSuffix(t *testing.T) {
 	repo := initGitRepo(t)
 	git(t, repo, "remote", "add", "vectis-fallback-10", repo)

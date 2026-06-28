@@ -879,6 +879,10 @@ func (g *GitCheckout) resolveCommit(ctx context.Context, ref string) (string, er
 
 func (g *GitCheckout) refCandidates(ref string) []string {
 	candidates := []string{ref}
+	if g.remoteFallback != "" && managedGitProviderRef(ref) {
+		candidates = append(candidates, managedGitHydratedRef(ref))
+	}
+
 	branch, ok := remoteFallbackBranchName(ref)
 	if !ok || g.remoteFallback == "" {
 		return candidates

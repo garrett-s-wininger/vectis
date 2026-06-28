@@ -131,6 +131,8 @@ func TestNormalizeRefAcceptsSafeRefs(t *testing.T) {
 		"feature/build",
 		"refs/heads/main",
 		"refs/tags/v1.2.3",
+		"refs/pull/123/head",
+		"refs/changes/34/1234/5",
 		"0123456789abcdef0123456789abcdef01234567",
 	} {
 		t.Run(ref, func(t *testing.T) {

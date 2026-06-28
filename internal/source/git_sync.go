@@ -3,6 +3,8 @@ package source
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -281,7 +283,7 @@ func managedGitSyncFetchRef(ctx context.Context, checkoutPath, defaultRef string
 	}
 
 	switch {
-	case strings.HasPrefix(ref, "refs/heads/"), strings.HasPrefix(ref, "refs/tags/"):
+	case strings.HasPrefix(ref, "refs/heads/"), strings.HasPrefix(ref, "refs/tags/"), managedGitProviderRef(ref):
 		return ref, true
 	case strings.HasPrefix(ref, "refs/"):
 		return "", false
@@ -315,7 +317,9 @@ func fetchManagedGitMissingDefaultRef(ctx context.Context, checkoutPath, default
 		return err
 	}
 
-	if strings.HasPrefix(normalized, "refs/tags/") {
+	if strings.HasPrefix(normalized, "refs/heads/") ||
+		strings.HasPrefix(normalized, "refs/tags/") ||
+		managedGitProviderRef(normalized) {
 		_, err := fetchManagedGitRef(ctx, checkoutPath, env, normalized, "")
 		return err
 	}
@@ -528,6 +532,8 @@ func managedGitFetchRefspec(ref string) (string, string, bool) {
 		}
 
 		return ref, ref, true
+	case managedGitProviderRef(ref):
+		return ref, managedGitHydratedRef(ref), true
 	default:
 		branch, ok := managedLocalBranchName(ref)
 		if !ok || branch == "" {
@@ -536,6 +542,20 @@ func managedGitFetchRefspec(ref string) (string, string, bool) {
 
 		return "refs/heads/" + branch, "refs/remotes/origin/" + branch, true
 	}
+}
+
+func managedGitProviderRef(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	return strings.HasPrefix(ref, "refs/") &&
+		!strings.HasPrefix(ref, "refs/heads/") &&
+		!strings.HasPrefix(ref, "refs/tags/") &&
+		!strings.HasPrefix(ref, "refs/remotes/") &&
+		!strings.HasPrefix(ref, "refs/vectis/")
+}
+
+func managedGitHydratedRef(ref string) string {
+	sum := sha256.Sum256([]byte(ref))
+	return "refs/vectis/hydrated/" + hex.EncodeToString(sum[:])
 }
 
 func configureManagedGitCheckout(ctx context.Context, checkoutPath string, fallbackRemoteURLs []string) error {
