@@ -12,6 +12,9 @@ Cleanup is intentionally explicit today:
 
 - `--dry-run` previews cutoffs and counts without changing the database.
 - `--yes` applies the same policy.
+- `--backup-manifest` verifies backup manifest evidence before preview or apply.
+- `--backup-expect` makes the manifest match an expected topology file.
+- `--backup-max-age` rejects stale manifest evidence, based on `generated_at`.
 - Running without either flag fails.
 
 The command prints `key=value` output so it can be captured in runbooks, incident notes, or automation logs.
@@ -65,6 +68,17 @@ Apply the same policy after review:
 
 ```sh
 vectis-cli retention cleanup --yes
+```
+
+For production apply jobs, pass the backup manifest that was captured with the
+backup set. This makes freshness and topology failures stop cleanup before the
+database or local files are opened for deletion:
+
+```sh
+vectis-cli retention cleanup --yes \
+  --backup-manifest backup-manifest.json \
+  --backup-expect expected-topology.json \
+  --backup-max-age 24h
 ```
 
 Override windows when the defaults are not right for the environment:
@@ -175,12 +189,12 @@ WantedBy=timers.target
 ```ini
 [Unit]
 Description=Apply Vectis retention cleanup
-ConditionPathExists=/var/lib/vectis/ops/backup-fresh
+ConditionPathExists=/var/lib/vectis/ops/latest-backup-manifest.json
 
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/vectis/vectis.env
-ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h
+ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/latest-backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h
 ```
 
 `/etc/systemd/system/vectis-retention-apply.timer`:
@@ -197,9 +211,11 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-The `ConditionPathExists` guard is only an example. In production, wire the
-apply job to your backup platform's freshness signal or require an operator
-approval step before creating that marker.
+The `ConditionPathExists` guard is only an example. The CLI still verifies the
+manifest contents, expected topology, and `generated_at` freshness before
+cleanup. In production, wire the manifest path to your backup platform's latest
+successful backup evidence or require an operator approval step before moving a
+manifest into place.
 
 Enable timers with:
 
@@ -247,7 +263,9 @@ spec:
 
 Only mount log or artifact storage into an apply CronJob when that job is the
 owner for the shard being pruned and the artifact service lock behavior is
-accounted for.
+accounted for. Mount the backup manifest and expected-topology file into the
+apply CronJob, then pass `--backup-manifest`, `--backup-expect`, and
+`--backup-max-age` so a stale or incomplete backup set stops cleanup.
 
 ## Safety Guarantees
 
@@ -264,6 +282,7 @@ Cleanup also protects:
 | Active artifact storage | Apply-time blob pruning takes `artifact.lock` and refuses to delete while the artifact service owns the directory. |
 | Recently orphaned blobs | Unreferenced blobs are skipped until their file mtime is older than the artifact blob cutoff. |
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
+| Optional backup gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. |
 | Audit trail of cleanup | Applied SQL cleanup inserts a `retention.cleanup` audit event. |
 
 The SQL cleanup happens in one transaction. Local run log and artifact blob deletion is filesystem work and cannot share that transaction; use dry-run output to confirm the file counts before applying it.
@@ -274,6 +293,14 @@ Preview output uses `would_delete.*` keys:
 
 ```text
 dry_run=true
+backup_manifest_verified=true
+backup_manifest_path=backup-manifest.json
+backup_manifest_checked_at=2026-06-28T16:00:00Z
+backup_manifest_generated_at=2026-06-28T15:30:00Z
+backup_manifest_expectation_source=expected-topology.json
+backup_manifest_max_age=24h0m0s
+backup_manifest_age=30m0s
+backup_manifest_warnings=0
 cutoff.terminal_runs=2026-04-16T12:00:00Z
 would_delete.terminal_runs=42
 would_delete.run_dispatch_events=84

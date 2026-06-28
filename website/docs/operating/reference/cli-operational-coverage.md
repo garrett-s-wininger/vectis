@@ -22,7 +22,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--format json`, `--strict` |
 | Backup evidence | Capture local backup scope evidence, aggregate host inventories, generate reference expectations, and verify manifest completeness or expected topology for restore drills. | `vectis-cli backup inventory --format json`, `backup manifest --format json`, `backup expect podman --format json`, `backup expect linux --format json`, `backup verify`, `backup verify --expect` |
 | Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
-| Retention | Preview or apply cleanup for old durable records. | `vectis-cli retention cleanup --dry-run`, `--yes` |
+| Retention | Preview or apply cleanup for old durable records, optionally gated by backup manifest freshness and expected topology. | `vectis-cli retention cleanup --dry-run`, `--yes`, `--backup-manifest`, `--backup-expect`, `--backup-max-age` |
 | Reference deploy | Render, start, stop, and inspect the Podman reference deployment, including `--profile simple` and `--profile ha`. | `vectis-cli deploy podman init`, `render`, `up`, `status`, `down` |
 | Local reset | Preview or reset local Vectis development state. | `vectis-cli local reset --dry-run`, `--yes` |
 
@@ -47,6 +47,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Generate Podman expected topology | `vectis-cli backup expect podman --profile simple --format json` or `--profile ha` |
 | Generate Linux expected topology | `vectis-cli backup expect linux --manifest deploy/linux/services.toml --format json` |
 | Build and verify backup manifest evidence | `vectis-cli backup manifest --format json <inventory.json...>`, then `vectis-cli backup verify [--expect expected-topology.json] <manifest.json>` |
+| Apply retention cleanup after backup proof | `vectis-cli retention cleanup --yes --backup-manifest backup-manifest.json --backup-expect expected-topology.json --backup-max-age 24h` |
 | List stale source repositories | `vectis-cli sources list --stale` |
 | List stale source schedules | `vectis-cli sources schedules --stale` |
 | Trigger a source-defined job | `vectis-cli jobs trigger <job-id> --repository <repository-id>` |
@@ -69,7 +70,7 @@ Most operational commands use stable, line-oriented text:
 - `backup expect podman --format json` emits expected topology JSON for the Podman reference deployment's simple or HA profile.
 - `backup expect linux --format json` emits expected topology JSON from the Linux services manifest's example environment.
 - `backup manifest --format json` aggregates inventory files into backup-set evidence; `backup verify` exits non-zero when core database, queue, log, or artifact evidence is incomplete, and `--expect` also fails when expected host inventory sources, service instances, database roles, paths, or path categories are absent.
-- `retention cleanup` prints `key=value` summary lines for cutoffs and delete counts.
+- `retention cleanup` prints `key=value` summary lines for cutoffs and delete counts. When `--backup-manifest` is provided, text output includes `backup_manifest_*` proof lines and JSON output includes a `backup` object; verification or freshness failure exits non-zero before cleanup.
 - Errors are written to stderr by command runners and return a non-zero process exit.
 
 Commands that stream logs or SSE-backed run activity are intentionally interactive; use them for live inspection rather than stable parsers.

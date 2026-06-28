@@ -3,13 +3,34 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/spf13/cobra"
 	"io"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
+
 	"vectis/internal/database"
 	"vectis/internal/retention"
 )
+
+type retentionBackupCheckOptions struct {
+	ManifestPath string
+	ExpectPath   string
+	MaxAge       time.Duration
+}
+
+type retentionBackupEvidence struct {
+	ManifestPath        string `json:"manifest_path"`
+	ExpectPath          string `json:"expect_path,omitempty"`
+	Verified            bool   `json:"verified"`
+	CheckedAt           string `json:"checked_at"`
+	ManifestGeneratedAt string `json:"manifest_generated_at,omitempty"`
+	ExpectationSource   string `json:"expectation_source,omitempty"`
+	MaxAge              string `json:"max_age,omitempty"`
+	Age                 string `json:"age,omitempty"`
+	Warnings            int    `json:"warnings"`
+}
 
 func runRetentionCleanup(cmd *cobra.Command, args []string) {
 	policy := retention.Policy{
@@ -20,12 +41,24 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 		ArtifactBlobs:   retentionArtifactAge,
 	}
 
-	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir))
+	backupOptions := retentionBackupCheckOptions{
+		ManifestPath: retentionBackupManifest,
+		ExpectPath:   retentionBackupExpect,
+		MaxAge:       retentionBackupMaxAge,
+	}
+
+	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions))
 }
 
-func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string) error {
+func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions) error {
 	if !dryRun && !yes {
 		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
+	}
+
+	now := time.Now().UTC()
+	backupEvidence, err := checkRetentionBackupManifest(backupOptions, now)
+	if err != nil {
+		return err
 	}
 
 	dbPath := database.GetDBPath()
@@ -40,7 +73,6 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 	}
 
 	cleaner := retention.NewSQLCleaner(db)
-	now := time.Now().UTC()
 
 	var fileReport retention.FileReport
 	var artifactRefs map[string]bool
@@ -109,7 +141,7 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 	}
 
 	if outputIsJSON() {
-		return writeJSON(w, map[string]any{
+		payload := map[string]any{
 			"applied": !dryRun,
 			"dry_run": report.DryRun,
 			"cutoffs": map[string]string{
@@ -136,10 +168,14 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 				"artifact_blob_bytes": fileReport.ArtifactBlobBytes,
 			},
 			"audit": map[string]bool{"event_inserted": report.AuditEventInserted},
-		})
+		}
+		if backupEvidence != nil {
+			payload["backup"] = backupEvidence
+		}
+		return writeJSON(w, payload)
 	}
 
-	printRetentionReport(w, report, fileReport)
+	printRetentionReport(w, report, fileReport, backupEvidence)
 	if dryRun {
 		fmt.Fprintln(w, "Cleanup not applied.")
 		return nil
@@ -149,13 +185,99 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 	return nil
 }
 
-func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport) {
+func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt time.Time) (*retentionBackupEvidence, error) {
+	options.ManifestPath = strings.TrimSpace(options.ManifestPath)
+	options.ExpectPath = strings.TrimSpace(options.ExpectPath)
+	if options.ManifestPath == "" {
+		if options.ExpectPath != "" || options.MaxAge > 0 {
+			return nil, fmt.Errorf("--backup-expect and --backup-max-age require --backup-manifest")
+		}
+
+		return nil, nil
+	}
+
+	if options.ManifestPath == "-" && options.ExpectPath == "-" {
+		return nil, fmt.Errorf("manifest and expected topology cannot both be read from stdin")
+	}
+
+	manifest, err := readBackupManifestFile(options.ManifestPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var expected *backupExpectedTopologyInput
+	if options.ExpectPath != "" {
+		input, err := readBackupExpectedTopologyFile(options.ExpectPath)
+		if err != nil {
+			return nil, err
+		}
+
+		expected = &input
+	}
+
+	result := verifyBackupManifest(manifest, expected, checkedAt)
+	evidence := &retentionBackupEvidence{
+		ManifestPath:        options.ManifestPath,
+		ExpectPath:          options.ExpectPath,
+		Verified:            result.Status == backupManifestStatusOK,
+		CheckedAt:           result.CheckedAt,
+		ManifestGeneratedAt: result.ManifestGeneratedAt,
+		ExpectationSource:   result.ExpectationSource,
+		Warnings:            len(result.Warnings),
+	}
+
+	if options.MaxAge > 0 {
+		evidence.MaxAge = options.MaxAge.String()
+	}
+
+	if result.Status != backupManifestStatusOK {
+		return evidence, fmt.Errorf("backup manifest verification failed: %d error(s)", len(result.Errors))
+	}
+
+	if options.MaxAge > 0 {
+		generatedAt, err := time.Parse(time.RFC3339, manifest.GeneratedAt)
+		if err != nil {
+			return evidence, fmt.Errorf("backup manifest generated_at is not RFC3339: %w", err)
+		}
+
+		age := checkedAt.Sub(generatedAt)
+		evidence.Age = age.String()
+		if age < 0 {
+			return evidence, fmt.Errorf("backup manifest generated_at %s is after check time %s", manifest.GeneratedAt, checkedAt.Format(time.RFC3339))
+		}
+
+		if age > options.MaxAge {
+			return evidence, fmt.Errorf("backup manifest is stale: generated_at=%s age=%s max_age=%s", manifest.GeneratedAt, age, options.MaxAge)
+		}
+	}
+
+	return evidence, nil
+}
+
+func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence) {
 	prefix := "deleted"
 	if report.DryRun {
 		prefix = "would_delete"
 	}
 
 	fmt.Fprintf(w, "dry_run=%t\n", report.DryRun)
+	if backupEvidence != nil {
+		fmt.Fprintf(w, "backup_manifest_verified=%t\n", backupEvidence.Verified)
+		fmt.Fprintf(w, "backup_manifest_path=%s\n", backupEvidence.ManifestPath)
+		fmt.Fprintf(w, "backup_manifest_checked_at=%s\n", backupEvidence.CheckedAt)
+		fmt.Fprintf(w, "backup_manifest_generated_at=%s\n", backupEvidence.ManifestGeneratedAt)
+		if backupEvidence.ExpectationSource != "" {
+			fmt.Fprintf(w, "backup_manifest_expectation_source=%s\n", backupEvidence.ExpectationSource)
+		}
+
+		if backupEvidence.MaxAge != "" {
+			fmt.Fprintf(w, "backup_manifest_max_age=%s\n", backupEvidence.MaxAge)
+			fmt.Fprintf(w, "backup_manifest_age=%s\n", backupEvidence.Age)
+		}
+
+		fmt.Fprintf(w, "backup_manifest_warnings=%d\n", backupEvidence.Warnings)
+	}
+
 	fmt.Fprintf(w, "cutoff.terminal_runs=%s\n", retentionCutoff(report.Cutoffs.TerminalRuns))
 	fmt.Fprintf(w, "cutoff.job_definitions=%s\n", retentionCutoff(report.Cutoffs.JobDefinitions))
 	fmt.Fprintf(w, "cutoff.idempotency_keys=%s\n", retentionCutoff(report.Cutoffs.IdempotencyKeys))
@@ -200,7 +322,10 @@ var retentionCleanupCmd = &cobra.Command{
 unreferenced job definition snapshots, idempotency keys, audit log rows, and optionally
 local durable run log files and unreferenced artifact blobs.
 
-The command is destructive. Use --dry-run first, then pass --yes to apply.`,
+The command is destructive. Use --dry-run first, then pass --yes to apply.
+Pass --backup-manifest to require backup manifest verification before cleanup.
+Use --backup-expect to enforce a topology file and --backup-max-age to require
+fresh manifest evidence.`,
 	Args: cobra.NoArgs,
 	Run:  runRetentionCleanup,
 }

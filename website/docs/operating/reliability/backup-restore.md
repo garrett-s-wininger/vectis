@@ -76,6 +76,18 @@ augment the generated file for production-specific topology. When collecting
 inventory for Linux service hosts, run with the service environment loaded so
 `XDG_CONFIG_HOME=/etc` records `/etc/vectis` as config evidence.
 
+Retention cleanup can use the same manifest as a destructive-operation gate:
+
+```sh
+vectis-cli retention cleanup --yes \
+  --backup-manifest backup-manifest.json \
+  --backup-expect expected-topology.json \
+  --backup-max-age 24h
+```
+
+The retention command verifies the manifest before deleting SQL rows or local
+files, and rejects stale evidence when `--backup-max-age` is set.
+
 Expected topology files are JSON. `inventory_sources` and each
 `inventory_source` matcher must use the same source strings passed to
 `backup manifest`.

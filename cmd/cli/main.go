@@ -73,6 +73,9 @@ var (
 	retentionLogDir             string
 	retentionArtifactAge        time.Duration
 	retentionArtifactDir        string
+	retentionBackupManifest     string
+	retentionBackupExpect       string
+	retentionBackupMaxAge       time.Duration
 	runListJobID                string
 	runListRepositoryID         string
 	runListLimit                int
@@ -344,6 +347,9 @@ func init() {
 	retentionCleanupCmd.Flags().StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
 	retentionCleanupCmd.Flags().DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
+	retentionCleanupCmd.Flags().StringVar(&retentionBackupManifest, "backup-manifest", "", "Optional backup manifest JSON to verify before cleanup")
+	retentionCleanupCmd.Flags().StringVar(&retentionBackupExpect, "backup-expect", "", "Optional expected topology JSON for backup manifest verification")
+	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", 0, "Maximum accepted backup manifest age before cleanup (0 disables)")
 	retentionCmd.AddCommand(retentionCleanupCmd)
 	rootCmd.AddCommand(retentionCmd)
 }
