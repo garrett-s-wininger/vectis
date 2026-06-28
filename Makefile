@@ -83,7 +83,7 @@ docs-assets: $(DOCS_ASSETS_STAMP)
 
 .PHONY: podman-grafana-configmaps
 podman-grafana-configmaps:
-	go run ./deploy/podman/cmd/generate-grafana-configmaps -o deploy/podman/grafana-configmaps.gen.yaml
+	GO="$(GO)" $(MAGE) podmanGrafanaConfigmaps
 
 .PHONY: build-container
 build-container:
@@ -581,12 +581,12 @@ vulncheck:
 	GOVULNCHECK_VERSION="$(GOVULNCHECK_VERSION)" GO="$(GO)" $(MAGE) vulncheck
 
 .PHONY: perf
-perf: $(PERF_BIN)
-	$(PERF_BIN) $(SUITE) $(PERF_ARGS)
+perf:
+	SUITE="$(SUITE)" PERF_ARGS="$(PERF_ARGS)" PERF_BIN="$(PERF_BIN)" CGO_ENABLED="$(CGO_ENABLED)" BUILD_OPTS="$(BUILD_OPTS)" GO="$(GO)" $(MAGE) perf
 
 .PHONY: perf-compare
-perf-compare: $(PERF_BIN)
-	$(PERF_BIN) compare --baseline "$(BASELINE)" --current "$(CURRENT)"
+perf-compare:
+	BASELINE="$(BASELINE)" CURRENT="$(CURRENT)" PERF_BIN="$(PERF_BIN)" CGO_ENABLED="$(CGO_ENABLED)" BUILD_OPTS="$(BUILD_OPTS)" GO="$(GO)" $(MAGE) perfCompare
 
 $(PERF_BIN): $(PERF_SOURCES) | $(OUT_DIR)
 	CGO_ENABLED=${CGO_ENABLED} $(GO) build ${BUILD_OPTS} -o ${@} ./scripts/perf

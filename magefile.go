@@ -114,6 +114,11 @@ func BuildContainer() error {
 	})
 }
 
+// PodmanGrafanaConfigmaps regenerates Podman Grafana configmaps.
+func PodmanGrafanaConfigmaps() error {
+	return run("", nil, goCommand(), "run", "./deploy/podman/cmd/generate-grafana-configmaps", "-o", filepath.Join("deploy", "podman", "grafana-configmaps.gen.yaml"))
+}
+
 // DeployArtifactsRender renders Linux deployment artifacts.
 func DeployArtifactsRender() error {
 	out := envDefault("DEPLOY_LINUX_OUT", filepath.Join("artifacts", "deploy", "linux"))
@@ -196,6 +201,27 @@ func Lint() error {
 // LintAPIRoutes runs the API route security lint.
 func LintAPIRoutes() error {
 	return run("", nil, goCommand(), "run", "./tools/vectis-lint", "./internal/api")
+}
+
+// Perf runs a benchmark suite through the perf helper.
+func Perf() error {
+	bin, err := buildPerf()
+	if err != nil {
+		return err
+	}
+
+	args := append([]string{envDefault("SUITE", "queue")}, strings.Fields(os.Getenv("PERF_ARGS"))...)
+	return run("", nil, bin, args...)
+}
+
+// PerfCompare compares two perf result files.
+func PerfCompare() error {
+	bin, err := buildPerf()
+	if err != nil {
+		return err
+	}
+
+	return run("", nil, bin, "compare", "--baseline", os.Getenv("BASELINE"), "--current", os.Getenv("CURRENT"))
 }
 
 // ReleaseReadinessReport runs release readiness checks.
@@ -303,6 +329,25 @@ func TestQuick() error {
 // TestRace runs the Go race detector suite.
 func TestRace() error {
 	return run("", nil, goCommand(), "test", "-race", "./...")
+}
+
+func buildPerf() (string, error) {
+	bin := os.Getenv("PERF_BIN")
+	if bin == "" {
+		bin = filepath.Join(envDefault("OUT_DIR", "bin"), "vectis-perf"+hostExecutableExt())
+	}
+
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		return "", err
+	}
+
+	args := append([]string{"build"}, strings.Fields(os.Getenv("BUILD_OPTS"))...)
+	args = append(args, "-o", bin, "./scripts/perf")
+	if err := run("", map[string]string{"CGO_ENABLED": envDefault("CGO_ENABLED", "1")}, goCommand(), args...); err != nil {
+		return "", err
+	}
+
+	return bin, nil
 }
 
 func buildDocsAssets() error {
