@@ -67,7 +67,8 @@ $(NON_DOC_BINARIES): $(OUT_DIR)/vectis-%: $(CMD) $(API) $(INTERNAL) | $(OUT_DIR)
 	CGO_ENABLED=${CGO_ENABLED} go build ${BUILD_OPTS} -ldflags '${LDFLAGS}' -o ${@} ./cmd/${*}
 
 .PHONY: build
-build: $(BINARIES)
+build:
+	SKIP_WEB_BUILD="$(SKIP_WEB_BUILD)" SKIP_DOCS_ASSETS="$(SKIP_DOCS_ASSETS)" OUT_DIR="$(OUT_DIR)" CGO_ENABLED="$(CGO_ENABLED)" BUILD_OPTS="$(BUILD_OPTS)" GO="$(GO)" $(MAGE) build
 
 $(DOCS_ASSETS_STAMP): $(WEBSITE_SOURCES)
 	cd website && npm ci

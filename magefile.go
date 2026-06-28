@@ -34,6 +34,13 @@ var appNames = []string{
 	"worker-core",
 }
 
+type buildConfig struct {
+	args      []string
+	cgo       string
+	strip     bool
+	outputExt string
+}
+
 // Doctor runs the native development environment preflight.
 func Doctor() error {
 	args := strings.Fields(os.Getenv("VECTIS_DOCTOR_ARGS"))
@@ -89,8 +96,25 @@ func Proto() error {
 	return run("", nil, envDefault("PROTOC", "protoc"), args...)
 }
 
+// Build builds the default local binaries.
+func Build() error {
+	return buildBinaries(buildConfig{
+		args:      strings.Fields(os.Getenv("BUILD_OPTS")),
+		cgo:       envDefault("CGO_ENABLED", "1"),
+		outputExt: hostExecutableExt(),
+	})
+}
+
 // BuildContainer builds the container-profile binaries with nosqlite tags.
 func BuildContainer() error {
+	return buildBinaries(buildConfig{
+		args:  []string{"-tags=nosqlite"},
+		cgo:   "0",
+		strip: true,
+	})
+}
+
+func buildBinaries(cfg buildConfig) error {
 	apps := append([]string(nil), appNames...)
 	if !truthy(os.Getenv("SKIP_WEB_BUILD")) {
 		if !truthy(os.Getenv("SKIP_DOCS_ASSETS")) {
@@ -107,12 +131,13 @@ func BuildContainer() error {
 		return err
 	}
 
-	ldflags := buildLDFlags(true)
+	ldflags := buildLDFlags(cfg.strip)
 	for _, app := range apps {
-		out := filepath.Join(outDir, "vectis-"+app)
+		out := filepath.Join(outDir, "vectis-"+app+cfg.outputExt)
 		pkg := "./" + filepath.ToSlash(filepath.Join("cmd", app))
-		args := []string{"build", "-tags=nosqlite", "-ldflags", ldflags, "-o", out, pkg}
-		if err := run("", map[string]string{"CGO_ENABLED": "0"}, goCommand(), args...); err != nil {
+		args := append([]string{"build"}, cfg.args...)
+		args = append(args, "-ldflags", ldflags, "-o", out, pkg)
+		if err := run("", map[string]string{"CGO_ENABLED": cfg.cgo}, goCommand(), args...); err != nil {
 			return err
 		}
 	}
@@ -300,6 +325,14 @@ func exeName(name string) string {
 	}
 
 	return name
+}
+
+func hostExecutableExt() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+
+	return ""
 }
 
 func envDefault(name, fallback string) string {
