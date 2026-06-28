@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"net/url"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -257,6 +258,64 @@ func TestOpenDB_SqliteEnforcesForeignKeys(t *testing.T) {
 
 	if childRows != 0 {
 		t.Fatalf("child rows after parent delete = %d, want 0", childRows)
+	}
+}
+
+func TestOpenDB_SqliteCreatesPrivateDatabaseFile(t *testing.T) {
+	t.Setenv(EnvDatabaseDriver, "sqlite3")
+
+	path := filepath.Join(t.TempDir(), "data", "vectis.db")
+	db, err := OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		t.Fatalf("ping sqlite database: %v", err)
+	}
+
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat sqlite data dir: %v", err)
+	}
+
+	if got := dirInfo.Mode().Perm(); got != sqliteDataDirPerm {
+		t.Fatalf("sqlite data dir permissions = %o, want %o", got, sqliteDataDirPerm)
+	}
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat sqlite database file: %v", err)
+	}
+
+	if got := fileInfo.Mode().Perm(); got != sqliteDataFilePerm {
+		t.Fatalf("sqlite database file permissions = %o, want %o", got, sqliteDataFilePerm)
+	}
+}
+
+func TestSQLiteFilesystemPath(t *testing.T) {
+	tests := []struct {
+		name string
+		dsn  string
+		want string
+		ok   bool
+	}{
+		{name: "plain path", dsn: "/tmp/vectis.db", want: "/tmp/vectis.db", ok: true},
+		{name: "file URI path", dsn: "file:/tmp/vectis.db?cache=shared", want: "/tmp/vectis.db", ok: true},
+		{name: "file URI localhost", dsn: "file://localhost/tmp/vectis.db?cache=shared", want: "/tmp/vectis.db", ok: true},
+		{name: "memory database", dsn: ":memory:", ok: false},
+		{name: "file memory database", dsn: "file:memdb1?mode=memory&cache=shared", ok: false},
+		{name: "remote file URI", dsn: "file://example.test/tmp/vectis.db", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := sqliteFilesystemPath(tt.dsn)
+			if ok != tt.ok || got != tt.want {
+				t.Fatalf("sqliteFilesystemPath(%q) = (%q, %v), want (%q, %v)", tt.dsn, got, ok, tt.want, tt.ok)
+			}
+		})
 	}
 }
 

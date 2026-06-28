@@ -35,6 +35,8 @@ const (
 	schemaWaitPollInterval = 750 * time.Millisecond
 
 	sqliteBusyTimeoutMillis = 10000
+	sqliteDataDirPerm       = 0o700
+	sqliteDataFilePerm      = 0o600
 )
 
 type Role string
@@ -85,9 +87,8 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	driver := EffectiveDBDriver()
 	switch driver {
 	case "sqlite3":
-		dir := filepath.Dir(dbPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create data directory: %w", err)
+		if err := prepareSQLiteDataFile(dbPath); err != nil {
+			return nil, err
 		}
 
 		dbPath = sqliteDSNWithDefaults(dbPath)
@@ -177,6 +178,78 @@ func sqliteDSNWithDefaults(dsn string) string {
 	return sqliteDSNWithParam(dsn, "_txlock", "immediate")
 }
 
+func prepareSQLiteDataFile(dsn string) error {
+	path, ok := sqliteFilesystemPath(dsn)
+	if !ok {
+		return nil
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, sqliteDataDirPerm); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	mode := sqliteDSNMode(dsn)
+	if mode == "ro" || mode == "rw" {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("failed to inspect sqlite database file: %w", err)
+		}
+		return chmodSQLiteDataFile(path)
+	}
+
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, sqliteDataFilePerm)
+	if err != nil {
+		return fmt.Errorf("failed to create sqlite database file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("failed to close sqlite database file: %w", err)
+	}
+
+	return chmodSQLiteDataFile(path)
+}
+
+func chmodSQLiteDataFile(path string) error {
+	if err := os.Chmod(path, sqliteDataFilePerm); err != nil {
+		return fmt.Errorf("failed to set sqlite database file permissions: %w", err)
+	}
+
+	return nil
+}
+
+func sqliteFilesystemPath(dsn string) (string, bool) {
+	raw := strings.TrimSpace(dsn)
+	if raw == "" || raw == ":memory:" || sqliteDSNMode(raw) == "memory" {
+		return "", false
+	}
+
+	path, _, _ := strings.Cut(raw, "?")
+	if !strings.HasPrefix(path, "file:") {
+		return path, true
+	}
+
+	rest := strings.TrimPrefix(path, "file:")
+	if rest == "" || rest == ":memory:" {
+		return "", false
+	}
+
+	if !strings.HasPrefix(rest, "//") {
+		return rest, true
+	}
+
+	parsed, err := url.Parse(path)
+	if err != nil || parsed.Path == "" {
+		return "", false
+	}
+	if parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost") {
+		return "", false
+	}
+
+	return parsed.Path, true
+}
+
 func sqliteDSNWithParam(dsn, key, value string) string {
 	if sqliteDSNHasParam(dsn, key) {
 		return dsn
@@ -220,6 +293,27 @@ func sqliteDSNHasParam(dsn, key string) bool {
 	}
 
 	return false
+}
+
+func sqliteDSNMode(dsn string) string {
+	_, rawQuery, ok := strings.Cut(dsn, "?")
+	if !ok {
+		return ""
+	}
+
+	values, err := url.ParseQuery(rawQuery)
+	if err == nil {
+		return strings.ToLower(strings.TrimSpace(values.Get("mode")))
+	}
+
+	for part := range strings.SplitSeq(rawQuery, "&") {
+		name, value, _ := strings.Cut(part, "=")
+		if name == "mode" {
+			return strings.ToLower(strings.TrimSpace(value))
+		}
+	}
+
+	return ""
 }
 
 func OpenReadyDB(log interfaces.Logger) (*sql.DB, string, error) {

@@ -4,7 +4,7 @@ CREATE TABLE namespaces (
     name TEXT NOT NULL,
     parent_id INTEGER REFERENCES namespaces(id),
     path TEXT UNIQUE NOT NULL,
-    break_inheritance INTEGER NOT NULL DEFAULT 0,
+    break_inheritance INTEGER NOT NULL DEFAULT 0 CHECK (break_inheritance IN (0, 1)),
     home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -23,7 +23,7 @@ CREATE TABLE job_triggers (
     source_override_path TEXT NOT NULL DEFAULT '',
     source_override_reason TEXT NOT NULL DEFAULT '',
     source_override_created_at_unix INTEGER NOT NULL DEFAULT 0,
-    enabled INTEGER NOT NULL DEFAULT 1,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     home_cell TEXT NOT NULL DEFAULT 'local',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -382,15 +382,15 @@ CREATE TABLE source_repositories (
     global_id TEXT UNIQUE,
     repository_id TEXT UNIQUE NOT NULL,
     namespace_id INTEGER NOT NULL DEFAULT 1 REFERENCES namespaces(id),
-    source_kind TEXT NOT NULL,
+    source_kind TEXT NOT NULL CHECK (source_kind IN ('local_checkout')),
     checkout_path TEXT NOT NULL DEFAULT '',
-    checkout_mode TEXT NOT NULL DEFAULT 'external',
-    authoring_mode TEXT NOT NULL DEFAULT 'read_only',
+    checkout_mode TEXT NOT NULL DEFAULT 'external' CHECK (checkout_mode IN ('external', 'managed')),
+    authoring_mode TEXT NOT NULL DEFAULT 'read_only' CHECK (authoring_mode IN ('read_only', 'local_commit', 'external_change_request')),
     canonical_url TEXT NOT NULL DEFAULT '',
     default_ref TEXT NOT NULL DEFAULT '',
     credential_ref TEXT NOT NULL DEFAULT '',
-    enabled INTEGER NOT NULL DEFAULT 1,
-    sync_status TEXT NOT NULL DEFAULT 'never',
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    sync_status TEXT NOT NULL DEFAULT 'never' CHECK (sync_status IN ('never', 'running', 'succeeded', 'failed')),
     last_sync_started_at_unix INTEGER NOT NULL DEFAULT 0,
     last_sync_finished_at_unix INTEGER NOT NULL DEFAULT 0,
     last_sync_ref TEXT NOT NULL DEFAULT '',
@@ -430,7 +430,7 @@ CREATE TABLE local_users (
     global_id TEXT UNIQUE,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -475,7 +475,7 @@ CREATE TABLE role_bindings (
     global_id TEXT UNIQUE,
     local_user_id INTEGER NOT NULL REFERENCES local_users(id) ON DELETE CASCADE,
     namespace_id INTEGER NOT NULL REFERENCES namespaces(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'trigger', 'operator', 'admin')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(local_user_id, namespace_id, role)
 );
@@ -484,9 +484,9 @@ CREATE TABLE api_token_scopes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     global_id TEXT UNIQUE,
     api_token_id INTEGER NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
-    action TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('job:read', 'job:write', 'run:trigger', 'run:read', 'run:operator', 'admin:*', 'catalog:ingest', 'user:admin', 'api:any')),
     namespace_id INTEGER REFERENCES namespaces(id),
-    propagate INTEGER NOT NULL DEFAULT 1,
+    propagate INTEGER NOT NULL DEFAULT 1 CHECK (propagate IN (0, 1)),
     UNIQUE(api_token_id, action, namespace_id)
 );
 

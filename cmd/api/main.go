@@ -50,6 +50,37 @@ func warnIfProcessLocalAPICache(logger interfaces.Logger, backend string, authEn
 	logger.Warn("API auth is enabled with api.cache.backend=memory; login sessions and rate-limit buckets are process-local and will not be shared across API replicas")
 }
 
+func warnIfPublicUnauthenticatedAPI(logger interfaces.Logger, host string, authEnabled bool) {
+	if logger == nil || authEnabled || !apiHostAllowsNonLoopback(host) {
+		return
+	}
+
+	logger.Warn("API auth is disabled while api.host=%q may accept non-loopback connections; this exposes the Vectis control plane on any reachable network", host)
+}
+
+func apiHostAllowsNonLoopback(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return true
+	}
+
+	if splitHost, _, err := net.SplitHostPort(host); err == nil {
+		host = splitHost
+	}
+
+	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
+	if host == "localhost" {
+		return false
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+
+	return !ip.IsLoopback()
+}
+
 func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("api")
 	defer logger.Close()
@@ -119,6 +150,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		exitCode = 1
 		return
 	}
+	warnIfPublicUnauthenticatedAPI(logger, config.APIHost(), config.APIAuthEnabled())
 
 	if err := config.ValidateAPICORSConfig(); err != nil {
 		logger.Error("%v", err)

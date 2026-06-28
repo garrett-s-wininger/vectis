@@ -139,6 +139,28 @@ func TestWarnIfProcessLocalAPICache(t *testing.T) {
 	}
 }
 
+func TestWarnIfPublicUnauthenticatedAPI(t *testing.T) {
+	var buf bytes.Buffer
+	logger := interfaces.NewLogger("api-test").WithOutput(&buf)
+
+	for _, host := range []string{"localhost", "localhost.", "127.0.0.1", "::1", "[::1]"} {
+		warnIfPublicUnauthenticatedAPI(logger, host, false)
+	}
+	warnIfPublicUnauthenticatedAPI(logger, "0.0.0.0", true)
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected warning: %s", buf.String())
+	}
+
+	for _, host := range []string{"", "0.0.0.0", "::", "api.example.test"} {
+		buf.Reset()
+		warnIfPublicUnauthenticatedAPI(logger, host, false)
+		got := buf.String()
+		if !strings.Contains(got, "API auth is disabled") || !strings.Contains(got, "control plane") {
+			t.Fatalf("warning for host %q = %q, want unauthenticated public API warning", host, got)
+		}
+	}
+}
+
 func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

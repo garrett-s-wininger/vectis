@@ -71,6 +71,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
 	assertSQLiteForeignKeyTargetsExist(t, db)
+	assertSQLiteSecurityConstraints(t, db)
 	assertNamespaceExists(t, db, "/ephemeral")
 
 	if err := migrations.Down(db, "sqlite3"); err != nil {
@@ -109,6 +110,48 @@ func assertNamespaceExists(t *testing.T, db *sql.DB, path string) {
 
 	if count != 1 {
 		t.Fatalf("expected namespace %s to exist once, got %d", path, count)
+	}
+}
+
+func assertSQLiteSecurityConstraints(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO namespaces (name, parent_id, path, break_inheritance) VALUES (?, ?, ?, ?)`, "bad-bool", 1, "/bad-bool", 2)
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO job_triggers (job_id, trigger_type, enabled) VALUES (?, ?, ?)`, "job-bad-enabled", "manual", 2)
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)`, "bad-enabled", "hash", 2)
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path) VALUES (?, ?, ?)`, "bad-kind", "remote_git", "/work/bad-kind")
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, checkout_mode) VALUES (?, ?, ?, ?)`, "bad-checkout", "local_checkout", "/work/bad-checkout", "magic")
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, authoring_mode) VALUES (?, ?, ?, ?)`, "bad-authoring", "local_checkout", "/work/bad-authoring", "magic")
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, enabled) VALUES (?, ?, ?, ?)`, "bad-source-enabled", "local_checkout", "/work/bad-source-enabled", 2)
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO source_repositories (repository_id, source_kind, checkout_path, sync_status) VALUES (?, ?, ?, ?)`, "bad-sync-status", "local_checkout", "/work/bad-sync-status", "magic")
+
+	res, err := db.Exec(`INSERT INTO local_users (username, password_hash) VALUES (?, ?)`, "constraint-user", "hash")
+	if err != nil {
+		t.Fatalf("insert constraint user: %v", err)
+	}
+	userID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("constraint user id: %v", err)
+	}
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`, userID, 1, "owner")
+
+	res, err = db.Exec(`INSERT INTO api_tokens (local_user_id, token_hash) VALUES (?, ?)`, userID, "constraint-token")
+	if err != nil {
+		t.Fatalf("insert constraint token: %v", err)
+	}
+	tokenID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("constraint token id: %v", err)
+	}
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO api_token_scopes (api_token_id, action) VALUES (?, ?)`, tokenID, "setup:complete")
+	assertSQLiteConstraintRejects(t, db, `INSERT INTO api_token_scopes (api_token_id, action, propagate) VALUES (?, ?, ?)`, tokenID, "job:read", 2)
+}
+
+func assertSQLiteConstraintRejects(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+
+	if _, err := db.Exec(query, args...); err == nil {
+		t.Fatalf("query unexpectedly satisfied security constraint: %s", query)
 	}
 }
 
