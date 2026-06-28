@@ -570,15 +570,15 @@ GO_MOD_GO_VERSION := $(shell awk '/^go /{print $$2; exit}' go.mod)
 
 .PHONY: lint-api-routes
 lint-api-routes:
-	go run ./tools/vectis-lint ./internal/api
+	GO="$(GO)" $(MAGE) lintAPIRoutes
 
 .PHONY: lint
-lint: lint-api-routes
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+lint:
+	GOLANGCI_LINT_VERSION="$(GOLANGCI_LINT_VERSION)" GO="$(GO)" $(MAGE) lint
 
 .PHONY: vulncheck
 vulncheck:
-	GOTOOLCHAIN=go$(GO_MOD_GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	GOVULNCHECK_VERSION="$(GOVULNCHECK_VERSION)" GO="$(GO)" $(MAGE) vulncheck
 
 .PHONY: perf
 perf: $(PERF_BIN)
@@ -595,9 +595,7 @@ FUZZTIME ?= 30s
 
 .PHONY: fuzz-api-auth
 fuzz-api-auth:
-	go test -fuzz=FuzzBearerToken -fuzztime=$(FUZZTIME) ./internal/api
-	go test -fuzz=FuzzHashAPIToken -fuzztime=$(FUZZTIME) ./internal/api
-	go test -fuzz=FuzzActionForRequest -fuzztime=$(FUZZTIME) ./internal/api/authz
+	FUZZTIME="$(FUZZTIME)" GO="$(GO)" $(MAGE) fuzzAPIAuth
 
 .PHONY: clean
 clean:

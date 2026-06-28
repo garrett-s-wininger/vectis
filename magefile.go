@@ -169,6 +169,35 @@ func Format() error {
 	return run("", nil, goCommand(), "mod", "tidy")
 }
 
+// FuzzAPIAuth runs the API auth fuzz targets.
+func FuzzAPIAuth() error {
+	fuzztime := envDefault("FUZZTIME", "30s")
+	if err := run("", nil, goCommand(), "test", "-fuzz=FuzzBearerToken", "-fuzztime="+fuzztime, "./internal/api"); err != nil {
+		return err
+	}
+
+	if err := run("", nil, goCommand(), "test", "-fuzz=FuzzHashAPIToken", "-fuzztime="+fuzztime, "./internal/api"); err != nil {
+		return err
+	}
+
+	return run("", nil, goCommand(), "test", "-fuzz=FuzzActionForRequest", "-fuzztime="+fuzztime, "./internal/api/authz")
+}
+
+// Lint runs route and Go static analysis checks.
+func Lint() error {
+	if err := LintAPIRoutes(); err != nil {
+		return err
+	}
+
+	version := envDefault("GOLANGCI_LINT_VERSION", "v2.6.1")
+	return run("", nil, goCommand(), "run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"+version, "run", "./...")
+}
+
+// LintAPIRoutes runs the API route security lint.
+func LintAPIRoutes() error {
+	return run("", nil, goCommand(), "run", "./tools/vectis-lint", "./internal/api")
+}
+
 // ReleaseReadinessReport runs release readiness checks.
 func ReleaseReadinessReport() error {
 	args := []string{"run", "./tools/release-readiness", "--profile", envDefault("RELEASE_READINESS_PROFILE", "local")}
@@ -177,6 +206,16 @@ func ReleaseReadinessReport() error {
 	}
 	args = append(args, strings.Fields(os.Getenv("RELEASE_READINESS_ARGS"))...)
 	return run("", nil, goCommand(), args...)
+}
+
+// Vulncheck runs govulncheck with the module's declared Go toolchain.
+func Vulncheck() error {
+	env := map[string]string{
+		"GOTOOLCHAIN": "go" + goModGoVersion(),
+	}
+
+	version := envDefault("GOVULNCHECK_VERSION", "v1.1.4")
+	return run("", env, goCommand(), "run", "golang.org/x/vuln/cmd/govulncheck@"+version, "./...")
 }
 
 // Test runs the full Go test suite.
@@ -406,6 +445,24 @@ func goEnv(name string) string {
 	}
 
 	return strings.TrimSpace(string(out))
+}
+
+func goModGoVersion() string {
+	data, err := os.ReadFile("go.mod")
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) == 2 && fields[0] == "go" {
+				return fields[1]
+			}
+		}
+	}
+
+	if version := strings.TrimPrefix(goEnv("GOVERSION"), "go"); version != "" {
+		return version
+	}
+
+	return "1.25.10"
 }
 
 func goCommand() string {
