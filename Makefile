@@ -117,7 +117,7 @@ test:
 
 .PHONY: test-integration
 test-integration:
-	go test -tags=integration ./...
+	GO="$(GO)" $(MAGE) testIntegration
 
 .PHONY: test-lima
 test-lima:
@@ -133,11 +133,11 @@ test-e2e-deploy-linux:
 
 .PHONY: test-postgres-integration
 test-postgres-integration:
-	go test -tags=integration ./tests/integration/postgres
+	GO="$(GO)" $(MAGE) testPostgresIntegration
 
 .PHONY: test-race
 test-race:
-	go test -race ./...
+	GO="$(GO)" $(MAGE) testRace
 
 .PHONY: test-quick
 test-quick:

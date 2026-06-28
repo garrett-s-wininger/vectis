@@ -163,6 +163,16 @@ func Test() error {
 	return run("", nil, goCommand(), "test", "./...")
 }
 
+// TestIntegration runs the integration-tagged Go test suite.
+func TestIntegration() error {
+	return run("", nil, goCommand(), "test", "-tags=integration", "./...")
+}
+
+// TestPostgresIntegration runs the Postgres integration tests.
+func TestPostgresIntegration() error {
+	return run("", nil, goCommand(), "test", "-tags=integration", "./tests/integration/postgres")
+}
+
 // TestQuick runs the fast feedback test set.
 func TestQuick() error {
 	args := []string{
@@ -178,6 +188,11 @@ func TestQuick() error {
 	}
 
 	return run("", nil, goCommand(), args...)
+}
+
+// TestRace runs the Go race detector suite.
+func TestRace() error {
+	return run("", nil, goCommand(), "test", "-race", "./...")
 }
 
 func buildDocsAssets() error {
