@@ -3029,15 +3029,82 @@ func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context,
 		ref = "HEAD"
 	}
 
-	hydrator := s.sourceRefHydrator
-	if hydrator != nil {
-		return hydrator(ctx, rec, ref).ErrorCode == ""
+	return s.hydrateSourceRepositoryRef(ctx, rec, ref).ErrorCode == ""
+}
+
+func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+	key := sourceRefHydrationKey(rec.RepositoryID, ref)
+	if key == "" {
+		return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref)
+	}
+
+	s.sourceRefHydrationMu.Lock()
+	if s.sourceRefHydration == nil {
+		s.sourceRefHydration = make(map[string]*sourceRefHydrationCall)
+	}
+
+	if call, ok := s.sourceRefHydration[key]; ok {
+		done := call.done
+		s.sourceRefHydrationMu.Unlock()
+
+		select {
+		case <-done:
+			return call.status
+		case <-ctx.Done():
+			return sourcepkg.GitCheckoutStatus{
+				CheckoutPath: rec.CheckoutPath,
+				DefaultRef:   ref,
+				ErrorCode:    sourceHydrationContextErrorCode(ctx.Err()),
+				ErrorMessage: ctx.Err().Error(),
+			}
+		}
+	}
+
+	call := &sourceRefHydrationCall{done: make(chan struct{})}
+	s.sourceRefHydration[key] = call
+	s.sourceRefHydrationMu.Unlock()
+
+	call.status = s.hydrateSourceRepositoryRefDirect(ctx, rec, ref)
+
+	s.sourceRefHydrationMu.Lock()
+	delete(s.sourceRefHydration, key)
+	close(call.done)
+	s.sourceRefHydrationMu.Unlock()
+
+	return call.status
+}
+
+func (s *APIServer) hydrateSourceRepositoryRefDirect(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+	if hydrator := s.sourceRefHydrator; hydrator != nil {
+		return hydrator(ctx, rec, ref)
 	}
 
 	return sourcepkg.HydrateManagedGitRef(ctx, sourcepkg.ManagedGitRefHydrationRequest{
 		CheckoutPath: rec.CheckoutPath,
 		Ref:          ref,
-	}).ErrorCode == ""
+	})
+}
+
+func sourceRefHydrationKey(repositoryID, ref string) string {
+	repositoryID = strings.TrimSpace(repositoryID)
+	ref = strings.TrimSpace(ref)
+	if repositoryID == "" || ref == "" {
+		return ""
+	}
+
+	return repositoryID + "\x00" + ref
+}
+
+func sourceHydrationContextErrorCode(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "context_deadline_exceeded"
+	}
+
+	if errors.Is(err, context.Canceled) {
+		return "context_canceled"
+	}
+
+	return "context_error"
 }
 
 func validSourceCheckoutMode(mode string) bool {

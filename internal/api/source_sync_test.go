@@ -163,6 +163,81 @@ func TestAPIServer_SyncSourceRepositoryReturnsRunningForDuplicate(t *testing.T) 
 	}
 }
 
+func TestAPIServer_SourceRefHydrationSingleflightsDuplicate(t *testing.T) {
+	server := &APIServer{}
+	rec := dal.SourceRepositoryRecord{
+		RepositoryID: "managed-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutMode: dal.SourceCheckoutModeManaged,
+		CheckoutPath: filepath.Join(t.TempDir(), "managed"),
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	var calls atomic.Int32
+
+	server.sourceRefHydrator = func(_ context.Context, got dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+		if got.RepositoryID != rec.RepositoryID || ref != "feature/on-demand" {
+			t.Errorf("hydrator input mismatch: rec=%+v ref=%q", got, ref)
+		}
+
+		calls.Add(1)
+		startedOnce.Do(func() { close(started) })
+		<-release
+
+		return sourcepkg.GitCheckoutStatus{
+			CheckoutPath:       got.CheckoutPath,
+			DefaultRef:         ref,
+			GitRepository:      true,
+			DefaultRefResolved: true,
+			ResolvedCommit:     "0123456789abcdef0123456789abcdef01234567",
+		}
+	}
+
+	firstDone := make(chan bool, 1)
+	go func() {
+		firstDone <- server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first hydration to start")
+	}
+
+	secondDone := make(chan bool, 1)
+	go func() {
+		secondDone <- server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+	}()
+
+	select {
+	case <-secondDone:
+		close(release)
+		t.Fatal("duplicate hydration completed before leader released")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	if got := calls.Load(); got != 1 {
+		close(release)
+		t.Fatalf("hydrator calls while leader running: got %d, want 1", got)
+	}
+
+	close(release)
+
+	if ok := <-firstDone; !ok {
+		t.Fatal("first hydration did not report success")
+	}
+
+	if ok := <-secondDone; !ok {
+		t.Fatal("duplicate hydration did not report shared success")
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("hydrator calls after duplicate completed: got %d, want 1", got)
+	}
+}
+
 func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 

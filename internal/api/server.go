@@ -69,6 +69,11 @@ type orchestratorOwnerClientResolverHolder struct {
 	resolve func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (api.OrchestratorServiceClient, bool, error)
 }
 
+type sourceRefHydrationCall struct {
+	done   chan struct{}
+	status sourcepkg.GitCheckoutStatus
+}
+
 type logReaderClient interface {
 	GetLogs(ctx context.Context, in *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error)
 }
@@ -141,6 +146,8 @@ type APIServer struct {
 	sourceSyncRunning        map[string]struct{}
 	sourceSyncCheckoutStatus func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
 	sourceRefHydrator        func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrationMu     sync.Mutex
+	sourceRefHydration       map[string]*sourceRefHydrationCall
 	sourceDefinitionAuthor   SourceDefinitionAuthorFactory
 	sourceAuthoring          SourceAuthoringCapabilityResolver
 	srvCtx                   atomic.Pointer[ctxHolder]
