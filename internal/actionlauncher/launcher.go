@@ -1,6 +1,10 @@
 package actionlauncher
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +14,8 @@ import (
 )
 
 const modeArg = "__vectis_action_launcher_v1__"
+const launcherAuthEnv = "VECTIS_ACTION_LAUNCHER_TOKEN"
+const launcherAuthTokenBytes = 32
 
 // LaunchSpec is the declarative contract between worker executors and the
 // action launcher. Platform-specific setup options should be added here instead
@@ -36,7 +42,7 @@ func MaybeRun() {
 		return
 	}
 
-	os.Exit(Run(os.Args[2:], os.Stderr))
+	os.Exit(runLauncherMode(os.Args[2:], os.Stderr))
 }
 
 func Command(spec LaunchSpec) (PreparedCommand, error) {
@@ -53,11 +59,16 @@ func Command(spec LaunchSpec) (PreparedCommand, error) {
 		Path:    target,
 		Args:    append([]string(nil), spec.Args...),
 		WorkDir: spec.WorkDir,
-		Env:     append([]string{}, spec.Env...),
+		Env:     stripLauncherAuthEnv(spec.Env),
 	}
 
 	if !enabled {
 		return prepared, nil
+	}
+
+	token, err := newLauncherAuthToken()
+	if err != nil {
+		return PreparedCommand{}, fmt.Errorf("generate action launcher token: %w", err)
 	}
 
 	exe, err := os.Executable()
@@ -65,16 +76,35 @@ func Command(spec LaunchSpec) (PreparedCommand, error) {
 		return PreparedCommand{}, fmt.Errorf("resolve action launcher executable: %w", err)
 	}
 
-	launcherArgs := make([]string, 0, len(spec.Args)+2)
-	launcherArgs = append(launcherArgs, modeArg, target)
+	launcherArgs := make([]string, 0, len(spec.Args)+3)
+	launcherArgs = append(launcherArgs, modeArg, token, target)
 	launcherArgs = append(launcherArgs, spec.Args...)
 	prepared.Path = exe
 	prepared.Args = launcherArgs
+	prepared.Env = append(prepared.Env, launcherAuthEnv+"="+token)
 
 	return prepared, nil
 }
 
 func Run(args []string, stderr io.Writer) int {
+	return runTarget(args, stripLauncherAuthEnv(os.Environ()), stderr)
+}
+
+func runLauncherMode(args []string, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "vectis action launcher: authorization token is required")
+		return 126
+	}
+
+	if err := authenticateLauncherMode(args[0], os.Getenv(launcherAuthEnv)); err != nil {
+		fmt.Fprintf(stderr, "vectis action launcher: unauthorized launcher mode: %v\n", err)
+		return 126
+	}
+
+	return runTarget(args[1:], stripLauncherAuthEnv(os.Environ()), stderr)
+}
+
+func runTarget(args []string, env []string, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "vectis action launcher: command path is required")
 		return 127
@@ -102,10 +132,45 @@ func Run(args []string, stderr io.Writer) int {
 	}
 
 	argv := append([]string{target}, args[1:]...)
-	if err := execTarget(target, argv, os.Environ()); err != nil {
+	if err := execTarget(target, argv, env); err != nil {
 		fmt.Fprintf(stderr, "vectis action launcher: exec %q: %v\n", target, err)
 		return 127
 	}
 
 	return 0
+}
+
+func newLauncherAuthToken() (string, error) {
+	var token [launcherAuthTokenBytes]byte
+	if _, err := io.ReadFull(rand.Reader, token[:]); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(token[:]), nil
+}
+
+func authenticateLauncherMode(argToken, envToken string) error {
+	if argToken == "" || envToken == "" {
+		return errors.New("missing token")
+	}
+
+	if subtle.ConstantTimeCompare([]byte(argToken), []byte(envToken)) != 1 {
+		return errors.New("token mismatch")
+	}
+
+	return nil
+}
+
+func stripLauncherAuthEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	prefix := launcherAuthEnv + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+
+		out = append(out, entry)
+	}
+
+	return out
 }

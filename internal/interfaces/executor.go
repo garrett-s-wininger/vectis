@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"vectis/internal/actionlauncher"
@@ -29,11 +30,18 @@ func init() {
 	actionlauncher.MaybeRun()
 }
 
-// StartProcess starts cmd with worker-safe process defaults and adapts it to
+// StartProviderProcess adapts provider wrapper commands to the Process
+// interface. Host worker action code should use ExecExecutor so it flows
+// through the action launcher contract.
+func StartProviderProcess(cmd *exec.Cmd) (Process, error) {
+	return startProcess(cmd)
+}
+
+// startProcess starts cmd with worker-safe process defaults and adapts it to
 // the Process interface. A nil Stdin intentionally lets os/exec connect the
 // child to the null device, and ExtraFiles are inherited only when the caller
 // explicitly configured them.
-func StartProcess(cmd *exec.Cmd) (Process, error) {
+func startProcess(cmd *exec.Cmd) (Process, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -82,8 +90,9 @@ func (e *OSExecutor) Start(ctx context.Context, command string, workDir string, 
 }
 
 func startExecProcess(ctx context.Context, path string, args []string, workDir string, env []string) (Process, error) {
-	if strings.TrimSpace(workDir) == "" {
-		return nil, fmt.Errorf("work directory is required")
+	secureWorkDir, err := secureLaunchWorkDir(workDir)
+	if err != nil {
+		return nil, err
 	}
 
 	resolvedPath, err := resolveExecutablePath(path)
@@ -94,7 +103,7 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 	launcherCommand, err := actionlauncher.Command(actionlauncher.LaunchSpec{
 		Path:    resolvedPath,
 		Args:    args,
-		WorkDir: workDir,
+		WorkDir: secureWorkDir,
 		Env:     env,
 	})
 
@@ -105,7 +114,7 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 	cmd := exec.CommandContext(ctx, launcherCommand.Path, launcherCommand.Args...)
 	cmd.Dir = launcherCommand.WorkDir
 	cmd.Env = launcherCommand.Env
-	return StartProcess(cmd)
+	return startProcess(cmd)
 }
 
 func resolveExecutablePath(path string) (string, error) {
@@ -123,6 +132,46 @@ func resolveExecutablePath(path string) (string, error) {
 	}
 
 	return resolved, nil
+}
+
+func secureLaunchWorkDir(workDir string) (string, error) {
+	if strings.TrimSpace(workDir) == "" {
+		return "", fmt.Errorf("work directory is required")
+	}
+
+	info, err := os.Lstat(workDir)
+	if err != nil {
+		return "", fmt.Errorf("stat work directory: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("work directory must not be a symlink")
+	}
+
+	if !info.IsDir() {
+		return "", fmt.Errorf("work directory is not a directory")
+	}
+
+	absWorkDir, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve work directory: %w", err)
+	}
+
+	realWorkDir, err := filepath.EvalSymlinks(absWorkDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve real work directory: %w", err)
+	}
+
+	info, err = os.Stat(realWorkDir)
+	if err != nil {
+		return "", fmt.Errorf("stat real work directory: %w", err)
+	}
+
+	if !info.IsDir() {
+		return "", fmt.Errorf("real work directory is not a directory")
+	}
+
+	return realWorkDir, nil
 }
 
 type osProcess struct {

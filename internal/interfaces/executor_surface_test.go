@@ -50,7 +50,52 @@ func TestWorkerExecutionPackagesDoNotBypassHardenedExecutor(t *testing.T) {
 	}
 
 	if len(violations) > 0 {
-		t.Fatalf("process-launching worker code must use interfaces.ExecExecutor/StartProcess, found raw os/exec usage:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf("process-launching worker code must use interfaces.ExecExecutor, found raw os/exec usage:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func TestProviderProcessEscapeHatchesAreExplicitlyAllowed(t *testing.T) {
+	root := findRepoRoot(t)
+	checkDirs := []string{
+		"cmd",
+		"internal",
+	}
+	allowed := map[string]map[string]struct{}{
+		"internal/platform/lima_virtual_machine.go": {
+			"StartProviderProcess": {},
+		},
+	}
+
+	var violations []string
+	for _, dir := range checkDirs {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if entry.IsDir() {
+				if entry.Name() == "mocks" {
+					return filepath.SkipDir
+				}
+
+				return nil
+			}
+
+			if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+
+			violations = append(violations, providerProcessEscapeCalls(t, root, path, allowed)...)
+			return nil
+		})
+
+		if err != nil {
+			t.Fatalf("scan %s: %v", dir, err)
+		}
+	}
+
+	if len(violations) > 0 {
+		t.Fatalf("provider process launch escape hatches must be explicitly allowlisted:\n%s", strings.Join(violations, "\n"))
 	}
 }
 
@@ -131,6 +176,55 @@ func rawExecCalls(t *testing.T, root, path string) []string {
 	return violations
 }
 
+func providerProcessEscapeCalls(t *testing.T, root, path string, allowed map[string]map[string]struct{}) []string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		rel = path
+	}
+
+	var violations []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		name := calledFunctionName(call.Fun)
+		if name != "StartProcess" && name != "StartProviderProcess" {
+			return true
+		}
+
+		if isAllowedProcessEscape(rel, name, allowed) {
+			return true
+		}
+
+		pos := fset.Position(call.Pos())
+		violations = append(violations, rel+":"+strconv.Itoa(pos.Line)+": "+name)
+		return true
+	})
+
+	return violations
+}
+
+func calledFunctionName(expr ast.Expr) string {
+	switch expr := expr.(type) {
+	case *ast.Ident:
+		return expr.Name
+	case *ast.SelectorExpr:
+		return expr.Sel.Name
+	default:
+		return ""
+	}
+}
+
 func isAllowedWorkerExecSelector(rel, selector string) bool {
 	allowed, ok := allowedWorkerExecSelectors[rel]
 	if !ok {
@@ -138,6 +232,16 @@ func isAllowedWorkerExecSelector(rel, selector string) bool {
 	}
 
 	_, ok = allowed[selector]
+	return ok
+}
+
+func isAllowedProcessEscape(rel, name string, allowed map[string]map[string]struct{}) bool {
+	allowedNames, ok := allowed[rel]
+	if !ok {
+		return false
+	}
+
+	_, ok = allowedNames[name]
 	return ok
 }
 

@@ -188,7 +188,7 @@ func (e *limaVirtualMachine) StartCommand(ctx context.Context, command VirtualMa
 
 	// #nosec G204 -- limactl path and guest command are explicit VM execution configuration.
 	cmd := exec.CommandContext(ctx, e.limactlPath, e.commandArgsWithEnv(command.Path, command.Args, command.WorkDir, command.Env)...)
-	return interfaces.StartProcess(cmd)
+	return interfaces.StartProviderProcess(cmd)
 }
 
 func (e *limaVirtualMachine) commandArgs(commandPath string, args []string, workDir string) []string {

@@ -56,6 +56,44 @@ func TestOSExecutorRequiresWorkDir(t *testing.T) {
 	}
 }
 
+func TestDirectExecutorRequiresDirectoryWorkDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use sh")
+	}
+
+	workDir := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(workDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write workdir file: %v", err)
+	}
+
+	_, err := NewDirectExecutor().Start(context.Background(), "sh", []string{"-c", "true"}, workDir, nil)
+	if err == nil || !strings.Contains(err.Error(), "work directory is not a directory") {
+		t.Fatalf("Start error = %v, want non-directory work directory error", err)
+	}
+}
+
+func TestDirectExecutorRejectsSymlinkWorkDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use sh")
+	}
+
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+
+	workDir := filepath.Join(root, "workdir-link")
+	if err := os.Symlink(target, workDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	_, err := NewDirectExecutor().Start(context.Background(), "sh", []string{"-c", "true"}, workDir, nil)
+	if err == nil || !strings.Contains(err.Error(), "work directory must not be a symlink") {
+		t.Fatalf("Start error = %v, want symlink work directory error", err)
+	}
+}
+
 func TestDirectExecutorRunsInWorkDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell process tests use sh")

@@ -33,7 +33,7 @@ func TestDirectExecutorLauncherBoundaryContract(t *testing.T) {
 			t.Fatalf("resolve workspace: %v", err)
 		}
 
-		script := `printf 'argv0=%s\narg1=%s\narg2=%s\nvisible=%s\nparent=%s\npwd=%s\n' "$0" "$1" "$2" "$VECTIS_LAUNCHER_VISIBLE" "$VECTIS_LAUNCHER_PARENT_ONLY" "$(pwd -P)"`
+		script := `printf 'argv0=%s\narg1=%s\narg2=%s\nvisible=%s\nparent=%s\nauth=%s\npwd=%s\n' "$0" "$1" "$2" "$VECTIS_LAUNCHER_VISIBLE" "$VECTIS_LAUNCHER_PARENT_ONLY" "$VECTIS_ACTION_LAUNCHER_TOKEN" "$(pwd -P)"`
 		stdout, stderr, err := runContractCommand(t, "sh", []string{"-c", script, "custom-argv0", "arg with spaces", "arg:two"}, workspace, []string{
 			"PATH=" + os.Getenv("PATH"),
 			"VECTIS_LAUNCHER_VISIBLE=ok",
@@ -49,6 +49,7 @@ func TestDirectExecutorLauncherBoundaryContract(t *testing.T) {
 			"arg2=arg:two",
 			"visible=ok",
 			"parent=",
+			"auth=",
 			"pwd=" + resolvedWorkspace,
 		}
 
