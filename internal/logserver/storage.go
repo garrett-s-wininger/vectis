@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"syscall"
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/platform"
 )
 
 var ErrLogStoreReadOnly = errors.New("log storage is read-only for new runs")
@@ -133,14 +133,14 @@ type filesystemStats struct {
 type filesystemStatFunc func(path string) (filesystemStats, error)
 
 func defaultFilesystemStats(path string) (filesystemStats, error) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
+	stats, err := platform.StatFileSystem(path)
+	if err != nil {
 		return filesystemStats{}, err
 	}
 
 	return filesystemStats{
-		freeBytes:  st.Bavail * uint64(st.Bsize),
-		freeInodes: st.Ffree,
+		freeBytes:  stats.FreeBytes,
+		freeInodes: stats.FreeInodes,
 	}, nil
 }
 
@@ -188,9 +188,9 @@ func acquireLogStorageLock(dir string) (*os.File, error) {
 		return nil, fmt.Errorf("open log storage lock %s: %w", lockPath, err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		if platform.IsFileLockUnavailable(err) {
 			return nil, fmt.Errorf("log storage directory %s is already in use by another log process; use a distinct storage directory for each active log shard: %w", dir, err)
 		}
 
@@ -222,7 +222,7 @@ func (s *LocalRunLogStore) Close() error {
 		return result
 	}
 
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil && result == nil {
+	if err := platform.UnlockFile(lockFile); err != nil && result == nil {
 		result = fmt.Errorf("unlock log storage directory %s: %w", s.baseDir, err)
 	}
 

@@ -132,6 +132,30 @@ func hostExecutableExt() string {
 	return ""
 }
 
+func targetExecutableExt() string {
+	if targetGoOS() == "windows" {
+		return ".exe"
+	}
+
+	return ""
+}
+
+func targetGoOS() string {
+	if value := os.Getenv("TARGET_GOOS"); value != "" {
+		return value
+	}
+
+	if value := os.Getenv("GOOS"); value != "" {
+		return value
+	}
+
+	if value := goEnv("GOOS"); value != "" {
+		return value
+	}
+
+	return runtime.GOOS
+}
+
 func envDefault(name, fallback string) string {
 	if value := os.Getenv(name); value != "" {
 		return value

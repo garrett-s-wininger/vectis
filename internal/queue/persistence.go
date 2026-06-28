@@ -3,18 +3,17 @@ package queue
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+	"vectis/internal/platform"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -172,9 +171,9 @@ func acquirePersistenceLock(dir string) (*os.File, error) {
 		return nil, fmt.Errorf("open queue persistence lock %s: %w", lockPath, err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		if platform.IsFileLockUnavailable(err) {
 			return nil, fmt.Errorf("queue persistence directory %s is already in use by another queue process; use a distinct persistence directory for each active queue shard: %w", dir, err)
 		}
 
@@ -193,7 +192,7 @@ func (p *persistenceStore) Close() error {
 	p.lockFile = nil
 
 	var result error
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+	if err := platform.UnlockFile(lockFile); err != nil {
 		result = fmt.Errorf("unlock queue persistence directory %s: %w", p.dir, err)
 	}
 

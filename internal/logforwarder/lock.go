@@ -1,11 +1,11 @@
 package logforwarder
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
+
+	"vectis/internal/platform"
 )
 
 // AcquireLock attempts to acquire an exclusive advisory lock on a file at the
@@ -22,11 +22,12 @@ func AcquireLock(lockPath string) (*os.File, error) {
 		return nil, fmt.Errorf("open lockfile: %w", err)
 	}
 
-	if err := syscall.Flock(int(fd.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := platform.TryLockFileExclusive(fd); err != nil {
 		fd.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
+		if platform.IsFileLockUnavailable(err) {
 			return nil, fmt.Errorf("forwarder already running")
 		}
+
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}
 

@@ -17,9 +17,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
 	"vectis/internal/config"
+	"vectis/internal/platform"
 	secretstore "vectis/internal/secrets"
 	"vectis/internal/serviceidentity"
 	"vectis/internal/utils"
@@ -2269,9 +2270,11 @@ func doctorWorkerWorkspaceFilesystem() doctorCheck {
 
 	evidence.FreeBytes = stats.freeBytes
 	evidence.FreePercent = stats.freePercent
-	evidence.FreeInodes = stats.freeInodes
+	if stats.freeInodesKnown {
+		evidence.FreeInodes = stats.freeInodes
+	}
 
-	if stats.freeBytes < doctorDiskWarnFreeBytes || stats.freeInodes == 0 {
+	if stats.freeBytes < doctorDiskWarnFreeBytes || (stats.freeInodesKnown && stats.freeInodes == 0) {
 		warnings = append(warnings, fmt.Sprintf("workspace filesystem pressure: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent))
 	}
 
@@ -2922,9 +2925,13 @@ func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("cannot inspect filesystem for %s: %v", label, err), Evidence: statPath, SuggestedAction: "Run vectis-cli health check on the host that owns the path", DocLink: doc}
 	}
 
-	evidence := fmt.Sprintf("path=%s stat_path=%s free_bytes=%d free_percent=%d free_inodes=%d", path, statPath, stats.freeBytes, stats.freePercent, stats.freeInodes)
+	freeInodes := "unknown"
+	if stats.freeInodesKnown {
+		freeInodes = strconv.FormatUint(stats.freeInodes, 10)
+	}
+	evidence := fmt.Sprintf("path=%s stat_path=%s free_bytes=%d free_percent=%d free_inodes=%s", path, statPath, stats.freeBytes, stats.freePercent, freeInodes)
 
-	if stats.freeBytes < doctorDiskWarnFreeBytes || stats.freeInodes == 0 {
+	if stats.freeBytes < doctorDiskWarnFreeBytes || (stats.freeInodesKnown && stats.freeInodes == 0) {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("filesystem pressure: %s free (%d%%)", formatBytes(stats.freeBytes), stats.freePercent), Evidence: evidence, SuggestedAction: "Free disk space or move the path to a larger volume", DocLink: doc}
 	}
 
@@ -2932,25 +2939,29 @@ func doctorFilesystemPressure(id, title, label, path string) doctorCheck {
 }
 
 type doctorFSStats struct {
-	freeBytes   uint64
-	freePercent int
-	freeInodes  uint64
+	freeBytes       uint64
+	freePercent     int
+	freeInodes      uint64
+	freeInodesKnown bool
 }
 
 func filesystemStats(path string) (doctorFSStats, error) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
+	stats, err := platform.StatFileSystem(path)
+	if err != nil {
 		return doctorFSStats{}, err
 	}
 
-	free := st.Bavail * uint64(st.Bsize)
-	total := st.Blocks * uint64(st.Bsize)
 	percent := 0
-	if total > 0 {
-		percent = int((free * 100) / total)
+	if stats.TotalBytes > 0 {
+		percent = int((stats.FreeBytes * 100) / stats.TotalBytes)
 	}
 
-	return doctorFSStats{freeBytes: free, freePercent: percent, freeInodes: st.Ffree}, nil
+	return doctorFSStats{
+		freeBytes:       stats.FreeBytes,
+		freePercent:     percent,
+		freeInodes:      stats.FreeInodes,
+		freeInodesKnown: stats.FreeInodesKnown,
+	}, nil
 }
 
 func existingPathForStat(path string) (string, bool, error) {

@@ -12,7 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
+
+	"vectis/internal/platform"
 )
 
 const (
@@ -117,9 +118,9 @@ func acquireArtifactStorageLock(dir string) (*os.File, error) {
 		return nil, fmt.Errorf("open artifact storage lock %s: %w", lockPath, err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		if platform.IsFileLockUnavailable(err) {
 			return nil, fmt.Errorf("artifact storage directory %s is already in use by another artifact process; use a distinct storage directory for each active artifact shard: %w", dir, err)
 		}
 
@@ -138,7 +139,7 @@ func (s *LocalStore) Close() error {
 	s.lockFile = nil
 
 	var result error
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+	if err := platform.UnlockFile(lockFile); err != nil {
 		result = fmt.Errorf("unlock artifact storage directory %s: %w", s.baseDir, err)
 	}
 
@@ -594,14 +595,14 @@ func copyHashing(ctx context.Context, w io.Writer, r io.Reader, h hash.Hash, max
 }
 
 func defaultFilesystemStats(path string) (filesystemStats, error) {
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
+	stats, err := platform.StatFileSystem(path)
+	if err != nil {
 		return filesystemStats{}, err
 	}
 
 	return filesystemStats{
-		freeBytes:  st.Bavail * uint64(st.Bsize),
-		freeInodes: st.Ffree,
+		freeBytes:  stats.FreeBytes,
+		freeInodes: stats.FreeInodes,
 	}, nil
 }
 

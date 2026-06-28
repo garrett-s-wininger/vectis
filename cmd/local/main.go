@@ -165,9 +165,7 @@ func startService(logger interfaces.Logger, svc serviceStage, logLevel string, t
 	command.Stdin = nil
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
-	command.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	configureServiceCommand(command)
 
 	env := mergeEnv(os.Environ(), tlsEnv, svc.env)
 	if logLevel != "" {
@@ -1320,7 +1318,7 @@ func killAllStartedAndWait(logger interfaces.Logger) {
 	copy(procs, allStarted)
 	allStartedMu.Unlock()
 
-	signalProcessGroups(procs, syscall.SIGTERM)
+	signalProcesses(procs, terminateSignal())
 
 	waitCh := make(chan struct{}, len(procs))
 	for _, proc := range procs {
@@ -1333,21 +1331,13 @@ func killAllStartedAndWait(logger interfaces.Logger) {
 	waitForProcessesOrKill(procs, waitCh, 5*time.Second)
 }
 
-func signalAllStarted(sig syscall.Signal) {
+func signalAllStarted(sig os.Signal) {
 	allStartedMu.Lock()
 	procs := make([]*exec.Cmd, len(allStarted))
 	copy(procs, allStarted)
 	allStartedMu.Unlock()
 
-	signalProcessGroups(procs, sig)
-}
-
-func signalProcessGroups(procs []*exec.Cmd, sig syscall.Signal) {
-	for _, proc := range procs {
-		if proc.Process != nil {
-			_ = syscall.Kill(-proc.Process.Pid, sig)
-		}
-	}
+	signalProcesses(procs, sig)
 }
 
 func waitForProcessesOrKill(procs []*exec.Cmd, waitCh <-chan struct{}, grace time.Duration) {
@@ -1362,11 +1352,7 @@ func waitForProcessesOrKill(procs []*exec.Cmd, waitCh <-chan struct{}, grace tim
 				received++
 			case <-timer.C:
 				killed = true
-				for _, proc := range procs {
-					if proc.Process != nil {
-						_ = syscall.Kill(-proc.Process.Pid, syscall.SIGKILL)
-					}
-				}
+				forceKillProcesses(procs)
 			}
 		} else {
 			<-waitCh
@@ -1636,11 +1622,20 @@ func runVectis(cmd *cobra.Command, args []string) {
 			return
 		}
 
-		signalAllStarted(syscall.SIGTERM)
+		signalAllStarted(terminateSignal())
 		time.Sleep(2 * time.Second)
-		signalAllStarted(syscall.SIGKILL)
+		forceKillAllStarted()
 		logger.Fatal("%s exited: %v", ex.name, ex.err)
 	}
+}
+
+func forceKillAllStarted() {
+	allStartedMu.Lock()
+	procs := make([]*exec.Cmd, len(allStarted))
+	copy(procs, allStarted)
+	allStartedMu.Unlock()
+
+	forceKillProcesses(procs)
 }
 
 func serviceNames(svcs []serviceStage) []string {

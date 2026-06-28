@@ -101,7 +101,7 @@ func Build() error {
 	return buildBinaries(buildConfig{
 		args:      strings.Fields(os.Getenv("BUILD_OPTS")),
 		cgo:       envDefault("CGO_ENABLED", "1"),
-		outputExt: hostExecutableExt(),
+		outputExt: targetExecutableExt(),
 	})
 }
 
@@ -191,12 +191,34 @@ func buildBinaries(cfg buildConfig) error {
 		args := append([]string{"build"}, cfg.args...)
 		args = append(args, "-ldflags", ldflags, "-o", out, pkg)
 
-		if err := run("", map[string]string{"CGO_ENABLED": cfg.cgo}, goCommand(), args...); err != nil {
+		if err := run("", buildTargetEnv(cfg.cgo), goCommand(), args...); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func buildTargetEnv(cgo string) map[string]string {
+	env := map[string]string{"CGO_ENABLED": cgo}
+	for _, key := range []string{
+		"GOOS",
+		"GOARCH",
+		"GOAMD64",
+		"GOARM",
+		"GOARM64",
+		"GOMIPS",
+		"GOMIPS64",
+		"GOPPC64",
+		"GORISCV64",
+		"GOWASM",
+	} {
+		if value := os.Getenv("TARGET_" + key); value != "" {
+			env[key] = value
+		}
+	}
+
+	return env
 }
 
 func buildDocsAssets() error {

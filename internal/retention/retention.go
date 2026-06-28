@@ -13,10 +13,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"vectis/internal/database"
+	"vectis/internal/platform"
 )
 
 const (
@@ -633,16 +633,17 @@ func lockArtifactStorageForCleanup(dir string) (func(), error) {
 		return nil, fmt.Errorf("open artifact storage lock %s: %w", path, err)
 	}
 
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
-		if err == syscall.EWOULDBLOCK || err == syscall.EAGAIN {
+		if platform.IsFileLockUnavailable(err) {
 			return nil, fmt.Errorf("artifact storage directory %s is in use; stop vectis-artifact or run cleanup during a maintenance window before pruning blobs: %w", dir, err)
 		}
+
 		return nil, fmt.Errorf("lock artifact storage directory %s: %w", dir, err)
 	}
 
 	return func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = platform.UnlockFile(f)
 		_ = f.Close()
 	}, nil
 }
