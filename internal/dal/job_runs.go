@@ -2176,11 +2176,25 @@ func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, 
 	}
 
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
-		SELECT run_id, job_id, run_index, owning_cell
-		FROM job_runs
-		WHERE trigger_invocation_id = ?
-		ORDER BY run_index ASC, id ASC
+		SELECT
+			jr.run_id,
+			jr.job_id,
+			jr.run_index,
+			jr.owning_cell,
+			jr.definition_version,
+			jr.definition_hash,
+			jds.repository_id,
+			jds.requested_ref,
+			jds.resolved_commit,
+			jds.definition_path,
+			jds.blob_sha
+		FROM job_runs jr
+		LEFT JOIN job_definition_sources jds
+			ON jds.job_id = jr.job_id AND jds.version = jr.definition_version
+		WHERE jr.trigger_invocation_id = ?
+		ORDER BY jr.run_index ASC, jr.id ASC
 	`), invocationID)
+
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
@@ -2189,8 +2203,37 @@ func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, 
 	var out []CreatedRun
 	for rows.Next() {
 		var rec CreatedRun
-		if err := rows.Scan(&rec.RunID, &rec.JobID, &rec.RunIndex, &rec.TargetCellID); err != nil {
+		var sourceRepositoryID sql.NullString
+		var sourceRequestedRef sql.NullString
+		var sourceResolvedCommit sql.NullString
+		var sourceDefinitionPath sql.NullString
+		var sourceBlobSHA sql.NullString
+		if err := rows.Scan(
+			&rec.RunID,
+			&rec.JobID,
+			&rec.RunIndex,
+			&rec.TargetCellID,
+			&rec.DefinitionVersion,
+			&rec.DefinitionHash,
+			&sourceRepositoryID,
+			&sourceRequestedRef,
+			&sourceResolvedCommit,
+			&sourceDefinitionPath,
+			&sourceBlobSHA,
+		); err != nil {
 			return nil, normalizeSQLError(err)
+		}
+
+		if sourceRepositoryID.Valid {
+			rec.Source = &JobDefinitionSourceRecord{
+				JobID:          rec.JobID,
+				Version:        rec.DefinitionVersion,
+				RepositoryID:   sourceRepositoryID.String,
+				RequestedRef:   sourceRequestedRef.String,
+				ResolvedCommit: sourceResolvedCommit.String,
+				DefinitionPath: sourceDefinitionPath.String,
+				BlobSHA:        sourceBlobSHA.String,
+			}
 		}
 
 		out = append(out, rec)

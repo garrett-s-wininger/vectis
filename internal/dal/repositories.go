@@ -298,11 +298,14 @@ type RunCountByCell struct {
 }
 
 type CreatedRun struct {
-	RunID        string
-	JobID        string
-	RunIndex     int
-	TargetCellID string
-	RootDispatch ExecutionDispatchRecord
+	RunID             string
+	JobID             string
+	RunIndex          int
+	TargetCellID      string
+	DefinitionVersion int
+	DefinitionHash    string
+	Source            *JobDefinitionSourceRecord
+	RootDispatch      ExecutionDispatchRecord
 }
 
 type RunAuditMetadata struct {

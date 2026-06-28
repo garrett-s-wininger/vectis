@@ -1615,7 +1615,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("source-trigger:"+rec.RepositoryID+":"+jobID, p)
 	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/source-repositories/"+rec.RepositoryID+"/jobs/"+jobID+"/trigger", string(bytes.TrimSpace(body)))
-	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
 		return
 	}
@@ -1627,14 +1627,40 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			if len(createdRuns) != 1 || createdRuns[0].JobID != jobID || createdRuns[0].Source == nil {
+				return nil, false
+			}
+
+			createdRun := createdRuns[0]
+			return sourceJobTriggerResponse{
+				JobID:             createdRun.JobID,
+				RunID:             createdRun.RunID,
+				RunIndex:          createdRun.RunIndex,
+				DefinitionVersion: createdRun.DefinitionVersion,
+				DefinitionHash:    createdRun.DefinitionHash,
+				Source:            sourceRecordToProvenance(*createdRun.Source),
+				RepositorySync:    sourceRepositorySyncRecordToResponse(rec),
+			}, true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
+		return
+	}
+
 	loaded, err := store.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
 		Ref:  target.Ref,
 		Path: target.Path,
 	})
+
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
 		}
+
 		s.writeSourceDefinitionError(w, err)
 		return
 	}
@@ -1653,6 +1679,20 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		}
 
 		s.logger.Error("Database error recording source trigger invocation: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching source trigger idempotency resource: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}

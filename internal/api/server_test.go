@@ -1807,6 +1807,11 @@ func TestAPIServer_TriggerJob_IdempotencyReplaysSourceTriggerResponse(t *testing
 		t.Fatalf("first trigger: expected %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
 	}
 
+	resourceType, _ := clearIdempotencyResponseForAPITest(t, db, scope, key)
+	if resourceType != "trigger_invocation" {
+		t.Fatalf("idempotency resource type: got %q, want trigger_invocation", resourceType)
+	}
+
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, bytes.NewReader(body))
 	req2.Header.Set("Content-Type", "application/json")
 	req2.SetPathValue("id", jobID)
