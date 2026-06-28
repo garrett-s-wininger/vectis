@@ -1657,20 +1657,28 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	type runRow struct {
-		RunID             string  `json:"run_id"`
-		JobID             string  `json:"job_id"`
-		Namespace         string  `json:"namespace"`
-		RunIndex          int     `json:"run_index"`
-		Status            string  `json:"status"`
-		OrphanReason      *string `json:"orphan_reason,omitempty"`
-		FailureCode       *string `json:"failure_code,omitempty"`
-		CreatedAt         *string `json:"created_at,omitempty"`
-		StartedAt         *string `json:"started_at,omitempty"`
-		FinishedAt        *string `json:"finished_at,omitempty"`
-		FailureReason     *string `json:"failure_reason,omitempty"`
-		DefinitionVersion int     `json:"definition_version"`
-		DefinitionHash    string  `json:"definition_hash,omitempty"`
-		OwningCell        string  `json:"owning_cell"`
+		RunID                 string   `json:"run_id"`
+		JobID                 string   `json:"job_id"`
+		Namespace             string   `json:"namespace"`
+		RunIndex              int      `json:"run_index"`
+		Status                string   `json:"status"`
+		OrphanReason          *string  `json:"orphan_reason,omitempty"`
+		FailureCode           *string  `json:"failure_code,omitempty"`
+		CreatedAt             *string  `json:"created_at,omitempty"`
+		StartedAt             *string  `json:"started_at,omitempty"`
+		FinishedAt            *string  `json:"finished_at,omitempty"`
+		FailureReason         *string  `json:"failure_reason,omitempty"`
+		DefinitionVersion     int      `json:"definition_version"`
+		DefinitionHash        string   `json:"definition_hash,omitempty"`
+		OwningCell            string   `json:"owning_cell,omitempty"`
+		ReplayOfRunID         *string  `json:"replay_of_run_id,omitempty"`
+		TriggerInvocationID   *string  `json:"trigger_invocation_id,omitempty"`
+		TriggerID             *int64   `json:"trigger_id,omitempty"`
+		TriggerType           *string  `json:"trigger_type,omitempty"`
+		TriggerSourceInstance *string  `json:"trigger_source_instance,omitempty"`
+		TriggerPayloadHash    *string  `json:"trigger_payload_hash,omitempty"`
+		RequestedCells        []string `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash  string   `json:"execution_payload_hash,omitempty"`
 	}
 
 	var runs []runRow
@@ -1695,20 +1703,28 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 		}
 
 		runs = append(runs, runRow{
-			RunID:             rec.RunID,
-			JobID:             rec.JobID,
-			Namespace:         nsPath,
-			RunIndex:          rec.RunIndex,
-			Status:            rec.Status,
-			OrphanReason:      rec.OrphanReason,
-			FailureCode:       rec.FailureCode,
-			CreatedAt:         rec.CreatedAt,
-			StartedAt:         rec.StartedAt,
-			FinishedAt:        rec.FinishedAt,
-			FailureReason:     rec.FailureReason,
-			DefinitionVersion: rec.DefinitionVersion,
-			DefinitionHash:    rec.DefinitionHash,
-			OwningCell:        rec.OwningCell,
+			RunID:                 rec.RunID,
+			JobID:                 rec.JobID,
+			Namespace:             nsPath,
+			RunIndex:              rec.RunIndex,
+			Status:                rec.Status,
+			OrphanReason:          rec.OrphanReason,
+			FailureCode:           rec.FailureCode,
+			CreatedAt:             rec.CreatedAt,
+			StartedAt:             rec.StartedAt,
+			FinishedAt:            rec.FinishedAt,
+			FailureReason:         rec.FailureReason,
+			DefinitionVersion:     rec.DefinitionVersion,
+			DefinitionHash:        rec.DefinitionHash,
+			OwningCell:            rec.OwningCell,
+			ReplayOfRunID:         rec.ReplayOfRunID,
+			TriggerInvocationID:   rec.TriggerInvocationID,
+			TriggerID:             rec.TriggerID,
+			TriggerType:           rec.TriggerType,
+			TriggerSourceInstance: rec.TriggerSourceInstance,
+			TriggerPayloadHash:    rec.TriggerPayloadHash,
+			RequestedCells:        rec.RequestedCells,
+			ExecutionPayloadHash:  rec.ExecutionPayloadHash,
 		})
 	}
 
@@ -1809,26 +1825,27 @@ func (s *APIServer) writeJobRunsResponse(w http.ResponseWriter, ctx context.Cont
 	s.markDBRecovered()
 
 	type runRow struct {
-		RunID                string                    `json:"run_id"`
-		RunIndex             int                       `json:"run_index"`
-		Status               string                    `json:"status"`
-		OrphanReason         *string                   `json:"orphan_reason,omitempty"`
-		FailureCode          *string                   `json:"failure_code,omitempty"`
-		CreatedAt            *string                   `json:"created_at,omitempty"`
-		StartedAt            *string                   `json:"started_at,omitempty"`
-		FinishedAt           *string                   `json:"finished_at,omitempty"`
-		FailureReason        *string                   `json:"failure_reason,omitempty"`
-		DefinitionVersion    int                       `json:"definition_version"`
-		DefinitionHash       string                    `json:"definition_hash,omitempty"`
-		Source               *sourceProvenanceResponse `json:"source,omitempty"`
-		OwningCell           string                    `json:"owning_cell,omitempty"`
-		ReplayOfRunID        *string                   `json:"replay_of_run_id,omitempty"`
-		TriggerInvocationID  *string                   `json:"trigger_invocation_id,omitempty"`
-		TriggerID            *int64                    `json:"trigger_id,omitempty"`
-		TriggerType          *string                   `json:"trigger_type,omitempty"`
-		TriggerPayloadHash   *string                   `json:"trigger_payload_hash,omitempty"`
-		RequestedCells       []string                  `json:"requested_cells,omitempty"`
-		ExecutionPayloadHash string                    `json:"execution_payload_hash,omitempty"`
+		RunID                 string                    `json:"run_id"`
+		RunIndex              int                       `json:"run_index"`
+		Status                string                    `json:"status"`
+		OrphanReason          *string                   `json:"orphan_reason,omitempty"`
+		FailureCode           *string                   `json:"failure_code,omitempty"`
+		CreatedAt             *string                   `json:"created_at,omitempty"`
+		StartedAt             *string                   `json:"started_at,omitempty"`
+		FinishedAt            *string                   `json:"finished_at,omitempty"`
+		FailureReason         *string                   `json:"failure_reason,omitempty"`
+		DefinitionVersion     int                       `json:"definition_version"`
+		DefinitionHash        string                    `json:"definition_hash,omitempty"`
+		Source                *sourceProvenanceResponse `json:"source,omitempty"`
+		OwningCell            string                    `json:"owning_cell,omitempty"`
+		ReplayOfRunID         *string                   `json:"replay_of_run_id,omitempty"`
+		TriggerInvocationID   *string                   `json:"trigger_invocation_id,omitempty"`
+		TriggerID             *int64                    `json:"trigger_id,omitempty"`
+		TriggerType           *string                   `json:"trigger_type,omitempty"`
+		TriggerSourceInstance *string                   `json:"trigger_source_instance,omitempty"`
+		TriggerPayloadHash    *string                   `json:"trigger_payload_hash,omitempty"`
+		RequestedCells        []string                  `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash  string                    `json:"execution_payload_hash,omitempty"`
 	}
 
 	var runs []runRow
@@ -1839,26 +1856,27 @@ func (s *APIServer) writeJobRunsResponse(w http.ResponseWriter, ctx context.Cont
 		}
 
 		runs = append(runs, runRow{
-			RunID:                rec.RunID,
-			RunIndex:             rec.RunIndex,
-			Status:               rec.Status,
-			OrphanReason:         rec.OrphanReason,
-			FailureCode:          rec.FailureCode,
-			CreatedAt:            rec.CreatedAt,
-			StartedAt:            rec.StartedAt,
-			FinishedAt:           rec.FinishedAt,
-			FailureReason:        rec.FailureReason,
-			DefinitionVersion:    rec.DefinitionVersion,
-			DefinitionHash:       rec.DefinitionHash,
-			Source:               source,
-			OwningCell:           rec.OwningCell,
-			ReplayOfRunID:        rec.ReplayOfRunID,
-			TriggerInvocationID:  rec.TriggerInvocationID,
-			TriggerID:            rec.TriggerID,
-			TriggerType:          rec.TriggerType,
-			TriggerPayloadHash:   rec.TriggerPayloadHash,
-			RequestedCells:       rec.RequestedCells,
-			ExecutionPayloadHash: rec.ExecutionPayloadHash,
+			RunID:                 rec.RunID,
+			RunIndex:              rec.RunIndex,
+			Status:                rec.Status,
+			OrphanReason:          rec.OrphanReason,
+			FailureCode:           rec.FailureCode,
+			CreatedAt:             rec.CreatedAt,
+			StartedAt:             rec.StartedAt,
+			FinishedAt:            rec.FinishedAt,
+			FailureReason:         rec.FailureReason,
+			DefinitionVersion:     rec.DefinitionVersion,
+			DefinitionHash:        rec.DefinitionHash,
+			Source:                source,
+			OwningCell:            rec.OwningCell,
+			ReplayOfRunID:         rec.ReplayOfRunID,
+			TriggerInvocationID:   rec.TriggerInvocationID,
+			TriggerID:             rec.TriggerID,
+			TriggerType:           rec.TriggerType,
+			TriggerSourceInstance: rec.TriggerSourceInstance,
+			TriggerPayloadHash:    rec.TriggerPayloadHash,
+			RequestedCells:        rec.RequestedCells,
+			ExecutionPayloadHash:  rec.ExecutionPayloadHash,
 		})
 	}
 
@@ -2029,11 +2047,12 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type dispatchEventRow struct {
-		ID        int64   `json:"id"`
-		Source    string  `json:"source"`
-		EventType string  `json:"event_type"`
-		Message   *string `json:"message,omitempty"`
-		CreatedAt int64   `json:"created_at"`
+		ID             int64   `json:"id"`
+		Source         string  `json:"source"`
+		SourceInstance string  `json:"source_instance,omitempty"`
+		EventType      string  `json:"event_type"`
+		Message        *string `json:"message,omitempty"`
+		CreatedAt      int64   `json:"created_at"`
 	}
 
 	type taskCompletionRow struct {
@@ -2078,6 +2097,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		TriggerInvocationID       *string                    `json:"trigger_invocation_id,omitempty"`
 		TriggerID                 *int64                     `json:"trigger_id,omitempty"`
 		TriggerType               *string                    `json:"trigger_type,omitempty"`
+		TriggerSourceInstance     *string                    `json:"trigger_source_instance,omitempty"`
 		TriggerPayloadHash        *string                    `json:"trigger_payload_hash,omitempty"`
 		RequestedCells            []string                   `json:"requested_cells,omitempty"`
 		ExecutionPayloadHash      string                     `json:"execution_payload_hash,omitempty"`
@@ -2108,31 +2128,32 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	effectiveStatus := effectiveRunStatusFromHotOwner(rec.Status, activeHotOwner)
 
 	resp := runRow{
-		RunID:                rec.RunID,
-		JobID:                jobID,
-		Namespace:            nsPath,
-		RunIndex:             rec.RunIndex,
-		Status:               effectiveStatus,
-		OrphanReason:         rec.OrphanReason,
-		FailureCode:          rec.FailureCode,
-		CreatedAt:            rec.CreatedAt,
-		StartedAt:            rec.StartedAt,
-		FinishedAt:           rec.FinishedAt,
-		FailureReason:        rec.FailureReason,
-		DefinitionVersion:    rec.DefinitionVersion,
-		DefinitionHash:       rec.DefinitionHash,
-		Source:               source,
-		OwningCell:           rec.OwningCell,
-		ReplayOfRunID:        rec.ReplayOfRunID,
-		TriggerInvocationID:  rec.TriggerInvocationID,
-		TriggerID:            rec.TriggerID,
-		TriggerType:          rec.TriggerType,
-		TriggerPayloadHash:   rec.TriggerPayloadHash,
-		RequestedCells:       rec.RequestedCells,
-		ExecutionPayloadHash: rec.ExecutionPayloadHash,
-		NextAction:           runNextAction(effectiveStatus, taskCompletionSummary, pendingTaskContinuation, latestFailedSecurityEvent != nil),
-		DispatchSummary:      buildDispatchSummary(dispatchEvents),
-		DispatchEvents:       []dispatchEventRow{},
+		RunID:                 rec.RunID,
+		JobID:                 jobID,
+		Namespace:             nsPath,
+		RunIndex:              rec.RunIndex,
+		Status:                effectiveStatus,
+		OrphanReason:          rec.OrphanReason,
+		FailureCode:           rec.FailureCode,
+		CreatedAt:             rec.CreatedAt,
+		StartedAt:             rec.StartedAt,
+		FinishedAt:            rec.FinishedAt,
+		FailureReason:         rec.FailureReason,
+		DefinitionVersion:     rec.DefinitionVersion,
+		DefinitionHash:        rec.DefinitionHash,
+		Source:                source,
+		OwningCell:            rec.OwningCell,
+		ReplayOfRunID:         rec.ReplayOfRunID,
+		TriggerInvocationID:   rec.TriggerInvocationID,
+		TriggerID:             rec.TriggerID,
+		TriggerType:           rec.TriggerType,
+		TriggerSourceInstance: rec.TriggerSourceInstance,
+		TriggerPayloadHash:    rec.TriggerPayloadHash,
+		RequestedCells:        rec.RequestedCells,
+		ExecutionPayloadHash:  rec.ExecutionPayloadHash,
+		NextAction:            runNextAction(effectiveStatus, taskCompletionSummary, pendingTaskContinuation, latestFailedSecurityEvent != nil),
+		DispatchSummary:       buildDispatchSummary(dispatchEvents),
+		DispatchEvents:        []dispatchEventRow{},
 	}
 
 	if latestFailedSecurityEvent != nil {
@@ -2163,11 +2184,12 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 
 	for _, event := range dispatchEvents {
 		resp.DispatchEvents = append(resp.DispatchEvents, dispatchEventRow{
-			ID:        event.ID,
-			Source:    event.Source,
-			EventType: event.EventType,
-			Message:   event.Message,
-			CreatedAt: event.CreatedAt,
+			ID:             event.ID,
+			Source:         event.Source,
+			SourceInstance: event.SourceInstance,
+			EventType:      event.EventType,
+			Message:        event.Message,
+			CreatedAt:      event.CreatedAt,
 		})
 	}
 

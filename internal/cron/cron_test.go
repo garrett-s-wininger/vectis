@@ -791,6 +791,7 @@ func TestCronService_TriggerJobRequiresSourceSchedule(t *testing.T) {
 func TestCronService_TriggerSchedule_SourceSuccess(t *testing.T) {
 	service, _, queueService, db := setupTestCronService(t)
 	ctx := context.Background()
+	service.SetInstanceID("cron-a")
 
 	repos := dal.NewSQLRepositories(db)
 	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
@@ -863,6 +864,10 @@ func TestCronService_TriggerSchedule_SourceSuccess(t *testing.T) {
 
 	if runRec.TriggerType == nil || *runRec.TriggerType != dal.TriggerTypeCron {
 		t.Fatalf("trigger type: got %+v want %q", runRec.TriggerType, dal.TriggerTypeCron)
+	}
+
+	if runRec.TriggerSourceInstance == nil || *runRec.TriggerSourceInstance != "cron-a" {
+		t.Fatalf("trigger source instance: got %+v want cron-a", runRec.TriggerSourceInstance)
 	}
 
 	if runRec.ExecutionPayloadHash == "" {

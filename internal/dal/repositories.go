@@ -227,26 +227,27 @@ type JobDefinitionSourceRecord struct {
 }
 
 type RunRecord struct {
-	RunID                string
-	JobID                string
-	RunIndex             int
-	Status               string
-	OrphanReason         *string
-	FailureCode          *string
-	CreatedAt            *string
-	StartedAt            *string
-	FinishedAt           *string
-	FailureReason        *string
-	DefinitionVersion    int
-	DefinitionHash       string
-	OwningCell           string
-	ReplayOfRunID        *string
-	TriggerInvocationID  *string
-	TriggerID            *int64
-	TriggerType          *string
-	TriggerPayloadHash   *string
-	RequestedCells       []string
-	ExecutionPayloadHash string
+	RunID                 string
+	JobID                 string
+	RunIndex              int
+	Status                string
+	OrphanReason          *string
+	FailureCode           *string
+	CreatedAt             *string
+	StartedAt             *string
+	FinishedAt            *string
+	FailureReason         *string
+	DefinitionVersion     int
+	DefinitionHash        string
+	OwningCell            string
+	ReplayOfRunID         *string
+	TriggerInvocationID   *string
+	TriggerID             *int64
+	TriggerType           *string
+	TriggerSourceInstance *string
+	TriggerPayloadHash    *string
+	RequestedCells        []string
+	ExecutionPayloadHash  string
 }
 
 type TaskRecord struct {
@@ -449,12 +450,13 @@ type IdempotencyRecord struct {
 }
 
 type DispatchEvent struct {
-	ID        int64
-	RunID     string
-	Source    string
-	EventType string
-	Message   *string
-	CreatedAt int64
+	ID             int64
+	RunID          string
+	Source         string
+	SourceInstance string
+	EventType      string
+	Message        *string
+	CreatedAt      int64
 }
 
 type ExecutionSecurityEvent struct {
@@ -763,6 +765,7 @@ type TriggerInvocation struct {
 	TriggerID          *int64
 	JobID              string
 	TriggerType        string
+	SourceInstance     string
 	TriggerPayloadHash string
 	RequestedCells     []string
 }
@@ -773,6 +776,7 @@ type TriggerInvocationRecord struct {
 	TriggerID          *int64
 	JobID              string
 	TriggerType        string
+	SourceInstance     string
 	TriggerPayloadHash string
 	RequestedCellsJSON string
 }
@@ -786,6 +790,7 @@ type IdempotencyRepository interface {
 
 type DispatchEventsRepository interface {
 	Record(ctx context.Context, runID, source, eventType string, message *string) error
+	RecordWithInstance(ctx context.Context, runID, source, sourceInstance, eventType string, message *string) error
 	RecordDispatchSuccess(ctx context.Context, runID, source string) error
 	RecordDispatchAttemptOutcome(ctx context.Context, runID, source, outcomeEventType string, message *string) error
 	ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error)

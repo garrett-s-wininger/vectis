@@ -202,7 +202,7 @@ func (s *CronService) recordDispatchEvent(ctx context.Context, runID, eventType 
 		return
 	}
 
-	if err := s.dispatch.Record(ctx, runID, dal.DispatchSourceCron, eventType, message); err != nil {
+	if err := s.dispatch.RecordWithInstance(ctx, runID, dal.DispatchSourceCron, s.InstanceID(), eventType, message); err != nil {
 		s.logger.Error("Failed to record cron dispatch event for run %s: %v", runID, err)
 	}
 }
@@ -449,6 +449,7 @@ func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, defi
 		Clock:          s.clock,
 		ActionResolver: s.actionResolver,
 		Source:         dal.DispatchSourceCron,
+		SourceInstance: s.InstanceID(),
 	}.DispatchRun(ctx, job, runID, definitionHash)
 }
 
@@ -503,6 +504,7 @@ func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string,
 		TriggerID:          triggerID,
 		JobID:              jobID,
 		TriggerType:        dal.TriggerTypeCron,
+		SourceInstance:     s.InstanceID(),
 		TriggerPayloadHash: dal.PayloadHash(string(payloadJSON)),
 		RequestedCells:     []string{config.CellID()},
 	})

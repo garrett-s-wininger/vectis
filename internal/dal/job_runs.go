@@ -2813,6 +2813,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 			jr.execution_payload_hash,
 			ti.trigger_id,
 			ti.trigger_type,
+			ti.source_instance,
 			ti.trigger_payload_hash,
 			ti.requested_cells
 		FROM job_runs jr
@@ -2855,14 +2856,14 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 		var rec RunRecord
 		var id int64
 		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
-		var replayOfRunID, triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+		var replayOfRunID, triggerInvocationID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString
 		var triggerID sql.NullInt64
 		rec.JobID = jobID
-		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells); err != nil {
+		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
-		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
 			return nil, 0, err
 		}
 
@@ -2928,6 +2929,7 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(ctx context.Context, repos
 			jr.execution_payload_hash,
 			ti.trigger_id,
 			ti.trigger_type,
+			ti.source_instance,
 			ti.trigger_payload_hash,
 			ti.requested_cells
 		FROM job_runs jr
@@ -2974,14 +2976,14 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(ctx context.Context, repos
 		var rec RunRecord
 		var id int64
 		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
-		var replayOfRunID, triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+		var replayOfRunID, triggerInvocationID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString
 		var triggerID sql.NullInt64
 		rec.JobID = jobID
-		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells); err != nil {
+		if err := rows.Scan(&id, &rec.RunID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
-		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
 			return nil, 0, err
 		}
 
@@ -3026,6 +3028,7 @@ func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int
 			jr.execution_payload_hash,
 			ti.trigger_id,
 			ti.trigger_type,
+			ti.source_instance,
 			ti.trigger_payload_hash,
 			ti.requested_cells
 		FROM job_runs jr
@@ -3052,13 +3055,13 @@ func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int
 		var rec RunRecord
 		var id int64
 		var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
-		var replayOfRunID, triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+		var replayOfRunID, triggerInvocationID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString
 		var triggerID sql.NullInt64
-		if err := rows.Scan(&id, &rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells); err != nil {
+		if err := rows.Scan(&id, &rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
-		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+		if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
 			return nil, 0, err
 		}
 
@@ -6558,7 +6561,7 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Con
 func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord, error) {
 	var rec RunRecord
 	var orphanReason, failureCode, createdAt, startedAt, finishedAt, failureReason sql.NullString
-	var replayOfRunID, triggerInvocationID, triggerType, triggerPayloadHash, requestedCells sql.NullString
+	var replayOfRunID, triggerInvocationID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString
 	var triggerID sql.NullInt64
 	err := r.db.QueryRowContext(ctx,
 		rebindQueryForPgx(`
@@ -6581,6 +6584,7 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 				jr.execution_payload_hash,
 				ti.trigger_id,
 				ti.trigger_type,
+				ti.source_instance,
 				ti.trigger_payload_hash,
 				ti.requested_cells
 			FROM job_runs jr
@@ -6588,7 +6592,7 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 			WHERE jr.run_id = ?
 		`),
 		runID,
-	).Scan(&rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerPayloadHash, &requestedCells)
+	).Scan(&rec.RunID, &rec.JobID, &rec.RunIndex, &rec.Status, &orphanReason, &failureCode, &createdAt, &startedAt, &finishedAt, &failureReason, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell, &replayOfRunID, &triggerInvocationID, &rec.ExecutionPayloadHash, &triggerID, &triggerType, &triggerSourceInstance, &triggerPayloadHash, &requestedCells)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -6622,14 +6626,14 @@ func (r *SQLRunsRepository) GetRun(ctx context.Context, runID string) (RunRecord
 		rec.FailureReason = &failureReason.String
 	}
 
-	if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerPayloadHash, requestedCells); err != nil {
+	if err := applyRunAuditFields(&rec, replayOfRunID, triggerInvocationID, triggerID, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells); err != nil {
 		return RunRecord{}, err
 	}
 
 	return rec, nil
 }
 
-func applyRunAuditFields(rec *RunRecord, replayOfRunID, triggerInvocationID sql.NullString, triggerID sql.NullInt64, triggerType, triggerPayloadHash, requestedCells sql.NullString) error {
+func applyRunAuditFields(rec *RunRecord, replayOfRunID, triggerInvocationID sql.NullString, triggerID sql.NullInt64, triggerType, triggerSourceInstance, triggerPayloadHash, requestedCells sql.NullString) error {
 	if replayOfRunID.Valid && strings.TrimSpace(replayOfRunID.String) != "" {
 		rec.ReplayOfRunID = &replayOfRunID.String
 	}
@@ -6645,6 +6649,10 @@ func applyRunAuditFields(rec *RunRecord, replayOfRunID, triggerInvocationID sql.
 
 	if triggerType.Valid && strings.TrimSpace(triggerType.String) != "" {
 		rec.TriggerType = &triggerType.String
+	}
+
+	if triggerSourceInstance.Valid && strings.TrimSpace(triggerSourceInstance.String) != "" {
+		rec.TriggerSourceInstance = &triggerSourceInstance.String
 	}
 
 	if triggerPayloadHash.Valid && strings.TrimSpace(triggerPayloadHash.String) != "" {

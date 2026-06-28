@@ -37,23 +37,25 @@ type runDetail struct {
 }
 
 type RunAuditFields struct {
-	DefinitionVersion    int      `json:"definition_version,omitempty"`
-	DefinitionHash       string   `json:"definition_hash,omitempty"`
-	ReplayOfRunID        *string  `json:"replay_of_run_id,omitempty"`
-	TriggerInvocationID  *string  `json:"trigger_invocation_id,omitempty"`
-	TriggerID            *int64   `json:"trigger_id,omitempty"`
-	TriggerType          *string  `json:"trigger_type,omitempty"`
-	TriggerPayloadHash   *string  `json:"trigger_payload_hash,omitempty"`
-	RequestedCells       []string `json:"requested_cells,omitempty"`
-	ExecutionPayloadHash string   `json:"execution_payload_hash,omitempty"`
+	DefinitionVersion     int      `json:"definition_version,omitempty"`
+	DefinitionHash        string   `json:"definition_hash,omitempty"`
+	ReplayOfRunID         *string  `json:"replay_of_run_id,omitempty"`
+	TriggerInvocationID   *string  `json:"trigger_invocation_id,omitempty"`
+	TriggerID             *int64   `json:"trigger_id,omitempty"`
+	TriggerType           *string  `json:"trigger_type,omitempty"`
+	TriggerSourceInstance *string  `json:"trigger_source_instance,omitempty"`
+	TriggerPayloadHash    *string  `json:"trigger_payload_hash,omitempty"`
+	RequestedCells        []string `json:"requested_cells,omitempty"`
+	ExecutionPayloadHash  string   `json:"execution_payload_hash,omitempty"`
 }
 
 type dispatchEvent struct {
-	ID        int64   `json:"id"`
-	Source    string  `json:"source"`
-	EventType string  `json:"event_type"`
-	Message   *string `json:"message,omitempty"`
-	CreatedAt int64   `json:"created_at"`
+	ID             int64   `json:"id"`
+	Source         string  `json:"source"`
+	SourceInstance string  `json:"source_instance,omitempty"`
+	EventType      string  `json:"event_type"`
+	Message        *string `json:"message,omitempty"`
+	CreatedAt      int64   `json:"created_at"`
 }
 
 type dispatchSummary struct {
@@ -339,10 +341,15 @@ func getRun(runID string, w io.Writer) error {
 		fmt.Fprintln(w, "dispatch_events:")
 		for _, ev := range run.DispatchEvents {
 			ts := time.Unix(ev.CreatedAt, 0).UTC().Format(time.RFC3339)
+			source := ev.Source
+			if ev.SourceInstance != "" {
+				source = source + "@" + ev.SourceInstance
+			}
+
 			if ev.Message != nil {
-				fmt.Fprintf(w, "  [%s] %s/%s: %s\n", ts, ev.Source, ev.EventType, *ev.Message)
+				fmt.Fprintf(w, "  [%s] %s/%s: %s\n", ts, source, ev.EventType, *ev.Message)
 			} else {
-				fmt.Fprintf(w, "  [%s] %s/%s\n", ts, ev.Source, ev.EventType)
+				fmt.Fprintf(w, "  [%s] %s/%s\n", ts, source, ev.EventType)
 			}
 		}
 	}
@@ -479,6 +486,10 @@ func writeRunAuditFields(w io.Writer, audit RunAuditFields) {
 
 	if audit.TriggerType != nil {
 		fmt.Fprintf(w, "trigger_type=%s\n", *audit.TriggerType)
+	}
+
+	if audit.TriggerSourceInstance != nil {
+		fmt.Fprintf(w, "trigger_source_instance=%s\n", *audit.TriggerSourceInstance)
 	}
 
 	if audit.TriggerPayloadHash != nil {

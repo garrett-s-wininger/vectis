@@ -116,6 +116,7 @@ func TestServiceProcessCreatesRunAndDispatchesNewSCMEvent(t *testing.T) {
 
 	logger := mocks.NewMockLogger()
 	svc := NewService(logger, db)
+	svc.SetInstanceID("scm-poller-a")
 	svc.SetClock(clock)
 	svc.SetClaimTTL(5 * time.Minute)
 	svc.SetExecutionIngress(ingress)
@@ -162,6 +163,10 @@ func TestServiceProcessCreatesRunAndDispatchesNewSCMEvent(t *testing.T) {
 		t.Fatalf("expected scm poll trigger metadata on run, got %+v", run)
 	}
 
+	if run.TriggerSourceInstance == nil || *run.TriggerSourceInstance != "scm-poller-a" {
+		t.Fatalf("expected scm poll trigger source instance on run, got %+v", run.TriggerSourceInstance)
+	}
+
 	if run.ExecutionPayloadHash == "" {
 		t.Fatalf("expected execution payload hash on run %+v", run)
 	}
@@ -177,6 +182,10 @@ func TestServiceProcessCreatesRunAndDispatchesNewSCMEvent(t *testing.T) {
 
 	if dispatches[0].Source != dal.DispatchSourceSCMPoller || dispatches[1].Source != dal.DispatchSourceSCMPoller {
 		t.Fatalf("unexpected dispatch event sources: %+v", dispatches)
+	}
+
+	if dispatches[0].SourceInstance != "scm-poller-a" || dispatches[1].SourceInstance != "scm-poller-a" {
+		t.Fatalf("unexpected dispatch source instances: %+v", dispatches)
 	}
 }
 

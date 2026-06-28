@@ -24,6 +24,7 @@ type Dispatcher struct {
 	Clock          interfaces.Clock
 	ActionResolver actionregistry.Resolver
 	Source         string
+	SourceInstance string
 }
 
 func (d Dispatcher) DispatchRun(ctx context.Context, job *api.Job, runID, definitionHash string) error {
@@ -130,7 +131,7 @@ func (d Dispatcher) recordDispatchEvent(ctx context.Context, runID, eventType st
 		source = "trigger"
 	}
 
-	if err := d.Dispatch.Record(ctx, runID, source, eventType, message); err != nil {
+	if err := d.Dispatch.RecordWithInstance(ctx, runID, source, d.SourceInstance, eventType, message); err != nil {
 		d.logger().Error("Failed to record trigger dispatch event for run %s: %v", runID, err)
 	}
 }

@@ -425,6 +425,7 @@ func (s *Service) recordTriggerInvocation(ctx context.Context, spec dal.SCMPollT
 		TriggerID:          &triggerID,
 		JobID:              spec.JobID,
 		TriggerType:        dal.TriggerTypeSCMPoll,
+		SourceInstance:     s.InstanceID(),
 		TriggerPayloadHash: dal.PayloadHash(string(payloadJSON)),
 		RequestedCells:     []string{config.CellID()},
 	})
@@ -451,6 +452,7 @@ func (s *Service) dispatcher() trigger.Dispatcher {
 		Clock:          s.clock,
 		ActionResolver: s.actionResolver,
 		Source:         dal.DispatchSourceSCMPoller,
+		SourceInstance: s.InstanceID(),
 	}
 }
 

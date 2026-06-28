@@ -25,14 +25,15 @@ func (r *SQLTriggerInvocationsRepository) Record(ctx context.Context, invocation
 
 	if _, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO trigger_invocations
-			(invocation_id, trigger_id, job_id, trigger_type, trigger_payload_hash, requested_cells)
-		VALUES (?, ?, ?, ?, ?, ?)
+			(invocation_id, trigger_id, job_id, trigger_type, source_instance, trigger_payload_hash, requested_cells)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(invocation_id) DO NOTHING
 	`),
 		normalized.InvocationID,
 		triggerID,
 		normalized.JobID,
 		normalized.TriggerType,
+		normalized.SourceInstance,
 		normalized.TriggerPayloadHash,
 		requestedCellsJSON,
 	); err != nil {
@@ -55,7 +56,7 @@ func (r *SQLTriggerInvocationsRepository) get(ctx context.Context, invocationID 
 	var rec TriggerInvocationRecord
 	var nullableTriggerID sql.NullInt64
 	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT id, invocation_id, trigger_id, job_id, trigger_type, trigger_payload_hash, requested_cells
+		SELECT id, invocation_id, trigger_id, job_id, trigger_type, source_instance, trigger_payload_hash, requested_cells
 		FROM trigger_invocations
 		WHERE invocation_id = ?
 	`), invocationID).Scan(
@@ -64,6 +65,7 @@ func (r *SQLTriggerInvocationsRepository) get(ctx context.Context, invocationID 
 		&nullableTriggerID,
 		&rec.JobID,
 		&rec.TriggerType,
+		&rec.SourceInstance,
 		&rec.TriggerPayloadHash,
 		&rec.RequestedCellsJSON,
 	); err != nil {
@@ -82,6 +84,7 @@ func sameTriggerInvocation(rec TriggerInvocationRecord, normalized TriggerInvoca
 	if rec.InvocationID != normalized.InvocationID ||
 		rec.JobID != normalized.JobID ||
 		rec.TriggerType != normalized.TriggerType ||
+		rec.SourceInstance != normalized.SourceInstance ||
 		rec.TriggerPayloadHash != normalized.TriggerPayloadHash ||
 		rec.RequestedCellsJSON != requestedCellsJSON {
 		return false
@@ -113,6 +116,8 @@ func normalizeTriggerInvocation(invocation TriggerInvocation) (TriggerInvocation
 	if !validTriggerInvocationType(invocation.TriggerType) {
 		return TriggerInvocation{}, "", fmt.Errorf("%w: unsupported trigger_type %q", ErrConflict, invocation.TriggerType)
 	}
+
+	invocation.SourceInstance = strings.TrimSpace(invocation.SourceInstance)
 
 	invocation.TriggerPayloadHash = strings.TrimSpace(invocation.TriggerPayloadHash)
 	if invocation.TriggerPayloadHash == "" {

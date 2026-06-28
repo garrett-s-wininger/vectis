@@ -130,12 +130,16 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 	rec, err := repos.TriggerInvocations().Record(ctx, dal.TriggerInvocation{
 		JobID:              jobID,
 		TriggerType:        dal.TriggerTypeManual,
+		SourceInstance:     "api-a",
 		TriggerPayloadHash: dal.PayloadHash(`{"target_cell_ids":["iad-a","pdx-b"]}`),
 		RequestedCells:     []string{"iad-a", "pdx-b"},
 	})
 
 	if err != nil {
 		t.Fatalf("record trigger invocation: %v", err)
+	}
+	if rec.SourceInstance != "api-a" {
+		t.Fatalf("trigger invocation source instance: got %q want api-a", rec.SourceInstance)
 	}
 
 	startDeadlineUnixNano := int64(123456789)
@@ -4962,7 +4966,7 @@ func TestDispatchEventsRepository_RecordAndListByRun(t *testing.T) {
 		t.Fatalf("record attempt: %v", err)
 	}
 
-	if err := dispatch.Record(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg); err != nil {
+	if err := dispatch.RecordWithInstance(ctx, runID, dal.DispatchSourceAPI, "api-a", dal.DispatchEventFailure, &msg); err != nil {
 		t.Fatalf("record failure: %v", err)
 	}
 
@@ -4985,6 +4989,10 @@ func TestDispatchEventsRepository_RecordAndListByRun(t *testing.T) {
 
 	if events[1].Source != dal.DispatchSourceAPI || events[1].EventType != dal.DispatchEventFailure {
 		t.Fatalf("unexpected failure event: %+v", events[1])
+	}
+
+	if events[1].SourceInstance != "api-a" {
+		t.Fatalf("unexpected failure source instance: %+v", events[1])
 	}
 
 	if events[1].Message == nil || *events[1].Message != msg {

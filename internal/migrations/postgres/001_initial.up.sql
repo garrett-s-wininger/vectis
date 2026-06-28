@@ -92,6 +92,7 @@ CREATE TABLE trigger_invocations (
     trigger_id BIGINT REFERENCES job_triggers(id) ON DELETE SET NULL,
     job_id TEXT NOT NULL,
     trigger_type TEXT NOT NULL,
+    source_instance TEXT NOT NULL DEFAULT '',
     trigger_payload_hash TEXT NOT NULL DEFAULT '',
     requested_cells TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -366,6 +367,7 @@ CREATE TABLE run_dispatch_events (
     id BIGSERIAL PRIMARY KEY,
     run_id TEXT NOT NULL REFERENCES job_runs(run_id) ON DELETE CASCADE,
     source TEXT NOT NULL,
+    source_instance TEXT NOT NULL DEFAULT '',
     event_type TEXT NOT NULL,
     message TEXT,
     created_at BIGINT NOT NULL
