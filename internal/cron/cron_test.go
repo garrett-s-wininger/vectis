@@ -732,36 +732,50 @@ func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 	}
 }
 
-func TestCronService_ProcessSchedules_TimeNotMatching(t *testing.T) {
-	service, logger, queueService, db := setupTestCronService(t)
+func TestCronService_ProcessSchedules_CatchesUpDueScheduleWhenCurrentMinuteDoesNotMatch(t *testing.T) {
+	service, _, queueService, db := setupTestCronService(t)
+	ctx := context.Background()
 	clock := mocks.NewMockClock()
 	now := time.Date(2026, 3, 15, 12, 34, 0, 0, time.UTC)
 	clock.SetNow(now)
 	service.SetClock(clock)
 
-	insertCronTestSourceSchedule(t, db, "future-job", "source-repo", "main", "", "0 0 * * *", now.Add(-1*time.Hour))
+	repos := dal.NewSQLRepositories(db)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
 
-	err := service.ProcessSchedules(context.Background())
+	service.SetDefinitionResolverFactory(func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionResolver, error) {
+		return &recordingCronDefinitionResolver{}, nil
+	})
+
+	scheduledFor := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	insertCronTestSourceSchedule(t, db, "daily-job", "source-repo", "main", "", "0 0 * * *", scheduledFor)
+
+	err := service.ProcessSchedules(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	jobs := queueService.GetJobs()
-	if len(jobs) != 0 {
-		t.Errorf("expected 0 jobs enqueued (time doesn't match), got %d", len(jobs))
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 caught-up job enqueued, got %d", len(jobs))
 	}
 
-	debugCalls := logger.GetDebugCalls()
-	hasSkipMsg := false
-	for _, msg := range debugCalls {
-		if strings.Contains(msg, "Skipping job") {
-			hasSkipMsg = true
-			break
-		}
+	if jobs[0].GetId() != "daily-job" || jobs[0].GetRunId() == "" {
+		t.Fatalf("caught-up cron job mismatch: %+v", jobs[0])
 	}
 
-	if !hasSkipMsg {
-		t.Errorf("expected 'Skipping job' debug log, got: %v", debugCalls)
+	nextRunStr := queryCronTestNextRun(t, db, "daily-job")
+	wantNextRun := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	if nextRunStr != wantNextRun {
+		t.Fatalf("expected next_run_at to advance to %s, got %s", wantNextRun, nextRunStr)
 	}
 }
 

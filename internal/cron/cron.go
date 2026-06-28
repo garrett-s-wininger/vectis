@@ -616,21 +616,9 @@ func (s *CronService) ProcessSchedules(ctx context.Context) error {
 	s.logger.Info("Processing %d schedule(s)", len(schedules))
 
 	for _, sched := range schedules {
-		matches, err := s.ValidateCronSpec(sched.CronSpec, now)
-		if err != nil {
-			s.logger.Error("Invalid cron spec for job %s: %v", sched.JobID, err)
-			continue
-		}
-
-		if !matches {
-			s.logger.Debug("Skipping job %s: current time %v does not match spec %q",
-				sched.JobID, now, sched.CronSpec)
-			continue
-		}
-
 		nextRun, err := s.CalculateNextRun(sched.CronSpec, now)
 		if err != nil {
-			s.logger.Error("Failed to calculate next run for job %s: %v", sched.JobID, err)
+			s.logger.Error("Invalid cron spec for job %s: %v", sched.JobID, err)
 			continue
 		}
 

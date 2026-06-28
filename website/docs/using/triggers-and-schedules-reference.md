@@ -76,13 +76,14 @@ Cron schedules use these SQL tables:
 For each ready schedule, `vectis-cron`:
 
 1. Reads enabled schedules where `next_run_at <= now` and no active claim exists.
-2. Validates that `cron_spec` matches the current minute.
-3. Calculates the next scheduled fire time.
-4. Calls `ClaimDue` with the observed `next_run_at`, a claim token, and `claimed_until`.
-5. Creates or reuses the run for `(schedule_id, scheduled_for)` through `CreateScheduledRun`.
-6. Dispatches the run to queue or cell ingress.
-7. Calls `CompleteClaim` to advance `next_run_at` and clear claim fields.
-8. Calls `ReleaseClaim` when dispatch fails before completion.
+2. Validates `cron_spec` and calculates the next scheduled fire time after the current time.
+3. Calls `ClaimDue` with the observed `next_run_at`, a claim token, and `claimed_until`.
+4. Creates or reuses the run for `(schedule_id, scheduled_for)` through `CreateScheduledRun`.
+5. Dispatches the run to queue or cell ingress.
+6. Calls `CompleteClaim` to advance `next_run_at` and clear claim fields.
+7. Calls `ReleaseClaim` when dispatch fails before completion.
+
+For overdue schedules, the stored `next_run_at` is the scheduled fire being claimed. The current wall-clock minute does not need to match `cron_spec`; after one catch-up firing, `vectis-cron` advances `next_run_at` to the next future time from the cron expression.
 
 The claim token includes cron instance ID, schedule ID, scheduled time, and a local sequence number. Set `--instance-id` or `VECTIS_CRON_INSTANCE_ID` to make claim ownership readable in logs and database rows.
 
