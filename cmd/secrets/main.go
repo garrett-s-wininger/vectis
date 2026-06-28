@@ -27,7 +27,7 @@ import (
 func runVectisSecrets(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("secrets")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting secrets service for cell %s...", config.CellID())
@@ -64,7 +64,7 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	runs := repos.Runs()

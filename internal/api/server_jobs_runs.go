@@ -724,7 +724,7 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 	if err != nil {
 		return fmt.Errorf("dial worker: %w", err)
 	}
-	defer conn.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(conn)
 
 	client := api.NewWorkerControlServiceClient(conn)
 

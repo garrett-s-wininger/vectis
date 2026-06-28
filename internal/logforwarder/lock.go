@@ -1,6 +1,7 @@
 package logforwarder
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func AcquireLock(lockPath string) (*os.File, error) {
 	}
 
 	if err := platform.TryLockFileExclusive(fd); err != nil {
-		fd.Close()
+		_ = fd.Close()
 		if platform.IsFileLockUnavailable(err) {
 			return nil, fmt.Errorf("forwarder already running")
 		}
@@ -33,12 +34,12 @@ func AcquireLock(lockPath string) (*os.File, error) {
 
 	// Truncate and write our PID so operators can see who owns the lock.
 	if err := fd.Truncate(0); err != nil {
-		fd.Close()
+		_ = fd.Close()
 		return nil, fmt.Errorf("truncate lockfile: %w", err)
 	}
 
 	if _, err := fmt.Fprintf(fd, "%d\n", os.Getpid()); err != nil {
-		fd.Close()
+		_ = fd.Close()
 		return nil, fmt.Errorf("write pid to lockfile: %w", err)
 	}
 
@@ -47,9 +48,14 @@ func AcquireLock(lockPath string) (*os.File, error) {
 
 // ReleaseLock closes the lockfile descriptor, which releases the advisory lock.
 func ReleaseLock(fd *os.File, path string) error {
+	var err error
 	if fd != nil {
-		fd.Close()
+		err = fd.Close()
 	}
 
-	return os.Remove(path)
+	if removeErr := os.Remove(path); removeErr != nil {
+		return errors.Join(err, removeErr)
+	}
+
+	return err
 }

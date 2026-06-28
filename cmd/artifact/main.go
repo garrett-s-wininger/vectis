@@ -19,7 +19,7 @@ func runArtifact(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 
 	logger := interfaces.NewAsyncLogger("artifact")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting artifact service...")

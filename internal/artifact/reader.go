@@ -153,7 +153,7 @@ func resolveArtifactReadEndpoint(ctx context.Context, shardID string, opts Reade
 		if err != nil {
 			return ArtifactEndpoint{}, fmt.Errorf("artifact registry client: %w", err)
 		}
-		defer reg.Close()
+		defer func(closer interface{ Close() error }) { _ = closer.Close() }(reg)
 	}
 
 	address, err := reg.InstanceAddress(ctx, api.Component_COMPONENT_ARTIFACT, shardID)

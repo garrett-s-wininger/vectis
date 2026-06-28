@@ -107,7 +107,7 @@ func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID strin
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []DispatchEvent
 	for rows.Next() {

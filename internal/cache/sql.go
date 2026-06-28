@@ -106,7 +106,7 @@ func (s *SQLService) takeRateLimitTokenSQLite(ctx context.Context, key string, r
 	if err != nil {
 		return RateLimitDecision{}, err
 	}
-	defer conn.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(conn)
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return RateLimitDecision{}, err

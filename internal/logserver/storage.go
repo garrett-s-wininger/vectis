@@ -570,7 +570,7 @@ func (s *LocalRunLogStore) List(runID string) ([]LogEntry, error) {
 
 		return nil, fmt.Errorf("open log store file %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	entries := make([]LogEntry, 0, 128)
 	for {
@@ -667,7 +667,7 @@ func (s *LocalRunLogStore) Replay(runID string, opts LogReplayOptions) (LogRepla
 
 		return LogReplayResult{}, fmt.Errorf("open log store file %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	if opts.Tail > 0 {
 		return replayTailFromFile(f, opts)

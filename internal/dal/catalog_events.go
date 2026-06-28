@@ -84,7 +84,7 @@ func (r *SQLCatalogEventsRepository) ListPending(ctx context.Context, limit int)
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []CatalogEventRecord
 	for rows.Next() {
@@ -196,7 +196,7 @@ func (r *SQLCatalogEventsRepository) SummaryBySource(ctx context.Context) ([]Cat
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []CatalogEventSourceSummary
 	for rows.Next() {

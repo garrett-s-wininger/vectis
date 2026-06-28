@@ -314,7 +314,7 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	if err != nil {
 		return FileCommit{}, err
 	}
-	defer os.Remove(indexFile)
+	defer func(path string) { _ = os.Remove(path) }(indexFile)
 
 	indexEnv := []string{"GIT_INDEX_FILE=" + indexFile}
 	if _, err := g.runWithEnv(ctx, indexEnv, "read-tree", parent); err != nil {
@@ -426,7 +426,7 @@ func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (F
 	if err != nil {
 		return FileCommit{}, err
 	}
-	defer os.Remove(indexFile)
+	defer func(path string) { _ = os.Remove(path) }(indexFile)
 
 	indexEnv := []string{"GIT_INDEX_FILE=" + indexFile}
 	if _, err := g.runWithEnv(ctx, indexEnv, "read-tree", parent); err != nil {

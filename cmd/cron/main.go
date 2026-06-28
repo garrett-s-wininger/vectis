@@ -19,7 +19,7 @@ import (
 
 func runVectisCron(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("cron")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting cron service...")
@@ -37,7 +37,7 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	service := cron.NewCronService(logger, db)
 	defer service.CloseQueueDial()

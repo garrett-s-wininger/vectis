@@ -38,6 +38,10 @@ func doAPIStreamRequest(req *http.Request) (*http.Response, error) {
 	return client.Do(req)
 }
 
+func closeIgnoringError(closer interface{ Close() error }) {
+	_ = closer.Close()
+}
+
 const (
 	cliGroupWorkflows  = "workflows"
 	cliGroupAccess     = "access"

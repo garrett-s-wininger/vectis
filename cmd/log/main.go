@@ -19,7 +19,7 @@ func runLog(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 
 	logger := interfaces.NewAsyncLogger("log-aggregator")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting log service...")

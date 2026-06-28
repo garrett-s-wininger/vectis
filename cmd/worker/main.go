@@ -101,7 +101,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	// can finish its action, lease, and terminal DB update during graceful drain.
 	runCtx := context.Background()
 	logger := interfaces.NewAsyncLogger("worker")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 
@@ -131,7 +131,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	shutdownTracer, err := observability.InitTracer(shutdownCtx, "vectis-worker")
 	if err != nil {
@@ -3476,7 +3476,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 
 		artifactPublisher := w.newArtifactPublisher(runJob, env)
 		if artifactPublisher != nil {
-			defer artifactPublisher.Close()
+			defer func(closer interface{ Close() error }) { _ = closer.Close() }(artifactPublisher)
 		}
 
 		execSessionOpts := workercore.TaskSessionOptions{

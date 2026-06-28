@@ -27,7 +27,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("create worker core server: %v", err)
 	}
-	defer os.Remove(*socketPath)
+	defer func(path string) { _ = os.Remove(path) }(*socketPath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

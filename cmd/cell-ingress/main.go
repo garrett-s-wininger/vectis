@@ -26,7 +26,7 @@ import (
 func runCellIngress(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("cell-ingress")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting cell ingress for cell %s...", config.CellID())
@@ -66,7 +66,7 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	retryMetrics, err := observability.NewRetryMetrics()
 	if err != nil {

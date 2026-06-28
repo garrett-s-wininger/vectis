@@ -143,7 +143,7 @@ func readSecretPlaintext(source string, stdin io.Reader, limit int64) ([]byte, e
 		if err != nil {
 			return nil, fmt.Errorf("read secret source: %w", err)
 		}
-		defer file.Close()
+		defer closeIgnoringError(file)
 
 		reader = file
 	}

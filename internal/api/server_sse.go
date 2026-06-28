@@ -233,7 +233,7 @@ func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID 
 					Completed api.RunOutcome `json:"completed,omitempty"`
 				}{time.Now().Format(time.RFC3339Nano), api.Stream_STREAM_CONTROL, -1, string(inner), api.RunOutcome_RUN_OUTCOME_UNKNOWN})
 
-				w.Write(formatSSEDataEvent(-1, outer))
+				_, _ = w.Write(formatSSEDataEvent(-1, outer))
 				flusher.Flush()
 			}
 		}

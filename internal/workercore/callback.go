@@ -123,7 +123,7 @@ func (p *callbackArtifactPublisher) PublishArtifact(ctx context.Context, req act
 	if err != nil {
 		return action.ArtifactPublishResult{}, err
 	}
-	defer conn.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(conn)
 
 	stream, err := api.NewWorkerCoreShellServiceClient(conn).PublishArtifact(ctx)
 	if err != nil {

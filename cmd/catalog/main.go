@@ -25,7 +25,7 @@ import (
 func runCatalog(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("catalog")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting catalog service...")
@@ -52,7 +52,7 @@ func runCatalog(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repos := dal.NewSQLRepositories(db)
 	svc := catalog.NewService(logger, repos.CatalogEvents(), repos.Runs(), repos.Artifacts())

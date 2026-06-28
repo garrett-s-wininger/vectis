@@ -272,7 +272,7 @@ func (d *durableLogStream) senderLoop() {
 
 		return
 	}
-	defer readFile.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(readFile)
 
 	reader := bufio.NewReader(readFile)
 	var readOffset int64

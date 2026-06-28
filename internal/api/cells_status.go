@@ -154,7 +154,7 @@ func checkCellIngressReady(ctx context.Context, cellID, endpoint string) cellSta
 		resp.Error = err.Error()
 		return resp
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	resp.HTTPStatus = httpResp.StatusCode
 	if httpResp.StatusCode >= http.StatusOK && httpResp.StatusCode < http.StatusMultipleChoices {

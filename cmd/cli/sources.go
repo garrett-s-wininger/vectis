@@ -295,7 +295,7 @@ func sourceOverviewWithOutput(out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to get source overview: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status getting source overview: %s", resp.Status)
@@ -361,7 +361,7 @@ func listSourcesWithOutput(out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to list source repositories: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status listing source repositories: %s", resp.Status)
@@ -484,7 +484,7 @@ func registerSourceWithOutput(out io.Writer, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to register source repository: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusCreated:
@@ -520,7 +520,7 @@ func getSourceWithOutput(out io.Writer, repositoryID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get source repository: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -596,7 +596,7 @@ func updateSourceWithOutput(cmd *cobra.Command, out io.Writer, repositoryID stri
 	if err != nil {
 		return fmt.Errorf("failed to update source repository: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -636,7 +636,7 @@ func deleteSourceWithOutput(out io.Writer, repositoryID string, confirmed bool) 
 	if err != nil {
 		return fmt.Errorf("failed to delete source repository: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
@@ -714,7 +714,7 @@ func syncSourceWithOutput(out io.Writer, repositoryID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to sync source repository: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusAccepted:
@@ -748,7 +748,7 @@ func showSourceStatusWithOutput(out io.Writer, repositoryID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch source repository status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -867,7 +867,7 @@ func listSourceSchedulesWithOutput(out io.Writer, repositoryID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list source schedules: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1061,7 +1061,7 @@ func setSourceScheduleOverrideWithOutput(out io.Writer, scheduleID string) error
 	if err != nil {
 		return fmt.Errorf("failed to set source schedule override: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1095,7 +1095,7 @@ func clearSourceScheduleOverrideWithOutput(out io.Writer, scheduleID string) err
 	if err != nil {
 		return fmt.Errorf("failed to clear source schedule override: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1162,7 +1162,7 @@ func setSourceScheduleEnabledWithOutput(out io.Writer, scheduleID string, enable
 	if err != nil {
 		return fmt.Errorf("failed to update source schedule: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1210,7 +1210,7 @@ func deleteSourceScheduleWithOutput(out io.Writer, scheduleID string, confirmed 
 	if err != nil {
 		return fmt.Errorf("failed to delete source schedule: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
@@ -1252,7 +1252,7 @@ func listSourceBranchesWithOutput(out io.Writer, repositoryID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list source branches: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1335,7 +1335,7 @@ func listSourceTreeWithOutput(out io.Writer, repositoryID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list source tree: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1417,7 +1417,7 @@ func listSourceDefinitionsWithOutput(out io.Writer, repositoryID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list source definitions: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1491,7 +1491,7 @@ func resolveSourceDefinitionWithOutput(cmd *cobra.Command, out io.Writer, reposi
 	if err != nil {
 		return fmt.Errorf("failed to resolve source definition: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1554,7 +1554,7 @@ func listSourceJobsPathWithOutput(out io.Writer, path string, quiet bool) error 
 	if err != nil {
 		return fmt.Errorf("failed to list source jobs: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1710,7 +1710,7 @@ func showSourceJobPathWithOutput(cmd *cobra.Command, out io.Writer, path, reposi
 	if err != nil {
 		return fmt.Errorf("failed to fetch source job definition: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1763,7 +1763,7 @@ func writeSourceJobWithOutput(out io.Writer, repositoryID, jobID, source string)
 	if err != nil {
 		return fmt.Errorf("failed to write source job definition: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -1931,7 +1931,7 @@ func triggerSourceJobPathWithOutput(cmd *cobra.Command, out io.Writer, apiPath, 
 	if err != nil {
 		return fmt.Errorf("failed to trigger source job: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusAccepted:

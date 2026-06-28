@@ -9,6 +9,7 @@ linters:
     - bodyclose
     - copyloopvar
     - errorlint
+    - errcheck
     - exhaustive
     - govet
     - ineffassign
@@ -63,6 +64,7 @@ linters:
       # NOTE(garrett): Tests use short-lived servers, direct DB probes, example URLs, and intentional unchecked errors.
       - path: _test\.go$
         linters:
+          - errcheck
           - gosec
           - noctx
 

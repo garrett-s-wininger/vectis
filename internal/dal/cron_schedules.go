@@ -217,7 +217,7 @@ func (r *SQLSchedulesRepository) ListSourceCronSchedules(ctx context.Context, na
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []CronScheduleRecord
 	for rows.Next() {
@@ -497,7 +497,7 @@ func (r *SQLSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([]
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []CronSchedule
 	for rows.Next() {

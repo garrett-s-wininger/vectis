@@ -252,7 +252,7 @@ func (p *persistenceStore) loadSnapshot() (*queueSnapshot, error) {
 		}
 		return nil, fmt.Errorf("open snapshot: %w", err)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	var snap queueSnapshot
 	if err := json.NewDecoder(f).Decode(&snap); err != nil {
@@ -609,7 +609,7 @@ func (p *persistenceStore) segmentBounds(path string) (uint64, uint64, int, erro
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("open wal segment for bounds %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	var minIdx uint64
 	var maxIdx uint64

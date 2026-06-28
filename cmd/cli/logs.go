@@ -376,12 +376,12 @@ outer:
 
 		runs, err := decodeJobRuns(resp.Body)
 		if err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			attemptCancel()
 			return fmt.Errorf("parsing runs: %w", err)
 		}
 
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		for _, r := range runs {
 			if r.RunIndex > lastIndex {
 				lastIndex = r.RunIndex

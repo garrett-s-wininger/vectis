@@ -150,7 +150,7 @@ func (f *LogSpoolForwarder) forwardFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("open spool: %w", err)
 	}
-	defer file.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(file)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

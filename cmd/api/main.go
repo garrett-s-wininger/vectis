@@ -83,7 +83,7 @@ func apiHostAllowsNonLoopback(host string) bool {
 
 func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("api")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting API server...")
@@ -128,7 +128,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		exitCode = 1
 		return
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	authCtx, authCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer authCancel()
@@ -388,7 +388,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 			server.ResolveWorkerAddress = func(ctx context.Context, workerID string) (string, error) {
 				return registryClient.InstanceAddress(ctx, apigen.Component_COMPONENT_WORKER, workerID)
 			}
-			defer registryClient.Close()
+			defer func(closer interface{ Close() error }) { _ = closer.Close() }(registryClient)
 		}
 	}
 

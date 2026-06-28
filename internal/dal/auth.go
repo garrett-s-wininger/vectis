@@ -348,7 +348,7 @@ func (r *SQLAuthRepository) ListAPITokens(ctx context.Context, localUserID int64
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tokens []*APITokenRecord
 	for rows.Next() {
@@ -452,7 +452,7 @@ func (r *SQLAuthRepository) ListLocalUsers(ctx context.Context) ([]*LocalUserRec
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var users []*LocalUserRecord
 	for rows.Next() {
@@ -704,7 +704,7 @@ func (r *SQLAuthRepository) GetTokenScopes(ctx context.Context, tokenID int64) (
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var scopes []*TokenScopeRecord
 	for rows.Next() {

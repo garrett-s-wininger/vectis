@@ -641,7 +641,7 @@ func runCheck(spec checkSpec, opts options, cwd, runDir, logsDir string, executo
 
 		return result
 	}
-	defer logFile.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(logFile)
 
 	fmt.Fprintf(logFile, "# %s\n", spec.Title)
 	if len(spec.Command) > 0 {
@@ -930,7 +930,7 @@ func checksumFile(cwd, path string, info fs.FileInfo) (artifactRecord, error) {
 	if err != nil {
 		return artifactRecord{}, err
 	}
-	defer file.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(file)
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {

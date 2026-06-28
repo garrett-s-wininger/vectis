@@ -236,7 +236,7 @@ func (c *SQLCleaner) TerminalRunIDs(ctx context.Context, retention time.Duration
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []string
 	for rows.Next() {
@@ -285,7 +285,7 @@ func (c *SQLCleaner) referencedArtifactBlobKeys(ctx context.Context, retention t
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make(map[string]bool)
 	for rows.Next() {

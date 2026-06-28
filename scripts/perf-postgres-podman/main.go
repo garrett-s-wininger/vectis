@@ -149,7 +149,7 @@ func postgresHostPort() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer listener.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(listener)
 
 	addr, ok := listener.Addr().(*net.TCPAddr)
 	if !ok {
@@ -368,8 +368,8 @@ func startPostgresWaitSampler(ctx context.Context, dsn string) (*postgresWaitSam
 
 	go func() {
 		defer close(sampler.done)
-		defer db.Close()
-		defer file.Close()
+		defer func() { _ = db.Close() }()
+		defer func(closer interface{ Close() error }) { _ = closer.Close() }(file)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -446,7 +446,7 @@ func samplePostgresWaits(ctx context.Context, db *sql.DB, file *os.File) {
 		writePostgresWaitSampleError(file, err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		fields := make([]string, 13)

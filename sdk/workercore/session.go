@@ -172,7 +172,7 @@ func (s Session) PublishArtifact(ctx context.Context, req ArtifactRequest) (Arti
 	if err != nil {
 		return Artifact{}, err
 	}
-	defer conn.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(conn)
 
 	stream, err := api.NewWorkerCoreShellServiceClient(conn).PublishArtifact(ctx)
 	if err != nil {

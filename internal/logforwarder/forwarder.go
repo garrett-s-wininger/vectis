@@ -458,7 +458,7 @@ func (f *Forwarder) spoolBatch(batch []*api.LogChunk) error {
 			f.logger.Error("Failed to close spool writer: %v", err)
 		}
 
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close spool writer: %w", err)
 	}
 
@@ -467,7 +467,7 @@ func (f *Forwarder) spoolBatch(batch []*api.LogChunk) error {
 			f.logger.Error("Failed to finalize spool file: %v", err)
 		}
 
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename spool file: %w", err)
 	}
 
@@ -551,7 +551,7 @@ func (f *Forwarder) forwardSpoolFile(parentCtx context.Context, path string) err
 	if err != nil {
 		return fmt.Errorf("open spool reader: %w", err)
 	}
-	defer reader.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(reader)
 
 	if f.logClient == nil {
 		return fmt.Errorf("no log client available")

@@ -1583,7 +1583,7 @@ func (r *SQLRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, cu
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	candidates := make([]string, 0, 16)
 	for rows.Next() {
@@ -2200,7 +2200,7 @@ func (r *SQLRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, 
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []CreatedRun
 	for rows.Next() {
@@ -2661,7 +2661,7 @@ func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIn
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []RunRecord
 	var lastID int64
@@ -2780,7 +2780,7 @@ func (r *SQLRunsRepository) ListBySourceRepositoryJob(ctx context.Context, repos
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []RunRecord
 	var lastID int64
@@ -2915,7 +2915,7 @@ func (r *SQLRunsRepository) ListRunTasks(ctx context.Context, runID string, curs
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	byTaskID := map[string]int{}
 	var out []TaskRecord
@@ -3066,7 +3066,7 @@ func (r *SQLRunsRepository) attachExecutionSecurityEvents(ctx context.Context, r
 	if err != nil {
 		return normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		event, err := scanExecutionSecurityEvent(rows)
@@ -3145,7 +3145,7 @@ func (r *SQLRunsRepository) listRunTaskFinalFacts(ctx context.Context, runID str
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]TaskRecord, 0, limit)
 	for rows.Next() {
@@ -3519,7 +3519,7 @@ func (r *SQLRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.C
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []RunTaskCompletion
 	for rows.Next() {
@@ -3593,7 +3593,7 @@ func (r *SQLRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(ctx co
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var counts []RunCountByCell
 	for rows.Next() {
@@ -3656,7 +3656,7 @@ func (r *SQLRunsRepository) CountPendingTaskContinuationsByCell(ctx context.Cont
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var counts []RunCountByCell
 	for rows.Next() {
@@ -3900,7 +3900,7 @@ func taskExecutionStatusSnapshotsByParentTaskIDTx(ctx context.Context, tx *sql.T
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []taskExecutionStatusSnapshot
 	for rows.Next() {
@@ -3948,7 +3948,7 @@ func taskExecutionStatusSnapshotsByRunIDTx(ctx context.Context, tx *sql.Tx, runI
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []taskExecutionStatusSnapshot
 	for rows.Next() {
@@ -4433,7 +4433,7 @@ func verifyBatchParentTasksTx(ctx context.Context, tx *sql.Tx, runID string, par
 			if err != nil {
 				return normalizeSQLError(err)
 			}
-			defer rows.Close()
+			defer func() { _ = rows.Close() }()
 
 			for rows.Next() {
 				var taskID, taskRunID string
@@ -4711,7 +4711,7 @@ func (r *SQLRunsRepository) listQueuedBeforeDispatchCutoff(ctx context.Context, 
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []QueuedRun
 	for rows.Next() {
@@ -4784,7 +4784,7 @@ func (r *SQLRunsRepository) ListPendingExecutions(ctx context.Context, runID str
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ExecutionDispatchRecord
 	for rows.Next() {
@@ -5027,7 +5027,7 @@ func (r *SQLRunsRepository) MarkExpiredQueuedExecutionsFailed(ctx context.Contex
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var executionIDs []string
 	for rows.Next() {
@@ -6186,7 +6186,7 @@ func (r *SQLRunsRepository) CountByStatusByCell(ctx context.Context, status stri
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var counts []RunCountByCell
 	for rows.Next() {
@@ -6234,7 +6234,7 @@ func (r *SQLRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Con
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var counts []RunCountByCell
 	for rows.Next() {

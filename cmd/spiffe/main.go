@@ -20,7 +20,7 @@ const defaultTrustDomain = "vectis.internal"
 
 func runVectisSPIFFE(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("spiffe")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 	cli.SetLogLevel(logger)
 
 	cfg, initOnly := spiffeConfig()

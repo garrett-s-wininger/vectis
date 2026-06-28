@@ -3,6 +3,7 @@ package logforwarder
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -126,7 +127,9 @@ func (w *SpoolWriter) flush() error {
 // Close flushes any remaining chunks and closes the file.
 func (w *SpoolWriter) Close() error {
 	if err := w.flush(); err != nil {
-		w.file.Close()
+		if closeErr := w.file.Close(); closeErr != nil {
+			return errors.Join(fmt.Errorf("flush spool: %w", err), fmt.Errorf("close spool: %w", closeErr))
+		}
 		return fmt.Errorf("flush spool: %w", err)
 	}
 
@@ -149,23 +152,23 @@ func NewSpoolReader(path string) (*SpoolReader, error) {
 	// Validate header
 	magic := make([]byte, 4)
 	if _, err := io.ReadFull(f, magic); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("read magic: %w", err)
 	}
 
 	if string(magic) != spoolMagic {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("invalid spool magic: %q", magic)
 	}
 
 	var version uint32
 	if err := binary.Read(f, binary.BigEndian, &version); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("read version: %w", err)
 	}
 
 	if version != spoolVersion {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("unsupported spool version: %d", version)
 	}
 

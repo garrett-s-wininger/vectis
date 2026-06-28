@@ -66,7 +66,7 @@ func (a *UploadArtifactAction) Execute(ctx context.Context, state *action.Execut
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("open artifact file: %w", err))
 	}
-	defer file.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(file)
 
 	info, err := file.Stat()
 	if err != nil {

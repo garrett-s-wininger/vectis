@@ -134,7 +134,7 @@ func (s *Server) ReadBlob(req *api.GetBlobRequest, stream api.ArtifactService_Re
 	if err != nil {
 		return mapArtifactError(err)
 	}
-	defer rc.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(rc)
 
 	buf, releaseBuf := borrowArtifactBuffer(s.readChunkBytes)
 	defer releaseBuf()

@@ -110,7 +110,7 @@ func DialOrchestratorWithOwner(ctx context.Context, logger interfaces.Logger, pi
 	if err != nil {
 		return OrchestratorDial{}, nil, err
 	}
-	defer regClient.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(regClient)
 
 	entry, err := selectOrchestratorRegistryEntry(ctx, regClient, cellID, selectionKey)
 	if err != nil {

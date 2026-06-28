@@ -73,7 +73,7 @@ func (fsys docsStaticFileSystem) hasDirectoryIndex(dir string) bool {
 	if err != nil {
 		return false
 	}
-	defer index.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(index)
 
 	info, err := index.Stat()
 	return err == nil && !info.IsDir()

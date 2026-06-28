@@ -353,7 +353,7 @@ func Migrate(dbPath string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	return MigrateDB(db)
 }

@@ -20,7 +20,7 @@ import (
 
 func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("orchestrator")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting orchestrator server...")

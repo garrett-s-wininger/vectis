@@ -360,7 +360,7 @@ func (p *EncryptedFSProvider) readSecret(ref encryptedFSResolvedRef) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("%w: encryptedfs secret is not readable", ErrDenied)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	limit := p.maxEncryptedEnvelopeBytes()
 	envelope, err := io.ReadAll(io.LimitReader(f, limit+1))

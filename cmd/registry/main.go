@@ -20,7 +20,7 @@ import (
 
 func runVectisRegistry(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("registry")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting registry server...")

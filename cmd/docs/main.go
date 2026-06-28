@@ -36,7 +36,7 @@ var embeddedDocs embed.FS
 
 func runDocs(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("docs")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 	cli.SetLogLevel(logger)
 
 	handler, source := docsHandler(viper.GetString("dir"), logger)

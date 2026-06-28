@@ -732,14 +732,14 @@ func (s *APIServer) SetSourceSyncCheckoutStatus(fn func(context.Context, dal.Sou
 	s.sourceSyncCheckoutStatus = fn
 }
 
-func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
+func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) {
 	s.mu.RLock()
 	auditor := s.auditor
 	policy := s.auditPolicy
 	s.mu.RUnlock()
 
 	if auditor == nil {
-		return nil
+		return
 	}
 
 	ip := ""
@@ -760,8 +760,6 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 	if err != nil {
 		s.logger.Error("Audit event emission failed: event_type=%s durability=%s error=%v", eventType, durability, err)
 	}
-
-	return err
 }
 
 type httpRequestKey struct{}

@@ -263,7 +263,7 @@ func submitJobDefinitionBody(body []byte, cellID, idempotencyKey string) (jobRun
 	if err != nil {
 		return jobRunResult{}, fmt.Errorf("failed to submit job: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusAccepted:
@@ -325,7 +325,7 @@ func fetchSourceJobDefinitionBodyFromJobsFacade(cmd *cobra.Command, repositoryID
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch source job definition: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
@@ -416,10 +416,10 @@ func editJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("failed to create temp file: %w", err))
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)
+	defer func(path string) { _ = os.Remove(path) }(tempPath)
 
 	if _, err := tempFile.Write(pretty); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		runCLIError(fmt.Errorf("failed to write job definition to temp file: %w", err))
 	}
 
@@ -573,7 +573,7 @@ func createSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -613,7 +613,7 @@ func updateSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 	if err != nil {
 		return fmt.Errorf("failed to update source job: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -740,7 +740,7 @@ func deleteSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:

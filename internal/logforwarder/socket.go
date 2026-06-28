@@ -58,7 +58,7 @@ func NewSocketServer(socketPath string, bufferSize int) (*SocketServer, error) {
 	}
 
 	if err := os.Chmod(socketPath, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
@@ -108,18 +108,18 @@ func (s *SocketServer) Serve() error {
 func (s *SocketServer) Close() error {
 	s.closeOnce.Do(func() {
 		if s.listener != nil {
-			s.listener.Close()
+			_ = s.listener.Close()
 		}
 
 		s.mu.Lock()
 		for conn := range s.conns {
-			conn.Close()
+			_ = conn.Close()
 		}
 		s.mu.Unlock()
 
 		s.wg.Wait()
 		close(s.chunks)
-		os.Remove(s.socketPath)
+		_ = os.Remove(s.socketPath)
 	})
 	return nil
 }
@@ -130,7 +130,7 @@ func (s *SocketServer) handleConn(conn net.Conn) {
 		s.mu.Lock()
 		delete(s.conns, conn)
 		s.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	for {

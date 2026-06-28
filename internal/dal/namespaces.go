@@ -160,7 +160,7 @@ func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, 
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []NamespaceRecord
 	for rows.Next() {
@@ -201,7 +201,7 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []NamespaceRecord
 	for rows.Next() {

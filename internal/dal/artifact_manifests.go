@@ -159,7 +159,7 @@ func (r *SQLArtifactsRepository) ListByRunFiltered(ctx context.Context, runID st
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ArtifactRecord
 	for rows.Next() {

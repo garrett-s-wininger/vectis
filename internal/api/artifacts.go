@@ -153,7 +153,7 @@ func (s *APIServer) DownloadRunArtifact(w http.ResponseWriter, r *http.Request) 
 		writeAPIError(w, http.StatusBadGateway, "artifact_service_error", "failed to connect to artifact service", nil)
 		return
 	}
-	defer reader.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(reader)
 
 	desc, err := reader.StatBlob(r.Context(), rec.BlobKey)
 	if err != nil {

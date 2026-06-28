@@ -117,7 +117,7 @@ func resolveArtifactPublishEndpoint(ctx context.Context, runID string, opts Rout
 			return ArtifactEndpoint{}, fmt.Errorf("artifact registry client: %w", err)
 		}
 
-		defer reg.Close()
+		defer func(closer interface{ Close() error }) { _ = closer.Close() }(reg)
 	}
 
 	endpoints, err := listArtifactPublishEndpoints(ctx, reg, opts.CellID)

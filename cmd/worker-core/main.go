@@ -20,7 +20,7 @@ import (
 func runWorkerCore(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("worker-core")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 

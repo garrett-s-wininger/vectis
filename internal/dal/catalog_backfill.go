@@ -42,7 +42,7 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingRunStatusCatalogEvents(c
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []RunStatusUpdate
 	for rows.Next() {
@@ -97,7 +97,7 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionStatusCatalogEv
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ExecutionStatusUpdate
 	for rows.Next() {
@@ -139,7 +139,7 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionSecurityCatalog
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ExecutionSecurityEvent
 	for rows.Next() {

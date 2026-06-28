@@ -436,7 +436,7 @@ func (s *LocalStore) verifySHA256Digest(ctx context.Context, digest string) (Blo
 
 		return BlobDescriptor{}, fmt.Errorf("open artifact blob %s: %w", BlobKeySHA256(digest), err)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	h := sha256.New()
 	size, err := copyHashing(ctx, io.Discard, f, h, 0)
@@ -611,7 +611,7 @@ func syncPath(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	return f.Sync()
 }

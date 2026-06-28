@@ -195,7 +195,7 @@ func (r *SQLCellExecutionAcceptancesRepository) ListPendingQueueHandoffs(ctx con
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []CellExecutionQueueHandoff
 	for rows.Next() {

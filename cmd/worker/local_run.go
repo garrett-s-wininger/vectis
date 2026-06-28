@@ -116,7 +116,7 @@ func runLocalJob(ctx context.Context, jobPath, workspace string, stdout, stderr 
 	safeStderr := &synchronizedWriter{w: stderr}
 	logger := interfaces.NewLogger("worker-local").WithOutput(safeStderr)
 	client := newLocalLogClient(safeStdout, safeStderr)
-	defer client.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(client)
 
 	executor := job.NewExecutor()
 	logDone := make(chan job.LogStreamWaiter, 1)

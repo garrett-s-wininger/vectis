@@ -310,7 +310,7 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SourceRepositoryRecord
 	for rows.Next() {
@@ -794,7 +794,7 @@ func (r *SQLSourcesRepository) GetDefinitionSources(ctx context.Context, jobID s
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make(map[int]JobDefinitionSourceRecord, len(uniqueVersions))
 	for rows.Next() {

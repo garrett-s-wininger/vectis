@@ -36,7 +36,7 @@ func lockPath() string {
 func runLogForwarder(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("log-forwarder")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 
@@ -97,7 +97,7 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to acquire lock: %v", err)
 	}
-	defer logforwarder.ReleaseLock(lockFd, lock)
+	defer func() { _ = logforwarder.ReleaseLock(lockFd, lock) }()
 
 	logger.Info("Lock acquired")
 
@@ -130,7 +130,7 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to create socket server: %v", err)
 	}
-	defer server.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(server)
 	server.SetLogger(logger)
 
 	logger.Info("Listening on Unix socket: %s", sock)
@@ -173,7 +173,7 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 		logger.Info("Received signal %s; shutting down...", sig)
 	}
 
-	server.Close()
+	_ = server.Close()
 	fwd.Shutdown()
 	cancel()
 

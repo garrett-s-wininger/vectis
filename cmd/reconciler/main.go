@@ -23,7 +23,7 @@ import (
 func runReconciler(cmd *cobra.Command, args []string) {
 	rootCtx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("reconciler")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 
@@ -59,7 +59,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	retryMetrics, err := observability.NewRetryMetrics()
 	if err != nil {
