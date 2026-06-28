@@ -22,6 +22,7 @@ import (
 	jobdef "vectis/internal/job"
 	"vectis/internal/queueclient"
 	"vectis/internal/trigger"
+	"vectis/sdk/scm"
 )
 
 const (
@@ -30,30 +31,10 @@ const (
 	DefaultClaimTTL  = 5 * time.Minute
 )
 
-type Provider interface {
-	Poll(ctx context.Context, spec PollSpec) (PollResult, error)
-}
-
-type PollSpec struct {
-	TriggerID int64
-	JobID     string
-	Provider  string
-	BaseURL   string
-	Project   string
-	Branch    string
-	Query     string
-	Cursor    string
-}
-
-type PollResult struct {
-	Events []Event
-	Cursor string
-}
-
-type Event struct {
-	Key         string
-	PayloadJSON string
-}
+type Provider = scm.PollProvider
+type PollSpec = scm.PollSpec
+type PollResult = scm.PollResult
+type Event = scm.Event
 
 type Service struct {
 	polls     dal.SCMPollTriggersRepository

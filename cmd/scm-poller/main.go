@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	scmgit "vectis/extensions/scm/git"
 	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
 	"vectis/internal/config"
@@ -42,6 +43,7 @@ func runSCMPoller(cmd *cobra.Command, args []string) {
 	service := scmpoller.NewService(logger, db)
 	defer service.CloseQueueDial()
 
+	service.RegisterProvider("git", scmgit.NewProvider())
 	service.SetInstanceID(viper.GetString("instance_id"))
 	service.SetClaimTTL(config.SCMPollerClaimTTL())
 	actionResolver, err := actionconfig.DescriptorResolver()
@@ -73,7 +75,7 @@ func runSCMPoller(cmd *cobra.Command, args []string) {
 var rootCmd = &cobra.Command{
 	Use:   "vectis-scm-poller",
 	Short: "Vectis SCM Poller",
-	Long:  `The Vectis SCM Poller polls source-control providers and records deduplicated trigger events.`,
+	Long:  `The Vectis SCM Poller polls source-control providers such as generic Git and records deduplicated trigger events.`,
 	Run:   runSCMPoller,
 }
 

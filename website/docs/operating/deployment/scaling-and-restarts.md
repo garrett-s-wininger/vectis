@@ -117,7 +117,7 @@ Each artifact shard has a stable identity and serves the blobs routed to that sh
 
 Cron scale-out is active/active within one shared database cell. Replicas race on `cron_trigger_specs` claims; only the winner creates or reuses the scheduled run for that due tick. Set `--instance-id` / `VECTIS_CRON_INSTANCE_ID` to make claim ownership readable in the database and logs. Duplicate cron instance IDs do not weaken the database exclusion, but they make ownership harder to diagnose.
 
-SCM poller scale-out follows the same claim pattern for `scm_poll_trigger_specs`. Replicas race on due poll rows, only the winner contacts the provider for that trigger, and discovered changes are deduplicated through `scm_trigger_events` by stable event key before run creation and dispatch.
+SCM poller scale-out follows the same claim pattern for `scm_poll_trigger_specs`. Replicas race on due poll rows, only the winner contacts the provider for that trigger, and discovered changes are deduplicated through `scm_trigger_events` by stable event key before run creation and dispatch. The shipped `git` provider polls remote refs with `git ls-remote`; the first successful poll only bootstraps the cursor, and later new or changed refs dispatch runs.
 
 ## Restart Behavior
 

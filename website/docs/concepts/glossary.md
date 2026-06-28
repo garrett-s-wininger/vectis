@@ -18,7 +18,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Cron (`vectis-cron`)** — The scheduler process. It reads schedules from the database and enqueues runs when they are due.
 
-**SCM poller (`vectis-scm-poller`)** — The source-control polling process. It claims due SCM poll trigger specs, records deduplicated provider events by stable event key, and creates one dispatched run for each new event.
+**SCM poller (`vectis-scm-poller`)** — The source-control polling process. It claims due SCM poll trigger specs, calls registered `sdk/scm` poll providers such as generic Git, records deduplicated provider events by stable event key, and creates one dispatched run for each new event.
 
 ## D
 

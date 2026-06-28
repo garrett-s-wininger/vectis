@@ -76,6 +76,10 @@ func TestCoreImportsActionExtensionsOnlyAtCompositionPoints(t *testing.T) {
 	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/actions/", allowedActionExtensionImportFile, "action extensions")
 }
 
+func TestCoreImportsSCMProvidersOnlyAtCompositionPoints(t *testing.T) {
+	assertExtensionImportsOnlyAtCompositionPoints(t, "vectis/extensions/scm/", allowedSCMProviderImportFile, "SCM providers")
+}
+
 func assertExtensionImportsOnlyAtCompositionPoints(t *testing.T, importPrefix string, allowFile func(string) bool, label string) {
 	t.Helper()
 
@@ -202,4 +206,18 @@ func allowedActionExtensionImportFile(path string) bool {
 	}
 
 	return false
+}
+
+func allowedSCMProviderImportFile(path string) bool {
+	path = filepath.ToSlash(path)
+	if strings.HasPrefix(path, "../extensions/scm/") {
+		return true
+	}
+
+	switch path {
+	case "../cmd/scm-poller/main.go":
+		return true
+	default:
+		return false
+	}
 }
