@@ -74,9 +74,11 @@ To inspect or remove local state:
 - Go `1.25.10+` as declared in [go.mod](go.mod).
 - CGO enabled for local SQLite use. This is the normal Go default on most developer machines.
 - Node.js `20+` and npm for the default `make build`, which embeds the docs site into `vectis-docs`. Use `SKIP_WEB_BUILD=1 make build` to skip this.
-- `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` only if you need to regenerate protobuf code with `make proto`.
+- Mage, `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` for the portable build targets and protobuf regeneration.
 
-Run `scripts/dev-doctor.sh` on POSIX shells or `.\scripts\dev-doctor.ps1` on Windows PowerShell for a preflight check with install guidance. On Unix, `scripts/dev-doctor.sh --install --yes` installs the required toolchain with the local package manager plus repo-local Go, Node.js, and protobuf tools under `.tools/`; source `.tools/env.sh` afterward. Pass `--install-go-tools` / `-InstallGoTools` to install only the Go protobuf plugins directly.
+Run `scripts/dev-doctor.sh` on POSIX shells or `.\scripts\dev-doctor.ps1` on Windows PowerShell for a preflight check with install guidance. On Unix, `scripts/dev-doctor.sh --install --yes` installs the required toolchain with the local package manager plus repo-local Go, Node.js, Mage, and protobuf tools under `.tools/`; source `.tools/env.sh` afterward. Pass `--install-go-tools` / `-InstallGoTools` to install only the Go-based tools directly.
+
+Portable build targets are moving to Mage. Use `mage -l` to list the targets after running the doctor install and loading the repo-local toolchain environment. The current Makefile delegates `doctor`, `proto`, `build-container`, and `test-quick` to Mage so those targets have one implementation.
 
 To verify the Unix bootstrap from a clean base image, run `scripts/dev-doctor-container.sh`. It copies the repo into a container, runs the installer, and then runs the default smoke target chain; override with `VECTIS_SMOKE_TARGETS='scripts/dev-doctor.sh && make proto' scripts/dev-doctor-container.sh` when you want a narrower check.
 

@@ -8,6 +8,7 @@ $ErrorActionPreference = "Continue"
 
 $ProtoGenGoVersion = "v1.36.11"
 $ProtoGenGoGrpcVersion = "v1.6.1"
+$MageVersion = "v1.17.2"
 $MinProtocVersion = "25.0"
 $MinNodeMajor = 20
 
@@ -18,7 +19,7 @@ Usage: .\scripts\dev-doctor.ps1 [-InstallGoTools] [-NoSQLite]
 Checks the local Vectis development toolchain with friendly install guidance.
 
 Options:
-  -InstallGoTools  Install protoc-gen-go and protoc-gen-go-grpc with go install.
+  -InstallGoTools  Install Mage, protoc-gen-go, and protoc-gen-go-grpc with go install.
   -NoSQLite        Skip CGO/C compiler checks for nosqlite development lanes.
   -Help            Show this help.
 "@
@@ -190,6 +191,7 @@ function Install-GoTool([string]$Module) {
 
 if ($InstallGoTools) {
     Section "Installing Go Tools"
+    Install-GoTool "github.com/magefile/mage@$MageVersion"
     Install-GoTool "google.golang.org/protobuf/cmd/protoc-gen-go@$ProtoGenGoVersion"
     Install-GoTool "google.golang.org/grpc/cmd/protoc-gen-go-grpc@$ProtoGenGoGrpcVersion"
 }
@@ -221,6 +223,21 @@ Check-RequiredCommand "make" "current Makefile entrypoint until Mage owns portab
     "MSYS2: winget install MSYS2.MSYS2, then install make from an MSYS2 shell.",
     "Scoop: scoop install make. Chocolatey: choco install make."
 )
+
+$mage = Find-GoTool "mage"
+if ($mage) {
+    $version = (& $mage --version 2>$null | Select-Object -First 1) -join " "
+    $versionSuffix = ""
+    if ($version) {
+        $versionSuffix = " ($version)"
+    }
+
+    Pass "mage found at $mage$versionSuffix"
+} else {
+    Fail "mage not found"
+    Note "Run: .\scripts\dev-doctor.ps1 -InstallGoTools"
+    Note "Or: go install github.com/magefile/mage@$MageVersion"
+}
 
 $nodePath = Find-CommandPath "node"
 if ($nodePath) {

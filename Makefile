@@ -45,6 +45,7 @@ JAVA ?= java
 TLA_TOOLS_JAR ?= /opt/tla+/tla2tools.jar
 
 GO ?= go
+MAGE ?= mage
 SUITE ?= queue
 PERF_ARGS ?=
 PERF_BIN ?= $(OUT_DIR)/vectis-perf
@@ -84,21 +85,16 @@ podman-grafana-configmaps:
 	go run ./deploy/podman/cmd/generate-grafana-configmaps -o deploy/podman/grafana-configmaps.gen.yaml
 
 .PHONY: build-container
-build-container: CGO_ENABLED = 0
-build-container: BUILD_OPTS = -tags=nosqlite
-build-container: LDFLAGS += -s -w
-build-container: $(BINARIES)
+build-container:
+	SKIP_WEB_BUILD="$(SKIP_WEB_BUILD)" SKIP_DOCS_ASSETS="$(SKIP_DOCS_ASSETS)" OUT_DIR="$(OUT_DIR)" GO="$(GO)" $(MAGE) buildContainer
 
 .PHONY: proto
 proto:
-	rm -rf ./api/gen/
-	mkdir -p ./api/gen/go/
-	${PROTOC} -I ./api/proto \
-		--plugin=protoc-gen-go=${PROTOC_GEN_GO} \
-		--plugin=protoc-gen-go-grpc=${PROTOC_GEN_GO_GRPC} \
-		--go_out=./api/gen/go/ --go_opt=paths=source_relative \
-		--go-grpc_out=./api/gen/go/ --go-grpc_opt=paths=source_relative \
-		./api/proto/*.proto
+	PROTOC="$(PROTOC)" PROTOC_GEN_GO="$(PROTOC_GEN_GO)" PROTOC_GEN_GO_GRPC="$(PROTOC_GEN_GO_GRPC)" GO="$(GO)" $(MAGE) proto
+
+.PHONY: doctor
+doctor:
+	GO="$(GO)" $(MAGE) doctor
 
 .PHONY: ci-quick
 ci-quick:
@@ -146,7 +142,7 @@ test-race:
 
 .PHONY: test-quick
 test-quick:
-	go test -count=1 -timeout=60s ./internal/... ./cmd/... ./api/... ./sdk/... ./examples/... ./tools/...
+	GO="$(GO)" $(MAGE) testQuick
 
 .PHONY: release-local-validate
 release-local-validate:

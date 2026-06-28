@@ -3,6 +3,7 @@ set -u
 
 PROTOC_GEN_GO_VERSION="v1.36.11"
 PROTOC_GEN_GO_GRPC_VERSION="v1.6.1"
+MAGE_VERSION="v1.17.2"
 PROTOC_VERSION="${VECTIS_PROTOC_VERSION:-34.1}"
 MIN_PROTOC_VERSION="25.0"
 MIN_NODE_MAJOR="20"
@@ -21,7 +22,7 @@ Checks the local Vectis development toolchain with friendly install guidance.
 
 Options:
   --install           Install the required Unix development toolchain.
-  --install-go-tools  Install protoc-gen-go and protoc-gen-go-grpc with go install.
+  --install-go-tools  Install Mage, protoc-gen-go, and protoc-gen-go-grpc with go install.
   --install-optional  Best-effort install for optional lanes such as containers and formal verification.
   --yes, -y           Run supported package managers in non-interactive mode.
   --no-sqlite         Skip CGO/C compiler checks for nosqlite development lanes.
@@ -510,6 +511,7 @@ write_env_file() {
 	cat > "$TOOL_PREFIX/env.sh" <<EOF
 # Source this file to use the Vectis repo-local toolchain installed by scripts/dev-doctor.sh.
 export PATH="$TOOL_PREFIX/bin:$TOOL_PREFIX/protoc/bin:$TOOL_PREFIX/go/bin:$TOOL_PREFIX/node/bin:\$PATH"
+export MAGE="$TOOL_PREFIX/bin/mage"
 export PROTOC_GEN_GO="$TOOL_PREFIX/bin/protoc-gen-go"
 export PROTOC_GEN_GO_GRPC="$TOOL_PREFIX/bin/protoc-gen-go-grpc"
 EOF
@@ -635,6 +637,7 @@ fi
 
 if [ "$INSTALL_GO_TOOLS" -eq 1 ]; then
 	section "Installing Go Tools"
+	install_go_tool "github.com/magefile/mage@$MAGE_VERSION"
 	install_go_tool "google.golang.org/protobuf/cmd/protoc-gen-go@$PROTOC_GEN_GO_VERSION"
 	install_go_tool "google.golang.org/grpc/cmd/protoc-gen-go-grpc@$PROTOC_GEN_GO_GRPC_VERSION"
 fi
@@ -663,6 +666,15 @@ check_required_command "git" "source control and ci-quick worktree checks" \
 
 check_required_command "make" "current Unix build/test entrypoint until Mage owns portable workflows" \
 	"Install Make through your OS tools, or run scripts/dev-doctor.sh --install --yes."
+
+if path=$(go_tool_path "mage"); then
+	version=$("$path" --version 2>/dev/null | sed -n '1p' || true)
+	pass "mage found at $path ${version:+($version)}"
+else
+	fail "mage not found"
+	note "Run: scripts/dev-doctor.sh --install-go-tools"
+	note "Or: go install github.com/magefile/mage@$MAGE_VERSION"
+fi
 
 if has_command node; then
 	node_raw=$(node --version 2>/dev/null)
