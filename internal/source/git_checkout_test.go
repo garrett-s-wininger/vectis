@@ -531,6 +531,65 @@ func TestGitCheckoutStatusReportsHealthyCheckout(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutStatusReportsObjectStorePressure(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+
+	commonDir := gitOutput(t, repo, "rev-parse", "--git-common-dir")
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repo, commonDir)
+	}
+
+	packDir := filepath.Join(commonDir, "objects", "pack")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatalf("mkdir pack dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "pack-pressure.pack"), []byte("pack-bytes"), 0o644); err != nil {
+		t.Fatalf("write pack: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "pack-pressure.keep"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write keep: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "pack-pressure.lock"), []byte("lock"), 0o644); err != nil {
+		t.Fatalf("write pack lock: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "multi-pack-index"), []byte("midx"), 0o644); err != nil {
+		t.Fatalf("write multi-pack-index: %v", err)
+	}
+
+	infoDir := filepath.Join(commonDir, "objects", "info")
+	if err := os.MkdirAll(infoDir, 0o755); err != nil {
+		t.Fatalf("mkdir objects info: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(infoDir, "commit-graph"), []byte("graph"), 0o644); err != nil {
+		t.Fatalf("write commit graph: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(commonDir, "gc.pid"), []byte("12345\n"), 0o644); err != nil {
+		t.Fatalf("write gc pid: %v", err)
+	}
+
+	status := NewGitCheckout(repo).Status(context.Background(), "HEAD")
+	if status.ErrorCode != "" {
+		t.Fatalf("expected healthy status, got error %s: %s", status.ErrorCode, status.ErrorMessage)
+	}
+
+	objectStore := status.ObjectStore
+	if objectStore.PackFiles != 1 ||
+		objectStore.PackBytes != int64(len("pack-bytes")) ||
+		objectStore.PackKeepFiles != 1 ||
+		objectStore.LooseObjects == 0 ||
+		objectStore.LooseObjectScanLimit != gitObjectLooseScanLimit ||
+		!objectStore.CommitGraph ||
+		!objectStore.MultiPackIndex {
+		t.Fatalf("object store pressure mismatch: %+v", objectStore)
+	}
+
+	gotIndicators := strings.Join(objectStore.MaintenanceIndicatorFiles, ",")
+	if gotIndicators != "gc.pid,objects/pack/pack-pressure.lock" {
+		t.Fatalf("maintenance indicators: got %q", gotIndicators)
+	}
+}
+
 func TestGitCheckoutStatusAllowsMissingDefaultRef(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")

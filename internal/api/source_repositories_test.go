@@ -1655,6 +1655,12 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 		t.Fatalf("checkout status mismatch: %+v", statusResp)
 	}
 
+	if statusResp.ObjectStore == nil ||
+		statusResp.ObjectStore.LooseObjects == 0 ||
+		statusResp.ObjectStore.LooseObjectScanLimit == 0 {
+		t.Fatalf("object store status mismatch: %+v", statusResp.ObjectStore)
+	}
+
 	disableRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
 		"enabled": false,
 	})
@@ -3629,9 +3635,20 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 		ExternalChangeRequests bool   `json:"external_change_requests"`
 		Reason                 string `json:"reason"`
 	} `json:"authoring"`
-	PathExists         bool   `json:"path_exists"`
-	PathIsDirectory    bool   `json:"path_is_directory"`
-	GitRepository      bool   `json:"git_repository"`
+	PathExists      bool `json:"path_exists"`
+	PathIsDirectory bool `json:"path_is_directory"`
+	GitRepository   bool `json:"git_repository"`
+	ObjectStore     *struct {
+		PackFiles                 int      `json:"pack_files"`
+		PackBytes                 int64    `json:"pack_bytes"`
+		PackKeepFiles             int      `json:"pack_keep_files"`
+		LooseObjects              int      `json:"loose_objects"`
+		LooseObjectsTruncated     bool     `json:"loose_objects_truncated"`
+		LooseObjectScanLimit      int      `json:"loose_object_scan_limit"`
+		CommitGraph               bool     `json:"commit_graph"`
+		MultiPackIndex            bool     `json:"multi_pack_index"`
+		MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files"`
+	} `json:"object_store"`
 	WorkTreePath       string `json:"work_tree_path"`
 	HeadRef            string `json:"head_ref"`
 	DefaultRef         string `json:"default_ref"`
@@ -3668,9 +3685,20 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 			ExternalChangeRequests bool   `json:"external_change_requests"`
 			Reason                 string `json:"reason"`
 		} `json:"authoring"`
-		PathExists         bool   `json:"path_exists"`
-		PathIsDirectory    bool   `json:"path_is_directory"`
-		GitRepository      bool   `json:"git_repository"`
+		PathExists      bool `json:"path_exists"`
+		PathIsDirectory bool `json:"path_is_directory"`
+		GitRepository   bool `json:"git_repository"`
+		ObjectStore     *struct {
+			PackFiles                 int      `json:"pack_files"`
+			PackBytes                 int64    `json:"pack_bytes"`
+			PackKeepFiles             int      `json:"pack_keep_files"`
+			LooseObjects              int      `json:"loose_objects"`
+			LooseObjectsTruncated     bool     `json:"loose_objects_truncated"`
+			LooseObjectScanLimit      int      `json:"loose_object_scan_limit"`
+			CommitGraph               bool     `json:"commit_graph"`
+			MultiPackIndex            bool     `json:"multi_pack_index"`
+			MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files"`
+		} `json:"object_store"`
 		WorkTreePath       string `json:"work_tree_path"`
 		HeadRef            string `json:"head_ref"`
 		DefaultRef         string `json:"default_ref"`

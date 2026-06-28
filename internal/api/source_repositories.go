@@ -102,6 +102,7 @@ type sourceRepositoryStatusResponse struct {
 	PathExists         bool                         `json:"path_exists"`
 	PathIsDirectory    bool                         `json:"path_is_directory"`
 	GitRepository      bool                         `json:"git_repository"`
+	ObjectStore        *sourceRepositoryObjectStore `json:"object_store,omitempty"`
 	WorkTreePath       string                       `json:"work_tree_path,omitempty"`
 	HeadRef            string                       `json:"head_ref,omitempty"`
 	DefaultRef         string                       `json:"default_ref,omitempty"`
@@ -114,6 +115,18 @@ type sourceRepositoryStatusResponse struct {
 type sourceRepositoryStatusError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+type sourceRepositoryObjectStore struct {
+	PackFiles                 int      `json:"pack_files"`
+	PackBytes                 int64    `json:"pack_bytes"`
+	PackKeepFiles             int      `json:"pack_keep_files"`
+	LooseObjects              int      `json:"loose_objects"`
+	LooseObjectsTruncated     bool     `json:"loose_objects_truncated,omitempty"`
+	LooseObjectScanLimit      int      `json:"loose_object_scan_limit"`
+	CommitGraph               bool     `json:"commit_graph"`
+	MultiPackIndex            bool     `json:"multi_pack_index"`
+	MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files,omitempty"`
 }
 
 type sourceRepositoryAuthoring struct {
@@ -2625,6 +2638,9 @@ func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec da
 		resp.PathExists = checkoutStatus.PathExists
 		resp.PathIsDirectory = checkoutStatus.PathIsDirectory
 		resp.GitRepository = checkoutStatus.GitRepository
+		if checkoutStatus.GitRepository {
+			resp.ObjectStore = sourceRepositoryObjectStoreFromStatus(checkoutStatus.ObjectStore)
+		}
 		resp.WorkTreePath = checkoutStatus.WorkTreePath
 		resp.HeadRef = checkoutStatus.HeadRef
 		resp.DefaultRef = checkoutStatus.DefaultRef
@@ -2653,6 +2669,20 @@ func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec da
 	}
 
 	return resp
+}
+
+func sourceRepositoryObjectStoreFromStatus(status sourcepkg.GitCheckoutObjectStoreStatus) *sourceRepositoryObjectStore {
+	return &sourceRepositoryObjectStore{
+		PackFiles:                 status.PackFiles,
+		PackBytes:                 status.PackBytes,
+		PackKeepFiles:             status.PackKeepFiles,
+		LooseObjects:              status.LooseObjects,
+		LooseObjectsTruncated:     status.LooseObjectsTruncated,
+		LooseObjectScanLimit:      status.LooseObjectScanLimit,
+		CommitGraph:               status.CommitGraph,
+		MultiPackIndex:            status.MultiPackIndex,
+		MaintenanceIndicatorFiles: append([]string(nil), status.MaintenanceIndicatorFiles...),
+	}
 }
 
 func (s *APIServer) sourceRepositoryAuthoringFromRecord(rec dal.SourceRepositoryRecord) sourceRepositoryAuthoring {

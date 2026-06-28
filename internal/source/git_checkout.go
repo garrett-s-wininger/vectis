@@ -33,6 +33,7 @@ type GitCheckoutStatus struct {
 	PathExists         bool
 	PathIsDirectory    bool
 	GitRepository      bool
+	ObjectStore        GitCheckoutObjectStoreStatus
 	WorkTreePath       string
 	HeadRef            string
 	DefaultRef         string
@@ -122,6 +123,7 @@ func (g *GitCheckout) Status(ctx context.Context, defaultRef string) GitCheckout
 	}
 
 	status.GitRepository = true
+	status.ObjectStore = g.objectStoreStatus(ctx)
 
 	if out, err := g.run(ctx, "rev-parse", "--show-toplevel"); err == nil {
 		status.WorkTreePath = strings.TrimSpace(string(out))
