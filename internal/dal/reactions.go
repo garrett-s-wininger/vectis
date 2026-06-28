@@ -46,6 +46,7 @@ func (r *SQLReactionsRepository) RecordEvent(ctx context.Context, create Reactio
 		INSERT INTO reaction_events
 			(event_id, source, event_type, namespace_id, job_id, run_id, actor, payload_json, source_cell, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(event_id) DO NOTHING
 	`),
 		eventID,
 		source,
@@ -63,7 +64,26 @@ func (r *SQLReactionsRepository) RecordEvent(ctx context.Context, create Reactio
 		return ReactionEventRecord{}, normalizeSQLError(err)
 	}
 
-	return r.getEvent(ctx, eventID)
+	event, err := r.getEvent(ctx, eventID)
+	if err != nil {
+		return ReactionEventRecord{}, err
+	}
+
+	if !sameReactionEvent(event, ReactionEventRecord{
+		EventID:     eventID,
+		Source:      source,
+		EventType:   eventType,
+		NamespaceID: nullableNamespaceID(create.NamespaceID),
+		JobID:       strings.TrimSpace(create.JobID),
+		RunID:       strings.TrimSpace(create.RunID),
+		Actor:       strings.TrimSpace(create.Actor),
+		PayloadJSON: payload,
+		SourceCell:  sourceCell,
+	}) {
+		return ReactionEventRecord{}, fmt.Errorf("%w: reaction event %s already exists with different content", ErrConflict, eventID)
+	}
+
+	return event, nil
 }
 
 func (r *SQLReactionsRepository) GetEvent(ctx context.Context, eventID string) (ReactionEventRecord, error) {
@@ -144,6 +164,29 @@ func (r *SQLReactionsRepository) GetTarget(ctx context.Context, targetID string)
 	return r.getTarget(ctx, targetID)
 }
 
+func (r *SQLReactionsRepository) SetTargetEnabled(ctx context.Context, targetID string, enabled bool) (ReactionTargetRecord, error) {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return ReactionTargetRecord{}, fmt.Errorf("%w: target_id is required", ErrConflict)
+	}
+
+	now := time.Now().UnixNano()
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE reaction_targets
+		SET enabled = ?, updated_at = ?
+		WHERE target_id = ?
+	`), enabled, now, targetID)
+	if err != nil {
+		return ReactionTargetRecord{}, normalizeSQLError(err)
+	}
+
+	if err := requireOneRowByString(res, "reaction target", targetID); err != nil {
+		return ReactionTargetRecord{}, err
+	}
+
+	return r.getTarget(ctx, targetID)
+}
+
 func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create ReactionSubscriptionCreate) (ReactionSubscriptionRecord, error) {
 	subscriptionID := strings.TrimSpace(create.SubscriptionID)
 	if subscriptionID == "" {
@@ -186,6 +229,29 @@ func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create 
 
 	if err != nil {
 		return ReactionSubscriptionRecord{}, normalizeSQLError(err)
+	}
+
+	return r.getSubscription(ctx, subscriptionID)
+}
+
+func (r *SQLReactionsRepository) SetSubscriptionEnabled(ctx context.Context, subscriptionID string, enabled bool) (ReactionSubscriptionRecord, error) {
+	subscriptionID = strings.TrimSpace(subscriptionID)
+	if subscriptionID == "" {
+		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: subscription_id is required", ErrConflict)
+	}
+
+	now := time.Now().UnixNano()
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE reaction_subscriptions
+		SET enabled = ?, updated_at = ?
+		WHERE subscription_id = ?
+	`), enabled, now, subscriptionID)
+	if err != nil {
+		return ReactionSubscriptionRecord{}, normalizeSQLError(err)
+	}
+
+	if err := requireOneRowByString(res, "reaction subscription", subscriptionID); err != nil {
+		return ReactionSubscriptionRecord{}, err
 	}
 
 	return r.getSubscription(ctx, subscriptionID)
@@ -297,6 +363,7 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 		INSERT INTO reaction_invocations
 			(invocation_id, event_id, target_id, status, action_uses, action_descriptor_json, action_digest, target_config_json, attempts, max_attempts, next_attempt_at, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+		ON CONFLICT(event_id, target_id) DO NOTHING
 	`),
 		invocationID,
 		eventID,
@@ -316,7 +383,25 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 		return ReactionInvocationRecord{}, normalizeSQLError(err)
 	}
 
-	return r.getInvocation(ctx, invocationID)
+	invocation, err := r.getInvocationByEventTarget(ctx, eventID, targetID)
+	if err != nil {
+		return ReactionInvocationRecord{}, err
+	}
+
+	if !sameReactionInvocation(invocation, ReactionInvocationRecord{
+		EventID:              eventID,
+		TargetID:             targetID,
+		ActionUses:           actionUses,
+		ActionDescriptorJSON: descriptor,
+		ActionDigest:         strings.TrimSpace(create.ActionDigest),
+		TargetConfigJSON:     targetConfig,
+		MaxAttempts:          maxAttempts,
+		NextAttemptAt:        nextAttemptAt,
+	}) {
+		return ReactionInvocationRecord{}, fmt.Errorf("%w: reaction invocation for event %s target %s already exists with different content", ErrConflict, eventID, targetID)
+	}
+
+	return invocation, nil
 }
 
 func (r *SQLReactionsRepository) GetInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error) {
@@ -422,8 +507,8 @@ func (r *SQLReactionsRepository) MarkInvocationSucceeded(ctx context.Context, in
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE reaction_invocations
 		SET status = ?, claimed_by = '', claim_until = NULL, last_error = NULL, completed_at = ?, updated_at = ?
-		WHERE invocation_id = ?
-	`), ReactionInvocationStatusSucceeded, completedAtUnixNano, completedAtUnixNano, invocationID)
+		WHERE invocation_id = ? AND status = ?
+	`), ReactionInvocationStatusSucceeded, completedAtUnixNano, completedAtUnixNano, invocationID, ReactionInvocationStatusRunning)
 
 	if err != nil {
 		return normalizeSQLError(err)
@@ -442,6 +527,7 @@ func (r *SQLReactionsRepository) MarkInvocationFailed(ctx context.Context, invoc
 		nextAttemptAtUnixNano = time.Now().Add(time.Minute).UnixNano()
 	}
 
+	message = truncateReactionLastError(message)
 	now := time.Now().UnixNano()
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE reaction_invocations
@@ -451,8 +537,8 @@ func (r *SQLReactionsRepository) MarkInvocationFailed(ctx context.Context, invoc
 		    last_error = ?,
 		    next_attempt_at = ?,
 		    updated_at = ?
-		WHERE invocation_id = ?
-	`), ReactionInvocationStatusFailed, ReactionInvocationStatusPending, strings.TrimSpace(message), nextAttemptAtUnixNano, now, invocationID)
+		WHERE invocation_id = ? AND status = ?
+	`), ReactionInvocationStatusFailed, ReactionInvocationStatusPending, message, nextAttemptAtUnixNano, now, invocationID, ReactionInvocationStatusRunning)
 
 	if err != nil {
 		return normalizeSQLError(err)
@@ -586,6 +672,18 @@ func (r *SQLReactionsRepository) getInvocation(ctx context.Context, invocationID
 		FROM reaction_invocations
 		WHERE invocation_id = ?
 	`), invocationID)
+
+	return scanReactionInvocation(row)
+}
+
+func (r *SQLReactionsRepository) getInvocationByEventTarget(ctx context.Context, eventID, targetID string) (ReactionInvocationRecord, error) {
+	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT id, invocation_id, event_id, target_id, status, action_uses, action_descriptor_json, action_digest,
+		       target_config_json, attempts, max_attempts, next_attempt_at, claimed_by, claim_until, last_error,
+		       created_at, updated_at, completed_at
+		FROM reaction_invocations
+		WHERE event_id = ? AND target_id = ?
+	`), eventID, targetID)
 
 	return scanReactionInvocation(row)
 }
@@ -802,6 +900,64 @@ func scanReactionLocalMessage(scanner reactionScanner) (ReactionLocalMessageReco
 
 	rec.PayloadJSON = []byte(payload)
 	return rec, nil
+}
+
+func sameReactionEvent(left, right ReactionEventRecord) bool {
+	if !sameNullableInt64(left.NamespaceID, right.NamespaceID) {
+		return false
+	}
+
+	return left.EventID == right.EventID &&
+		left.Source == right.Source &&
+		left.EventType == right.EventType &&
+		left.JobID == right.JobID &&
+		left.RunID == right.RunID &&
+		left.Actor == right.Actor &&
+		bytes.Equal(bytes.TrimSpace(left.PayloadJSON), bytes.TrimSpace(right.PayloadJSON)) &&
+		left.SourceCell == right.SourceCell
+}
+
+func sameReactionInvocation(left, right ReactionInvocationRecord) bool {
+	return left.EventID == right.EventID &&
+		left.TargetID == right.TargetID &&
+		left.ActionUses == right.ActionUses &&
+		bytes.Equal(bytes.TrimSpace(left.ActionDescriptorJSON), bytes.TrimSpace(right.ActionDescriptorJSON)) &&
+		left.ActionDigest == right.ActionDigest &&
+		bytes.Equal(bytes.TrimSpace(left.TargetConfigJSON), bytes.TrimSpace(right.TargetConfigJSON)) &&
+		left.MaxAttempts == right.MaxAttempts
+}
+
+func sameNullableInt64(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+
+	return *left == *right
+}
+
+func nullableNamespaceID(value int64) *int64 {
+	if value <= 0 {
+		return nil
+	}
+
+	return &value
+}
+
+func truncateReactionLastError(message string) string {
+	message = strings.TrimSpace(message)
+	runes := []rune(message)
+	if len(runes) <= ReactionInvocationLastErrorMaxLength {
+		return message
+	}
+
+	suffix := []rune("...(truncated)")
+	keep := ReactionInvocationLastErrorMaxLength - len(suffix)
+	if keep < 0 {
+		keep = ReactionInvocationLastErrorMaxLength
+		suffix = nil
+	}
+
+	return string(runes[:keep]) + string(suffix)
 }
 
 func reactionEventPayloadString(payload []byte, field string) string {

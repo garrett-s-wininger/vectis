@@ -99,6 +99,85 @@ func TestPublisherPublishManualNoticeCanUseExplicitTarget(t *testing.T) {
 	assertLocalMessageCount(t, ctx, store, "direct", 1)
 }
 
+func TestPublisherPublishManualNoticeIsIdempotentForEventID(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	if err := createLocalSubscription(ctx, store, "manual-idempotent-target", "manual-idempotent", dal.ReactionEventTypeManualNotice, "manual-idempotent"); err != nil {
+		t.Fatal(err)
+	}
+
+	publisher := &reaction.Publisher{Store: store}
+	first, err := publisher.PublishManualNotice(ctx, reaction.ManualNotice{
+		EventID: "manual-event-idempotent",
+		Actor:   "operator",
+		Message: "same notice",
+	})
+
+	if err != nil {
+		t.Fatalf("publish first notice: %v", err)
+	}
+
+	duplicate, err := publisher.PublishManualNotice(ctx, reaction.ManualNotice{
+		EventID: "manual-event-idempotent",
+		Actor:   "operator",
+		Message: "same notice",
+	})
+
+	if err != nil {
+		t.Fatalf("publish duplicate notice: %v", err)
+	}
+
+	if duplicate.Event.ID != first.Event.ID || len(duplicate.Invocations) != 1 || duplicate.Invocations[0].InvocationID != first.Invocations[0].InvocationID {
+		t.Fatalf("duplicate publication: got %+v want %+v", duplicate, first)
+	}
+
+	if _, err := publisher.PublishManualNotice(ctx, reaction.ManualNotice{
+		EventID: "manual-event-idempotent",
+		Actor:   "operator",
+		Message: "different notice",
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting duplicate notice, got %v", err)
+	}
+}
+
+func TestPublisherPublishManualNoticeSkipsDisabledExplicitTarget(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "disabled-direct-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"disabled-direct"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	if _, err := store.SetTargetEnabled(ctx, target.TargetID, false); err != nil {
+		t.Fatalf("disable target: %v", err)
+	}
+
+	publisher := &reaction.Publisher{Store: store}
+	publication, err := publisher.PublishManualNotice(ctx, reaction.ManualNotice{
+		TargetIDs: []string{target.TargetID},
+		Actor:     "operator",
+		Message:   "disabled target should not receive this",
+	})
+
+	if err != nil {
+		t.Fatalf("publish manual notice: %v", err)
+	}
+
+	if len(publication.DirectTargets) != 0 || len(publication.Invocations) != 0 {
+		t.Fatalf("publication: %+v", publication)
+	}
+}
+
 func TestPublisherPublishRunCompletedMatchesSubscriptionMetadata(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	store := dal.NewSQLRepositoriesWithCellID(db, "iad-a").Reactions()

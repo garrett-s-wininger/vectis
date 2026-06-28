@@ -124,6 +124,17 @@ stable event ID and reaction invocation ID so external sinks and downstream run
 creation can deduplicate where possible. Vectis records invocation state, but it
 does not promise exactly once side effects outside its database.
 
+Publishers may supply deterministic event IDs for retry-safe lifecycle emission.
+Duplicate event IDs and duplicate event-target invocations are idempotent only
+when the immutable event payload or frozen invocation descriptor matches the
+existing row; conflicting duplicates fail instead of rewriting history.
+
+Targets and subscriptions are independently enableable. Disabled subscriptions
+do not match events, disabled targets do not receive subscription or direct
+manual invocations, and direct manual target IDs still flow through durable event
+and invocation rows. Stored invocation errors are bounded so pathological action
+failures do not turn reaction state into an unbounded log sink.
+
 The minimum durable tables are:
 
 | Table | Purpose |

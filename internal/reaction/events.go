@@ -10,6 +10,7 @@ import (
 )
 
 type ManualNotice struct {
+	EventID     string
 	NamespaceID int64
 	JobID       string
 	RunID       string
@@ -23,6 +24,7 @@ type ManualNotice struct {
 }
 
 type RunCompleted struct {
+	EventID       string
 	NamespaceID   int64
 	JobID         string
 	RunID         string
@@ -35,6 +37,7 @@ type RunCompleted struct {
 }
 
 type DefinitionValidationFailed struct {
+	EventID        string
 	NamespaceID    int64
 	JobID          string
 	Actor          string
@@ -67,6 +70,7 @@ func (p *Publisher) PublishManualNotice(ctx context.Context, notice ManualNotice
 	}
 
 	return p.publish(ctx, dal.ReactionEventCreate{
+		EventID:     strings.TrimSpace(notice.EventID),
 		Source:      dal.ReactionEventSourceManual,
 		EventType:   dal.ReactionEventTypeManualNotice,
 		NamespaceID: notice.NamespaceID,
@@ -106,6 +110,7 @@ func (p *Publisher) PublishRunCompleted(ctx context.Context, completed RunComple
 	}
 
 	return p.Publish(ctx, dal.ReactionEventCreate{
+		EventID:     strings.TrimSpace(completed.EventID),
 		Source:      dal.ReactionEventSourceLifecycle,
 		EventType:   dal.ReactionEventTypeRunCompleted,
 		NamespaceID: completed.NamespaceID,
@@ -136,6 +141,7 @@ func (p *Publisher) PublishDefinitionValidationFailed(ctx context.Context, failu
 	}
 
 	return p.Publish(ctx, dal.ReactionEventCreate{
+		EventID:     strings.TrimSpace(failure.EventID),
 		Source:      dal.ReactionEventSourceLifecycle,
 		EventType:   dal.ReactionEventTypeDefinitionValidationFailed,
 		NamespaceID: failure.NamespaceID,

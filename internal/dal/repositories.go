@@ -121,6 +121,8 @@ const (
 	CatalogEventStatusApplied = "applied"
 	CatalogEventStatusFailed  = "failed"
 
+	ReactionInvocationLastErrorMaxLength = 4096
+
 	ReactionEventTypeManualNotice               = "manual.notice"
 	ReactionEventTypeRunCompleted               = "run.completed"
 	ReactionEventTypeDefinitionValidationFailed = "definition.validation_failed"
@@ -786,7 +788,9 @@ type ReactionsRepository interface {
 	GetEvent(ctx context.Context, eventID string) (ReactionEventRecord, error)
 	CreateTarget(ctx context.Context, create ReactionTargetCreate) (ReactionTargetRecord, error)
 	GetTarget(ctx context.Context, targetID string) (ReactionTargetRecord, error)
+	SetTargetEnabled(ctx context.Context, targetID string, enabled bool) (ReactionTargetRecord, error)
 	CreateSubscription(ctx context.Context, create ReactionSubscriptionCreate) (ReactionSubscriptionRecord, error)
+	SetSubscriptionEnabled(ctx context.Context, subscriptionID string, enabled bool) (ReactionSubscriptionRecord, error)
 	ListMatchingSubscriptions(ctx context.Context, event ReactionEventRecord) ([]ReactionSubscriptionMatch, error)
 	CreateInvocation(ctx context.Context, create ReactionInvocationCreate) (ReactionInvocationRecord, error)
 	GetInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error)
