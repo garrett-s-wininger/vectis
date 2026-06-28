@@ -106,6 +106,7 @@ var (
 	sourceRegisterCheckoutMode  string
 	sourceRegisterAuthoringMode string
 	sourceRegisterCanonicalURL  string
+	sourceRegisterFallbackURLs  []string
 	sourceRegisterDefaultRef    string
 	sourceRegisterCredentialRef string
 	sourceRegisterDisabled      bool
@@ -114,6 +115,7 @@ var (
 	sourceUpdateCheckoutMode    string
 	sourceUpdateAuthoringMode   string
 	sourceUpdateCanonicalURL    string
+	sourceUpdateFallbackURLs    []string
 	sourceUpdateDefaultRef      string
 	sourceUpdateCredentialRef   string
 	sourceUpdateEnable          bool

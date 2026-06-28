@@ -515,16 +515,17 @@ func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLReposit
 	}
 
 	return dal.SourceRepositoryRecord{
-		RepositoryID:  decl.RepositoryID,
-		NamespaceID:   ns.ID,
-		SourceKind:    sourceKind,
-		CheckoutPath:  checkoutPath,
-		CheckoutMode:  checkoutMode,
-		AuthoringMode: authoringMode,
-		CanonicalURL:  strings.TrimSpace(decl.CanonicalURL),
-		DefaultRef:    strings.TrimSpace(decl.DefaultRef),
-		CredentialRef: strings.TrimSpace(decl.CredentialRef),
-		Enabled:       enabled,
+		RepositoryID:       decl.RepositoryID,
+		NamespaceID:        ns.ID,
+		SourceKind:         sourceKind,
+		CheckoutPath:       checkoutPath,
+		CheckoutMode:       checkoutMode,
+		AuthoringMode:      authoringMode,
+		CanonicalURL:       strings.TrimSpace(decl.CanonicalURL),
+		FallbackRemoteURLs: normalizeConfiguredSourceRepositoryFallbackRemoteURLs(decl.FallbackRemoteURLs),
+		DefaultRef:         strings.TrimSpace(decl.DefaultRef),
+		CredentialRef:      strings.TrimSpace(decl.CredentialRef),
+		Enabled:            enabled,
 	}, namespacePath, nil
 }
 
@@ -534,9 +535,54 @@ func configuredSourceRepositoryEqual(existing, desired dal.SourceRepositoryRecor
 		existing.CheckoutMode == desired.CheckoutMode &&
 		existing.AuthoringMode == desired.AuthoringMode &&
 		existing.CanonicalURL == desired.CanonicalURL &&
+		sameConfiguredSourceRepositoryFallbackRemoteURLs(existing.FallbackRemoteURLs, desired.FallbackRemoteURLs) &&
 		existing.DefaultRef == desired.DefaultRef &&
 		existing.CredentialRef == desired.CredentialRef &&
 		existing.Enabled == desired.Enabled
+}
+
+func normalizeConfiguredSourceRepositoryFallbackRemoteURLs(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, raw := range in {
+		remoteURL := strings.TrimSpace(raw)
+		if remoteURL == "" {
+			continue
+		}
+
+		if _, ok := seen[remoteURL]; ok {
+			continue
+		}
+
+		seen[remoteURL] = struct{}{}
+		out = append(out, remoteURL)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+func sameConfiguredSourceRepositoryFallbackRemoteURLs(a, b []string) bool {
+	a = normalizeConfiguredSourceRepositoryFallbackRemoteURLs(a)
+	b = normalizeConfiguredSourceRepositoryFallbackRemoteURLs(b)
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func logConfiguredSourceRepository(logger interfaces.Logger, action string, rec dal.SourceRepositoryRecord, namespacePath string) {
@@ -589,10 +635,11 @@ func configuredSourceRepositorySyncCheckoutStatusResolved(ctx context.Context, r
 		}
 
 		return sourcepkg.SyncManagedGitCheckout(ctx, sourcepkg.ManagedGitCheckoutRequest{
-			CheckoutPath: rec.CheckoutPath,
-			RemoteURL:    rec.CanonicalURL,
-			DefaultRef:   syncRef,
-			Credentials:  credentials,
+			CheckoutPath:       rec.CheckoutPath,
+			RemoteURL:          rec.CanonicalURL,
+			DefaultRef:         syncRef,
+			FallbackRemoteURLs: rec.FallbackRemoteURLs,
+			Credentials:        credentials,
 		})
 	}
 
@@ -616,9 +663,10 @@ func configuredSourceRepositoryRefHydratorWithCredentialResolver(resolver source
 		}
 
 		return sourcepkg.HydrateManagedGitRef(ctx, sourcepkg.ManagedGitRefHydrationRequest{
-			CheckoutPath: rec.CheckoutPath,
-			Ref:          ref,
-			Credentials:  credentials,
+			CheckoutPath:       rec.CheckoutPath,
+			Ref:                ref,
+			FallbackRemoteURLs: rec.FallbackRemoteURLs,
+			Credentials:        credentials,
 		})
 	}
 }

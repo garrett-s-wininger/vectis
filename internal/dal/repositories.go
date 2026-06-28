@@ -165,6 +165,7 @@ type SourceRepositoryRecord struct {
 	CheckoutMode           string
 	AuthoringMode          string
 	CanonicalURL           string
+	FallbackRemoteURLs     []string
 	DefaultRef             string
 	CredentialRef          string
 	Enabled                bool

@@ -500,6 +500,7 @@ CREATE TABLE source_repositories (
     checkout_mode TEXT NOT NULL DEFAULT 'external' CHECK (checkout_mode IN ('external', 'managed')),
     authoring_mode TEXT NOT NULL DEFAULT 'read_only' CHECK (authoring_mode IN ('read_only', 'local_commit', 'external_change_request')),
     canonical_url TEXT NOT NULL DEFAULT '',
+    fallback_remote_urls TEXT NOT NULL DEFAULT '',
     default_ref TEXT NOT NULL DEFAULT '',
     credential_ref TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT true,

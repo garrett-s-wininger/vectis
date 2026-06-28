@@ -2,6 +2,7 @@ package dal_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -20,8 +21,13 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 		NamespaceID:  1,
 		SourceKind:   dal.SourceKindLocalCheckout,
 		CheckoutPath: "/work/vectis",
-		DefaultRef:   "main",
-		Enabled:      true,
+		CanonicalURL: "https://mirror.invalid/vectis.git",
+		FallbackRemoteURLs: []string{
+			"https://tier1.invalid/vectis.git",
+			"https://tier2.invalid/vectis.git",
+		},
+		DefaultRef: "main",
+		Enabled:    true,
 	})
 
 	if err != nil {
@@ -34,11 +40,15 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 
 	if created.RepositoryID != "vectis-local" ||
 		created.CheckoutPath != "/work/vectis" ||
+		created.CanonicalURL != "https://mirror.invalid/vectis.git" ||
 		created.CheckoutMode != dal.SourceCheckoutModeExternal ||
 		created.AuthoringMode != dal.SourceAuthoringModeReadOnly ||
 		created.SyncStatus != dal.SourceSyncStatusNever ||
 		!created.Enabled {
 		t.Fatalf("created repository mismatch: %+v", created)
+	}
+	if want := []string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"}; !reflect.DeepEqual(created.FallbackRemoteURLs, want) {
+		t.Fatalf("created fallback remotes: got %+v want %+v", created.FallbackRemoteURLs, want)
 	}
 
 	got, err := sources.GetRepository(ctx, "vectis-local")
@@ -46,7 +56,7 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 		t.Fatalf("GetRepository: %v", err)
 	}
 
-	if got.ID != created.ID || got.DefaultRef != "main" {
+	if got.ID != created.ID || got.DefaultRef != "main" || !reflect.DeepEqual(got.FallbackRemoteURLs, created.FallbackRemoteURLs) {
 		t.Fatalf("get repository mismatch: got %+v want %+v", got, created)
 	}
 
@@ -55,7 +65,7 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 		t.Fatalf("ListRepositories: %v", err)
 	}
 
-	if len(listed) != 1 || listed[0].RepositoryID != "vectis-local" {
+	if len(listed) != 1 || listed[0].RepositoryID != "vectis-local" || !reflect.DeepEqual(listed[0].FallbackRemoteURLs, created.FallbackRemoteURLs) {
 		t.Fatalf("expected one listed repository, got %+v", listed)
 	}
 }
@@ -287,6 +297,10 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 		CheckoutMode:  dal.SourceCheckoutModeManaged,
 		AuthoringMode: dal.SourceAuthoringModeLocalCommit,
 		CanonicalURL:  "https://example.invalid/vectis.git",
+		FallbackRemoteURLs: []string{
+			"https://tier1.invalid/vectis.git",
+			"https://tier2.invalid/vectis.git",
+		},
 		DefaultRef:    "release",
 		CredentialRef: "secret://git/vectis",
 		Enabled:       false,
@@ -300,6 +314,7 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 		updated.CheckoutMode != dal.SourceCheckoutModeManaged ||
 		updated.AuthoringMode != dal.SourceAuthoringModeLocalCommit ||
 		updated.CanonicalURL != "https://example.invalid/vectis.git" ||
+		!reflect.DeepEqual(updated.FallbackRemoteURLs, []string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"}) ||
 		updated.DefaultRef != "release" ||
 		updated.CredentialRef != "secret://git/vectis" ||
 		updated.Enabled {
@@ -314,6 +329,7 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 	if got.CheckoutPath != updated.CheckoutPath ||
 		got.CheckoutMode != updated.CheckoutMode ||
 		got.AuthoringMode != updated.AuthoringMode ||
+		!reflect.DeepEqual(got.FallbackRemoteURLs, updated.FallbackRemoteURLs) ||
 		got.DefaultRef != updated.DefaultRef ||
 		got.Enabled != updated.Enabled {
 		t.Fatalf("persisted update mismatch: got %+v want %+v", got, updated)

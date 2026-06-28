@@ -81,6 +81,10 @@ export VECTIS_SOURCE_REPOSITORIES='[
     "repository_id": "vectis-local",
     "checkout_mode": "managed",
     "canonical_url": "https://git.example.com/acme/vectis.git",
+    "fallback_remote_urls": [
+      "https://tier1.git.example.com/acme/vectis.git",
+      "https://github.com/acme/vectis.git"
+    ],
     "default_ref": "main",
     "authoring_mode": "read_only",
     "enabled": true
@@ -88,11 +92,11 @@ export VECTIS_SOURCE_REPOSITORIES='[
 ]'
 ```
 
-Each entry accepts `repository_id`, `namespace`, `source_kind`, `checkout_path`, `checkout_mode`, `authoring_mode`, `canonical_url`, `default_ref`, `credential_ref`, and `enabled`. `namespace` defaults to `/`, `source_kind` defaults to `local_checkout`, `checkout_mode` defaults to `external`, `authoring_mode` defaults to `read_only`, and `enabled` defaults to `true`. For `checkout_mode=managed`, omit `checkout_path`; Vectis derives a stable path under `source.checkout_root` / `VECTIS_SOURCE_CHECKOUT_ROOT`.
+Each entry accepts `repository_id`, `namespace`, `source_kind`, `checkout_path`, `checkout_mode`, `authoring_mode`, `canonical_url`, `fallback_remote_urls`, `default_ref`, `credential_ref`, and `enabled`. `namespace` defaults to `/`, `source_kind` defaults to `local_checkout`, `checkout_mode` defaults to `external`, `authoring_mode` defaults to `read_only`, and `enabled` defaults to `true`. For `checkout_mode=managed`, omit `checkout_path`; Vectis derives a stable path under `source.checkout_root` / `VECTIS_SOURCE_CHECKOUT_ROOT`. `fallback_remote_urls` configures higher replica tiers or the upstream source provider for request-time managed ref hydration when `canonical_url`/`origin` has not caught up yet.
 
 Managed checkout sync can use `credential_ref` for private repositories. `vectis-api` resolves the reference through its configured secrets resolver; with the current encryptedfs provider, configure `secrets.encryptedfs.root` / `VECTIS_SECRETS_ENCRYPTEDFS_ROOT` and `secrets.encryptedfs.key_file` / `VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE`, or use `--encryptedfs-root` and `--encryptedfs-key-file` on `vectis-api`. The referenced secret may contain either a raw HTTPS token, JSON like `{"username":"oauth2","token":"..."}` or `{"username":"git","password":"..."}`, raw SSH private key material, or JSON like `{"ssh_private_key":"...","known_hosts":"git.example ssh-ed25519 ..."}`. HTTPS credentials are supplied to `git clone` and `git fetch` through askpass environment variables, while SSH credentials are supplied through a temporary identity file and `GIT_SSH_COMMAND`. Include `known_hosts` to pin SSH host keys; when it is omitted, OpenSSH's normal host-key verification applies. Credentials are not embedded in the remote URL.
 
-Startup reconciliation creates missing repository registrations and updates changed checkout, authoring, default ref, credential, and enabled fields. It does not delete repositories omitted from config. If a configured repository already exists in a different namespace, startup fails so operators can make an explicit move plan.
+Startup reconciliation creates missing repository registrations and updates changed checkout, authoring, fallback remote, default ref, credential, and enabled fields. It does not delete repositories omitted from config. If a configured repository already exists in a different namespace, startup fails so operators can make an explicit move plan.
 
 Repository responses expose `declared`, so operators can distinguish repositories still present in current config from stale rows left for cleanup or history. Use `vectis-cli sources list --stale` to find omitted repositories. Declared repositories cannot be deleted through the API; remove them from config first, then disable or delete the stale row only if no source schedules or source provenance still reference it.
 

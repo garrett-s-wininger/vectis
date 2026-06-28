@@ -35,10 +35,11 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	firstBlob := apiGitOutput(t, repoPath, "rev-parse", "HEAD:.vectis/jobs/build.json")
 
 	registerBody := map[string]any{
-		"repository_id": "vectis-local",
-		"source_kind":   dal.SourceKindLocalCheckout,
-		"checkout_path": repoPath,
-		"default_ref":   "HEAD",
+		"repository_id":        "vectis-local",
+		"source_kind":          dal.SourceKindLocalCheckout,
+		"checkout_path":        repoPath,
+		"fallback_remote_urls": []string{" https://tier1.invalid/vectis.git ", "", "https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"},
+		"default_ref":          "HEAD",
 	}
 
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", registerBody)
@@ -59,8 +60,9 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 			LocalCommits     bool   `json:"local_commits"`
 			Reason           string `json:"reason"`
 		} `json:"authoring"`
-		Enabled bool `json:"enabled"`
-		Sync    struct {
+		FallbackRemoteURLs []string `json:"fallback_remote_urls"`
+		Enabled            bool     `json:"enabled"`
+		Sync               struct {
 			Status string `json:"status"`
 		} `json:"sync"`
 	}
@@ -79,6 +81,9 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		repoResp.Authoring.WriteDefinitions ||
 		repoResp.Authoring.LocalCommits ||
 		repoResp.Authoring.Reason != "read_only" ||
+		len(repoResp.FallbackRemoteURLs) != 2 ||
+		repoResp.FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
+		repoResp.FallbackRemoteURLs[1] != "https://tier2.invalid/vectis.git" ||
 		repoResp.Sync.Status != dal.SourceSyncStatusNever ||
 		!repoResp.Enabled {
 		t.Fatalf("repository response mismatch: %+v", repoResp)
@@ -3070,12 +3075,13 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 	updateBody := map[string]any{
-		"checkout_mode":  dal.SourceCheckoutModeManaged,
-		"authoring_mode": dal.SourceAuthoringModeExternalChangeRequest,
-		"default_ref":    commit,
-		"canonical_url":  "https://example.invalid/vectis.git",
-		"credential_ref": "secret://git/vectis",
-		"enabled":        false,
+		"checkout_mode":        dal.SourceCheckoutModeManaged,
+		"authoring_mode":       dal.SourceAuthoringModeExternalChangeRequest,
+		"default_ref":          commit,
+		"canonical_url":        "https://example.invalid/vectis.git",
+		"fallback_remote_urls": []string{"https://tier3.invalid/vectis.git"},
+		"credential_ref":       "secret://git/vectis",
+		"enabled":              false,
 	}
 
 	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", updateBody)
@@ -3095,11 +3101,12 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 			ExternalChangeRequests bool   `json:"external_change_requests"`
 			Reason                 string `json:"reason"`
 		} `json:"authoring"`
-		CanonicalURL  string `json:"canonical_url"`
-		DefaultRef    string `json:"default_ref"`
-		CredentialRef string `json:"credential_ref"`
-		Enabled       bool   `json:"enabled"`
-		Sync          struct {
+		CanonicalURL       string   `json:"canonical_url"`
+		FallbackRemoteURLs []string `json:"fallback_remote_urls"`
+		DefaultRef         string   `json:"default_ref"`
+		CredentialRef      string   `json:"credential_ref"`
+		Enabled            bool     `json:"enabled"`
+		Sync               struct {
 			Status string `json:"status"`
 		} `json:"sync"`
 	}
@@ -3118,6 +3125,8 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		updateResp.Authoring.ExternalChangeRequests ||
 		updateResp.Authoring.Reason != "source_repository_disabled" ||
 		updateResp.CanonicalURL != "https://example.invalid/vectis.git" ||
+		len(updateResp.FallbackRemoteURLs) != 1 ||
+		updateResp.FallbackRemoteURLs[0] != "https://tier3.invalid/vectis.git" ||
 		updateResp.DefaultRef != commit ||
 		updateResp.CredentialRef != "secret://git/vectis" ||
 		updateResp.Sync.Status != dal.SourceSyncStatusNever ||
@@ -3369,11 +3378,12 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 		ExternalChangeRequests bool   `json:"external_change_requests"`
 		Reason                 string `json:"reason"`
 	} `json:"authoring"`
-	CanonicalURL  string `json:"canonical_url"`
-	DefaultRef    string `json:"default_ref"`
-	CredentialRef string `json:"credential_ref"`
-	Enabled       bool   `json:"enabled"`
-	Sync          struct {
+	CanonicalURL       string   `json:"canonical_url"`
+	FallbackRemoteURLs []string `json:"fallback_remote_urls"`
+	DefaultRef         string   `json:"default_ref"`
+	CredentialRef      string   `json:"credential_ref"`
+	Enabled            bool     `json:"enabled"`
+	Sync               struct {
 		Status             string `json:"status"`
 		LastStartedAtUnix  int64  `json:"last_started_at_unix"`
 		LastFinishedAtUnix int64  `json:"last_finished_at_unix"`
@@ -3398,11 +3408,12 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 			ExternalChangeRequests bool   `json:"external_change_requests"`
 			Reason                 string `json:"reason"`
 		} `json:"authoring"`
-		CanonicalURL  string `json:"canonical_url"`
-		DefaultRef    string `json:"default_ref"`
-		CredentialRef string `json:"credential_ref"`
-		Enabled       bool   `json:"enabled"`
-		Sync          struct {
+		CanonicalURL       string   `json:"canonical_url"`
+		FallbackRemoteURLs []string `json:"fallback_remote_urls"`
+		DefaultRef         string   `json:"default_ref"`
+		CredentialRef      string   `json:"credential_ref"`
+		Enabled            bool     `json:"enabled"`
+		Sync               struct {
 			Status             string `json:"status"`
 			LastStartedAtUnix  int64  `json:"last_started_at_unix"`
 			LastFinishedAtUnix int64  `json:"last_finished_at_unix"`

@@ -48,16 +48,17 @@ const (
 )
 
 type SourceRepositoryDeclaration struct {
-	RepositoryID  string `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
-	Namespace     string `json:"namespace" mapstructure:"namespace" toml:"namespace"`
-	SourceKind    string `json:"source_kind" mapstructure:"source_kind" toml:"source_kind"`
-	CheckoutPath  string `json:"checkout_path" mapstructure:"checkout_path" toml:"checkout_path"`
-	CheckoutMode  string `json:"checkout_mode" mapstructure:"checkout_mode" toml:"checkout_mode"`
-	AuthoringMode string `json:"authoring_mode" mapstructure:"authoring_mode" toml:"authoring_mode"`
-	CanonicalURL  string `json:"canonical_url" mapstructure:"canonical_url" toml:"canonical_url"`
-	DefaultRef    string `json:"default_ref" mapstructure:"default_ref" toml:"default_ref"`
-	CredentialRef string `json:"credential_ref" mapstructure:"credential_ref" toml:"credential_ref"`
-	Enabled       *bool  `json:"enabled" mapstructure:"enabled" toml:"enabled"`
+	RepositoryID       string   `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
+	Namespace          string   `json:"namespace" mapstructure:"namespace" toml:"namespace"`
+	SourceKind         string   `json:"source_kind" mapstructure:"source_kind" toml:"source_kind"`
+	CheckoutPath       string   `json:"checkout_path" mapstructure:"checkout_path" toml:"checkout_path"`
+	CheckoutMode       string   `json:"checkout_mode" mapstructure:"checkout_mode" toml:"checkout_mode"`
+	AuthoringMode      string   `json:"authoring_mode" mapstructure:"authoring_mode" toml:"authoring_mode"`
+	CanonicalURL       string   `json:"canonical_url" mapstructure:"canonical_url" toml:"canonical_url"`
+	FallbackRemoteURLs []string `json:"fallback_remote_urls" mapstructure:"fallback_remote_urls" toml:"fallback_remote_urls"`
+	DefaultRef         string   `json:"default_ref" mapstructure:"default_ref" toml:"default_ref"`
+	CredentialRef      string   `json:"credential_ref" mapstructure:"credential_ref" toml:"credential_ref"`
+	Enabled            *bool    `json:"enabled" mapstructure:"enabled" toml:"enabled"`
 }
 
 type SourceScheduleDeclaration struct {
@@ -269,6 +270,7 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 		repo.CheckoutMode = strings.TrimSpace(repo.CheckoutMode)
 		repo.AuthoringMode = strings.TrimSpace(repo.AuthoringMode)
 		repo.CanonicalURL = strings.TrimSpace(repo.CanonicalURL)
+		repo.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(repo.FallbackRemoteURLs)
 		repo.DefaultRef = strings.TrimSpace(repo.DefaultRef)
 		repo.CredentialRef = strings.TrimSpace(repo.CredentialRef)
 
@@ -326,6 +328,34 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 	}
 
 	return out, nil
+}
+
+func normalizeSourceRepositoryFallbackRemoteURLs(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, raw := range in {
+		remoteURL := strings.TrimSpace(raw)
+		if remoteURL == "" {
+			continue
+		}
+
+		if _, ok := seen[remoteURL]; ok {
+			continue
+		}
+
+		seen[remoteURL] = struct{}{}
+		out = append(out, remoteURL)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 func validSourceRepositoryCheckoutMode(mode string) bool {

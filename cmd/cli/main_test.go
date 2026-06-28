@@ -648,19 +648,20 @@ func TestGetSource_sendsRequestAndPrintsRepository(t *testing.T) {
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"repository_id":  "vectis",
-			"namespace":      "/team-a",
-			"source_kind":    "local_checkout",
-			"checkout_path":  "/srv/vectis/source",
-			"checkout_mode":  "managed",
-			"authoring_mode": "local_commit",
-			"authoring":      map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
-			"canonical_url":  "https://git.example.com/acme/vectis.git",
-			"default_ref":    "main",
-			"credential_ref": "git-creds",
-			"declared":       true,
-			"enabled":        true,
-			"sync":           map[string]any{"status": "succeeded", "ref": "main", "commit": "0123456789abcdef"},
+			"repository_id":        "vectis",
+			"namespace":            "/team-a",
+			"source_kind":          "local_checkout",
+			"checkout_path":        "/srv/vectis/source",
+			"checkout_mode":        "managed",
+			"authoring_mode":       "local_commit",
+			"authoring":            map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
+			"canonical_url":        "https://git.example.com/acme/vectis.git",
+			"fallback_remote_urls": []string{"https://tier1.example.com/acme/vectis.git", "https://github.com/acme/vectis.git"},
+			"default_ref":          "main",
+			"credential_ref":       "git-creds",
+			"declared":             true,
+			"enabled":              true,
+			"sync":                 map[string]any{"status": "succeeded", "ref": "main", "commit": "0123456789abcdef"},
 		})
 	})
 
@@ -670,7 +671,20 @@ func TestGetSource_sendsRequestAndPrintsRepository(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "namespace=/team-a", "checkout_mode=managed", "authoring_mode=local_commit", "declared=true", "write_definitions=true", "canonical_url=https://git.example.com/acme/vectis.git", "default_ref=main", "credential_ref=git-creds", "sync_status=succeeded"} {
+	for _, want := range []string{
+		"repository_id=vectis",
+		"namespace=/team-a",
+		"checkout_mode=managed",
+		"authoring_mode=local_commit",
+		"declared=true",
+		"write_definitions=true",
+		"canonical_url=https://git.example.com/acme/vectis.git",
+		"fallback_remote_url_1=https://tier1.example.com/acme/vectis.git",
+		"fallback_remote_url_2=https://github.com/acme/vectis.git",
+		"default_ref=main",
+		"credential_ref=git-creds",
+		"sync_status=succeeded",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -1244,6 +1258,7 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	oldCheckoutMode := sourceUpdateCheckoutMode
 	oldAuthoringMode := sourceUpdateAuthoringMode
 	oldCanonicalURL := sourceUpdateCanonicalURL
+	oldFallbackURLs := sourceUpdateFallbackURLs
 	oldDefaultRef := sourceUpdateDefaultRef
 	oldCredentialRef := sourceUpdateCredentialRef
 	oldEnable := sourceUpdateEnable
@@ -1254,6 +1269,7 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 		sourceUpdateCheckoutMode = oldCheckoutMode
 		sourceUpdateAuthoringMode = oldAuthoringMode
 		sourceUpdateCanonicalURL = oldCanonicalURL
+		sourceUpdateFallbackURLs = oldFallbackURLs
 		sourceUpdateDefaultRef = oldDefaultRef
 		sourceUpdateCredentialRef = oldCredentialRef
 		sourceUpdateEnable = oldEnable
@@ -1263,12 +1279,13 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	cmd := &cobra.Command{}
 	configureSourcesUpdateFlags(cmd)
 	for name, value := range map[string]string{
-		"checkout-mode":  "managed",
-		"authoring-mode": "local_commit",
-		"canonical-url":  "https://git.example.com/acme/vectis.git",
-		"default-ref":    "main",
-		"credential-ref": "git-creds",
-		"disable":        "true",
+		"checkout-mode":       "managed",
+		"authoring-mode":      "local_commit",
+		"canonical-url":       "https://git.example.com/acme/vectis.git",
+		"fallback-remote-url": "https://tier1.example.com/acme/vectis.git, https://github.com/acme/vectis.git",
+		"default-ref":         "main",
+		"credential-ref":      "git-creds",
+		"disable":             "true",
 	} {
 		if err := cmd.Flags().Set(name, value); err != nil {
 			t.Fatalf("set %s: %v", name, err)
@@ -1302,8 +1319,8 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 			"enabled":        false,
 		}
 
-		if len(body) != len(want) {
-			t.Errorf("body len=%d, want %d (%v)", len(body), len(want), body)
+		if len(body) != len(want)+1 {
+			t.Errorf("body len=%d, want %d (%v)", len(body), len(want)+1, body)
 		}
 
 		for key, value := range want {
@@ -1311,23 +1328,30 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 				t.Errorf("%s=%v, want %v", key, got, value)
 			}
 		}
+		fallbacks, ok := body["fallback_remote_urls"].([]any)
+		if !ok || len(fallbacks) != 2 ||
+			fallbacks[0] != "https://tier1.example.com/acme/vectis.git" ||
+			fallbacks[1] != "https://github.com/acme/vectis.git" {
+			t.Errorf("fallback_remote_urls=%v", body["fallback_remote_urls"])
+		}
 
 		if _, ok := body["checkout_path"]; ok {
 			t.Errorf("checkout_path should not be sent when flag was omitted")
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"repository_id":  "vectis",
-			"namespace":      "/",
-			"source_kind":    "local_checkout",
-			"checkout_mode":  "managed",
-			"authoring_mode": "local_commit",
-			"authoring":      map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
-			"canonical_url":  "https://git.example.com/acme/vectis.git",
-			"default_ref":    "main",
-			"credential_ref": "git-creds",
-			"enabled":        false,
-			"sync":           map[string]any{"status": "never"},
+			"repository_id":        "vectis",
+			"namespace":            "/",
+			"source_kind":          "local_checkout",
+			"checkout_mode":        "managed",
+			"authoring_mode":       "local_commit",
+			"authoring":            map[string]any{"mode": "local_commit", "write_definitions": true, "local_commits": true},
+			"canonical_url":        "https://git.example.com/acme/vectis.git",
+			"fallback_remote_urls": []string{"https://tier1.example.com/acme/vectis.git", "https://github.com/acme/vectis.git"},
+			"default_ref":          "main",
+			"credential_ref":       "git-creds",
+			"enabled":              false,
+			"sync":                 map[string]any{"status": "never"},
 		})
 	})
 
@@ -1337,7 +1361,15 @@ func TestUpdateSource_sendsOnlyChangedFieldsAndPrintsRepository(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"repository_id=vectis", "checkout_mode=managed", "authoring_mode=local_commit", "enabled=false", "sync_status=never"} {
+	for _, want := range []string{
+		"repository_id=vectis",
+		"checkout_mode=managed",
+		"authoring_mode=local_commit",
+		"fallback_remote_url_1=https://tier1.example.com/acme/vectis.git",
+		"fallback_remote_url_2=https://github.com/acme/vectis.git",
+		"enabled=false",
+		"sync_status=never",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}

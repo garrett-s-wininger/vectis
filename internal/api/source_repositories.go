@@ -27,43 +27,46 @@ import (
 )
 
 type sourceRepositoryRequest struct {
-	RepositoryID  string `json:"repository_id"`
-	Namespace     string `json:"namespace"`
-	SourceKind    string `json:"source_kind"`
-	CheckoutPath  string `json:"checkout_path"`
-	CheckoutMode  string `json:"checkout_mode"`
-	AuthoringMode string `json:"authoring_mode"`
-	CanonicalURL  string `json:"canonical_url"`
-	DefaultRef    string `json:"default_ref"`
-	CredentialRef string `json:"credential_ref"`
-	Enabled       *bool  `json:"enabled"`
+	RepositoryID       string   `json:"repository_id"`
+	Namespace          string   `json:"namespace"`
+	SourceKind         string   `json:"source_kind"`
+	CheckoutPath       string   `json:"checkout_path"`
+	CheckoutMode       string   `json:"checkout_mode"`
+	AuthoringMode      string   `json:"authoring_mode"`
+	CanonicalURL       string   `json:"canonical_url"`
+	FallbackRemoteURLs []string `json:"fallback_remote_urls,omitempty"`
+	DefaultRef         string   `json:"default_ref"`
+	CredentialRef      string   `json:"credential_ref"`
+	Enabled            *bool    `json:"enabled"`
 }
 
 type sourceRepositoryUpdateRequest struct {
-	SourceKind    *string `json:"source_kind"`
-	CheckoutPath  *string `json:"checkout_path"`
-	CheckoutMode  *string `json:"checkout_mode"`
-	AuthoringMode *string `json:"authoring_mode"`
-	CanonicalURL  *string `json:"canonical_url"`
-	DefaultRef    *string `json:"default_ref"`
-	CredentialRef *string `json:"credential_ref"`
-	Enabled       *bool   `json:"enabled"`
+	SourceKind         *string   `json:"source_kind"`
+	CheckoutPath       *string   `json:"checkout_path"`
+	CheckoutMode       *string   `json:"checkout_mode"`
+	AuthoringMode      *string   `json:"authoring_mode"`
+	CanonicalURL       *string   `json:"canonical_url"`
+	FallbackRemoteURLs *[]string `json:"fallback_remote_urls"`
+	DefaultRef         *string   `json:"default_ref"`
+	CredentialRef      *string   `json:"credential_ref"`
+	Enabled            *bool     `json:"enabled"`
 }
 
 type sourceRepositoryResponse struct {
-	RepositoryID  string                       `json:"repository_id"`
-	Namespace     string                       `json:"namespace"`
-	SourceKind    string                       `json:"source_kind"`
-	CheckoutPath  string                       `json:"checkout_path,omitempty"`
-	CheckoutMode  string                       `json:"checkout_mode"`
-	AuthoringMode string                       `json:"authoring_mode"`
-	Authoring     sourceRepositoryAuthoring    `json:"authoring"`
-	CanonicalURL  string                       `json:"canonical_url,omitempty"`
-	DefaultRef    string                       `json:"default_ref,omitempty"`
-	CredentialRef string                       `json:"credential_ref,omitempty"`
-	Declared      bool                         `json:"declared"`
-	Enabled       bool                         `json:"enabled"`
-	Sync          sourceRepositorySyncResponse `json:"sync"`
+	RepositoryID       string                       `json:"repository_id"`
+	Namespace          string                       `json:"namespace"`
+	SourceKind         string                       `json:"source_kind"`
+	CheckoutPath       string                       `json:"checkout_path,omitempty"`
+	CheckoutMode       string                       `json:"checkout_mode"`
+	AuthoringMode      string                       `json:"authoring_mode"`
+	Authoring          sourceRepositoryAuthoring    `json:"authoring"`
+	CanonicalURL       string                       `json:"canonical_url,omitempty"`
+	FallbackRemoteURLs []string                     `json:"fallback_remote_urls,omitempty"`
+	DefaultRef         string                       `json:"default_ref,omitempty"`
+	CredentialRef      string                       `json:"credential_ref,omitempty"`
+	Declared           bool                         `json:"declared"`
+	Enabled            bool                         `json:"enabled"`
+	Sync               sourceRepositorySyncResponse `json:"sync"`
 }
 
 type sourceRepositorySyncResponse struct {
@@ -346,6 +349,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	req.CheckoutMode = strings.TrimSpace(req.CheckoutMode)
 	req.AuthoringMode = strings.TrimSpace(req.AuthoringMode)
 	req.CanonicalURL = strings.TrimSpace(req.CanonicalURL)
+	req.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(req.FallbackRemoteURLs)
 	req.DefaultRef = strings.TrimSpace(req.DefaultRef)
 	req.CredentialRef = strings.TrimSpace(req.CredentialRef)
 
@@ -463,16 +467,17 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	rec, err := s.sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
-		RepositoryID:  req.RepositoryID,
-		NamespaceID:   ns.ID,
-		SourceKind:    req.SourceKind,
-		CheckoutPath:  req.CheckoutPath,
-		CheckoutMode:  req.CheckoutMode,
-		AuthoringMode: req.AuthoringMode,
-		CanonicalURL:  req.CanonicalURL,
-		DefaultRef:    req.DefaultRef,
-		CredentialRef: req.CredentialRef,
-		Enabled:       enabled,
+		RepositoryID:       req.RepositoryID,
+		NamespaceID:        ns.ID,
+		SourceKind:         req.SourceKind,
+		CheckoutPath:       req.CheckoutPath,
+		CheckoutMode:       req.CheckoutMode,
+		AuthoringMode:      req.AuthoringMode,
+		CanonicalURL:       req.CanonicalURL,
+		FallbackRemoteURLs: req.FallbackRemoteURLs,
+		DefaultRef:         req.DefaultRef,
+		CredentialRef:      req.CredentialRef,
+		Enabled:            enabled,
 	})
 
 	if err != nil {
@@ -2109,6 +2114,10 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		updated.CanonicalURL = strings.TrimSpace(*req.CanonicalURL)
 	}
 
+	if req.FallbackRemoteURLs != nil {
+		updated.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(*req.FallbackRemoteURLs)
+	}
+
 	if req.DefaultRef != nil {
 		updated.DefaultRef = strings.TrimSpace(*req.DefaultRef)
 	}
@@ -2409,19 +2418,20 @@ func (s *APIServer) sourceRepositoryDeclarationIDsForResponse(w http.ResponseWri
 
 func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string, declared map[string]struct{}) sourceRepositoryResponse {
 	return sourceRepositoryResponse{
-		RepositoryID:  rec.RepositoryID,
-		Namespace:     namespacePath,
-		SourceKind:    rec.SourceKind,
-		CheckoutPath:  rec.CheckoutPath,
-		CheckoutMode:  rec.CheckoutMode,
-		AuthoringMode: rec.AuthoringMode,
-		Authoring:     s.sourceRepositoryAuthoringFromRecord(rec),
-		CanonicalURL:  rec.CanonicalURL,
-		DefaultRef:    rec.DefaultRef,
-		CredentialRef: rec.CredentialRef,
-		Declared:      sourceRepositoryIsDeclared(rec.RepositoryID, declared),
-		Enabled:       rec.Enabled,
-		Sync:          sourceRepositorySyncRecordToResponse(rec),
+		RepositoryID:       rec.RepositoryID,
+		Namespace:          namespacePath,
+		SourceKind:         rec.SourceKind,
+		CheckoutPath:       rec.CheckoutPath,
+		CheckoutMode:       rec.CheckoutMode,
+		AuthoringMode:      rec.AuthoringMode,
+		Authoring:          s.sourceRepositoryAuthoringFromRecord(rec),
+		CanonicalURL:       rec.CanonicalURL,
+		FallbackRemoteURLs: rec.FallbackRemoteURLs,
+		DefaultRef:         rec.DefaultRef,
+		CredentialRef:      rec.CredentialRef,
+		Declared:           sourceRepositoryIsDeclared(rec.RepositoryID, declared),
+		Enabled:            rec.Enabled,
+		Sync:               sourceRepositorySyncRecordToResponse(rec),
 	}
 }
 
@@ -2670,6 +2680,34 @@ func sourceRepositorySyncRef(rec dal.SourceRepositoryRecord) string {
 	return ref
 }
 
+func normalizeSourceRepositoryFallbackRemoteURLs(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, raw := range in {
+		remoteURL := strings.TrimSpace(raw)
+		if remoteURL == "" {
+			continue
+		}
+
+		if _, ok := seen[remoteURL]; ok {
+			continue
+		}
+
+		seen[remoteURL] = struct{}{}
+		out = append(out, remoteURL)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
 func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string {
 	if status.ErrorCode == "" {
 		return ""
@@ -2851,9 +2889,10 @@ func (s *APIServer) sourceRepositorySyncCheckoutStatus(ctx context.Context, rec 
 
 	if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {
 		return sourcepkg.SyncManagedGitCheckout(ctx, sourcepkg.ManagedGitCheckoutRequest{
-			CheckoutPath: rec.CheckoutPath,
-			RemoteURL:    rec.CanonicalURL,
-			DefaultRef:   syncRef,
+			CheckoutPath:       rec.CheckoutPath,
+			RemoteURL:          rec.CanonicalURL,
+			DefaultRef:         syncRef,
+			FallbackRemoteURLs: rec.FallbackRemoteURLs,
 		})
 	}
 
@@ -3080,8 +3119,9 @@ func (s *APIServer) hydrateSourceRepositoryRefDirect(ctx context.Context, rec da
 	}
 
 	return sourcepkg.HydrateManagedGitRef(ctx, sourcepkg.ManagedGitRefHydrationRequest{
-		CheckoutPath: rec.CheckoutPath,
-		Ref:          ref,
+		CheckoutPath:       rec.CheckoutPath,
+		Ref:                ref,
+		FallbackRemoteURLs: rec.FallbackRemoteURLs,
 	})
 }
 

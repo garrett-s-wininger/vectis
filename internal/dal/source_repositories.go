@@ -3,6 +3,7 @@ package dal
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -30,11 +31,12 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 			checkout_mode,
 			authoring_mode,
 			canonical_url,
+			fallback_remote_urls,
 			default_ref,
 			credential_ref,
 			enabled
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`),
 		newGlobalID(),
@@ -45,6 +47,7 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 		rec.CheckoutMode,
 		rec.AuthoringMode,
 		rec.CanonicalURL,
+		encodeSourceRepositoryFallbackRemoteURLs(rec.FallbackRemoteURLs),
 		rec.DefaultRef,
 		rec.CredentialRef,
 		rec.Enabled,
@@ -69,6 +72,7 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 			checkout_mode = ?,
 			authoring_mode = ?,
 			canonical_url = ?,
+			fallback_remote_urls = ?,
 			default_ref = ?,
 			credential_ref = ?,
 			enabled = ?,
@@ -80,6 +84,7 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 		rec.CheckoutMode,
 		rec.AuthoringMode,
 		rec.CanonicalURL,
+		encodeSourceRepositoryFallbackRemoteURLs(rec.FallbackRemoteURLs),
 		rec.DefaultRef,
 		rec.CredentialRef,
 		rec.Enabled,
@@ -258,6 +263,7 @@ func (r *SQLSourcesRepository) GetRepository(ctx context.Context, repositoryID s
 			COALESCE(checkout_mode, ''),
 			COALESCE(authoring_mode, ''),
 			canonical_url,
+			COALESCE(fallback_remote_urls, ''),
 			default_ref,
 			credential_ref,
 			enabled,
@@ -294,6 +300,7 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 			COALESCE(checkout_mode, ''),
 			COALESCE(authoring_mode, ''),
 			canonical_url,
+			COALESCE(fallback_remote_urls, ''),
 			default_ref,
 			credential_ref,
 			enabled,
@@ -382,6 +389,7 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	rec.CheckoutMode = strings.TrimSpace(rec.CheckoutMode)
 	rec.AuthoringMode = strings.TrimSpace(rec.AuthoringMode)
 	rec.CanonicalURL = strings.TrimSpace(rec.CanonicalURL)
+	rec.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(rec.FallbackRemoteURLs)
 	rec.DefaultRef = strings.TrimSpace(rec.DefaultRef)
 	rec.CredentialRef = strings.TrimSpace(rec.CredentialRef)
 	rec.SyncStatus = strings.TrimSpace(rec.SyncStatus)
@@ -438,6 +446,62 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	}
 
 	return rec, nil
+}
+
+func normalizeSourceRepositoryFallbackRemoteURLs(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, raw := range in {
+		remoteURL := strings.TrimSpace(raw)
+		if remoteURL == "" {
+			continue
+		}
+
+		if _, ok := seen[remoteURL]; ok {
+			continue
+		}
+
+		seen[remoteURL] = struct{}{}
+		out = append(out, remoteURL)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+func encodeSourceRepositoryFallbackRemoteURLs(in []string) string {
+	in = normalizeSourceRepositoryFallbackRemoteURLs(in)
+	if len(in) == 0 {
+		return ""
+	}
+
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return ""
+	}
+
+	return string(raw)
+}
+
+func decodeSourceRepositoryFallbackRemoteURLs(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return normalizeSourceRepositoryFallbackRemoteURLs(out), nil
 }
 
 func normalizeSourceRepositorySyncRecord(rec SourceRepositorySyncRecord) (SourceRepositorySyncRecord, error) {
@@ -824,6 +888,7 @@ func (r *SQLSourcesRepository) GetDefinitionSources(ctx context.Context, jobID s
 func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepositoryRecord, error) {
 	var rec SourceRepositoryRecord
 	var enabledRaw any
+	var fallbackRemoteURLsRaw string
 	err := row.Scan(
 		&rec.ID,
 		&rec.GlobalID,
@@ -834,6 +899,7 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 		&rec.CheckoutMode,
 		&rec.AuthoringMode,
 		&rec.CanonicalURL,
+		&fallbackRemoteURLsRaw,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
 		&enabledRaw,
@@ -855,9 +921,17 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 	}
 
 	rec.Enabled = enabled
+	fallbackRemoteURLs, err := decodeSourceRepositoryFallbackRemoteURLs(fallbackRemoteURLsRaw)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
+	}
+
+	rec.FallbackRemoteURLs = fallbackRemoteURLs
+
 	if rec.CheckoutMode == "" {
 		rec.CheckoutMode = SourceCheckoutModeExternal
 	}
+
 	if rec.AuthoringMode == "" {
 		rec.AuthoringMode = SourceAuthoringModeReadOnly
 	}
@@ -872,6 +946,7 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceRepositoryRecord, error) {
 	var rec SourceRepositoryRecord
 	var enabledRaw any
+	var fallbackRemoteURLsRaw string
 	if err := rows.Scan(
 		&rec.ID,
 		&rec.GlobalID,
@@ -882,6 +957,7 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 		&rec.CheckoutMode,
 		&rec.AuthoringMode,
 		&rec.CanonicalURL,
+		&fallbackRemoteURLsRaw,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
 		&enabledRaw,
@@ -901,9 +977,17 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 	}
 
 	rec.Enabled = enabled
+	fallbackRemoteURLs, err := decodeSourceRepositoryFallbackRemoteURLs(fallbackRemoteURLsRaw)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
+	}
+
+	rec.FallbackRemoteURLs = fallbackRemoteURLs
+
 	if rec.CheckoutMode == "" {
 		rec.CheckoutMode = SourceCheckoutModeExternal
 	}
+
 	if rec.AuthoringMode == "" {
 		rec.AuthoringMode = SourceAuthoringModeReadOnly
 	}

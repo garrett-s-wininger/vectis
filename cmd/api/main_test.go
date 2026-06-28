@@ -173,12 +173,14 @@ func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 
 	viper.Set("source.repositories", []map[string]any{
 		{
-			"repository_id": "vectis-local",
-			"source_kind":   dal.SourceKindLocalCheckout,
-			"checkout_path": "/work/vectis",
-			"checkout_mode": dal.SourceCheckoutModeExternal,
-			"default_ref":   "main",
-			"enabled":       true,
+			"repository_id":        "vectis-local",
+			"source_kind":          dal.SourceKindLocalCheckout,
+			"checkout_path":        "/work/vectis",
+			"checkout_mode":        dal.SourceCheckoutModeExternal,
+			"canonical_url":        "https://mirror.invalid/vectis.git",
+			"fallback_remote_urls": []string{" https://tier1.invalid/vectis.git ", "https://tier1.invalid/vectis.git"},
+			"default_ref":          "main",
+			"enabled":              true,
 		},
 	})
 
@@ -191,20 +193,26 @@ func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 		t.Fatalf("GetRepository: %v", err)
 	}
 
-	if got.CheckoutPath != "/work/vectis" || got.DefaultRef != "main" || !got.Enabled {
+	if got.CheckoutPath != "/work/vectis" ||
+		got.CanonicalURL != "https://mirror.invalid/vectis.git" ||
+		len(got.FallbackRemoteURLs) != 1 ||
+		got.FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
+		got.DefaultRef != "main" ||
+		!got.Enabled {
 		t.Fatalf("created repository mismatch: %+v", got)
 	}
 
 	viper.Set("source.repositories", []map[string]any{
 		{
-			"repository_id":  "vectis-local",
-			"source_kind":    dal.SourceKindLocalCheckout,
-			"checkout_path":  "/work/vectis-next",
-			"checkout_mode":  dal.SourceCheckoutModeExternal,
-			"authoring_mode": dal.SourceAuthoringModeReadOnly,
-			"default_ref":    "release",
-			"credential_ref": "repo-token",
-			"enabled":        false,
+			"repository_id":        "vectis-local",
+			"source_kind":          dal.SourceKindLocalCheckout,
+			"checkout_path":        "/work/vectis-next",
+			"checkout_mode":        dal.SourceCheckoutModeExternal,
+			"authoring_mode":       dal.SourceAuthoringModeReadOnly,
+			"fallback_remote_urls": []string{"https://tier2.invalid/vectis.git"},
+			"default_ref":          "release",
+			"credential_ref":       "repo-token",
+			"enabled":              false,
 		},
 	})
 
@@ -219,6 +227,8 @@ func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 
 	if got.CheckoutPath != "/work/vectis-next" ||
 		got.DefaultRef != "release" ||
+		len(got.FallbackRemoteURLs) != 1 ||
+		got.FallbackRemoteURLs[0] != "https://tier2.invalid/vectis.git" ||
 		got.CredentialRef != "repo-token" ||
 		got.Enabled {
 		t.Fatalf("updated repository mismatch: %+v", got)

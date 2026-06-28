@@ -633,14 +633,16 @@ func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
 
 	viper.Set("source.repositories", []map[string]any{
 		{
-			"repository_id":  " vectis-local ",
-			"namespace":      "/team-a",
-			"source_kind":    "local_checkout",
-			"checkout_path":  " /work/vectis ",
-			"checkout_mode":  "external",
-			"authoring_mode": "read_only",
-			"default_ref":    "main",
-			"enabled":        false,
+			"repository_id":        " vectis-local ",
+			"namespace":            "/team-a",
+			"source_kind":          "local_checkout",
+			"checkout_path":        " /work/vectis ",
+			"checkout_mode":        "external",
+			"authoring_mode":       "read_only",
+			"canonical_url":        " https://mirror.invalid/vectis.git ",
+			"fallback_remote_urls": []string{" https://tier1.invalid/vectis.git ", "https://tier2.invalid/vectis.git"},
+			"default_ref":          "main",
+			"enabled":              false,
 		},
 	})
 
@@ -659,6 +661,10 @@ func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
 		repos[0].CheckoutMode != "external" ||
 		repos[0].AuthoringMode != "read_only" ||
 		repos[0].Namespace != "/team-a" ||
+		repos[0].CanonicalURL != "https://mirror.invalid/vectis.git" ||
+		len(repos[0].FallbackRemoteURLs) != 2 ||
+		repos[0].FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
+		repos[0].FallbackRemoteURLs[1] != "https://tier2.invalid/vectis.git" ||
 		repos[0].DefaultRef != "main" ||
 		repos[0].Enabled == nil ||
 		*repos[0].Enabled {
@@ -670,14 +676,20 @@ func TestSourceRepositoryDeclarations_EnvJSON(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	t.Setenv(envAPIServerSourceRepositories, "")
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"managed","canonical_url":"https://example.invalid/vectis.git","enabled":true}]`)
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"managed","canonical_url":"https://example.invalid/vectis.git","fallback_remote_urls":["https://tier1.invalid/vectis.git"],"enabled":true}]`)
 
 	repos, err := SourceRepositoryDeclarations()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(repos) != 1 || repos[0].RepositoryID != "vectis" || repos[0].CheckoutMode != "managed" || repos[0].Enabled == nil || !*repos[0].Enabled {
+	if len(repos) != 1 ||
+		repos[0].RepositoryID != "vectis" ||
+		repos[0].CheckoutMode != "managed" ||
+		len(repos[0].FallbackRemoteURLs) != 1 ||
+		repos[0].FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
+		repos[0].Enabled == nil ||
+		!*repos[0].Enabled {
 		t.Fatalf("repository declarations mismatch: %+v", repos)
 	}
 }

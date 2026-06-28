@@ -63,6 +63,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	for _, column := range []string{
 		"checkout_mode",
 		"authoring_mode",
+		"fallback_remote_urls",
 		"sync_status",
 		"last_sync_started_at_unix",
 		"last_sync_finished_at_unix",
