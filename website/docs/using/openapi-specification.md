@@ -43,6 +43,6 @@ OpenAPI can describe the media type for Vectis streams, but it does not fully mo
 
 ## Keeping It Current
 
-The API route inventory test checks that every route registered by `vectis-api` has a matching method and path in the OpenAPI file. When adding an HTTP route, update both the handler inventory and `website/static/openapi/v1.json`.
+The API route inventory test checks that every route registered by `vectis-api` has a matching method and path in the OpenAPI file. `mage lint` also runs the OpenAPI contract linter, which checks operation IDs, tags, explicit security metadata, default error responses, and local `$ref` targets. When adding an HTTP route, update both the handler inventory and `website/static/openapi/v1.json`.
 
 For compatibility rules, see [Compatibility](../concepts/compatibility.md).

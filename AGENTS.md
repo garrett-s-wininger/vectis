@@ -87,8 +87,9 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 ### Add a new HTTP API endpoint
 1. Add the route, handler, auth action, and tests in `internal/api/`.
 2. Update the route inventory tests if the endpoint changes the public surface.
-3. Document user-facing request/response behavior in [`website/docs/using/api-reference.md`](website/docs/using/api-reference.md).
-4. If the endpoint changes compatibility, auth, repair, or operator behavior, update the matching docs under `website/docs/`.
+3. Update [`website/static/openapi/v1.json`](website/static/openapi/v1.json); `mage lint` validates route metadata and local OpenAPI references.
+4. Document user-facing request/response behavior in [`website/docs/using/api-reference.md`](website/docs/using/api-reference.md).
+5. If the endpoint changes compatibility, auth, repair, or operator behavior, update the matching docs under `website/docs/`.
 
 ### Add a new gRPC RPC
 1. Define protobuf messages and RPC in `api/proto/*.proto`.
