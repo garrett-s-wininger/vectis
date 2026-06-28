@@ -882,44 +882,83 @@ func updateTerminalSnapshotTasksTx(ctx context.Context, tx *sql.Tx, status strin
 }
 
 func applyTerminalRunStatusUpdateTx(ctx context.Context, tx *sql.Tx, update RunStatusUpdate) error {
-	switch update.Status {
-	case RunStatusSucceeded:
-		_, err := tx.ExecContext(ctx, rebindQueryForPgx(`
-			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
-			orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL,
-			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
-		`), RunStatusSucceeded, update.RunID)
+	runID := strings.TrimSpace(update.RunID)
+	targetStatus := strings.TrimSpace(update.Status)
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`SELECT status FROM job_runs WHERE run_id = ?`), runID).Scan(&currentStatus); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
 
 		return normalizeSQLError(err)
+	}
+
+	switch catalogRunStatusDecision(currentStatus, targetStatus) {
+	case statusTransitionNoop:
+		return clearExecutionClaimsForTerminalRunTx(ctx, tx, runID)
+	case statusTransitionConflict:
+		return fmt.Errorf("%w: terminal snapshot run status %s cannot replace current status %s for run %s", ErrConflict, targetStatus, currentStatus, runID)
+	}
+
+	var res sql.Result
+	var err error
+	switch update.Status {
+	case RunStatusSucceeded:
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP,
+			orphan_reason = '', failure_code = '', failure_reason = NULL, lease_owner = NULL, lease_until = NULL,
+			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusSucceeded, runID, currentStatus)
 	case RunStatusFailed:
 		failureCode := update.FailureCode
 		if failureCode == "" {
 			failureCode = FailureCodeExecution
 		}
 
-		_, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
 			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = ?, failure_reason = ?,
 			orphan_reason = '', lease_owner = NULL, lease_until = NULL,
-			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
-		`), RunStatusFailed, failureCode, update.Reason, update.RunID)
-
-		return normalizeSQLError(err)
+			cancel_token = NULL, cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusFailed, failureCode, update.Reason, runID, currentStatus)
 	case RunStatusCancelled:
 		reason := update.Reason
 		if reason == "" {
 			reason = CancelReasonAPI
 		}
 
-		_, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		res, err = tx.ExecContext(ctx, rebindQueryForPgx(`
 			UPDATE job_runs SET status = ?, finished_at = CURRENT_TIMESTAMP, failure_code = '', failure_reason = ?,
 			orphan_reason = '', lease_owner = NULL, lease_until = NULL, cancel_token = NULL,
-			cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ?
-		`), RunStatusCancelled, reason, update.RunID)
-
-		return normalizeSQLError(err)
+			cancel_requested_at = NULL, cancel_reason = NULL WHERE run_id = ? AND status = ?
+		`), RunStatusCancelled, reason, runID, currentStatus)
 	default:
 		return fmt.Errorf("%w: unsupported terminal run status %s", ErrConflict, update.Status)
 	}
+
+	if err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if err := requireSingleCatalogStatusUpdate(res, "run", runID); err != nil {
+		return err
+	}
+
+	return clearExecutionClaimsForTerminalRunTx(ctx, tx, runID)
+}
+
+func clearExecutionClaimsForTerminalRunTx(ctx context.Context, tx *sql.Tx, runID string) error {
+	_, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE segment_executions
+		SET lease_owner = NULL,
+			lease_until = NULL,
+			claim_token = NULL,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE run_id = ?
+			AND (lease_owner IS NOT NULL OR lease_until IS NOT NULL OR claim_token IS NOT NULL)
+	`), runID)
+
+	return normalizeSQLError(err)
 }
 
 func execBatchedValuesTx(ctx context.Context, tx *sql.Tx, prefix string, rows [][]any, suffix string) error {

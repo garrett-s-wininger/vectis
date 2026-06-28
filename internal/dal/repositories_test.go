@@ -3064,6 +3064,199 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 	}
 }
 
+func TestRunsRepository_ApplyTerminalExecutionSnapshotRejectsConflictingTerminalRun(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	ctx := context.Background()
+
+	_, err := repos.Namespaces().Create(ctx, "team-terminal-snapshot-conflict", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-terminal-snapshot-conflict"
+	def := `{"id":"job-terminal-snapshot-conflict","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	root, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	if err := repos.Runs().ApplyRunStatusUpdate(ctx, dal.RunStatusUpdate{
+		RunID:  runID,
+		Status: dal.RunStatusSucceeded,
+	}); err != nil {
+		t.Fatalf("apply succeeded run status: %v", err)
+	}
+
+	err = repos.Runs().ApplyTerminalExecutionSnapshot(ctx, dal.TerminalExecutionSnapshotUpdate{
+		RunID:       runID,
+		Outcome:     dal.ExecutionFinalizationOutcomeRunFailed,
+		FailureCode: dal.FailureCodeExecution,
+		Reason:      "late failed snapshot",
+		Executions: []dal.TaskExecutionSnapshot{
+			{
+				Record: dal.TaskExecutionRecord{
+					RunID:         runID,
+					TaskID:        root.TaskID,
+					TaskKey:       dal.RootTaskKey,
+					Name:          dal.RootTaskKey,
+					TaskAttemptID: root.TaskAttemptID,
+					SegmentID:     root.SegmentID,
+					SegmentName:   root.SegmentName,
+					ExecutionID:   root.ExecutionID,
+					CellID:        root.CellID,
+					Attempt:       root.Attempt,
+				},
+				Status: dal.ExecutionStatusFailed,
+			},
+		},
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting terminal snapshot to return conflict, got %v", err)
+	}
+
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	if run.Status != dal.RunStatusSucceeded {
+		t.Fatalf("run status = %q, want %q", run.Status, dal.RunStatusSucceeded)
+	}
+
+	var executionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, root.ExecutionID).Scan(&executionStatus); err != nil {
+		t.Fatalf("query execution status: %v", err)
+	}
+
+	if executionStatus != dal.ExecutionStatusPending {
+		t.Fatalf("execution status after rejected snapshot = %q, want %q", executionStatus, dal.ExecutionStatusPending)
+	}
+}
+
+func TestRunsRepository_ApplyTerminalExecutionSnapshotClearsActiveExecutionClaims(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
+	ctx := context.Background()
+
+	_, err := repos.Namespaces().Create(ctx, "team-terminal-snapshot-clears-claims", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	jobID := "job-terminal-snapshot-clears-claims"
+	def := `{"id":"job-terminal-snapshot-clears-claims","root":{"uses":"builtins/shell"}}`
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	root, err := repos.Runs().GetPendingExecution(ctx, runID)
+	if err != nil {
+		t.Fatalf("get root pending execution: %v", err)
+	}
+
+	sibling, created, err := repos.Runs().EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: root.TaskID,
+		TaskKey:      "sibling",
+		SpecHash:     "sha256:sibling",
+	})
+
+	if err != nil {
+		t.Fatalf("ensure sibling: %v", err)
+	}
+
+	if !created {
+		t.Fatal("expected sibling task to be created")
+	}
+
+	claimExecutionAccepted(t, ctx, repos.Runs(), sibling.ExecutionID, "worker-sibling")
+
+	err = repos.Runs().ApplyTerminalExecutionSnapshot(ctx, dal.TerminalExecutionSnapshotUpdate{
+		RunID:       runID,
+		Outcome:     dal.ExecutionFinalizationOutcomeRunFailed,
+		FailureCode: dal.FailureCodeExecution,
+		Reason:      "root failed while sibling was active",
+		Executions: []dal.TaskExecutionSnapshot{
+			{
+				Record: dal.TaskExecutionRecord{
+					RunID:         runID,
+					TaskID:        root.TaskID,
+					TaskKey:       dal.RootTaskKey,
+					Name:          dal.RootTaskKey,
+					TaskAttemptID: root.TaskAttemptID,
+					SegmentID:     root.SegmentID,
+					SegmentName:   root.SegmentName,
+					ExecutionID:   root.ExecutionID,
+					CellID:        root.CellID,
+					Attempt:       root.Attempt,
+				},
+				Status: dal.ExecutionStatusFailed,
+			},
+			{
+				Record: dal.TaskExecutionRecord{
+					RunID:         runID,
+					TaskID:        sibling.TaskID,
+					ParentTaskID:  root.TaskID,
+					TaskKey:       "sibling",
+					Name:          "sibling",
+					TaskAttemptID: sibling.TaskAttemptID,
+					SegmentID:     sibling.SegmentID,
+					SegmentName:   sibling.SegmentName,
+					ExecutionID:   sibling.ExecutionID,
+					CellID:        sibling.CellID,
+					Attempt:       sibling.Attempt,
+				},
+				Status: dal.ExecutionStatusRunning,
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("ApplyTerminalExecutionSnapshot: %v", err)
+	}
+
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	if run.Status != dal.RunStatusFailed {
+		t.Fatalf("run status = %q, want %q", run.Status, dal.RunStatusFailed)
+	}
+
+	assertExecutionAndSegmentStatus(t, db, root.ExecutionID, root.SegmentID, dal.ExecutionStatusFailed, dal.SegmentStatusFailed, 1)
+
+	var activeClaims int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM segment_executions
+		WHERE run_id = ?
+			AND (lease_owner IS NOT NULL OR lease_until IS NOT NULL OR claim_token IS NOT NULL)
+	`, runID).Scan(&activeClaims); err != nil {
+		t.Fatalf("query active execution claims: %v", err)
+	}
+
+	if activeClaims != 0 {
+		t.Fatalf("terminal snapshot should clear all active execution claims, found %d", activeClaims)
+	}
+}
+
 func TestRunsRepository_RunHotStateOwnerUpsertGetClear(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
