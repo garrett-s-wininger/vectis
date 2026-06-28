@@ -122,8 +122,8 @@ func newDurableLogStream(ctx context.Context, logClient interfaces.LogClient, lo
 	}
 
 	baseDir := spoolBaseDir()
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create log spool dir: %w", err)
+	if err := ensureLogSpoolDir(baseDir); err != nil {
+		return nil, fmt.Errorf("secure log spool dir: %w", err)
 	}
 
 	prefix := sanitizeRunIDForSpool(runID)
@@ -545,14 +545,44 @@ func spoolBaseDir() string {
 	return filepath.Join(os.TempDir(), "vectis-log-spool")
 }
 
+func ensureLogSpoolDir(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("log spool directory is required")
+	}
+
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat directory: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("directory must not be a symlink: %s", path)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+
+	if err := os.Chmod(path, 0o700); err != nil {
+		return fmt.Errorf("chmod directory: %w", err)
+	}
+
+	return nil
+}
+
 func pendingSpoolDir() string {
 	return filepath.Join(spoolBaseDir(), "pending")
 }
 
 func (d *durableLogStream) moveSpoolToPending() error {
 	dir := pendingSpoolDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create pending dir: %w", err)
+	if err := ensureLogSpoolDir(dir); err != nil {
+		return fmt.Errorf("secure pending dir: %w", err)
 	}
 
 	name := filepath.Base(d.spoolPath)

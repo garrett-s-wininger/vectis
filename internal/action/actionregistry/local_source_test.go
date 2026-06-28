@@ -68,6 +68,76 @@ func TestLocalManifestSourceResolveVersionedManifest(t *testing.T) {
 	}
 }
 
+func TestLocalManifestSourceCanonicalizesSymlinkRoot(t *testing.T) {
+	realRoot := t.TempDir()
+	writeLocalManifest(t, realRoot, "acme", "cache", "", localCacheManifest("1.2.3", "base"))
+
+	parent := t.TempDir()
+	root := filepath.Join(parent, "actions-link")
+	if err := os.Symlink(realRoot, root); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	source := newLocalManifestSourceForTest(t, root)
+	descriptor, err := source.ResolveDescriptor("acme/cache")
+	if err != nil {
+		t.Fatalf("ResolveDescriptor: %v", err)
+	}
+
+	if strings.Contains(descriptor.SourcePath, filepath.Base(root)) {
+		t.Fatalf("source path = %q, want canonical path without symlink root", descriptor.SourcePath)
+	}
+}
+
+func TestLocalManifestSourceRejectsSymlinkManifestOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsideManifest := filepath.Join(outside, LocalManifestFile)
+	writeLocalManifestFile(t, outsideManifest, localCacheManifest("1.2.3", "outside"))
+
+	actionDir := filepath.Join(root, "acme", "cache")
+	if err := os.MkdirAll(actionDir, 0o700); err != nil {
+		t.Fatalf("mkdir action dir: %v", err)
+	}
+
+	if err := os.Symlink(outsideManifest, filepath.Join(actionDir, LocalManifestFile)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	source := newLocalManifestSourceForTest(t, root)
+	_, err := source.ResolveDescriptor("acme/cache")
+	if err == nil || !strings.Contains(err.Error(), "local action manifest must stay under local action manifest root") {
+		t.Fatalf("ResolveDescriptor error = %v, want manifest containment failure", err)
+	}
+}
+
+func TestLocalManifestSourceRejectsSymlinkActionDirectoryOutsideRootForDigest(t *testing.T) {
+	root := t.TempDir()
+	outsideActionDir := filepath.Join(t.TempDir(), "cache")
+	if err := os.MkdirAll(outsideActionDir, 0o700); err != nil {
+		t.Fatalf("mkdir outside action dir: %v", err)
+	}
+
+	manifest := localCacheManifest("1.2.3", "outside")
+	manifest.Digest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	writeLocalManifestFile(t, filepath.Join(outsideActionDir, LocalManifestFile), manifest)
+
+	namespaceDir := filepath.Join(root, "acme")
+	if err := os.MkdirAll(namespaceDir, 0o700); err != nil {
+		t.Fatalf("mkdir namespace dir: %v", err)
+	}
+
+	if err := os.Symlink(outsideActionDir, filepath.Join(namespaceDir, "cache")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	source := newLocalManifestSourceForTest(t, root)
+	_, err := source.ResolveDescriptor("acme/cache@" + manifest.Digest)
+	if err == nil || !strings.Contains(err.Error(), "local action directory must stay under local action manifest root") {
+		t.Fatalf("ResolveDescriptor error = %v, want action directory containment failure", err)
+	}
+}
+
 func TestLocalManifestSourceResolveByDigestSearchesVersionDirs(t *testing.T) {
 	t.Parallel()
 
@@ -274,12 +344,18 @@ func writeLocalManifest(t *testing.T, root, namespace, name, version string, man
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
+	writeLocalManifestFile(t, filepath.Join(dir, LocalManifestFile), manifest)
+}
+
+func writeLocalManifestFile(t *testing.T, path string, manifest LocalManifest) {
+	t.Helper()
+
 	payload, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		t.Fatalf("MarshalIndent: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, LocalManifestFile), payload, 0o600); err != nil {
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }

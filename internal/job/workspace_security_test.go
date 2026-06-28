@@ -43,6 +43,55 @@ func TestCleanupWorkspacePathRemovesDirectAutoWorkspaceChild(t *testing.T) {
 	}
 }
 
+func TestCleanupWorkspacePathHandlesSymlinkedWorkspaceRoot(t *testing.T) {
+	parent := t.TempDir()
+	realRoot := filepath.Join(parent, "real-root")
+	if err := os.Mkdir(realRoot, 0o700); err != nil {
+		t.Fatalf("mkdir real root: %v", err)
+	}
+
+	root := filepath.Join(parent, "root-link")
+	if err := os.Symlink(realRoot, root); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	workspace := filepath.Join(root, "vectis-run-123")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+
+	cleanupWorkspacePath(workspace, root, mocks.NewMockLogger())
+
+	if _, err := os.Stat(filepath.Join(realRoot, "vectis-run-123")); !os.IsNotExist(err) {
+		t.Fatalf("workspace still exists after cleanup through symlinked root: %v", err)
+	}
+}
+
+func TestCleanupWorkspacePathRefusesWorkspaceSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	marker := filepath.Join(outside, "keep.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write outside marker: %v", err)
+	}
+
+	workspace := filepath.Join(root, "vectis-run-123")
+	if err := os.Symlink(outside, workspace); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	logger := mocks.NewMockLogger()
+	cleanupWorkspacePath(workspace, root, logger)
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("cleanup followed workspace symlink and removed outside marker: %v", err)
+	}
+
+	if got := strings.Join(logger.GetErrorCalls(), "\n"); !strings.Contains(got, "workspace path must not be a symlink") {
+		t.Fatalf("expected symlink refusal log, got %v", logger.GetErrorCalls())
+	}
+}
+
 func TestWarnIfExplicitWorkspaceRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target")

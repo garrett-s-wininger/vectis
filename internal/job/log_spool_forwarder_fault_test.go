@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +132,81 @@ func TestLogSpoolForwarderFault_TransientSpoolFailureRetained(t *testing.T) {
 
 	assertPathExists(t, path)
 	assertPathMissing(t, path+".quarantine")
+}
+
+func TestLogSpoolForwarderSecuresPendingDirectory(t *testing.T) {
+	resetPendingLogSpools(t)
+
+	dir := pendingSpoolDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("create pending spool dir: %v", err)
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatalf("chmod pending spool dir: %v", err)
+		}
+	}
+
+	forwarder := NewLogSpoolForwarder(&pendingOpenErrLogClient{err: errors.New("unused")}, interfaces.NewLogger("test"), time.Second)
+	if err := forwarder.scanAndForward(); err != nil {
+		t.Fatalf("scan pending spools: %v", err)
+	}
+
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("stat pending spool dir: %v", err)
+		}
+
+		if got := info.Mode().Perm(); got != 0o700 {
+			t.Fatalf("pending spool dir mode = %v, want 0700", got)
+		}
+	}
+}
+
+func TestEnsureLogSpoolDirRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+
+	link := filepath.Join(root, "spool-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := ensureLogSpoolDir(link)
+	if err == nil || !strings.Contains(err.Error(), "directory must not be a symlink") {
+		t.Fatalf("ensureLogSpoolDir error = %v, want symlink rejection", err)
+	}
+}
+
+func TestLogSpoolForwarderRejectsSymlinkSpoolFile(t *testing.T) {
+	resetPendingLogSpools(t)
+
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "outside.spool")
+	if err := os.WriteFile(outsideFile, []byte("not a real spool"), 0o600); err != nil {
+		t.Fatalf("write outside spool: %v", err)
+	}
+
+	dir := pendingSpoolDir()
+	if err := ensureLogSpoolDir(dir); err != nil {
+		t.Fatalf("create pending spool dir: %v", err)
+	}
+
+	link := filepath.Join(dir, "link.spool")
+	if err := os.Symlink(outsideFile, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	forwarder := NewLogSpoolForwarder(&pendingOpenErrLogClient{err: errors.New("unused")}, interfaces.NewLogger("test"), time.Second)
+	err := forwarder.forwardFile(link)
+	if err == nil || !strings.Contains(err.Error(), "spool must not be a symlink") {
+		t.Fatalf("forwardFile error = %v, want symlink spool rejection", err)
+	}
 }
 
 func resetPendingLogSpools(t *testing.T) {

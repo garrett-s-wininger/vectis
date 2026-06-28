@@ -61,6 +61,10 @@ func (f *LogSpoolForwarder) Run(ctx context.Context) {
 
 func (f *LogSpoolForwarder) moveOrphanedSpoolsToPending() error {
 	baseDir := spoolBaseDir()
+	if err := ensureLogSpoolDir(baseDir); err != nil {
+		return fmt.Errorf("secure base spool dir: %w", err)
+	}
+
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -70,8 +74,8 @@ func (f *LogSpoolForwarder) moveOrphanedSpoolsToPending() error {
 	}
 
 	pendingDir := pendingSpoolDir()
-	if err := os.MkdirAll(pendingDir, 0o755); err != nil {
-		return fmt.Errorf("create pending dir: %w", err)
+	if err := ensureLogSpoolDir(pendingDir); err != nil {
+		return fmt.Errorf("secure pending dir: %w", err)
 	}
 
 	for _, entry := range entries {
@@ -101,6 +105,10 @@ func (f *LogSpoolForwarder) moveOrphanedSpoolsToPending() error {
 
 func (f *LogSpoolForwarder) scanAndForward(ctx context.Context) error {
 	dir := pendingSpoolDir()
+	if err := ensureLogSpoolDir(dir); err != nil {
+		return fmt.Errorf("secure pending dir: %w", err)
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -146,9 +154,9 @@ func (f *LogSpoolForwarder) scanAndForward(ctx context.Context) error {
 }
 
 func (f *LogSpoolForwarder) forwardFile(ctx context.Context, path string) error {
-	file, err := os.Open(path)
+	file, err := openStableRegularSpoolFile(path)
 	if err != nil {
-		return fmt.Errorf("open spool: %w", err)
+		return err
 	}
 	defer func(closer interface{ Close() error }) { _ = closer.Close() }(file)
 
@@ -202,6 +210,39 @@ func (f *LogSpoolForwarder) forwardFile(ctx context.Context, path string) error 
 	}
 
 	return nil
+}
+
+func openStableRegularSpoolFile(path string) (*os.File, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat spool: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("spool must not be a symlink")
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("spool is not a regular file")
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open spool: %w", err)
+	}
+
+	openedInfo, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("stat opened spool: %w", err)
+	}
+
+	if !os.SameFile(info, openedInfo) {
+		_ = file.Close()
+		return nil, fmt.Errorf("spool changed while opening")
+	}
+
+	return file, nil
 }
 
 func (f *LogSpoolForwarder) openLogStream(ctx context.Context, runID string) (interfaces.LogStream, error) {

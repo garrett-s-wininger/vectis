@@ -121,17 +121,43 @@ func validateAutoWorkspaceCleanupPath(workspace, root string) error {
 		return fmt.Errorf("resolve workspace root: %w", err)
 	}
 
-	absWorkspace = filepath.Clean(absWorkspace)
-	absRoot = filepath.Clean(absRoot)
-	if absWorkspace == string(filepath.Separator) {
+	workspaceForValidation := filepath.Clean(absWorkspace)
+	rootForValidation := filepath.Clean(absRoot)
+	if realRoot, err := filepath.EvalSymlinks(rootForValidation); err != nil {
+		return fmt.Errorf("resolve workspace root symlinks: %w", err)
+	} else {
+		rootForValidation = filepath.Clean(realRoot)
+	}
+
+	info, err := os.Lstat(workspaceForValidation)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("stat workspace: %w", err)
+		}
+
+		rootForValidation = filepath.Clean(absRoot)
+	} else {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("workspace path must not be a symlink")
+		}
+
+		realWorkspace, err := filepath.EvalSymlinks(workspaceForValidation)
+		if err != nil {
+			return fmt.Errorf("resolve workspace symlinks: %w", err)
+		}
+
+		workspaceForValidation = filepath.Clean(realWorkspace)
+	}
+
+	if workspaceForValidation == string(filepath.Separator) {
 		return fmt.Errorf("workspace path must not be filesystem root")
 	}
 
-	if absWorkspace == absRoot {
+	if workspaceForValidation == rootForValidation {
 		return fmt.Errorf("workspace path must not equal workspace root")
 	}
 
-	rel, err := filepath.Rel(absRoot, absWorkspace)
+	rel, err := filepath.Rel(rootForValidation, workspaceForValidation)
 	if err != nil {
 		return fmt.Errorf("resolve workspace relative to root: %w", err)
 	}
@@ -144,7 +170,7 @@ func validateAutoWorkspaceCleanupPath(workspace, root string) error {
 		return fmt.Errorf("auto workspace must be a direct child of workspace root")
 	}
 
-	if !strings.HasPrefix(filepath.Base(absWorkspace), "vectis-") {
+	if !strings.HasPrefix(filepath.Base(workspaceForValidation), "vectis-") {
 		return fmt.Errorf("auto workspace name must start with vectis-")
 	}
 

@@ -275,6 +275,10 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	)
 
 	if len(opts.SecretFiles) > 0 {
+		if err := ensureWorkspacePrivateDir(workspace, ".vectis"); err != nil {
+			return fmt.Errorf("failed to secure workspace control dir: %w", err)
+		}
+
 		if err := secrets.CleanupMaterialized(workspace); err != nil {
 			return fmt.Errorf("failed to reset workspace secrets dir: %w", err)
 		}

@@ -295,6 +295,17 @@ func TestExecutor_ExecuteJob_MaterializesSecretFiles(t *testing.T) {
 		t.Fatalf("ExecuteJobInWorkspaceWithOptions: %v", err)
 	}
 
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(filepath.Join(workspace, ".vectis"))
+		if err != nil {
+			t.Fatalf("stat .vectis: %v", err)
+		}
+
+		if gotMode := info.Mode().Perm(); gotMode != 0o700 {
+			t.Fatalf(".vectis mode = %v, want 0700", gotMode)
+		}
+	}
+
 	materializedPath := filepath.Join(workspace, ".vectis", "secrets", "npm", "token")
 	if _, err := os.Stat(materializedPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("materialized secret file still exists after cleanup, stat err=%v", err)

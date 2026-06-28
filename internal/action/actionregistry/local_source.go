@@ -41,7 +41,17 @@ func NewLocalManifestSource(root string) (*LocalManifestSource, error) {
 		return nil, fmt.Errorf("local action manifest root is required")
 	}
 
-	info, err := os.Stat(root)
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local action manifest root: %w", err)
+	}
+
+	realRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local action manifest root symlinks: %w", err)
+	}
+
+	info, err := os.Stat(realRoot)
 	if err != nil {
 		return nil, fmt.Errorf("stat local action manifest root: %w", err)
 	}
@@ -50,7 +60,7 @@ func NewLocalManifestSource(root string) (*LocalManifestSource, error) {
 		return nil, fmt.Errorf("local action manifest root is not a directory: %s", root)
 	}
 
-	return &LocalManifestSource{root: root}, nil
+	return &LocalManifestSource{root: filepath.Clean(realRoot)}, nil
 }
 
 func (s *LocalManifestSource) ResolveDescriptor(uses string) (Descriptor, error) {
@@ -181,7 +191,16 @@ func (s *LocalManifestSource) manifestCandidates(ref Reference) ([]string, error
 		return []string{filepath.Join(baseDir, ref.Selector, LocalManifestFile), base}, nil
 	case SelectorDigest:
 		candidates := []string{base}
-		entries, err := os.ReadDir(baseDir)
+		containedBaseDir, err := s.containedDirectoryPath(baseDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return candidates, nil
+			}
+
+			return nil, err
+		}
+
+		entries, err := os.ReadDir(containedBaseDir)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return candidates, nil
@@ -199,7 +218,7 @@ func (s *LocalManifestSource) manifestCandidates(ref Reference) ([]string, error
 
 		sort.Strings(versionDirs)
 		for _, dir := range versionDirs {
-			candidates = append(candidates, filepath.Join(baseDir, dir, LocalManifestFile))
+			candidates = append(candidates, filepath.Join(containedBaseDir, dir, LocalManifestFile))
 		}
 
 		return candidates, nil
@@ -209,7 +228,12 @@ func (s *LocalManifestSource) manifestCandidates(ref Reference) ([]string, error
 }
 
 func (s *LocalManifestSource) loadManifest(path string, ref Reference) (Descriptor, error) {
-	payload, err := os.ReadFile(path)
+	manifestPath, err := s.containedManifestPath(path)
+	if err != nil {
+		return Descriptor{}, err
+	}
+
+	payload, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return Descriptor{}, err
 	}
@@ -218,16 +242,16 @@ func (s *LocalManifestSource) loadManifest(path string, ref Reference) (Descript
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&manifest); err != nil {
-		return Descriptor{}, fmt.Errorf("decode local action manifest %s: %w", path, err)
+		return Descriptor{}, fmt.Errorf("decode local action manifest %s: %w", manifestPath, err)
 	}
 
 	var extra json.RawMessage
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err != nil {
-			return Descriptor{}, fmt.Errorf("decode local action manifest %s: %w", path, err)
+			return Descriptor{}, fmt.Errorf("decode local action manifest %s: %w", manifestPath, err)
 		}
 
-		return Descriptor{}, fmt.Errorf("decode local action manifest %s: trailing JSON data", path)
+		return Descriptor{}, fmt.Errorf("decode local action manifest %s: trailing JSON data", manifestPath)
 	}
 
 	descriptor, err := manifest.Descriptor(ref)
@@ -235,8 +259,63 @@ func (s *LocalManifestSource) loadManifest(path string, ref Reference) (Descript
 		return Descriptor{}, err
 	}
 
-	descriptor.SourcePath = filepath.Dir(path)
+	descriptor.SourcePath = filepath.Dir(manifestPath)
 	return descriptor, nil
+}
+
+func (s *LocalManifestSource) containedManifestPath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve local action manifest path: %w", err)
+	}
+
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", err
+	}
+
+	rel, err := filepath.Rel(s.root, realPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve local action manifest relative to root: %w", err)
+	}
+
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("local action manifest must stay under local action manifest root")
+	}
+
+	return realPath, nil
+}
+
+func (s *LocalManifestSource) containedDirectoryPath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve local action directory: %w", err)
+	}
+
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(realPath)
+	if err != nil {
+		return "", err
+	}
+
+	if !info.IsDir() {
+		return "", fmt.Errorf("local action path is not a directory: %s", path)
+	}
+
+	rel, err := filepath.Rel(s.root, realPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve local action directory relative to root: %w", err)
+	}
+
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("local action directory must stay under local action manifest root")
+	}
+
+	return realPath, nil
 }
 
 func (m LocalManifest) Descriptor(ref Reference) (Descriptor, error) {
