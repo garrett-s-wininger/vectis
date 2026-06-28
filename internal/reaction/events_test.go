@@ -99,6 +99,45 @@ func TestPublisherPublishManualNoticeCanUseExplicitTarget(t *testing.T) {
 	assertLocalMessageCount(t, ctx, store, "direct", 1)
 }
 
+func TestPublisherPublishManualNoticeCanUseSameNamespaceExplicitTarget(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	store := repos.Reactions()
+	ctx := context.Background()
+
+	ns, err := repos.Namespaces().Create(ctx, "manual-direct-team", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: ns.ID,
+		Name:        "same-namespace-direct-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"same-namespace-direct"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	publication, err := (&reaction.Publisher{Store: store}).PublishManualNotice(ctx, reaction.ManualNotice{
+		NamespaceID: ns.ID,
+		TargetIDs:   []string{target.TargetID},
+		Actor:       "operator",
+		Message:     "same namespace target",
+	})
+
+	if err != nil {
+		t.Fatalf("publish manual notice: %v", err)
+	}
+
+	if len(publication.DirectTargets) != 1 || len(publication.Invocations) != 1 {
+		t.Fatalf("publication: %+v", publication)
+	}
+}
+
 func TestPublisherPublishManualNoticeDedupesExplicitTargetIDs(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	store := dal.NewSQLRepositories(db).Reactions()
@@ -128,6 +167,51 @@ func TestPublisherPublishManualNoticeDedupesExplicitTargetIDs(t *testing.T) {
 
 	if len(publication.DirectTargets) != 1 || len(publication.Invocations) != 1 {
 		t.Fatalf("publication: %+v", publication)
+	}
+}
+
+func TestPublisherPublishManualNoticeRejectsForeignNamespaceExplicitTargetBeforeEvent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	store := repos.Reactions()
+	ctx := context.Background()
+
+	nsA, err := repos.Namespaces().Create(ctx, "manual-team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace a: %v", err)
+	}
+
+	nsB, err := repos.Namespaces().Create(ctx, "manual-team-b", nil)
+	if err != nil {
+		t.Fatalf("create namespace b: %v", err)
+	}
+
+	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: nsB.ID,
+		Name:        "foreign-direct-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"foreign-direct"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	_, err = (&reaction.Publisher{Store: store}).PublishManualNotice(ctx, reaction.ManualNotice{
+		EventID:     "manual-foreign-target",
+		NamespaceID: nsA.ID,
+		TargetIDs:   []string{target.TargetID},
+		Actor:       "operator",
+		Message:     "foreign namespace target should not create event",
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected foreign target to return conflict, got %v", err)
+	}
+
+	if _, err := store.GetEvent(ctx, "manual-foreign-target"); !dal.IsNotFound(err) {
+		t.Fatalf("expected foreign-target publish to avoid event insert, got %v", err)
 	}
 }
 

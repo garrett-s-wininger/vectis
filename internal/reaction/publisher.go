@@ -42,7 +42,7 @@ func (p *Publisher) publish(ctx context.Context, create dal.ReactionEventCreate,
 		return Publication{}, fmt.Errorf("reaction publisher requires a store")
 	}
 
-	directTargets, err := p.resolveDirectTargets(ctx, targetIDs)
+	directTargets, err := p.resolveDirectTargets(ctx, targetIDs, create.NamespaceID)
 	if err != nil {
 		return Publication{}, err
 	}
@@ -79,7 +79,7 @@ func (p *Publisher) publish(ctx context.Context, create dal.ReactionEventCreate,
 	return publication, nil
 }
 
-func (p *Publisher) resolveDirectTargets(ctx context.Context, targetIDs []string) ([]dal.ReactionTargetRecord, error) {
+func (p *Publisher) resolveDirectTargets(ctx context.Context, targetIDs []string, namespaceID int64) ([]dal.ReactionTargetRecord, error) {
 	seenDirectTargets := make(map[string]struct{}, len(targetIDs))
 	var out []dal.ReactionTargetRecord
 	for _, targetID := range targetIDs {
@@ -98,6 +98,10 @@ func (p *Publisher) resolveDirectTargets(ctx context.Context, targetIDs []string
 			return nil, err
 		}
 
+		if !targetAllowedInNamespace(target, namespaceID) {
+			return nil, fmt.Errorf("%w: reaction target %s is scoped to a different namespace", dal.ErrConflict, targetID)
+		}
+
 		if !target.Enabled {
 			continue
 		}
@@ -106,6 +110,14 @@ func (p *Publisher) resolveDirectTargets(ctx context.Context, targetIDs []string
 	}
 
 	return out, nil
+}
+
+func targetAllowedInNamespace(target dal.ReactionTargetRecord, namespaceID int64) bool {
+	if target.NamespaceID == nil {
+		return true
+	}
+
+	return namespaceID > 0 && *target.NamespaceID == namespaceID
 }
 
 func (p *Publisher) createInvocation(ctx context.Context, publication *Publication, seenTargets map[string]struct{}, target dal.ReactionTargetRecord, subscriptionID string) error {

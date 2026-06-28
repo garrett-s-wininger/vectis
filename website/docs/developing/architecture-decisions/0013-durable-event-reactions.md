@@ -140,6 +140,11 @@ before recording the durable event, so malformed manual sends do not leave
 stranded event rows. Stored invocation errors are bounded so pathological action
 failures do not turn reaction state into an unbounded log sink.
 
+Reaction targets are also namespace-scoped. Global targets can receive any
+matching event, but a namespace-scoped target can only receive events from that
+same namespace, including when the target is named explicitly by a manual
+notice.
+
 The local notification sink is idempotent per reaction invocation. If the
 reaction runner crashes after recording a local message but before marking the
 invocation succeeded, a retry reuses the existing local message instead of

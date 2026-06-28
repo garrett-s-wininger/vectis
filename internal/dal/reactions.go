@@ -283,13 +283,14 @@ func (r *SQLReactionsRepository) ListMatchingSubscriptions(ctx context.Context, 
 		WHERE s.enabled = ?
 		  AND t.enabled = ?
 		  AND (s.namespace_id IS NULL OR s.namespace_id = ?)
+		  AND (t.namespace_id IS NULL OR t.namespace_id = ?)
 		  AND (s.event_type = '' OR s.event_type = ?)
 		  AND (s.job_id = '' OR s.job_id = ?)
 		  AND (s.run_status = '' OR s.run_status = ?)
 		  AND (s.trigger_type = '' OR s.trigger_type = ?)
 		  AND (s.owning_cell = '' OR s.owning_cell = ?)
 		ORDER BY s.id ASC
-	`), true, true, namespaceID, eventType, strings.TrimSpace(event.JobID), runStatus, triggerType, sourceCell)
+	`), true, true, namespaceID, namespaceID, eventType, strings.TrimSpace(event.JobID), runStatus, triggerType, sourceCell)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)

@@ -350,6 +350,82 @@ func TestReactionsRepository_ListMatchingSubscriptionsFiltersEventMetadata(t *te
 	}
 }
 
+func TestReactionsRepository_ListMatchingSubscriptionsSkipsForeignNamespaceTargets(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	repo := repos.Reactions()
+	ctx := context.Background()
+
+	nsA, err := repos.Namespaces().Create(ctx, "reaction-team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace a: %v", err)
+	}
+
+	nsB, err := repos.Namespaces().Create(ctx, "reaction-team-b", nil)
+	if err != nil {
+		t.Fatalf("create namespace b: %v", err)
+	}
+
+	targetA, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: nsA.ID,
+		Name:        "team-a-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"team-a"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target a: %v", err)
+	}
+
+	targetB, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: nsB.ID,
+		Name:        "team-b-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"team-b"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target b: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:  targetA.TargetID,
+		Name:      "team-a-subscription",
+		EventType: dal.ReactionEventTypeManualNotice,
+	}); err != nil {
+		t.Fatalf("create subscription a: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:  targetB.TargetID,
+		Name:      "team-b-subscription",
+		EventType: dal.ReactionEventTypeManualNotice,
+	}); err != nil {
+		t.Fatalf("create subscription b: %v", err)
+	}
+
+	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		NamespaceID: nsA.ID,
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"namespace scoped"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	matches, err := repo.ListMatchingSubscriptions(ctx, event)
+	if err != nil {
+		t.Fatalf("list matches: %v", err)
+	}
+
+	if len(matches) != 1 || matches[0].Target.TargetID != targetA.TargetID {
+		t.Fatalf("matches: %+v", matches)
+	}
+}
+
 func TestReactionsRepository_ListMatchingSubscriptionsSkipsDisabledRows(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repo := dal.NewSQLRepositories(db).Reactions()
