@@ -114,6 +114,17 @@ func BuildContainer() error {
 	})
 }
 
+// DeployArtifactsRender renders Linux deployment artifacts.
+func DeployArtifactsRender() error {
+	out := envDefault("DEPLOY_LINUX_OUT", filepath.Join("artifacts", "deploy", "linux"))
+	return run("", nil, goCommand(), "run", "./cmd/cli", "deploy", "linux", "render", "--output", out)
+}
+
+// DeployArtifactsTest tests Linux deployment artifact rendering.
+func DeployArtifactsTest() error {
+	return run("", nil, goCommand(), "test", "./deploy/linux/...")
+}
+
 func buildBinaries(cfg buildConfig) error {
 	apps := append([]string(nil), appNames...)
 	if !truthy(os.Getenv("SKIP_WEB_BUILD")) {
@@ -158,6 +169,16 @@ func Format() error {
 	return run("", nil, goCommand(), "mod", "tidy")
 }
 
+// ReleaseReadinessReport runs release readiness checks.
+func ReleaseReadinessReport() error {
+	args := []string{"run", "./tools/release-readiness", "--profile", envDefault("RELEASE_READINESS_PROFILE", "local")}
+	if checks := os.Getenv("RELEASE_READINESS_CHECKS"); checks != "" {
+		args = append(args, "--checks", checks)
+	}
+	args = append(args, strings.Fields(os.Getenv("RELEASE_READINESS_ARGS"))...)
+	return run("", nil, goCommand(), args...)
+}
+
 // Test runs the full Go test suite.
 func Test() error {
 	return run("", nil, goCommand(), "test", "./...")
@@ -182,6 +203,24 @@ func TestE2EDeployLinux() error {
 	return run("", env, goCommand(), "test", "-tags=e2e", "./tests/e2e/deploy/linux", "-count=1", "-v")
 }
 
+// TestFault runs the fault-injection focused suites.
+func TestFault() error {
+	if err := run("", nil, goCommand(), "test", "-count=1", "./internal/faultinject"); err != nil {
+		return err
+	}
+
+	return run("", nil, goCommand(), "test", "-count=1",
+		"./internal/artifact",
+		"./internal/catalog",
+		"./internal/cron",
+		"./internal/job",
+		"./internal/logforwarder",
+		"./internal/queue",
+		"./internal/reconciler",
+		"-run", "Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable",
+	)
+}
+
 // TestLima runs the Lima virtual machine integration tests.
 func TestLima() error {
 	return run("", nil, goCommand(), "test", "./internal/platform", "./internal/job", "-run", "TestVirtualMachineIntegration", "-count=1", "-v")
@@ -190,6 +229,19 @@ func TestLima() error {
 // TestPostgresIntegration runs the Postgres integration tests.
 func TestPostgresIntegration() error {
 	return run("", nil, goCommand(), "test", "-tags=integration", "./tests/integration/postgres")
+}
+
+// TestProperty runs property-focused test suites.
+func TestProperty() error {
+	if err := run("", nil, goCommand(), "test", "-count=1", "./internal/queue", "-run", "Property"); err != nil {
+		return err
+	}
+
+	if err := run("", nil, goCommand(), "test", "-count=1", "./internal/logforwarder", "-run", "Property"); err != nil {
+		return err
+	}
+
+	return run("", nil, goCommand(), "test", "-count=1", "./internal/catalog", "-run", "Property")
 }
 
 // TestQuick runs the fast feedback test set.

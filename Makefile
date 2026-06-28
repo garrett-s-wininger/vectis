@@ -152,28 +152,25 @@ release-local-validate:
 
 .PHONY: release-readiness-report
 release-readiness-report:
-	$(GO) run ./tools/release-readiness --profile "$(RELEASE_READINESS_PROFILE)" $(if $(RELEASE_READINESS_CHECKS),--checks "$(RELEASE_READINESS_CHECKS)",) $(RELEASE_READINESS_ARGS)
+	RELEASE_READINESS_PROFILE="$(RELEASE_READINESS_PROFILE)" RELEASE_READINESS_CHECKS="$(RELEASE_READINESS_CHECKS)" RELEASE_READINESS_ARGS="$(RELEASE_READINESS_ARGS)" GO="$(GO)" $(MAGE) releaseReadinessReport
 
 .PHONY: test-fault
 test-fault:
-	go test -count=1 ./internal/faultinject
-	go test -count=1 ./internal/artifact ./internal/catalog ./internal/cron ./internal/job ./internal/logforwarder ./internal/queue ./internal/reconciler -run 'Fault|RestoreSkew|QueueDown|QueueRecovery|MinGap|DuplicateDelivery|DBUnavailable'
+	GO="$(GO)" $(MAGE) testFault
 
 .PHONY: test-property
 test-property:
-	go test -count=1 ./internal/queue -run 'Property'
-	go test -count=1 ./internal/logforwarder -run 'Property'
-	go test -count=1 ./internal/catalog -run 'Property'
+	GO="$(GO)" $(MAGE) testProperty
 
 .PHONY: deploy-artifacts-test
 deploy-artifacts-test:
-	go test ./deploy/linux/...
+	GO="$(GO)" $(MAGE) deployArtifactsTest
 
 DEPLOY_LINUX_OUT ?= artifacts/deploy/linux
 
 .PHONY: deploy-artifacts-render
 deploy-artifacts-render:
-	go run ./cmd/cli deploy linux render --output $(DEPLOY_LINUX_OUT)
+	DEPLOY_LINUX_OUT="$(DEPLOY_LINUX_OUT)" GO="$(GO)" $(MAGE) deployArtifactsRender
 
 PACKAGE_OUT ?= artifacts/packages
 PACKAGE_BUILD_DIR ?= $(PACKAGE_OUT)/build
