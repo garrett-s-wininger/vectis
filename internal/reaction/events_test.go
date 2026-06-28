@@ -99,6 +99,82 @@ func TestPublisherPublishManualNoticeCanUseExplicitTarget(t *testing.T) {
 	assertLocalMessageCount(t, ctx, store, "direct", 1)
 }
 
+func TestPublisherPublishManualNoticeDedupesExplicitTargetIDs(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "duplicate-direct-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"duplicate-direct"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	publisher := &reaction.Publisher{Store: store}
+	publication, err := publisher.PublishManualNotice(ctx, reaction.ManualNotice{
+		TargetIDs: []string{target.TargetID, " " + target.TargetID + " "},
+		Actor:     "operator",
+		Message:   "dedupe direct target",
+	})
+
+	if err != nil {
+		t.Fatalf("publish manual notice: %v", err)
+	}
+
+	if len(publication.DirectTargets) != 1 || len(publication.Invocations) != 1 {
+		t.Fatalf("publication: %+v", publication)
+	}
+}
+
+func TestPublisherPublishManualNoticeRejectsMissingExplicitTargetBeforeEvent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	publisher := &reaction.Publisher{Store: store}
+	_, err := publisher.PublishManualNotice(ctx, reaction.ManualNotice{
+		EventID:   "manual-missing-target",
+		TargetIDs: []string{"missing-target"},
+		Actor:     "operator",
+		Message:   "missing target should not create event",
+	})
+
+	if !dal.IsNotFound(err) {
+		t.Fatalf("expected missing target to return not found, got %v", err)
+	}
+
+	if _, err := store.GetEvent(ctx, "manual-missing-target"); !dal.IsNotFound(err) {
+		t.Fatalf("expected missing-target publish to avoid event insert, got %v", err)
+	}
+}
+
+func TestPublisherPublishManualNoticeRejectsBlankExplicitTargetBeforeEvent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	publisher := &reaction.Publisher{Store: store}
+	_, err := publisher.PublishManualNotice(ctx, reaction.ManualNotice{
+		EventID:   "manual-blank-target",
+		TargetIDs: []string{" "},
+		Actor:     "operator",
+		Message:   "blank target should not create event",
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected blank target to return conflict, got %v", err)
+	}
+
+	if _, err := store.GetEvent(ctx, "manual-blank-target"); !dal.IsNotFound(err) {
+		t.Fatalf("expected blank-target publish to avoid event insert, got %v", err)
+	}
+}
+
 func TestPublisherPublishManualNoticeIsIdempotentForEventID(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	store := dal.NewSQLRepositories(db).Reactions()

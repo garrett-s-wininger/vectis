@@ -132,7 +132,9 @@ existing row; conflicting duplicates fail instead of rewriting history.
 Targets and subscriptions are independently enableable. Disabled subscriptions
 do not match events, disabled targets do not receive subscription or direct
 manual invocations, and direct manual target IDs still flow through durable event
-and invocation rows. Stored invocation errors are bounded so pathological action
+and invocation rows. Missing or blank explicit manual target IDs are rejected
+before recording the durable event, so malformed manual sends do not leave
+stranded event rows. Stored invocation errors are bounded so pathological action
 failures do not turn reaction state into an unbounded log sink.
 
 The local notification sink is idempotent per reaction invocation. If the

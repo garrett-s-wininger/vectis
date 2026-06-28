@@ -42,6 +42,11 @@ func (p *Publisher) publish(ctx context.Context, create dal.ReactionEventCreate,
 		return Publication{}, fmt.Errorf("reaction publisher requires a store")
 	}
 
+	directTargets, err := p.resolveDirectTargets(ctx, targetIDs)
+	if err != nil {
+		return Publication{}, err
+	}
+
 	event, err := p.Store.RecordEvent(ctx, create)
 	if err != nil {
 		return Publication{}, err
@@ -53,20 +58,36 @@ func (p *Publisher) publish(ctx context.Context, create dal.ReactionEventCreate,
 	}
 
 	publication := Publication{
-		Event:   event,
-		Matches: matches,
+		Event:         event,
+		Matches:       matches,
+		DirectTargets: directTargets,
 	}
 
-	seenTargets := make(map[string]struct{}, len(matches)+len(targetIDs))
+	seenTargets := make(map[string]struct{}, len(matches)+len(directTargets))
 	for _, match := range matches {
 		if err := p.createInvocation(ctx, &publication, seenTargets, match.Target, match.Subscription.SubscriptionID); err != nil {
 			return publication, err
 		}
 	}
 
+	for _, target := range directTargets {
+		if err := p.createInvocation(ctx, &publication, seenTargets, target, ""); err != nil {
+			return publication, err
+		}
+	}
+
+	return publication, nil
+}
+
+func (p *Publisher) resolveDirectTargets(ctx context.Context, targetIDs []string) ([]dal.ReactionTargetRecord, error) {
 	seenDirectTargets := make(map[string]struct{}, len(targetIDs))
+	var out []dal.ReactionTargetRecord
 	for _, targetID := range targetIDs {
 		targetID = strings.TrimSpace(targetID)
+		if targetID == "" {
+			return nil, fmt.Errorf("%w: manual reaction target_id is required", dal.ErrConflict)
+		}
+
 		if _, seen := seenDirectTargets[targetID]; seen {
 			continue
 		}
@@ -74,20 +95,17 @@ func (p *Publisher) publish(ctx context.Context, create dal.ReactionEventCreate,
 		seenDirectTargets[targetID] = struct{}{}
 		target, err := p.Store.GetTarget(ctx, targetID)
 		if err != nil {
-			return publication, err
+			return nil, err
 		}
 
 		if !target.Enabled {
 			continue
 		}
 
-		publication.DirectTargets = append(publication.DirectTargets, target)
-		if err := p.createInvocation(ctx, &publication, seenTargets, target, ""); err != nil {
-			return publication, err
-		}
+		out = append(out, target)
 	}
 
-	return publication, nil
+	return out, nil
 }
 
 func (p *Publisher) createInvocation(ctx context.Context, publication *Publication, seenTargets map[string]struct{}, target dal.ReactionTargetRecord, subscriptionID string) error {
