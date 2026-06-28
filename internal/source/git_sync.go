@@ -31,6 +31,17 @@ type ManagedGitRefHydrationRequest struct {
 	Credentials        GitCredentials
 }
 
+var managedGitMaintenanceSettings = [][2]string{
+	{"gc.auto", "0"},
+	{"gc.autoDetach", "false"},
+	{"gc.autoPackLimit", "0"},
+	{"gc.writeCommitGraph", "false"},
+	{"maintenance.auto", "false"},
+	{"maintenance.strategy", "none"},
+	{"fetch.writeCommitGraph", "false"},
+	{"fetch.unpackLimit", "1"},
+}
+
 // SyncManagedGitCheckout materializes or refreshes a Vectis-owned Git checkout.
 func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) GitCheckoutStatus {
 	checkoutPath := strings.TrimSpace(req.CheckoutPath)
@@ -476,12 +487,8 @@ func managedGitFetchRefspec(ref string) (string, string, bool) {
 }
 
 func configureManagedGitCheckout(ctx context.Context, checkoutPath string, fallbackRemoteURLs []string) error {
-	settings := [][2]string{
-		{"gc.auto", "0"},
-		{"maintenance.auto", "false"},
-		{"fetch.writeCommitGraph", "false"},
-		{"remote.origin.tagOpt", "--no-tags"},
-	}
+	settings := append([][2]string(nil), managedGitMaintenanceSettings...)
+	settings = append(settings, [2]string{"remote.origin.tagOpt", "--no-tags"})
 
 	for _, setting := range settings {
 		if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "config", "--local", setting[0], setting[1]); err != nil {
@@ -554,10 +561,9 @@ func managedGitHydrationTier(remote string) string {
 }
 
 func managedGitCommandArgs(args ...string) []string {
-	out := []string{
-		"-c", "gc.auto=0",
-		"-c", "maintenance.auto=false",
-		"-c", "fetch.writeCommitGraph=false",
+	out := make([]string, 0, len(managedGitMaintenanceSettings)*2+len(args))
+	for _, setting := range managedGitMaintenanceSettings {
+		out = append(out, "-c", setting[0]+"="+setting[1])
 	}
 
 	out = append(out, args...)

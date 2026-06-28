@@ -73,8 +73,13 @@ func TestSyncManagedGitCheckoutDisablesAutomaticMaintenanceAndBroadTags(t *testi
 
 	for key, want := range map[string]string{
 		"gc.auto":                "0",
+		"gc.autoDetach":          "false",
+		"gc.autoPackLimit":       "0",
+		"gc.writeCommitGraph":    "false",
 		"maintenance.auto":       "false",
+		"maintenance.strategy":   "none",
 		"fetch.writeCommitGraph": "false",
+		"fetch.unpackLimit":      "1",
 		"remote.origin.tagOpt":   "--no-tags",
 	} {
 		if got := gitOutput(t, checkoutPath, "config", "--get", key); got != want {
@@ -101,6 +106,27 @@ func TestSyncManagedGitCheckoutDisablesAutomaticMaintenanceAndBroadTags(t *testi
 
 	if got := strings.TrimSpace(gitOutput(t, checkoutPath, "tag", "--list")); got != "" {
 		t.Fatalf("managed checkout fetch should not fetch broad tags, got %q", got)
+	}
+}
+
+func TestManagedGitCommandArgsDisableImplicitMaintenance(t *testing.T) {
+	args := managedGitCommandArgs("fetch", "origin")
+	if len(args) < len(managedGitMaintenanceSettings)*2+2 {
+		t.Fatalf("managed git args too short: %+v", args)
+	}
+
+	for i, setting := range managedGitMaintenanceSettings {
+		if got, want := args[i*2], "-c"; got != want {
+			t.Fatalf("managed git args[%d]=%q, want %q; args=%+v", i*2, got, want, args)
+		}
+
+		if got, want := args[i*2+1], setting[0]+"="+setting[1]; got != want {
+			t.Fatalf("managed git args[%d]=%q, want %q; args=%+v", i*2+1, got, want, args)
+		}
+	}
+
+	if got := strings.Join(args[len(managedGitMaintenanceSettings)*2:], " "); got != "fetch origin" {
+		t.Fatalf("managed git command tail=%q, want fetch origin; args=%+v", got, args)
 	}
 }
 
