@@ -39,7 +39,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-secrets` | Cell-local secret resolution broker | yes | yes |
 | `vectis-spiffe` | Reference SPIFFE Workload + Entry API authority | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |
-| `vectis-scm-poller` | SCM polling triggers → deduplicated trigger events | yes | yes |
+| `vectis-scm-poller` | SCM polling triggers → deduped trigger events → run dispatch | yes | yes |
 | `vectis-catalog` | Cell catalog events → global catalog | yes | yes |
 | `vectis-ui` | Static browser UI + API proxy | yes | no |
 | `vectis-docs` | Static docs site | yes | no |

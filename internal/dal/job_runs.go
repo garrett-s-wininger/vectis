@@ -2087,6 +2087,120 @@ func (r *SQLRunsRepository) tryCreateScheduledSourceDefinitionRun(ctx context.Co
 	return runID, runIndexOut, definitionVersion, true, nil
 }
 
+func (r *SQLRunsRepository) CreateSCMEventRun(ctx context.Context, triggerID int64, eventKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
+	if triggerID <= 0 {
+		return "", 0, false, fmt.Errorf("%w: trigger_id is required", ErrNotFound)
+	}
+
+	eventKey = strings.TrimSpace(eventKey)
+	if eventKey == "" {
+		return "", 0, false, fmt.Errorf("%w: event_key is required", ErrNotFound)
+	}
+
+	for range 3 {
+		runID, runIndexOut, found, err := r.findSCMEventRun(ctx, triggerID, eventKey)
+		if err != nil {
+			return "", 0, false, err
+		}
+		if found {
+			return runID, runIndexOut, false, nil
+		}
+
+		runID, runIndexOut, created, err := r.tryCreateSCMEventRun(ctx, triggerID, eventKey, jobID, definitionVersion, audit)
+		if err != nil {
+			return "", 0, false, err
+		}
+
+		if created {
+			return runID, runIndexOut, true, nil
+		}
+	}
+
+	runID, runIndexOut, found, err := r.findSCMEventRun(ctx, triggerID, eventKey)
+	if err != nil {
+		return "", 0, false, err
+	}
+	if found {
+		return runID, runIndexOut, false, nil
+	}
+
+	return "", 0, false, fmt.Errorf("%w: scm event run for trigger %d event %q was not created", ErrConflict, triggerID, eventKey)
+}
+
+func (r *SQLRunsRepository) findSCMEventRun(ctx context.Context, triggerID int64, eventKey string) (runID string, runIndexOut int, found bool, err error) {
+	err = r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT e.run_id, r.run_index
+		FROM scm_trigger_events e
+		JOIN job_runs r ON r.run_id = e.run_id
+		WHERE e.trigger_id = ? AND e.event_key = ? AND e.run_id IS NOT NULL
+	`), triggerID, eventKey).Scan(&runID, &runIndexOut)
+
+	if err == nil {
+		return runID, runIndexOut, true, nil
+	}
+
+	if err != sql.ErrNoRows {
+		return "", 0, false, normalizeSQLError(err)
+	}
+
+	return "", 0, false, nil
+}
+
+func (r *SQLRunsRepository) tryCreateSCMEventRun(ctx context.Context, triggerID int64, eventKey, jobID string, definitionVersion int, audit RunAuditMetadata) (runID string, runIndexOut int, created bool, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existingRunID sql.NullString
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT run_id
+		FROM scm_trigger_events
+		WHERE trigger_id = ? AND event_key = ?
+	`), triggerID, eventKey).Scan(&existingRunID); err != nil {
+		if err == sql.ErrNoRows {
+			return "", 0, false, fmt.Errorf("%w: scm trigger event %d/%s", ErrNotFound, triggerID, eventKey)
+		}
+
+		return "", 0, false, normalizeSQLError(err)
+	}
+
+	if existingRunID.Valid && strings.TrimSpace(existingRunID.String) != "" {
+		return "", 0, false, nil
+	}
+
+	runID = uuid.New().String()
+	runIndexOut, err = createRunTx(ctx, tx, runID, jobID, nil, definitionVersion, r.currentCellID(), audit)
+	if err != nil {
+		return "", 0, false, err
+	}
+
+	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE scm_trigger_events
+		SET run_id = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE trigger_id = ? AND event_key = ? AND run_id IS NULL
+	`), runID, triggerID, eventKey)
+	if err != nil {
+		return "", 0, false, normalizeSQLError(err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return "", 0, false, normalizeSQLError(err)
+	}
+
+	if rows == 0 {
+		return "", 0, false, nil
+	}
+
+	if err = tx.Commit(); err != nil {
+		return "", 0, false, err
+	}
+
+	return runID, runIndexOut, true, nil
+}
+
 func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex *int, definitionVersion int, targetCellID string, audit RunAuditMetadata) (int, error) {
 	var idx int
 	if runIndex != nil {

@@ -20,11 +20,11 @@ import (
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
-	"vectis/internal/database"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
 	"vectis/internal/queueclient"
 	sourcepkg "vectis/internal/source"
+	"vectis/internal/trigger"
 )
 
 type CronSchedule struct {
@@ -435,91 +435,21 @@ func (s *CronService) TriggerSchedule(ctx context.Context, sched CronSchedule) e
 }
 
 func (s *CronService) dispatchRun(ctx context.Context, job *api.Job, runID, definitionHash string) error {
-	job.RunId = &runID
 	s.mu.Lock()
 	qc := s.queueClient
 	ingress := s.ingress
 	s.mu.Unlock()
 
-	req := &api.JobRequest{Job: job}
-	if _, err := s.attachExecutionEnvelope(ctx, req, runID, s.clock.Now().UnixNano()); err != nil {
-		s.logger.Error("Failed to attach execution envelope for cron run %s: %v", runID, err)
-	}
-
-	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
-	if err != nil {
-		msg := err.Error()
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
-			s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
-		}
-
-		return err
-	}
-
-	req = dispatchReq
-
-	if ingress == nil {
-		endpoints, err := config.CellIngressEndpoints()
-		if err != nil {
-			msg := err.Error()
-			if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
-				s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
-			}
-
-			return err
-		}
-
-		if database.GlobalAndCellDatabasesAreSplit() {
-			qc = nil
-		}
-
-		ingress = cell.NewExecutionRouterWithOptions(config.CellID(), qc, endpoints, s.logger, cell.ExecutionRouterOptions{
-			TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
-		})
-	}
-
-	submission, err := cell.NewExecutionSubmission(req)
-	if err != nil {
-		msg := err.Error()
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
-			s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
-		}
-
-		return err
-	}
-
-	if err := ingress.SubmitExecution(ctx, submission); err != nil {
-		msg := err.Error()
-		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventFailure, &msg); dispatchErr != nil {
-			s.logger.Error("Failed to record cron dispatch failure for run %s: %v", runID, dispatchErr)
-		}
-
-		return err
-	}
-
-	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchEventSuccess, nil); err != nil {
-		s.logger.Error("TouchDispatched after enqueue for run %s: %v", runID, err)
-		msg := "touch dispatched: " + err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchEventFailure, &msg)
-		return nil
-	}
-
-	return nil
-}
-
-func (s *CronService) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
-	dispatch, err := s.runs.GetPendingExecution(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-
-	deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()))
-	if err != nil {
-		return nil, err
-	}
-
-	dispatch.StartDeadlineUnixNano = deadline
-	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionResolver)
+	return trigger.Dispatcher{
+		Runs:           s.runs,
+		Dispatch:       s.dispatch,
+		QueueClient:    qc,
+		Ingress:        ingress,
+		Logger:         s.logger,
+		Clock:          s.clock,
+		ActionResolver: s.actionResolver,
+		Source:         dal.DispatchSourceCron,
+	}.DispatchRun(ctx, job, runID, definitionHash)
 }
 
 func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string, schedule *CronSchedule) (string, error) {
@@ -582,10 +512,6 @@ func (s *CronService) recordTriggerInvocation(ctx context.Context, jobID string,
 	}
 
 	return rec.InvocationID, nil
-}
-
-func (s *CronService) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
-	return cell.RecordExecutionHandoffPayload(ctx, s.runs, runID, req, definitionHash)
 }
 
 func (s *CronService) ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {

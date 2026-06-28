@@ -143,6 +143,7 @@ func validTriggerInvocationType(triggerType string) bool {
 	case TriggerTypeManual,
 		TriggerTypeCron,
 		TriggerTypeReaction,
+		TriggerTypeSCMPoll,
 		TriggerTypeReplay,
 		TriggerTypeWebhook:
 		return true

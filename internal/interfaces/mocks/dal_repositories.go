@@ -243,6 +243,8 @@ type MockRunsRepository struct {
 	LastScheduleID         int64
 	LastScheduledFor       time.Time
 	LastSourceRecord       dal.JobDefinitionSourceRecord
+	LastSCMTriggerID       int64
+	LastSCMEventKey        string
 	LastListJobID          string
 	LastListAfterIndex     *int
 	LastListSince          *time.Time
@@ -833,6 +835,22 @@ func (m *MockRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Cont
 	return m.CreateRunID, m.CreateRunIndex, definitionVersion, m.CreateRunCreated, nil
 }
 
+func (m *MockRunsRepository) CreateSCMEventRun(ctx context.Context, triggerID int64, eventKey, jobID string, definitionVersion int, audit dal.RunAuditMetadata) (string, int, bool, error) {
+	if m.CreateRunErr != nil {
+		return "", 0, false, m.CreateRunErr
+	}
+
+	m.mu.Lock()
+	m.LastCreateJobID = jobID
+	m.LastDefinitionVersion = definitionVersion
+	m.LastRunAudit = audit
+	m.LastSCMTriggerID = triggerID
+	m.LastSCMEventKey = eventKey
+	m.mu.Unlock()
+
+	return m.CreateRunID, m.CreateRunIndex, m.CreateRunCreated, nil
+}
+
 func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
 	if m.ListByJobErr != nil {
 		return nil, 0, m.ListByJobErr
@@ -970,6 +988,12 @@ func (m *MockRunsRepository) SnapshotLastScheduled() (int64, time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.LastScheduleID, m.LastScheduledFor
+}
+
+func (m *MockRunsRepository) SnapshotLastSCMEvent() (int64, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastSCMTriggerID, m.LastSCMEventKey
 }
 
 func (m *MockRunsRepository) SnapshotLastListSince() *int {

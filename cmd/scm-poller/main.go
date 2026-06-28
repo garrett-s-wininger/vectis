@@ -6,10 +6,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/scmpoller"
 
 	_ "vectis/internal/dbdrivers"
@@ -22,10 +24,15 @@ func runSCMPoller(cmd *cobra.Command, args []string) {
 	cli.SetLogLevel(logger)
 	logger.Info("Starting SCM poller service...")
 
+	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
+		logger.Fatal("%v", err)
+	}
+
 	if err := config.ValidateCellIngressHTTPClientMTLSConfig(config.CellIngressEndpointSpecs()); err != nil {
 		logger.Fatal("Cell ingress HTTP mTLS config: %v", err)
 	}
 
+	config.StartGRPCTLSReloadLoop(cmd.Context())
 	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
@@ -33,8 +40,27 @@ func runSCMPoller(cmd *cobra.Command, args []string) {
 	defer db.Close()
 
 	service := scmpoller.NewService(logger, db)
+	defer service.CloseQueueDial()
+
 	service.SetInstanceID(viper.GetString("instance_id"))
 	service.SetClaimTTL(config.SCMPollerClaimTTL())
+	actionResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Fatal("Invalid action registry config: %v", err)
+	}
+
+	service.SetActionDescriptorResolver(actionResolver)
+
+	retryMetrics, err := observability.NewRetryMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize retry metrics: %v", err)
+	}
+
+	service.SetRetryMetrics(retryMetrics)
+
+	if err := service.ConnectToQueue(cmd.Context()); err != nil {
+		logger.Fatal("Failed to connect to queue: %v", err)
+	}
 
 	interval := config.SCMPollerInterval()
 	logger.Info("SCM poller instance ID: %s; polling every %v; claim ttl %v", service.InstanceID(), interval, config.SCMPollerClaimTTL())

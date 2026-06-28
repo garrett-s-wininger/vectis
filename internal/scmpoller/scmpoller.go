@@ -3,14 +3,24 @@ package scmpoller
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	api "vectis/api/gen/go"
+	"vectis/internal/action/actionregistry"
+	"vectis/internal/backoff"
+	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
+	jobdef "vectis/internal/job"
+	"vectis/internal/queueclient"
 	"vectis/internal/trigger"
 )
 
@@ -47,19 +57,35 @@ type Event struct {
 
 type Service struct {
 	polls     dal.SCMPollTriggersRepository
+	jobs      dal.JobsRepository
+	runs      dal.RunsRepository
+	dispatch  dal.DispatchEventsRepository
+	triggers  dal.TriggerInvocationsRepository
 	logger    interfaces.Logger
 	clock     interfaces.Clock
 	providers map[string]Provider
+
+	queueClient    interfaces.QueueService
+	queueClose     func()
+	ingress        cell.ExecutionIngress
+	retryMetrics   backoff.RetryMetrics
+	actionResolver actionregistry.Resolver
 
 	instanceID string
 	claimTTL   time.Duration
 	batchSize  int
 	claimSeq   atomic.Uint64
+	mu         sync.Mutex
 }
 
 func NewService(logger interfaces.Logger, db *sql.DB) *Service {
-	repos := dal.NewSQLRepositories(db)
-	return NewServiceWithRepository(logger, repos.SCMPollTriggers(), interfaces.SystemClock{})
+	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
+	s := NewServiceWithRepository(logger, repos.SCMPollTriggers(), interfaces.SystemClock{})
+	s.jobs = repos.Jobs()
+	s.runs = repos.Runs()
+	s.dispatch = repos.DispatchEvents()
+	s.triggers = repos.TriggerInvocations()
+	return s
 }
 
 func NewServiceWithRepository(logger interfaces.Logger, polls dal.SCMPollTriggersRepository, clock interfaces.Clock) *Service {
@@ -104,6 +130,79 @@ func (s *Service) SetBatchSize(size int) {
 	if size > 0 {
 		s.batchSize = size
 	}
+}
+
+func (s *Service) SetQueueClient(client interfaces.QueueService) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
+	}
+
+	s.queueClient = client
+}
+
+func (s *Service) SetExecutionIngress(ingress cell.ExecutionIngress) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ingress = ingress
+}
+
+func (s *Service) SetClock(clock interfaces.Clock) {
+	if clock != nil {
+		s.clock = clock
+	}
+}
+
+func (s *Service) SetRetryMetrics(m backoff.RetryMetrics) {
+	s.retryMetrics = m
+}
+
+func (s *Service) SetActionDescriptorResolver(resolver actionregistry.Resolver) {
+	s.actionResolver = resolver
+}
+
+func (s *Service) SetTriggerInvocations(triggers dal.TriggerInvocationsRepository) {
+	s.triggers = triggers
+}
+
+func (s *Service) CloseQueueDial() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
+	}
+}
+
+func (s *Service) ConnectToQueue(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queueClose != nil {
+		s.queueClose()
+		s.queueClose = nil
+	}
+	s.queueClient = nil
+
+	pin := config.SCMPollerQueueAddress()
+	mq, err := queueclient.NewManagingQueuePoolService(ctx, s.logger, queueclient.QueuePoolOptions{
+		PinnedAddress:   pin,
+		RegistryAddress: config.SCMPollerRegistryDialAddress(),
+		RetryMetrics:    s.retryMetrics,
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to connect to queue: %w", err)
+	}
+
+	s.queueClient = mq
+	s.queueClose = func() { _ = mq.Close() }
+	if pin == "" {
+		s.logger.Info("Connected to queue via registry resolution")
+	}
+
+	return nil
 }
 
 func (s *Service) RegisterProvider(name string, provider Provider) {
@@ -182,7 +281,7 @@ func (s *Service) processSpec(ctx context.Context, spec dal.SCMPollTriggerSpec, 
 	}
 
 	for _, event := range result.Events {
-		if err := s.recordEvent(ctx, spec.TriggerID, event); err != nil {
+		if err := s.handleEvent(ctx, spec, event); err != nil {
 			return err
 		}
 	}
@@ -205,26 +304,154 @@ func (s *Service) processSpec(ctx context.Context, spec dal.SCMPollTriggerSpec, 
 	return nil
 }
 
-func (s *Service) recordEvent(ctx context.Context, triggerID int64, event Event) error {
-	key := strings.TrimSpace(event.Key)
-	if key == "" {
-		return fmt.Errorf("scm provider returned event without key")
+func (s *Service) handleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event Event) error {
+	rec, _, err := s.recordEvent(ctx, spec.TriggerID, event)
+	if err != nil {
+		return err
 	}
 
-	_, created, err := s.polls.RecordEvent(ctx, dal.SCMTriggerEvent{
+	if s.jobs == nil || s.runs == nil {
+		return nil
+	}
+
+	if rec.RunID != nil && strings.TrimSpace(*rec.RunID) != "" {
+		s.logger.Debug("scm-poller: scm event %s already has run %s", rec.EventKey, *rec.RunID)
+		return nil
+	}
+
+	return s.dispatchEventRun(ctx, spec, event)
+}
+
+func (s *Service) recordEvent(ctx context.Context, triggerID int64, event Event) (dal.SCMTriggerEventRecord, bool, error) {
+	key := strings.TrimSpace(event.Key)
+	if key == "" {
+		return dal.SCMTriggerEventRecord{}, false, fmt.Errorf("scm provider returned event without key")
+	}
+
+	rec, created, err := s.polls.RecordEvent(ctx, dal.SCMTriggerEvent{
 		TriggerID:   triggerID,
 		EventKey:    key,
 		PayloadJSON: event.PayloadJSON,
 	})
+
 	if err != nil {
-		return fmt.Errorf("record scm trigger event %q: %w", key, err)
+		return dal.SCMTriggerEventRecord{}, false, fmt.Errorf("record scm trigger event %q: %w", key, err)
 	}
+
 	if created {
 		s.logger.Info("scm-poller: recorded new scm event %s", key)
 	} else {
 		s.logger.Debug("scm-poller: scm event %s was already recorded", key)
 	}
-	return nil
+
+	return rec, created, nil
+}
+
+func (s *Service) dispatchEventRun(ctx context.Context, spec dal.SCMPollTriggerSpec, event Event) error {
+	job, definitionVersion, definitionHash, err := s.getJobDefinitionWithVersion(ctx, spec.JobID)
+	if err != nil {
+		return err
+	}
+
+	job.Id = &spec.JobID
+	invocationID, err := s.recordTriggerInvocation(ctx, spec, event)
+	if err != nil {
+		return err
+	}
+
+	audit := dal.RunAuditMetadata{
+		TriggerInvocationID:   invocationID,
+		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()),
+	}
+
+	runID, _, created, err := s.runs.CreateSCMEventRun(ctx, spec.TriggerID, strings.TrimSpace(event.Key), spec.JobID, definitionVersion, audit)
+	if err != nil {
+		return fmt.Errorf("create scm event run: %w", err)
+	}
+
+	if !created {
+		s.logger.Info("scm-poller: reusing existing run %s for scm event %s", runID, strings.TrimSpace(event.Key))
+	}
+
+	return s.dispatcher().DispatchRun(ctx, job, runID, definitionHash)
+}
+
+func (s *Service) getJobDefinitionWithVersion(ctx context.Context, jobID string) (*api.Job, int, string, error) {
+	definitionJSON, version, err := s.jobs.GetLatestDefinition(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return nil, 0, "", fmt.Errorf("job not found: %s", jobID)
+		}
+
+		return nil, 0, "", fmt.Errorf("database error: %w", err)
+	}
+
+	var job api.Job
+	if err := jobdef.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
+		return nil, 0, "", fmt.Errorf("failed to parse job definition: %w", err)
+	}
+
+	return &job, version, dal.DefinitionHash(definitionJSON), nil
+}
+
+func (s *Service) recordTriggerInvocation(ctx context.Context, spec dal.SCMPollTriggerSpec, event Event) (string, error) {
+	if s.triggers == nil {
+		return "", nil
+	}
+
+	triggerID := spec.TriggerID
+	payload := map[string]string{
+		"job_id":     spec.JobID,
+		"trigger_id": strconv.FormatInt(spec.TriggerID, 10),
+		"provider":   spec.Provider,
+		"base_url":   spec.BaseURL,
+		"project":    spec.Project,
+		"branch":     spec.Branch,
+		"query":      spec.Query,
+		"event_key":  strings.TrimSpace(event.Key),
+		"triggered":  s.clock.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	if strings.TrimSpace(event.PayloadJSON) != "" {
+		payload["event_payload_hash"] = dal.PayloadHash(event.PayloadJSON)
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal scm trigger payload: %w", err)
+	}
+
+	rec, err := s.triggers.Record(ctx, dal.TriggerInvocation{
+		TriggerID:          &triggerID,
+		JobID:              spec.JobID,
+		TriggerType:        dal.TriggerTypeSCMPoll,
+		TriggerPayloadHash: dal.PayloadHash(string(payloadJSON)),
+		RequestedCells:     []string{config.CellID()},
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("record scm trigger invocation: %w", err)
+	}
+
+	return rec.InvocationID, nil
+}
+
+func (s *Service) dispatcher() trigger.Dispatcher {
+	s.mu.Lock()
+	qc := s.queueClient
+	ingress := s.ingress
+	s.mu.Unlock()
+
+	return trigger.Dispatcher{
+		Runs:           s.runs,
+		Dispatch:       s.dispatch,
+		QueueClient:    qc,
+		Ingress:        ingress,
+		Logger:         s.logger,
+		Clock:          s.clock,
+		ActionResolver: s.actionResolver,
+		Source:         dal.DispatchSourceSCMPoller,
+	}
 }
 
 func (s *Service) Run(ctx context.Context, interval time.Duration) error {

@@ -2647,6 +2647,10 @@ func CronRegistryDialAddress() string {
 	return registryDialAddress(CronRegistryAddress)
 }
 
+func SCMPollerRegistryDialAddress() string {
+	return registryDialAddress(SCMPollerRegistryAddress)
+}
+
 func APIRegistryDialAddress() string {
 	return registryDialAddress(APIRegistryAddress)
 }

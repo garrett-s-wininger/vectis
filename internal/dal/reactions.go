@@ -1347,6 +1347,7 @@ func validateReactionTriggerTypeFilter(triggerType string) error {
 	case TriggerTypeManual,
 		TriggerTypeCron,
 		TriggerTypeReaction,
+		TriggerTypeSCMPoll,
 		TriggerTypeReplay,
 		TriggerTypeWebhook:
 		return nil

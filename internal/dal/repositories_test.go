@@ -4539,6 +4539,96 @@ func TestRunsRepository_CreateScheduledSourceDefinitionRunIdempotentByScheduleTi
 	}
 }
 
+func TestRunsRepository_CreateSCMEventRunIdempotentByEventKey(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	jobs := repos.Jobs()
+	polls := repos.SCMPollTriggers()
+	runs := repos.Runs()
+	ctx := context.Background()
+
+	jobID := "scm-idempotent"
+	if err := jobs.CreateDefinitionSnapshot(ctx, jobID, `{"id":"scm-idempotent"}`); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	now := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
+	insertSCMPollTriggerSpec(t, ctx, db, jobID, "gerrit", "project", "master", now.Add(-time.Minute))
+	ready, err := polls.GetReady(ctx, now, 1)
+	if err != nil {
+		t.Fatalf("get ready scm trigger: %v", err)
+	}
+	if len(ready) != 1 {
+		t.Fatalf("expected one ready scm trigger, got %+v", ready)
+	}
+
+	eventKey := "gerrit:project:master:Iabc:rev1"
+	if _, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
+		TriggerID:   ready[0].TriggerID,
+		EventKey:    eventKey,
+		PayloadJSON: `{"change_id":"Iabc","revision":"rev1"}`,
+	}); err != nil || !created {
+		t.Fatalf("record scm event created=%v err=%v", created, err)
+	}
+
+	runID1, idx1, created, err := runs.CreateSCMEventRun(ctx, ready[0].TriggerID, eventKey, jobID, 1, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create scm event run: %v", err)
+	}
+	if !created {
+		t.Fatal("expected first scm event run call to create a run")
+	}
+	if idx1 != 1 {
+		t.Fatalf("expected first scm event run index 1, got %d", idx1)
+	}
+
+	rec, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
+		TriggerID:   ready[0].TriggerID,
+		EventKey:    eventKey,
+		PayloadJSON: `{"duplicate":true}`,
+	})
+	if err != nil {
+		t.Fatalf("record duplicate scm event: %v", err)
+	}
+	if created {
+		t.Fatal("expected duplicate scm event not to create another row")
+	}
+	if rec.RunID == nil || *rec.RunID != runID1 {
+		t.Fatalf("expected duplicate event to report run %s, got %+v", runID1, rec.RunID)
+	}
+
+	runID2, idx2, created, err := runs.CreateSCMEventRun(ctx, ready[0].TriggerID, eventKey, jobID, 1, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create duplicate scm event run: %v", err)
+	}
+	if created {
+		t.Fatal("expected duplicate scm event run call to reuse existing run")
+	}
+	if runID2 != runID1 || idx2 != idx1 {
+		t.Fatalf("expected duplicate to reuse run %s/%d, got %s/%d", runID1, idx1, runID2, idx2)
+	}
+
+	nextEventKey := "gerrit:project:master:Iabc:rev2"
+	if _, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
+		TriggerID:   ready[0].TriggerID,
+		EventKey:    nextEventKey,
+		PayloadJSON: `{"change_id":"Iabc","revision":"rev2"}`,
+	}); err != nil || !created {
+		t.Fatalf("record next scm event created=%v err=%v", created, err)
+	}
+
+	runID3, idx3, created, err := runs.CreateSCMEventRun(ctx, ready[0].TriggerID, nextEventKey, jobID, 1, dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("create next scm event run: %v", err)
+	}
+	if !created {
+		t.Fatal("expected next scm event to create a run")
+	}
+	if runID3 == runID1 || idx3 != 2 {
+		t.Fatalf("expected new run index 2 for next event, got run=%s index=%d", runID3, idx3)
+	}
+}
+
 func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
