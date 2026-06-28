@@ -59,6 +59,8 @@ Every job must have:
 | Node `with` | Must match the fields accepted by the selected action. |
 | Node `inputs` | Optional bound inputs from earlier node outputs. Input names must match fields accepted by the selected action. |
 | Node `isolation` | Optional. If present, must be `host` or `vm`. |
+| Trigger `id` | Required on every stored-job trigger and unique within the job. |
+| Trigger kind | Optional list entries must set exactly one of `manual`, `cron`, or `scm_poll`. |
 | Tree size | Up to `256` nodes. |
 | Tree depth | Up to `32` levels. |
 
@@ -193,6 +195,23 @@ Later nodes can bind accepted action inputs from earlier outputs without using a
 For now, a bound input must reference an earlier node ID in the same local execution scope. Bindings cannot cross distributed task boundaries until durable outputs exist. The worker resolves the value from outputs already produced in the current execution; if the output is unavailable, the node fails before the action starts.
 
 Do not set the same action field in both `with` and `inputs`. For example, `with.command` and `inputs.command` on the same node is invalid.
+
+## Stored-Job Triggers
+
+Stored jobs can declare top-level `triggers`. Each trigger needs a stable `id`
+that starts with a letter or underscore and contains only letters, numbers,
+underscores, dots, or dashes. `name` is optional display text. The trigger kind
+is one of:
+
+| Kind | Required fields |
+| --- | --- |
+| `manual` | none |
+| `cron` | `spec`, using a five-field cron expression such as `0 2 * * *` |
+| `scm_poll` | `provider`, plus `project` or `base_url`; `interval_seconds` must be non-negative |
+
+Do not embed credentials in SCM `base_url` or `project` values. One-off job runs
+cannot include `triggers`; triggers are persisted with stored jobs so trigger
+processes can claim, dedupe, and advance their own cursors.
 
 `with.execution` is scheduling metadata accepted on any node and is not passed to the action implementation. It controls whether the node runs inside the current task or is materialized as a task boundary:
 

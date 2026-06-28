@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/robfig/cron/v3"
+
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
@@ -21,7 +23,10 @@ const (
 	DefaultMaxDepth = 32
 )
 
-var secretIDRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+var (
+	secretIDRe  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+	triggerIDRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+)
 
 type Options struct {
 	RequireJobID bool
@@ -99,6 +104,7 @@ func ValidateJob(job *api.Job, opts Options) error {
 
 	v.walk(job.GetRoot(), "root", 1, dal.RootTaskKey)
 	v.validateSecrets(job.GetSecrets())
+	v.validateTriggers(job.GetTriggers())
 	return v.err()
 }
 
@@ -494,6 +500,90 @@ func (v *validator) validateSecrets(secrets []*api.SecretReference) {
 	}
 }
 
+func (v *validator) validateTriggers(triggers []*api.JobTrigger) {
+	seen := make(map[string]string, len(triggers))
+	for i, trigger := range triggers {
+		path := fmt.Sprintf("triggers[%d]", i)
+		if trigger == nil {
+			v.add(path, "is required")
+			continue
+		}
+
+		id := strings.TrimSpace(trigger.GetId())
+		if id == "" {
+			v.add(path+".id", "is required")
+		} else if !triggerIDRe.MatchString(id) {
+			v.add(path+".id", "must start with a letter or underscore and contain only letters, numbers, underscores, dots, or dashes")
+		} else if firstPath, ok := seen[id]; ok {
+			v.add(path+".id", fmt.Sprintf("duplicates trigger id %q first used at %s.id", id, firstPath))
+		} else {
+			seen[id] = path
+		}
+
+		switch spec := trigger.GetKind().(type) {
+		case *api.JobTrigger_Manual:
+			if spec.Manual == nil {
+				v.add(path+".manual", "is required")
+			}
+		case *api.JobTrigger_Cron:
+			v.validateCronTrigger(path+".cron", spec.Cron)
+		case *api.JobTrigger_ScmPoll:
+			v.validateSCMPollTrigger(path+".scm_poll", spec.ScmPoll)
+		case nil:
+			v.add(path, "must set a trigger kind")
+		default:
+			v.add(path, "unsupported trigger kind")
+		}
+	}
+}
+
+func (v *validator) validateCronTrigger(path string, spec *api.CronTrigger) {
+	if spec == nil {
+		v.add(path, "is required")
+		return
+	}
+
+	raw := strings.TrimSpace(spec.GetSpec())
+	if raw == "" {
+		v.add(path+".spec", "is required")
+		return
+	}
+
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	if _, err := parser.Parse(raw); err != nil {
+		v.add(path+".spec", fmt.Sprintf("is invalid: %v", err))
+	}
+}
+
+func (v *validator) validateSCMPollTrigger(path string, spec *api.SCMPollTrigger) {
+	if spec == nil {
+		v.add(path, "is required")
+		return
+	}
+
+	if strings.TrimSpace(spec.GetProvider()) == "" {
+		v.add(path+".provider", "is required")
+	}
+
+	baseURL := strings.TrimSpace(spec.GetBaseUrl())
+	project := strings.TrimSpace(spec.GetProject())
+	if baseURL == "" && project == "" {
+		v.add(path+".project", "is required when base_url is empty")
+	}
+
+	if err := validateNoEmbeddedCredentials(baseURL); err != nil {
+		v.add(path+".base_url", err.Error())
+	}
+
+	if err := validateNoEmbeddedCredentials(project); err != nil {
+		v.add(path+".project", err.Error())
+	}
+
+	if spec.GetIntervalSeconds() < 0 {
+		v.add(path+".interval_seconds", "must be greater than or equal to 0")
+	}
+}
+
 func validateSecretRef(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -506,6 +596,20 @@ func validateSecretRef(raw string) error {
 	}
 
 	if u.User != nil {
+		return fmt.Errorf("must not include embedded credentials")
+	}
+
+	return nil
+}
+
+func validateNoEmbeddedCredentials(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	u, err := url.Parse(raw)
+	if err == nil && u.User != nil {
 		return fmt.Errorf("must not include embedded credentials")
 	}
 

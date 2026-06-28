@@ -749,7 +749,98 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
+	var req struct {
+		Namespace string          `json:"namespace"`
+		Job       json.RawMessage `json:"job"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		req.Job = body
+	}
+	if req.Job == nil {
+		req.Job = body
+	}
+
+	var job api.Job
+	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
+		return
+	}
+
+	if job.Id == nil || *job.Id == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_job_id", "job id is required", nil)
+		return
+	}
+
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) {
+		return
+	}
+
+	namespacePath := "/"
+	if req.Namespace != "" {
+		namespacePath = req.Namespace
+	}
+
+	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "namespace_not_found", "namespace not found", nil)
+			return
+		}
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionJobWrite, ns.Path) {
+		return
+	}
+
+	triggers := jobTriggerConfigs(&job)
+	err = s.jobs.CreateWithTriggers(ctx, *job.Id, string(req.Job), ns.ID, triggers)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "job_already_exists", "job already exists", nil)
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventJobCreated, actorID, 0, map[string]any{
+		"job_id":    *job.Id,
+		"namespace": ns.Path,
+	})
+
+	s.logger.Info("Stored job: %s", *job.Id)
+	w.WriteHeader(http.StatusCreated)
 }
 
 func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -1189,7 +1280,160 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
+	var req struct {
+		Job json.RawMessage `json:"job"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		req.Job = body
+	}
+	if req.Job == nil {
+		req.Job = body
+	}
+
+	var job api.Job
+	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
+		return
+	}
+
+	if job.Id == nil || *job.Id != jobID {
+		writeAPIError(w, http.StatusBadRequest, "job_id_mismatch", "job id mismatch", nil)
+		return
+	}
+
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	namespaceID, err := s.jobs.GetNamespaceID(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	ns, err := s.namespaces.GetByID(ctx, namespaceID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	nsPath := ns.Path
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+		return
+	}
+
+	triggers := jobTriggerConfigs(&job)
+	newVersion, err := s.jobs.UpdateDefinitionWithTriggers(ctx, jobID, string(body), triggers)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	w.Header().Set("X-Vectis-Version", strconv.Itoa(newVersion))
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventJobUpdated, actorID, 0, map[string]any{
+		"job_id":    jobID,
+		"namespace": nsPath,
+	})
+
+	s.logger.Info("Updated job definition: %s", jobID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func jobTriggerConfigs(job *api.Job) []dal.JobTriggerConfig {
+	if job == nil || len(job.GetTriggers()) == 0 {
+		return nil
+	}
+
+	triggers := make([]dal.JobTriggerConfig, 0, len(job.GetTriggers()))
+	for _, trigger := range job.GetTriggers() {
+		config := dal.JobTriggerConfig{
+			ID:   trigger.GetId(),
+			Name: trigger.GetName(),
+		}
+
+		switch spec := trigger.GetKind().(type) {
+		case *api.JobTrigger_Manual:
+			if spec.Manual == nil {
+				continue
+			}
+
+			config.Manual = &dal.JobManualTriggerConfig{}
+		case *api.JobTrigger_Cron:
+			if spec.Cron == nil {
+				continue
+			}
+
+			config.Cron = &dal.JobCronTriggerConfig{Spec: spec.Cron.GetSpec()}
+		case *api.JobTrigger_ScmPoll:
+			scmPoll := spec.ScmPoll
+			if scmPoll == nil {
+				continue
+			}
+
+			interval := time.Duration(scmPoll.GetIntervalSeconds()) * time.Second
+			config.SCMPoll = &dal.JobSCMPollTriggerConfig{
+				Provider: scmPoll.GetProvider(),
+				BaseURL:  scmPoll.GetBaseUrl(),
+				Project:  scmPoll.GetProject(),
+				Branch:   scmPoll.GetBranch(),
+				Query:    scmPoll.GetQuery(),
+				Interval: interval,
+			}
+		default:
+			continue
+		}
+
+		triggers = append(triggers, config)
+	}
+
+	return triggers
 }
 
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
@@ -1224,6 +1468,11 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		return
+	}
+
+	if len(job.GetTriggers()) > 0 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "stored-job triggers are not supported for one-off runs", nil)
 		return
 	}
 
@@ -1674,6 +1923,8 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 		ReplayOfRunID         *string  `json:"replay_of_run_id,omitempty"`
 		TriggerInvocationID   *string  `json:"trigger_invocation_id,omitempty"`
 		TriggerID             *int64   `json:"trigger_id,omitempty"`
+		TriggerKey            *string  `json:"trigger_key,omitempty"`
+		TriggerName           *string  `json:"trigger_name,omitempty"`
 		TriggerType           *string  `json:"trigger_type,omitempty"`
 		TriggerSourceInstance *string  `json:"trigger_source_instance,omitempty"`
 		TriggerPayloadHash    *string  `json:"trigger_payload_hash,omitempty"`
@@ -1841,6 +2092,8 @@ func (s *APIServer) writeJobRunsResponse(w http.ResponseWriter, ctx context.Cont
 		ReplayOfRunID         *string                   `json:"replay_of_run_id,omitempty"`
 		TriggerInvocationID   *string                   `json:"trigger_invocation_id,omitempty"`
 		TriggerID             *int64                    `json:"trigger_id,omitempty"`
+		TriggerKey            *string                   `json:"trigger_key,omitempty"`
+		TriggerName           *string                   `json:"trigger_name,omitempty"`
 		TriggerType           *string                   `json:"trigger_type,omitempty"`
 		TriggerSourceInstance *string                   `json:"trigger_source_instance,omitempty"`
 		TriggerPayloadHash    *string                   `json:"trigger_payload_hash,omitempty"`
@@ -1872,6 +2125,8 @@ func (s *APIServer) writeJobRunsResponse(w http.ResponseWriter, ctx context.Cont
 			ReplayOfRunID:         rec.ReplayOfRunID,
 			TriggerInvocationID:   rec.TriggerInvocationID,
 			TriggerID:             rec.TriggerID,
+			TriggerKey:            rec.TriggerKey,
+			TriggerName:           rec.TriggerName,
 			TriggerType:           rec.TriggerType,
 			TriggerSourceInstance: rec.TriggerSourceInstance,
 			TriggerPayloadHash:    rec.TriggerPayloadHash,
@@ -2096,6 +2351,8 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		ReplayOfRunID             *string                    `json:"replay_of_run_id,omitempty"`
 		TriggerInvocationID       *string                    `json:"trigger_invocation_id,omitempty"`
 		TriggerID                 *int64                     `json:"trigger_id,omitempty"`
+		TriggerKey                *string                    `json:"trigger_key,omitempty"`
+		TriggerName               *string                    `json:"trigger_name,omitempty"`
 		TriggerType               *string                    `json:"trigger_type,omitempty"`
 		TriggerSourceInstance     *string                    `json:"trigger_source_instance,omitempty"`
 		TriggerPayloadHash        *string                    `json:"trigger_payload_hash,omitempty"`
@@ -2146,6 +2403,8 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		ReplayOfRunID:         rec.ReplayOfRunID,
 		TriggerInvocationID:   rec.TriggerInvocationID,
 		TriggerID:             rec.TriggerID,
+		TriggerKey:            rec.TriggerKey,
+		TriggerName:           rec.TriggerName,
 		TriggerType:           rec.TriggerType,
 		TriggerSourceInstance: rec.TriggerSourceInstance,
 		TriggerPayloadHash:    rec.TriggerPayloadHash,

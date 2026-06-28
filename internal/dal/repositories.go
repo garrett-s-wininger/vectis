@@ -226,6 +226,29 @@ type JobDefinitionSourceRecord struct {
 	BlobSHA        string
 }
 
+type JobTriggerConfig struct {
+	ID      string
+	Name    string
+	Manual  *JobManualTriggerConfig
+	Cron    *JobCronTriggerConfig
+	SCMPoll *JobSCMPollTriggerConfig
+}
+
+type JobManualTriggerConfig struct{}
+
+type JobCronTriggerConfig struct {
+	Spec string
+}
+
+type JobSCMPollTriggerConfig struct {
+	Provider string
+	BaseURL  string
+	Project  string
+	Branch   string
+	Query    string
+	Interval time.Duration
+}
+
 type RunRecord struct {
 	RunID                 string
 	JobID                 string
@@ -243,6 +266,8 @@ type RunRecord struct {
 	ReplayOfRunID         *string
 	TriggerInvocationID   *string
 	TriggerID             *int64
+	TriggerKey            *string
+	TriggerName           *string
 	TriggerType           *string
 	TriggerSourceInstance *string
 	TriggerPayloadHash    *string
@@ -1102,9 +1127,17 @@ type ServiceLeasesRepository interface {
 }
 
 type JobsRepository interface {
+	Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error
+	CreateWithTriggers(ctx context.Context, jobID, definitionJSON string, namespaceID int64, triggers []JobTriggerConfig) error
 	CreateDefinitionSnapshot(ctx context.Context, jobID, definitionJSON string) error
+	Delete(ctx context.Context, jobID string) error
+	List(ctx context.Context, cursor int64, limit int) ([]JobRecord, int64, error)
+	ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error)
 	GetLatestDefinition(ctx context.Context, jobID string) (definitionJSON string, version int, err error)
 	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
+	GetNamespaceID(ctx context.Context, jobID string) (int64, error)
+	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
+	UpdateDefinitionWithTriggers(ctx context.Context, jobID, definitionJSON string, triggers []JobTriggerConfig) (newVersion int, err error)
 }
 
 type SourcesRepository interface {
@@ -1162,7 +1195,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 	return &SQLRepositories{
 		db:            db,
 		cellID:        cellID,
-		jobs:          &SQLJobsRepository{db: db},
+		jobs:          &SQLJobsRepository{db: db, cellID: cellID},
 		runs:          &SQLRunsRepository{db: db, cellID: cellID},
 		schedules:     &SQLSchedulesRepository{db: db},
 		scmPolls:      &SQLSCMPollTriggersRepository{db: db},

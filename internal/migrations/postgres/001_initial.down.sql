@@ -46,6 +46,7 @@ DROP INDEX IF EXISTS idx_cron_claimed_until;
 DROP INDEX IF EXISTS idx_cron_next_run;
 DROP INDEX IF EXISTS idx_job_triggers_source_job;
 DROP INDEX IF EXISTS idx_job_triggers_job_type;
+DROP INDEX IF EXISTS idx_job_triggers_job_key;
 DROP INDEX IF EXISTS idx_task_attempts_cell_status;
 DROP INDEX IF EXISTS idx_task_attempts_run_id;
 DROP INDEX IF EXISTS idx_task_attempts_task_id;

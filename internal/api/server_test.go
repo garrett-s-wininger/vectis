@@ -281,7 +281,9 @@ func TestAPIServer_CreateJob_RequiresRepositoryID(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
 
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ?", "test-job-1").Scan(&count)
@@ -289,8 +291,280 @@ func TestAPIServer_CreateJob_RequiresRepositoryID(t *testing.T) {
 		t.Fatalf("failed to query db: %v", err)
 	}
 
-	if count != 0 {
-		t.Errorf("expected no definition snapshot in db, got %d", count)
+	if count != 1 {
+		t.Errorf("expected one definition snapshot in db, got %d", count)
+	}
+}
+
+func TestAPIServer_CreateAndUpdateJob_SCMPollTriggers(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	createDef := map[string]any{
+		"id": "job-scm-api",
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/script",
+			"with": map[string]string{"script": "echo scm"},
+		},
+		"triggers": []map[string]any{
+			{
+				"id":     "manual",
+				"name":   "Manual trigger",
+				"manual": map[string]any{},
+			},
+			{
+				"id":   "nightly",
+				"name": "Nightly",
+				"cron": map[string]any{
+					"spec": "0 2 * * *",
+				},
+			},
+			{
+				"id": "main",
+				"scm_poll": map[string]any{
+					"provider":         "git",
+					"base_url":         "https://git.example.com",
+					"project":          "team/repo.git",
+					"branch":           "main",
+					"interval_seconds": int64(45),
+				},
+			},
+		},
+	}
+
+	body, _ := json.Marshal(createDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.CreateJob(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create job: expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	assertAPISCMPollSpecs(t, db, "job-scm-api", []apiSCMPollSpec{{
+		Provider:        "git",
+		BaseURL:         "https://git.example.com",
+		Project:         "team/repo.git",
+		Branch:          "main",
+		IntervalSeconds: 45,
+	}})
+
+	assertAPIJobTriggers(t, db, "job-scm-api", []apiJobTrigger{
+		{Type: dal.TriggerTypeManual, Key: "manual", Name: "Manual trigger"},
+		{Type: dal.TriggerTypeCron, Key: "nightly", Name: "Nightly"},
+		{Type: dal.TriggerTypeSCMPoll, Key: "main"},
+	})
+
+	assertAPICronSpecs(t, db, "job-scm-api", []string{"0 2 * * *"})
+
+	updateDef := map[string]any{
+		"id": "job-scm-api",
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/script",
+			"with": map[string]string{"script": "echo updated"},
+		},
+		"triggers": []map[string]any{
+			{
+				"id": "release_tags",
+				"scm_poll": map[string]any{
+					"provider":         "git",
+					"project":          "file:///tmp/repo.git",
+					"query":            "refs/tags/v*",
+					"interval_seconds": int64(30),
+				},
+			},
+		},
+	}
+
+	body, _ = json.Marshal(updateDef)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-scm-api", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "job-scm-api")
+	rec = httptest.NewRecorder()
+
+	server.UpdateJobDefinition(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("update job: expected status %d, got %d: %s", http.StatusNoContent, rec.Code, rec.Body.String())
+	}
+
+	assertAPISCMPollSpecs(t, db, "job-scm-api", []apiSCMPollSpec{{
+		Provider:        "git",
+		Project:         "file:///tmp/repo.git",
+		Query:           "refs/tags/v*",
+		IntervalSeconds: 30,
+	}})
+
+	assertAPIJobTriggers(t, db, "job-scm-api", []apiJobTrigger{
+		{Type: dal.TriggerTypeSCMPoll, Key: "release_tags"},
+	})
+
+	assertAPICronSpecs(t, db, "job-scm-api", nil)
+
+	deleteTriggersDef := map[string]any{
+		"id": "job-scm-api",
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/script",
+			"with": map[string]string{"script": "echo no triggers"},
+		},
+	}
+
+	body, _ = json.Marshal(deleteTriggersDef)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-scm-api", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "job-scm-api")
+	rec = httptest.NewRecorder()
+
+	server.UpdateJobDefinition(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("clear triggers: expected status %d, got %d: %s", http.StatusNoContent, rec.Code, rec.Body.String())
+	}
+
+	assertAPISCMPollSpecs(t, db, "job-scm-api", nil)
+	assertAPIJobTriggers(t, db, "job-scm-api", nil)
+	assertAPICronSpecs(t, db, "job-scm-api", nil)
+}
+
+type apiJobTrigger struct {
+	Type string
+	Key  string
+	Name string
+}
+
+func assertAPIJobTriggers(t *testing.T, db *sql.DB, jobID string, want []apiJobTrigger) {
+	t.Helper()
+
+	rows, err := db.Query(`
+		SELECT trigger_type, trigger_key, display_name
+		FROM job_triggers
+		WHERE job_id = ? AND enabled
+		ORDER BY id
+	`, jobID)
+
+	if err != nil {
+		t.Fatalf("query job triggers: %v", err)
+	}
+	defer rows.Close()
+
+	var got []apiJobTrigger
+	for rows.Next() {
+		var trigger apiJobTrigger
+		if err := rows.Scan(&trigger.Type, &trigger.Key, &trigger.Name); err != nil {
+			t.Fatalf("scan job trigger: %v", err)
+		}
+
+		got = append(got, trigger)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate job triggers: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("job triggers = %+v, want %+v", got, want)
+	}
+
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("job trigger %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func assertAPICronSpecs(t *testing.T, db *sql.DB, jobID string, want []string) {
+	t.Helper()
+
+	rows, err := db.Query(`
+		SELECT c.cron_spec, c.next_run_at
+		FROM cron_trigger_specs c
+		JOIN job_triggers jt ON jt.id = c.trigger_id
+		WHERE jt.job_id = ?
+		ORDER BY c.id
+	`, jobID)
+
+	if err != nil {
+		t.Fatalf("query cron specs: %v", err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var spec, nextRunAt string
+		if err := rows.Scan(&spec, &nextRunAt); err != nil {
+			t.Fatalf("scan cron spec: %v", err)
+		}
+
+		if strings.TrimSpace(nextRunAt) == "" {
+			t.Fatalf("cron spec %q had empty next_run_at", spec)
+		}
+
+		got = append(got, spec)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate cron specs: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("cron specs = %+v, want %+v", got, want)
+	}
+
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("cron spec %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+type apiSCMPollSpec struct {
+	Provider        string
+	BaseURL         string
+	Project         string
+	Branch          string
+	Query           string
+	IntervalSeconds int64
+}
+
+func assertAPISCMPollSpecs(t *testing.T, db *sql.DB, jobID string, want []apiSCMPollSpec) {
+	t.Helper()
+
+	rows, err := db.Query(`
+		SELECT s.provider, s.base_url, s.project, s.branch, s.query, s.interval_seconds
+		FROM scm_poll_trigger_specs s
+		JOIN job_triggers jt ON jt.id = s.trigger_id
+		WHERE jt.job_id = ?
+		ORDER BY s.id
+	`, jobID)
+
+	if err != nil {
+		t.Fatalf("query scm poll specs: %v", err)
+	}
+	defer rows.Close()
+
+	var got []apiSCMPollSpec
+	for rows.Next() {
+		var spec apiSCMPollSpec
+		if err := rows.Scan(&spec.Provider, &spec.BaseURL, &spec.Project, &spec.Branch, &spec.Query, &spec.IntervalSeconds); err != nil {
+			t.Fatalf("scan scm poll spec: %v", err)
+		}
+
+		got = append(got, spec)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate scm poll specs: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("scm poll specs = %+v, want %+v", got, want)
+	}
+
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("scm poll spec %d = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
 
@@ -328,7 +602,7 @@ func TestAPIServer_CreateJob_RequiresRepositoryIDBeforeStorage(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "database_unavailable")
 }
 
 func TestAPIServer_GetJobs_DBUnavailable(t *testing.T) {
@@ -1044,7 +1318,7 @@ func TestAPIServer_CreateJob_InvalidJSON(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM job_definitions").Scan(&count)
@@ -1073,7 +1347,9 @@ func TestAPIServer_CreateJob_DuplicateJobIDRequiresRepositoryID(t *testing.T) {
 	rec1 := httptest.NewRecorder()
 	server.CreateJob(rec1, req1)
 
-	assertAPIError(t, rec1, http.StatusBadRequest, "missing_repository_id")
+	if rec1.Code != http.StatusCreated {
+		t.Fatalf("create job: expected status %d, got %d: %s", http.StatusCreated, rec1.Code, rec1.Body.String())
+	}
 }
 
 func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
@@ -1093,7 +1369,7 @@ func TestAPIServer_CreateJob_ValidationError(t *testing.T) {
 
 	server.CreateJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
 
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ?", "bad-job").Scan(&count); err != nil {
@@ -2069,20 +2345,27 @@ func TestAPIServer_UpdateJobDefinition_RequiresRepositoryID(t *testing.T) {
 
 	server.UpdateJobDefinition(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusNoContent, rec.Code, rec.Body.String())
+	}
 
 	repos := dal.NewSQLRepositories(db)
-	updatedDef, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-to-update", 1)
+	updatedDef, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-to-update", 2)
+	if err != nil {
+		t.Fatalf("get updated definition: %v", err)
+	}
+
+	updatedBytes, _ := json.Marshal(newDef)
+	if updatedDef != string(updatedBytes) {
+		t.Errorf("expected updated definition snapshot, got: %s", updatedDef)
+	}
+
+	originalDef, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-to-update", 1)
 	if err != nil {
 		t.Fatalf("get original definition: %v", err)
 	}
-
-	if updatedDef != initialDef {
-		t.Errorf("expected original definition snapshot to remain unchanged, got: %s", updatedDef)
-	}
-
-	if _, err := repos.Jobs().GetDefinitionVersion(context.Background(), "job-to-update", 2); !dal.IsNotFound(err) {
-		t.Fatalf("expected no second definition snapshot, got err=%v", err)
+	if originalDef != initialDef {
+		t.Errorf("expected original definition snapshot to remain unchanged, got: %s", originalDef)
 	}
 }
 
@@ -3182,6 +3465,37 @@ func TestAPIServer_RunJob_MissingRoot(t *testing.T) {
 
 	if len(queueService.GetJobs()) != 0 {
 		t.Error("expected no job enqueued when root is missing")
+	}
+}
+
+func TestAPIServer_RunJob_RejectsSCMPollTriggers(t *testing.T) {
+	server, _, queueService, _ := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/script",
+			"with": map[string]string{"script": "echo"},
+		},
+		"triggers": []map[string]any{{
+			"id": "main",
+			"scm_poll": map[string]any{
+				"provider": "git",
+				"project":  "file:///tmp/repo.git",
+			},
+		}},
+	}
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
+
+	if len(queueService.GetJobs()) != 0 {
+		t.Error("expected no job enqueued when one-off run includes stored-job triggers")
 	}
 }
 

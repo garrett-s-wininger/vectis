@@ -29,6 +29,8 @@ CREATE TABLE job_triggers (
     id BIGSERIAL PRIMARY KEY,
     job_id TEXT NOT NULL,
     trigger_type TEXT NOT NULL,
+    trigger_key TEXT NOT NULL DEFAULT '',
+    display_name TEXT NOT NULL DEFAULT '',
     source_repository_id TEXT NOT NULL DEFAULT '',
     source_ref TEXT NOT NULL DEFAULT '',
     source_path TEXT NOT NULL DEFAULT '',
@@ -44,6 +46,7 @@ CREATE TABLE job_triggers (
 
 CREATE INDEX idx_job_triggers_job_type ON job_triggers(job_id, trigger_type);
 CREATE INDEX idx_job_triggers_source_job ON job_triggers(source_repository_id, job_id);
+CREATE INDEX idx_job_triggers_job_key ON job_triggers(job_id, trigger_key);
 
 CREATE TABLE cron_trigger_specs (
     id BIGSERIAL PRIMARY KEY,

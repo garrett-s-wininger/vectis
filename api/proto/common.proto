@@ -15,11 +15,37 @@ message Job {
     string delivery_id = 4;
     string default_isolation = 5;
     repeated SecretReference secrets = 6;
+    repeated JobTrigger triggers = 7;
 }
 
 message JobRequest {
     Job job = 1;
     map<string, string> metadata = 2;
+}
+
+message JobTrigger {
+    string id = 1;
+    string name = 2;
+    oneof kind {
+        ManualTrigger manual = 3;
+        CronTrigger cron = 4;
+        SCMPollTrigger scm_poll = 5;
+    }
+}
+
+message ManualTrigger {}
+
+message CronTrigger {
+    string spec = 1;
+}
+
+message SCMPollTrigger {
+    string provider = 1;
+    string base_url = 2;
+    string project = 3;
+    string branch = 4;
+    string query = 5;
+    int64 interval_seconds = 6;
 }
 
 message Node {

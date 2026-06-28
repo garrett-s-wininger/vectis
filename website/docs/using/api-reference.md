@@ -88,6 +88,44 @@ curl -sS \
   'http://localhost:8080/api/v1/jobs/build?repository_id=vectis-local&branch=main&message=Delete%20build%20job'
 ```
 
+Stored job definitions may include trigger definitions. Each trigger has a stable
+`id` and optional `name`; the trigger kind is one of `manual`, `cron`, or
+`scm_poll`:
+
+```json
+{
+  "id": "sequenced-job",
+  "root": {"id": "root", "uses": "builtins/script", "with": {"script": "mage test"}},
+  "triggers": [
+    {"id": "manual", "name": "Manual trigger", "manual": {}},
+    {"id": "nightly", "name": "Nightly", "cron": {"spec": "0 2 * * *"}},
+    {
+      "id": "main",
+      "name": "Main branch",
+      "scm_poll": {
+        "provider": "git",
+        "base_url": "https://git.example.com",
+        "project": "team/repo.git",
+        "branch": "main",
+        "interval_seconds": 60
+      }
+    }
+  ]
+}
+```
+
+Updating a stored job replaces the job's persisted trigger specs with the
+`triggers` block in the new definition. Omitting `triggers` clears persisted
+triggers for that job. Cron and SCM trigger processes claim their persisted
+specs and record the internal trigger row plus `trigger_key` / `trigger_name`
+on resulting run responses when present. One-off `POST /api/v1/jobs/run`
+definitions reject `triggers` because there is no stored job for trigger
+processes to update.
+
+Both `POST /api/v1/jobs/run` and `POST /api/v1/jobs/trigger/{id}` accept an optional `cell_id` field to select the target execution cell. `target_cell_id` is accepted as an alias. If omitted, Vectis uses the API process's configured cell.
+
+Stored-job triggers can fan out to multiple cells in one request by sending `cell_ids` or `target_cell_ids`:
+
 Then trigger the job by job ID:
 
 ```sh

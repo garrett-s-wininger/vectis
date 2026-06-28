@@ -18,6 +18,8 @@ import (
 
 func strp(s string) *string { return &s }
 
+func int64p(n int64) *int64 { return &n }
+
 func secretDeliveryTypep(t api.SecretDeliveryType) *api.SecretDeliveryType { return &t }
 
 func validJob() *api.Job {
@@ -115,6 +117,143 @@ func TestValidateJob_ValidSecretReference(t *testing.T) {
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected valid job with secret reference: %v", err)
+	}
+}
+
+func TestValidateJob_ValidSCMPollTrigger(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Triggers = []*api.JobTrigger{{
+		Id: strp("main"),
+		Kind: &api.JobTrigger_ScmPoll{
+			ScmPoll: &api.SCMPollTrigger{
+				Provider:        strp("git"),
+				BaseUrl:         strp("https://git.example.com"),
+				Project:         strp("team/repo.git"),
+				Branch:          strp("main"),
+				IntervalSeconds: int64p(60),
+			},
+		},
+	}}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid job with scm poll trigger: %v", err)
+	}
+}
+
+func TestValidateJob_ValidManualAndCronTriggers(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Triggers = []*api.JobTrigger{
+		{
+			Id:   strp("manual"),
+			Name: strp("Manual trigger"),
+			Kind: &api.JobTrigger_Manual{
+				Manual: &api.ManualTrigger{},
+			},
+		},
+		{
+			Id: strp("nightly"),
+			Kind: &api.JobTrigger_Cron{
+				Cron: &api.CronTrigger{Spec: strp("0 2 * * *")},
+			},
+		},
+	}
+
+	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
+		t.Fatalf("expected valid job with manual and cron triggers: %v", err)
+	}
+}
+
+func TestValidateJob_SCMPollTriggerValidation(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Triggers = []*api.JobTrigger{
+		nil,
+		{},
+		{
+			Id: strp("bad_scm"),
+			Kind: &api.JobTrigger_ScmPoll{
+				ScmPoll: &api.SCMPollTrigger{
+					BaseUrl:         strp("https://user:pass@git.example.com"),
+					IntervalSeconds: int64p(-1),
+				},
+			},
+		},
+		{
+			Id: strp("missing_project"),
+			Kind: &api.JobTrigger_ScmPoll{
+				ScmPoll: &api.SCMPollTrigger{
+					Provider: strp("git"),
+				},
+			},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{
+		`triggers[0]: is required`,
+		`triggers[1].id: is required`,
+		`triggers[1]: must set a trigger kind`,
+		`triggers[2].scm_poll.provider: is required`,
+		`triggers[2].scm_poll.base_url: must not include embedded credentials`,
+		`triggers[2].scm_poll.interval_seconds: must be greater than or equal to 0`,
+		`triggers[3].scm_poll.project: is required when base_url is empty`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected %q in %q", want, msg)
+		}
+	}
+}
+
+func TestValidateJob_TriggerIDAndCronValidation(t *testing.T) {
+	t.Parallel()
+
+	job := validJob()
+	job.Triggers = []*api.JobTrigger{
+		{
+			Id: strp("bad id"),
+			Kind: &api.JobTrigger_Manual{
+				Manual: &api.ManualTrigger{},
+			},
+		},
+		{
+			Id: strp("dup"),
+			Kind: &api.JobTrigger_Cron{
+				Cron: &api.CronTrigger{Spec: strp("not cron")},
+			},
+		},
+		{
+			Id: strp("dup"),
+			Kind: &api.JobTrigger_Cron{
+				Cron: &api.CronTrigger{},
+			},
+		},
+	}
+
+	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{
+		`triggers[0].id: must start with a letter or underscore`,
+		`triggers[1].cron.spec: is invalid`,
+		`triggers[2].id: duplicates trigger id "dup" first used at triggers[1].id`,
+		`triggers[2].cron.spec: is required`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected %q in %q", want, msg)
+		}
 	}
 }
 

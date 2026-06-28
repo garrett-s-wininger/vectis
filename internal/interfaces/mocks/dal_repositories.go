@@ -27,28 +27,51 @@ func (StubEphemeralRunStarter) CreateDefinitionAndRunInCellWithAudit(context.Con
 type MockJobsRepository struct {
 	Definitions        map[string]string
 	DefinitionVersions map[string]int
+	Namespaces         map[string]int64
+	Triggers           map[string][]dal.JobTriggerConfig
 
 	// Versions is jobID -> version -> definition JSON (ephemeral / versioned definitions).
 	Versions map[string]map[int]string
 
 	CreateErr error
+	DeleteErr error
 	GetErr    error
+	ListErr   error
+	UpdateErr error
 }
 
 func NewMockJobsRepository() *MockJobsRepository {
 	return &MockJobsRepository{
 		Definitions:        map[string]string{},
 		DefinitionVersions: map[string]int{},
+		Namespaces:         map[string]int64{},
+		Triggers:           map[string][]dal.JobTriggerConfig{},
 		Versions:           map[string]map[int]string{},
 	}
 }
 
 func (m *MockJobsRepository) CreateDefinitionSnapshot(ctx context.Context, jobID, definitionJSON string) error {
+	return m.createDefinition(jobID, definitionJSON, dal.RootNamespaceID, nil, false)
+}
+
+func (m *MockJobsRepository) Create(ctx context.Context, jobID, definitionJSON string, namespaceID int64) error {
+	return m.CreateWithTriggers(ctx, jobID, definitionJSON, namespaceID, nil)
+}
+
+func (m *MockJobsRepository) CreateWithTriggers(ctx context.Context, jobID, definitionJSON string, namespaceID int64, triggers []dal.JobTriggerConfig) error {
+	return m.createDefinition(jobID, definitionJSON, namespaceID, triggers, true)
+}
+
+func (m *MockJobsRepository) createDefinition(jobID, definitionJSON string, namespaceID int64, triggers []dal.JobTriggerConfig, replaceTriggers bool) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
 
 	m.Definitions[jobID] = definitionJSON
+	m.Namespaces[jobID] = namespaceID
+	if replaceTriggers {
+		m.Triggers[jobID] = append([]dal.JobTriggerConfig(nil), triggers...)
+	}
 	version := 1
 	if m.Versions[jobID] == nil {
 		m.Versions[jobID] = map[int]string{}
@@ -63,6 +86,55 @@ func (m *MockJobsRepository) CreateDefinitionSnapshot(ctx context.Context, jobID
 	m.DefinitionVersions[jobID] = version
 	m.Versions[jobID][version] = definitionJSON
 	return nil
+}
+
+func (m *MockJobsRepository) Delete(ctx context.Context, jobID string) error {
+	if m.DeleteErr != nil {
+		return m.DeleteErr
+	}
+
+	delete(m.Definitions, jobID)
+	delete(m.DefinitionVersions, jobID)
+	delete(m.Namespaces, jobID)
+	delete(m.Triggers, jobID)
+	delete(m.Versions, jobID)
+	return nil
+}
+
+func (m *MockJobsRepository) List(ctx context.Context, cursor int64, limit int) ([]dal.JobRecord, int64, error) {
+	if m.ListErr != nil {
+		return nil, 0, m.ListErr
+	}
+
+	out := make([]dal.JobRecord, 0, len(m.Definitions))
+	for id, def := range m.Definitions {
+		out = append(out, dal.JobRecord{
+			JobID:          id,
+			NamespaceID:    m.Namespaces[id],
+			DefinitionJSON: def,
+			Version:        m.DefinitionVersions[id],
+		})
+	}
+
+	return out, 0, nil
+}
+
+func (m *MockJobsRepository) GetLatestDefinition(ctx context.Context, jobID string) (string, int, error) {
+	if m.GetErr != nil {
+		return "", 0, m.GetErr
+	}
+
+	def, ok := m.Definitions[jobID]
+	if !ok {
+		return "", 0, fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
+	}
+
+	version := m.DefinitionVersions[jobID]
+	if version <= 0 {
+		version = 1
+	}
+
+	return def, version, nil
 }
 
 func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
@@ -104,35 +176,66 @@ func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID str
 	return def, nil
 }
 
-func (m *MockJobsRepository) GetLatestDefinition(ctx context.Context, jobID string) (string, int, error) {
+func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (int, error) {
+	return m.updateDefinition(jobID, definitionJSON, nil, false)
+}
+
+func (m *MockJobsRepository) UpdateDefinitionWithTriggers(ctx context.Context, jobID, definitionJSON string, triggers []dal.JobTriggerConfig) (int, error) {
+	return m.updateDefinition(jobID, definitionJSON, triggers, true)
+}
+
+func (m *MockJobsRepository) updateDefinition(jobID, definitionJSON string, triggers []dal.JobTriggerConfig, replaceTriggers bool) (int, error) {
+	if m.UpdateErr != nil {
+		return 0, m.UpdateErr
+	}
+
+	m.Definitions[jobID] = definitionJSON
+	if replaceTriggers {
+		m.Triggers[jobID] = append([]dal.JobTriggerConfig(nil), triggers...)
+	}
+
+	newVersion := m.DefinitionVersions[jobID] + 1
+	if newVersion <= 1 {
+		newVersion = 2
+	}
+
+	m.DefinitionVersions[jobID] = newVersion
+	if m.Versions[jobID] == nil {
+		m.Versions[jobID] = map[int]string{}
+	}
+
+	m.Versions[jobID][newVersion] = definitionJSON
+	return newVersion, nil
+}
+
+func (m *MockJobsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]dal.JobRecord, error) {
+	if m.ListErr != nil {
+		return nil, m.ListErr
+	}
+
+	out := make([]dal.JobRecord, 0, len(m.Definitions))
+	for id, def := range m.Definitions {
+		out = append(out, dal.JobRecord{
+			JobID:          id,
+			NamespaceID:    namespaceID,
+			DefinitionJSON: def,
+		})
+	}
+
+	return out, nil
+}
+
+func (m *MockJobsRepository) GetNamespaceID(ctx context.Context, jobID string) (int64, error) {
 	if m.GetErr != nil {
-		return "", 0, m.GetErr
+		return 0, m.GetErr
 	}
 
-	byVer, ok := m.Versions[jobID]
-	if ok {
-		latestVersion := 0
-		for version := range byVer {
-			if version > latestVersion {
-				latestVersion = version
-			}
-		}
-
-		if latestVersion > 0 {
-			return byVer[latestVersion], latestVersion, nil
-		}
+	namespaceID, ok := m.Namespaces[jobID]
+	if !ok {
+		return 0, fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
 	}
 
-	version := m.DefinitionVersions[jobID]
-	if version <= 0 {
-		version = 1
-	}
-
-	if def, ok := m.Definitions[jobID]; ok {
-		return def, version, nil
-	}
-
-	return "", 0, fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
+	return namespaceID, nil
 }
 
 var _ dal.JobsRepository = (*MockJobsRepository)(nil)

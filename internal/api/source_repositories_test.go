@@ -1172,15 +1172,6 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 	handler := server.Handler()
 
-	jobBody := map[string]any{
-		"id": "source-build",
-		"root": map[string]any{
-			"id":   "root",
-			"uses": "builtins/script",
-			"with": map[string]any{"script": "source"},
-		},
-	}
-
 	for _, tc := range []struct {
 		name   string
 		method string
@@ -1188,7 +1179,6 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 		body   any
 	}{
 		{name: "list reusable jobs without repository", method: http.MethodGet, path: "/api/v1/jobs"},
-		{name: "create reusable job without repository", method: http.MethodPost, path: "/api/v1/jobs", body: jobBody},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var rec *httptest.ResponseRecorder

@@ -3,6 +3,7 @@ package dal_test
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +114,260 @@ func TestJobsRepository_DefinitionSnapshotsAppendImmutableVersions(t *testing.T)
 
 	if gotV3 != def3 {
 		t.Fatalf("definition version 3 mismatch: got %q want %q", gotV3, def3)
+	}
+}
+
+func TestJobsRepository_CreateUpdateDeleteWithSCMPollTriggers(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	jobs := repos.Jobs()
+	ctx := context.Background()
+
+	jobID := "job-scm-triggers"
+	def1 := `{"id":"job-scm-triggers","root":{"uses":"builtins/script"}}`
+	def2 := `{"id":"job-scm-triggers","root":{"uses":"builtins/script","with":{"script":"echo updated"}}}`
+
+	if err := jobs.CreateWithTriggers(ctx, jobID, def1, 1, []dal.JobTriggerConfig{{
+		ID:     "manual",
+		Name:   "Manual trigger",
+		Manual: &dal.JobManualTriggerConfig{},
+	}, {
+		ID:   "nightly",
+		Name: "Nightly",
+		Cron: &dal.JobCronTriggerConfig{Spec: "0 2 * * *"},
+	}, {
+		ID: "main",
+		SCMPoll: &dal.JobSCMPollTriggerConfig{
+			Provider: " git ",
+			BaseURL:  " https://git.example.com ",
+			Project:  " team/repo.git ",
+			Branch:   " main ",
+			Interval: 2 * time.Minute,
+		},
+	}}); err != nil {
+		t.Fatalf("create job with scm trigger: %v", err)
+	}
+
+	assertSCMPollSpecs(t, db, jobID, []wantSCMPollSpec{{
+		Provider:        "git",
+		BaseURL:         "https://git.example.com",
+		Project:         "team/repo.git",
+		Branch:          "main",
+		IntervalSeconds: 120,
+	}})
+
+	assertJobTriggerRows(t, db, jobID, []wantJobTriggerRow{
+		{Type: dal.TriggerTypeManual, Key: "manual", Name: "Manual trigger"},
+		{Type: dal.TriggerTypeCron, Key: "nightly", Name: "Nightly"},
+		{Type: dal.TriggerTypeSCMPoll, Key: "main"},
+	})
+
+	assertCronSpecs(t, db, jobID, []string{"0 2 * * *"})
+
+	if _, err := jobs.UpdateDefinitionWithTriggers(ctx, jobID, def2, []dal.JobTriggerConfig{{
+		ID: "release_tags",
+		SCMPoll: &dal.JobSCMPollTriggerConfig{
+			Provider: "git",
+			Project:  "file:///tmp/repo.git",
+			Query:    "refs/tags/v*",
+			Interval: 30 * time.Second,
+		},
+	}}); err != nil {
+		t.Fatalf("update job with scm trigger: %v", err)
+	}
+
+	assertSCMPollSpecs(t, db, jobID, []wantSCMPollSpec{{
+		Provider:        "git",
+		Project:         "file:///tmp/repo.git",
+		Query:           "refs/tags/v*",
+		IntervalSeconds: 30,
+	}})
+
+	assertJobTriggerRows(t, db, jobID, []wantJobTriggerRow{
+		{Type: dal.TriggerTypeSCMPoll, Key: "release_tags"},
+	})
+
+	assertTotalJobTriggers(t, db, jobID, 4)
+	assertCronSpecs(t, db, jobID, nil)
+
+	if _, err := jobs.UpdateDefinitionWithTriggers(ctx, jobID, def2, nil); err != nil {
+		t.Fatalf("clear scm triggers: %v", err)
+	}
+
+	assertSCMPollSpecs(t, db, jobID, nil)
+	assertJobTriggerRows(t, db, jobID, nil)
+	assertTotalJobTriggers(t, db, jobID, 4)
+	assertCronSpecs(t, db, jobID, nil)
+
+	if err := jobs.CreateWithTriggers(ctx, "job-delete-scm-triggers", def1, 1, []dal.JobTriggerConfig{{
+		ID:     "manual",
+		Manual: &dal.JobManualTriggerConfig{},
+	}, {
+		ID:   "nightly",
+		Cron: &dal.JobCronTriggerConfig{Spec: "0 2 * * *"},
+	}, {
+		ID:      "main",
+		SCMPoll: &dal.JobSCMPollTriggerConfig{Provider: "git", Project: "file:///tmp/repo.git"},
+	}}); err != nil {
+		t.Fatalf("create deletable job with trigger: %v", err)
+	}
+
+	if err := jobs.Delete(ctx, "job-delete-scm-triggers"); err != nil {
+		t.Fatalf("delete job with trigger: %v", err)
+	}
+}
+
+func assertTotalJobTriggers(t *testing.T, db *sql.DB, jobID string, want int) {
+	t.Helper()
+
+	var got int
+	if err := db.QueryRow("SELECT COUNT(*) FROM job_triggers WHERE job_id = ?", jobID).Scan(&got); err != nil {
+		t.Fatalf("count job triggers: %v", err)
+	}
+
+	if got != want {
+		t.Fatalf("job trigger row count = %d, want %d", got, want)
+	}
+}
+
+type wantJobTriggerRow struct {
+	Type string
+	Key  string
+	Name string
+}
+
+func assertJobTriggerRows(t *testing.T, db *sql.DB, jobID string, want []wantJobTriggerRow) {
+	t.Helper()
+
+	rows, err := db.Query(`
+		SELECT trigger_type, trigger_key, display_name
+		FROM job_triggers
+		WHERE job_id = ? AND enabled
+		ORDER BY id
+	`, jobID)
+
+	if err != nil {
+		t.Fatalf("query job triggers: %v", err)
+	}
+	defer rows.Close()
+
+	var got []wantJobTriggerRow
+	for rows.Next() {
+		var row wantJobTriggerRow
+		if err := rows.Scan(&row.Type, &row.Key, &row.Name); err != nil {
+			t.Fatalf("scan job trigger: %v", err)
+		}
+
+		got = append(got, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate job triggers: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("job triggers = %+v, want %+v", got, want)
+	}
+
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("job trigger %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func assertCronSpecs(t *testing.T, db *sql.DB, jobID string, want []string) {
+	t.Helper()
+
+	rows, err := db.Query(`
+		SELECT c.cron_spec, c.next_run_at
+		FROM cron_trigger_specs c
+		JOIN job_triggers jt ON jt.id = c.trigger_id
+		WHERE jt.job_id = ?
+		ORDER BY c.id
+	`, jobID)
+
+	if err != nil {
+		t.Fatalf("query cron specs: %v", err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var spec, nextRunAt string
+		if err := rows.Scan(&spec, &nextRunAt); err != nil {
+			t.Fatalf("scan cron spec: %v", err)
+		}
+
+		if strings.TrimSpace(nextRunAt) == "" {
+			t.Fatalf("cron spec %q had empty next_run_at", spec)
+		}
+
+		got = append(got, spec)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate cron specs: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("cron specs = %+v, want %+v", got, want)
+	}
+
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("cron spec %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+type wantSCMPollSpec struct {
+	Provider        string
+	BaseURL         string
+	Project         string
+	Branch          string
+	Query           string
+	IntervalSeconds int64
+}
+
+func assertSCMPollSpecs(t *testing.T, db *sql.DB, jobID string, want []wantSCMPollSpec) {
+	t.Helper()
+
+	rows, err := db.Query(`
+		SELECT s.provider, s.base_url, s.project, s.branch, s.query, s.interval_seconds
+		FROM scm_poll_trigger_specs s
+		JOIN job_triggers jt ON jt.id = s.trigger_id
+		WHERE jt.job_id = ?
+		ORDER BY s.id
+	`, jobID)
+
+	if err != nil {
+		t.Fatalf("query scm poll specs: %v", err)
+	}
+	defer rows.Close()
+
+	var got []wantSCMPollSpec
+	for rows.Next() {
+		var spec wantSCMPollSpec
+		if err := rows.Scan(&spec.Provider, &spec.BaseURL, &spec.Project, &spec.Branch, &spec.Query, &spec.IntervalSeconds); err != nil {
+			t.Fatalf("scan scm poll spec: %v", err)
+		}
+
+		got = append(got, spec)
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate scm poll specs: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("scm poll specs = %+v, want %+v", got, want)
+	}
+
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("scm poll spec %d = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
 
@@ -4566,6 +4821,10 @@ func TestRunsRepository_CreateSCMEventRunIdempotentByEventKey(t *testing.T) {
 		t.Fatalf("expected one ready scm trigger, got %+v", ready)
 	}
 
+	if _, err := db.ExecContext(ctx, "UPDATE job_triggers SET trigger_key = ?, display_name = ? WHERE id = ?", "main", "Main branch", ready[0].TriggerID); err != nil {
+		t.Fatalf("set scm trigger identity: %v", err)
+	}
+
 	eventKey := "gerrit:project:master:Iabc:rev1"
 	if _, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
 		TriggerID:   ready[0].TriggerID,
@@ -4575,7 +4834,19 @@ func TestRunsRepository_CreateSCMEventRunIdempotentByEventKey(t *testing.T) {
 		t.Fatalf("record scm event created=%v err=%v", created, err)
 	}
 
-	runID1, idx1, created, err := runs.CreateSCMEventRun(ctx, ready[0].TriggerID, eventKey, jobID, 1, dal.RunAuditMetadata{})
+	triggerID := ready[0].TriggerID
+	invocation, err := repos.TriggerInvocations().Record(ctx, dal.TriggerInvocation{
+		TriggerID:   &triggerID,
+		JobID:       jobID,
+		TriggerType: dal.TriggerTypeSCMPoll,
+	})
+	if err != nil {
+		t.Fatalf("record scm trigger invocation: %v", err)
+	}
+
+	runID1, idx1, created, err := runs.CreateSCMEventRun(ctx, ready[0].TriggerID, eventKey, jobID, 1, dal.RunAuditMetadata{
+		TriggerInvocationID: invocation.InvocationID,
+	})
 	if err != nil {
 		t.Fatalf("create scm event run: %v", err)
 	}
@@ -4584,6 +4855,20 @@ func TestRunsRepository_CreateSCMEventRunIdempotentByEventKey(t *testing.T) {
 	}
 	if idx1 != 1 {
 		t.Fatalf("expected first scm event run index 1, got %d", idx1)
+	}
+
+	runRecord, err := runs.GetRun(ctx, runID1)
+	if err != nil {
+		t.Fatalf("get scm event run: %v", err)
+	}
+	if runRecord.TriggerID == nil || *runRecord.TriggerID != ready[0].TriggerID {
+		t.Fatalf("run trigger id: got %+v want %d", runRecord.TriggerID, ready[0].TriggerID)
+	}
+	if runRecord.TriggerKey == nil || *runRecord.TriggerKey != "main" {
+		t.Fatalf("run trigger key: got %+v want main", runRecord.TriggerKey)
+	}
+	if runRecord.TriggerName == nil || *runRecord.TriggerName != "Main branch" {
+		t.Fatalf("run trigger name: got %+v want Main branch", runRecord.TriggerName)
 	}
 
 	rec, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{

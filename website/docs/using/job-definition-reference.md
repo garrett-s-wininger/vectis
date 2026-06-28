@@ -64,6 +64,7 @@ Most jobs use either `steps` or `ports`, not both. The `inputs` example above is
 | `root` | Yes | First node in the job tree. |
 | `default_isolation` | No | Default execution boundary for nodes that do not set `isolation`. Supported values are `host` and `vm`. |
 | `secrets` | No | Secret references that the cell-local secrets broker can materialize for selected task keys. |
+| `triggers` | Stored jobs only | Optional trigger definitions with stable `id`, optional `name`, and one of `manual`, `cron`, or `scm_poll`. Stored job create/update persists these trigger specs; one-off runs reject them. |
 | `run_id` | System field | Run identifier attached to persisted or in-flight job payloads. Users normally do not set it. |
 | `delivery_id` | System field | Queue delivery identifier attached during dispatch. Users normally do not set it. |
 
