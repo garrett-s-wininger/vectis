@@ -11,6 +11,14 @@ import (
 
 const modeArg = "__vectis_action_launcher_v1__"
 
+// LaunchSpec is the declarative contract between worker executors and the
+// action launcher. Platform-specific setup options should be added here instead
+// of threading loose parameters through executor call sites.
+type LaunchSpec struct {
+	Path string
+	Args []string
+}
+
 // MaybeRun executes launcher mode when the current binary was re-execed by the
 // hardened process executor. It must be called from an init path before normal
 // command-line parsing starts.
@@ -22,9 +30,14 @@ func MaybeRun() {
 	os.Exit(Run(os.Args[2:], os.Stderr))
 }
 
-func Command(target string, args []string) (string, []string, error) {
+func Command(spec LaunchSpec) (string, []string, error) {
+	if strings.TrimSpace(spec.Path) == "" {
+		return "", nil, fmt.Errorf("action launcher command path is required")
+	}
+
+	target := spec.Path
 	if !enabled {
-		return target, append([]string(nil), args...), nil
+		return target, append([]string(nil), spec.Args...), nil
 	}
 
 	exe, err := os.Executable()
@@ -32,9 +45,9 @@ func Command(target string, args []string) (string, []string, error) {
 		return "", nil, fmt.Errorf("resolve action launcher executable: %w", err)
 	}
 
-	launcherArgs := make([]string, 0, len(args)+2)
+	launcherArgs := make([]string, 0, len(spec.Args)+2)
 	launcherArgs = append(launcherArgs, modeArg, target)
-	launcherArgs = append(launcherArgs, args...)
+	launcherArgs = append(launcherArgs, spec.Args...)
 	return exe, launcherArgs, nil
 }
 

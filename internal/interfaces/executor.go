@@ -91,7 +91,11 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 		return nil, err
 	}
 
-	launcherPath, launcherArgs, err := actionlauncher.Command(resolvedPath, args)
+	launcherPath, launcherArgs, err := actionlauncher.Command(actionlauncher.LaunchSpec{
+		Path: resolvedPath,
+		Args: args,
+	})
+
 	if err != nil {
 		return nil, err
 	}

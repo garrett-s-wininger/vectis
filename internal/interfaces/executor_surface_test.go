@@ -50,8 +50,14 @@ func TestWorkerExecutionPackagesDoNotBypassHardenedExecutor(t *testing.T) {
 	}
 
 	if len(violations) > 0 {
-		t.Fatalf("process-launching worker code must use interfaces.ExecExecutor/StartProcess, found raw os/exec calls:\n%s", strings.Join(violations, "\n"))
+		t.Fatalf("process-launching worker code must use interfaces.ExecExecutor/StartProcess, found raw os/exec usage:\n%s", strings.Join(violations, "\n"))
 	}
+}
+
+var allowedWorkerExecSelectors = map[string]map[string]struct{}{
+	"internal/action/builtins/test.go": {
+		"ExitError": {},
+	},
 }
 
 func rawExecCalls(t *testing.T, root, path string) []string {
@@ -63,7 +69,13 @@ func rawExecCalls(t *testing.T, root, path string) []string {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		rel = path
+	}
+
 	execNames := map[string]struct{}{}
+	var violations []string
 	for _, imp := range file.Imports {
 		importPath, err := strconv.Unquote(imp.Path.Value)
 		if err != nil {
@@ -79,28 +91,22 @@ func rawExecCalls(t *testing.T, root, path string) []string {
 			name = imp.Name.Name
 		}
 
-		if name != "_" && name != "." {
+		switch name {
+		case "_", ".":
+			pos := fset.Position(imp.Pos())
+			violations = append(violations, rel+":"+strconv.Itoa(pos.Line)+": unsupported os/exec import form")
+		default:
 			execNames[name] = struct{}{}
 		}
 	}
 
 	if len(execNames) == 0 {
-		return nil
+		return violations
 	}
 
-	var violations []string
 	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
+		selector, ok := node.(*ast.SelectorExpr)
 		if !ok {
-			return true
-		}
-
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-
-		if selector.Sel.Name != "Command" && selector.Sel.Name != "CommandContext" {
 			return true
 		}
 
@@ -113,17 +119,26 @@ func rawExecCalls(t *testing.T, root, path string) []string {
 			return true
 		}
 
-		pos := fset.Position(call.Pos())
-		rel, err := filepath.Rel(root, pos.Filename)
-		if err != nil {
-			rel = pos.Filename
+		if isAllowedWorkerExecSelector(rel, selector.Sel.Name) {
+			return true
 		}
 
-		violations = append(violations, rel+":"+strconv.Itoa(pos.Line))
+		pos := fset.Position(selector.Pos())
+		violations = append(violations, rel+":"+strconv.Itoa(pos.Line)+": os/exec."+selector.Sel.Name)
 		return true
 	})
 
 	return violations
+}
+
+func isAllowedWorkerExecSelector(rel, selector string) bool {
+	allowed, ok := allowedWorkerExecSelectors[rel]
+	if !ok {
+		return false
+	}
+
+	_, ok = allowed[selector]
+	return ok
 }
 
 func findRepoRoot(t *testing.T) string {
