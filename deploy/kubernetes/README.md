@@ -117,7 +117,7 @@ The default manifest creates:
 - a `vectis` namespace;
 - Postgres with a PVC;
 - Vectis registry, queue, orchestrator, log, artifact, secrets, API, docs,
-  cron, reconciler, catalog, worker, and worker-core workloads;
+  cron, SCM poller, reconciler, catalog, worker, and worker-core workloads;
 - PVCs for queue persistence, log storage, artifact storage, and encryptedfs
   secret envelopes;
 - generated development gRPC TLS and SPIFFE CA material in a Kubernetes Secret;

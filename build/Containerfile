@@ -112,6 +112,12 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-registry /usr/local/bin/vectis-registry
 ENTRYPOINT ["/usr/local/bin/vectis-registry"]
 
+FROM scratch AS scm-poller
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-scm-poller /usr/local/bin/vectis-scm-poller
+ENTRYPOINT ["/usr/local/bin/vectis-scm-poller"]
+
 FROM scratch AS secrets
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -167,6 +173,7 @@ COPY --from=builder \
       /app/bin/vectis-queue \
       /app/bin/vectis-reconciler \
       /app/bin/vectis-registry \
+      /app/bin/vectis-scm-poller \
       /app/bin/vectis-secrets \
       /app/bin/vectis-worker-core \
       /app/bin/vectis-worker \

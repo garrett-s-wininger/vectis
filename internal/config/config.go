@@ -55,6 +55,7 @@ type Defaults struct {
 	Worker         WorkerDefaults          `toml:"worker"`
 	WorkerCore     WorkerCoreDefaults      `toml:"worker_core"`
 	Cron           CronDefaults            `toml:"cron"`
+	SCMPoller      SCMPollerDefaults       `toml:"scm_poller"`
 	Reconciler     ReconcilerDefaults      `toml:"reconciler"`
 	Catalog        CatalogDefaults         `toml:"catalog"`
 	CellIngress    CellIngressDefaults     `toml:"cell_ingress"`
@@ -401,6 +402,13 @@ type WorkerSPIFFERegistrationDefaults struct {
 type CronDefaults struct {
 	RegistryAddress string       `toml:"registry.address"`
 	QueueAddress    string       `toml:"queue.address"`
+	ClaimTTL        tomlDuration `toml:"claim_ttl"`
+}
+
+type SCMPollerDefaults struct {
+	RegistryAddress string       `toml:"registry.address"`
+	QueueAddress    string       `toml:"queue.address"`
+	Interval        tomlDuration `toml:"interval"`
 	ClaimTTL        tomlDuration `toml:"claim_ttl"`
 }
 
@@ -850,6 +858,14 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(d.Cron.ClaimTTL) <= 0 {
 		panic("config defaults: cron.claim_ttl must be > 0")
+	}
+
+	if time.Duration(d.SCMPoller.Interval) <= 0 {
+		panic("config defaults: scm_poller.interval must be > 0")
+	}
+
+	if time.Duration(d.SCMPoller.ClaimTTL) <= 0 {
+		panic("config defaults: scm_poller.claim_ttl must be > 0")
 	}
 
 	if time.Duration(d.Reconciler.Interval) <= 0 {
@@ -2313,6 +2329,60 @@ func CronClaimTTL() time.Duration {
 	}
 
 	d := time.Duration(MustDefaults().Cron.ClaimTTL)
+	if d > 0 {
+		return d
+	}
+
+	return 5 * time.Minute
+}
+
+func SCMPollerRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("scm_poller.registry.address"),
+		d.SCMPoller.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func SCMPollerQueueAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("scm_poller.queue.address"),
+		d.SCMPoller.QueueAddress,
+		viper.GetString("discovery.queue.address"),
+		d.Discovery.QueueAddress,
+	)
+}
+
+func SCMPollerInterval() time.Duration {
+	if d := viper.GetDuration("interval"); d > 0 {
+		return d
+	}
+
+	if d := viper.GetDuration("scm_poller.interval"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().SCMPoller.Interval)
+	if d > 0 {
+		return d
+	}
+
+	return 30 * time.Second
+}
+
+func SCMPollerClaimTTL() time.Duration {
+	if d := viper.GetDuration("claim_ttl"); d > 0 {
+		return d
+	}
+
+	if d := viper.GetDuration("scm_poller.claim_ttl"); d > 0 {
+		return d
+	}
+
+	d := time.Duration(MustDefaults().SCMPoller.ClaimTTL)
 	if d > 0 {
 		return d
 	}

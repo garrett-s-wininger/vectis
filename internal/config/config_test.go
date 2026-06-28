@@ -35,6 +35,35 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 		t.Fatalf("CronClaimTTL() with namespaced viper override: got %v", got)
 	}
 
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if time.Duration(d.SCMPoller.Interval) != 30*time.Second {
+		t.Fatalf("expected scm_poller.interval 30s, got %v", time.Duration(d.SCMPoller.Interval))
+	}
+
+	if got := SCMPollerInterval(); got != 30*time.Second {
+		t.Fatalf("SCMPollerInterval() with empty viper: got %v", got)
+	}
+
+	if time.Duration(d.SCMPoller.ClaimTTL) != 5*time.Minute {
+		t.Fatalf("expected scm_poller.claim_ttl 5m, got %v", time.Duration(d.SCMPoller.ClaimTTL))
+	}
+
+	if got := SCMPollerClaimTTL(); got != 5*time.Minute {
+		t.Fatalf("SCMPollerClaimTTL() with empty viper: got %v", got)
+	}
+
+	viper.Set("scm_poller.interval", 45*time.Second)
+	if got := SCMPollerInterval(); got != 45*time.Second {
+		t.Fatalf("SCMPollerInterval() with namespaced viper override: got %v", got)
+	}
+
+	viper.Set("claim_ttl", 75*time.Second)
+	if got := SCMPollerClaimTTL(); got != 75*time.Second {
+		t.Fatalf("SCMPollerClaimTTL() with flat viper override: got %v", got)
+	}
+
 	if time.Duration(d.Reconciler.Interval) != 30*time.Second {
 		t.Fatalf("expected reconciler.interval 30s, got %v", time.Duration(d.Reconciler.Interval))
 	}

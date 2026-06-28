@@ -21,6 +21,7 @@
 | `worker/` | `vectis-worker` | daemon (action exec) |
 | `worker-core/` | `vectis-worker-core` | daemon (worker execution core over UDS) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
+| `scm-poller/` | `vectis-scm-poller` | daemon (SCM polling triggers) |
 | `catalog/` | `vectis-catalog` | daemon (cell catalog applier) |
 | `docs/` | `vectis-docs` | daemon (static docs HTTP) |
 | `ui/` | `vectis-ui` | daemon (static UI HTTP + API proxy) |
@@ -57,7 +58,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-eighteen-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `spiffe`, `worker-core`, and `docs` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-nineteen-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `scm-poller`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `spiffe`, `worker-core`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -78,6 +79,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | socket-local execution core; `--socket` serves the WorkerCore gRPC API over UDS; `--metrics-host` defaults to localhost and `--metrics-port` exposes checkout action/cache metrics; `--execution-backend host|lima`; `host` is the default, while `lima` registers a VM provider and makes unspecified action isolation inherit `vm`; use `--workspace-root` for VM-visible host workspaces or `--lima-guest-workspace-root` for guest-owned Lima workspaces; `--checkout-cache-root` enables host-side persistent checkout mirrors and advertises worker-driven warming for source repositories with `worker_cache_mode=persistent`; `--checkout-cache-generations-to-keep` tunes per-remote generation retention; `--checkout-cache-lease-ttl` bounds stale generation leases from crashed checkouts; `--checkout-cache-max-bytes` bounds retained pack bytes per remote; `--checkout-cache-warm-parallelism` bounds concurrent remote warming; encryptedfs source credential config resolves `credential_ref` for static persistent cache declarations |
 | `vectis-spiffe` | `VECTIS_SPIFFE` | development/reference SPIFFE authority; serves Workload API and Entry API over Unix sockets, persists a CA and bundle, defaults to trust domain `vectis.internal`, and supports `--init-only` for deployment init containers that need bundle material before daemons start |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
+| `vectis-scm-poller` | `VECTIS_SCM_POLLER` | `[scm_poller]`; `--instance-id` labels SCM trigger claims, `--interval` controls due-trigger scans, `--claim-ttl` bounds claim failover |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs; metrics host defaults to localhost |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |
 | `vectis-ui` | `VECTIS_UI` | static UI server + browser BFF; default host `localhost`, default port `8089`, serves embedded UI unless `VECTIS_UI_DIR` overrides; can proxy Vite dev assets with `VECTIS_UI_DEV_ASSETS_URL`; manages UI session cookies and proxies `/api/` to `VECTIS_UI_API_URL` |

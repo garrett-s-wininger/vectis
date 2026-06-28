@@ -18,8 +18,8 @@ exposing the deployment to users or shared infrastructure.
 The production package lane installs the standard standalone service set from
 `deploy/linux/services.toml`: common files, migration unit, registry, queue,
 orchestrator, log, log-forwarder, artifact, API, cell-ingress, worker-core,
-worker, cron, catalog, reconciler, secrets, SPIFFE authority, docs, the
-reference retention cleanup timer, and CLI packages.
+worker, cron, SCM poller, catalog, reconciler, secrets, SPIFFE authority, docs,
+the reference retention cleanup timer, and CLI packages.
 
 Packages place files on disk. They do not decide host placement, write live
 secrets, enable units, start services, or replace operator-owned supervision and
@@ -146,8 +146,8 @@ vectis-cli database migrate
 ```
 
 For split global and cell databases, run the migration command once for each
-database with the matching DSN. Do not start workers, cron, reconciler, catalog,
-or API against a database whose schema status is unknown.
+database with the matching DSN. Do not start workers, cron, SCM poller,
+reconciler, catalog, or API against a database whose schema status is unknown.
 
 ## Start Services
 

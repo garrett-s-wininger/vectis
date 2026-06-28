@@ -15,10 +15,10 @@ The first package split is:
 
 The standard standalone service set includes API, artifact, catalog, cell
 ingress, cron, docs, log, log-forwarder, orchestrator, queue, reconciler,
-registry, secrets, SPIFFE authority, worker, and worker-core packages. The
-common package also ships the timer-driven retention cleanup workflow that uses
-`vectis-cli`; operators enable it only after supplying backup evidence,
-expected topology, and API credentials.
+registry, SCM poller, secrets, SPIFFE authority, worker, and worker-core
+packages. The common package also ships the timer-driven retention cleanup
+workflow that uses `vectis-cli`; operators enable it only after supplying backup
+evidence, expected topology, and API credentials.
 
 Build the production Linux package set with:
 

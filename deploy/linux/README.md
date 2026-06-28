@@ -26,8 +26,8 @@ real PostgreSQL DSN after copying the rendered `env/vectis.env.example` to
 `/etc/vectis/vectis.env`.
 The rendered artifact contract describes the standalone multi-service stack,
 including API, artifact, catalog, cell ingress, cron, docs, log, log-forwarder,
-orchestrator, queue, reconciler, registry, secrets, SPIFFE authority, worker,
-and worker-core units. It also includes a static
+orchestrator, queue, reconciler, registry, SCM poller, secrets, SPIFFE
+authority, worker, and worker-core units. It also includes a static
 `vectis-retention-scheduled-cleanup.service` plus
 `vectis-retention-scheduled-cleanup.timer` for the retained backup/audit/hold
 evidence cleanup workflow. The service also emits

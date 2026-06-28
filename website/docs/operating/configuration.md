@@ -68,6 +68,8 @@ Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dis
 | Bound reconciler redispatch work per pass | `VECTIS_RECONCILER_REDISPATCH_LIMIT=1000` |
 | Set cron claim TTL | `VECTIS_CRON_CLAIM_TTL=5m` or `vectis-cron --claim-ttl 5m` |
 | Name a cron replica in claim records | `VECTIS_CRON_INSTANCE_ID=cron-a` or `vectis-cron --instance-id cron-a` |
+| Change SCM poller interval | `VECTIS_SCM_POLLER_INTERVAL=30s` or `vectis-scm-poller --interval 30s` |
+| Name an SCM poller replica in claim records | `VECTIS_SCM_POLLER_INSTANCE_ID=scm-poller-a` or `vectis-scm-poller --instance-id scm-poller-a` |
 | Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
 | Fan in cell-local catalog events | `vectis-catalog --cell-database-dsn pdx-b=/path/to/pdx.db` |
 | Run `vectis-local` with plaintext internal gRPC | `vectis-local --grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true`; local secrets are disabled in this mode |
@@ -152,6 +154,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--metrics-host`, `--metrics-port`, `--execution-backend`, `--workspace-root`, `--checkout-cache-root`, `--checkout-cache-generations-to-keep`, `--checkout-cache-lease-ttl`, `--checkout-cache-warm-parallelism`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--redispatch-limit`, `--metrics-host`, `--metrics-port` |
+| `vectis-scm-poller` | `VECTIS_SCM_POLLER` | `--instance-id`, `--interval`, `--claim-ttl` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
@@ -381,7 +384,7 @@ Database driver settings are global. DSNs can be shared for single-node deployme
 | --- | --- |
 | `VECTIS_DATABASE_DRIVER` | `sqlite3` for local/single-node use, or `pgx` for PostgreSQL. |
 | `VECTIS_DATABASE_DSN` | Shared SQLite file path or PostgreSQL URL. If unset, SQLite defaults under the Vectis data directory. |
-| `VECTIS_GLOBAL_DATABASE_DSN` | Overrides the shared DSN for global services: API, cron, reconciler, and catalog. |
+| `VECTIS_GLOBAL_DATABASE_DSN` | Overrides the shared DSN for global services: API, cron, SCM poller, reconciler, and catalog. |
 | `VECTIS_CELL_DATABASE_DSN` | Overrides the shared DSN for cell-local services: cell ingress and workers. |
 | `VECTIS_CATALOG_CELL_DATABASE_DSNS` | Comma-separated `cell_id=dsn` list that lets `vectis-catalog` fan in pending catalog events from cell-local databases. |
 | `VECTIS_DATABASE_PGX_PLAN_CACHE_MODE` | Optional pgx/PostgreSQL `plan_cache_mode` runtime parameter. Empty preserves PostgreSQL defaults; `force_generic_plan` can reduce planning overhead for Vectis write-heavy hot paths after local measurement. An explicit `plan_cache_mode` in the DSN takes precedence. |
@@ -409,7 +412,7 @@ When `VECTIS_DATABASE_DRIVER=pgx`, each DB-using process applies these `database
 | `VECTIS_DATABASE_PGX_CONN_MAX_LIFETIME` | Maximum lifetime of a connection. |
 | `VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME` | Maximum idle time before a connection is closed. |
 
-These limits are per process. When you run multiple APIs, workers, cron, reconciler, and catalog instances, add the limits together when sizing Postgres.
+These limits are per process. When you run multiple APIs, workers, cron, SCM poller, reconciler, and catalog instances, add the limits together when sizing Postgres.
 
 `VECTIS_DATABASE_PGX_PLAN_CACHE_MODE` is separate from the pool limits. It maps to PostgreSQL's `plan_cache_mode` connection parameter and is intentionally unset by default because generic plans can hurt parameter-sensitive read queries. For write-heavy Vectis hot paths, benchmark `force_generic_plan` against the default before using it in an initial capacity envelope.
 
@@ -432,7 +435,7 @@ Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstrap
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |
 | gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, `vectis-artifact`, `vectis-orchestrator`, `vectis-secrets`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log/artifact/orchestrator also need a CA when they register with the registry; secrets also needs a client CA to verify execution SVID callers. |
-| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-reconciler`, queue/log/artifact/orchestrator registration clients | CA bundle. Client cert/key only when servers require mTLS. |
+| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-scm-poller`, `vectis-reconciler`, queue/log/artifact/orchestrator registration clients | CA bundle. Client cert/key only when servers require mTLS. |
 
 For trust boundaries and what mTLS does or does not authorize today, see [Internal Service Trust](../concepts/internal-service-trust.md).
 

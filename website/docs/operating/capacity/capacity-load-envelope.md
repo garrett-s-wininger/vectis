@@ -107,7 +107,7 @@ Revalidate the envelope before relying on a new operating point when you:
 - change database driver, host size, pool settings, or storage class;
 - change queue persistence, log storage, or log-forwarder spool storage;
 - introduce large logs or many concurrent log readers;
-- change queue, worker, cron, reconciler, catalog, API, retry, or log-streaming behavior.
+- change queue, worker, cron, SCM poller, reconciler, catalog, API, retry, or log-streaming behavior.
 
 Use [Capacity And Performance Checks](../../developing/performance/capacity-checks.md) for the developer/release process that produces new baseline evidence.
 

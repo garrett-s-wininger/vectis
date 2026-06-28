@@ -63,6 +63,29 @@ CREATE INDEX idx_cron_next_run ON cron_trigger_specs(next_run_at);
 CREATE INDEX idx_cron_claimed_until ON cron_trigger_specs(claimed_until);
 CREATE UNIQUE INDEX uidx_cron_schedule_id ON cron_trigger_specs(schedule_id) WHERE schedule_id <> '';
 
+CREATE TABLE scm_poll_trigger_specs (
+    id BIGSERIAL PRIMARY KEY,
+    trigger_id BIGINT NOT NULL REFERENCES job_triggers(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT '',
+    project TEXT NOT NULL,
+    branch TEXT NOT NULL DEFAULT '',
+    query TEXT NOT NULL DEFAULT '',
+    interval_seconds INTEGER NOT NULL DEFAULT 60,
+    next_poll_at TEXT NOT NULL,
+    cursor TEXT NOT NULL DEFAULT '',
+    claim_token TEXT,
+    claimed_until TEXT,
+    last_poll_at TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(trigger_id)
+);
+
+CREATE INDEX idx_scm_poll_next_poll ON scm_poll_trigger_specs(next_poll_at);
+CREATE INDEX idx_scm_poll_claimed_until ON scm_poll_trigger_specs(claimed_until);
+CREATE INDEX idx_scm_poll_provider_project ON scm_poll_trigger_specs(provider, project, branch);
+
 CREATE TABLE trigger_invocations (
     id BIGSERIAL PRIMARY KEY,
     invocation_id TEXT UNIQUE NOT NULL,
@@ -326,6 +349,18 @@ CREATE TABLE cron_schedule_fires (
 );
 
 CREATE INDEX idx_cron_schedule_fires_run_id ON cron_schedule_fires(run_id);
+
+CREATE TABLE scm_trigger_events (
+    trigger_id BIGINT NOT NULL REFERENCES job_triggers(id) ON DELETE CASCADE,
+    event_key TEXT NOT NULL,
+    run_id TEXT UNIQUE REFERENCES job_runs(run_id) ON DELETE SET NULL,
+    payload_json TEXT NOT NULL DEFAULT '',
+    discovered_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (trigger_id, event_key)
+);
+
+CREATE INDEX idx_scm_trigger_events_run_id ON scm_trigger_events(run_id);
 
 CREATE TABLE run_dispatch_events (
     id BIGSERIAL PRIMARY KEY,

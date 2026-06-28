@@ -86,6 +86,7 @@ func TestRunVMSmokeVerifyUsesStructuredGuestCommands(t *testing.T) {
 		"/etc/systemd/system/vectis-registry.service",
 		"/etc/systemd/system/vectis-retention-scheduled-cleanup.service",
 		"/etc/systemd/system/vectis-retention-scheduled-cleanup.timer",
+		"/etc/systemd/system/vectis-scm-poller.service",
 		"/etc/systemd/system/vectis-secrets.service",
 		"/etc/systemd/system/vectis-spiffe.service",
 		"/etc/systemd/system/vectis-worker-core.service",

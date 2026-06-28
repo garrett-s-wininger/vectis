@@ -259,6 +259,8 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | Key | Default | Operator note |
 | --- | --- | --- |
 | `cron.claim_ttl` | `5m` | Scheduler claim TTL for cron trigger processing. |
+| `scm_poller.interval` | `30s` | SCM poller scan interval for ready polling triggers. |
+| `scm_poller.claim_ttl` | `5m` | SCM poller claim TTL before another poller may retry a claimed trigger. |
 | `reconciler.interval` | `30s` | Reconciler scan interval. |
 | `reconciler.lease_ttl` | `2m` | Reconciler service lease TTL. |
 | `reconciler.redispatch_limit` | `1000` | Maximum executions the reconciler redispatches in one pass. |

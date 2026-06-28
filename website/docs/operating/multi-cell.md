@@ -10,7 +10,7 @@ For the configuration reference, see [Configuration](./configuration.md). For ru
 
 | Layer | Binaries | Database role | Main responsibility |
 | --- | --- | --- | --- |
-| Global control plane | `vectis-api`, `vectis-cron`, `vectis-reconciler`, `vectis-catalog` | Global DB | Store jobs and global run catalog, accept user/API triggers, repair missed dispatch, fan in cell events. |
+| Global control plane | `vectis-api`, `vectis-cron`, `vectis-scm-poller`, `vectis-reconciler`, `vectis-catalog` | Global DB | Store jobs and global run catalog, accept user/API/SCM triggers, repair missed dispatch, fan in cell events. |
 | Execution cell | `vectis-cell-ingress`, `vectis-queue`, `vectis-worker` | Cell DB | Accept routed executions, queue them locally, execute work, record local status events. |
 | Shared support | `vectis-registry`, `vectis-log`, `vectis-artifact`, `vectis-docs` | Depends on service | Discovery, log ingest/streaming, artifact blob storage, documentation. |
 
@@ -40,7 +40,7 @@ VECTIS_CELL_INGRESS_QUEUE_ADDRESS=iad-queue:9090
 VECTIS_WORKER_QUEUE_ADDRESS=iad-queue:9090
 ```
 
-Start `vectis-api`, `vectis-cron`, `vectis-reconciler`, and `vectis-catalog` against the global database. Start `vectis-cell-ingress`, `vectis-queue`, `vectis-worker`, and `vectis-worker-core` in each cell against that cell's database and queue. If a deployment keeps the default `local` cell, give it the same treatment as every other cell once global and cell databases are split.
+Start `vectis-api`, `vectis-cron`, `vectis-scm-poller`, `vectis-reconciler`, and `vectis-catalog` against the global database. Start `vectis-cell-ingress`, `vectis-queue`, `vectis-worker`, and `vectis-worker-core` in each cell against that cell's database and queue. If a deployment keeps the default `local` cell, give it the same treatment as every other cell once global and cell databases are split.
 
 ## Request Flow
 

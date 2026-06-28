@@ -157,6 +157,10 @@ require_hold_review = false
 [cron]
 claim_ttl = "5m"
 
+[scm_poller]
+interval = "30s"
+claim_ttl = "5m"
+
 [reconciler]
 interval = "30s"
 lease_ttl = "2m"

@@ -99,6 +99,7 @@ const (
 
 	DispatchSourceAPI        = "api"
 	DispatchSourceCron       = "cron"
+	DispatchSourceSCMPoller  = "scm_poller"
 	DispatchSourceReconciler = "reconciler"
 
 	DispatchEventAccepted = "accepted"
@@ -109,6 +110,7 @@ const (
 	TriggerTypeManual   = "manual"
 	TriggerTypeCron     = "cron"
 	TriggerTypeReaction = "reaction"
+	TriggerTypeSCMPoll  = "scm_poll"
 	TriggerTypeReplay   = "replay"
 	TriggerTypeWebhook  = "webhook"
 
@@ -896,6 +898,34 @@ type SourceCronScheduleCountSummary struct {
 	ActiveOverrides int
 }
 
+type SCMPollTriggerSpec struct {
+	ID         int64
+	TriggerID  int64
+	JobID      string
+	Provider   string
+	BaseURL    string
+	Project    string
+	Branch     string
+	Query      string
+	Interval   time.Duration
+	NextPollAt time.Time
+	Cursor     string
+}
+
+type SCMTriggerEvent struct {
+	TriggerID   int64
+	EventKey    string
+	RunID       string
+	PayloadJSON string
+}
+
+type SCMTriggerEventRecord struct {
+	TriggerID   int64
+	EventKey    string
+	RunID       *string
+	PayloadJSON string
+}
+
 type RunForCancel struct {
 	RunID             string
 	Status            string
@@ -1052,6 +1082,14 @@ type SchedulesRepository interface {
 	CronScheduleSummary(ctx context.Context, at time.Time) (CronScheduleSummary, error)
 }
 
+type SCMPollTriggersRepository interface {
+	GetReady(ctx context.Context, at time.Time, limit int) ([]SCMPollTriggerSpec, error)
+	ClaimDue(ctx context.Context, specID int64, observedNextPoll time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
+	CompleteClaim(ctx context.Context, specID int64, claimToken string, nextPoll time.Time, cursor string) (bool, error)
+	ReleaseClaim(ctx context.Context, specID int64, claimToken string) error
+	RecordEvent(ctx context.Context, event SCMTriggerEvent) (SCMTriggerEventRecord, bool, error)
+}
+
 type ServiceLeasesRepository interface {
 	TryAcquire(ctx context.Context, name, owner string, now, leaseUntil time.Time) (bool, error)
 	Release(ctx context.Context, name, owner string) error
@@ -1093,6 +1131,7 @@ type SQLRepositories struct {
 	jobs          *SQLJobsRepository
 	runs          *SQLRunsRepository
 	schedules     *SQLSchedulesRepository
+	scmPolls      *SQLSCMPollTriggersRepository
 	auth          *SQLAuthRepository
 	namespaces    *SQLNamespacesRepository
 	roleBindings  *SQLRoleBindingsRepository
@@ -1120,6 +1159,7 @@ func NewSQLRepositoriesWithCellID(db *sql.DB, cellID string) *SQLRepositories {
 		jobs:          &SQLJobsRepository{db: db},
 		runs:          &SQLRunsRepository{db: db, cellID: cellID},
 		schedules:     &SQLSchedulesRepository{db: db},
+		scmPolls:      &SQLSCMPollTriggersRepository{db: db},
 		auth:          NewSQLAuthRepository(db),
 		namespaces:    NewSQLNamespacesRepositoryWithCellID(db, cellID),
 		roleBindings:  NewSQLRoleBindingsRepository(db),
@@ -1490,6 +1530,10 @@ func (r *SQLRepositories) Runs() RunsRepository {
 
 func (r *SQLRepositories) Schedules() SchedulesRepository {
 	return r.schedules
+}
+
+func (r *SQLRepositories) SCMPollTriggers() SCMPollTriggersRepository {
+	return r.scmPolls
 }
 
 func (r *SQLRepositories) Auth() AuthRepository {

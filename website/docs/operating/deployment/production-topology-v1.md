@@ -46,6 +46,7 @@ shape.
 | Workers | Scale job execution by adding `vectis-worker` processes. Pair each worker with its own `vectis-worker-core` unless a different provider topology has been deliberately tested. |
 | Reconciler | Run `vectis-reconciler` as required infrastructure. Multiple instances are allowed as active/passive standbys through the database service lease. |
 | Cron | Run `vectis-cron` only if schedules are used. Multiple cron instances may coordinate through the shared database. |
+| SCM poller | Run `vectis-scm-poller` only if SCM polling triggers are used. Multiple instances coordinate through database trigger claims. |
 | Registry | Run one registry by default, or configure a deliberate registry HA cluster. Pin queue, orchestrator, log, or artifact addresses when registry availability should not be on the critical path. |
 | Docs | Treat `vectis-docs` as optional and expose it only to operators unless a separate public-docs posture is chosen. |
 | Secrets | Store API tokens, bootstrap token, PostgreSQL credentials, TLS keys, SPIFFE CA material, encryptedfs keys, and external-provider auth tokens in an operator-controlled secret manager. |

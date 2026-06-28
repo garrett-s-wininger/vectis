@@ -341,6 +341,18 @@ VECTIS_CRON_INSTANCE_ID = "cron-1"
 VECTIS_CRON_CLAIM_TTL = "5m"
 
 [[unit]]
+id = "scm-poller"
+description = "Vectis SCM poller service"
+target_member = true
+common_env = true
+db_backed = true
+
+[unit.env_example]
+VECTIS_SCM_POLLER_INSTANCE_ID = "scm-poller-1"
+VECTIS_SCM_POLLER_INTERVAL = "30s"
+VECTIS_SCM_POLLER_CLAIM_TTL = "5m"
+
+[[unit]]
 id = "catalog"
 description = "Vectis catalog service"
 target_member = true

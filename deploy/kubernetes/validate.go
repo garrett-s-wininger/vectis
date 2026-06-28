@@ -32,6 +32,7 @@ var (
 		"vectis-api",
 		"vectis-docs",
 		"vectis-cron",
+		"vectis-scm-poller",
 		"vectis-reconciler",
 		"vectis-catalog",
 		"vectis-worker",

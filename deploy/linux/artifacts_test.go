@@ -34,6 +34,7 @@ var expectedStandaloneExecs = map[string]string{
 	"vectis-queue.service":         "/usr/bin/vectis-queue",
 	"vectis-reconciler.service":    "/usr/bin/vectis-reconciler",
 	"vectis-registry.service":      "/usr/bin/vectis-registry",
+	"vectis-scm-poller.service":    "/usr/bin/vectis-scm-poller",
 	"vectis-secrets.service":       "/usr/bin/vectis-secrets",
 	"vectis-spiffe.service":        "/usr/bin/vectis-spiffe",
 	"vectis-worker.service":        "/usr/bin/vectis-worker",
@@ -46,6 +47,7 @@ var expectedDBBackedServices = map[string]struct{}{
 	"vectis-cell-ingress.service": {},
 	"vectis-cron.service":         {},
 	"vectis-reconciler.service":   {},
+	"vectis-scm-poller.service":   {},
 	"vectis-secrets.service":      {},
 	"vectis-worker.service":       {},
 }

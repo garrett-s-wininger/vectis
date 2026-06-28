@@ -6114,6 +6114,130 @@ func TestSchedulesRepository_DeleteSourceCronSchedule(t *testing.T) {
 	}
 }
 
+func insertSCMPollTriggerSpec(t *testing.T, ctx context.Context, db *sql.DB, jobID, provider, project, branch string, nextPoll time.Time) int64 {
+	t.Helper()
+
+	result, err := db.ExecContext(ctx,
+		"INSERT INTO job_triggers (job_id, trigger_type) VALUES (?, ?)",
+		jobID,
+		dal.TriggerTypeSCMPoll,
+	)
+	if err != nil {
+		t.Fatalf("insert scm poll trigger: %v", err)
+	}
+
+	triggerID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("scm poll trigger id: %v", err)
+	}
+
+	result, err = db.ExecContext(ctx, `
+		INSERT INTO scm_poll_trigger_specs (trigger_id, provider, project, branch, interval_seconds, next_poll_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, triggerID, provider, project, branch, 60, nextPoll.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("insert scm poll trigger spec: %v", err)
+	}
+
+	specID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("scm poll trigger spec id: %v", err)
+	}
+
+	return specID
+}
+
+func TestSCMPollTriggersRepository_GetReadyClaimCompleteAndRecordEvent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	jobs := repos.Jobs()
+	polls := repos.SCMPollTriggers()
+	ctx := context.Background()
+
+	if err := jobs.CreateDefinitionSnapshot(ctx, "scm-job", `{"id":"scm-job"}`); err != nil {
+		t.Fatalf("create stored job: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	specID := insertSCMPollTriggerSpec(t, ctx, db, "scm-job", "gerrit", "project", "master", now.Add(-time.Minute))
+	insertSCMPollTriggerSpec(t, ctx, db, "scm-job", "gerrit", "project", "stable", now.Add(5*time.Minute))
+
+	ready, err := polls.GetReady(ctx, now, 10)
+	if err != nil {
+		t.Fatalf("get ready scm polls: %v", err)
+	}
+
+	if len(ready) != 1 || ready[0].ID != specID || ready[0].Provider != "gerrit" || ready[0].Branch != "master" {
+		t.Fatalf("unexpected ready scm polls: %+v", ready)
+	}
+
+	claimToken := "claim-scm"
+	claimed, err := polls.ClaimDue(ctx, specID, ready[0].NextPollAt, claimToken, now.Add(5*time.Minute), now)
+	if err != nil {
+		t.Fatalf("claim due: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected scm poll claim to succeed")
+	}
+
+	readyAfterClaim, err := polls.GetReady(ctx, now, 10)
+	if err != nil {
+		t.Fatalf("get ready after claim: %v", err)
+	}
+
+	if len(readyAfterClaim) != 0 {
+		t.Fatalf("expected claimed scm poll to be hidden, got %+v", readyAfterClaim)
+	}
+
+	rec, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
+		TriggerID:   ready[0].TriggerID,
+		EventKey:    "gerrit:project:master:Iabc:rev1",
+		PayloadJSON: `{"change_id":"Iabc","revision":"rev1"}`,
+	})
+
+	if err != nil {
+		t.Fatalf("record scm trigger event: %v", err)
+	}
+
+	if !created || rec.EventKey != "gerrit:project:master:Iabc:rev1" {
+		t.Fatalf("first event record: rec=%+v created=%v", rec, created)
+	}
+
+	_, created, err = polls.RecordEvent(ctx, dal.SCMTriggerEvent{
+		TriggerID:   ready[0].TriggerID,
+		EventKey:    "gerrit:project:master:Iabc:rev1",
+		PayloadJSON: `{"duplicate":true}`,
+	})
+
+	if err != nil {
+		t.Fatalf("record duplicate scm trigger event: %v", err)
+	}
+
+	if created {
+		t.Fatal("expected duplicate event key not to create another row")
+	}
+
+	nextPoll := now.Add(10 * time.Minute)
+	completed, err := polls.CompleteClaim(ctx, specID, claimToken, nextPoll, "cursor-1")
+	if err != nil {
+		t.Fatalf("complete claim: %v", err)
+	}
+
+	if !completed {
+		t.Fatal("expected scm poll completion to succeed")
+	}
+
+	var nextPollStr, cursor string
+	if err := db.QueryRowContext(ctx, "SELECT next_poll_at, cursor FROM scm_poll_trigger_specs WHERE id = ?", specID).Scan(&nextPollStr, &cursor); err != nil {
+		t.Fatalf("read completed scm poll: %v", err)
+	}
+
+	if nextPollStr != nextPoll.Format(time.RFC3339) || cursor != "cursor-1" {
+		t.Fatalf("completed scm poll next/cursor = %q/%q", nextPollStr, cursor)
+	}
+}
+
 func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

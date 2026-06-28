@@ -218,6 +218,13 @@ service = "registry"
 depends = ["vectis-common"]
 
 [[package]]
+id = "vectis-scm-poller"
+name = "vectis-scm-poller"
+summary = "Vectis SCM poller service"
+service = "scm-poller"
+depends = ["vectis-common"]
+
+[[package]]
 id = "vectis-secrets"
 name = "vectis-secrets"
 summary = "Vectis secrets service"
@@ -268,6 +275,7 @@ depends = [
   "vectis-queue",
   "vectis-reconciler",
   "vectis-registry",
+  "vectis-scm-poller",
   "vectis-secrets",
   "vectis-spiffe",
   "vectis-worker",

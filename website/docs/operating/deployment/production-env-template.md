@@ -231,13 +231,21 @@ tokens, database passwords, and TLS private keys in the operator's secret
 manager. Keep Workload API and registration sockets private to trusted service
 code.
 
-## Cron, Reconciler, Catalog, And Docs
+## Cron, SCM Poller, Reconciler, Catalog, And Docs
 
 `/etc/vectis/cron.env`:
 
 ```sh
 VECTIS_CRON_INSTANCE_ID=cron-1
 VECTIS_CRON_CLAIM_TTL=5m
+```
+
+`/etc/vectis/scm-poller.env`:
+
+```sh
+VECTIS_SCM_POLLER_INSTANCE_ID=scm-poller-1
+VECTIS_SCM_POLLER_INTERVAL=30s
+VECTIS_SCM_POLLER_CLAIM_TTL=5m
 ```
 
 `/etc/vectis/reconciler.env`:

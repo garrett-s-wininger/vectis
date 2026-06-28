@@ -985,6 +985,73 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: vectis-scm-poller
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: scm-poller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: scm-poller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: scm-poller
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: scm-poller
+          image: {{ image "scm-poller" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_SCM_POLLER_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: vectis-reconciler
   namespace: {{ yamlQuote .Namespace }}
   labels:

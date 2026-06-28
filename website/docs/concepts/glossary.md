@@ -18,6 +18,8 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Cron (`vectis-cron`)** — The scheduler process. It reads schedules from the database and enqueues runs when they are due.
 
+**SCM poller (`vectis-scm-poller`)** — The source-control polling process. It claims due SCM poll trigger specs and records deduplicated provider events by stable event key.
+
 ## D
 
 **Delivery** — One handoff of queued work from `vectis-queue` to a worker. A run can have more than one delivery over time if queue handoff or worker execution needs recovery.
@@ -60,7 +62,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Pinned address** — A service address, such as queue, orchestrator, log, artifact, secrets, or registry, set explicitly in configuration. Pinned addresses let a component avoid dynamic lookup or environment-specific defaults for that dependency.
 
-**Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cell-ingress`, `vectis-cron`, `vectis-reconciler`, and `vectis-worker` for task continuations.
+**Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cell-ingress`, `vectis-cron`, `vectis-reconciler`, and `vectis-worker` for task continuations. `vectis-scm-poller` records SCM trigger events before the dispatch step.
 
 ## Q
 

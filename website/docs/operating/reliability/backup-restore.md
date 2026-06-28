@@ -239,16 +239,16 @@ passes the smoke test and the operator has accepted the restore point.
 
 Restore in dependency order, then start services in dependency order.
 
-1. Stop API, cell ingress, cron, reconciler, catalog, workers, worker-core, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder processes so no restored state is modified while files are being replaced.
+1. Stop API, cell ingress, cron, SCM poller, reconciler, catalog, workers, worker-core, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder processes so no restored state is modified while files are being replaced.
 2. Restore deployment config, secrets, and TLS material to the same paths or update environment variables before starting services.
 3. Restore the SQL database.
 4. Run `vectis-cli database migrate` for each restored SQL database using the same `VECTIS_DATABASE_DRIVER` and DSN settings that services will use.
 5. Restore queue persistence, log storage, artifact storage directories or object-store buckets, and job secret store when available.
 6. Restore log-forwarder spools on worker hosts if they are part of the backup set.
-7. Start registry, queue, orchestrator, log, artifact, spiffe, and secrets first; then cell ingress, API, worker-core, workers, cron, reconciler, catalog, and log-forwarder.
+7. Start registry, queue, orchestrator, log, artifact, spiffe, and secrets first; then cell ingress, API, worker-core, workers, cron, SCM poller, reconciler, catalog, and log-forwarder.
 8. Run the restore smoke test below.
 
-Do not start cron or workers before the database has been restored and migrations have been checked. They can enqueue or execute work against an incomplete view of the world.
+Do not start cron, SCM poller, or workers before the database has been restored and migrations have been checked. They can enqueue, record trigger events, or execute work against an incomplete view of the world.
 
 ## Partial Restore Outcomes
 
@@ -318,7 +318,7 @@ output next to the volume archives so the captured media is tied to the intended
 reference topology.
 
 1. Stop external trigger sources or block API traffic at the edge.
-2. Stop API, cell ingress, cron, reconciler, catalog, workers, worker-core, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder containers/processes.
+2. Stop API, cell ingress, cron, SCM poller, reconciler, catalog, workers, worker-core, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder containers/processes.
 3. Restore or recreate deployment config, secrets, and TLS volumes. If secrets are recreated instead of restored, update all DSNs, trust bundles, client credentials, and service identity allowlists consistently.
 4. Restore Postgres from the database backup using the database platform's restore process.
 5. Restore queue persistence, log storage, artifact storage directories or object-store buckets, job secret store, SPIFFE CA material, and log-forwarder spools from matching backups when available.
