@@ -168,6 +168,25 @@ func TestIntegration() error {
 	return run("", nil, goCommand(), "test", "-tags=integration", "./...")
 }
 
+// TestE2E runs the e2e-tagged Go test suite.
+func TestE2E() error {
+	return run("", nil, goCommand(), "test", "-tags=e2e", "./tests/e2e/...")
+}
+
+// TestE2EDeployLinux runs the Linux deployment e2e tests.
+func TestE2EDeployLinux() error {
+	env := map[string]string{
+		"PACKER_VM_PREP_VERSION": envDefault("PACKER_VM_PREP_VERSION", "1"),
+	}
+
+	return run("", env, goCommand(), "test", "-tags=e2e", "./tests/e2e/deploy/linux", "-count=1", "-v")
+}
+
+// TestLima runs the Lima virtual machine integration tests.
+func TestLima() error {
+	return run("", nil, goCommand(), "test", "./internal/platform", "./internal/job", "-run", "TestVirtualMachineIntegration", "-count=1", "-v")
+}
+
 // TestPostgresIntegration runs the Postgres integration tests.
 func TestPostgresIntegration() error {
 	return run("", nil, goCommand(), "test", "-tags=integration", "./tests/integration/postgres")

@@ -121,15 +121,15 @@ test-integration:
 
 .PHONY: test-lima
 test-lima:
-	go test ./internal/platform ./internal/job -run TestVirtualMachineIntegration -count=1 -v
+	GO="$(GO)" $(MAGE) testLima
 
 .PHONY: test-e2e
 test-e2e:
-	go test -tags=e2e ./tests/e2e/...
+	GO="$(GO)" $(MAGE) testE2E
 
 .PHONY: test-e2e-deploy-linux
 test-e2e-deploy-linux:
-	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) go test -tags=e2e ./tests/e2e/deploy/linux -count=1 -v
+	PACKER_VM_PREP_VERSION="$(PACKER_VM_PREP_VERSION)" GO="$(GO)" $(MAGE) testE2EDeployLinux
 
 .PHONY: test-postgres-integration
 test-postgres-integration:
