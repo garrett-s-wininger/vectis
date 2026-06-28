@@ -12,6 +12,10 @@ const privateActionUmask = 0o077
 
 func prepare() error {
 	runtime.LockOSThread()
+	if err := resetSignalDispositions(); err != nil {
+		return err
+	}
+
 	if err := resetSignalMask(); err != nil {
 		return err
 	}

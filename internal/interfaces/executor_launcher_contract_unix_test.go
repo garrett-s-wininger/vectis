@@ -3,14 +3,24 @@
 package interfaces
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
+)
+
+const (
+	directExecutorIgnoredSignalDispositionHelperEnv = "VECTIS_DIRECT_EXECUTOR_IGNORED_SIGNAL_DISPOSITION_HELPER"
+	directExecutorSignalDispositionProbeEnv         = "VECTIS_DIRECT_EXECUTOR_SIGNAL_DISPOSITION_PROBE"
 )
 
 func TestDirectExecutorLauncherBoundaryContract(t *testing.T) {
@@ -151,6 +161,89 @@ if sh -c 'printf leak >&%d' 2>/dev/null; then echo parent-fd-open; exit 13; fi`,
 			t.Fatalf("Wait: %v\nstderr:\n%s", err, stderr)
 		}
 	})
+
+	t.Run("ignored signal disposition is reset", func(t *testing.T) {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestDirectExecutorIgnoredSignalDispositionHelper$")
+		cmd.Env = append(os.Environ(), directExecutorIgnoredSignalDispositionHelperEnv+"=1")
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("ignored signal helper failed: %v\n%s", err, output)
+		}
+	})
+
+	t.Run("cancellation reaches final exec process group", func(t *testing.T) {
+		previousGrace := commandProcessGroupCancelGrace
+		commandProcessGroupCancelGrace = 50 * time.Millisecond
+		t.Cleanup(func() { commandProcessGroupCancelGrace = previousGrace })
+
+		ctx, cancel := context.WithCancel(context.Background())
+		process, err := NewDirectExecutor().Start(
+			ctx,
+			"sh",
+			[]string{"-c", "sleep 30 & echo $!; wait"},
+			t.TempDir(),
+			[]string{"PATH=" + os.Getenv("PATH")},
+		)
+
+		if err != nil {
+			cancel()
+			t.Fatalf("Start: %v", err)
+		}
+
+		sleepLine, err := bufio.NewReader(process.Stdout()).ReadString('\n')
+		if err != nil {
+			cancel()
+			_ = process.Wait()
+			t.Fatalf("read background pid: %v", err)
+		}
+
+		sleepPID, err := strconv.Atoi(strings.TrimSpace(sleepLine))
+		if err != nil {
+			cancel()
+			_ = process.Wait()
+			t.Fatalf("parse background pid %q: %v", sleepLine, err)
+		}
+		t.Cleanup(func() { _ = syscall.Kill(sleepPID, syscall.SIGKILL) })
+
+		cancel()
+		if err := process.Wait(); err == nil {
+			t.Fatal("Wait error = nil, want cancellation error")
+		}
+
+		if err := waitForNoProcess(sleepPID, time.Second); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestDirectExecutorIgnoredSignalDispositionHelper(t *testing.T) {
+	if os.Getenv(directExecutorIgnoredSignalDispositionHelperEnv) != "1" {
+		return
+	}
+
+	signal.Ignore(syscall.SIGTERM)
+	stdout, stderr, err := runContractCommand(
+		t,
+		os.Args[0],
+		[]string{"-test.run=^TestDirectExecutorFinalSignalDispositionProbe$"},
+		t.TempDir(),
+		append(os.Environ(), directExecutorSignalDispositionProbeEnv+"=1"),
+	)
+
+	if err != nil {
+		t.Fatalf("probe failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+}
+
+func TestDirectExecutorFinalSignalDispositionProbe(t *testing.T) {
+	if os.Getenv(directExecutorSignalDispositionProbeEnv) != "1" {
+		return
+	}
+
+	if signal.Ignored(syscall.SIGTERM) {
+		t.Fatal("SIGTERM is ignored in final exec process")
+	}
 }
 
 func runContractCommand(t *testing.T, path string, args []string, workDir string, env []string) (string, string, error) {

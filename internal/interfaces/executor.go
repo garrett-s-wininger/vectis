@@ -91,18 +91,20 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 		return nil, err
 	}
 
-	launcherPath, launcherArgs, err := actionlauncher.Command(actionlauncher.LaunchSpec{
-		Path: resolvedPath,
-		Args: args,
+	launcherCommand, err := actionlauncher.Command(actionlauncher.LaunchSpec{
+		Path:    resolvedPath,
+		Args:    args,
+		WorkDir: workDir,
+		Env:     env,
 	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, launcherPath, launcherArgs...)
-	cmd.Dir = workDir
-	cmd.Env = append([]string{}, env...)
+	cmd := exec.CommandContext(ctx, launcherCommand.Path, launcherCommand.Args...)
+	cmd.Dir = launcherCommand.WorkDir
+	cmd.Env = launcherCommand.Env
 	return StartProcess(cmd)
 }
 

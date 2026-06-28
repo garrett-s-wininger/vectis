@@ -15,8 +15,17 @@ const modeArg = "__vectis_action_launcher_v1__"
 // action launcher. Platform-specific setup options should be added here instead
 // of threading loose parameters through executor call sites.
 type LaunchSpec struct {
-	Path string
-	Args []string
+	Path    string
+	Args    []string
+	WorkDir string
+	Env     []string
+}
+
+type PreparedCommand struct {
+	Path    string
+	Args    []string
+	WorkDir string
+	Env     []string
 }
 
 // MaybeRun executes launcher mode when the current binary was re-execed by the
@@ -30,25 +39,39 @@ func MaybeRun() {
 	os.Exit(Run(os.Args[2:], os.Stderr))
 }
 
-func Command(spec LaunchSpec) (string, []string, error) {
+func Command(spec LaunchSpec) (PreparedCommand, error) {
 	if strings.TrimSpace(spec.Path) == "" {
-		return "", nil, fmt.Errorf("action launcher command path is required")
+		return PreparedCommand{}, fmt.Errorf("action launcher command path is required")
+	}
+
+	if strings.TrimSpace(spec.WorkDir) == "" {
+		return PreparedCommand{}, fmt.Errorf("action launcher work directory is required")
 	}
 
 	target := spec.Path
+	prepared := PreparedCommand{
+		Path:    target,
+		Args:    append([]string(nil), spec.Args...),
+		WorkDir: spec.WorkDir,
+		Env:     append([]string{}, spec.Env...),
+	}
+
 	if !enabled {
-		return target, append([]string(nil), spec.Args...), nil
+		return prepared, nil
 	}
 
 	exe, err := os.Executable()
 	if err != nil {
-		return "", nil, fmt.Errorf("resolve action launcher executable: %w", err)
+		return PreparedCommand{}, fmt.Errorf("resolve action launcher executable: %w", err)
 	}
 
 	launcherArgs := make([]string, 0, len(spec.Args)+2)
 	launcherArgs = append(launcherArgs, modeArg, target)
 	launcherArgs = append(launcherArgs, spec.Args...)
-	return exe, launcherArgs, nil
+	prepared.Path = exe
+	prepared.Args = launcherArgs
+
+	return prepared, nil
 }
 
 func Run(args []string, stderr io.Writer) int {
