@@ -42,6 +42,7 @@ type GitCheckoutStatus struct {
 	HydrationRemote    string
 	HydrationTier      string
 	HydrationCacheHit  bool
+	AuxiliaryRefs      []string
 	ErrorCode          string
 	ErrorMessage       string
 }

@@ -418,6 +418,95 @@ func TestHydrateManagedGitRefFetchesProviderRefs(t *testing.T) {
 	}
 }
 
+func TestHydrateManagedGitContextFetchesAuxiliaryNotesRef(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	git(t, remote, "checkout", "-b", "review/notes")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "notes", "--ref=commits", "add", "-m", "review note", reviewCommit)
+	git(t, remote, "update-ref", "refs/pull/789/head", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/notes"); got != "" {
+		t.Fatalf("managed checkout should not have notes before context hydration, got %q", got)
+	}
+
+	status = HydrateManagedGitContext(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath:  checkoutPath,
+		Ref:           "refs/pull/789/head",
+		AuxiliaryRefs: []string{"refs/notes/commits"},
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("hydrate provider ref with notes failed: %+v", status)
+	}
+
+	if !status.DefaultRefResolved || status.ResolvedCommit != reviewCommit {
+		t.Fatalf("provider ref status mismatch: %+v", status)
+	}
+
+	if len(status.AuxiliaryRefs) != 1 || status.AuxiliaryRefs[0] != "refs/notes/commits" {
+		t.Fatalf("hydrated auxiliary refs mismatch: %+v", status.AuxiliaryRefs)
+	}
+
+	if got := gitOutput(t, checkoutPath, "notes", "--ref=commits", "show", reviewCommit); got != "review note" {
+		t.Fatalf("hydrated note: got %q, want review note", got)
+	}
+}
+
+func TestHydrateManagedGitContextRejectsUnsupportedAuxiliaryRefs(t *testing.T) {
+	status := HydrateManagedGitContext(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath:  t.TempDir(),
+		Ref:           "main",
+		AuxiliaryRefs: []string{"refs/heads/main"},
+	})
+
+	if status.ErrorCode != "git_auxiliary_refs_invalid" {
+		t.Fatalf("expected invalid auxiliary refs, got %+v", status)
+	}
+}
+
+func TestHydrateManagedGitContextRequiresAuxiliaryRefs(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	status = HydrateManagedGitContext(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath:  checkoutPath,
+		Ref:           defaultBranch,
+		AuxiliaryRefs: []string{"refs/notes/commits"},
+	})
+
+	if status.ErrorCode != "source_auxiliary_ref_not_found" {
+		t.Fatalf("expected missing auxiliary ref, got %+v", status)
+	}
+}
+
 func TestSyncManagedGitCheckoutFetchesProviderDefaultRefOnDemand(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")

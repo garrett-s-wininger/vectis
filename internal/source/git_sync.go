@@ -30,6 +30,7 @@ type ManagedGitRefHydrationRequest struct {
 	Ref                string
 	PreferredRemote    string
 	FallbackRemoteURLs []string
+	AuxiliaryRefs      []string
 	Credentials        GitCredentials
 }
 
@@ -142,7 +143,13 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 	return finalStatus
 }
 
-// HydrateManagedGitRef fetches one safe branch or tag ref into an existing managed checkout.
+// HydrateManagedGitContext fetches one safe branch, tag, or provider ref plus
+// explicitly requested auxiliary refs into an existing managed checkout.
+func HydrateManagedGitContext(ctx context.Context, req ManagedGitRefHydrationRequest) GitCheckoutStatus {
+	return HydrateManagedGitRef(ctx, req)
+}
+
+// HydrateManagedGitRef fetches one safe branch, tag, or provider ref into an existing managed checkout.
 func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest) GitCheckoutStatus {
 	checkoutPath := strings.TrimSpace(req.CheckoutPath)
 	ref := strings.TrimSpace(req.Ref)
@@ -164,6 +171,12 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 	fallbackRemoteURLs, err := normalizeManagedGitFallbackRemoteURLs(req.FallbackRemoteURLs)
 	if err != nil {
 		status.setError("git_fallback_remotes_invalid", err.Error())
+		return status
+	}
+
+	auxiliaryRefs, err := normalizeManagedGitAuxiliaryRefs(req.AuxiliaryRefs)
+	if err != nil {
+		status.setError("git_auxiliary_refs_invalid", err.Error())
 		return status
 	}
 
@@ -210,9 +223,28 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 		return checkoutStatus
 	}
 
+	if len(auxiliaryRefs) > 0 {
+		hydratedAuxiliaryRefs, err := fetchManagedGitAuxiliaryRefs(ctx, checkoutPath, credentialEnv, auxiliaryRefs, hydrationRemote)
+		if err != nil {
+			checkoutStatus.DefaultRef = ref
+			if strings.TrimSpace(checkoutStatus.ErrorCode) == "" {
+				if errors.Is(err, ErrNotFound) {
+					checkoutStatus.setError("source_auxiliary_ref_not_found", err.Error())
+				} else {
+					checkoutStatus.setError("git_auxiliary_fetch_failed", err.Error())
+				}
+			}
+
+			return checkoutStatus
+		}
+
+		status.AuxiliaryRefs = hydratedAuxiliaryRefs
+	}
+
 	finalStatus := NewManagedGitCheckout(checkoutPath).Status(ctx, ref)
 	finalStatus.HydrationRemote = hydrationRemote
 	finalStatus.HydrationTier = managedGitHydrationTier(hydrationRemote)
+	finalStatus.AuxiliaryRefs = status.AuxiliaryRefs
 	return finalStatus
 }
 
@@ -408,6 +440,80 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	return hydrationRemote, nil
 }
 
+func fetchManagedGitAuxiliaryRefs(ctx context.Context, checkoutPath string, env []string, refs []string, preferredRemote string) ([]string, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+
+	hydratedRefs := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if _, err := fetchManagedGitAuxiliaryRef(ctx, checkoutPath, env, ref, preferredRemote); err != nil {
+			return nil, err
+		}
+
+		hydratedRefs = append(hydratedRefs, ref)
+	}
+
+	return hydratedRefs, nil
+}
+
+func fetchManagedGitAuxiliaryRef(ctx context.Context, checkoutPath string, env []string, ref, preferredRemote string) (string, error) {
+	sourceRef, destRef, ok := managedGitAuxiliaryFetchRefspec(ref)
+	if !ok {
+		return "", fmt.Errorf("%w: managed auxiliary ref %q is not supported", ErrInvalidReference, ref)
+	}
+
+	candidateRef := managedGitCandidateRef()
+	defer func() {
+		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
+	}()
+
+	refspec := "+" + sourceRef + ":" + candidateRef
+	var fetchErrors []string
+	var hydrationRemote string
+	allFetchErrorsMissing := true
+	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath, preferredRemote) {
+		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
+		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
+			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
+			if !managedGitFetchErrorIsMissingRef(err) {
+				allFetchErrorsMissing = false
+			}
+
+			continue
+		}
+
+		fetchErrors = nil
+		hydrationRemote = remote
+		break
+	}
+
+	if len(fetchErrors) > 0 {
+		err := fmt.Errorf("fetch managed auxiliary ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
+		if allFetchErrorsMissing {
+			return "", fmt.Errorf("%w: %v", ErrNotFound, err)
+		}
+
+		return "", err
+	}
+
+	commitOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef+"^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("%w: auxiliary candidate ref %s did not resolve to a commit: %v", ErrNotFound, candidateRef, err)
+	}
+
+	commitID := strings.TrimSpace(string(commitOut))
+	if commitID == "" {
+		return "", fmt.Errorf("%w: auxiliary candidate ref %s resolved to an empty commit", ErrInvalidReference, candidateRef)
+	}
+
+	if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", destRef, commitID); err != nil {
+		return "", fmt.Errorf("publish managed auxiliary ref %s: %w", destRef, err)
+	}
+
+	return hydrationRemote, nil
+}
+
 func managedGitCandidateRef() string {
 	return "refs/vectis/candidates/" + uuid.NewString()
 }
@@ -542,6 +648,53 @@ func managedGitFetchRefspec(ref string) (string, string, bool) {
 
 		return "refs/heads/" + branch, "refs/remotes/origin/" + branch, true
 	}
+}
+
+func normalizeManagedGitAuxiliaryRefs(refs []string) ([]string, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+
+	out := make([]string, 0, len(refs))
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			return nil, fmt.Errorf("%w: auxiliary ref is required", ErrInvalidReference)
+		}
+
+		normalized, err := normalizeRef(ref)
+		if err != nil {
+			return nil, err
+		}
+
+		if !managedGitAuxiliaryRef(normalized) {
+			return nil, fmt.Errorf("%w: auxiliary ref %q is not supported", ErrInvalidReference, normalized)
+		}
+
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+
+	return out, nil
+}
+
+func managedGitAuxiliaryFetchRefspec(ref string) (string, string, bool) {
+	ref = strings.TrimSpace(ref)
+	if !managedGitAuxiliaryRef(ref) {
+		return "", "", false
+	}
+
+	return ref, ref, true
+}
+
+func managedGitAuxiliaryRef(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	return strings.HasPrefix(ref, "refs/notes/") && strings.TrimPrefix(ref, "refs/notes/") != ""
 }
 
 func managedGitProviderRef(ref string) bool {
