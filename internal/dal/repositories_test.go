@@ -2059,6 +2059,14 @@ func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
 		t.Fatalf("create running run: %v", err)
 	}
 
+	orphanedCreated, err := repos.Runs().CreateRunsInCellsWithAudit(ctx, jobID, nil, 1, []string{dal.DefaultCellID}, dal.RunAuditMetadata{
+		StartDeadlineUnixNano: now.Add(time.Hour).UnixNano(),
+	})
+
+	if err != nil {
+		t.Fatalf("create orphaned run: %v", err)
+	}
+
 	expiredDispatch, err := repos.Runs().GetPendingExecution(ctx, expiredCreated[0].RunID)
 	if err != nil {
 		t.Fatalf("get expired dispatch: %v", err)
@@ -2074,12 +2082,25 @@ func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
 		t.Fatalf("mark running execution started: %v", err)
 	}
 
+	orphanedDispatch, _ := claimPendingRunExecution(t, ctx, repos.Runs(), orphanedCreated[0].RunID, "worker-orphaned", time.Now().Add(-time.Minute))
+	if err := repos.Runs().MarkRunOrphaned(ctx, orphanedCreated[0].RunID, dal.OrphanReasonLeaseExpired); err != nil {
+		t.Fatalf("mark orphaned run: %v", err)
+	}
+
 	if _, err := db.ExecContext(ctx, `
 		UPDATE segment_executions
 		SET start_deadline_unix_nano = ?, lease_until = ?
 		WHERE execution_id = ?
 	`, now.Add(-time.Second).UnixNano(), now.Add(-time.Minute).Unix(), runningDispatch.ExecutionID); err != nil {
 		t.Fatalf("force running execution expired deadline: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE segment_executions
+		SET start_deadline_unix_nano = ?, lease_until = ?
+		WHERE execution_id = ?
+	`, now.Add(-time.Second).UnixNano(), now.Add(-time.Minute).Unix(), orphanedDispatch.ExecutionID); err != nil {
+		t.Fatalf("force orphaned execution expired deadline: %v", err)
 	}
 
 	expired, err := repos.Runs().MarkExpiredQueuedExecutionsFailed(ctx, now.UnixNano(), 10)
@@ -2117,6 +2138,19 @@ func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
 
 	if runningRunStatus != dal.RunStatusRunning || runningExecutionStatus != dal.ExecutionStatusRunning {
 		t.Fatalf("running execution should not dispatch-expire after it starts, run=%q execution=%q claim=%+v", runningRunStatus, runningExecutionStatus, claim)
+	}
+
+	var orphanedRunStatus, orphanedExecutionStatus string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, orphanedCreated[0].RunID).Scan(&orphanedRunStatus); err != nil {
+		t.Fatalf("scan orphaned run status: %v", err)
+	}
+
+	if err := db.QueryRowContext(ctx, `SELECT status FROM segment_executions WHERE execution_id = ?`, orphanedDispatch.ExecutionID).Scan(&orphanedExecutionStatus); err != nil {
+		t.Fatalf("scan orphaned execution status: %v", err)
+	}
+
+	if orphanedRunStatus != dal.RunStatusOrphaned || orphanedExecutionStatus != dal.ExecutionStatusAccepted {
+		t.Fatalf("orphaned execution should not dispatch-expire automatically, run=%q execution=%q", orphanedRunStatus, orphanedExecutionStatus)
 	}
 }
 

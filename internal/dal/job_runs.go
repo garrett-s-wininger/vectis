@@ -4936,11 +4936,11 @@ func (r *SQLRunsRepository) MarkExpiredQueuedExecutionsFailed(ctx context.Contex
 		WHERE se.start_deadline_unix_nano IS NOT NULL
 			AND se.start_deadline_unix_nano <= ?
 			AND se.status IN (?, ?)
-			AND jr.status IN (?, ?, ?)
+			AND jr.status IN (?, ?)
 			AND (se.lease_until IS NULL OR se.lease_until < ?)
 		ORDER BY se.start_deadline_unix_nano ASC, se.id ASC
 		LIMIT ?
-	`), cutoffUnixNano, ExecutionStatusPending, ExecutionStatusAccepted, RunStatusQueued, RunStatusRunning, RunStatusOrphaned, cutoff.Unix(), limit)
+	`), cutoffUnixNano, ExecutionStatusPending, ExecutionStatusAccepted, RunStatusQueued, RunStatusRunning, cutoff.Unix(), limit)
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
@@ -5016,7 +5016,7 @@ func expireExecutionStartDeadlineTx(ctx context.Context, tx *sql.Tx, executionID
 		return ExpiredExecution{}, false, nil
 	}
 
-	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning, RunStatusOrphaned}) {
+	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning}) {
 		return ExpiredExecution{}, false, nil
 	}
 
@@ -5050,8 +5050,8 @@ func markRunFailedForExpiredDispatchTx(ctx context.Context, tx *sql.Tx, runID, r
 			cancel_requested_at = NULL,
 			cancel_reason = NULL
 		WHERE run_id = ?
-			AND status IN (?, ?, ?)
-	`), RunStatusFailed, FailureCodeDispatchExpired, nullableReason(reason), runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
+			AND status IN (?, ?)
+	`), RunStatusFailed, FailureCodeDispatchExpired, nullableReason(reason), runID, RunStatusQueued, RunStatusRunning)
 
 	if err != nil {
 		return normalizeSQLError(err)
