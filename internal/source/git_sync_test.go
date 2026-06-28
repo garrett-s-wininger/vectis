@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
@@ -241,6 +242,108 @@ func TestHydrateManagedGitRefDoesNotPublishFailedCandidate(t *testing.T) {
 
 	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/vectis/candidates"); got != "" {
 		t.Fatalf("failed hydrate should not leave candidate refs, got %q", got)
+	}
+}
+
+func TestHydrateManagedGitRefWaitsForManagedWriterLock(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	git(t, remote, "checkout", "-b", "feature/waits-for-lock")
+	writeAndCommit(t, remote, "README.md", "feature\n", "feature")
+	featureCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "checkout", defaultBranch)
+
+	lock, err := acquireManagedGitWriterLock(context.Background(), checkoutPath)
+	if err != nil {
+		t.Fatalf("acquire managed writer lock: %v", err)
+	}
+
+	locked := true
+	defer func() {
+		if locked {
+			_ = lock.Close()
+		}
+	}()
+
+	done := make(chan GitCheckoutStatus, 1)
+	go func() {
+		done <- HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
+			CheckoutPath: checkoutPath,
+			Ref:          "feature/waits-for-lock",
+		})
+	}()
+
+	select {
+	case status := <-done:
+		t.Fatalf("hydrate completed while managed writer lock was held: %+v", status)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release managed writer lock: %v", err)
+	}
+
+	locked = false
+
+	select {
+	case status := <-done:
+		if status.ErrorCode != "" {
+			t.Fatalf("hydrate after lock release failed: %+v", status)
+		}
+
+		if !status.DefaultRefResolved || status.ResolvedCommit != featureCommit {
+			t.Fatalf("hydrated feature branch status mismatch: %+v", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("hydrate did not complete after managed writer lock release")
+	}
+}
+
+func TestHydrateManagedGitRefContextExpiresWaitingForManagedWriterLock(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	lock, err := acquireManagedGitWriterLock(context.Background(), checkoutPath)
+	if err != nil {
+		t.Fatalf("acquire managed writer lock: %v", err)
+	}
+	defer lock.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+
+	status = HydrateManagedGitRef(ctx, ManagedGitRefHydrationRequest{
+		CheckoutPath: checkoutPath,
+		Ref:          defaultBranch,
+	})
+
+	if status.ErrorCode != "git_lock_failed" {
+		t.Fatalf("expected git_lock_failed while lock is held, got %+v", status)
 	}
 }
 

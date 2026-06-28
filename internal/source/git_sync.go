@@ -46,6 +46,16 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 	}
 	defer credentialCleanup()
 
+	lock, err := acquireManagedGitWriterLock(ctx, checkoutPath)
+	if err != nil {
+		status.setError("git_lock_failed", err.Error())
+		return status
+	}
+
+	defer func() {
+		_ = lock.Close()
+	}()
+
 	info, err := os.Stat(checkoutPath)
 	switch {
 	case err == nil:
@@ -132,6 +142,16 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 		return status
 	}
 	defer credentialCleanup()
+
+	lock, err := acquireManagedGitWriterLock(ctx, checkoutPath)
+	if err != nil {
+		status.setError("git_lock_failed", err.Error())
+		return status
+	}
+
+	defer func() {
+		_ = lock.Close()
+	}()
 
 	checkoutStatus := NewManagedGitCheckout(checkoutPath).Status(ctx, "")
 	if checkoutStatus.ErrorCode != "" {
