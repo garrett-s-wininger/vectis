@@ -1,5 +1,10 @@
-import { useRef } from "react";
 import type { Namespace } from "../../domain/console";
+import {
+  closeOtherDropdowns,
+  closeOtherDropdownsFromTrigger,
+  closeParentDropdown,
+  coordinatedDropdownProps
+} from "./dropdownCoordination";
 import styles from "./NamespacePicker.module.css";
 
 type NamespacePickerProps = {
@@ -10,14 +15,21 @@ type NamespacePickerProps = {
 };
 
 export function NamespacePicker({ compact = false, namespaces, onChange, value }: NamespacePickerProps) {
-  const menuRef = useRef<HTMLDetailsElement>(null);
   const selectedNamespace = namespaces.find((namespace) => namespace.path === value);
   const selectedLabel = formatNamespaceLabel(selectedNamespace?.path ?? value);
 
   if (compact) {
     return (
-      <details className={`${styles.root} ${styles.compact}`} ref={menuRef}>
-        <summary className={styles.summary} aria-label="Namespace">
+      <details
+        {...coordinatedDropdownProps}
+        className={`${styles.root} ${styles.compact}`}
+        onToggle={(event) => closeOtherDropdowns(event.currentTarget)}
+      >
+        <summary
+          className={styles.summary}
+          aria-label="Namespace"
+          onClick={(event) => closeOtherDropdownsFromTrigger(event.currentTarget)}
+        >
           <span>Namespace</span>
           <strong>{selectedLabel}</strong>
         </summary>
@@ -27,11 +39,9 @@ export function NamespacePicker({ compact = false, namespaces, onChange, value }
               aria-current={namespace.path === value ? "page" : undefined}
               className={styles.menuItem}
               key={namespace.id}
-              onClick={() => {
+              onClick={(event) => {
                 onChange(namespace.path);
-                if (menuRef.current) {
-                  menuRef.current.open = false;
-                }
+                closeParentDropdown(event.currentTarget);
               }}
               type="button"
             >

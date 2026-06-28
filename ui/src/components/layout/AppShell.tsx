@@ -1,4 +1,13 @@
 import type { MouseEvent, ReactNode } from "react";
+import { useEffect } from "react";
+import {
+  closeCoordinatedDropdowns,
+  closeOtherDropdowns,
+  closeOtherDropdownsFromTrigger,
+  closeParentDropdown,
+  coordinatedDropdownProps,
+  isInsideCoordinatedDropdown
+} from "../navigation/dropdownCoordination";
 import styles from "./AppShell.module.css";
 
 export type NavItem = {
@@ -43,6 +52,30 @@ export function AppShell({
   const isAccountActive = activeHref === "/profile";
   const hasAccountMenu = showProfile || onSignOut;
 
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (isInsideCoordinatedDropdown(event.target)) {
+        return;
+      }
+
+      closeCoordinatedDropdowns(document);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeCoordinatedDropdowns(document);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   return (
     <div className={styles.root}>
       <header className={styles.topbar}>
@@ -76,10 +109,14 @@ export function AppShell({
           ) : null}
           {accountName && hasAccountMenu ? (
             <details
+              {...coordinatedDropdownProps}
               className={`${styles.accountMenu} ${isAccountActive ? styles.accountMenuActive : ""}`}
-              onToggle={(event) => closeOtherDetails(event.currentTarget)}
+              onToggle={(event) => closeOtherDropdowns(event.currentTarget)}
             >
-              <summary className={styles.accountSummary} onClick={(event) => closeSiblingDetails(event.currentTarget)}>
+              <summary
+                className={styles.accountSummary}
+                onClick={(event) => closeOtherDropdownsFromTrigger(event.currentTarget)}
+              >
                 <span className={styles.accountAvatar}>{accountName.slice(0, 1).toUpperCase()}</span>
                 <span className={styles.accountName}>{accountName}</span>
               </summary>
@@ -92,7 +129,7 @@ export function AppShell({
                     href="/profile"
                     onClick={(event) => {
                       onNavigate?.("/profile", event);
-                      closeParentDetails(event.currentTarget);
+                      closeParentDropdown(event.currentTarget);
                     }}
                   >
                     Profile
@@ -102,7 +139,7 @@ export function AppShell({
                   <button
                     className={styles.accountAction}
                     onClick={(event) => {
-                      closeParentDetails(event.currentTarget);
+                      closeParentDropdown(event.currentTarget);
                       onSignOut();
                     }}
                     type="button"
@@ -135,11 +172,15 @@ function NavEntries({
 
       return (
         <details
+          {...coordinatedDropdownProps}
           className={`${styles.navGroup} ${isActive ? styles.navGroupActive : ""}`}
           key={item.label}
-          onToggle={(event) => closeOtherDetails(event.currentTarget)}
+          onToggle={(event) => closeOtherDropdowns(event.currentTarget)}
         >
-          <summary className={styles.navGroupSummary} onClick={(event) => closeSiblingDetails(event.currentTarget)}>
+          <summary
+            className={styles.navGroupSummary}
+            onClick={(event) => closeOtherDropdownsFromTrigger(event.currentTarget)}
+          >
             <span className={styles.navGroupLabel}>{item.label}</span>
           </summary>
           <div className={styles.navMenu}>
@@ -151,7 +192,7 @@ function NavEntries({
                 key={child.href}
                 onClick={(event) => {
                   onNavigate?.(child.href, event);
-                  closeParentDetails(event.currentTarget);
+                  closeParentDropdown(event.currentTarget);
                 }}
               >
                 {child.label}
@@ -173,32 +214,5 @@ function NavEntries({
         {item.label}
       </a>
     );
-  });
-}
-
-function closeParentDetails(element: HTMLElement) {
-  const details = element.closest("details");
-
-  if (details) {
-    details.open = false;
-  }
-}
-
-function closeOtherDetails(currentDetails: HTMLDetailsElement) {
-  if (!currentDetails.open) {
-    return;
-  }
-
-  closeSiblingDetails(currentDetails);
-}
-
-function closeSiblingDetails(element: HTMLElement) {
-  const currentDetails = element.closest("details");
-  const header = element.closest("header");
-
-  header?.querySelectorAll("details").forEach((details) => {
-    if (details !== currentDetails) {
-      details.open = false;
-    }
   });
 }

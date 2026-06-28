@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { AppShell, type NavEntry } from "./AppShell";
 import { Button } from "../primitives/Button";
+import { NamespacePicker } from "../navigation/NamespacePicker";
+import type { Namespace } from "../../domain/console";
 
 const navItems: NavEntry[] = [
   { href: "/runs", label: "Runs" },
@@ -14,6 +16,24 @@ const utilityNavItems: NavEntry[] = [
       { href: "/health", label: "Health" },
       { href: "/users", label: "Users" }
     ]
+  }
+];
+
+const namespaces: Namespace[] = [
+  {
+    id: 1,
+    name: "/",
+    path: "/",
+    breakInheritance: false,
+    role: "Admin"
+  },
+  {
+    id: 2,
+    name: "team-a",
+    parentID: 1,
+    path: "/team-a",
+    breakInheritance: false,
+    role: "Operator"
   }
 ];
 
@@ -172,5 +192,60 @@ describe("AppShell", () => {
 
     expect(accountMenu).toHaveAttribute("open");
     expect(adminMenu).not.toHaveAttribute("open");
+  });
+
+  it("coordinates shell dropdowns with page dropdowns", () => {
+    render(
+      <AppShell
+        accountName="admin"
+        activeHref="/jobs"
+        brand="Vectis"
+        navItems={navItems}
+        utilityNavItems={utilityNavItems}
+      >
+        <NamespacePicker compact namespaces={namespaces} onChange={() => undefined} value="/" />
+      </AppShell>
+    );
+
+    fireEvent.click(screen.getByLabelText("Namespace"));
+    const namespaceMenu = screen.getByLabelText("Namespace").closest("details");
+
+    expect(namespaceMenu).toHaveAttribute("open");
+
+    fireEvent.click(screen.getByText("Admin"));
+    const adminMenu = screen.getByText("Admin").closest("details");
+
+    expect(adminMenu).toHaveAttribute("open");
+    expect(namespaceMenu).not.toHaveAttribute("open");
+
+    fireEvent.click(screen.getByLabelText("Namespace"));
+
+    expect(namespaceMenu).toHaveAttribute("open");
+    expect(adminMenu).not.toHaveAttribute("open");
+  });
+
+  it("dismisses open dropdowns on outside click and Escape", () => {
+    render(
+      <AppShell accountName="admin" activeHref="/jobs" brand="Vectis" navItems={navItems}>
+        <button type="button">Page action</button>
+      </AppShell>
+    );
+
+    fireEvent.click(screen.getByText("admin"));
+    const accountMenu = screen.getByText("admin").closest("details");
+
+    expect(accountMenu).toHaveAttribute("open");
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Page action" }));
+
+    expect(accountMenu).not.toHaveAttribute("open");
+
+    fireEvent.click(screen.getByText("admin"));
+
+    expect(accountMenu).toHaveAttribute("open");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(accountMenu).not.toHaveAttribute("open");
   });
 });
