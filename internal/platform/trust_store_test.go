@@ -33,7 +33,7 @@ func captureTrustCommands(t *testing.T, exists map[string]bool) *[]capturedTrust
 	}
 
 	runTrustCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		commands = append(commands, capturedTrustCommand{name: name, args: append([]string{}, args...)})
+		commands = append(commands, capturedTrustCommand{name: name, args: append([]string(nil), args...)})
 		return nil, nil
 	}
 
