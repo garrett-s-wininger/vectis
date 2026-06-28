@@ -48,7 +48,7 @@ Use one of these paths.
 For packages:
 
 ```sh
-make package-linux
+mage packageLinux
 ```
 
 Install the package set for the services this host should run. The package lane

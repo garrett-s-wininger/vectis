@@ -8,16 +8,16 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 |---|---|
 | Go | `go 1.25.10` (see [`go.mod`](go.mod)) |
 | CGO | Required locally (SQLite driver) — `CGO_ENABLED=1` (default). Disabled for container builds (`CGO_ENABLED=0` + `-tags=nosqlite`). |
-| Protobuf compiler | `protoc` with local `protoc-gen-go` and `protoc-gen-go-grpc` plugins; override `PROTOC*` Make variables if needed |
-| Protobuf codegen | `make proto` — invokes local `protoc`, output to `api/gen/go/` (read-only) |
-| TLA+ (formal) | Java + `/opt/tla+/tla2tools.jar` (optional, for `make formal-verification`) |
-| Container | Podman (targets: `make image-full`, `make images-components`, `make image-api`, etc.) |
+| Protobuf compiler | `protoc` with local `protoc-gen-go` and `protoc-gen-go-grpc` plugins; override `PROTOC*` env variables if needed |
+| Protobuf codegen | `mage proto` — invokes local `protoc`, output to `api/gen/go/` (read-only) |
+| TLA+ (formal) | Java + `/opt/tla+/tla2tools.jar` (optional, for `mage formalVerification`) |
+| Container | Podman (targets: `mage imageFull`, `mage imagesComponents`, `mage image api`, etc.) |
 
 ## Where to change
 
 - **HTTP API, auth, RBAC** → `internal/api/`
 - **SQL schema / queries** → `internal/dal/`, `internal/migrations/`
-- **gRPC contracts** → `api/proto/` then `make proto` (generated code in `api/gen/go/` is read-only)
+- **gRPC contracts** → `api/proto/` then `mage proto` (generated code in `api/gen/go/` is read-only)
 - **Queue / orchestration / worker / logs / registry servers** → `internal/queue/`, `internal/orchestrator/`, `internal/job/` (execute), `cmd/worker/`, `internal/logserver/`, `internal/registry/`
 - **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
@@ -60,7 +60,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | Concern | Source of truth |
 |---------|-----------------|
 | Go module / deps | [`go.mod`](go.mod) |
-| Protobuf codegen | [`api/proto/`](api/proto/) + `make proto` |
+| Protobuf codegen | [`api/proto/`](api/proto/) + `mage proto` |
 | Default ports, DSN, feature flags | [`internal/config/defaults.toml`](internal/config/defaults.toml) |
 | Env ↔ config binding | [`internal/config/`](internal/config/) (`BindEnv`, helpers), plus [`cmd/AGENTS.md`](cmd/AGENTS.md) |
 | Containers | [`build/Containerfile`](build/Containerfile) |
@@ -92,13 +92,13 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 
 ### Add a new gRPC RPC
 1. Define protobuf messages and RPC in `api/proto/*.proto`.
-2. `make proto` regenerates `api/gen/go/`.
+2. `mage proto` regenerates `api/gen/go/`.
 3. Register or update the server implementation in the appropriate `internal/` package.
 4. If consumers need a domain-facing type, add an interface in `internal/interfaces/` and implement it.
 
 ### Add a new binary
 1. Create `cmd/<name>/main.go` following the pattern in [`cmd/AGENTS.md`](cmd/AGENTS.md#pattern-services-with-viper)
-2. Add `$(OUT_DIR)/vectis-<name>` to `$(BINARIES)` in [`Makefile`](Makefile)
+2. Add the binary name to `appNames` in [`mage_build.go`](mage_build.go), and to image/package lists when applicable.
 3. If it opens SQL, add the `_ "vectis/internal/dbdrivers"` import
 4. Register its env prefix in the table in [`cmd/AGENTS.md`](cmd/AGENTS.md)
 
@@ -114,13 +114,13 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 
 ## Commands
 
-Targets and recipes live in the root [`Makefile`](Makefile): `build`, `test`, `test-integration`, `proto`, `format`, `images-components`, `image-full`, `formal-verification`. Common dev loop:
+Targets and recipes live in split Mage files (`mage_*.go`). Common dev loop:
 
 ```sh
-make proto                 # regenerate protobuf stubs
-make test-quick            # fast feedback (internal + cmd + api + sdk/examples/tools, 60s timeout)
-make lint                  # route security lint + golangci-lint
-make test-integration      # full integration suite
+mage proto                 # regenerate protobuf stubs
+mage testQuick             # fast feedback (internal + cmd + api + sdk/examples/tools, 60s timeout)
+mage lint                  # route security lint + golangci-lint
+mage testIntegration       # full integration suite
 ```
 
 ## Configuration
@@ -131,7 +131,7 @@ make test-integration      # full integration suite
 
 ## Troubleshooting
 
-- **`make proto` fails:** ensure `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` are installed; override `PROTOC`, `PROTOC_GEN_GO`, or `PROTOC_GEN_GO_GRPC` if they are outside the defaults.
+- **`mage proto` fails:** ensure `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` are installed; override `PROTOC`, `PROTOC_GEN_GO`, or `PROTOC_GEN_GO_GRPC` if they are outside the defaults.
 - **SQLite tests fail:** ensure `CGO_ENABLED=1` (CGO is required for `mattn/go-sqlite3`).
 - **Integration tests fail:** check `VECTIS_DATABASE_DSN` and that the Postgres test instance is reachable. See [`tests/AGENTS.md`](tests/AGENTS.md).
 - **Env prefix mismatch:** `rg SetEnvPrefix cmd/` is the source of truth; update [`cmd/AGENTS.md`](cmd/AGENTS.md) if the table disagrees.

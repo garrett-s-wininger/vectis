@@ -7,28 +7,28 @@ VMs from templates.
 Prepare and check both package smoke profiles with:
 
 ```sh
-make vm-package-smoke-prepare
-make vm-package-smoke-check
+mage vmPackageSmokePrepare
+mage vmPackageSmokeCheck
 ```
 
 The shared VM umbrella targets include both package smoke profiles:
 
 ```sh
-make vm-prepare
-make vm-check
+mage vmPrepare
+mage vmCheck
 ```
 
 Or run one side of the package matrix:
 
 ```sh
-make vm-package-smoke-deb-prepare
-make vm-package-smoke-deb-check
-make vm-package-smoke-rpm-prepare
-make vm-package-smoke-rpm-check
+mage vmPackageSmokeDebPrepare
+mage vmPackageSmokeDebCheck
+mage vmPackageSmokeRPMPrepare
+mage vmPackageSmokeRPMCheck
 ```
 
-The check targets use `vm-doctor --lane package-smoke-deb` and
-`vm-doctor --lane package-smoke-rpm` so status, marker, and guest tooling checks
+The check targets use `mage vmDoctor` with the package-smoke lanes so status,
+marker, and guest tooling checks
 stay behind the shared VM provider path.
 
 Defaults:

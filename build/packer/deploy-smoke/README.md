@@ -7,18 +7,18 @@ templates.
 Prepare and check the deploy smoke VM with:
 
 ```sh
-make vm-deploy-smoke-prepare
-make vm-deploy-smoke-check
+mage vmDeploySmokePrepare
+mage vmDeploySmokeCheck
 ```
 
 The shared VM umbrella targets include this deploy smoke VM:
 
 ```sh
-make vm-prepare
-make vm-check
+mage vmPrepare
+mage vmCheck
 ```
 
-The check target uses `vm-doctor --lane deploy-smoke` so status, marker, and
+The check target uses `mage vmDoctor` with the deploy-smoke lane so status, marker, and
 guest tooling checks stay behind the shared VM provider path.
 
 Defaults:

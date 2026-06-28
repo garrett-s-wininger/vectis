@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -195,9 +196,12 @@ func TestRunCheckRecordsPassAndFailure(t *testing.T) {
 		ID:      "unit",
 		Title:   "Unit check",
 		Command: []string{"unit-check"},
+		Env:     []string{"SUITE=macro"},
 	}
 
-	pass := runCheck(spec, opts, dir, dir, dir, func(context.Context, string, []string, io.Writer) (int, error) {
+	var gotEnv []string
+	pass := runCheck(spec, opts, dir, dir, dir, func(_ context.Context, _ string, _ []string, env []string, _ io.Writer) (int, error) {
+		gotEnv = append([]string(nil), env...)
 		return 0, nil
 	})
 
@@ -209,7 +213,11 @@ func TestRunCheckRecordsPassAndFailure(t *testing.T) {
 		t.Fatal("pass result missing log path")
 	}
 
-	fail := runCheck(spec, opts, dir, dir, dir, func(context.Context, string, []string, io.Writer) (int, error) {
+	if !reflect.DeepEqual(gotEnv, spec.Env) {
+		t.Fatalf("executor env = %v, want %v", gotEnv, spec.Env)
+	}
+
+	fail := runCheck(spec, opts, dir, dir, dir, func(context.Context, string, []string, []string, io.Writer) (int, error) {
 		return 7, errors.New("boom")
 	})
 
@@ -239,7 +247,7 @@ func TestRunWithExecutorFailFastSkipsRemainingChecks(t *testing.T) {
 	}
 
 	var ran []string
-	err := runWithExecutor(opts, io.Discard, func(_ context.Context, _ string, command []string, _ io.Writer) (int, error) {
+	err := runWithExecutor(opts, io.Discard, func(_ context.Context, _ string, command, _ []string, _ io.Writer) (int, error) {
 		ran = append(ran, commandString(command))
 		return 1, errors.New("boom")
 	})
@@ -317,7 +325,7 @@ func TestGitStatusIsDirty(t *testing.T) {
 		t.Fatal("branch header alone should be clean")
 	}
 
-	if !gitStatusIsDirty("## main\n M Makefile") {
+	if !gitStatusIsDirty("## main\n M README.md") {
 		t.Fatal("modified file should be dirty")
 	}
 

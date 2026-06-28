@@ -218,12 +218,6 @@ Check-RequiredCommand "git" "source control and ci-quick worktree checks" @(
     "Windows: winget install Git.Git"
 )
 
-Check-RequiredCommand "make" "current Makefile entrypoint until Mage owns portable workflows" @(
-    "Install Make through MSYS2, Scoop, Chocolatey, or WSL while Makefile targets remain in use.",
-    "MSYS2: winget install MSYS2.MSYS2, then install make from an MSYS2 shell.",
-    "Scoop: scoop install make. Chocolatey: choco install make."
-)
-
 $mage = Find-GoTool "mage"
 if ($mage) {
     $version = (& $mage --version 2>$null | Select-Object -First 1) -join " "
@@ -281,7 +275,7 @@ if ($protocPath) {
         Note "Scoop: scoop install protobuf. Chocolatey: choco install protoc."
     }
 } else {
-    Fail "protoc not found (protobuf regeneration with make proto)"
+    Fail "protoc not found (protobuf regeneration with mage proto)"
     Note "Install protoc $MinProtocVersion+ from https://protobuf.dev/installation/."
     Note "Windows: download a protoc zip from https://github.com/protocolbuffers/protobuf/releases and add its bin directory to PATH."
     Note "Scoop: scoop install protobuf. Chocolatey: choco install protoc."

@@ -12,7 +12,7 @@ variable "base_template" {
 
 variable "prep_version" {
   type    = string
-  default = "1"
+  default = "2"
 }
 
 variable "cpus" {

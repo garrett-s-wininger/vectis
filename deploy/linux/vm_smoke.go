@@ -21,7 +21,7 @@ const (
 	vmSmokeBinDir            = "smoke/bin"
 	vmSmokeGuestProfile      = "systemd"
 	vmSmokeGuestProfilePath  = "/etc/vectis-vm-prep/deploy-smoke-profile"
-	vmSmokeGuestPrepVersion  = "1"
+	vmSmokeGuestPrepVersion  = "2"
 	vmSmokeGuestPrepPath     = "/etc/vectis-vm-prep/deploy-smoke-prep-version"
 	defaultLimaInstance      = "vectis-deploy-smoke"
 )
@@ -66,7 +66,7 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 	}
 
 	if !exists {
-		return VMSmokeResult{}, fmt.Errorf("deploy smoke VM %q does not exist; run make vm-deploy-smoke-prepare", opts.Instance)
+		return VMSmokeResult{}, fmt.Errorf("deploy smoke VM %q does not exist; run mage vmDeploySmokePrepare", opts.Instance)
 	}
 
 	vmSmokeLogf(opts.Stdout, "starting %s instance %s", manager.Provider(), opts.Instance)
@@ -289,7 +289,7 @@ func verifyPreparedVMSmokeGuest(ctx context.Context, opts VMSmokeOptions) error 
 
 	for _, check := range checks {
 		if err := opts.Manager.Shell(ctx, opts.Instance, nil, check...); err != nil {
-			return fmt.Errorf("deploy smoke VM %q is not prepared; run make vm-deploy-smoke-prepare: %w", opts.Instance, err)
+			return fmt.Errorf("deploy smoke VM %q is not prepared; run mage vmDeploySmokePrepare: %w", opts.Instance, err)
 		}
 	}
 

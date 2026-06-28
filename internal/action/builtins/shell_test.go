@@ -296,7 +296,7 @@ func TestShellAction_Execute_ReadsOutputsFile(t *testing.T) {
 	state.Workspace = workspace
 
 	result := shellAction.Execute(context.Background(), state, map[string]any{
-		"command": "make build",
+		"command": "mage build",
 		"outputs": "outputs.json",
 	}, nil)
 
@@ -330,7 +330,7 @@ func TestShellAction_Execute_RejectsOutputsOutsideWorkspace(t *testing.T) {
 	state.Workspace = t.TempDir()
 
 	result := shellAction.Execute(context.Background(), state, map[string]any{
-		"command": "make build",
+		"command": "mage build",
 		"outputs": "../outputs.json",
 	}, nil)
 

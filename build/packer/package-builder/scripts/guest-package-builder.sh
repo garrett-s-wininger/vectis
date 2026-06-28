@@ -18,7 +18,7 @@ case "$(uname -m)" in
 esac
 
 require_sudo "the package builder"
-install_apt_packages "package builder preparation currently supports apt-based Linux guests" ca-certificates curl tar xz-utils build-essential make git
+install_apt_packages "package builder preparation currently supports apt-based Linux guests" ca-certificates curl tar xz-utils build-essential git
 
 install_go=1
 if [ -x "/usr/local/go-${go_version}/bin/go" ] && [ "$(/usr/local/go-${go_version}/bin/go env GOVERSION)" = "go${go_version}" ]; then
@@ -44,10 +44,9 @@ fi
 sudo ln -sfn "/usr/local/go-${go_version}" /usr/local/go
 sudo install -d -m 1777 "$cache_root" "$cache_root/go-build" "$cache_root/gomod" "$workspace_root"
 sudo install -d -m 0755 /etc/vectis-vm-prep
-printf '%s\n' 'export PATH=/usr/local/go/bin:$PATH' | sudo tee /etc/profile.d/vectis-package-builder.sh >/dev/null
-write_prep_marker /etc/vectis-vm-prep/package-builder-prep-version "$prep_version"
+printf '%s\n' 'export PATH=/usr/local/go/bin:/usr/local/bin:$PATH' | sudo tee /etc/profile.d/vectis-package-builder.sh >/dev/null
 
-PATH=/usr/local/go/bin:$PATH
+PATH=/usr/local/go/bin:/usr/local/bin:$PATH
 export PATH
 
 if [ "$(go env GOVERSION)" != "go${go_version}" ]; then
@@ -55,10 +54,17 @@ if [ "$(go env GOVERSION)" != "go${go_version}" ]; then
 	exit 1
 fi
 
-make --version >/dev/null
+mage_tmpdir=$(mktemp -d)
+trap 'rm -rf "$mage_tmpdir" ${tmpdir:-}' EXIT
+GOBIN="$mage_tmpdir" go install github.com/magefile/mage@v1.17.2
+sudo install -m 0755 "$mage_tmpdir/mage" /usr/local/bin/mage
+
+mage --version >/dev/null
 if command -v cc >/dev/null 2>&1; then
 	cc --version >/dev/null
 else
 	echo "prepared builder is missing cc" >&2
 	exit 1
 fi
+
+write_prep_marker /etc/vectis-vm-prep/package-builder-prep-version "$prep_version"

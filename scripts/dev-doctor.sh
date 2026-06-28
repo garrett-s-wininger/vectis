@@ -287,7 +287,7 @@ install_package_prereqs() {
 		run_cmd sudo_cmd apt-get update || return
 
 		# shellcheck disable=SC2086
-		run_cmd sudo_cmd apt-get install $yes_arg ca-certificates curl git make protobuf-compiler build-essential tar gzip xz-utils unzip || return
+		run_cmd sudo_cmd apt-get install $yes_arg ca-certificates curl git protobuf-compiler build-essential tar gzip xz-utils unzip || return
 		pass "installed apt packages for required development toolchain"
 		;;
 
@@ -298,7 +298,7 @@ install_package_prereqs() {
 		fi
 
 		# shellcheck disable=SC2086
-		run_cmd sudo_cmd dnf install $yes_arg ca-certificates curl git make protobuf-compiler gcc gcc-c++ glibc-devel tar gzip xz unzip || return
+		run_cmd sudo_cmd dnf install $yes_arg ca-certificates curl git protobuf-compiler gcc gcc-c++ glibc-devel tar gzip xz unzip || return
 		pass "installed dnf packages for required development toolchain"
 		;;
 
@@ -309,12 +309,12 @@ install_package_prereqs() {
 		fi
 
 		# shellcheck disable=SC2086
-		run_cmd sudo_cmd yum install $yes_arg ca-certificates curl git make protobuf-compiler gcc gcc-c++ glibc-devel tar gzip xz unzip || return
+		run_cmd sudo_cmd yum install $yes_arg ca-certificates curl git protobuf-compiler gcc gcc-c++ glibc-devel tar gzip xz unzip || return
 		pass "installed yum packages for required development toolchain"
 		;;
 
 	apk)
-		run_cmd sudo_cmd apk add ca-certificates curl git make protobuf build-base tar gzip xz unzip || return
+		run_cmd sudo_cmd apk add ca-certificates curl git protobuf build-base tar gzip xz unzip || return
 		pass "installed apk packages for required development toolchain"
 		;;
 
@@ -325,7 +325,7 @@ install_package_prereqs() {
 		fi
 
 		# shellcheck disable=SC2086
-		run_cmd sudo_cmd pacman -Sy --needed $yes_args ca-certificates curl git make protobuf base-devel tar gzip xz unzip || return
+		run_cmd sudo_cmd pacman -Sy --needed $yes_args ca-certificates curl git protobuf base-devel tar gzip xz unzip || return
 		pass "installed pacman packages for required development toolchain"
 		;;
 
@@ -336,12 +336,12 @@ install_package_prereqs() {
 		fi
 
 		# shellcheck disable=SC2086
-		run_cmd sudo_cmd zypper install $yes_arg ca-certificates curl git make protobuf-devel gcc gcc-c++ tar gzip xz unzip || return
+		run_cmd sudo_cmd zypper install $yes_arg ca-certificates curl git protobuf-devel gcc gcc-c++ tar gzip xz unzip || return
 		pass "installed zypper packages for required development toolchain"
 		;;
 
 	brew)
-		run_cmd brew install git make protobuf curl xz || return
+		run_cmd brew install git protobuf curl xz || return
 		pass "installed Homebrew packages for required development toolchain"
 
 		if ! xcode-select -p >/dev/null 2>&1; then
@@ -664,9 +664,6 @@ fi
 check_required_command "git" "source control and ci-quick worktree checks" \
 	"Install Git from https://git-scm.com/downloads, or run scripts/dev-doctor.sh --install --yes."
 
-check_required_command "make" "current Unix build/test entrypoint until Mage owns portable workflows" \
-	"Install Make through your OS tools, or run scripts/dev-doctor.sh --install --yes."
-
 if path=$(go_tool_path "mage"); then
 	version=$("$path" --version 2>/dev/null | sed -n '1p' || true)
 	pass "mage found at $path ${version:+($version)}"
@@ -709,7 +706,7 @@ if has_command protoc; then
 		note "Install protoc $MIN_PROTOC_VERSION+ from https://protobuf.dev/installation/, or run scripts/dev-doctor.sh --install --yes."
 	fi
 else
-	fail "protoc not found (protobuf regeneration with make proto)"
+	fail "protoc not found (protobuf regeneration with mage proto)"
 	note "Install protoc $MIN_PROTOC_VERSION+ from https://protobuf.dev/installation/, or run scripts/dev-doctor.sh --install --yes."
 fi
 
@@ -767,7 +764,7 @@ check_optional_command "podman" "container image targets" \
 check_optional_command "packer" "VM/package e2e preparation" \
 	"Install Packer from https://developer.hashicorp.com/packer/install or try scripts/dev-doctor.sh --install-optional --yes."
 check_optional_command "java" "formal-verification TLA+ target" \
-	"Install a JDK and set TLA_TOOLS_JAR if you need make formal-verification."
+	"Install a JDK and set TLA_TOOLS_JAR if you need mage formalVerification."
 
 tla_jar=${TLA_TOOLS_JAR:-/opt/tla+/tla2tools.jar}
 if [ -f "$tla_jar" ]; then

@@ -349,7 +349,7 @@ func requireExecutable(t *testing.T, path, label string) {
 
 	info, err := os.Stat(path)
 	if err != nil {
-		skipOrFatal(t, "%s binary %s is not available; run make build or set its VECTIS_E2E_* override", label, path)
+		skipOrFatal(t, "%s binary %s is not available; run mage build or set its VECTIS_E2E_* override", label, path)
 	}
 
 	if info.IsDir() {

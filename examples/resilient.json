@@ -28,7 +28,7 @@
                             "id": "build",
                             "uses": "builtins/shell",
                             "with": {
-                              "command": "make build"
+                              "command": "mage build"
                             }
                           }
                         ]
@@ -47,7 +47,7 @@
             "id": "cleanup",
             "uses": "builtins/shell",
             "with": {
-              "command": "make clean"
+              "command": "mage clean"
             }
           }
         ]

@@ -9,7 +9,7 @@ common_dir=$(CDPATH= cd "$script_dir/../../scripts" && pwd)
 limactl_bin=${VECTIS_PACKER_LIMA_BIN:-limactl}
 instance=${VECTIS_PACKER_LIMA_INSTANCE:-}
 template=${VECTIS_PACKER_LIMA_TEMPLATE:-}
-prep_version=${VECTIS_PACKER_PREP_VERSION:-1}
+prep_version=${VECTIS_PACKER_PREP_VERSION:-2}
 cpus=${VECTIS_PACKER_CPUS:-2}
 memory=${VECTIS_PACKER_MEMORY:-2}
 disk=${VECTIS_PACKER_DISK:-30}

@@ -129,7 +129,7 @@ Later nodes can bind accepted inputs from earlier outputs in the same local exec
     "uses": "builtins/sequence",
     "steps": [
       {
-        "id": "make-command",
+        "id": "shell-command",
         "uses": "builtins/shell",
         "with": {
           "command": "printf '{\"command\":\"true\"}' > outputs.json",
@@ -142,7 +142,7 @@ Later nodes can bind accepted inputs from earlier outputs in the same local exec
         "inputs": {
           "command": {
             "from": {
-              "node": "make-command",
+              "node": "shell-command",
               "output": "command"
             }
           }

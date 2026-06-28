@@ -34,7 +34,7 @@ Hand-written SQL + `database/sql` (no ORM). This is a deliberate choice: the job
 
 HTTP routes are protected by default: a zero-value `routeAuthPolicy{}` normalizes to `admin:*`.
 
-Public route opt-outs must use `routeAuthPolicy{mode: routeAuthPublic}` and include a nearby source comment starting with `public route:` that explains why the route is unauthenticated. The source-level lint binary lives in `tools/vectis-lint`; run it directly with `make lint-api-routes`. It also runs as part of `make lint`.
+Public route opt-outs must use `routeAuthPolicy{mode: routeAuthPublic}` and include a nearby source comment starting with `public route:` that explains why the route is unauthenticated. The source-level lint binary lives in `tools/vectis-lint`; run it directly with `mage lintAPIRoutes`. It also runs as part of `mage lint`.
 
 Browser-facing API/docs security headers live in `internal/httpsecurity`; use that shared middleware instead of setting ad hoc header strings in individual handlers. Keep response isolation and legacy browser hardening headers such as `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cross-Origin-Embedder-Policy`, `Origin-Agent-Cluster`, `X-Permitted-Cross-Domain-Policies`, and `X-Download-Options` centralized there so API, docs, cell ingress, and metrics stay aligned.
 
@@ -74,7 +74,7 @@ Secure browser sessions use only `__Host-` session/CSRF cookie names with `Secur
 
 ## Lint expectations
 
-`make lint` runs the first-party route security lint before golangci-lint. Staticcheck is part of that suite; in tests, make nil handling explicit enough for staticcheck to prove safety. For example, return after `t.Fatal` before dereferencing a possibly nil pointer, or copy pointer-backed values (such as `*http.Cookie`) into value variables after a presence check.
+`mage lint` runs the first-party route security lint before golangci-lint. Staticcheck is part of that suite; in tests, make nil handling explicit enough for staticcheck to prove safety. For example, return after `t.Fatal` before dereferencing a possibly nil pointer, or copy pointer-backed values (such as `*http.Cookie`) into value variables after a presence check.
 
 ## `internal/config/`
 

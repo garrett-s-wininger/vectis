@@ -9,7 +9,7 @@ This guide is task-based. For a compact command inventory, see [CLI Operational 
 Build the CLI from the repository root:
 
 ```sh
-make build
+mage build
 ```
 
 The binary is:

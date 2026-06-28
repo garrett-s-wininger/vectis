@@ -11,6 +11,10 @@ cmd/docs/embedded/
 deploy/
 !deploy/
 deploy/*
+!deploy/linux/
+deploy/linux/*
+!deploy/linux/artifacts.go
+!deploy/linux/services.toml
 !deploy/podman/
 deploy/podman/*
 !deploy/podman/assets.go

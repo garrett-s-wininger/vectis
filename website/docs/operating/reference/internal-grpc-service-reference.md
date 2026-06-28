@@ -2,7 +2,7 @@
 
 Vectis uses protobuf/gRPC for internal service-to-service contracts. These surfaces are not browser-facing APIs; keep them on private networks or behind internal mTLS.
 
-The source of truth is `api/proto/`. Generated Go in `api/gen/go/` is committed for consumers, but it is generated output and should not be edited by hand. Run `make proto` after changing protobuf definitions.
+The source of truth is `api/proto/`. Generated Go in `api/gen/go/` is committed for consumers, but it is generated output and should not be edited by hand. Run `mage proto` after changing protobuf definitions.
 
 For the public HTTP API, see [API Reference](../../using/api-reference.md) and [OpenAPI Specification](../../using/openapi-specification.md). For network trust and service identity policy, see [Internal Service Trust](../../concepts/internal-service-trust.md).
 
@@ -109,7 +109,7 @@ Protobuf compatibility follows the project compatibility contract:
 | Add a new RPC or service without changing existing behavior. | Remove or rename an existing RPC, service, field, or enum value without a coordinated migration. |
 | Reserve removed tags and names when removal is unavoidable. | Remove a field without reserving its tag and name. |
 
-Run `make proto` when protobuf definitions change, and commit the generated `api/gen/go/` updates with the proto change.
+Run `mage proto` when protobuf definitions change, and commit the generated `api/gen/go/` updates with the proto change.
 
 ## Related Documentation
 

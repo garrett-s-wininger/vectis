@@ -22,7 +22,7 @@ const (
 	defaultPackageInstance      = "vectis-package-smoke"
 	defaultRPMInstance          = "vectis-package-rpm-smoke"
 	defaultPackageTimeout       = 10 * time.Minute
-	packageSmokePrepVersion     = "1"
+	packageSmokePrepVersion     = "2"
 	packageSmokeProfilePath     = "/etc/vectis-vm-prep/package-smoke-profile"
 	packageSmokePrepVersionPath = "/etc/vectis-vm-prep/package-smoke-prep-version"
 )
@@ -73,7 +73,7 @@ func runPackageSmoke(t *testing.T, smoke packageSmokeCase) {
 	}
 
 	if !exists {
-		skipOrFatal(t, "package smoke VM %q does not exist; run make vm-package-smoke-prepare", smoke.instance)
+		skipOrFatal(t, "package smoke VM %q does not exist; run mage vmPackageSmokePrepare", smoke.instance)
 	}
 
 	if err := manager.Start(ctx, smoke.instance); err != nil {
@@ -167,7 +167,7 @@ func requirePreparedPackageSmokeVM(t *testing.T, ctx context.Context, manager pl
 
 	for _, check := range checks {
 		if err := manager.Shell(ctx, smoke.instance, nil, "sh", "-c", `test "$(cat "$1")" = "$2"`, "vectis-package-smoke-check", check.path, check.want); err != nil {
-			skipOrFatal(t, "package smoke VM %q is not prepared for %s packages; run make vm-package-smoke-prepare", smoke.instance, smoke.profile)
+			skipOrFatal(t, "package smoke VM %q is not prepared for %s packages; run mage vmPackageSmokePrepare", smoke.instance, smoke.profile)
 		}
 	}
 }

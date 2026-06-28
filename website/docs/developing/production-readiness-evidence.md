@@ -42,8 +42,8 @@ Minimum command evidence:
 ```sh
 git status --short
 git rev-parse HEAD
-make release-readiness-report
-make package-linux
+mage releaseReadinessReport
+mage packageLinux
 vectis-cli --version
 ```
 
@@ -54,10 +54,10 @@ the waiver in [Known Risks And Waivers](#known-risks-and-waivers).
 
 | Check | Result | Evidence location |
 | --- | --- | --- |
-| `make release-readiness-report` |  |  |
+| `mage releaseReadinessReport` |  |  |
 | Docs dependency audit |  |  |
-| `make release-local-validate` |  |  |
-| `make test-quick` |  |  |
+| `mage releaseLocalValidate` |  |  |
+| `mage testQuick` |  |  |
 | Postgres integration tests, when required |  |  |
 | Linux artifact/package tests |  |  |
 | VM deploy smoke, when required |  |  |

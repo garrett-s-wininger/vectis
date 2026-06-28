@@ -110,7 +110,7 @@ When a migration ships, release notes should tell operators:
 
 ```sh
 go test ./internal/migrations
-make test-postgres-integration
+mage testPostgresIntegration
 ```
 
 ## Related Docs

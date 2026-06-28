@@ -499,7 +499,7 @@ The Lima backend does not silently fall back to host execution. Startup fails if
 To smoke test the VM provider against a prepared instance from a development checkout:
 
 ```sh
-VECTIS_TEST_LIMA_INSTANCE=vectis-worker make test-lima
+VECTIS_TEST_LIMA_INSTANCE=vectis-worker mage testLima
 ```
 
 By default, that test creates a temporary workspace under the development checkout, so the checkout path must also be writable inside the Lima guest. Set `VECTIS_TEST_LIMA_WORKSPACE_ROOT=/path/mounted/in/guest` to test another host-mounted workspace root, or `VECTIS_TEST_LIMA_GUEST_WORKSPACE_ROOT=/tmp/vectis-workspaces` to test the guest-owned workspace mode. Set `VECTIS_TEST_LIMA_START=1` when the prepared instance may be stopped and the test should pass `--start` to `limactl shell`.

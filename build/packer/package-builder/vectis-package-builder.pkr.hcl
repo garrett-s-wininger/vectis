@@ -23,7 +23,7 @@ variable "go_sha256" {
 
 variable "prep_version" {
   type    = string
-  default = "1"
+  default = "2"
 }
 
 variable "cpus" {

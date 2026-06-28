@@ -107,7 +107,7 @@ func TestRunVMSmokeVerifyRequiresPreparedInstance(t *testing.T) {
 		t.Fatal("expected missing prepared VM error")
 	}
 
-	if !strings.Contains(err.Error(), "make vm-deploy-smoke-prepare") {
+	if !strings.Contains(err.Error(), "mage vmDeploySmokePrepare") {
 		t.Fatalf("missing prepared VM error = %q, want prep target hint", err)
 	}
 

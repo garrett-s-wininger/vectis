@@ -9,7 +9,6 @@ RUN npm run build
 
 FROM docker.io/library/golang:1.25.10-alpine AS builder
 ARG MAGE_VERSION=v1.17.2
-RUN apk add --no-cache make
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -18,16 +17,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY api/ ./api/
 COPY cmd/ ./cmd/
-COPY deploy/podman/ ./deploy/podman/
+COPY deploy/ ./deploy/
 COPY internal/ ./internal/
-COPY Makefile ./Makefile
-COPY magefile.go ./magefile.go
+COPY sdk/ ./sdk/
+COPY magefile.go mage_*.go ./
 COPY --from=docs-builder /app/website/build ./cmd/docs/embedded
 
 ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make -j"$(getconf _NPROCESSORS_ONLN)" build-container SKIP_DOCS_ASSETS=1 MAGE="go run github.com/magefile/mage@${MAGE_VERSION}"
+    SKIP_DOCS_ASSETS=1 go run github.com/magefile/mage@${MAGE_VERSION} buildContainer
 
 FROM scratch AS api
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \

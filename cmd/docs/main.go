@@ -255,7 +255,7 @@ func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs
 <body>
   <h1>Vectis Docs</h1>
   <p>The docs server is running, but this binary does not include an embedded docs build.</p>
-  <p>Rebuild with <code>make build</code>, or set <code>VECTIS_DOCS_DIR</code> to a Docusaurus build directory.</p>
+  <p>Rebuild with <code>mage build</code>, or set <code>VECTIS_DOCS_DIR</code> to a Docusaurus build directory.</p>
 </body>
 </html>`))
 	}), "embedded docs not available"

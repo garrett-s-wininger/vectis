@@ -33,7 +33,7 @@ func TestUseNativeBuild(t *testing.T) {
 }
 
 func TestNativeTarget(t *testing.T) {
-	if got, want := nativeTarget("deb", "arm64"), "package-local-native-deb-arm64"; got != want {
+	if got, want := nativeTarget("deb"), "packageLocalNativeDebArch"; got != want {
 		t.Fatalf("target = %q, want %q", got, want)
 	}
 }
@@ -84,9 +84,13 @@ func TestParseOptionsRejectsInvalidFormat(t *testing.T) {
 }
 
 func TestVMBuildEnvDefaultsCanBeOverridden(t *testing.T) {
-	got := vmBuildEnv([]string{"GOCACHE=/custom/cache", "PACKAGE_ARCH=arm64"}, "go", "make", "/var/tmp/cache")
+	got := vmBuildEnv([]string{"GOCACHE=/custom/cache", "PACKAGE_ARCH=arm64"}, "go", "mage", "/var/tmp/cache")
 	if !slices.Contains(got, "PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") {
 		t.Fatalf("default path missing: %v", got)
+	}
+
+	if !slices.Contains(got, "VECTIS_PACKAGE_LOCAL_MAGE=mage") {
+		t.Fatalf("mage command missing: %v", got)
 	}
 
 	if got[len(got)-2] != "GOCACHE=/custom/cache" {
@@ -159,7 +163,7 @@ func TestVerifyPreparedBuildVMReportsPrepTarget(t *testing.T) {
 		t.Fatal("expected stale builder error")
 	}
 
-	if !strings.Contains(err.Error(), "make vm-package-builder-prepare") {
+	if !strings.Contains(err.Error(), "mage vmPackageBuilderPrepare") {
 		t.Fatalf("stale builder error = %q, want prep target hint", err)
 	}
 }
@@ -225,7 +229,7 @@ func clearPackageLocalEnv(t *testing.T) {
 
 	for _, name := range []string{
 		"PACKAGE_LOCAL_ALLOW_CROSS_CGO",
-		"PACKAGE_LOCAL_MAKE",
+		"PACKAGE_LOCAL_MAGE",
 		"PACKAGE_LOCAL_VM_CACHE_ROOT",
 		"PACKAGE_LOCAL_VM_GO",
 		"PACKAGE_LOCAL_VM_INSTANCE",

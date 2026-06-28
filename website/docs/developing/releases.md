@@ -10,7 +10,7 @@ Related policy lives in [Database Migrations](./migrations.md), [Upgrade Compati
 
 Vectis uses one release version across all `vectis-*` binaries and container images. A release should be tagged from a single commit, and all artifacts for that release must be built from that tag.
 
-The Makefile stamps binaries with:
+Mage build targets stamp binaries with:
 
 - `internal/version.Version`
 - `internal/version.Commit`
@@ -124,8 +124,8 @@ Production evidence: <link to completed evidence record or "not applicable">
 ### Smoke And Drill Evidence
 
 - Readiness report:
-- `make release-local-validate`:
-- `make test-quick`:
+- `mage releaseLocalValidate`:
+- `mage testQuick`:
 - Postgres integration, when required:
 - Linux package/artifact smoke:
 - VM deploy/package lanes, when required:
@@ -160,7 +160,7 @@ Schema changes must follow [Database Migrations](./migrations.md), including the
 Use the readiness report when preparing a release candidate:
 
 ```sh
-make release-readiness-report
+mage releaseReadinessReport
 ```
 
 The target runs `tools/release-readiness` and writes a bundle under
@@ -174,25 +174,25 @@ The target runs `tools/release-readiness` and writes a bundle under
 
 The default `local` profile is `git-clean,docs-npm-audit,release-local`, which
 verifies that the worktree is clean, records the docs dependency audit posture,
-and then runs `make release-local-validate`. The npm audit gate fails on high
+and then runs `mage releaseLocalValidate`. The npm audit gate fails on high
 or critical findings while preserving lower-severity counts in the report. Select
 heavier profiles or explicit checks when the release touches more surfaces:
 
 ```sh
-make release-readiness-report RELEASE_READINESS_PROFILE=candidate
+RELEASE_READINESS_PROFILE=candidate mage releaseReadinessReport
 
-make release-readiness-report \
-  RELEASE_READINESS_CHECKS=git-clean,docs-npm-audit,release-local,postgres-integration,package-linux \
-  RELEASE_READINESS_ARGS='--artifact-roots bin,artifacts/packages,artifacts/deploy,website/static/openapi/v1.json'
+RELEASE_READINESS_CHECKS=git-clean,docs-npm-audit,release-local,postgres-integration,package-linux \
+RELEASE_READINESS_ARGS='--artifact-roots bin,artifacts/packages,artifacts/deploy,website/static/openapi/v1.json' \
+mage releaseReadinessReport
 ```
 
 Use skips for unavailable local infrastructure and waivers for deliberately
 accepted release risk:
 
 ```sh
-make release-readiness-report \
-  RELEASE_READINESS_PROFILE=full \
-  RELEASE_READINESS_ARGS='--skip postgres-integration="no local Postgres" --waive vm-e2e="no prepared RPM guest; DEB smoke covered"'
+RELEASE_READINESS_PROFILE=full \
+RELEASE_READINESS_ARGS='--skip postgres-integration="no local Postgres" --waive vm-e2e="no prepared RPM guest; DEB smoke covered"' \
+mage releaseReadinessReport
 ```
 
 Add `RELEASE_READINESS_ARGS='--strict'` when skipped or waived selected checks
@@ -204,10 +204,10 @@ checks.
 ## Maintainer Release Checklist
 
 1. Confirm the tree is clean except intended release changes.
-2. Run `make proto` and verify generated files are committed when protos changed.
-3. Run `make release-readiness-report` for the local release lane and keep the generated bundle with the release notes.
-4. Run `make test-postgres-integration` for any database, migration, DAL, queue, reconciler, auth, or deploy-sensitive change.
-5. If the local release lane was skipped or failed before the build step, build all binaries with `make build`; this also embeds the docs site into `vectis-docs`.
+2. Run `mage proto` and verify generated files are committed when protos changed.
+3. Run `mage releaseReadinessReport` for the local release lane and keep the generated bundle with the release notes.
+4. Run `mage testPostgresIntegration` for any database, migration, DAL, queue, reconciler, auth, or deploy-sensitive change.
+5. If the local release lane was skipped or failed before the build step, build all binaries with `mage build`; this also embeds the docs site into `vectis-docs`.
 6. Build container images with the release tag.
 7. Verify `vectis-cli --version` and one daemon `--version` show the release version, commit, and build date.
 8. Review [Database Migrations](./migrations.md) requirements for every schema change.

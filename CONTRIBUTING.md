@@ -11,7 +11,7 @@ Everything below is still useful if you are building from source, maintaining a 
 For a normal local development loop:
 
 ```bash
-make build
+mage build
 ./bin/vectis-local
 ```
 
@@ -39,20 +39,20 @@ Optional tools:
 ## Build
 
 ```bash
-make build
+mage build
 ```
 
 This writes the Vectis binaries to `bin/`.
 
 The default build also builds the docs site and embeds it into `vectis-docs`.
-Use `SKIP_WEB_BUILD=1 make build` for a faster local build without the docs
+Use `SKIP_WEB_BUILD=1 mage build` for a faster local build without the docs
 binary; `vectis-local` will continue without local docs when that binary is
 absent.
 
 For container-oriented static builds:
 
 ```bash
-make build-container
+mage buildContainer
 ```
 
 Container builds disable SQLite with `CGO_ENABLED=0` and `-tags=nosqlite`, so they use the Postgres driver path.
@@ -62,14 +62,14 @@ Container builds disable SQLite with `CGO_ENABLED=0` and `-tags=nosqlite`, so th
 Use the smallest test command that gives useful feedback:
 
 ```bash
-make test-quick        # fast unit feedback
-make test-fault        # targeted injected-failure checks
-make test-property     # generated invariant checks
-make test              # all default Go tests
-make test-integration  # integration tests with the integration build tag
-make test-race         # race detector
-make lint-api-routes   # parser-backed security lint for public API route opt-outs
-make lint              # route security lint plus golangci-lint
+mage testQuick       # fast unit feedback
+mage testFault       # targeted injected-failure checks
+mage testProperty    # generated invariant checks
+mage test            # all default Go tests
+mage testIntegration # integration tests with the integration build tag
+mage testRace        # race detector
+mage lintAPIRoutes   # parser-backed security lint for public API route opt-outs
+mage lint            # route security lint plus golangci-lint
 ```
 
 For a narrow package loop:
@@ -81,14 +81,14 @@ go test ./internal/api/...
 API auth fuzz targets are available when you need them:
 
 ```bash
-make fuzz-api-auth
+mage fuzzAPIAuth
 go test -fuzz=FuzzBearerToken -fuzztime=1m ./internal/api
 ```
 
 ## Format And Dependencies
 
 ```bash
-make format
+mage format
 ```
 
 This runs the repository's formatting and module cleanup workflow.
@@ -100,7 +100,7 @@ Source `.proto` files live in [api/proto/](api/proto/). Generated Go lives in [a
 After changing protobufs:
 
 ```bash
-make proto
+mage proto
 ```
 
 Commit the generated files with the proto change.
@@ -110,14 +110,14 @@ Commit the generated files with the proto change.
 Use `vectis-local` for the normal local stack:
 
 ```bash
-make build
+mage build
 ./bin/vectis-local
 ```
 
 For the Podman reference deployment:
 
 ```bash
-make images-components
+mage imagesComponents
 ./bin/vectis-cli deploy podman up
 ```
 
@@ -126,7 +126,7 @@ For single-service debugging, build first, then run the matching binary from `bi
 If you change dashboard JSON under [deploy/grafana/dashboards/](deploy/grafana/dashboards/), regenerate the Podman ConfigMap bundle:
 
 ```bash
-make podman-grafana-configmaps
+mage podmanGrafanaConfigmaps
 ```
 
 ## Where To Change Things
@@ -135,7 +135,7 @@ make podman-grafana-configmaps
 | --- | --- |
 | HTTP API, auth, RBAC | `internal/api/` |
 | SQL schema and repositories | `internal/migrations/`, `internal/dal/` |
-| gRPC contracts | `api/proto/`, then `make proto` |
+| gRPC contracts | `api/proto/`, then `mage proto` |
 | Queue and queue client behavior | `internal/queue/`, `internal/queueclient/` |
 | Worker execution and actions | `internal/job/`, `internal/action/`, `cmd/worker/` |
 | Log ingest and forwarding | `internal/logserver/`, `internal/logforwarder/` |
@@ -168,7 +168,7 @@ For internal work or forked contributions, aim for:
 
 - Focused changes that match nearby package style.
 - Tests appropriate to the risk and surface area.
-- `make proto` and committed generated Go when protobufs change.
+- `mage proto` and committed generated Go when protobufs change.
 - Migration notes and release notes when schema behavior changes.
 - Docs updates when API, CLI, config, deployment, security, metrics, capacity, or runbook behavior changes.
 

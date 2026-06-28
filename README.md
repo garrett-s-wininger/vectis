@@ -9,11 +9,11 @@ Vectis is developer alpha software: useful today for trying the model, building 
 Build Vectis:
 
 ```bash
-make build
+mage build
 ```
 
 This builds the docs site and embeds it into `vectis-docs`. For a faster local
-build without the docs binary, use `SKIP_WEB_BUILD=1 make build`; `vectis-local`
+build without the docs binary, use `SKIP_WEB_BUILD=1 mage build`; `vectis-local`
 will continue without local docs if `vectis-docs` is not present.
 
 Start the local stack:
@@ -73,14 +73,14 @@ To inspect or remove local state:
 
 - Go `1.25.10+` as declared in [go.mod](go.mod).
 - CGO enabled for local SQLite use. This is the normal Go default on most developer machines.
-- Node.js `20+` and npm for the default `make build`, which embeds the docs site into `vectis-docs`. Use `SKIP_WEB_BUILD=1 make build` to skip this.
+- Node.js `20+` and npm for the default `mage build`, which embeds the docs site into `vectis-docs`. Use `SKIP_WEB_BUILD=1 mage build` to skip this.
 - Mage, `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` for the portable build targets and protobuf regeneration.
 
 Run `scripts/dev-doctor.sh` on POSIX shells or `.\scripts\dev-doctor.ps1` on Windows PowerShell for a preflight check with install guidance. On Unix, `scripts/dev-doctor.sh --install --yes` installs the required toolchain with the local package manager plus repo-local Go, Node.js, Mage, and protobuf tools under `.tools/`; source `.tools/env.sh` afterward. Pass `--install-go-tools` / `-InstallGoTools` to install only the Go-based tools directly.
 
-Portable build targets live in Mage. Use `mage -l` to list the targets after running the doctor install and loading the repo-local toolchain environment. The Makefile remains as a compatibility wrapper for the existing target names, including build, test, proto, quality, image, package, VM/Packer, release, formal verification, perf, and deploy artifact workflows.
+Portable build targets live in Mage. Use `mage -l` to list the targets after running the doctor install and loading the repo-local toolchain environment.
 
-To verify the Unix bootstrap from a clean base image, run `scripts/dev-doctor-container.sh`. It copies the repo into a container, runs the installer, and then runs the default smoke target chain; override with `VECTIS_SMOKE_TARGETS='scripts/dev-doctor.sh && make proto' scripts/dev-doctor-container.sh` when you want a narrower check.
+To verify the Unix bootstrap from a clean base image, run `scripts/dev-doctor-container.sh`. It copies the repo into a container, runs the installer, and then runs the default smoke target chain; override with `VECTIS_SMOKE_TARGETS='scripts/dev-doctor.sh && mage proto' scripts/dev-doctor-container.sh` when you want a narrower check.
 
 ## Learn The Basics
 
@@ -145,13 +145,13 @@ Inspect run history:
 Run tests:
 
 ```bash
-make test
+mage test
 ```
 
 Regenerate protobuf stubs after editing `api/proto/`:
 
 ```bash
-make proto
+mage proto
 ```
 
 ## Deployment
@@ -161,7 +161,7 @@ For local development, use `vectis-local`.
 For a fuller reference deployment, Vectis includes a Podman-based stack with Postgres, persistent queue/log/artifact/secrets storage, the Vectis SPIFFE authority, bundled docs, Prometheus, Grafana, Jaeger, OpenSearch, and generated local secrets:
 
 ```bash
-make images-components
+mage imagesComponents
 ./bin/vectis-cli deploy podman up
 ```
 

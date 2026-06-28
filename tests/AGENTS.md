@@ -1,20 +1,20 @@
 # Tests
 
-**Commands** are defined in the root [`Makefile`](../Makefile):
+**Commands** are defined in Mage (`../mage_*.go`):
 
 | Target | Scope | Notes |
 |--------|-------|-------|
 | `test` | All packages | No timeout, no race |
-| `test-quick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1 -timeout=60s` — fast feedback |
-| `test-integration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
-| `test-e2e` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
-| `vm-validate` | Prepared VM static validation | Runs Packer script regression tests and `packer validate`; does not boot guests |
-| `vm-status` | Prepared VM inventory | Read-only VM lane status; does not start stopped guests |
-| `vm-doctor` | Prepared VM health check | Starts stopped prepared guests long enough to verify markers and tooling, then stops any VM it started |
-| `vm-check` | Prepared VM health check | Umbrella target for `vm-doctor`; individual `vm-*-check` targets select one lane |
-| `test-postgres-integration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |
-| `test-race` | All packages | `-race` flag |
-| `fuzz-api-auth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
+| `testQuick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1 -timeout=60s` — fast feedback |
+| `testIntegration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
+| `testE2E` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
+| `vmValidate` | Prepared VM static validation | Runs Packer script regression tests and `packer validate`; does not boot guests |
+| `vmStatus` | Prepared VM inventory | Read-only VM lane status; does not start stopped guests |
+| `vmDoctor` | Prepared VM health check | Starts stopped prepared guests long enough to verify markers and tooling, then stops any VM it started |
+| `vmCheck` | Prepared VM health check | Umbrella target for `vmDoctor`; individual VM check targets select one lane |
+| `testPostgresIntegration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |
+| `testRace` | All packages | `-race` flag |
+| `fuzzAPIAuth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
 
 ## Style
 
@@ -41,8 +41,8 @@ The local e2e lane expects the host `bin/vectis-local` and `bin/vectis-cli` bina
 The Podman e2e lane expects the host `bin/vectis-cli` binary and local Podman images to already exist. A typical prep loop is:
 
 ```sh
-make build
-make images-components
+mage build
+mage imagesComponents
 podman pull docker.io/library/alpine:3.21
 podman pull docker.io/library/postgres:18-alpine
 podman pull docker.io/prom/prometheus:v3.11.0-distroless
@@ -51,7 +51,7 @@ podman pull docker.io/fluent/fluent-bit:5.0.4
 podman pull cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
 podman pull docker.io/opensearchproject/opensearch-dashboards:2.19.1
 podman pull docker.io/grafana/grafana:13.0.0-23943897787
-VECTIS_E2E_PODMAN_RESET=true make test-e2e
+VECTIS_E2E_PODMAN_RESET=true mage testE2E
 ```
 
 Useful e2e controls:
@@ -95,13 +95,13 @@ Prepared VM controls used by deploy and package lanes:
 
 | Variable | Meaning |
 |---|---|
-| `PACKER_VM_PREP_VERSION` | Shared prepared VM marker version checked by `vm-check` and VM e2e harnesses; defaults to `1`. |
-| `VM_PROVIDER` | Provider used by `vm-status`, `vm-doctor`, and `vm-check`; defaults to `auto` (currently Lima). |
-| `VM_DOCTOR_TIMEOUT` | Overall timeout for `vm-status`, `vm-doctor`, and `vm-check`; defaults to `10m`. |
+| `PACKER_VM_PREP_VERSION` | Shared prepared VM marker version checked by `mage vmCheck` and VM e2e harnesses; defaults to `2`. |
+| `VM_PROVIDER` | Provider used by `mage vmStatus`, `mage vmDoctor`, and `mage vmCheck`; defaults to `auto` (currently Lima). |
+| `VM_DOCTOR_TIMEOUT` | Overall timeout for `mage vmStatus`, `mage vmDoctor`, and `mage vmCheck`; defaults to `10m`. |
 | `PACKER_DEPLOY_SMOKE_INSTANCE` | Prepared Linux deploy smoke VM; defaults to `vectis-deploy-smoke`. |
 | `PACKER_DEPLOY_SMOKE_TEMPLATE` | Lima template used for the prepared Linux deploy smoke VM; defaults to `ubuntu-lts`. |
 | `PACKER_PACKAGE_BUILDER_INSTANCE` | Prepared Linux package builder instance; defaults to `vectis-package-builder`. |
-| `PACKER_PACKAGE_BUILDER_TEMPLATE` | Lima template used by `make vm-package-builder-prepare`; defaults to `ubuntu-lts`. |
+| `PACKER_PACKAGE_BUILDER_TEMPLATE` | Lima template used by `mage vmPackageBuilderPrepare`; defaults to `ubuntu-lts`. |
 | `PACKER_PACKAGE_BUILDER_GO_VERSION` | Go version installed into the prepared package builder; defaults to the root `go.mod` directive. |
 | `PACKER_PACKAGE_BUILDER_GO_SHA256` | Optional SHA-256 for the downloaded Go archive. |
 | `PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT` | Guest-side parent directory for writable package build workspaces. |
@@ -111,7 +111,7 @@ Prepared VM controls used by deploy and package lanes:
 | `PACKER_PACKAGE_RPM_SMOKE_INSTANCE` | Prepared RPM package smoke VM; defaults to `vectis-package-rpm-smoke`. |
 | `PACKER_PACKAGE_RPM_SMOKE_TEMPLATE` | Lima template used for the prepared RPM package smoke VM; defaults to `fedora`. |
 
-Local package build controls used by `make package-local` before the e2e install
+Local package build controls used by `mage packageLocal` before the e2e install
 lane runs:
 
 | Variable | Meaning |

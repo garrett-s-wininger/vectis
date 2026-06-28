@@ -90,6 +90,7 @@ type checkSpec struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description,omitempty"`
 	Command     []string `json:"command,omitempty"`
+	Env         []string `json:"env,omitempty"`
 	Internal    string   `json:"internal,omitempty"`
 }
 
@@ -121,7 +122,7 @@ type gitInfo struct {
 
 type toolchainInfo struct {
 	GoVersion   string `json:"go_version,omitempty"`
-	MakeVersion string `json:"make_version,omitempty"`
+	MageVersion string `json:"mage_version,omitempty"`
 }
 
 type checkResult struct {
@@ -166,7 +167,7 @@ type npmAuditCounts struct {
 	Total    int `json:"total"`
 }
 
-type commandExecutor func(ctx context.Context, cwd string, command []string, log io.Writer) (int, error)
+type commandExecutor func(ctx context.Context, cwd string, command, env []string, log io.Writer) (int, error)
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -315,14 +316,14 @@ func availableChecks() map[string]checkSpec {
 		"release-local": {
 			ID:          "release-local",
 			Title:       "Local release validation",
-			Description: "`make release-local-validate`: quick tests, deploy artifact tests, package tests, and build.",
-			Command:     []string{"make", "release-local-validate"},
+			Description: "`mage releaseLocalValidate`: quick tests, deploy artifact tests, package tests, and build.",
+			Command:     []string{"mage", "releaseLocalValidate"},
 		},
 		"test-quick": {
 			ID:          "test-quick",
 			Title:       "Quick Go test lane",
-			Description: "`make test-quick` fast package coverage.",
-			Command:     []string{"make", "test-quick"},
+			Description: "`mage testQuick` fast package coverage.",
+			Command:     []string{"mage", "testQuick"},
 		},
 		"openapi-inventory": {
 			ID:          "openapi-inventory",
@@ -333,44 +334,45 @@ func availableChecks() map[string]checkSpec {
 		"deploy-artifacts": {
 			ID:          "deploy-artifacts",
 			Title:       "Linux deploy artifact tests",
-			Description: "`make deploy-artifacts-test` validates generated Linux deploy artifacts.",
-			Command:     []string{"make", "deploy-artifacts-test"},
+			Description: "`mage deployArtifactsTest` validates generated Linux deploy artifacts.",
+			Command:     []string{"mage", "deployArtifactsTest"},
 		},
 		"test-package": {
 			ID:          "test-package",
 			Title:       "Package unit tests",
-			Description: "`make test-package` validates DEB/RPM package builders.",
-			Command:     []string{"make", "test-package"},
+			Description: "`mage testPackage` validates DEB/RPM package builders.",
+			Command:     []string{"mage", "testPackage"},
 		},
 		"build": {
 			ID:          "build",
 			Title:       "Build all binaries",
-			Description: "`make build` builds the configured Vectis binary set.",
-			Command:     []string{"make", "build"},
+			Description: "`mage build` builds the configured Vectis binary set.",
+			Command:     []string{"mage", "build"},
 		},
 		"postgres-integration": {
 			ID:          "postgres-integration",
 			Title:       "Postgres integration tests",
-			Description: "`make test-postgres-integration`; select when DB or deploy-sensitive behavior changed.",
-			Command:     []string{"make", "test-postgres-integration"},
+			Description: "`mage testPostgresIntegration`; select when DB or deploy-sensitive behavior changed.",
+			Command:     []string{"mage", "testPostgresIntegration"},
 		},
 		"package-linux": {
 			ID:          "package-linux",
 			Title:       "Linux package build",
-			Description: "`make package-linux` builds CLI and service Linux packages.",
-			Command:     []string{"make", "package-linux"},
+			Description: "`mage packageLinux` builds CLI and service Linux packages.",
+			Command:     []string{"mage", "packageLinux"},
 		},
 		"perf-macro": {
 			ID:          "perf-macro",
 			Title:       "Macro performance check",
-			Description: "`make perf SUITE=macro`; select for queue/orchestrator/worker hot-path changes.",
-			Command:     []string{"make", "perf", "SUITE=macro"},
+			Description: "`SUITE=macro mage perf`; select for queue/orchestrator/worker hot-path changes.",
+			Command:     []string{"mage", "perf"},
+			Env:         []string{"SUITE=macro"},
 		},
 		"vm-e2e": {
 			ID:          "vm-e2e",
 			Title:       "VM-backed end-to-end lanes",
-			Description: "`make test-e2e-vm`; select for package, systemd, deploy, VM, or isolation changes.",
-			Command:     []string{"make", "test-e2e-vm"},
+			Description: "`mage testE2EVM`; select for package, systemd, deploy, VM, or isolation changes.",
+			Command:     []string{"mage", "testE2EVM"},
 		},
 	}
 }
@@ -389,7 +391,7 @@ func printChecks(stdout io.Writer, checks map[string]checkSpec) {
 		if spec.Internal != "" {
 			command = "(internal: " + spec.Internal + ")"
 		} else if len(spec.Command) > 0 {
-			command = commandString(spec.Command)
+			command = checkCommandString(spec)
 		}
 
 		fmt.Fprintf(stdout, "%s\t%s\t%s\n", spec.ID, spec.Title, command)
@@ -507,7 +509,7 @@ func skippedAfterFailure(spec checkSpec) checkResult {
 		Title:       spec.Title,
 		Description: spec.Description,
 		Status:      statusSkipped,
-		Command:     commandString(spec.Command),
+		Command:     checkCommandString(spec),
 		Reason:      "not run after earlier failure because --fail-fast was set",
 		StartedAt:   start.Format(time.RFC3339),
 	}
@@ -608,7 +610,7 @@ func runCheck(spec checkSpec, opts options, cwd, runDir, logsDir string, executo
 		Title:       spec.Title,
 		Description: spec.Description,
 		Status:      statusPassed,
-		Command:     commandString(spec.Command),
+		Command:     checkCommandString(spec),
 		StartedAt:   start.Format(time.RFC3339),
 	}
 
@@ -643,7 +645,7 @@ func runCheck(spec checkSpec, opts options, cwd, runDir, logsDir string, executo
 
 	fmt.Fprintf(logFile, "# %s\n", spec.Title)
 	if len(spec.Command) > 0 {
-		fmt.Fprintf(logFile, "$ %s\n\n", commandString(spec.Command))
+		fmt.Fprintf(logFile, "$ %s\n\n", checkCommandString(spec))
 	} else if spec.Internal != "" {
 		fmt.Fprintf(logFile, "# internal check: %s\n\n", spec.Internal)
 	} else {
@@ -671,7 +673,7 @@ func runCheck(spec checkSpec, opts options, cwd, runDir, logsDir string, executo
 	}
 	defer cancel()
 
-	exitCode, runErr := executor(ctx, cwd, spec.Command, logFile)
+	exitCode, runErr := executor(ctx, cwd, spec.Command, spec.Env, logFile)
 	result.ExitCode = exitCode
 	if runErr != nil {
 		result.Status = statusFailed
@@ -778,10 +780,10 @@ func finishCheck(result *checkResult, start time.Time) {
 	result.DurationMS = finished.Sub(start).Milliseconds()
 }
 
-func executeCommand(ctx context.Context, cwd string, command []string, log io.Writer) (int, error) {
+func executeCommand(ctx context.Context, cwd string, command, env []string, log io.Writer) (int, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...) // #nosec G204 -- release readiness intentionally runs configured local checks.
 	cmd.Dir = cwd
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = log
 	cmd.Stderr = log
 
@@ -822,10 +824,10 @@ func collectGitInfo(cwd string) (gitInfo, []string) {
 
 func collectToolchainInfo(cwd string) toolchainInfo {
 	goVersion, _ := commandOutput(cwd, "go", "version")
-	makeVersion, _ := commandOutput(cwd, "make", "--version")
+	mageVersion, _ := commandOutput(cwd, "mage", "--version")
 	return toolchainInfo{
 		GoVersion:   firstLine(goVersion),
-		MakeVersion: firstLine(makeVersion),
+		MageVersion: firstLine(mageVersion),
 	}
 }
 
@@ -1054,6 +1056,25 @@ func commandString(command []string) string {
 		parts = append(parts, quoteArg(arg))
 	}
 
+	return strings.Join(parts, " ")
+}
+
+func checkCommandString(spec checkSpec) string {
+	command := commandString(spec.Command)
+	if command == "" {
+		return ""
+	}
+
+	if len(spec.Env) == 0 {
+		return command
+	}
+
+	parts := make([]string, 0, len(spec.Env)+1)
+	for _, env := range spec.Env {
+		parts = append(parts, quoteArg(env))
+	}
+
+	parts = append(parts, command)
 	return strings.Join(parts, " ")
 }
 

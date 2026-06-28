@@ -26,7 +26,7 @@ You need:
 
 - Go `1.25.10` or newer.
 - CGO enabled, which is the normal Go default, because local SQLite uses `mattn/go-sqlite3`.
-- A shell where you can run `make`.
+- A shell where you can run `mage`.
 
 You do not need Postgres, Podman, or Kubernetes for this local path.
 
@@ -35,7 +35,7 @@ You do not need Postgres, Podman, or Kubernetes for this local path.
 From the repository root:
 
 ```sh
-make build
+mage build
 ```
 
 This creates binaries under `bin/`, including `vectis-local`, `vectis-cli`, and `vectis-docs`.
@@ -44,7 +44,7 @@ The default build also builds this docs site and embeds it into `vectis-docs`.
 If you want a faster development build without local docs, run:
 
 ```sh
-SKIP_WEB_BUILD=1 make build
+SKIP_WEB_BUILD=1 mage build
 ```
 
 ## Start The Local Stack

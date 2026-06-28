@@ -421,7 +421,7 @@ func TestValidateJob_BoundInputsSatisfyRequiredFields(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("make-command"),
+			Id:   strp("shell-command"),
 			Uses: strp("builtins/shell"),
 			With: map[string]string{
 				"command": "printf '{\"command\":\"test -f ready\"}' > outputs.json",
@@ -432,7 +432,7 @@ func TestValidateJob_BoundInputsSatisfyRequiredFields(t *testing.T) {
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("make-command", "command"),
+				"command": inputRef("shell-command", "command"),
 			},
 		},
 	}
@@ -448,7 +448,7 @@ func TestValidateJob_BoundInputsRejectUnknownField(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("make-command"),
+			Id:   strp("shell-command"),
 			Uses: strp("builtins/shell"),
 			With: map[string]string{"command": "echo hi"},
 		},
@@ -456,7 +456,7 @@ func TestValidateJob_BoundInputsRejectUnknownField(t *testing.T) {
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"commnad": inputRef("make-command", "command"),
+				"commnad": inputRef("shell-command", "command"),
 			},
 		},
 	}
@@ -477,7 +477,7 @@ func TestValidateJob_BoundInputsRejectWithConflict(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("make-command"),
+			Id:   strp("shell-command"),
 			Uses: strp("builtins/shell"),
 			With: map[string]string{"command": "echo hi"},
 		},
@@ -486,7 +486,7 @@ func TestValidateJob_BoundInputsRejectWithConflict(t *testing.T) {
 			Uses: strp("builtins/test"),
 			With: map[string]string{"command": "test -f ready"},
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("make-command", "command"),
+				"command": inputRef("shell-command", "command"),
 			},
 		},
 	}
@@ -510,11 +510,11 @@ func TestValidateJob_BoundInputsRejectForwardReference(t *testing.T) {
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("make-command", "command"),
+				"command": inputRef("shell-command", "command"),
 			},
 		},
 		{
-			Id:   strp("make-command"),
+			Id:   strp("shell-command"),
 			Uses: strp("builtins/shell"),
 			With: map[string]string{"command": "echo hi"},
 		},
@@ -525,7 +525,7 @@ func TestValidateJob_BoundInputsRejectForwardReference(t *testing.T) {
 		t.Fatal("expected validation error for forward reference")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].inputs.command.from.node: must reference an earlier node id, got "make-command"`) {
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].inputs.command.from.node: must reference an earlier node id, got "shell-command"`) {
 		t.Fatalf("expected forward reference error, got %q", msg)
 	}
 }
@@ -536,7 +536,7 @@ func TestValidateJob_BoundInputsRejectDistributedConsumerScope(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("make-command"),
+			Id:   strp("shell-command"),
 			Uses: strp("builtins/shell"),
 			With: map[string]string{
 				"command": "printf '{\"command\":\"true\"}' > outputs.json",
@@ -548,7 +548,7 @@ func TestValidateJob_BoundInputsRejectDistributedConsumerScope(t *testing.T) {
 			Uses: strp("builtins/test"),
 			With: map[string]string{"execution": "distributed"},
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("make-command", "command"),
+				"command": inputRef("shell-command", "command"),
 			},
 		},
 	}
@@ -569,7 +569,7 @@ func TestValidateJob_BoundInputsRejectPostBoundaryScope(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("make-command"),
+			Id:   strp("shell-command"),
 			Uses: strp("builtins/shell"),
 			With: map[string]string{
 				"command":   "printf '{\"command\":\"true\"}' > outputs.json",
@@ -581,7 +581,7 @@ func TestValidateJob_BoundInputsRejectPostBoundaryScope(t *testing.T) {
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("make-command", "command"),
+				"command": inputRef("shell-command", "command"),
 			},
 		},
 	}
@@ -1030,7 +1030,7 @@ func TestValidateJob_RetryTimeoutFinallyPorts(t *testing.T) {
 							taskgraph.BodyPort: nodePort(&api.Node{
 								Id:   strp("build"),
 								Uses: strp("builtins/shell"),
-								With: map[string]string{"command": "make build"},
+								With: map[string]string{"command": "mage build"},
 							}),
 						},
 					}),
@@ -1039,7 +1039,7 @@ func TestValidateJob_RetryTimeoutFinallyPorts(t *testing.T) {
 			taskgraph.AlwaysPort: nodePort(&api.Node{
 				Id:   strp("cleanup"),
 				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "make clean"},
+				With: map[string]string{"command": "mage clean"},
 			}),
 		},
 	}
@@ -1061,12 +1061,12 @@ func TestValidateJob_FallbackPorts(t *testing.T) {
 				&api.Node{
 					Id:   strp("primary-build"),
 					Uses: strp("builtins/shell"),
-					With: map[string]string{"command": "make build"},
+					With: map[string]string{"command": "mage build"},
 				},
 				&api.Node{
 					Id:   strp("backup-build"),
 					Uses: strp("builtins/shell"),
-					With: map[string]string{"command": "make build-fast"},
+					With: map[string]string{"command": "mage buildContainer"},
 				},
 			),
 		},
@@ -1108,7 +1108,7 @@ func TestValidateJob_RetryRejectsInvalidAttempts(t *testing.T) {
 			taskgraph.BodyPort: nodePort(&api.Node{
 				Id:   strp("build"),
 				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "make build"},
+				With: map[string]string{"command": "mage build"},
 			}),
 		},
 	}
@@ -1134,7 +1134,7 @@ func TestValidateJob_TimeoutRequiresDuration(t *testing.T) {
 			taskgraph.BodyPort: nodePort(&api.Node{
 				Id:   strp("build"),
 				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "make build"},
+				With: map[string]string{"command": "mage build"},
 			}),
 		},
 	}
@@ -1160,7 +1160,7 @@ func TestValidateJob_FinallyRequiresAlwaysPort(t *testing.T) {
 			taskgraph.BodyPort: nodePort(&api.Node{
 				Id:   strp("build"),
 				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "make build"},
+				With: map[string]string{"command": "mage build"},
 			}),
 		},
 	}

@@ -20,20 +20,20 @@ registry, secrets, SPIFFE authority, worker, and worker-core packages.
 Build the production Linux package set with:
 
 ```sh
-make package-linux
+mage packageLinux
 ```
 
 Build either production side of the split with:
 
 ```sh
-make package-cli
-make package-services
+mage packageCLI
+mage packageServices
 ```
 
 Build the local single-host package with:
 
 ```sh
-make package-local
+mage packageLocal
 ```
 
 By default the production package targets build DEB and RPM packages for
@@ -41,12 +41,12 @@ By default the production package targets build DEB and RPM packages for
 names to change that build matrix, for example:
 
 ```sh
-make package-cli PACKAGE_ARCHES=arm64
+PACKAGE_ARCHES=arm64 mage packageCLI
 ```
 
 The local package target uses `PACKAGE_LOCAL_ARCHES`, which defaults to
 `PACKAGE_ARCH`, because SQLite-enabled CGO builds normally need a native Linux C
-toolchain. `make package-local` gates on the host platform: Linux hosts run the
+toolchain. `mage packageLocal` gates on the host platform: Linux hosts run the
 native CGO package target directly, while macOS and other non-Linux hosts run
 that native target inside the configured platform VM provider. Lima is the
 default provider.
@@ -54,55 +54,55 @@ default provider.
 On macOS, prepare the package builder before the first local package build:
 
 ```sh
-make vm-package-builder-prepare
-make vm-package-builder-check
+mage vmPackageBuilderPrepare
+mage vmPackageBuilderCheck
 ```
 
 To inspect the prepared VM lanes without starting stopped guests, use:
 
 ```sh
-make vm-status
+mage vmStatus
 ```
 
 To start stopped prepared guests long enough to verify markers and expected
 guest tools, use:
 
 ```sh
-make vm-doctor
+mage vmDoctor
 ```
 
 To prepare and check every VM-backed deploy/package lane in one pass, use:
 
 ```sh
-make vm-validate
-make vm-prepare
-make vm-check
+mage vmValidate
+mage vmPrepare
+mage vmCheck
 ```
 
-`make vm-check` delegates to `vm-doctor`, while the individual
-`vm-*-check` targets call the same Go checker with a single lane selected.
+`mage vmCheck` delegates to `mage vmDoctor`, while the individual VM check
+targets call the same Go checker with a single lane selected.
 
 Then install-test it in the Linux VM lane with:
 
 ```sh
-make vm-package-smoke-prepare
-make vm-package-smoke-check
-make test-e2e-package-cli-deb
-make test-e2e-package-cli-rpm
-make test-e2e-package-services-deb
-make test-e2e-package-services-rpm
-make test-e2e-package-local-deb
-make test-e2e-package-local-rpm
-make test-e2e-package-local
+mage vmPackageSmokePrepare
+mage vmPackageSmokeCheck
+mage testE2EPackageCLIDeb
+mage testE2EPackageCLIRPM
+mage testE2EPackageServicesDeb
+mage testE2EPackageServicesRPM
+mage testE2EPackageLocalDeb
+mage testE2EPackageLocalRPM
+mage testE2EPackageLocal
 ```
 
 For the full VM-backed deployment/package smoke lane, use:
 
 ```sh
-make vm-validate
-make vm-prepare
-make vm-check
-make test-e2e-vm
+mage vmValidate
+mage vmPrepare
+mage vmCheck
+mage testE2EVM
 ```
 
 The e2e package targets use `PACKAGE_ARCH`, which defaults to the local Go
@@ -120,23 +120,23 @@ run the native target on a non-Linux host with a working Linux C cross-toolchain
 Useful VM knobs for local package builds:
 
 ```sh
-make package-local \
-  PACKAGE_LOCAL_VM_PROVIDER=lima \
-  PACKAGE_LOCAL_VM_INSTANCE=vectis-package-builder
+PACKAGE_LOCAL_VM_PROVIDER=lima \
+  PACKAGE_LOCAL_VM_INSTANCE=vectis-package-builder \
+  mage packageLocal
 ```
 
 The dispatcher copies the worktree into a writable guest workspace under
 `PACKAGE_LOCAL_VM_WORKSPACE_ROOT` and copies `PACKAGE_OUT` back after the build,
 so it does not require a writable host mount in Lima. Go build and module caches
 live under `PACKAGE_LOCAL_VM_CACHE_ROOT`, which defaults to `/var/tmp` so repeat
-VM builds can reuse downloads across boots. The build VM must have Go, `make`,
+VM builds can reuse downloads across boots. The build VM must have Go, Mage,
 and a C compiler installed. The default path is a Packer-prepared builder named
-`vectis-package-builder`; run `make vm-package-builder-prepare` to create or
+`vectis-package-builder`; run `mage vmPackageBuilderPrepare` to create or
 refresh it. Prepared VMs write `/etc/vectis-vm-prep/*-prep-version` markers;
 rerun the matching prepare target when a check reports a stale marker. Direct
 Linux-builder entrypoints are available as
-`make package-local-native-deb`, `make package-local-native-rpm`, and
-`make package-local-native`.
+`mage packageLocalNativeDeb`, `mage packageLocalNativeRPM`, and
+`mage packageLocalNative`.
 
 The TOML package manifest is shared across DEB and RPM so package metadata and
 file inventory are not duplicated across formats. Service packages use

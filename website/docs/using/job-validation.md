@@ -147,7 +147,7 @@ Execution policy nodes wrap local child subtrees:
           "ports": {
             "body": {
               "nodes": [
-                {"id": "build", "uses": "builtins/shell", "with": {"command": "make build"}}
+                {"id": "build", "uses": "builtins/shell", "with": {"command": "mage build"}}
               ]
             }
           }
@@ -180,7 +180,7 @@ Later nodes can bind accepted action inputs from earlier outputs without using a
   "inputs": {
     "command": {
       "from": {
-        "node": "make-command",
+        "node": "shell-command",
         "output": "command"
       }
     }

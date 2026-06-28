@@ -44,7 +44,7 @@ Job documents use the protobuf JSON field names shown here:
     "inputs": {
       "command": {
         "from": {
-          "node": "make-command",
+          "node": "shell-command",
           "output": "command"
         }
       }
@@ -115,7 +115,7 @@ When omitted, `builtins/parallel` defaults to `distributed`; other built-ins def
   "inputs": {
     "command": {
       "from": {
-        "node": "make-command",
+        "node": "shell-command",
         "output": "command"
       }
     }

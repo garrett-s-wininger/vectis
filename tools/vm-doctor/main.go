@@ -19,7 +19,7 @@ import (
 const (
 	defaultMode              = "status"
 	defaultTimeout           = 10 * time.Minute
-	defaultPrepVersion       = "1"
+	defaultPrepVersion       = "2"
 	defaultDeployInstance    = "vectis-deploy-smoke"
 	defaultBuilderInstance   = "vectis-package-builder"
 	defaultDebSmokeInstance  = "vectis-package-smoke"
@@ -213,7 +213,7 @@ func runDoctor(ctx context.Context, opts options, stdout io.Writer) error {
 	}
 
 	if issueCount > 0 {
-		fmt.Fprintf(stdout, "\nFound %d issue(s). Repair with the target shown for each lane, then rerun make vm-doctor.\n", issueCount)
+		fmt.Fprintf(stdout, "\nFound %d issue(s). Repair with the target shown for each lane, then rerun mage vmDoctor.\n", issueCount)
 		return errDoctorFailed
 	}
 
@@ -249,8 +249,8 @@ func lanes(opts options) []lane {
 			instance:      opts.deployInstance,
 			provider:      opts.provider,
 			providerPath:  opts.deployLimaPath,
-			prepareTarget: "make vm-deploy-smoke-prepare",
-			checkTarget:   "make vm-deploy-smoke-check",
+			prepareTarget: "mage vmDeploySmokePrepare",
+			checkTarget:   "mage vmDeploySmokeCheck",
 			expectations: []guestExpectation{
 				{label: "profile", path: prepRoot + "/deploy-smoke-profile", want: "systemd"},
 				{label: "prep-version", path: prepRoot + "/deploy-smoke-prep-version", want: opts.prepVersion},
@@ -267,27 +267,27 @@ func lanes(opts options) []lane {
 			instance:      opts.builderInstance,
 			provider:      opts.provider,
 			providerPath:  opts.builderLimaPath,
-			prepareTarget: "make vm-package-builder-prepare",
-			checkTarget:   "make vm-package-builder-check",
+			prepareTarget: "mage vmPackageBuilderPrepare",
+			checkTarget:   "mage vmPackageBuilderCheck",
 			expectations: []guestExpectation{
 				{label: "prep-version", path: prepRoot + "/package-builder-prep-version", want: opts.prepVersion},
 			},
 			checks: []guestCheck{
 				{label: "go", args: []string{"sh", "-lc", `PATH=/usr/local/go/bin:$PATH; test "$(go env GOVERSION)" = "$1"`, "vectis-builder-go", "go" + opts.builderGoVersion}},
-				{label: "make", args: []string{"make", "--version"}},
+				{label: "mage", args: []string{"mage", "--version"}},
 				{label: "cc", args: []string{"cc", "--version"}},
 				{label: "cache-root", args: []string{"test", "-d", opts.builderCacheRoot}},
 				{label: "workspace-root", args: []string{"test", "-d", opts.builderWorkspaceRoot}},
 			},
 		},
-		packageSmokeLane(opts, "package-smoke-deb", opts.debSmokeInstance, "deb", "make vm-package-smoke-deb-prepare", "make vm-package-smoke-deb-check", []guestCheck{
+		packageSmokeLane(opts, "package-smoke-deb", opts.debSmokeInstance, "deb", "mage vmPackageSmokeDebPrepare", "mage vmPackageSmokeDebCheck", []guestCheck{
 			{label: "dpkg", args: []string{"dpkg", "--version"}},
 			{label: "dpkg-deb", args: []string{"dpkg-deb", "--version"}},
 			{label: "systemctl", args: []string{"systemctl", "--version"}},
 			{label: "systemd-sysusers", args: []string{"systemd-sysusers", "--version"}},
 			{label: "systemd-tmpfiles", args: []string{"systemd-tmpfiles", "--version"}},
 		}),
-		packageSmokeLane(opts, "package-smoke-rpm", opts.rpmSmokeInstance, "rpm", "make vm-package-smoke-rpm-prepare", "make vm-package-smoke-rpm-check", []guestCheck{
+		packageSmokeLane(opts, "package-smoke-rpm", opts.rpmSmokeInstance, "rpm", "mage vmPackageSmokeRPMPrepare", "mage vmPackageSmokeRPMCheck", []guestCheck{
 			{label: "rpm", args: []string{"rpm", "--version"}},
 			{label: "systemctl", args: []string{"systemctl", "--version"}},
 			{label: "systemd-sysusers", args: []string{"systemd-sysusers", "--version"}},

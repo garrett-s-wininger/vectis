@@ -23,7 +23,7 @@ const (
 	defaultBuildVMWorkspace = "/var/tmp/vectis-package-local-workspaces"
 	defaultBuildVMCacheRoot = "/var/tmp/vectis-package-local-cache"
 	defaultBuildTimeout     = 30 * time.Minute
-	buildVMPrepVersion      = "1"
+	buildVMPrepVersion      = "2"
 	buildVMPrepVersionPath  = "/etc/vectis-vm-prep/package-builder-prep-version"
 )
 
@@ -33,7 +33,7 @@ type options struct {
 	Format        string
 	Arch          string
 	WorkDir       string
-	MakePath      string
+	MageCommand   string
 	Provider      string
 	ProviderPath  string
 	Instance      string
@@ -96,7 +96,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.Format, "format", opts.Format, "Package format to build: deb or rpm")
 	flags.StringVar(&opts.Arch, "arch", opts.Arch, "Target architecture, using Go architecture names")
 	flags.StringVar(&opts.WorkDir, "workdir", opts.WorkDir, "Workspace directory to build in")
-	flags.StringVar(&opts.MakePath, "make", opts.MakePath, "make executable available on the selected build host")
+	flags.StringVar(&opts.MageCommand, "mage", opts.MageCommand, "Mage command available on the selected build host")
 	flags.StringVar(&opts.Provider, "provider", opts.Provider, "VM provider for non-Linux hosts")
 	flags.StringVar(&opts.ProviderPath, "provider-path", opts.ProviderPath, "Path to the VM provider executable")
 	flags.StringVar(&opts.Instance, "instance", opts.Instance, "VM instance for non-Linux hosts")
@@ -107,7 +107,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opts.AllowCrossCGO, "allow-cross-cgo", opts.AllowCrossCGO, "Allow host builds even when the host is not Linux")
 	flags.BoolVar(&opts.KeepVM, "keep-vm", opts.KeepVM, "Leave the build VM running after completion")
 	flags.BoolVar(&opts.VMPreserveEnv, "vm-preserve-env", opts.VMPreserveEnv, "Preserve VM shell environment while applying explicit build env")
-	flags.Var(&env, "env", "Environment variable for the native make target; may be repeated")
+	flags.Var(&env, "env", "Environment variable for the native Mage target; may be repeated")
 
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -126,7 +126,7 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 func defaultOptionsFromEnv() options {
 	return options{
 		WorkDir:       ".",
-		MakePath:      envOrDefault("PACKAGE_LOCAL_MAKE", "make"),
+		MageCommand:   envOrDefault("PACKAGE_LOCAL_MAGE", "mage"),
 		Provider:      envOrDefault("PACKAGE_LOCAL_VM_PROVIDER", defaultBuildVMProvider),
 		ProviderPath:  strings.TrimSpace(os.Getenv("PACKAGE_LOCAL_VM_PROVIDER_PATH")),
 		Instance:      envOrDefault("PACKAGE_LOCAL_VM_INSTANCE", defaultBuildVMInstance),
@@ -159,9 +159,9 @@ func normalizeOptions(opts options) (options, error) {
 		return options{}, fmt.Errorf("arch is required")
 	}
 
-	opts.MakePath = strings.TrimSpace(opts.MakePath)
-	if opts.MakePath == "" {
-		return options{}, fmt.Errorf("make executable is required")
+	opts.MageCommand = strings.TrimSpace(opts.MageCommand)
+	if opts.MageCommand == "" {
+		return options{}, fmt.Errorf("mage command is required")
 	}
 
 	workDir := strings.TrimSpace(opts.WorkDir)
@@ -205,31 +205,38 @@ func normalizeOptions(opts options) (options, error) {
 }
 
 func runBuild(ctx context.Context, opts options, hostOS string, stdout, stderr io.Writer) error {
-	target := nativeTarget(opts.Format, opts.Arch)
+	target := nativeTarget(opts.Format)
+	targetArgs := []string{opts.Arch}
+	targetLabel := mageTargetLabel(target, targetArgs)
 	if useNativeBuild(hostOS, opts.AllowCrossCGO) {
-		fmt.Fprintf(stdout, "building %s on host with target %s\n", localPackageLabel(opts), target)
-		return runMake(ctx, opts, target, stdout, stderr)
+		fmt.Fprintf(stdout, "building %s on host with target %s\n", localPackageLabel(opts), targetLabel)
+		return runMage(ctx, opts, target, targetArgs, stdout, stderr)
 	}
 
-	fmt.Fprintf(stdout, "building %s in %s VM %q with target %s\n", localPackageLabel(opts), opts.Provider, opts.Instance, target)
-	return runMakeInVM(ctx, opts, target, stdout, stderr)
+	fmt.Fprintf(stdout, "building %s in %s VM %q with target %s\n", localPackageLabel(opts), opts.Provider, opts.Instance, targetLabel)
+	return runMageInVM(ctx, opts, target, targetArgs, stdout, stderr)
 }
 
-func runMake(ctx context.Context, opts options, target string, stdout, stderr io.Writer) error {
-	cmd := exec.CommandContext(ctx, opts.MakePath, target) //#nosec G204
+func runMage(ctx context.Context, opts options, target string, targetArgs []string, stdout, stderr io.Writer) error {
+	args, err := mageCommandArgs(opts.MageCommand, target, targetArgs)
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //#nosec G204
 	cmd.Dir = opts.WorkDir
 	cmd.Env = append(os.Environ(), opts.Env...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run %s: %w", target, err)
+		return fmt.Errorf("run %s: %w", mageTargetLabel(target, targetArgs), err)
 	}
 
 	return nil
 }
 
-func runMakeInVM(ctx context.Context, opts options, target string, stdout, stderr io.Writer) error {
+func runMageInVM(ctx context.Context, opts options, target string, targetArgs []string, stdout, stderr io.Writer) error {
 	manager, err := platform.NewVirtualMachineManager(platform.VirtualMachineManagerConfig{
 		Provider:     opts.Provider,
 		ProviderPath: opts.ProviderPath,
@@ -251,7 +258,7 @@ func runMakeInVM(ctx context.Context, opts options, target string, stdout, stder
 	}
 
 	if !exists {
-		return fmt.Errorf("build VM %q does not exist; run `make vm-package-builder-prepare` before building vectis-local packages", opts.Instance)
+		return fmt.Errorf("build VM %q does not exist; run `mage vmPackageBuilderPrepare` before building vectis-local packages", opts.Instance)
 	}
 
 	if err := manager.Start(ctx, opts.Instance); err != nil {
@@ -267,7 +274,7 @@ func runMakeInVM(ctx context.Context, opts options, target string, stdout, stder
 		return err
 	}
 
-	buildErr := runVMBuildCommand(ctx, opts, target, guestWorkDir, stdout, stderr)
+	buildErr := runVMBuildCommand(ctx, opts, target, targetArgs, guestWorkDir, stdout, stderr)
 	if buildErr == nil {
 		buildErr = copyVMOutput(ctx, manager, opts, guestWorkDir)
 	}
@@ -288,7 +295,7 @@ func runMakeInVM(ctx context.Context, opts options, target string, stdout, stder
 
 func verifyPreparedBuildVM(ctx context.Context, manager platform.VirtualMachineManager, opts options) error {
 	if err := manager.Shell(ctx, opts.Instance, nil, "sh", "-c", `test "$(cat "$1")" = "$2"`, "vectis-package-builder-check", buildVMPrepVersionPath, expectedBuildVMPrepVersion()); err != nil {
-		return fmt.Errorf("build VM %q is stale or missing package builder preparation; run `make vm-package-builder-prepare` before building vectis-local packages: %w", opts.Instance, err)
+		return fmt.Errorf("build VM %q is stale or missing package builder preparation; run `mage vmPackageBuilderPrepare` before building vectis-local packages: %w", opts.Instance, err)
 	}
 
 	return nil
@@ -319,15 +326,15 @@ func prepareVMWorkspace(ctx context.Context, manager platform.VirtualMachineMana
 
 	nestedWorkDir := path.Join(workspaceParent, filepath.Base(opts.WorkDir))
 	for _, guestWorkDir := range []string{nestedWorkDir, workspaceParent} {
-		if err := manager.Shell(ctx, opts.Instance, nil, "test", "-f", path.Join(guestWorkDir, "Makefile")); err == nil {
+		if err := manager.Shell(ctx, opts.Instance, nil, "test", "-f", path.Join(guestWorkDir, "magefile.go")); err == nil {
 			return guestWorkDir, nil
 		}
 	}
 
-	return "", fmt.Errorf("copied worktree in VM %q did not contain a Makefile under %s", opts.Instance, workspaceParent)
+	return "", fmt.Errorf("copied worktree in VM %q did not contain a magefile.go under %s", opts.Instance, workspaceParent)
 }
 
-func runVMBuildCommand(ctx context.Context, opts options, target, guestWorkDir string, stdout, stderr io.Writer) error {
+func runVMBuildCommand(ctx context.Context, opts options, target string, targetArgs []string, guestWorkDir string, stdout, stderr io.Writer) error {
 	executor, err := platform.NewVirtualMachineCommandExecutor(platform.VirtualMachineConfig{
 		Provider:     opts.Provider,
 		Instance:     opts.Instance,
@@ -340,13 +347,18 @@ func runVMBuildCommand(ctx context.Context, opts options, target, guestWorkDir s
 		return err
 	}
 
-	env := vmBuildEnv(opts.Env, opts.VMGo, opts.MakePath, opts.VMCacheRoot)
+	env := vmBuildEnv(opts.Env, opts.VMGo, opts.MageCommand, opts.VMCacheRoot)
 	if err := runVMProcess(ctx, executor, "sh", []string{"-c", vmPreflightScript}, "", env, stdout, stderr); err != nil {
-		return fmt.Errorf("build VM %q is missing local package prerequisites (go, make, and a C compiler); run `make vm-package-builder-prepare` before building vectis-local packages: %w", opts.Instance, err)
+		return fmt.Errorf("build VM %q is missing local package prerequisites (go, mage, and a C compiler); run `mage vmPackageBuilderPrepare` before building vectis-local packages: %w", opts.Instance, err)
 	}
 
-	if err := runVMProcess(ctx, executor, opts.MakePath, []string{target}, guestWorkDir, env, stdout, stderr); err != nil {
-		return fmt.Errorf("run %s in build VM %q: %w", target, opts.Instance, err)
+	args, err := mageCommandArgs(opts.MageCommand, target, targetArgs)
+	if err != nil {
+		return err
+	}
+
+	if err := runVMProcess(ctx, executor, args[0], args[1:], guestWorkDir, env, stdout, stderr); err != nil {
+		return fmt.Errorf("run %s in build VM %q: %w", mageTargetLabel(target, targetArgs), opts.Instance, err)
 	}
 
 	return nil
@@ -425,8 +437,30 @@ func waitProcess(process interfaces.Process, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func nativeTarget(format, arch string) string {
-	return "package-local-native-" + format + "-" + arch
+func nativeTarget(format string) string {
+	switch format {
+	case "deb":
+		return "packageLocalNativeDebArch"
+	case "rpm":
+		return "packageLocalNativeRPMArch"
+	default:
+		return ""
+	}
+}
+
+func mageCommandArgs(command, target string, targetArgs []string) ([]string, error) {
+	args := strings.Fields(command)
+	if len(args) == 0 {
+		return nil, fmt.Errorf("mage command is required")
+	}
+
+	args = append(args, target)
+	args = append(args, targetArgs...)
+	return args, nil
+}
+
+func mageTargetLabel(target string, targetArgs []string) string {
+	return strings.Join(append([]string{target}, targetArgs...), " ")
 }
 
 func useNativeBuild(hostOS string, allowCrossCGO bool) bool {
@@ -492,7 +526,7 @@ func safeGuestName(raw string) string {
 	return value
 }
 
-func vmBuildEnv(extra []string, vmGo, makePath, cacheRoot string) []string {
+func vmBuildEnv(extra []string, vmGo, mageCommand, cacheRoot string) []string {
 	cacheRoot = strings.TrimSpace(cacheRoot)
 	if cacheRoot == "" {
 		cacheRoot = defaultBuildVMCacheRoot
@@ -510,8 +544,8 @@ func vmBuildEnv(extra []string, vmGo, makePath, cacheRoot string) []string {
 		env = append(env, "GO="+strings.TrimSpace(vmGo))
 	}
 
-	if strings.TrimSpace(makePath) != "" {
-		env = append(env, "VECTIS_PACKAGE_LOCAL_MAKE="+strings.TrimSpace(makePath))
+	if strings.TrimSpace(mageCommand) != "" {
+		env = append(env, "VECTIS_PACKAGE_LOCAL_MAGE="+strings.TrimSpace(mageCommand))
 	}
 
 	return append(env, extra...)
@@ -546,13 +580,14 @@ func truthyDefault(raw string, fallback bool) bool {
 }
 
 const vmPreflightScript = `set -eu
-: "${GO:=go}"
-: "${VECTIS_PACKAGE_LOCAL_MAKE:=make}"
-mkdir -p "$GOCACHE" "$GOMODCACHE"
-command -v "$GO" >/dev/null
-command -v "$VECTIS_PACKAGE_LOCAL_MAKE" >/dev/null
-if command -v cc >/dev/null || command -v gcc >/dev/null || command -v clang >/dev/null; then
-	exit 0
+	: "${GO:=go}"
+	: "${VECTIS_PACKAGE_LOCAL_MAGE:=mage}"
+	mkdir -p "$GOCACHE" "$GOMODCACHE"
+	command -v "$GO" >/dev/null
+	set -- $VECTIS_PACKAGE_LOCAL_MAGE
+	command -v "$1" >/dev/null
+	if command -v cc >/dev/null || command -v gcc >/dev/null || command -v clang >/dev/null; then
+		exit 0
 fi
 echo "no C compiler found in build VM" >&2
 exit 1`

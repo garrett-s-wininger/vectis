@@ -168,7 +168,7 @@ func requireExecutable(t *testing.T, path, label string) {
 
 	info, err := os.Stat(path)
 	if err != nil {
-		skipOrFatal(t, "%s binary %s is not available; run make build or set VECTIS_E2E_CLI", label, path)
+		skipOrFatal(t, "%s binary %s is not available; run mage build or set VECTIS_E2E_CLI", label, path)
 	}
 
 	if info.IsDir() {
@@ -218,7 +218,7 @@ func requirePodmanImages(t *testing.T, ctx context.Context) {
 	}
 
 	if len(missing) > 0 {
-		skipOrFatal(t, "missing Podman images: %s; run make images-components and pre-pull external images, or set VECTIS_E2E_ALLOW_IMAGE_PULL=true", strings.Join(missing, ", "))
+		skipOrFatal(t, "missing Podman images: %s; run mage imagesComponents and pre-pull external images, or set VECTIS_E2E_ALLOW_IMAGE_PULL=true", strings.Join(missing, ", "))
 	}
 }
 

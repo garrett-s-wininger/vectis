@@ -57,7 +57,7 @@ same documented shape without Vectis becoming the config manager.
 Run the no-VM artifact checks with:
 
 ```sh
-make deploy-artifacts-test
+mage deployArtifactsTest
 ```
 
 The test lane renders the manifest, parses every generated unit and env example,
@@ -68,7 +68,7 @@ Render the installable files with:
 
 ```sh
 go run ./cmd/cli deploy linux render --output artifacts/deploy/linux
-make deploy-artifacts-render DEPLOY_LINUX_OUT=artifacts/deploy/linux
+DEPLOY_LINUX_OUT=artifacts/deploy/linux mage deployArtifactsRender
 ```
 
 ## Linux VM Validation On macOS
@@ -80,31 +80,31 @@ This is an e2e test harness, not a user-facing deploy command. Prepare the
 guest once with Packer, then run the e2e harness against that prepared VM:
 
 ```sh
-make vm-validate
-make vm-deploy-smoke-prepare
-make vm-deploy-smoke-check
-make test-e2e-deploy-linux
+mage vmValidate
+mage vmDeploySmokePrepare
+mage vmDeploySmokeCheck
+mage testE2EDeployLinux
 ```
 
-`make vm-prepare` and `make vm-check` run this lane along with the package
-builder and package install smoke VMs. The check targets use `vm-doctor` with
-lane selection, so the marker/tooling checks live in one Go implementation.
+`mage vmPrepare` and `mage vmCheck` run this lane along with the package
+builder and package install smoke VMs. The check targets use `mage vmDoctor`
+with lane selection, so the marker/tooling checks live in one Go implementation.
 
-`make vm-status` reports whether the prepared deploy/package VMs exist and
-whether they are currently running without starting them. `make vm-doctor`
+`mage vmStatus` reports whether the prepared deploy/package VMs exist and
+whether they are currently running without starting them. `mage vmDoctor`
 starts stopped prepared VMs long enough to verify their marker files and guest
 tooling, then stops any VM it started.
 
 For the full prepared-VM lane across deploy and package smoke profiles, use:
 
 ```sh
-make vm-validate
-make vm-prepare
-make vm-check
-make test-e2e-vm
+mage vmValidate
+mage vmPrepare
+mage vmCheck
+mage testE2EVM
 ```
 
-By default, `make vm-deploy-smoke-prepare` prepares a Lima instance named
+By default, `mage vmDeploySmokePrepare` prepares a Lima instance named
 `vectis-deploy-smoke` from the `ubuntu-lts` template, installs the systemd
 tooling needed by the harness, and writes
 `/etc/vectis-vm-prep/deploy-smoke-profile`.

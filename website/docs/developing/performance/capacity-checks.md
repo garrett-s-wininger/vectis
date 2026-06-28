@@ -34,10 +34,10 @@ Match the evidence to the risk of the change:
 
 | Change type | Minimum evidence |
 | --- | --- |
-| Queue internals, delivery, persistence, or retry paths | `make perf SUITE=queue` output before/after, plus `benchstat` comparison and notes on variance. |
-| API trigger, run state, dispatch, or idempotency path | `make perf SUITE=dal` when SQL hot paths changed, plus a deployed-stack check if concurrency behavior changed. |
-| Job executor, built-in action, or durable worker log flush path | `make perf SUITE=job` output before/after, plus macro or deployed-stack evidence if worker throughput changes. |
-| Worker claim, lease, finalization, or log forwarding path | `make perf SUITE=macro` for local flow slices, plus deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
+| Queue internals, delivery, persistence, or retry paths | `SUITE=queue mage perf` output before/after, plus `benchstat` comparison and notes on variance. |
+| API trigger, run state, dispatch, or idempotency path | `SUITE=dal mage perf` when SQL hot paths changed, plus a deployed-stack check if concurrency behavior changed. |
+| Job executor, built-in action, or durable worker log flush path | `SUITE=job mage perf` output before/after, plus macro or deployed-stack evidence if worker throughput changes. |
+| Worker claim, lease, finalization, or log forwarding path | `SUITE=macro mage perf` for local flow slices, plus deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
 | Log streaming, replay, or storage path | Deployed-stack check with concurrent readers, log volume, replay behavior, and storage/spool pressure. |
 | Release note that changes the operating envelope | Repeatable check record, raw output, observed limiting component, and docs update. |
 
@@ -69,7 +69,7 @@ By default, the harness only writes artifacts and prints console output. To host
 1. Set benchmark duration and repetition count:
 
 ```sh
-VECTIS_PERF_RUN_NAME=main VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=queue
+VECTIS_PERF_RUN_NAME=main VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=queue mage perf
 ```
 
 2. Save the artifact directory printed by the harness.
@@ -77,7 +77,7 @@ VECTIS_PERF_RUN_NAME=main VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf
 4. Compare queue ops/sec and p95/p99 latency with the previous baseline for the same machine class:
 
 ```sh
-make perf-compare BASELINE=artifacts/perf/main/go-bench.txt CURRENT=artifacts/perf/pr/go-bench.txt
+BASELINE=artifacts/perf/main/go-bench.txt CURRENT=artifacts/perf/pr/go-bench.txt mage perfCompare
 ```
 
 5. Investigate changes larger than normal local variance before changing the published envelope.
@@ -135,7 +135,7 @@ Useful knobs:
 Use this check when a change affects run creation, idempotency, dispatch visibility, worker claims, lease renewal, finalization, or run-listing queries.
 
 ```sh
-VECTIS_PERF_RUN_NAME=main-dal VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=dal
+VECTIS_PERF_RUN_NAME=main-dal VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=dal mage perf
 ```
 
 The DAL suite is SQLite-backed for local repeatability. Use it as a fast regression tripwire, then run a deployed-stack check against Postgres before making claims about production scale.
@@ -145,13 +145,13 @@ The DAL suite is SQLite-backed for local repeatability. Use it as a fast regress
 Use this check when a change affects executor behavior, built-in action overhead, workspace setup, subprocess creation, or durable worker log flush.
 
 ```sh
-VECTIS_PERF_RUN_NAME=main-job VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=job
+VECTIS_PERF_RUN_NAME=main-job VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=job mage perf
 ```
 
 To compare process-spawn overhead against an in-process action result, focus the executor suite:
 
 ```sh
-VECTIS_PERF_JOB_BENCH='BenchmarkExecutor_Execute(ShellTrue|ResultTrue)' make perf SUITE=job
+VECTIS_PERF_JOB_BENCH='BenchmarkExecutor_Execute(ShellTrue|ResultTrue)' SUITE=job mage perf
 ```
 
 The executor suite also includes `AsyncWorkspaceCleanup` variants. Use those when you need to distinguish terminal latency from synchronous workspace removal cost.
@@ -161,14 +161,14 @@ The executor suite also includes `AsyncWorkspaceCleanup` variants. Use those whe
 Use this check when the architectural question crosses component boundaries. The macro suite includes in-process sequential and concurrent no-op API trigger paths through run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, shell execution, and terminal status update. It also includes a log-heavy variant that exercises worker durable log flush plus local log-store replay.
 
 ```sh
-VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 make perf SUITE=macro
+VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=macro mage perf
 ```
 
 SQLite is the default local backend and uses an in-memory database with one SQL connection. To compare the same macro slice against disposable Postgres, use the Podman-backed matrix entry:
 
 ```sh
 VECTIS_PERF_MACRO_DATABASES=sqlite3,pgx_podman,pgx_podman_unsafe \
-make perf SUITE=macro
+SUITE=macro mage perf
 ```
 
 The matrix tags parsed benchmark rows with `db_sqlite3`, `db_pgx_podman`, or `db_pgx_podman_unsafe`. The Podman entries start `postgres:18-alpine`, preload `pg_stat_statements`, run the Go benchmark with `VECTIS_PERF_DATABASE_DRIVER=pgx`, and force-remove the disposable container afterward. The Podman machine or socket must already be running; on macOS, start it with `podman machine start`.
@@ -187,7 +187,7 @@ For attribution runs, opt into database wait and planner evidence:
 VECTIS_PERF_MACRO_DATABASES=pgx_podman \
 VECTIS_PERF_PG_WAIT_SAMPLES=true \
 VECTIS_PERF_PG_AUTO_EXPLAIN=true \
-make perf SUITE=macro
+SUITE=macro mage perf
 ```
 
 Wait sampling writes `pg-wait-samples*.tsv` with active waits and ungranted locks from `pg_stat_activity`/`pg_locks`. Auto-explain writes `pg-auto-explain*.log` from the disposable Postgres server log. These options perturb the benchmark; use them to explain a suspected bottleneck, not as the clean capacity number. For the least noisy attribution, run wait sampling and auto-explain separately unless you intentionally want both views from the same run.
@@ -197,7 +197,7 @@ To use an existing disposable Postgres database instead, pass a DSN and use `pgx
 ```sh
 VECTIS_PERF_MACRO_DATABASES=sqlite3,pgx \
 VECTIS_PERF_POSTGRES_DSN='postgres://vectis:vectis@127.0.0.1:5432/vectis_perf?sslmode=disable' \
-make perf SUITE=macro
+SUITE=macro mage perf
 ```
 
 The DSN-backed matrix does not reset the Postgres database; benchmark job IDs are unique, but the database should still be disposable. To collect query-level stats with a DSN-backed Postgres database, preload and create the `pg_stat_statements` extension or set `VECTIS_PERF_PG_STAT_STATEMENTS=false`.
@@ -205,7 +205,7 @@ The DSN-backed matrix does not reset the Postgres database; benchmark job IDs ar
 For worker scaling checks, either set `VECTIS_PERF_WORKERS` on a normal macro run or focus on the checked-in scaling curve:
 
 ```sh
-VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ClaimAckComplete make perf SUITE=macro
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ClaimAckComplete SUITE=macro mage perf
 ```
 
 Set `VECTIS_PERF_WORKER_COUNTS` to sweep larger worker counts. To probe single-cell runnable-slot saturation without subprocess overhead, use the shallow distributed result-action DAG and set `VECTIS_PERF_FANOUT_WIDTHS` to the branch counts under test:
@@ -215,14 +215,14 @@ VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_OrchestratorGRPCConcurrentShallowFanoutRe
 VECTIS_PERF_FANOUT_WIDTHS=100,500,1000 \
 VECTIS_PERF_WORKERS=128 \
 VECTIS_PERF_BENCHTIME=1x \
-make perf SUITE=macro
+SUITE=macro mage perf
 ```
 
 Use the result action checks when you want to remove subprocess creation from the macro workload and isolate worker, database, queue, and log-flush overhead:
 
 ```sh
-VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ResultActionClaimAckComplete make perf SUITE=macro
-VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_ResultActionWorkerClaimAckComplete make perf SUITE=macro
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ResultActionClaimAckComplete SUITE=macro mage perf
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_ResultActionWorkerClaimAckComplete SUITE=macro mage perf
 ```
 
 This is a fast macro regression check, not a deployment capacity claim. Follow it with the deployed stack check when worker count, Postgres, log service, network, TLS, or service process boundaries matter.

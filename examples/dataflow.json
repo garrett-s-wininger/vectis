@@ -5,7 +5,7 @@
     "uses": "builtins/sequence",
     "steps": [
       {
-        "id": "make-command",
+        "id": "shell-command",
         "uses": "builtins/shell",
         "with": {
           "command": "printf '{\"command\":\"true\"}' > outputs.json",
@@ -18,7 +18,7 @@
         "inputs": {
           "command": {
             "from": {
-              "node": "make-command",
+              "node": "shell-command",
               "output": "command"
             }
           }
