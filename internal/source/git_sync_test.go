@@ -272,12 +272,10 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 	featureCommit := gitOutput(t, upstream, "rev-parse", "HEAD")
 	git(t, upstream, "checkout", defaultBranch)
 
-	git(t, checkoutPath, "remote", "add", "vectis-fallback-01", mirror)
-	git(t, checkoutPath, "remote", "add", "vectis-fallback-02", upstream)
-
 	status = HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
-		CheckoutPath: checkoutPath,
-		Ref:          "feature/upstream-only",
+		CheckoutPath:       checkoutPath,
+		Ref:                "feature/upstream-only",
+		FallbackRemoteURLs: []string{mirror, upstream},
 	})
 
 	if status.ErrorCode != "" {
@@ -286,6 +284,14 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 
 	if !status.DefaultRefResolved || status.ResolvedCommit != featureCommit {
 		t.Fatalf("fallback hydrated feature status mismatch: %+v", status)
+	}
+
+	if got := gitOutput(t, checkoutPath, "remote", "get-url", "vectis-fallback-1"); got != mirror {
+		t.Fatalf("configured first fallback remote: got %q, want %q", got, mirror)
+	}
+
+	if got := gitOutput(t, checkoutPath, "remote", "get-url", "vectis-fallback-2"); got != upstream {
+		t.Fatalf("configured second fallback remote: got %q, want %q", got, upstream)
 	}
 
 	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/vectis/candidates"); got != "" {

@@ -15,16 +15,18 @@ import (
 )
 
 type ManagedGitCheckoutRequest struct {
-	CheckoutPath string
-	RemoteURL    string
-	DefaultRef   string
-	Credentials  GitCredentials
+	CheckoutPath       string
+	RemoteURL          string
+	DefaultRef         string
+	FallbackRemoteURLs []string
+	Credentials        GitCredentials
 }
 
 type ManagedGitRefHydrationRequest struct {
-	CheckoutPath string
-	Ref          string
-	Credentials  GitCredentials
+	CheckoutPath       string
+	Ref                string
+	FallbackRemoteURLs []string
+	Credentials        GitCredentials
 }
 
 // SyncManagedGitCheckout materializes or refreshes a Vectis-owned Git checkout.
@@ -38,6 +40,12 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 
 	if checkoutPath == "" {
 		status.setError("missing_checkout_path", "checkout path is required")
+		return status
+	}
+
+	fallbackRemoteURLs, err := normalizeManagedGitFallbackRemoteURLs(req.FallbackRemoteURLs)
+	if err != nil {
+		status.setError("git_fallback_remotes_invalid", err.Error())
 		return status
 	}
 
@@ -75,14 +83,14 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 				return checkoutStatus
 			}
 
-			if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv); err != nil {
+			if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs); err != nil {
 				checkoutStatus.ErrorCode = ""
 				checkoutStatus.ErrorMessage = ""
 				checkoutStatus.setError("git_clone_failed", err.Error())
 				return checkoutStatus
 			}
 		} else {
-			if err := configureManagedGitCheckout(ctx, checkoutPath); err != nil {
+			if err := configureManagedGitCheckout(ctx, checkoutPath, fallbackRemoteURLs); err != nil {
 				checkoutStatus.DefaultRef = defaultRef
 				checkoutStatus.setError("git_config_failed", err.Error())
 				return checkoutStatus
@@ -95,7 +103,7 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 			}
 		}
 	case os.IsNotExist(err):
-		if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv); err != nil {
+		if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs); err != nil {
 			status.setError("git_clone_failed", err.Error())
 			return status
 		}
@@ -138,6 +146,12 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 		return status
 	}
 
+	fallbackRemoteURLs, err := normalizeManagedGitFallbackRemoteURLs(req.FallbackRemoteURLs)
+	if err != nil {
+		status.setError("git_fallback_remotes_invalid", err.Error())
+		return status
+	}
+
 	credentialEnv, credentialCleanup, err := managedGitCredentialEnvironment(req.Credentials)
 	if err != nil {
 		status.setError("git_credentials_invalid", err.Error())
@@ -161,7 +175,7 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 		return checkoutStatus
 	}
 
-	if err := configureManagedGitCheckout(ctx, checkoutPath); err != nil {
+	if err := configureManagedGitCheckout(ctx, checkoutPath, fallbackRemoteURLs); err != nil {
 		checkoutStatus.DefaultRef = ref
 		checkoutStatus.setError("git_config_failed", err.Error())
 		return checkoutStatus
@@ -188,7 +202,7 @@ func managedGitCredentialEnvironment(creds GitCredentials) ([]string, func(), er
 	return gitCredentialEnvironment(creds)
 }
 
-func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string, env []string) error {
+func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string, env []string, fallbackRemoteURLs []string) error {
 	remoteURL, err := normalizeGitRemoteURL(remoteURL)
 	if err != nil {
 		return err
@@ -202,7 +216,7 @@ func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string
 		return err
 	}
 
-	if err := configureManagedGitCheckout(ctx, checkoutPath); err != nil {
+	if err := configureManagedGitCheckout(ctx, checkoutPath, fallbackRemoteURLs); err != nil {
 		return err
 	}
 
@@ -306,10 +320,13 @@ func managedGitCandidateRef() string {
 
 func managedGitFetchRemotes(ctx context.Context, checkoutPath string) []string {
 	remotes := []string{"origin"}
+	return append(remotes, managedGitFallbackRemoteNames(ctx, checkoutPath)...)
+}
 
+func managedGitFallbackRemoteNames(ctx context.Context, checkoutPath string) []string {
 	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote")
 	if err != nil {
-		return remotes
+		return nil
 	}
 
 	var fallbacks []managedGitFallbackRemote
@@ -335,13 +352,12 @@ func managedGitFetchRemotes(ctx context.Context, checkoutPath string) []string {
 		return fallbacks[i].name < fallbacks[j].name
 	})
 
+	names := make([]string, 0, len(fallbacks))
 	for _, remote := range fallbacks {
-		if remote.name != "origin" {
-			remotes = append(remotes, remote.name)
-		}
+		names = append(names, remote.name)
 	}
 
-	return remotes
+	return names
 }
 
 type managedGitFallbackRemote struct {
@@ -396,7 +412,7 @@ func managedGitFetchRefspec(ref string) (string, string, bool) {
 	}
 }
 
-func configureManagedGitCheckout(ctx context.Context, checkoutPath string) error {
+func configureManagedGitCheckout(ctx context.Context, checkoutPath string, fallbackRemoteURLs []string) error {
 	settings := [][2]string{
 		{"gc.auto", "0"},
 		{"maintenance.auto", "false"},
@@ -410,7 +426,54 @@ func configureManagedGitCheckout(ctx context.Context, checkoutPath string) error
 		}
 	}
 
+	if fallbackRemoteURLs != nil {
+		if err := configureManagedGitFallbackRemotes(ctx, checkoutPath, fallbackRemoteURLs); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func configureManagedGitFallbackRemotes(ctx context.Context, checkoutPath string, fallbackRemoteURLs []string) error {
+	desired := make(map[string]string, len(fallbackRemoteURLs))
+	for i, remoteURL := range fallbackRemoteURLs {
+		desired[managedGitFallbackRemoteName(i+1)] = remoteURL
+	}
+
+	for _, remote := range managedGitFallbackRemoteNames(ctx, checkoutPath) {
+		if _, ok := desired[remote]; ok {
+			continue
+		}
+
+		if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "remove", remote); err != nil {
+			return fmt.Errorf("remove stale managed fallback remote %s: %w", remote, err)
+		}
+	}
+
+	names := make([]string, 0, len(desired))
+	for name := range desired {
+		names = append(names, name)
+	}
+
+	sort.Slice(names, func(i, j int) bool {
+		leftTier, _ := managedGitFallbackRemoteTier(names[i])
+		rightTier, _ := managedGitFallbackRemoteTier(names[j])
+		return leftTier < rightTier
+	})
+
+	for _, name := range names {
+		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "remove", name)
+		if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "add", name, desired[name]); err != nil {
+			return fmt.Errorf("configure managed fallback remote %s: %w", name, err)
+		}
+	}
+
+	return nil
+}
+
+func managedGitFallbackRemoteName(tier int) string {
+	return fmt.Sprintf("vectis-fallback-%d", tier)
 }
 
 func managedGitCommandArgs(args ...string) []string {
@@ -541,6 +604,34 @@ func normalizeGitRemoteURL(remoteURL string) (string, error) {
 	}
 
 	return remoteURL, nil
+}
+
+func normalizeManagedGitFallbackRemoteURLs(remoteURLs []string) ([]string, error) {
+	if len(remoteURLs) == 0 {
+		return nil, nil
+	}
+
+	out := make([]string, 0, len(remoteURLs))
+	seen := make(map[string]struct{}, len(remoteURLs))
+	for _, remoteURL := range remoteURLs {
+		remoteURL, err := normalizeGitRemoteURL(remoteURL)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, ok := seen[remoteURL]; ok {
+			continue
+		}
+
+		seen[remoteURL] = struct{}{}
+		out = append(out, remoteURL)
+	}
+
+	if len(out) == 0 {
+		return nil, nil
+	}
+
+	return out, nil
 }
 
 func directoryIsEmpty(dir string) bool {
