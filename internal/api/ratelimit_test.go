@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,11 +109,11 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 		}
 	})
 
-	t.Run("rotating_invalid_bearer_tokens_share_bucket", func(t *testing.T) {
-		for i := range 20 {
+	t.Run("rotating_invalid_bearer_tokens_share_pre_auth_bucket", func(t *testing.T) {
+		for i := range 150 {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
-			req.Header.Set("Authorization", "Bearer invalid-token-"+string(rune('a'+i)))
+			req.Header.Set("Authorization", "Bearer invalid-token-"+strconv.Itoa(i))
 			h.ServeHTTP(rec, req)
 
 			if rec.Code == http.StatusTooManyRequests {
@@ -239,19 +241,9 @@ func TestRateLimitKey_ignoresSessionCookie(t *testing.T) {
 }
 
 func TestRateLimitKey_usesKnownBearerTokenBucket(t *testing.T) {
-	db := dbtest.NewTestDB(t)
-	s := NewAPIServer(mocks.NewMockLogger(), db)
-	ctx := t.Context()
-
-	uid, err := s.authRepo.CompleteInitialSetup(ctx, "admin", "hash", "setup-token-hash", "setup")
-	if err != nil {
-		t.Fatalf("complete setup: %v", err)
-	}
-
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
 	plain := "known-rate-limit-token"
-	if _, err := s.authRepo.CreateAPIToken(ctx, uid, hashAPIToken(plain), "known", nil); err != nil {
-		t.Fatalf("create api token: %v", err)
-	}
+	tokenKey := hashAPIToken(plain)
 
 	spec := routeSpec{
 		Pattern:   "GET /api/v1/tokens",
@@ -263,16 +255,30 @@ func TestRateLimitKey_usesKnownBearerTokenBucket(t *testing.T) {
 	req.RemoteAddr = "203.0.113.10:1234"
 	req.Pattern = "GET /api/v1/tokens"
 	req.Header.Set("Authorization", "Bearer "+plain)
-	knownKey := s.rateLimitKey(req, spec)
+	preAuthKnownKey := s.rateLimitKey(req, spec)
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
 	req.RemoteAddr = "203.0.113.10:1234"
 	req.Pattern = "GET /api/v1/tokens"
 	req.Header.Set("Authorization", "Bearer invalid-token")
-	invalidKey := s.rateLimitKey(req, spec)
+	preAuthInvalidKey := s.rateLimitKey(req, spec)
 
-	if knownKey == invalidKey {
-		t.Fatal("known bearer token should not share invalid-bearer bucket")
+	if preAuthKnownKey != preAuthInvalidKey {
+		t.Fatalf("pre-auth bearer tokens should share the same IP bucket: got %q want %q", preAuthKnownKey, preAuthInvalidKey)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req = req.WithContext(withRateLimitBearerKey(req.Context(), tokenKey))
+	authenticatedKey := s.authenticatedRateLimitKey(req, spec)
+
+	if authenticatedKey == preAuthInvalidKey {
+		t.Fatal("authenticated bearer token should use a token-specific bucket")
+	}
+
+	if !strings.Contains(authenticatedKey, "bearer:"+tokenKey) {
+		t.Fatalf("authenticated key should contain bearer token hash, got %q", authenticatedKey)
 	}
 }
 

@@ -22,6 +22,7 @@ const (
 	ActionRunRead       Action = "run:read"
 	ActionRunOperator   Action = "run:operator"
 	ActionAdmin         Action = "admin:*"
+	ActionCatalogIngest Action = "catalog:ingest"
 	ActionUserAdmin     Action = "user:admin"
 	ActionSetupStatus   Action = "setup:status"
 	ActionSetupComplete Action = "setup:complete"
@@ -60,6 +61,7 @@ func ParseAction(raw string) (Action, bool) {
 		ActionRunRead,
 		ActionRunOperator,
 		ActionAdmin,
+		ActionCatalogIngest,
 		ActionUserAdmin,
 		ActionSetupStatus,
 		ActionSetupComplete,

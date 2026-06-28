@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -406,6 +408,11 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		}
 
 		req.CheckoutPath = checkoutPath
+	}
+
+	if err := validateAPISourceCheckoutPath(req.CheckoutPath); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "checkout_path_forbidden", "checkout_path must be under the configured source checkout root", nil)
+		return
 	}
 
 	ctx, cancel := s.handlerDBCtx(r)
@@ -2132,6 +2139,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		updated.CheckoutPath = checkoutPath
 	}
 
+	if req.CheckoutPath != nil || (req.CheckoutMode != nil && updated.CheckoutMode == dal.SourceCheckoutModeManaged) {
+		if err := validateAPISourceCheckoutPath(updated.CheckoutPath); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "checkout_path_forbidden", "checkout_path must be under the configured source checkout root", nil)
+			return
+		}
+	}
+
 	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "updating")
 	if !ok {
 		return
@@ -2846,6 +2860,85 @@ func managedSourceCheckoutPath(repositoryID string) (string, error) {
 	}
 
 	return store.Path(repositoryID)
+}
+
+func validateAPISourceCheckoutPath(checkoutPath string) error {
+	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(utils.DataHome()))
+	if err != nil {
+		return err
+	}
+
+	return validatePathWithinRoot(checkoutPath, store.Root())
+}
+
+func validatePathWithinRoot(rawPath, rawRoot string) error {
+	rawPath = strings.TrimSpace(rawPath)
+	rawRoot = strings.TrimSpace(rawRoot)
+	if rawPath == "" || rawRoot == "" {
+		return sourcepkg.ErrInvalidReference
+	}
+
+	if !filepath.IsAbs(rawPath) || !filepath.IsAbs(rawRoot) {
+		return sourcepkg.ErrInvalidReference
+	}
+
+	pathClean := filepath.Clean(rawPath)
+	rootClean := filepath.Clean(rawRoot)
+	if !pathIsWithinRoot(pathClean, rootClean) {
+		return sourcepkg.ErrInvalidReference
+	}
+
+	evalRoot, err := evalNearestExistingPath(rootClean)
+	if err != nil {
+		return err
+	}
+
+	evalPath, err := evalNearestExistingPath(pathClean)
+	if err != nil {
+		return err
+	}
+
+	if !pathIsWithinRoot(evalPath, evalRoot) {
+		return sourcepkg.ErrInvalidReference
+	}
+
+	return nil
+}
+
+func evalNearestExistingPath(cleanPath string) (string, error) {
+	cleanPath = filepath.Clean(cleanPath)
+	var suffix []string
+	for {
+		resolved, err := filepath.EvalSymlinks(cleanPath)
+		if err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+
+			return filepath.Clean(resolved), nil
+		}
+
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+
+		parent := filepath.Dir(cleanPath)
+		if parent == cleanPath {
+			return filepath.Clean(cleanPath), nil
+		}
+
+		suffix = append(suffix, filepath.Base(cleanPath))
+		cleanPath = parent
+	}
+}
+
+func pathIsWithinRoot(cleanPath, cleanRoot string) bool {
+	rel, err := filepath.Rel(cleanRoot, cleanPath)
+	if err != nil {
+		return false
+	}
+
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func newGitCheckoutForSourceRepository(rec dal.SourceRepositoryRecord) *sourcepkg.GitCheckout {

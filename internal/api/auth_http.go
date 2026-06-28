@@ -27,6 +27,24 @@ const (
 	credentialSourceCookie credentialSource = "cookie"
 )
 
+type rateLimitBearerKeyCtxKey struct{}
+
+func withRateLimitBearerKey(ctx context.Context, tokenKey string) context.Context {
+	tokenKey = strings.TrimSpace(tokenKey)
+	if tokenKey == "" {
+		return ctx
+	}
+
+	return context.WithValue(ctx, rateLimitBearerKeyCtxKey{}, tokenKey)
+}
+
+func rateLimitBearerKeyFromContext(ctx context.Context) (string, bool) {
+	v := ctx.Value(rateLimitBearerKeyCtxKey{})
+	tokenKey, ok := v.(string)
+	tokenKey = strings.TrimSpace(tokenKey)
+	return tokenKey, ok && tokenKey != ""
+}
+
 type routeAuthMode int
 
 const (
@@ -307,7 +325,12 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					return
 				}
 
-				next.ServeHTTP(w, r.WithContext(authn.WithPrincipal(r.Context(), p)))
+				nextCtx := authn.WithPrincipal(r.Context(), p)
+				if source == credentialSourceBearer {
+					nextCtx = withRateLimitBearerKey(nextCtx, tokenKey)
+				}
+
+				next.ServeHTTP(w, r.WithContext(nextCtx))
 				return
 			}
 
@@ -406,7 +429,12 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
-		next.ServeHTTP(w, r.WithContext(authn.WithPrincipal(r.Context(), p)))
+		nextCtx := authn.WithPrincipal(r.Context(), p)
+		if source == credentialSourceBearer {
+			nextCtx = withRateLimitBearerKey(nextCtx, tokenKey)
+		}
+
+		next.ServeHTTP(w, r.WithContext(nextCtx))
 	})
 }
 

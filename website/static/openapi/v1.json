@@ -1011,7 +1011,7 @@
             "bearerAuth": []
           }
         ],
-        "x-vectis-auth-action": "run:operator",
+        "x-vectis-auth-action": "catalog:ingest",
         "parameters": [
           {
             "$ref": "#/components/parameters/CellID"
@@ -3436,6 +3436,7 @@
           "run:read",
           "run:operator",
           "admin:*",
+          "catalog:ingest",
           "user:admin",
           "api:any"
         ]

@@ -74,7 +74,7 @@ Other common enumerations:
 | `cell_catalog_events.status` | `pending`, `applied`, `failed` |
 | `execution_security_events.event_type` | `svid_check`, `secret_resolution` |
 | `role_bindings.role` | `viewer`, `trigger`, `operator`, `admin` |
-| `api_token_scopes.action` | `job:read`, `job:write`, `run:trigger`, `run:read`, `run:operator`, `admin:*`, `user:admin`, `api:any` |
+| `api_token_scopes.action` | `job:read`, `job:write`, `run:trigger`, `run:read`, `run:operator`, `admin:*`, `catalog:ingest`, `user:admin`, `api:any` |
 
 For role meanings, action scope, and token-scope behavior, see [Authorization Reference](./authorization-reference.md).
 

@@ -167,6 +167,7 @@ Most API failures use this JSON envelope:
 
 | Code | Typical status | Meaning |
 | --- | --- | --- |
+| `checkout_path_forbidden` | `400` | API-supplied source repository checkout path is outside the configured source checkout root. |
 | `incompatible_authoring_mode` | `400` | Requested source authoring mode cannot be used with the repository checkout mode. |
 | `invalid_job_id` | `400` | Job ID cannot be mapped to a valid source definition path. |
 | `invalid_recursive` | `400` | Source tree `recursive` query value is not a boolean. |

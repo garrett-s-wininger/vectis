@@ -3,14 +3,10 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"strings"
-	"time"
 
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
-	"vectis/internal/cache"
 	"vectis/internal/config"
-	"vectis/internal/dal"
 	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
@@ -135,7 +131,7 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 		{
 			Pattern:   "POST /api/v1/cells/{cell_id}/catalog-events",
 			Handler:   http.HandlerFunc(s.PostCellCatalogEvent),
-			Auth:      routeAuthPolicy{Action: authz.ActionRunOperator},
+			Auth:      routeAuthPolicy{Action: authz.ActionCatalogIngest},
 			Body:      jsonDocumentBody,
 			RateLimit: defaultLimits.General,
 		},
@@ -705,13 +701,19 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 		panic(fmt.Sprintf("api route %q has invalid header policy: %v", spec.Pattern, err))
 	}
 
-	handler := s.accessControlledHandler(spec.Auth, spec.Handler)
-	handler = routeBodyMiddleware(spec.Body, handler, s.recordSecurityRejection)
-	handler = routeAcceptMiddleware(spec.Accept, handler, s.recordSecurityRejection)
+	handler := spec.Handler
 
 	s.mu.RLock()
 	rl := s.rateLimiter
 	s.mu.RUnlock()
+
+	if rl != nil && spec.RateLimit.RefillRate > 0 && rateLimitCanUseBearer(spec.Auth) {
+		handler = s.authenticatedRateLimitMiddleware(rl, spec, handler)
+	}
+
+	handler = s.accessControlledHandler(spec.Auth, handler)
+	handler = routeBodyMiddleware(spec.Body, handler, s.recordSecurityRejection)
+	handler = routeAcceptMiddleware(spec.Accept, handler, s.recordSecurityRejection)
 
 	if rl != nil && spec.RateLimit.RefillRate > 0 {
 		handler = s.rateLimitMiddleware(rl, spec, handler)
@@ -740,6 +742,30 @@ func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec
 			return
 		}
 
+		allowed, retryAfter, err := rl.Allow(r.Context(), key, preAuthRateLimitRule(spec))
+		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Rate limiter error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
+
+		if !allowed {
+			s.recordSecurityRejection(r, securityReasonRateLimitExceeded, http.StatusTooManyRequests)
+			writeRateLimitExceeded(w, retryAfter)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *APIServer) authenticatedRateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := s.authenticatedRateLimitKey(r, spec)
 		allowed, retryAfter, err := rl.Allow(r.Context(), key, spec.RateLimit)
 		if err != nil {
 			if s.handleDBUnavailableError(w, err) {
@@ -771,29 +797,19 @@ func (s *APIServer) rateLimitKey(r *http.Request, spec routeSpec) string {
 }
 
 func (s *APIServer) rateLimitKeyForRequest(r *http.Request, spec routeSpec) (string, error) {
-	rule := spec.RateLimit
 	baseKey, err := s.rateLimitBaseKey(r, spec)
 	if err != nil {
 		return "", err
 	}
 
 	// Include route pattern and rule parameters so different endpoints have isolated buckets.
+	rule := preAuthRateLimitRule(spec)
 	return fmt.Sprintf("%s:%s:%d:%d", baseKey, r.Pattern, rule.RefillRate, rule.BurstSize), nil
 }
 
 func (s *APIServer) rateLimitBaseKey(r *http.Request, spec routeSpec) (string, error) {
 	if rateLimitCanUseBearer(spec.Auth) {
-		token, ok := bearerToken(r.Header.Get("Authorization"))
-		if ok {
-			tokenKey, err := s.validBearerRateLimitKey(r, token)
-			if err != nil {
-				return "", err
-			}
-
-			if tokenKey != "" {
-				return tokenKey, nil
-			}
-
+		if _, ok := bearerToken(r.Header.Get("Authorization")); ok {
 			return "invalid-bearer:" + config.HTTPClientIP(r), nil
 		}
 	}
@@ -801,47 +817,32 @@ func (s *APIServer) rateLimitBaseKey(r *http.Request, spec routeSpec) (string, e
 	return config.HTTPClientIP(r), nil
 }
 
-func (s *APIServer) validBearerRateLimitKey(r *http.Request, token string) (string, error) {
-	token = strings.TrimSpace(token)
-	if token == "" || len(token) > maxBearerTokenBytes {
-		return "", nil
-	}
-
-	tokenKey := hashAPIToken(token)
-	s.mu.RLock()
-	cacheService := s.cacheService
-	authRepo := s.authRepo
-	s.mu.RUnlock()
-
-	if cacheService != nil {
-		_, err := cacheService.ResolveSession(r.Context(), tokenKey, time.Now().UTC(), config.APISessionIdleTTL())
-		if err == nil {
-			return tokenKey, nil
-		}
-
-		if !cache.IsNotFound(err) {
-			return "", err
+func (s *APIServer) authenticatedRateLimitKey(r *http.Request, spec routeSpec) string {
+	baseKey := config.HTTPClientIP(r)
+	if rateLimitCanUseBearer(spec.Auth) {
+		if tokenKey, ok := rateLimitBearerKeyFromContext(r.Context()); ok {
+			baseKey = "bearer:" + tokenKey
 		}
 	}
 
-	if authRepo == nil {
-		return "", nil
-	}
-
-	if _, _, _, err := authRepo.ResolveAPIToken(r.Context(), tokenKey); err != nil {
-		if dal.IsNotFound(err) {
-			return "", nil
-		}
-
-		return "", err
-	}
-
-	return tokenKey, nil
+	rule := spec.RateLimit
+	return fmt.Sprintf("%s:%s:%d:%d", baseKey, r.Pattern, rule.RefillRate, rule.BurstSize)
 }
 
 func (s *APIServer) rateLimitFallbackKey(r *http.Request, spec routeSpec) string {
-	rule := spec.RateLimit
+	rule := preAuthRateLimitRule(spec)
 	return fmt.Sprintf("%s:%s:%d:%d", config.HTTPClientIP(r), r.Pattern, rule.RefillRate, rule.BurstSize)
+}
+
+func preAuthRateLimitRule(spec routeSpec) ratelimit.Rule {
+	if rateLimitCanUseBearer(spec.Auth) {
+		general := ratelimit.DefaultCategory().General
+		if general.RefillRate > 0 && general.BurstSize > spec.RateLimit.BurstSize {
+			return general
+		}
+	}
+
+	return spec.RateLimit
 }
 
 func rateLimitCanUseBearer(policy routeAuthPolicy) bool {

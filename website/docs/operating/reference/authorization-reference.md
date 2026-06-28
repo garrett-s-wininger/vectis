@@ -26,8 +26,9 @@ The access middleware first checks the route's coarse action without a namespace
 | `job:write` | Yes | Creating, updating, and deleting stored jobs. |
 | `run:trigger` | Yes | Starting ephemeral runs and triggering stored jobs. |
 | `run:read` | Yes | Reading runs, tasks, logs, artifacts, and run event streams. |
-| `run:operator` | Yes | Replay, cancellation, run repair, frozen execution payload access, and cell catalog ingestion. |
+| `run:operator` | Yes | Replay, cancellation, run repair, and frozen execution payload access. |
 | `admin:*` | Yes | Operational diagnostics, metrics, namespace administration, and namespace role-binding administration. |
+| `catalog:ingest` | No | Cell catalog event ingestion. Under `hierarchical_rbac`, this requires `admin` on the root namespace. |
 | `user:admin` | No | Local user administration. Under `hierarchical_rbac`, this requires `admin` on the root namespace. |
 | `setup:status` | No | Reading initial setup status. |
 | `setup:complete` | No | Completing first-admin setup with the bootstrap token. |
@@ -44,13 +45,13 @@ Namespace roles grant actions at the namespace where they are bound and, unless 
 | `viewer` | `job:read`, `run:read` | Inspect jobs, runs, logs, tasks, and artifacts. |
 | `trigger` | `job:read`, `run:read`, `run:trigger` | Run existing jobs or submit one-off runs without editing stored jobs. |
 | `operator` | `job:read`, `run:read`, `run:trigger`, `run:operator` | Operate runs: replay, cancel, repair, and inspect execution payloads. |
-| `admin` | `job:read`, `job:write`, `run:read`, `run:trigger`, `run:operator`, `admin:*`, `api:any` | Manage namespace-local jobs and namespace administration surfaces. Root `admin` also grants `user:admin`. |
+| `admin` | `job:read`, `job:write`, `run:read`, `run:trigger`, `run:operator`, `admin:*`, `api:any` | Manage namespace-local jobs and namespace administration surfaces. Root `admin` also grants `catalog:ingest` and `user:admin`. |
 
 Notes:
 
-- `admin` on a non-root namespace does not grant `user:admin`.
+- `admin` on a non-root namespace does not grant `catalog:ingest` or `user:admin`.
 - `api:any` routes are self-service routes for authenticated principals; the `admin` role includes `api:any`, but the RBAC engine does not require a namespace role for ordinary self-service access.
-- Non-namespaced checks for actions other than `api:any` and `user:admin` require the user to hold a role granting that action somewhere in the namespace tree. Handlers that know a concrete namespace perform a stricter namespace check afterward.
+- Non-namespaced checks for actions other than `api:any`, `catalog:ingest`, and `user:admin` require the user to hold a role granting that action somewhere in the namespace tree. Handlers that know a concrete namespace perform a stricter namespace check afterward.
 
 ## Namespace Inheritance
 
@@ -73,7 +74,7 @@ Unscoped API tokens act as the owning user. Scoped API tokens are an intersectio
 | --- | --- |
 | Action validation | Scope actions must be registered actions other than `setup:status` or `setup:complete`. |
 | Namespace path required | `job:read`, `job:write`, `run:trigger`, `run:read`, `run:operator`, and `admin:*` scopes require a `namespace_path` when created through the API. |
-| Namespace path forbidden | `api:any` and `user:admin` scopes cannot include a `namespace_path`. |
+| Namespace path forbidden | `api:any`, `catalog:ingest`, and `user:admin` scopes cannot include a `namespace_path`. |
 | Exact namespace | A namespace scope applies to the exact namespace it names. |
 | Propagation | `propagate=true` lets the scope apply to descendants unless inheritance is broken between the scoped namespace and the target namespace. |
 | Creation guard | A caller can only create scopes for actions and namespaces the caller is already authorized to use. Scoped tokens cannot create broader scopes or unscoped escalation tokens. |
@@ -113,7 +114,8 @@ Example scoped token request:
 | Stored job writes | `job:write` |
 | Ephemeral run and stored-job trigger routes | `run:trigger` |
 | Run detail, task, log, artifact, and SSE read routes | `run:read` |
-| Run replay, cancellation, repair, force-repair, execution payload, and cell catalog ingestion routes | `run:operator` |
+| Run replay, cancellation, repair, force-repair, and execution payload routes | `run:operator` |
+| Cell catalog event ingestion | `catalog:ingest` |
 | Logout, token management, and password changes | `api:any` |
 | User administration | `user:admin` |
 | Namespace creation, deletion, and role-binding administration | `admin:*` |

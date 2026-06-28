@@ -1999,6 +1999,44 @@ func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T
 	}
 }
 
+func TestAPIServer_SourceRepositoryRejectsCheckoutPathOutsideRoot(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+
+	outsideRoot := t.TempDir()
+	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "outside-root",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": outsideRoot,
+	})
+
+	assertAPIError(t, createRec, http.StatusBadRequest, "checkout_path_forbidden")
+
+	insideRoot := filepath.Join(checkoutRoot, "inside-root")
+	createRec = doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "inside-root",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_path": insideRoot,
+	})
+
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create inside root: status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	updateRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/inside-root", map[string]any{
+		"checkout_path": outsideRoot,
+	})
+
+	assertAPIError(t, updateRec, http.StatusBadRequest, "checkout_path_forbidden")
+}
+
 func TestAPIServer_SyncSourceRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
@@ -3099,6 +3137,11 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 
 func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -3106,7 +3149,7 @@ func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
 	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
 		"repository_id": "invalid-ref",
 		"source_kind":   dal.SourceKindLocalCheckout,
-		"checkout_path": t.TempDir(),
+		"checkout_path": filepath.Join(checkoutRoot, "invalid-ref"),
 		"default_ref":   "HEAD~1",
 	})
 
@@ -3115,7 +3158,7 @@ func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
 		"repository_id": "vectis-local",
 		"source_kind":   dal.SourceKindLocalCheckout,
-		"checkout_path": t.TempDir(),
+		"checkout_path": filepath.Join(checkoutRoot, "vectis-local"),
 		"default_ref":   "HEAD",
 	})
 
@@ -3642,12 +3685,23 @@ func initAPIGitRepo(t *testing.T) string {
 	}
 
 	repo := t.TempDir()
+	if !apiSourceCheckoutRootConfiguredForTest() {
+		viper.Set("source.checkout_root", filepath.Dir(repo))
+		t.Cleanup(viper.Reset)
+	}
+
 	apiGit(t, repo, "init")
 	apiGit(t, repo, "config", "user.name", "Vectis Test")
 	apiGit(t, repo, "config", "user.email", "vectis@example.invalid")
 	apiGit(t, repo, "config", "commit.gpgsign", "false")
 
 	return repo
+}
+
+func apiSourceCheckoutRootConfiguredForTest() bool {
+	return strings.TrimSpace(os.Getenv("VECTIS_SOURCE_CHECKOUT_ROOT")) != "" ||
+		strings.TrimSpace(os.Getenv("VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT")) != "" ||
+		viper.IsSet("source.checkout_root")
 }
 
 func writeAPIJobDefinitionAndCommit(t *testing.T, repo, command, message string) {
