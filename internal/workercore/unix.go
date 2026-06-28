@@ -190,16 +190,42 @@ func NewUnixShellServerContext(ctx context.Context, socketPath string, shell api
 }
 
 func prepareUnixSocketPath(socketPath, label string) error {
+	dir := filepath.Dir(socketPath)
+	if err := ensureUnixSocketDir(dir, label); err != nil {
+		return err
+	}
+
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale %s socket: %w", label, err)
 	}
 
-	dir := filepath.Dir(socketPath)
+	return nil
+}
+
+func ensureUnixSocketDir(dir, label string) error {
 	if err := os.MkdirAll(dir, unixSocketDirMode); err != nil {
 		return fmt.Errorf("create %s socket directory: %w", label, err)
 	}
 
-	if err := os.Chmod(dir, unixSocketDirMode); err != nil {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("stat %s socket directory: %w", label, err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s socket directory must not be a symlink: %s", label, dir)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%s socket path parent is not a directory: %s", label, dir)
+	}
+
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return fmt.Errorf("resolve %s socket directory symlinks: %w", label, err)
+	}
+
+	if err := os.Chmod(realDir, unixSocketDirMode); err != nil {
 		return fmt.Errorf("chmod %s socket directory: %w", label, err)
 	}
 

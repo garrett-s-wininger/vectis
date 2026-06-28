@@ -56,6 +56,71 @@ func TestOSExecutorRequiresWorkDir(t *testing.T) {
 	}
 }
 
+func TestDirectExecutorResolvesCommandFromChildPathEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use Unix executables")
+	}
+
+	binDir := t.TempDir()
+	commandPath := filepath.Join(binDir, "vectis-child-path-command")
+	if err := os.WriteFile(commandPath, []byte("#!/bin/sh\nprintf child-path-ok\n"), 0o700); err != nil {
+		t.Fatalf("write command: %v", err)
+	}
+
+	process, err := NewDirectExecutor().Start(
+		context.Background(),
+		"vectis-child-path-command",
+		nil,
+		t.TempDir(),
+		[]string{"PATH=" + binDir},
+	)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	stdout, err := io.ReadAll(process.Stdout())
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+
+	if _, err := io.ReadAll(process.Stderr()); err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+
+	if err := process.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	if string(stdout) != "child-path-ok" {
+		t.Fatalf("stdout = %q, want child-path-ok", stdout)
+	}
+}
+
+func TestDirectExecutorDoesNotResolveCommandFromRelativePathEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use Unix executables")
+	}
+
+	workspace := t.TempDir()
+	commandPath := filepath.Join(workspace, "vectis-relative-path-command")
+	if err := os.WriteFile(commandPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write command: %v", err)
+	}
+
+	_, err := NewDirectExecutor().Start(
+		context.Background(),
+		"vectis-relative-path-command",
+		nil,
+		workspace,
+		[]string{"PATH=."},
+	)
+
+	if err == nil || !strings.Contains(err.Error(), "executable file not found") {
+		t.Fatalf("Start error = %v, want command resolution failure", err)
+	}
+}
+
 func TestDirectExecutorRequiresDirectoryWorkDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell process tests use sh")

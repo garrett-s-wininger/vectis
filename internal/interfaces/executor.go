@@ -7,10 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"vectis/internal/actionlauncher"
 )
+
+const defaultExecutableSearchPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 type CommandExecutor interface {
 	Start(ctx context.Context, command string, workDir string, env []string) (Process, error)
@@ -95,7 +98,7 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 		return nil, err
 	}
 
-	resolvedPath, err := resolveExecutablePath(path)
+	resolvedPath, err := resolveExecutablePath(path, env)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +120,7 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 	return startProcess(cmd)
 }
 
-func resolveExecutablePath(path string) (string, error) {
+func resolveExecutablePath(path string, env []string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("command path is required")
 	}
@@ -126,12 +129,76 @@ func resolveExecutablePath(path string) (string, error) {
 		return path, nil
 	}
 
-	resolved, err := exec.LookPath(path)
+	resolved, err := lookPath(path, executableSearchPath(env))
 	if err != nil {
 		return "", fmt.Errorf("resolve command path %q: %w", path, err)
 	}
 
 	return resolved, nil
+}
+
+func executableSearchPath(env []string) string {
+	path, ok := lookupEnvValue(env, "PATH")
+	if !ok || path == "" {
+		return defaultExecutableSearchPath
+	}
+
+	return path
+}
+
+func lookupEnvValue(env []string, key string) (string, bool) {
+	for _, entry := range env {
+		envKey, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+
+		if envKeyEqual(envKey, key) {
+			return value, true
+		}
+	}
+
+	return "", false
+}
+
+func envKeyEqual(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+
+	return a == b
+}
+
+func lookPath(file, searchPath string) (string, error) {
+	for _, dir := range filepath.SplitList(searchPath) {
+		if dir == "" || !filepath.IsAbs(dir) {
+			continue
+		}
+
+		candidate := filepath.Join(dir, file)
+		if isExecutableFile(candidate) {
+			return candidate, nil
+		}
+	}
+
+	return "", exec.ErrNotFound
+}
+
+func isExecutableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+
+	if info.IsDir() {
+		return false
+	}
+
+	if runtime.GOOS == "windows" {
+		return true
+	}
+
+	return info.Mode().Perm()&0o111 != 0
 }
 
 func secureLaunchWorkDir(workDir string) (string, error) {

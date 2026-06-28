@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,41 @@ func TestUnixShellServerSecuresSocketPath(t *testing.T) {
 	defer listener.Close()
 
 	assertSocketPathModes(t, socketPath)
+}
+
+func TestUnixCoreServerRejectsSymlinkSocketDirectory(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+
+	link := filepath.Join(root, "socket-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	socketPath := filepath.Join(link, "worker-core.sock")
+	server, listener, err := NewUnixCoreServer(socketPath, fakeWorkerCoreServer{})
+	if err == nil {
+		if server != nil {
+			server.Stop()
+		}
+
+		if listener != nil {
+			_ = listener.Close()
+		}
+
+		t.Fatal("NewUnixCoreServer error = nil, want symlink directory rejection")
+	}
+
+	if !strings.Contains(err.Error(), "socket directory must not be a symlink") {
+		t.Fatalf("NewUnixCoreServer error = %v, want symlink directory rejection", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(target, "worker-core.sock")); !os.IsNotExist(err) {
+		t.Fatalf("server followed symlinked socket directory, stat err=%v", err)
+	}
 }
 
 func TestUnixPeerCredentialsRequireCurrentUID(t *testing.T) {

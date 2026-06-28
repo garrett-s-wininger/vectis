@@ -36,6 +36,7 @@ func TestDirectExecutorLauncherBoundaryContract(t *testing.T) {
 		script := `printf 'argv0=%s\narg1=%s\narg2=%s\nvisible=%s\nparent=%s\nauth=%s\npwd=%s\n' "$0" "$1" "$2" "$VECTIS_LAUNCHER_VISIBLE" "$VECTIS_LAUNCHER_PARENT_ONLY" "$VECTIS_ACTION_LAUNCHER_TOKEN" "$(pwd -P)"`
 		stdout, stderr, err := runContractCommand(t, "sh", []string{"-c", script, "custom-argv0", "arg with spaces", "arg:two"}, workspace, []string{
 			"PATH=" + os.Getenv("PATH"),
+			"VECTIS_ACTION_LAUNCHER_TOKEN=caller",
 			"VECTIS_LAUNCHER_VISIBLE=ok",
 		})
 
