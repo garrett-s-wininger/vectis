@@ -115,7 +115,7 @@ format:
 
 .PHONY: test
 test:
-	go test ./...
+	GO="$(GO)" $(MAGE) test
 
 .PHONY: test-integration
 test-integration:

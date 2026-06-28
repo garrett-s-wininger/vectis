@@ -145,6 +145,11 @@ func buildBinaries(cfg buildConfig) error {
 	return nil
 }
 
+// Test runs the full Go test suite.
+func Test() error {
+	return run("", nil, goCommand(), "test", "./...")
+}
+
 // TestQuick runs the fast feedback test set.
 func TestQuick() error {
 	args := []string{
