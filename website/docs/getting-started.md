@@ -24,7 +24,7 @@ The local stack uses SQLite by default and stores data under your user data dire
 
 You need:
 
-- Go `1.25.10` or newer.
+- Go `1.25.11` or newer.
 - CGO enabled, which is the normal Go default, because local SQLite uses `mattn/go-sqlite3`.
 - A shell where you can run `mage`.
 

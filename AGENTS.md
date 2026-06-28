@@ -6,7 +6,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 
 | Requirement | Version / tool |
 |---|---|
-| Go | `go 1.25.10` (see [`go.mod`](go.mod)) |
+| Go | `go 1.25.11` (see [`go.mod`](go.mod)) |
 | CGO | Required locally (SQLite driver) — `CGO_ENABLED=1` (default). Disabled for container builds (`CGO_ENABLED=0` + `-tags=nosqlite`). |
 | Protobuf compiler | `protoc` with local `protoc-gen-go` and `protoc-gen-go-grpc` plugins; override `PROTOC*` env variables if needed |
 | Protobuf codegen | `mage proto` — invokes local `protoc`, output to `api/gen/go/` (read-only) |

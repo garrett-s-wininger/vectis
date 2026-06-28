@@ -2,7 +2,7 @@
 
 **Authoritative list of commands:** directories under [`cmd/`](.) each with `main.go` (Cobra root + `runXxx` + Viper in `init()` for daemons).
 
-**Go version:** `1.25.10` (see repo root [`go.mod`](../go.mod)).
+**Go version:** `1.25.11` (see repo root [`go.mod`](../go.mod)).
 
 ## Layout
 
