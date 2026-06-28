@@ -785,6 +785,7 @@ type ReactionsRepository interface {
 	RecordEvent(ctx context.Context, create ReactionEventCreate) (ReactionEventRecord, error)
 	GetEvent(ctx context.Context, eventID string) (ReactionEventRecord, error)
 	CreateTarget(ctx context.Context, create ReactionTargetCreate) (ReactionTargetRecord, error)
+	GetTarget(ctx context.Context, targetID string) (ReactionTargetRecord, error)
 	CreateSubscription(ctx context.Context, create ReactionSubscriptionCreate) (ReactionSubscriptionRecord, error)
 	ListMatchingSubscriptions(ctx context.Context, event ReactionEventRecord) ([]ReactionSubscriptionMatch, error)
 	CreateInvocation(ctx context.Context, create ReactionInvocationCreate) (ReactionInvocationRecord, error)

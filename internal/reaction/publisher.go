@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"vectis/internal/dal"
 )
 
 type PublishStore interface {
 	RecordEvent(ctx context.Context, create dal.ReactionEventCreate) (dal.ReactionEventRecord, error)
+	GetTarget(ctx context.Context, targetID string) (dal.ReactionTargetRecord, error)
 	ListMatchingSubscriptions(ctx context.Context, event dal.ReactionEventRecord) ([]dal.ReactionSubscriptionMatch, error)
 	CreateInvocation(ctx context.Context, create dal.ReactionInvocationCreate) (dal.ReactionInvocationRecord, error)
 }
@@ -19,17 +21,23 @@ type Publisher struct {
 }
 
 type Publication struct {
-	Event       dal.ReactionEventRecord
-	Matches     []dal.ReactionSubscriptionMatch
-	Invocations []dal.ReactionInvocationRecord
+	Event         dal.ReactionEventRecord
+	Matches       []dal.ReactionSubscriptionMatch
+	DirectTargets []dal.ReactionTargetRecord
+	Invocations   []dal.ReactionInvocationRecord
 }
 
 type actionDescriptor struct {
 	CanonicalName  string `json:"canonical_name"`
-	SubscriptionID string `json:"subscription_id"`
+	SubscriptionID string `json:"subscription_id,omitempty"`
+	TargetID       string `json:"target_id,omitempty"`
 }
 
 func (p *Publisher) Publish(ctx context.Context, create dal.ReactionEventCreate) (Publication, error) {
+	return p.publish(ctx, create, nil)
+}
+
+func (p *Publisher) publish(ctx context.Context, create dal.ReactionEventCreate, targetIDs []string) (Publication, error) {
 	if p == nil || p.Store == nil {
 		return Publication{}, fmt.Errorf("reaction publisher requires a store")
 	}
@@ -49,37 +57,68 @@ func (p *Publisher) Publish(ctx context.Context, create dal.ReactionEventCreate)
 		Matches: matches,
 	}
 
-	seenTargets := make(map[string]struct{}, len(matches))
+	seenTargets := make(map[string]struct{}, len(matches)+len(targetIDs))
 	for _, match := range matches {
-		targetID := match.Target.TargetID
-		if _, seen := seenTargets[targetID]; seen {
+		if err := p.createInvocation(ctx, &publication, seenTargets, match.Target, match.Subscription.SubscriptionID); err != nil {
+			return publication, err
+		}
+	}
+
+	seenDirectTargets := make(map[string]struct{}, len(targetIDs))
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if _, seen := seenDirectTargets[targetID]; seen {
 			continue
 		}
 
-		seenTargets[targetID] = struct{}{}
-		descriptor, err := json.Marshal(actionDescriptor{
-			CanonicalName:  match.Target.Uses,
-			SubscriptionID: match.Subscription.SubscriptionID,
-		})
-
+		seenDirectTargets[targetID] = struct{}{}
+		target, err := p.Store.GetTarget(ctx, targetID)
 		if err != nil {
 			return publication, err
 		}
 
-		invocation, err := p.Store.CreateInvocation(ctx, dal.ReactionInvocationCreate{
-			EventID:              event.EventID,
-			TargetID:             targetID,
-			ActionUses:           match.Target.Uses,
-			ActionDescriptorJSON: descriptor,
-			TargetConfigJSON:     match.Target.ConfigJSON,
-		})
-
-		if err != nil {
-			return publication, err
+		if !target.Enabled {
+			continue
 		}
 
-		publication.Invocations = append(publication.Invocations, invocation)
+		publication.DirectTargets = append(publication.DirectTargets, target)
+		if err := p.createInvocation(ctx, &publication, seenTargets, target, ""); err != nil {
+			return publication, err
+		}
 	}
 
 	return publication, nil
+}
+
+func (p *Publisher) createInvocation(ctx context.Context, publication *Publication, seenTargets map[string]struct{}, target dal.ReactionTargetRecord, subscriptionID string) error {
+	targetID := target.TargetID
+	if _, seen := seenTargets[targetID]; seen {
+		return nil
+	}
+
+	seenTargets[targetID] = struct{}{}
+	descriptor, err := json.Marshal(actionDescriptor{
+		CanonicalName:  target.Uses,
+		SubscriptionID: subscriptionID,
+		TargetID:       targetID,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	invocation, err := p.Store.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              publication.Event.EventID,
+		TargetID:             targetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: descriptor,
+		TargetConfigJSON:     target.ConfigJSON,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	publication.Invocations = append(publication.Invocations, invocation)
+	return nil
 }

@@ -44,7 +44,7 @@ The reaction pipeline has five separate concepts:
 
 | Concept | Responsibility |
 | --- | --- |
-| Reaction event | A durable fact that something happened, such as `run.failed`, `run.succeeded`, or `definition.validation_failed`. |
+| Reaction event | A durable fact that something happened, such as `run.completed`, `manual.notice`, or `definition.validation_failed`. |
 | Reaction subscription | Operator or namespace-owned policy deciding which events should invoke which targets. |
 | Reaction target | A configured out-of-DAG action reference plus target configuration, such as local notification, webhook, email, chat, or future job trigger. |
 | Reaction invocation | The retryable record of running one reaction action for one event and one target. |
@@ -177,8 +177,6 @@ can come later after the basic invocation and observability contract is proven.
 - What should the reaction action interface look like: a small sibling of
   `action.Node`, or a constrained profile of existing action descriptors with
   reaction-specific execution state?
-- Should manual notices always route through subscriptions, or may authorized
-  callers name explicit targets while still creating durable events?
 - What retention defaults should apply to events, successful invocations, failed
   invocations, and local messages?
 

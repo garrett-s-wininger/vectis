@@ -135,6 +135,15 @@ func (r *SQLReactionsRepository) CreateTarget(ctx context.Context, create Reacti
 	return r.getTarget(ctx, targetID)
 }
 
+func (r *SQLReactionsRepository) GetTarget(ctx context.Context, targetID string) (ReactionTargetRecord, error) {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return ReactionTargetRecord{}, fmt.Errorf("%w: target_id is required", ErrConflict)
+	}
+
+	return r.getTarget(ctx, targetID)
+}
+
 func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create ReactionSubscriptionCreate) (ReactionSubscriptionRecord, error) {
 	subscriptionID := strings.TrimSpace(create.SubscriptionID)
 	if subscriptionID == "" {
