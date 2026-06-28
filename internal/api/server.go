@@ -117,11 +117,12 @@ type APIServer struct {
 
 	// AccessLogger, when set, writes one structured slog record per HTTP request
 	// (typically JSON on stderr). Health probes are excluded.
-	AccessLogger       *slog.Logger
-	logRoutingMetrics  logclient.RoutingMetrics
-	apiDispatchMetrics *observability.APIDispatchMetrics
-	apiSecurityMetrics securityRejectionMetrics
-	sourceSyncMetrics  sourceRepositorySyncMetrics
+	AccessLogger             *slog.Logger
+	logRoutingMetrics        logclient.RoutingMetrics
+	apiDispatchMetrics       *observability.APIDispatchMetrics
+	apiSecurityMetrics       securityRejectionMetrics
+	sourceSyncMetrics        sourceRepositorySyncMetrics
+	sourceObjectStoreMetrics sourceRepositoryObjectStoreMetrics
 
 	// authzOverride, if non-nil, replaces SelectAuthorizer(complete) in middleware (tests).
 	authzOverride authz.Authorizer
@@ -192,6 +193,10 @@ type sourceRepositorySyncMetrics interface {
 
 type sourceRefHydrationMetrics interface {
 	RecordSourceRefHydration(ctx context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, d time.Duration)
+}
+
+type sourceRepositoryObjectStoreMetrics interface {
+	RecordSourceRepositoryObjectStore(ctx context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []observability.SourceRepositoryObjectStoreWarning)
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -760,8 +765,14 @@ func (s *APIServer) SetAPISecurityMetrics(m securityRejectionMetrics) {
 
 func (s *APIServer) SetSourceSyncMetrics(m sourceRepositorySyncMetrics) {
 	s.sourceSyncMetrics = m
+	s.sourceRefHydrationMetrics = nil
+	s.sourceObjectStoreMetrics = nil
 	if hydrationMetrics, ok := m.(sourceRefHydrationMetrics); ok {
 		s.sourceRefHydrationMetrics = hydrationMetrics
+	}
+
+	if objectStoreMetrics, ok := m.(sourceRepositoryObjectStoreMetrics); ok {
+		s.sourceObjectStoreMetrics = objectStoreMetrics
 	}
 }
 

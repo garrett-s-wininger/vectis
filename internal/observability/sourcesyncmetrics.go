@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -39,6 +40,29 @@ type SourceSyncMetrics struct {
 	syncDuration         metric.Float64Histogram
 	refHydrations        metric.Int64Counter
 	refHydrationDuration metric.Float64Histogram
+	objectStorePressure  metric.Int64ObservableGauge
+	objectStorePackFiles metric.Int64ObservableGauge
+	objectStorePackBytes metric.Int64ObservableGauge
+	objectStoreLoose     metric.Int64ObservableGauge
+	objectStoreWarnings  metric.Int64ObservableGauge
+	objectStoreMu        sync.RWMutex
+	objectStore          map[string]sourceRepositoryObjectStoreMetricRecord
+}
+
+type SourceRepositoryObjectStoreWarning struct {
+	Code     string
+	Severity string
+}
+
+type sourceRepositoryObjectStoreMetricRecord struct {
+	repositoryID string
+	sourceKind   string
+	checkoutMode string
+	pressure     string
+	packFiles    int
+	packBytes    int64
+	looseObjects int
+	warnings     []SourceRepositoryObjectStoreWarning
 }
 
 func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
@@ -74,12 +98,67 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		return nil, fmt.Errorf("vectis_source_ref_hydration_duration_seconds: %w", err)
 	}
 
-	return &SourceSyncMetrics{
+	objectStorePressure, err := m.Int64ObservableGauge("vectis_source_repository_object_store_pressure",
+		metric.WithDescription("Latest source repository Git object-store pressure classification as 0=ok, 1=warning, 2=critical"),
+		metric.WithUnit("{level}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_repository_object_store_pressure: %w", err)
+	}
+
+	objectStorePackFiles, err := m.Int64ObservableGauge("vectis_source_repository_object_store_pack_files",
+		metric.WithDescription("Latest source repository Git object-store pack file count"),
+		metric.WithUnit("{pack_file}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_repository_object_store_pack_files: %w", err)
+	}
+
+	objectStorePackBytes, err := m.Int64ObservableGauge("vectis_source_repository_object_store_pack_bytes",
+		metric.WithDescription("Latest source repository Git object-store pack bytes"),
+		metric.WithUnit("By"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_repository_object_store_pack_bytes: %w", err)
+	}
+
+	objectStoreLoose, err := m.Int64ObservableGauge("vectis_source_repository_object_store_loose_objects",
+		metric.WithDescription("Latest source repository Git object-store loose object count"),
+		metric.WithUnit("{object}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_repository_object_store_loose_objects: %w", err)
+	}
+
+	objectStoreWarnings, err := m.Int64ObservableGauge("vectis_source_repository_object_store_warnings",
+		metric.WithDescription("Latest source repository Git object-store warning conditions; each active warning is observed as 1"),
+		metric.WithUnit("{warning}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_repository_object_store_warnings: %w", err)
+	}
+
+	metrics := &SourceSyncMetrics{
 		syncs:                syncs,
 		syncDuration:         syncDuration,
 		refHydrations:        refHydrations,
 		refHydrationDuration: refHydrationDuration,
-	}, nil
+		objectStorePressure:  objectStorePressure,
+		objectStorePackFiles: objectStorePackFiles,
+		objectStorePackBytes: objectStorePackBytes,
+		objectStoreLoose:     objectStoreLoose,
+		objectStoreWarnings:  objectStoreWarnings,
+		objectStore:          make(map[string]sourceRepositoryObjectStoreMetricRecord),
+	}
+
+	_, err = m.RegisterCallback(metrics.observeSourceRepositoryObjectStoreMetrics,
+		objectStorePressure,
+		objectStorePackFiles,
+		objectStorePackBytes,
+		objectStoreLoose,
+		objectStoreWarnings,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("source repository object-store metrics callback: %w", err)
+	}
+
+	return metrics, nil
 }
 
 func (m *SourceSyncMetrics) RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration) {
@@ -100,6 +179,61 @@ func (m *SourceSyncMetrics) RecordSourceRefHydration(ctx context.Context, source
 	attrs := sourceRefHydrationMetricAttributes(sourceKind, checkoutMode, outcome, reason, tier, cacheState)
 	m.refHydrations.Add(ctx, 1, metric.WithAttributes(attrs...))
 	m.refHydrationDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
+}
+
+func (m *SourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []SourceRepositoryObjectStoreWarning) {
+	if m == nil {
+		return
+	}
+
+	repositoryID = sourceSyncMetricLabel(repositoryID, "unknown")
+	rec := sourceRepositoryObjectStoreMetricRecord{
+		repositoryID: repositoryID,
+		sourceKind:   sourceSyncMetricLabel(sourceKind, "unknown"),
+		checkoutMode: sourceSyncMetricLabel(checkoutMode, "unknown"),
+		pressure:     sourceSyncMetricLabel(pressure, "ok"),
+		packFiles:    max(packFiles, 0),
+		packBytes:    max(packBytes, 0),
+		looseObjects: max(looseObjects, 0),
+		warnings:     normalizeSourceRepositoryObjectStoreMetricWarnings(warnings),
+	}
+
+	m.objectStoreMu.Lock()
+	if m.objectStore == nil {
+		m.objectStore = make(map[string]sourceRepositoryObjectStoreMetricRecord)
+	}
+
+	m.objectStore[repositoryID] = rec
+	m.objectStoreMu.Unlock()
+}
+
+func (m *SourceSyncMetrics) observeSourceRepositoryObjectStoreMetrics(_ context.Context, o metric.Observer) error {
+	m.objectStoreMu.RLock()
+	records := make([]sourceRepositoryObjectStoreMetricRecord, 0, len(m.objectStore))
+	for _, rec := range m.objectStore {
+		records = append(records, rec)
+	}
+	m.objectStoreMu.RUnlock()
+
+	for _, rec := range records {
+		attrs := sourceRepositoryObjectStoreMetricAttributes(rec.repositoryID, rec.sourceKind, rec.checkoutMode)
+		o.ObserveInt64(m.objectStorePressure, sourceRepositoryObjectStorePressureRank(rec.pressure),
+			metric.WithAttributes(append(attrs, attribute.String("pressure", rec.pressure))...))
+		o.ObserveInt64(m.objectStorePackFiles, int64(rec.packFiles), metric.WithAttributes(attrs...))
+		o.ObserveInt64(m.objectStorePackBytes, rec.packBytes, metric.WithAttributes(attrs...))
+		o.ObserveInt64(m.objectStoreLoose, int64(rec.looseObjects), metric.WithAttributes(attrs...))
+
+		for _, warning := range rec.warnings {
+			warningAttrs := append(append([]attribute.KeyValue(nil), attrs...),
+				attribute.String("code", warning.Code),
+				attribute.String("severity", warning.Severity),
+			)
+
+			o.ObserveInt64(m.objectStoreWarnings, 1, metric.WithAttributes(warningAttrs...))
+		}
+	}
+
+	return nil
 }
 
 func SourceSyncReasonFromErrorCode(code string) string {
@@ -174,6 +308,50 @@ func sourceRefHydrationMetricAttributes(sourceKind, checkoutMode, outcome, reaso
 		attribute.String("reason", reason),
 		attribute.String("tier", tier),
 		attribute.String("cache", cacheState),
+	}
+}
+
+func sourceRepositoryObjectStoreMetricAttributes(repositoryID, sourceKind, checkoutMode string) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("repository_id", sourceSyncMetricLabel(repositoryID, "unknown")),
+		attribute.String("source_kind", sourceSyncMetricLabel(sourceKind, "unknown")),
+		attribute.String("checkout_mode", sourceSyncMetricLabel(checkoutMode, "unknown")),
+	}
+}
+
+func normalizeSourceRepositoryObjectStoreMetricWarnings(in []SourceRepositoryObjectStoreWarning) []SourceRepositoryObjectStoreWarning {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]SourceRepositoryObjectStoreWarning, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, warning := range in {
+		code := sourceSyncMetricLabel(warning.Code, SourceSyncReasonUnknown)
+		severity := sourceSyncMetricLabel(warning.Severity, "warning")
+		key := code + "\x00" + severity
+		if _, ok := seen[key]; ok {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		out = append(out, SourceRepositoryObjectStoreWarning{
+			Code:     code,
+			Severity: severity,
+		})
+	}
+
+	return out
+}
+
+func sourceRepositoryObjectStorePressureRank(pressure string) int64 {
+	switch strings.TrimSpace(pressure) {
+	case "critical":
+		return 2
+	case "warning":
+		return 1
+	default:
+		return 0
 	}
 }
 

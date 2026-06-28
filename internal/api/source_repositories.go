@@ -2043,6 +2043,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	switch strings.TrimSpace(rec.SourceKind) {
 	case dal.SourceKindLocalCheckout:
 		checkoutStatus := s.sourceRepositorySyncCheckoutStatus(ctx, rec, syncRef)
+		s.recordSourceRepositoryObjectStoreMetric(ctx, rec, checkoutStatus)
 		if checkoutStatus.ErrorCode != "" {
 			syncRecord.Status = dal.SourceSyncStatusFailed
 			syncRecord.Error = sourceRepositoryStatusSyncError(checkoutStatus)
@@ -2642,6 +2643,7 @@ func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec da
 	switch strings.TrimSpace(rec.SourceKind) {
 	case dal.SourceKindLocalCheckout:
 		checkoutStatus := newGitCheckoutForSourceRepository(rec).Status(ctx, rec.DefaultRef)
+		s.recordSourceRepositoryObjectStoreMetric(ctx, rec, checkoutStatus)
 		resp.CheckoutPath = checkoutStatus.CheckoutPath
 		resp.PathExists = checkoutStatus.PathExists
 		resp.PathIsDirectory = checkoutStatus.PathIsDirectory
@@ -2649,6 +2651,7 @@ func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec da
 		if checkoutStatus.GitRepository {
 			resp.ObjectStore = sourceRepositoryObjectStoreFromStatus(checkoutStatus.ObjectStore)
 		}
+
 		resp.WorkTreePath = checkoutStatus.WorkTreePath
 		resp.HeadRef = checkoutStatus.HeadRef
 		resp.DefaultRef = checkoutStatus.DefaultRef
@@ -2800,6 +2803,40 @@ func (s *APIServer) recordSourceRepositorySyncMetric(ctx context.Context, trigge
 	}
 
 	s.sourceSyncMetrics.RecordSourceRepositorySync(ctx, trigger, rec.SourceKind, rec.CheckoutMode, outcome, reason, d)
+}
+
+func (s *APIServer) recordSourceRepositoryObjectStoreMetric(ctx context.Context, rec dal.SourceRepositoryRecord, status sourcepkg.GitCheckoutStatus) {
+	if s.sourceObjectStoreMetrics == nil || !status.GitRepository {
+		return
+	}
+
+	objectStore := status.ObjectStore
+	s.sourceObjectStoreMetrics.RecordSourceRepositoryObjectStore(ctx,
+		rec.RepositoryID,
+		rec.SourceKind,
+		rec.CheckoutMode,
+		objectStore.Pressure,
+		objectStore.PackFiles,
+		objectStore.PackBytes,
+		objectStore.LooseObjects,
+		sourceRepositoryObjectStoreMetricWarnings(objectStore.Warnings),
+	)
+}
+
+func sourceRepositoryObjectStoreMetricWarnings(warnings []sourcepkg.GitCheckoutObjectStoreWarning) []observability.SourceRepositoryObjectStoreWarning {
+	if len(warnings) == 0 {
+		return nil
+	}
+
+	out := make([]observability.SourceRepositoryObjectStoreWarning, 0, len(warnings))
+	for _, warning := range warnings {
+		out = append(out, observability.SourceRepositoryObjectStoreWarning{
+			Code:     warning.Code,
+			Severity: warning.Severity,
+		})
+	}
+
+	return out
 }
 
 func sourceRepositorySyncMetricReason(raw string) string {

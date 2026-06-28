@@ -29,6 +29,9 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerManual, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, 25*time.Millisecond)
 	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerPeriodic, "local_checkout", "managed", SourceSyncOutcomeFailed, SourceSyncReasonFromErrorCode("git_credentials_unavailable"), 10*time.Millisecond)
 	m.RecordSourceRefHydration(ctx, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, "fallback-2", SourceRefHydrationCacheHit, 15*time.Millisecond)
+	m.RecordSourceRepositoryObjectStore(ctx, "managed-repo", "local_checkout", "managed", "warning", 64, 128<<20, 6000, []SourceRepositoryObjectStoreWarning{
+		{Code: "many_pack_files", Severity: "warning"},
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -76,6 +79,39 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 		}) {
 			t.Fatalf("metric family %s missing hydration labels: %v", family, families[family])
 		}
+	}
+
+	for _, family := range []string{
+		"vectis_source_repository_object_store_pack_files",
+		"vectis_source_repository_object_store_pack_bytes",
+		"vectis_source_repository_object_store_loose_objects",
+	} {
+		if !metricFamilyHasLabels(families[family], map[string]string{
+			"repository_id": "managed-repo",
+			"source_kind":   "local_checkout",
+			"checkout_mode": "managed",
+		}) {
+			t.Fatalf("metric family %s missing object-store labels: %v", family, families[family])
+		}
+	}
+
+	if !metricFamilyHasLabels(families["vectis_source_repository_object_store_pressure"], map[string]string{
+		"repository_id": "managed-repo",
+		"source_kind":   "local_checkout",
+		"checkout_mode": "managed",
+		"pressure":      "warning",
+	}) {
+		t.Fatalf("pressure metric missing object-store labels: %v", families["vectis_source_repository_object_store_pressure"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_source_repository_object_store_warnings"], map[string]string{
+		"repository_id": "managed-repo",
+		"source_kind":   "local_checkout",
+		"checkout_mode": "managed",
+		"code":          "many_pack_files",
+		"severity":      "warning",
+	}) {
+		t.Fatalf("warning metric missing object-store labels: %v", families["vectis_source_repository_object_store_warnings"])
 	}
 }
 

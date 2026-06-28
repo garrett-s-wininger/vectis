@@ -24,6 +24,10 @@ type sourceRepositorySyncMetrics interface {
 	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
 }
 
+type sourceRepositoryObjectStoreMetrics interface {
+	RecordSourceRepositoryObjectStore(ctx context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []observability.SourceRepositoryObjectStoreWarning)
+}
+
 func reconcileConfiguredSourceRepositories(ctx context.Context, repos *dal.SQLRepositories, logger interfaces.Logger) error {
 	decls, err := config.SourceRepositoryDeclarations()
 	if err != nil {
@@ -366,6 +370,7 @@ func syncConfiguredSourceRepository(ctx context.Context, repos *dal.SQLRepositor
 	switch strings.TrimSpace(rec.SourceKind) {
 	case dal.SourceKindLocalCheckout:
 		checkoutStatus := statusFn(ctx, rec, syncRef)
+		recordConfiguredSourceRepositoryObjectStoreMetric(ctx, metrics, rec, checkoutStatus)
 		if checkoutStatus.ErrorCode != "" {
 			syncRecord.Status = dal.SourceSyncStatusFailed
 			syncRecord.Error = configuredSourceRepositoryStatusSyncError(checkoutStatus)
@@ -763,6 +768,41 @@ func recordSourceRepositorySyncMetric(ctx context.Context, metrics sourceReposit
 	}
 
 	metrics.RecordSourceRepositorySync(ctx, trigger, rec.SourceKind, rec.CheckoutMode, outcome, reason, d)
+}
+
+func recordConfiguredSourceRepositoryObjectStoreMetric(ctx context.Context, metrics sourceRepositorySyncMetrics, rec dal.SourceRepositoryRecord, status sourcepkg.GitCheckoutStatus) {
+	objectStoreMetrics, ok := metrics.(sourceRepositoryObjectStoreMetrics)
+	if !ok || !status.GitRepository {
+		return
+	}
+
+	objectStore := status.ObjectStore
+	objectStoreMetrics.RecordSourceRepositoryObjectStore(ctx,
+		rec.RepositoryID,
+		rec.SourceKind,
+		rec.CheckoutMode,
+		objectStore.Pressure,
+		objectStore.PackFiles,
+		objectStore.PackBytes,
+		objectStore.LooseObjects,
+		configuredSourceRepositoryObjectStoreMetricWarnings(objectStore.Warnings),
+	)
+}
+
+func configuredSourceRepositoryObjectStoreMetricWarnings(warnings []sourcepkg.GitCheckoutObjectStoreWarning) []observability.SourceRepositoryObjectStoreWarning {
+	if len(warnings) == 0 {
+		return nil
+	}
+
+	out := make([]observability.SourceRepositoryObjectStoreWarning, 0, len(warnings))
+	for _, warning := range warnings {
+		out = append(out, observability.SourceRepositoryObjectStoreWarning{
+			Code:     warning.Code,
+			Severity: warning.Severity,
+		})
+	}
+
+	return out
 }
 
 func sourceRepositorySyncMetricReason(raw string) string {

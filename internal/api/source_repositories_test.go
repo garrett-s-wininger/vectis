@@ -18,9 +18,46 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/api/audit"
 	"vectis/internal/dal"
+	"vectis/internal/observability"
 
 	"github.com/spf13/viper"
 )
+
+type sourceRepositoryObjectStoreMetricRecord struct {
+	repositoryID string
+	sourceKind   string
+	checkoutMode string
+	pressure     string
+}
+
+type sourceRepositoryStatusMetricRecorder struct {
+	records []sourceRepositoryObjectStoreMetricRecord
+}
+
+func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositorySync(context.Context, string, string, string, string, string, time.Duration) {
+}
+
+func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, _ int, _ int64, _ int, _ []observability.SourceRepositoryObjectStoreWarning) {
+	m.records = append(m.records, sourceRepositoryObjectStoreMetricRecord{
+		repositoryID: repositoryID,
+		sourceKind:   sourceKind,
+		checkoutMode: checkoutMode,
+		pressure:     pressure,
+	})
+}
+
+func (m *sourceRepositoryStatusMetricRecorder) hasObjectStore(repositoryID, sourceKind, checkoutMode, pressure string) bool {
+	for _, rec := range m.records {
+		if rec.repositoryID == repositoryID &&
+			rec.sourceKind == sourceKind &&
+			rec.checkoutMode == checkoutMode &&
+			rec.pressure == pressure {
+			return true
+		}
+	}
+
+	return false
+}
 
 func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
@@ -1614,6 +1651,8 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
 	server, _, _, _ := setupTestServer(t)
+	metrics := &sourceRepositoryStatusMetricRecorder{}
+	server.SetSourceSyncMetrics(metrics)
 	handler := server.Handler()
 	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
@@ -1661,6 +1700,10 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 		statusResp.ObjectStore.Pressure != "ok" ||
 		len(statusResp.ObjectStore.Warnings) != 0 {
 		t.Fatalf("object store status mismatch: %+v", statusResp.ObjectStore)
+	}
+
+	if !metrics.hasObjectStore("vectis-local", dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, "ok") {
+		t.Fatalf("missing object store metric: %+v", metrics.records)
 	}
 
 	disableRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{

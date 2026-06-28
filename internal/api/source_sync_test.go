@@ -37,10 +37,22 @@ type sourceRefHydrationMetricRecord struct {
 	cacheState   string
 }
 
+type sourceObjectStoreMetricRecord struct {
+	repositoryID string
+	sourceKind   string
+	checkoutMode string
+	pressure     string
+	packFiles    int
+	packBytes    int64
+	looseObjects int
+	warnings     []observability.SourceRepositoryObjectStoreWarning
+}
+
 type recordingSourceSyncMetrics struct {
-	mu               sync.Mutex
-	records          []sourceSyncMetricRecord
-	hydrationRecords []sourceRefHydrationMetricRecord
+	mu                 sync.Mutex
+	records            []sourceSyncMetricRecord
+	hydrationRecords   []sourceRefHydrationMetricRecord
+	objectStoreRecords []sourceObjectStoreMetricRecord
 }
 
 func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
@@ -67,6 +79,22 @@ func (m *recordingSourceSyncMetrics) RecordSourceRefHydration(_ context.Context,
 		reason:       reason,
 		tier:         tier,
 		cacheState:   cacheState,
+	})
+}
+
+func (m *recordingSourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []observability.SourceRepositoryObjectStoreWarning) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.objectStoreRecords = append(m.objectStoreRecords, sourceObjectStoreMetricRecord{
+		repositoryID: repositoryID,
+		sourceKind:   sourceKind,
+		checkoutMode: checkoutMode,
+		pressure:     pressure,
+		packFiles:    packFiles,
+		packBytes:    packBytes,
+		looseObjects: looseObjects,
+		warnings:     append([]observability.SourceRepositoryObjectStoreWarning(nil), warnings...),
 	})
 }
 
@@ -98,6 +126,22 @@ func (m *recordingSourceSyncMetrics) hasHydration(sourceKind, checkoutMode, outc
 			rec.reason == reason &&
 			rec.tier == tier &&
 			rec.cacheState == cacheState {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (m *recordingSourceSyncMetrics) hasObjectStore(repositoryID, sourceKind, checkoutMode, pressure string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, rec := range m.objectStoreRecords {
+		if rec.repositoryID == repositoryID &&
+			rec.sourceKind == sourceKind &&
+			rec.checkoutMode == checkoutMode &&
+			rec.pressure == pressure {
 			return true
 		}
 	}
