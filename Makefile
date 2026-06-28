@@ -142,10 +142,7 @@ test-quick:
 
 .PHONY: release-local-validate
 release-local-validate:
-	$(MAKE) test-quick
-	$(MAKE) deploy-artifacts-test
-	$(MAKE) test-package
-	$(MAKE) build
+	SKIP_WEB_BUILD="$(SKIP_WEB_BUILD)" SKIP_DOCS_ASSETS="$(SKIP_DOCS_ASSETS)" OUT_DIR="$(OUT_DIR)" CGO_ENABLED="$(CGO_ENABLED)" BUILD_OPTS="$(BUILD_OPTS)" GO="$(GO)" $(MAGE) releaseLocalValidate
 
 .PHONY: release-readiness-report
 release-readiness-report:
@@ -221,10 +218,6 @@ PACKAGE_LOCAL_VM_CACHE_ROOT ?= $(PACKER_PACKAGE_BUILDER_CACHE_ROOT)
 PACKAGE_LOCAL_VM_KEEP ?= 0
 PACKAGE_LOCAL_VM_PRESERVE_ENV ?= 0
 PACKAGE_LOCAL_VM_GO ?= go
-packer_deploy_smoke_vars = -var 'instance=$(PACKER_DEPLOY_SMOKE_INSTANCE)' -var 'base_template=$(PACKER_DEPLOY_SMOKE_TEMPLATE)' -var 'prep_version=$(PACKER_VM_PREP_VERSION)' -var 'cpus=$(PACKER_DEPLOY_SMOKE_CPUS)' -var 'memory=$(PACKER_DEPLOY_SMOKE_MEMORY)' -var 'disk=$(PACKER_DEPLOY_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_DEPLOY_SMOKE_STOP)' -var 'lima_bin=$(PACKER_DEPLOY_SMOKE_LIMA_BIN)'
-packer_package_builder_optional_sha = $(if $(strip $(PACKER_PACKAGE_BUILDER_GO_SHA256)),-var 'go_sha256=$(PACKER_PACKAGE_BUILDER_GO_SHA256)',)
-packer_package_builder_vars = -var 'instance=$(PACKER_PACKAGE_BUILDER_INSTANCE)' -var 'base_template=$(PACKER_PACKAGE_BUILDER_TEMPLATE)' -var 'go_version=$(PACKER_PACKAGE_BUILDER_GO_VERSION)' $(packer_package_builder_optional_sha) -var 'prep_version=$(PACKER_VM_PREP_VERSION)' -var 'cpus=$(PACKER_PACKAGE_BUILDER_CPUS)' -var 'memory=$(PACKER_PACKAGE_BUILDER_MEMORY)' -var 'disk=$(PACKER_PACKAGE_BUILDER_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_BUILDER_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' -var 'workspace_root=$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' -var 'cache_root=$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)'
-packer_package_smoke_vars = -var 'profile=$(1)' -var 'instance=$(2)' -var 'base_template=$(3)' -var 'prep_version=$(PACKER_VM_PREP_VERSION)' -var 'cpus=$(PACKER_PACKAGE_SMOKE_CPUS)' -var 'memory=$(PACKER_PACKAGE_SMOKE_MEMORY)' -var 'disk=$(PACKER_PACKAGE_SMOKE_DISK)' -var 'stop_after_prepare=$(PACKER_PACKAGE_SMOKE_STOP)' -var 'lima_bin=$(PACKER_PACKAGE_SMOKE_LIMA_BIN)'
 package_deb_arch = $(if $(filter x86_64,$(1)),amd64,$(if $(filter aarch64,$(1)),arm64,$(if $(filter 386,$(1)),i386,$(1))))
 package_rpm_arch = $(if $(filter amd64,$(1)),x86_64,$(if $(filter arm64,$(1)),aarch64,$(1)))
 package_service_bins = $(addprefix $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-,$(PACKAGE_SERVICE_APPS))
@@ -235,8 +228,39 @@ package_service_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS) --in
 package_local_inputs = --input vectis-local-wrapper=$(PACKAGE_LOCAL_WRAPPER) --input vectis-local-binaries=$(call package_local_bin_dir,$(1))
 package_local_dispatch_env = --env 'PACKAGE_OUT=$(PACKAGE_OUT)' --env 'PACKAGE_BUILD_DIR=$(PACKAGE_BUILD_DIR)' --env 'PACKAGE_VERSION=$(PACKAGE_VERSION)' --env 'PACKAGE_RELEASE=$(PACKAGE_RELEASE)' --env 'PACKAGE_ARCH=$(2)' --env 'PACKAGE_LOCAL_ARCHES=$(2)' --env 'PACKAGE_LOCAL_APPS=$(PACKAGE_LOCAL_APPS)'
 package_local_dispatch = PACKER_VM_PREP_VERSION='$(PACKER_VM_PREP_VERSION)' $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
-vm_doctor_args = --provider '$(VM_PROVIDER)' --timeout '$(VM_DOCTOR_TIMEOUT)' --packer '$(PACKER)' --prep-version '$(PACKER_VM_PREP_VERSION)' --deploy-lima-bin '$(PACKER_DEPLOY_SMOKE_LIMA_BIN)' --deploy-instance '$(PACKER_DEPLOY_SMOKE_INSTANCE)' --builder-lima-bin '$(PACKER_PACKAGE_BUILDER_LIMA_BIN)' --builder-instance '$(PACKER_PACKAGE_BUILDER_INSTANCE)' --builder-go-version '$(PACKER_PACKAGE_BUILDER_GO_VERSION)' --builder-cache-root '$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)' --builder-workspace-root '$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)' --smoke-lima-bin '$(PACKER_PACKAGE_SMOKE_LIMA_BIN)' --deb-smoke-instance '$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE)' --rpm-smoke-instance '$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE)'
-vm_doctor = $(GO) run ./tools/vm-doctor $(vm_doctor_args)
+VM_MAGE_ENV = GO="$(GO)" PACKER="$(PACKER)" PACKER_VM_PREP_VERSION="$(PACKER_VM_PREP_VERSION)" \
+	VM_PROVIDER="$(VM_PROVIDER)" VM_DOCTOR_TIMEOUT="$(VM_DOCTOR_TIMEOUT)" \
+	PACKER_DEPLOY_SMOKE_DIR="$(PACKER_DEPLOY_SMOKE_DIR)" \
+	PACKER_DEPLOY_SMOKE_INSTANCE="$(PACKER_DEPLOY_SMOKE_INSTANCE)" \
+	PACKER_DEPLOY_SMOKE_TEMPLATE="$(PACKER_DEPLOY_SMOKE_TEMPLATE)" \
+	PACKER_DEPLOY_SMOKE_CPUS="$(PACKER_DEPLOY_SMOKE_CPUS)" \
+	PACKER_DEPLOY_SMOKE_MEMORY="$(PACKER_DEPLOY_SMOKE_MEMORY)" \
+	PACKER_DEPLOY_SMOKE_DISK="$(PACKER_DEPLOY_SMOKE_DISK)" \
+	PACKER_DEPLOY_SMOKE_STOP="$(PACKER_DEPLOY_SMOKE_STOP)" \
+	PACKER_DEPLOY_SMOKE_LIMA_BIN="$(PACKER_DEPLOY_SMOKE_LIMA_BIN)" \
+	PACKER_PACKAGE_BUILDER_DIR="$(PACKER_PACKAGE_BUILDER_DIR)" \
+	PACKER_PACKAGE_BUILDER_INSTANCE="$(PACKER_PACKAGE_BUILDER_INSTANCE)" \
+	PACKER_PACKAGE_BUILDER_TEMPLATE="$(PACKER_PACKAGE_BUILDER_TEMPLATE)" \
+	PACKER_PACKAGE_BUILDER_GO_VERSION="$(PACKER_PACKAGE_BUILDER_GO_VERSION)" \
+	PACKER_PACKAGE_BUILDER_GO_SHA256="$(PACKER_PACKAGE_BUILDER_GO_SHA256)" \
+	PACKER_PACKAGE_BUILDER_CPUS="$(PACKER_PACKAGE_BUILDER_CPUS)" \
+	PACKER_PACKAGE_BUILDER_MEMORY="$(PACKER_PACKAGE_BUILDER_MEMORY)" \
+	PACKER_PACKAGE_BUILDER_DISK="$(PACKER_PACKAGE_BUILDER_DISK)" \
+	PACKER_PACKAGE_BUILDER_STOP="$(PACKER_PACKAGE_BUILDER_STOP)" \
+	PACKER_PACKAGE_BUILDER_LIMA_BIN="$(PACKER_PACKAGE_BUILDER_LIMA_BIN)" \
+	PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT="$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)" \
+	PACKER_PACKAGE_BUILDER_CACHE_ROOT="$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)" \
+	PACKER_PACKAGE_SMOKE_DIR="$(PACKER_PACKAGE_SMOKE_DIR)" \
+	PACKER_PACKAGE_SMOKE_CPUS="$(PACKER_PACKAGE_SMOKE_CPUS)" \
+	PACKER_PACKAGE_SMOKE_MEMORY="$(PACKER_PACKAGE_SMOKE_MEMORY)" \
+	PACKER_PACKAGE_SMOKE_DISK="$(PACKER_PACKAGE_SMOKE_DISK)" \
+	PACKER_PACKAGE_SMOKE_STOP="$(PACKER_PACKAGE_SMOKE_STOP)" \
+	PACKER_PACKAGE_SMOKE_LIMA_BIN="$(PACKER_PACKAGE_SMOKE_LIMA_BIN)" \
+	PACKER_PACKAGE_DEB_SMOKE_INSTANCE="$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE)" \
+	PACKER_PACKAGE_DEB_SMOKE_TEMPLATE="$(PACKER_PACKAGE_DEB_SMOKE_TEMPLATE)" \
+	PACKER_PACKAGE_RPM_SMOKE_INSTANCE="$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE)" \
+	PACKER_PACKAGE_RPM_SMOKE_TEMPLATE="$(PACKER_PACKAGE_RPM_SMOKE_TEMPLATE)" \
+	PACKAGE_LOCAL_VM_PROVIDER_PATH="$(PACKAGE_LOCAL_VM_PROVIDER_PATH)"
 package_common_deb_path = $(PACKAGE_OUT)/vectis-common_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
 package_common_rpm_path = $(PACKAGE_OUT)/vectis-common-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(1)).rpm
 package_service_deb_path = $(PACKAGE_OUT)/vectis-$(2)_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
@@ -286,83 +310,79 @@ PACKAGE_SERVICES_RPM_TARGETS := $(addprefix package-services-rpm-,$(PACKAGE_ARCH
 
 .PHONY: vm-validate
 vm-validate:
-	$(MAKE) vm-scripts-test
-	$(MAKE) vm-deploy-smoke-validate
-	$(MAKE) vm-package-builder-validate
-	$(MAKE) vm-package-smoke-validate
+	$(VM_MAGE_ENV) $(MAGE) vmValidate
 
 .PHONY: vm-scripts-test
 vm-scripts-test:
-	$(GO) test ./build/packer
+	GO="$(GO)" $(MAGE) vmScriptsTest
 
 .PHONY: vm-prepare
 vm-prepare:
-	$(MAKE) vm-deploy-smoke-prepare
-	$(MAKE) vm-package-builder-prepare
-	$(MAKE) vm-package-smoke-prepare
+	$(VM_MAGE_ENV) $(MAGE) vmPrepare
 
 .PHONY: vm-check
 vm-check:
-	$(MAKE) vm-doctor
+	$(VM_MAGE_ENV) $(MAGE) vmCheck
 
 .PHONY: vm-status
 vm-status:
-	$(vm_doctor) --mode status
+	$(VM_MAGE_ENV) $(MAGE) vmStatus
 
 .PHONY: vm-doctor
 vm-doctor:
-	$(vm_doctor) --mode doctor
+	$(VM_MAGE_ENV) $(MAGE) vmDoctor
 
 .PHONY: vm-deploy-smoke-validate
 vm-deploy-smoke-validate:
-	$(PACKER) validate $(packer_deploy_smoke_vars) $(PACKER_DEPLOY_SMOKE_DIR)
+	$(VM_MAGE_ENV) $(MAGE) vmDeploySmokeValidate
 
 .PHONY: vm-deploy-smoke-prepare
 vm-deploy-smoke-prepare:
-	$(PACKER) build $(packer_deploy_smoke_vars) $(PACKER_DEPLOY_SMOKE_DIR)
+	$(VM_MAGE_ENV) $(MAGE) vmDeploySmokePrepare
 
 .PHONY: vm-deploy-smoke-check
 vm-deploy-smoke-check:
-	$(vm_doctor) --mode doctor --lane deploy-smoke
+	$(VM_MAGE_ENV) $(MAGE) vmDeploySmokeCheck
 
 .PHONY: vm-package-builder-validate
 vm-package-builder-validate:
-	$(PACKER) validate $(packer_package_builder_vars) $(PACKER_PACKAGE_BUILDER_DIR)
+	$(VM_MAGE_ENV) $(MAGE) vmPackageBuilderValidate
 
 .PHONY: vm-package-builder-prepare
 vm-package-builder-prepare:
-	$(PACKER) build $(packer_package_builder_vars) $(PACKER_PACKAGE_BUILDER_DIR)
+	$(VM_MAGE_ENV) $(MAGE) vmPackageBuilderPrepare
 
 .PHONY: vm-package-builder-check
 vm-package-builder-check:
-	$(vm_doctor) --mode doctor --lane package-builder
+	$(VM_MAGE_ENV) $(MAGE) vmPackageBuilderCheck
 
 .PHONY: vm-package-smoke-validate
 vm-package-smoke-validate:
-	$(PACKER) validate $(call packer_package_smoke_vars,deb,$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE),$(PACKER_PACKAGE_DEB_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
-	$(PACKER) validate $(call packer_package_smoke_vars,rpm,$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE),$(PACKER_PACKAGE_RPM_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
+	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokeValidate
 
 .PHONY: vm-package-smoke-deb-prepare
 vm-package-smoke-deb-prepare:
-	$(PACKER) build $(call packer_package_smoke_vars,deb,$(PACKER_PACKAGE_DEB_SMOKE_INSTANCE),$(PACKER_PACKAGE_DEB_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
+	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokeDebPrepare
 
 .PHONY: vm-package-smoke-rpm-prepare
 vm-package-smoke-rpm-prepare:
-	$(PACKER) build $(call packer_package_smoke_vars,rpm,$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE),$(PACKER_PACKAGE_RPM_SMOKE_TEMPLATE)) $(PACKER_PACKAGE_SMOKE_DIR)
+	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokeRPMPrepare
 
 .PHONY: vm-package-smoke-prepare
-vm-package-smoke-prepare: vm-package-smoke-deb-prepare vm-package-smoke-rpm-prepare
+vm-package-smoke-prepare:
+	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokePrepare
 
 .PHONY: vm-package-smoke-deb-check
 vm-package-smoke-deb-check:
-	$(vm_doctor) --mode doctor --lane package-smoke-deb
+	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokeDebCheck
 
 .PHONY: vm-package-smoke-rpm-check
 vm-package-smoke-rpm-check:
-	$(vm_doctor) --mode doctor --lane package-smoke-rpm
+	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokeRPMCheck
 
 .PHONY: vm-package-smoke-check
-vm-package-smoke-check: vm-package-smoke-deb-check vm-package-smoke-rpm-check
+vm-package-smoke-check:
+	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokeCheck
 
 $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli: cmd/cli/main.go $(API) $(INTERNAL)
 	mkdir -p $(dir ${@})
@@ -513,7 +533,7 @@ package-linux: package-cli package-services
 
 .PHONY: test-package
 test-package:
-	go test ./deploy/package/...
+	GO="$(GO)" $(MAGE) testPackage
 
 .PHONY: test-e2e-package-cli-deb
 test-e2e-package-cli-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET)
