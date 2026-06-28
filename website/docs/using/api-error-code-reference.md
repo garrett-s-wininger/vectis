@@ -187,6 +187,7 @@ Most API failures use this JSON envelope:
 | `run_definition_not_found` | `404` | Frozen run definition snapshot is missing. |
 | `schedules_not_configured` | `503` | Source schedule storage is not configured. |
 | `source_authoring_unavailable` | `409` | Source repository does not support the requested local definition write. |
+| `source_busy` | `409` | Source repository is processing another checkout write; retry after it completes. |
 | `source_conflict` | `409` | Source write conflicted with the current branch head or repository state. |
 | `source_definition_already_exists` | `409` | A source definition already exists at the target path. |
 | `source_file_too_large` | `413` | Source definition file exceeds the route size limit. |

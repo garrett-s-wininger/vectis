@@ -347,6 +347,87 @@ func TestHydrateManagedGitRefContextExpiresWaitingForManagedWriterLock(t *testin
 	}
 }
 
+func TestManagedGitCheckoutCommitFileWaitsForManagedWriterLock(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "main\n", "main")
+	branch := gitOutput(t, repo, "branch", "--show-current")
+	parent := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	lock, err := acquireManagedGitWriterLock(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("acquire managed writer lock: %v", err)
+	}
+
+	locked := true
+	defer func() {
+		if locked {
+			_ = lock.Close()
+		}
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewManagedGitCheckout(repo).CommitFile(context.Background(), CommitFileOptions{
+			Ref:          branch,
+			Path:         ".vectis/jobs/build.json",
+			Content:      []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`),
+			Message:      "add build",
+			ExpectedHead: parent,
+		})
+
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("managed commit completed while writer lock was held: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release managed writer lock: %v", err)
+	}
+
+	locked = false
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("managed commit after lock release failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("managed commit did not complete after writer lock release")
+	}
+}
+
+func TestManagedGitCheckoutCommitFileContextExpiresWaitingForManagedWriterLock(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "main\n", "main")
+	branch := gitOutput(t, repo, "branch", "--show-current")
+	parent := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	lock, err := acquireManagedGitWriterLock(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("acquire managed writer lock: %v", err)
+	}
+	defer lock.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+
+	_, err = NewManagedGitCheckout(repo).CommitFile(ctx, CommitFileOptions{
+		Ref:          branch,
+		Path:         ".vectis/jobs/build.json",
+		Content:      []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`),
+		Message:      "add build",
+		ExpectedHead: parent,
+	})
+
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("expected ErrBusy while writer lock is held, got %v", err)
+	}
+}
+
 func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")

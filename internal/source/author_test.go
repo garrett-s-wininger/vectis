@@ -71,7 +71,7 @@ func TestNewDefinitionAuthorFromRecordModes(t *testing.T) {
 		t.Fatalf("expected LocalCommitDefinitionAuthor, got %T", author)
 	}
 
-	if local.Checkout == nil || local.DefaultRef != "main" {
+	if local.Checkout == nil || local.DefaultRef != "main" || !local.Checkout.lockWrites {
 		t.Fatalf("local author mismatch: %+v", local)
 	}
 }

@@ -175,7 +175,7 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 }
 
 func NewManagedGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitCheckout {
-	return NewGitCheckout(checkoutPath, append([]GitCheckoutOption{WithRemoteFallback("origin")}, opts...)...)
+	return NewGitCheckout(checkoutPath, append([]GitCheckoutOption{WithRemoteFallback("origin"), withManagedWriterLock()}, opts...)...)
 }
 
 func managedGitCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {

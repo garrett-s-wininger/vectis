@@ -142,3 +142,75 @@ func TestAPIServer_SourceDefinitionAuthoringHooks(t *testing.T) {
 		t.Fatalf("put response mismatch: %+v", putResp)
 	}
 }
+
+func TestAPIServer_SourceDefinitionAuthoringBusyError(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+
+	db := dbtest.NewTestDB(t)
+	server := NewAPIServer(mocks.NewMockLogger(), db)
+	handler := server.Handler()
+
+	if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "managed-author",
+		NamespaceID:   1,
+		SourceKind:    dal.SourceKindLocalCheckout,
+		CheckoutPath:  filepath.Join(t.TempDir(), "managed"),
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		AuthoringMode: dal.SourceAuthoringModeLocalCommit,
+		DefaultRef:    "main",
+		Enabled:       true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	server.SetSourceDefinitionAuthoring(
+		func(dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error) {
+			return definitionAuthorFunc(func(context.Context, sourcepkg.WriteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
+				return sourcepkg.WrittenDefinition{}, sourcepkg.ErrBusy
+			}), nil
+		},
+		func(rec dal.SourceRepositoryRecord) sourcepkg.AuthoringCapability {
+			return sourcepkg.AuthoringCapability{
+				Mode:             rec.AuthoringMode,
+				WriteDefinitions: true,
+				LocalCommits:     true,
+			}
+		},
+	)
+
+	body, err := json.Marshal(map[string]any{
+		"definition": map[string]any{
+			"root": map[string]any{
+				"id":   "root",
+				"uses": "builtins/shell",
+				"with": map[string]any{"command": "true"},
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/source-repositories/managed-author/jobs/build/definition", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected source busy status %d, got %d: %s", http.StatusConflict, rec.Code, rec.Body.String())
+	}
+
+	var errResp struct {
+		Code    string            `json:"code"`
+		Details map[string]string `json:"details"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode source busy response: %v; body=%s", err, rec.Body.String())
+	}
+
+	if errResp.Code != "source_busy" || errResp.Details["kind"] != "source_busy" {
+		t.Fatalf("source busy response mismatch: %+v", errResp)
+	}
+}

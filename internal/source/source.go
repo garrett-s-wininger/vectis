@@ -16,6 +16,7 @@ var (
 	ErrAlreadyExists        = errors.New("source already exists")
 	ErrNotFound             = errors.New("source not found")
 	ErrTooLarge             = errors.New("source file too large")
+	ErrBusy                 = errors.New("source busy")
 )
 
 const DefaultMaxFileBytes int64 = 1024 * 1024

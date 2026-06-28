@@ -22,6 +22,7 @@ type GitCheckout struct {
 	checkoutPath   string
 	maxFileBytes   int64
 	remoteFallback string
+	lockWrites     bool
 	runner         gitRunner
 }
 
@@ -69,6 +70,12 @@ func WithRemoteFallback(remote string) GitCheckoutOption {
 		if remote != "" && !strings.HasPrefix(remote, "-") && !strings.ContainsAny(remote, "\x00\n\r/") {
 			g.remoteFallback = remote
 		}
+	}
+}
+
+func withManagedWriterLock() GitCheckoutOption {
+	return func(g *GitCheckout) {
+		g.lockWrites = true
 	}
 }
 
@@ -257,6 +264,12 @@ func (g *GitCheckout) readFileRequest(ctx context.Context, req DefinitionFileReq
 }
 
 func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (FileCommit, error) {
+	releaseLock, err := g.acquireWriterLock(ctx)
+	if err != nil {
+		return FileCommit{}, err
+	}
+	defer releaseLock()
+
 	if err := g.validateCheckout(); err != nil {
 		return FileCommit{}, err
 	}
@@ -378,6 +391,12 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 }
 
 func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (FileCommit, error) {
+	releaseLock, err := g.acquireWriterLock(ctx)
+	if err != nil {
+		return FileCommit{}, err
+	}
+	defer releaseLock()
+
 	if err := g.validateCheckout(); err != nil {
 		return FileCommit{}, err
 	}
@@ -942,6 +961,21 @@ func (g *GitCheckout) streamGitRecords(ctx context.Context, args []string, handl
 	}
 
 	return runner.StreamGitRecords(ctx, g.checkoutPath, args, handle)
+}
+
+func (g *GitCheckout) acquireWriterLock(ctx context.Context) (func(), error) {
+	if !g.lockWrites {
+		return func() {}, nil
+	}
+
+	lock, err := acquireManagedGitWriterLock(ctx, g.checkoutPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return func() {
+		_ = lock.Close()
+	}, nil
 }
 
 func (s *GitCheckoutStatus) setError(code, message string) {

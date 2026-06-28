@@ -3189,6 +3189,8 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", sourceDefinitionErrorDetails("authoring_unavailable", "enable local_commit authoring on a managed source repository or choose a writable repository"))
 	case errors.Is(err, sourcepkg.ErrConflict):
 		writeAPIError(w, http.StatusConflict, "source_conflict", "source conflict", sourceDefinitionErrorDetails("stale_head", "refresh the branch head and retry with an updated expected_head"))
+	case errors.Is(err, sourcepkg.ErrBusy):
+		writeAPIError(w, http.StatusConflict, "source_busy", "source repository is busy", sourceDefinitionErrorDetails("source_busy", "retry after the current source operation completes"))
 	case dal.IsNotFound(err):
 		writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
 	case errors.Is(err, sourcepkg.ErrInvalidDefinition):
