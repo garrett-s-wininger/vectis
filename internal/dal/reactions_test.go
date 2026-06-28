@@ -426,6 +426,85 @@ func TestReactionsRepository_ListMatchingSubscriptionsSkipsForeignNamespaceTarge
 	}
 }
 
+func TestReactionsRepository_CreateSubscriptionRejectsForeignNamespaceTarget(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	repo := repos.Reactions()
+	ctx := context.Background()
+
+	nsA, err := repos.Namespaces().Create(ctx, "reaction-sub-team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace a: %v", err)
+	}
+
+	nsB, err := repos.Namespaces().Create(ctx, "reaction-sub-team-b", nil)
+	if err != nil {
+		t.Fatalf("create namespace b: %v", err)
+	}
+
+	globalTarget, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "subscription-global-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"global"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create global target: %v", err)
+	}
+
+	targetA, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: nsA.ID,
+		Name:        "subscription-team-a-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"team-a"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target a: %v", err)
+	}
+
+	targetB, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: nsB.ID,
+		Name:        "subscription-team-b-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"team-b"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target b: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		NamespaceID: nsA.ID,
+		TargetID:    globalTarget.TargetID,
+		Name:        "team-a-global-target",
+		EventType:   dal.ReactionEventTypeManualNotice,
+	}); err != nil {
+		t.Fatalf("create namespace subscription to global target: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		NamespaceID: nsA.ID,
+		TargetID:    targetA.TargetID,
+		Name:        "team-a-target",
+		EventType:   dal.ReactionEventTypeManualNotice,
+	}); err != nil {
+		t.Fatalf("create namespace subscription to same target: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		NamespaceID: nsA.ID,
+		TargetID:    targetB.TargetID,
+		Name:        "team-a-foreign-target",
+		EventType:   dal.ReactionEventTypeManualNotice,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected foreign target conflict, got %v", err)
+	}
+}
+
 func TestReactionsRepository_ListMatchingSubscriptionsSkipsDisabledRows(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repo := dal.NewSQLRepositories(db).Reactions()

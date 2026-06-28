@@ -203,12 +203,21 @@ func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create 
 		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: subscription name is required", ErrConflict)
 	}
 
+	target, err := r.getTarget(ctx, targetID)
+	if err != nil {
+		return ReactionSubscriptionRecord{}, err
+	}
+
+	if create.NamespaceID > 0 && target.NamespaceID != nil && *target.NamespaceID != create.NamespaceID {
+		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: reaction subscription namespace does not match target namespace", ErrConflict)
+	}
+
 	now := create.CreatedAt
 	if now <= 0 {
 		now = time.Now().UnixNano()
 	}
 
-	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+	_, err = r.db.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO reaction_subscriptions
 			(subscription_id, namespace_id, target_id, name, event_type, job_id, run_status, trigger_type, owning_cell, enabled, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
