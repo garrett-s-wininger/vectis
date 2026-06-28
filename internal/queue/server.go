@@ -1156,6 +1156,11 @@ func (s *queueServer) RequeueDeadLetter(ctx context.Context, req *api.RequeueDea
 }
 
 func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opts QueueOptions, metrics *observability.QueueMetrics) api.QueueServiceServer {
+	qs, _ := RegisterQueueServiceWithHealth(s, logger, opts, metrics)
+	return qs
+}
+
+func RegisterQueueServiceWithHealth(s grpc.ServiceRegistrar, logger interfaces.Logger, opts QueueOptions, metrics *observability.QueueMetrics) (api.QueueServiceServer, *health.Server) {
 	qs, err := newQueueServer(logger, opts, metrics)
 	if err != nil {
 		logger.Fatal("Failed to initialize queue: %v", err)
@@ -1166,5 +1171,5 @@ func RegisterQueueService(s grpc.ServiceRegistrar, logger interfaces.Logger, opt
 	hs.SetServingStatus("queue", healthpb.HealthCheckResponse_SERVING)
 
 	api.RegisterQueueServiceServer(s, qs)
-	return qs
+	return qs, hs
 }

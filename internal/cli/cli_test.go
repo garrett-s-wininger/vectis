@@ -11,6 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"vectis/internal/cli"
 	"vectis/internal/interfaces/mocks"
@@ -135,6 +138,116 @@ func TestServeGRPC_ContextCancellation(t *testing.T) {
 	err = cli.ServeGRPC(ctx, srv, ln, "test", nil)
 	if err != nil {
 		t.Errorf("expected nil after context cancellation, got %v", err)
+	}
+}
+
+func TestServeGRPC_ContextCancellationMarksHealthNotServing(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	srv := grpc.NewServer()
+	hs := health.NewServer()
+	healthpb.RegisterHealthServer(srv, hs)
+	hs.SetServingStatus("test", healthpb.HealthCheckResponse_SERVING)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cli.ServeGRPC(
+			ctx,
+			srv,
+			ln,
+			"test",
+			nil,
+			cli.WithGRPCHealthServer(hs, "test"),
+		)
+	}()
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("ServeGRPC returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ServeGRPC")
+	}
+
+	resp, err := hs.Check(context.Background(), &healthpb.HealthCheckRequest{Service: "test"})
+	if err != nil {
+		t.Fatalf("health check: %v", err)
+	}
+
+	if got := resp.GetStatus(); got != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("health status = %s, want NOT_SERVING", got)
+	}
+}
+
+func TestServeGRPC_ContextCancellationForcesStopAfterTimeout(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	srv := grpc.NewServer()
+	hs := health.NewServer()
+	healthpb.RegisterHealthServer(srv, hs)
+	hs.SetServingStatus("test", healthpb.HealthCheckResponse_SERVING)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	logger := mocks.NewMockLogger()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cli.ServeGRPC(
+			ctx,
+			srv,
+			ln,
+			"test",
+			logger,
+			cli.WithGRPCHealthServer(hs, "test"),
+			cli.WithGRPCShutdownTimeout(20*time.Millisecond),
+		)
+	}()
+
+	conn, err := grpc.NewClient(ln.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	stream, err := healthpb.NewHealthClient(conn).Watch(context.Background(), &healthpb.HealthCheckRequest{Service: "test"})
+	if err != nil {
+		t.Fatalf("watch health: %v", err)
+	}
+
+	if _, err := stream.Recv(); err != nil {
+		t.Fatalf("receive initial health status: %v", err)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("ServeGRPC returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for forced gRPC shutdown")
+	}
+
+	var found bool
+	for _, msg := range logger.GetWarnCalls() {
+		if strings.Contains(msg, "forcing stop") {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("expected forced-stop warning, got %v", logger.GetWarnCalls())
 	}
 }
 

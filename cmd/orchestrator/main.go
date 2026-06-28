@@ -67,7 +67,7 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	defer service.Close()
 
 	grpcServer := grpc.NewServer(srvOpts...)
-	orchestrator.RegisterOrchestratorService(grpcServer, service, logger)
+	_, healthServer := orchestrator.RegisterOrchestratorServiceWithHealth(grpcServer, service, logger)
 
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, config.OrchestratorMetricsListenAddr(), "Orchestrator", logger)
 	if err != nil {
@@ -97,7 +97,7 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	}
 
 	logger.Info("Orchestrator server listening on %s", addr)
-	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Orchestrator", logger); err != nil {
+	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Orchestrator", logger, cli.WithGRPCHealthServer(healthServer, "orchestrator")); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }

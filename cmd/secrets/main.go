@@ -158,7 +158,7 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 
 	logger.Info("Secrets service listening on %s", addr)
 
-	if err := cli.ServeGRPC(ctx, grpcServer, ln, "Secrets", logger); err != nil {
+	if err := cli.ServeGRPC(ctx, grpcServer, ln, "Secrets", logger, cli.WithGRPCHealthServer(hs, "secrets")); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }

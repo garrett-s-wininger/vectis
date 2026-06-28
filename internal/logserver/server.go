@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/logbatch"
@@ -1059,13 +1060,7 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 
 	s.logger.Info("gRPC log server listening on %s", port)
 
-	go func() {
-		<-ctx.Done()
-		grpcServer.GracefulStop()
-	}()
-
-	err = grpcServer.Serve(lis)
-	return err
+	return cli.ServeGRPC(ctx, grpcServer, lis, "Log", s.logger, cli.WithGRPCHealthServer(hs, "log"))
 }
 
 func Run(ctx context.Context, logger interfaces.Logger, store RunLogStore, metrics *observability.LogMetrics) error {

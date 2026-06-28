@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/registry"
@@ -63,12 +64,7 @@ func (s *Server) RunGRPC(ctx context.Context, bindAddr string) error {
 	healthpb.RegisterHealthServer(grpcServer, hs)
 	hs.SetServingStatus("artifact", healthpb.HealthCheckResponse_SERVING)
 
-	go func() {
-		<-ctx.Done()
-		grpcServer.GracefulStop()
-	}()
-
-	return grpcServer.Serve(lis)
+	return cli.ServeGRPC(ctx, grpcServer, lis, "Artifact", nil, cli.WithGRPCHealthServer(hs, "artifact"))
 }
 
 func Run(ctx context.Context, logger interfaces.Logger, store Store) error {

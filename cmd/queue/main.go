@@ -96,7 +96,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to initialize queue metrics: %v", err)
 	}
 
-	qSvc := queue.RegisterQueueService(grpcServer, logger, queue.QueueOptions{
+	qSvc, healthServer := queue.RegisterQueueServiceWithHealth(grpcServer, logger, queue.QueueOptions{
 		PersistenceDir: persistenceDir,
 		SnapshotEvery:  snapshotEvery,
 		InstanceID:     instanceID,
@@ -143,7 +143,7 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Info("Skipping registry registration (queue.register_with_registry is false)")
 	}
 
-	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Queue", logger); err != nil {
+	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Queue", logger, cli.WithGRPCHealthServer(healthServer, "queue")); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }

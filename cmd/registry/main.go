@@ -65,7 +65,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 
 	logger.Info("Registry server listening on %s", addr)
 
-	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Registry", logger); err != nil {
+	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Registry", logger, cli.WithGRPCHealthServer(hs, "registry")); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }

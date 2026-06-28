@@ -24,6 +24,11 @@ type grpcServer struct {
 }
 
 func RegisterOrchestratorService(s grpc.ServiceRegistrar, service *Service, logger interfaces.Logger) api.OrchestratorServiceServer {
+	server, _ := RegisterOrchestratorServiceWithHealth(s, service, logger)
+	return server
+}
+
+func RegisterOrchestratorServiceWithHealth(s grpc.ServiceRegistrar, service *Service, logger interfaces.Logger) (api.OrchestratorServiceServer, *health.Server) {
 	server := &grpcServer{service: service, logger: logger}
 
 	hs := health.NewServer()
@@ -31,7 +36,7 @@ func RegisterOrchestratorService(s grpc.ServiceRegistrar, service *Service, logg
 	hs.SetServingStatus("orchestrator", healthpb.HealthCheckResponse_SERVING)
 
 	api.RegisterOrchestratorServiceServer(s, server)
-	return server
+	return server, hs
 }
 
 func (s *grpcServer) LoadRun(ctx context.Context, req *api.LoadRunRequest) (*api.LoadRunResponse, error) {

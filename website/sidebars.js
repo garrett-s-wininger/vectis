@@ -107,6 +107,7 @@ const sidebars = {
           items: ["developing/performance/capacity-checks"]
         },
         "developing/roadmap/planning",
+        "developing/roadmap/lifecycle-recovery-auditability",
         {
           type: "category",
           label: "Architecture Decisions",

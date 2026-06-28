@@ -102,9 +102,8 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	go func() {
 		<-ctx.Done()
 		interfaces.TerminateActiveProcesses()
-		grpcServer.GracefulStop()
-		_ = os.Remove(socketPath)
 	}()
+	defer func() { _ = os.Remove(socketPath) }()
 
 	logger.Info("Worker core listening on %s", socketPath)
 	logger.Info("Worker core execution backend: %s", backend)
@@ -112,7 +111,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 		logger.Info("Worker core checkout cache enabled: root=%s persistent_remotes=%d generations_to_keep=%d lease_ttl=%s max_bytes=%d warm_parallelism=%d", executorConfig.CheckoutCacheRoot, len(executorConfig.CheckoutCacheRemoteURLs), executorConfig.CheckoutCacheGenerationsToKeep, executorConfig.CheckoutCacheLeaseTTL, executorConfig.CheckoutCacheMaxBytes, executorConfig.CheckoutCacheWarmParallelism)
 	}
 
-	if err := grpcServer.Serve(listener); err != nil && ctx.Err() == nil {
+	if err := cli.ServeGRPC(ctx, grpcServer, listener, "Worker core", logger); err != nil {
 		logger.Fatal("Worker core server failed: %v", err)
 	}
 }

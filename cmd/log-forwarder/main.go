@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -162,16 +160,8 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 		fwd.Run(ctx)
 	})
 
-	// Wait for shutdown signal
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case <-ctx.Done():
-		logger.Info("Context cancelled; shutting down...")
-	case sig := <-sigCh:
-		logger.Info("Received signal %s; shutting down...", sig)
-	}
+	<-ctx.Done()
+	logger.Info("Context cancelled; shutting down...")
 
 	_ = server.Close()
 	fwd.Shutdown()
