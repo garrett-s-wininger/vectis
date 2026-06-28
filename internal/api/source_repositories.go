@@ -118,15 +118,23 @@ type sourceRepositoryStatusError struct {
 }
 
 type sourceRepositoryObjectStore struct {
-	PackFiles                 int      `json:"pack_files"`
-	PackBytes                 int64    `json:"pack_bytes"`
-	PackKeepFiles             int      `json:"pack_keep_files"`
-	LooseObjects              int      `json:"loose_objects"`
-	LooseObjectsTruncated     bool     `json:"loose_objects_truncated,omitempty"`
-	LooseObjectScanLimit      int      `json:"loose_object_scan_limit"`
-	CommitGraph               bool     `json:"commit_graph"`
-	MultiPackIndex            bool     `json:"multi_pack_index"`
-	MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files,omitempty"`
+	PackFiles                 int                                  `json:"pack_files"`
+	PackBytes                 int64                                `json:"pack_bytes"`
+	PackKeepFiles             int                                  `json:"pack_keep_files"`
+	LooseObjects              int                                  `json:"loose_objects"`
+	LooseObjectsTruncated     bool                                 `json:"loose_objects_truncated,omitempty"`
+	LooseObjectScanLimit      int                                  `json:"loose_object_scan_limit"`
+	CommitGraph               bool                                 `json:"commit_graph"`
+	MultiPackIndex            bool                                 `json:"multi_pack_index"`
+	MaintenanceIndicatorFiles []string                             `json:"maintenance_indicator_files,omitempty"`
+	Pressure                  string                               `json:"pressure"`
+	Warnings                  []sourceRepositoryObjectStoreWarning `json:"warnings,omitempty"`
+}
+
+type sourceRepositoryObjectStoreWarning struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
 }
 
 type sourceRepositoryAuthoring struct {
@@ -2672,6 +2680,15 @@ func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec da
 }
 
 func sourceRepositoryObjectStoreFromStatus(status sourcepkg.GitCheckoutObjectStoreStatus) *sourceRepositoryObjectStore {
+	warnings := make([]sourceRepositoryObjectStoreWarning, 0, len(status.Warnings))
+	for _, warning := range status.Warnings {
+		warnings = append(warnings, sourceRepositoryObjectStoreWarning{
+			Code:     warning.Code,
+			Severity: warning.Severity,
+			Message:  warning.Message,
+		})
+	}
+
 	return &sourceRepositoryObjectStore{
 		PackFiles:                 status.PackFiles,
 		PackBytes:                 status.PackBytes,
@@ -2682,6 +2699,8 @@ func sourceRepositoryObjectStoreFromStatus(status sourcepkg.GitCheckoutObjectSto
 		CommitGraph:               status.CommitGraph,
 		MultiPackIndex:            status.MultiPackIndex,
 		MaintenanceIndicatorFiles: append([]string(nil), status.MaintenanceIndicatorFiles...),
+		Pressure:                  status.Pressure,
+		Warnings:                  warnings,
 	}
 }
 

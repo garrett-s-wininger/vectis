@@ -1657,7 +1657,9 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 
 	if statusResp.ObjectStore == nil ||
 		statusResp.ObjectStore.LooseObjects == 0 ||
-		statusResp.ObjectStore.LooseObjectScanLimit == 0 {
+		statusResp.ObjectStore.LooseObjectScanLimit == 0 ||
+		statusResp.ObjectStore.Pressure != "ok" ||
+		len(statusResp.ObjectStore.Warnings) != 0 {
 		t.Fatalf("object store status mismatch: %+v", statusResp.ObjectStore)
 	}
 
@@ -3648,6 +3650,12 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 		CommitGraph               bool     `json:"commit_graph"`
 		MultiPackIndex            bool     `json:"multi_pack_index"`
 		MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files"`
+		Pressure                  string   `json:"pressure"`
+		Warnings                  []struct {
+			Code     string `json:"code"`
+			Severity string `json:"severity"`
+			Message  string `json:"message"`
+		} `json:"warnings"`
 	} `json:"object_store"`
 	WorkTreePath       string `json:"work_tree_path"`
 	HeadRef            string `json:"head_ref"`
@@ -3698,6 +3706,12 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 			CommitGraph               bool     `json:"commit_graph"`
 			MultiPackIndex            bool     `json:"multi_pack_index"`
 			MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files"`
+			Pressure                  string   `json:"pressure"`
+			Warnings                  []struct {
+				Code     string `json:"code"`
+				Severity string `json:"severity"`
+				Message  string `json:"message"`
+			} `json:"warnings"`
 		} `json:"object_store"`
 		WorkTreePath       string `json:"work_tree_path"`
 		HeadRef            string `json:"head_ref"`

@@ -8,7 +8,23 @@ import (
 	"strings"
 )
 
-const gitObjectLooseScanLimit = 10000
+const (
+	gitObjectLooseScanLimit               = 10000
+	gitObjectStorePressureOK              = "ok"
+	gitObjectStorePressureWarning         = "warning"
+	gitObjectStorePressureCritical        = "critical"
+	gitObjectStorePackFilesWarning        = 50
+	gitObjectStorePackFilesCritical       = 200
+	gitObjectStoreLooseObjectsWarning     = 5000
+	gitObjectStoreLooseObjectsCritical    = 9000
+	gitObjectStoreWarningManyPacks        = "many_pack_files"
+	gitObjectStoreWarningManyLoose        = "many_loose_objects"
+	gitObjectStoreWarningLooseTruncated   = "loose_object_scan_truncated"
+	gitObjectStoreWarningKeepFiles        = "pack_keep_files_present"
+	gitObjectStoreWarningMaintenance      = "maintenance_indicator_files"
+	gitObjectStoreWarningMissingCommit    = "commit_graph_missing"
+	gitObjectStoreWarningMissingMultiPack = "multi_pack_index_missing"
+)
 
 type GitCheckoutObjectStoreStatus struct {
 	PackFiles                 int
@@ -20,11 +36,20 @@ type GitCheckoutObjectStoreStatus struct {
 	CommitGraph               bool
 	MultiPackIndex            bool
 	MaintenanceIndicatorFiles []string
+	Pressure                  string
+	Warnings                  []GitCheckoutObjectStoreWarning
+}
+
+type GitCheckoutObjectStoreWarning struct {
+	Code     string
+	Severity string
+	Message  string
 }
 
 func (g *GitCheckout) objectStoreStatus(ctx context.Context) GitCheckoutObjectStoreStatus {
 	status := GitCheckoutObjectStoreStatus{
 		LooseObjectScanLimit: gitObjectLooseScanLimit,
+		Pressure:             gitObjectStorePressureOK,
 	}
 
 	gitDir, err := g.absoluteGitDir(ctx)
@@ -38,9 +63,71 @@ func (g *GitCheckout) objectStoreStatus(ctx context.Context) GitCheckoutObjectSt
 	status.scanLooseObjects(objectsDir)
 	status.CommitGraph = fileExists(filepath.Join(objectsDir, "info", "commit-graph")) ||
 		fileExists(filepath.Join(objectsDir, "info", "commit-graphs", "commit-graph-chain"))
+
 	status.MaintenanceIndicatorFiles = gitMaintenanceIndicatorFiles(gitDir, commonDir)
+	status.classifyPressure()
 
 	return status
+}
+
+func (s *GitCheckoutObjectStoreStatus) classifyPressure() {
+	s.Pressure = gitObjectStorePressureOK
+	s.Warnings = nil
+
+	switch {
+	case s.PackFiles >= gitObjectStorePackFilesCritical:
+		s.addWarning(gitObjectStoreWarningManyPacks, gitObjectStorePressureCritical, "repository has a high number of pack files")
+	case s.PackFiles >= gitObjectStorePackFilesWarning:
+		s.addWarning(gitObjectStoreWarningManyPacks, gitObjectStorePressureWarning, "repository has many pack files")
+	}
+
+	switch {
+	case s.LooseObjectsTruncated:
+		s.addWarning(gitObjectStoreWarningLooseTruncated, gitObjectStorePressureCritical, "loose object scan hit the safety limit")
+	case s.LooseObjects >= gitObjectStoreLooseObjectsCritical:
+		s.addWarning(gitObjectStoreWarningManyLoose, gitObjectStorePressureCritical, "repository has a high number of loose objects")
+	case s.LooseObjects >= gitObjectStoreLooseObjectsWarning:
+		s.addWarning(gitObjectStoreWarningManyLoose, gitObjectStorePressureWarning, "repository has many loose objects")
+	}
+
+	if s.PackKeepFiles > 0 {
+		s.addWarning(gitObjectStoreWarningKeepFiles, gitObjectStorePressureWarning, "pack .keep files may prevent consolidation")
+	}
+
+	if len(s.MaintenanceIndicatorFiles) > 0 {
+		s.addWarning(gitObjectStoreWarningMaintenance, gitObjectStorePressureWarning, "maintenance indicator files are present")
+	}
+
+	if s.PackFiles >= gitObjectStorePackFilesWarning && !s.MultiPackIndex {
+		s.addWarning(gitObjectStoreWarningMissingMultiPack, gitObjectStorePressureWarning, "repository has many packs without a multi-pack-index")
+	}
+
+	if (s.PackFiles >= gitObjectStorePackFilesWarning || s.LooseObjects >= gitObjectStoreLooseObjectsWarning || s.LooseObjectsTruncated) && !s.CommitGraph {
+		s.addWarning(gitObjectStoreWarningMissingCommit, gitObjectStorePressureWarning, "repository pressure is elevated without a commit-graph")
+	}
+}
+
+func (s *GitCheckoutObjectStoreStatus) addWarning(code, severity, message string) {
+	s.Warnings = append(s.Warnings, GitCheckoutObjectStoreWarning{
+		Code:     code,
+		Severity: severity,
+		Message:  message,
+	})
+
+	if severityRank(severity) > severityRank(s.Pressure) {
+		s.Pressure = severity
+	}
+}
+
+func severityRank(severity string) int {
+	switch severity {
+	case gitObjectStorePressureCritical:
+		return 2
+	case gitObjectStorePressureWarning:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (g *GitCheckout) absoluteGitDir(ctx context.Context) (string, error) {
