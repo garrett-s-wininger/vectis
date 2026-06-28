@@ -2341,7 +2341,7 @@ func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
 	}
 }
 
-func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T) {
+func TestRunsRepository_ExecutionClaimsRejectExpiredAcceptedReclaim(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
@@ -2383,12 +2383,12 @@ func TestRunsRepository_ExecutionClaimsAllowExpiredAcceptedReclaim(t *testing.T)
 		t.Fatalf("reclaim execution: %v", err)
 	}
 
-	if !secondClaim.Claimed || secondClaim.ClaimToken == "" || secondClaim.ClaimToken == firstClaim.ClaimToken || secondClaim.TransitionedToAccepted {
-		t.Fatalf("expected expired execution lease reclaim without accepted transition, first=%+v second=%+v", firstClaim, secondClaim)
+	if secondClaim.Claimed || secondClaim.ClaimToken != "" {
+		t.Fatalf("expected expired execution lease reclaim to be rejected, first=%+v second=%+v", firstClaim, secondClaim)
 	}
 
 	assertExecutionAndSegmentStatus(t, db, dispatch.ExecutionID, dispatch.SegmentID, dal.ExecutionStatusAccepted, dal.SegmentStatusAccepted, 1)
-	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-b", reclaimedUntil.Unix(), secondClaim.ClaimToken)
+	assertExecutionClaim(t, db, dispatch.ExecutionID, "worker-a", expiredUntil.Unix(), firstClaim.ClaimToken)
 }
 
 type claimedExecutionFinalizationRun struct {
@@ -4216,10 +4216,11 @@ func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 
 	reclaim, err := runs.TryClaimExecution(ctx, dispatch.ExecutionID, "worker-1", time.Now().Add(3*time.Minute))
 	if err != nil {
-		t.Fatalf("reclaim execution should recover orphaned run: %v", err)
+		t.Fatalf("reclaim execution after orphaned run: %v", err)
 	}
-	if !reclaim.Claimed {
-		t.Fatal("expected expired execution reclaim to recover orphaned run")
+
+	if reclaim.Claimed {
+		t.Fatalf("orphaned run should not be reclaimed automatically: %+v", reclaim)
 	}
 
 	var status string
@@ -4227,8 +4228,8 @@ func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatalf("scan status: %v", err)
 	}
 
-	if status != "running" {
-		t.Fatalf("expected status running after orphaned renew, got %q", status)
+	if status != "orphaned" {
+		t.Fatalf("expected status orphaned after rejected reclaim, got %q", status)
 	}
 }
 
@@ -4695,7 +4696,7 @@ func TestRunsRepository_MarkRunSucceeded_FromOrphaned(t *testing.T) {
 	}
 }
 
-func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
+func TestRunsRepository_ExpiredExecutionClaimRejectsRenewFinalizeAndTakeover(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
@@ -4725,13 +4726,8 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 		t.Fatalf("try claim execution worker-b: %v", err)
 	}
 
-	if !claimB.Claimed || claimB.ClaimToken == "" {
-		t.Fatalf("expected worker-b execution claim and token, got %+v", claimB)
-	}
-	tokenB := claimB.ClaimToken
-
-	if tokenA == tokenB {
-		t.Fatal("expected distinct claim tokens across execution claims")
+	if claimB.Claimed || claimB.ClaimToken != "" {
+		t.Fatalf("expected expired execution claim takeover to be rejected, got %+v", claimB)
 	}
 
 	if err := runs.RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-b", tokenA, time.Now().Add(2*time.Minute)); err == nil {
@@ -4748,23 +4744,11 @@ func TestRunsRepository_FencingTokenRejectsStaleFinalizeAndRenew(t *testing.T) {
 	}
 
 	if status != "running" {
-		t.Fatalf("expected status to remain running for active token, got %q", status)
-	}
-
-	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", tokenB, dal.ExecutionStatusSucceeded, "", ""); err != nil {
-		t.Fatalf("expected active token execution finalization to succeed: %v", err)
-	}
-
-	if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
-		t.Fatalf("scan status after active finalize: %v", err)
-	}
-
-	if status != "succeeded" {
-		t.Fatalf("expected status succeeded after active token finalize, got %q", status)
+		t.Fatalf("expected status to remain running until orphan sweep, got %q", status)
 	}
 }
 
-func TestRunsRepository_FencingTokenRejectsStaleFailedAndAbortedFinalization(t *testing.T) {
+func TestRunsRepository_ExpiredExecutionClaimRejectsFailedAbortedFinalizeAndTakeover(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	runs := dal.NewSQLRepositories(db).Runs()
 	ctx := context.Background()
@@ -4794,10 +4778,9 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndAbortedFinalization(t *
 		t.Fatalf("try claim execution worker-b: %v", err)
 	}
 
-	if !claimB.Claimed || claimB.ClaimToken == "" {
-		t.Fatalf("expected worker-b execution claim and token, got %+v", claimB)
+	if claimB.Claimed || claimB.ClaimToken != "" {
+		t.Fatalf("expected expired execution claim takeover to be rejected, got %+v", claimB)
 	}
-	tokenB := claimB.ClaimToken
 
 	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-a", tokenA, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "stale token fail"); err == nil {
 		t.Fatal("expected stale token failed execution finalization to fail")
@@ -4813,11 +4796,7 @@ func TestRunsRepository_FencingTokenRejectsStaleFailedAndAbortedFinalization(t *
 	}
 
 	if status != "running" {
-		t.Fatalf("expected status running after stale transitions, got %q", status)
-	}
-
-	if _, err := runs.CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", tokenB, dal.ExecutionStatusSucceeded, "", ""); err != nil {
-		t.Fatalf("finalize succeeded with active token: %v", err)
+		t.Fatalf("expected status running until orphan sweep, got %q", status)
 	}
 }
 

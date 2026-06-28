@@ -2981,7 +2981,7 @@ func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.J
 		return false, fmt.Errorf("job and execution envelope are required")
 	}
 
-	snapshots, err := w.orchestratorRecoverySnapshots(ctx, j, env)
+	snapshots, err := w.orchestratorRecoverySnapshots(ctx, j, env, executionClaim.get(), leaseUntil, stage)
 	if err != nil {
 		return false, err
 	}
@@ -3085,7 +3085,7 @@ func (w *worker) renewMirroredExecutionClaim(ctx context.Context, job *api.Job, 
 	return nil
 }
 
-func (w *worker) orchestratorRecoverySnapshots(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope) ([]orchestrator.TaskExecutionSnapshot, error) {
+func (w *worker) orchestratorRecoverySnapshots(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, claimToken string, leaseUntil time.Time, stage string) ([]orchestrator.TaskExecutionSnapshot, error) {
 	if env == nil {
 		return nil, nil
 	}
@@ -3113,9 +3113,24 @@ func (w *worker) orchestratorRecoverySnapshots(ctx context.Context, j *api.Job, 
 	}
 
 	snapshots = append(snapshots, ancestorSnapshots...)
+
+	status := dal.ExecutionStatusPending
+	owner := ""
+	token := ""
+	leaseUntilUnix := int64(0)
+	if stage != "claim" && strings.TrimSpace(claimToken) != "" {
+		status = dal.ExecutionStatusRunning
+		owner = w.workerID
+		token = claimToken
+		leaseUntilUnix = leaseUntil.UTC().Unix()
+	}
+
 	snapshots = append(snapshots, orchestrator.TaskExecutionSnapshot{
-		Record: orchestrator.TaskExecutionRecordFromEnvelope(env),
-		Status: dal.ExecutionStatusRunning,
+		Record:         orchestrator.TaskExecutionRecordFromEnvelope(env),
+		Status:         status,
+		LeaseOwner:     owner,
+		ClaimToken:     token,
+		LeaseUntilUnix: leaseUntilUnix,
 	})
 
 	return snapshots, nil
@@ -3178,13 +3193,25 @@ func orchestratorSnapshotFromTaskRecord(task dal.TaskRecord) (orchestrator.TaskE
 		return orchestrator.TaskExecutionSnapshot{}, false
 	}
 
-	return orchestrator.TaskExecutionSnapshot{
+	snapshot := orchestrator.TaskExecutionSnapshot{
 		Record:             record,
 		Status:             status,
 		AcceptedAtUnixNano: taskAttemptTimeUnixNano(attemptTimePtr(task.Attempts, "accepted")),
 		StartedAtUnixNano:  taskAttemptTimeUnixNano(attemptTimePtr(task.Attempts, "started")),
 		FinishedAtUnixNano: taskAttemptTimeUnixNano(attemptTimePtr(task.Attempts, "finished")),
-	}, true
+	}
+
+	if attempt, ok := latestTaskAttempt(task.Attempts); ok {
+		if attempt.LeaseOwner != nil {
+			snapshot.LeaseOwner = *attempt.LeaseOwner
+		}
+
+		if attempt.LeaseUntil != nil {
+			snapshot.LeaseUntilUnix = *attempt.LeaseUntil
+		}
+	}
+
+	return snapshot, true
 }
 
 func attemptTimePtr(attempts []dal.TaskAttemptRecord, field string) *string {

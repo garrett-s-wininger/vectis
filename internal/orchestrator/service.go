@@ -213,14 +213,13 @@ func (s *Service) ListPending(ctx context.Context, runID string, limit int) ([]d
 		return nil, fmt.Errorf("%w: run_id is required", dal.ErrNotFound)
 	}
 
-	now := s.clock.Now()
 	value, err := s.call(ctx, runID, func(state *shardState) (any, error) {
 		run, err := state.getRun(runID)
 		if err != nil {
 			return nil, err
 		}
 
-		return run.pendingRecords(now, limit), nil
+		return run.pendingRecords(limit), nil
 	})
 
 	if err != nil {
@@ -251,9 +250,8 @@ func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner 
 		}
 
 		switch task.status {
-		case dal.ExecutionStatusPending, dal.ExecutionStatusAccepted:
+		case dal.ExecutionStatusPending:
 			token := uuid.NewString()
-			transitionedToAccepted := task.status == dal.ExecutionStatusPending
 			task.status = dal.ExecutionStatusRunning
 
 			if task.acceptedAt.IsZero() {
@@ -271,22 +269,19 @@ func (s *Service) ClaimExecution(ctx context.Context, runID, executionID, owner 
 			return dal.ExecutionClaimResult{
 				Claimed:                true,
 				ClaimToken:             token,
-				TransitionedToAccepted: transitionedToAccepted,
+				TransitionedToAccepted: true,
 				ExecutionStarted:       true,
 			}, nil
 		case dal.ExecutionStatusRunning:
-			if task.leaseUntil.After(now) {
+			if !task.hasActiveClaim(owner, task.claimToken, now) {
 				return dal.ExecutionClaimResult{}, nil
 			}
 
-			token := uuid.NewString()
-			task.leaseOwner = owner
-			task.claimToken = token
 			task.leaseUntil = leaseUntil
 			return dal.ExecutionClaimResult{
 				Claimed:          true,
-				ClaimToken:       token,
-				ExecutionStarted: false,
+				ClaimToken:       task.claimToken,
+				ExecutionStarted: true,
 			}, nil
 		default:
 			return dal.ExecutionClaimResult{}, nil
@@ -622,7 +617,11 @@ func (r *runState) applySnapshots(snapshots []TaskExecutionSnapshot, now time.Ti
 
 		if shouldApplySnapshotStatus(task, status, now) {
 			task.status = status
-			if status != dal.ExecutionStatusRunning {
+			if status == dal.ExecutionStatusRunning {
+				task.leaseOwner = strings.TrimSpace(snapshot.LeaseOwner)
+				task.claimToken = strings.TrimSpace(snapshot.ClaimToken)
+				task.leaseUntil = time.Unix(snapshot.LeaseUntilUnix, 0)
+			} else {
 				task.leaseOwner = ""
 				task.claimToken = ""
 				task.leaseUntil = time.Time{}
@@ -948,7 +947,7 @@ func (r *runState) loadResult(now time.Time, opts LoadRunOptions) LoadResult {
 
 	var pending []dal.TaskExecutionRecord
 	if !opts.OmitPending {
-		pending = r.pendingRecords(now, 0)
+		pending = r.pendingRecords(0)
 	}
 
 	return LoadResult{
@@ -959,20 +958,11 @@ func (r *runState) loadResult(now time.Time, opts LoadRunOptions) LoadResult {
 	}
 }
 
-func (r *runState) pendingRecords(now time.Time, limit int) []dal.TaskExecutionRecord {
+func (r *runState) pendingRecords(limit int) []dal.TaskExecutionRecord {
 	out := make([]dal.TaskExecutionRecord, 0)
 	for _, taskKey := range r.order {
 		task := r.tasks[taskKey]
-		switch task.status {
-		case dal.ExecutionStatusPending, dal.ExecutionStatusAccepted:
-			if task.claimToken != "" && task.hasActiveClaim(task.leaseOwner, task.claimToken, now) {
-				continue
-			}
-		case dal.ExecutionStatusRunning:
-			if task.claimToken != "" && task.hasActiveClaim(task.leaseOwner, task.claimToken, now) {
-				continue
-			}
-		default:
+		if task.status != dal.ExecutionStatusPending {
 			continue
 		}
 

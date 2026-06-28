@@ -160,7 +160,7 @@ func TestGRPCExecutionChoreographerLoadRunHydratesSnapshots(t *testing.T) {
 
 	err = choreographer.LoadRun(ctx, j, rootEnv, []orchestrator.TaskExecutionSnapshot{
 		{Record: root, Status: dal.ExecutionStatusSucceeded},
-		{Record: child, Status: dal.ExecutionStatusRunning},
+		{Record: child, Status: dal.ExecutionStatusPending},
 	})
 
 	if err != nil {

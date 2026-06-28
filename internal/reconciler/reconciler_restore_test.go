@@ -370,8 +370,8 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 		t.Fatalf("replacement claim after orphaning: %v", err)
 	}
 
-	if !replacementClaim.Claimed || replacementClaim.ClaimToken == "" || replacementClaim.ClaimToken == firstClaim.ClaimToken {
-		t.Fatalf("expected replacement claim with new token, first=%+v replacement=%+v", firstClaim, replacementClaim)
+	if replacementClaim.Claimed || replacementClaim.ClaimToken != "" {
+		t.Fatalf("expected replacement claim after orphaning to be rejected, first=%+v replacement=%+v", firstClaim, replacementClaim)
 	}
 
 	if err := repos.Runs().RenewExecutionLease(ctx, dispatch.ExecutionID, "worker-a", firstClaim.ClaimToken, time.Now().Add(time.Minute)); !dal.IsConflict(err) {
@@ -382,13 +382,8 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 		t.Fatalf("expected stale owner completion conflict, got %v", err)
 	}
 
-	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", replacementClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
-	if err != nil {
-		t.Fatalf("complete replacement claim: %v", err)
-	}
-
-	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
-		t.Fatalf("replacement finalization outcome: %+v", result)
+	if _, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, dispatch.ExecutionID, "worker-b", replacementClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !dal.IsConflict(err) {
+		t.Fatalf("expected replacement completion conflict, got %v", err)
 	}
 }
 

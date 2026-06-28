@@ -5111,17 +5111,16 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 		return ExecutionClaimResult{}, normalizeSQLError(err)
 	}
 
-	if !statusIn(currentStatus, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}) {
+	if currentStatus != ExecutionStatusPending {
 		return ExecutionClaimResult{}, nil
 	}
 
-	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning, RunStatusOrphaned}) {
+	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning}) {
 		return ExecutionClaimResult{}, nil
 	}
 
 	now := time.Now().UTC()
-	nowUnix := now.Unix()
-	if currentLeaseUntil.Valid && currentLeaseUntil.Int64 >= nowUnix {
+	if currentLeaseUntil.Valid {
 		return ExecutionClaimResult{}, nil
 	}
 
@@ -5161,13 +5160,13 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 	}
 
 	setParts = append(setParts, "updated_at = CURRENT_TIMESTAMP")
-	args = append(args, executionID, currentStatus, nowUnix)
+	args = append(args, executionID, currentStatus)
 	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE segment_executions
 		SET `+strings.Join(setParts, ", ")+`
 		WHERE execution_id = ?
 			AND status = ?
-			AND (lease_until IS NULL OR lease_until < ?)
+			AND lease_until IS NULL
 	`), args...)
 
 	if err != nil {
@@ -5210,15 +5209,18 @@ func (r *SQLRunsRepository) TryClaimExecution(ctx context.Context, executionID, 
 			status = ?,
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
-			AND status IN (?, ?, ?)
-	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
+			AND status IN (?, ?)
+	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning)
+
 	if err != nil {
 		return ExecutionClaimResult{}, normalizeSQLError(err)
 	}
+
 	runUpdated, err := runRes.RowsAffected()
 	if err != nil {
 		return ExecutionClaimResult{}, err
 	}
+
 	if runUpdated != 1 {
 		return ExecutionClaimResult{}, fmt.Errorf("%w: run %s cannot be promoted for execution claim", ErrConflict, runID)
 	}
@@ -5275,12 +5277,11 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 		return fmt.Errorf("%w: execution %s status %s cannot mirror an active claim", ErrConflict, executionID, currentStatus)
 	}
 
-	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning, RunStatusOrphaned}) {
+	if !statusIn(runStatus, []string{RunStatusQueued, RunStatusRunning}) {
 		return fmt.Errorf("%w: run %s status %s cannot mirror an active execution claim", ErrConflict, runID, runStatus)
 	}
 
 	now := time.Now().UTC()
-	nowUnix := now.Unix()
 	if startDeadlineExpiredForClaim(currentStatus, startDeadline, now) {
 		expired, didExpire, err := expireExecutionStartDeadlineTx(ctx, tx, executionID, now)
 		if err != nil {
@@ -5298,10 +5299,8 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 		return fmt.Errorf("%w: %w: execution %s expired before mirrored claim", ErrConflict, ErrDispatchExpired, executionID)
 	}
 
-	if currentLeaseUntil.Valid && currentLeaseUntil.Int64 >= nowUnix {
-		if !leaseOwner.Valid || leaseOwner.String != owner {
-			return fmt.Errorf("%w: execution %s already has an active claim", ErrConflict, executionID)
-		}
+	if leaseOwner.Valid && leaseOwner.String != "" && leaseOwner.String != owner {
+		return fmt.Errorf("%w: execution %s already has an execution claim", ErrConflict, executionID)
 	}
 
 	transitionedToAccepted := statusIn(currentStatus, []string{ExecutionStatusPlanned, ExecutionStatusPending})
@@ -5318,7 +5317,7 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 	}
 
 	setParts = append(setParts, "updated_at = CURRENT_TIMESTAMP")
-	args = append(args, executionID, currentStatus, nowUnix, owner)
+	args = append(args, executionID, currentStatus, owner)
 	res, err := tx.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE segment_executions
 		SET `+strings.Join(setParts, ", ")+`
@@ -5326,7 +5325,6 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 			AND status = ?
 			AND (
 				lease_until IS NULL
-				OR lease_until < ?
 				OR lease_owner = ?
 			)
 	`), args...)
@@ -5369,8 +5367,8 @@ func (r *SQLRunsRepository) MirrorExecutionClaim(ctx context.Context, executionI
 			status = ?,
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 		WHERE run_id = ?
-			AND status IN (?, ?, ?)
-	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning, RunStatusOrphaned)
+			AND status IN (?, ?)
+	`), owner, leaseUntil.UTC().Unix(), claimToken, RunStatusRunning, RunStatusRunning, RunStatusQueued, RunStatusRunning, runID, RunStatusQueued, RunStatusRunning)
 	if err != nil {
 		return normalizeSQLError(err)
 	}
@@ -5402,7 +5400,13 @@ func (r *SQLRunsRepository) RenewExecutionLease(ctx context.Context, executionID
 			AND lease_owner = ?
 			AND claim_token = ?
 			AND status IN (?, ?)
-	`), leaseUntil.UTC().Unix(), executionID, owner, claimToken, ExecutionStatusAccepted, ExecutionStatusRunning)
+			AND EXISTS (
+				SELECT 1
+				FROM job_runs jr
+				WHERE jr.run_id = segment_executions.run_id
+					AND jr.status = ?
+			)
+	`), leaseUntil.UTC().Unix(), executionID, owner, claimToken, ExecutionStatusAccepted, ExecutionStatusRunning, RunStatusRunning)
 
 	if err != nil {
 		return normalizeSQLError(err)

@@ -101,7 +101,7 @@ func TestServiceClaimExecutionSerializesConcurrentClaims(t *testing.T) {
 	}
 }
 
-func TestServiceCompleteExecutionRejectsStaleClaimAfterLeaseTakeover(t *testing.T) {
+func TestServiceClaimExecutionRejectsLeaseTakeover(t *testing.T) {
 	ctx := context.Background()
 	clock := newManualClock()
 	svc := orchestrator.New(2, orchestrator.WithClock(clock))
@@ -127,25 +127,16 @@ func TestServiceCompleteExecutionRejectsStaleClaimAfterLeaseTakeover(t *testing.
 		t.Fatalf("claim second: %v", err)
 	}
 
-	if !second.Claimed || second.ClaimToken == "" || second.ClaimToken == first.ClaimToken {
-		t.Fatalf("expected takeover claim with new token: first=%+v second=%+v", first, second)
+	if second.Claimed || second.ClaimToken != "" {
+		t.Fatalf("expected expired lease takeover to be rejected: first=%+v second=%+v", first, second)
 	}
 
 	if _, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-a", first.ClaimToken, dal.ExecutionStatusSucceeded, "", ""); !errors.Is(err, dal.ErrConflict) {
-		t.Fatalf("stale completion error: got %v, want conflict", err)
-	}
-
-	result, err := svc.CompleteExecutionByClaim(ctx, loaded.RunID, loaded.Root.ExecutionID, "worker-b", second.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
-	if err != nil {
-		t.Fatalf("complete second claim: %v", err)
-	}
-
-	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded {
-		t.Fatalf("finalization outcome: %+v", result)
+		t.Fatalf("expired completion error: got %v, want conflict", err)
 	}
 }
 
-func TestServiceListPendingIncludesExpiredRunningClaims(t *testing.T) {
+func TestServiceListPendingExcludesExpiredRunningClaims(t *testing.T) {
 	ctx := context.Background()
 	clock := newManualClock()
 	svc := orchestrator.New(2, orchestrator.WithClock(clock))
@@ -180,8 +171,8 @@ func TestServiceListPendingIncludesExpiredRunningClaims(t *testing.T) {
 		t.Fatalf("list expired pending: %v", err)
 	}
 
-	if len(pending) != 1 || pending[0].ExecutionID != loaded.Root.ExecutionID {
-		t.Fatalf("expired claim should be listed for takeover: %+v", pending)
+	if len(pending) != 0 {
+		t.Fatalf("expired claim should not be listed for takeover: %+v", pending)
 	}
 }
 
@@ -293,9 +284,10 @@ func TestServiceLoadRunHydratesExecutionSnapshots(t *testing.T) {
 		}},
 		Executions: []orchestrator.TaskExecutionSnapshot{
 			{Record: root, Status: dal.ExecutionStatusSucceeded},
-			{Record: child, Status: dal.ExecutionStatusRunning},
+			{Record: child, Status: dal.ExecutionStatusPending},
 		},
 	})
+
 	if err != nil {
 		t.Fatalf("load hydrated run: %v", err)
 	}

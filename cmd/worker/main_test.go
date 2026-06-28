@@ -1485,7 +1485,7 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 	}
 }
 
-func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T) {
+func TestWorkerTryClaimExecution_RejectsExpiredReclaimAfterInitialClaim(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
@@ -1555,8 +1555,8 @@ func TestWorkerTryClaimExecution_RecordsAcceptedOnlyOnInitialClaim(t *testing.T)
 		t.Fatalf("second claim execution: %v", err)
 	}
 
-	if !claimed || secondToken == "" || secondToken == firstToken {
-		t.Fatalf("expected expired execution reclaim, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
+	if claimed || secondToken != "" {
+		t.Fatalf("expected expired execution reclaim to be rejected, claimed=%v first=%q second=%q", claimed, firstToken, secondToken)
 	}
 
 	acceptedKey := cell.CatalogExecutionStatusEventKey(env.ExecutionID, dal.ExecutionStatusAccepted)
@@ -3567,8 +3567,8 @@ func TestWorkerRunTaskExecution_RecoversOrchestratorRestartDuringFinalize(t *tes
 		t.Fatalf("complete calls: got %d tokens %+v, want 2", len(tokens), tokens)
 	}
 
-	if tokens[0] == "" || tokens[1] == "" || tokens[0] == tokens[1] {
-		t.Fatalf("expected completion retry with fresh claim token, got %+v", tokens)
+	if tokens[0] == "" || tokens[1] == "" || tokens[0] != tokens[1] {
+		t.Fatalf("expected completion retry with recovered claim token, got %+v", tokens)
 	}
 
 	sawHydratedLoad := false
@@ -3774,6 +3774,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 	}
 
 	env := attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	originalExecutionID := env.ExecutionID
 
 	expiredLease := time.Now().Add(-1 * time.Minute)
 	claim, err := runs.TryClaimExecution(ctx, env.ExecutionID, "worker-a", expiredLease)
@@ -3796,6 +3797,11 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 
 	if err := runs.RequeueRunForRetry(ctx, runID); err != nil {
 		t.Fatalf("requeue run for retry: %v", err)
+	}
+
+	env = attachPendingExecutionEnvelopeForTest(t, runs, j, runID)
+	if env.ExecutionID == originalExecutionID {
+		t.Fatalf("expected retry requeue to create a new execution, got %q", env.ExecutionID)
 	}
 
 	w := &worker{

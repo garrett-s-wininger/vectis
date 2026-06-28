@@ -274,6 +274,9 @@ type TaskExecutionRecord struct {
 type TaskExecutionSnapshot struct {
 	Record               TaskExecutionRecord
 	Status               string
+	LeaseOwner           string
+	ClaimToken           string
+	LeaseUntilUnix       int64
 	AcceptedAtUnixNano   int64
 	StartedAtUnixNano    int64
 	FinishedAtUnixNano   int64

@@ -1,4 +1,5 @@
 ---- MODULE execution ----
+EXTENDS Naturals
 
 CONSTANTS
     Tasks,
@@ -13,6 +14,7 @@ VARIABLES
     OrphanedTasks,
     RunningTasks,
     SuccessfulTasks,
+    ExecutionStarts,
     WorkerAssignments
 
 Vars == <<
@@ -23,6 +25,7 @@ Vars == <<
     OrphanedTasks,
     RunningTasks,
     SuccessfulTasks,
+    ExecutionStarts,
     WorkerAssignments
 >>
 
@@ -34,6 +37,7 @@ Init ==
     /\ OrphanedTasks = {}
     /\ RunningTasks = {}
     /\ SuccessfulTasks = {}
+    /\ ExecutionStarts = [t \in Tasks |-> 0]
     /\ WorkerAssignments = [w \in Workers |-> Nil]
 
 Idle ==
@@ -49,7 +53,7 @@ Cancel(w, t) ==
     /\ RunningTasks' = RunningTasks \ {t}
     /\ CancelledTasks' = CancelledTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << AbandonedTasks, EnqueuedTasks, FailedTasks, OrphanedTasks, SuccessfulTasks >>
+    /\ UNCHANGED << AbandonedTasks, EnqueuedTasks, FailedTasks, OrphanedTasks, SuccessfulTasks, ExecutionStarts >>
 
 Dequeue(w, t) ==
     /\ w \in Workers
@@ -57,6 +61,7 @@ Dequeue(w, t) ==
     /\ WorkerAssignments[w] = Nil
     /\ EnqueuedTasks' = EnqueuedTasks \ {t}
     /\ RunningTasks' = RunningTasks \union {t}
+    /\ ExecutionStarts' = [ExecutionStarts EXCEPT ![t] = @ + 1]
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = t]
     /\ UNCHANGED << AbandonedTasks, CancelledTasks, FailedTasks, OrphanedTasks, SuccessfulTasks >>
 
@@ -67,7 +72,7 @@ Complete(w, t) ==
     /\ RunningTasks' = RunningTasks \ {t}
     /\ SuccessfulTasks' = SuccessfulTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, FailedTasks, OrphanedTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, FailedTasks, OrphanedTasks, ExecutionStarts >>
 
 Fail(w, t) ==
     /\ w \in Workers
@@ -76,7 +81,7 @@ Fail(w, t) ==
     /\ RunningTasks' = RunningTasks \ {t}
     /\ FailedTasks' = FailedTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, OrphanedTasks, SuccessfulTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, OrphanedTasks, SuccessfulTasks, ExecutionStarts >>
 
 LeaseExpiry(w, t) ==
     /\ w \in Workers
@@ -88,6 +93,7 @@ LeaseExpiry(w, t) ==
         AbandonedTasks,
         CancelledTasks,
         EnqueuedTasks,
+        ExecutionStarts,
         FailedTasks,
         SuccessfulTasks,
         WorkerAssignments >>
@@ -99,7 +105,7 @@ OperatorAbandon(w, t) ==
     /\ AbandonedTasks' = AbandonedTasks \union {t}
     /\ OrphanedTasks' = OrphanedTasks \ {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << CancelledTasks, EnqueuedTasks, FailedTasks, RunningTasks, SuccessfulTasks >>
+    /\ UNCHANGED << CancelledTasks, EnqueuedTasks, FailedTasks, RunningTasks, SuccessfulTasks, ExecutionStarts >>
 
 OperatorMarkSucceededOrLateCompletion(w, t) ==
     /\ w \in Workers
@@ -108,7 +114,7 @@ OperatorMarkSucceededOrLateCompletion(w, t) ==
     /\ OrphanedTasks' = OrphanedTasks \ {t}
     /\ SuccessfulTasks' = SuccessfulTasks \union {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, FailedTasks, RunningTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, FailedTasks, RunningTasks, ExecutionStarts >>
 
 OperatorMarkFailedOrLateFailure(w, t) ==
     /\ w \in Workers
@@ -117,7 +123,7 @@ OperatorMarkFailedOrLateFailure(w, t) ==
     /\ FailedTasks' = FailedTasks \union {t}
     /\ OrphanedTasks' = OrphanedTasks \ {t}
     /\ WorkerAssignments' = [WorkerAssignments EXCEPT ![w] = Nil]
-    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, RunningTasks, SuccessfulTasks >>
+    /\ UNCHANGED << AbandonedTasks, CancelledTasks, EnqueuedTasks, RunningTasks, SuccessfulTasks, ExecutionStarts >>
 
 Next ==
     \/ \E w \in Workers:
@@ -140,6 +146,15 @@ InvAtMostOneWorkerPerTask ==
     \A w1, w2 \in Workers:
         (w1 # w2 /\ WorkerAssignments[w1] = WorkerAssignments[w2])
             => WorkerAssignments[w1] = Nil
+
+InvAtMostOnceExecution ==
+    \A t \in Tasks:
+        ExecutionStarts[t] <= 1
+
+InvOrphanedTasksRemainFenced ==
+    \A t \in OrphanedTasks:
+        \E w \in Workers:
+            WorkerAssignments[w] = t
 
 InvTasksPartition ==
     /\ AbandonedTasks \intersect CancelledTasks = {}
