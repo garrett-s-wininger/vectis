@@ -1135,6 +1135,7 @@ type JobsRepository interface {
 	ListByNamespace(ctx context.Context, namespaceID int64) ([]JobRecord, error)
 	GetLatestDefinition(ctx context.Context, jobID string) (definitionJSON string, version int, err error)
 	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
+	GetEnabledTriggerID(ctx context.Context, jobID, triggerType, triggerKey string) (int64, error)
 	GetNamespaceID(ctx context.Context, jobID string) (int64, error)
 	UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (newVersion int, err error)
 	UpdateDefinitionWithTriggers(ctx context.Context, jobID, definitionJSON string, triggers []JobTriggerConfig) (newVersion int, err error)

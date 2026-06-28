@@ -13,6 +13,7 @@ const (
 	APIEnqueueRunKindReplay    = "replay"
 	APIEnqueueRunKindEphemeral = "ephemeral"
 	APIEnqueueRunKindSource    = "source"
+	APIEnqueueRunKindStored    = "stored"
 
 	APIEnqueueOutcomeAccepted            = "accepted"
 	APIEnqueueOutcomeAttempt             = "attempt"

@@ -88,6 +88,18 @@ curl -sS \
   'http://localhost:8080/api/v1/jobs/build?repository_id=vectis-local&branch=main&message=Delete%20build%20job'
 ```
 
+If the stored job defines manual triggers, pass `trigger_key` to record which
+manual trigger fired:
+
+```sh
+curl -sS \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"trigger_key":"manual"}' \
+  http://localhost:8080/api/v1/jobs/trigger/sequenced-job
+```
+
 Stored job definitions may include trigger definitions. Each trigger has a stable
 `id` and optional `name`; the trigger kind is one of `manual`, `cron`, or
 `scm_poll`:

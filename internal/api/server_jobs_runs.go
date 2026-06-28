@@ -53,6 +53,7 @@ type runTargetOptions struct {
 	TargetCellID  string   `json:"target_cell_id"`
 	CellIDs       []string `json:"cell_ids"`
 	TargetCellIDs []string `json:"target_cell_ids"`
+	TriggerKey    string   `json:"trigger_key"`
 }
 
 func (o runTargetOptions) targetCellID() string {
@@ -96,18 +97,19 @@ func (o runTargetOptions) targetCellIDs() []string {
 	return out
 }
 
-func parseRunTargetOptions(body []byte) ([]string, error) {
+func parseRunTargetOptions(body []byte) (runTargetOptions, error) {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
-		return nil, nil
+		return runTargetOptions{}, nil
 	}
 
 	var opts runTargetOptions
 	if err := json.Unmarshal(body, &opts); err != nil {
-		return nil, err
+		return runTargetOptions{}, err
 	}
 
-	return opts.targetCellIDs(), nil
+	opts.TriggerKey = strings.TrimSpace(opts.TriggerKey)
+	return opts, nil
 }
 
 type triggerJobRunResponse struct {
@@ -894,7 +896,224 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	namespaceID, err := s.jobs.GetNamespaceID(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	ns, err := s.namespaces.GetByID(ctx, namespaceID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	nsPath := ns.Path
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunTrigger, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+		return
+	}
+
+	definitionJSON, definitionVersion, err := s.jobs.GetLatestDefinition(ctx, jobID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	var job api.Job
+	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
+		return
+	}
+
+	definitionHash := dal.DefinitionHash(definitionJSON)
+	job.Id = &jobID
+
+	triggerBody, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
+	if !ok {
+		return
+	}
+
+	triggerOpts, err := parseRunTargetOptions(triggerBody)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "invalid trigger options", nil)
+		return
+	}
+	targetCellIDs := triggerOpts.targetCellIDs()
+
+	manualTriggerID, ok := s.resolveManualTriggerID(ctx, w, jobID, triggerOpts.TriggerKey)
+	if !ok {
+		return
+	}
+
+	idempotencyKey := idempotencyKeyFromRequest(r)
+	idempotencyScope := principalIdempotencyScope("trigger:"+jobID, p)
+	idempotencyHashParts := []string{http.MethodPost, "/api/v1/jobs/trigger/" + jobID}
+	if trimmed := bytes.TrimSpace(triggerBody); len(trimmed) > 0 {
+		idempotencyHashParts = append(idempotencyHashParts, string(trimmed))
+	}
+
+	idempotencyHash := hashIdempotencyRequest(idempotencyHashParts...)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	if !ok {
+		return
+	}
+
+	if idempotencyRecord.ResponseJSON != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			return triggerJobResponse(jobID, createdRuns), true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
+		return
+	}
+
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, manualTriggerID, string(bytes.TrimSpace(triggerBody)), targetCellIDs)
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching trigger idempotency resource: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, targetCellIDs, newRunAuditMetadata(invocationID, nsPath))
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error creating job run: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	for _, createdRun := range createdRuns {
+		s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
+		auditFields := map[string]any{
+			"job_id":      jobID,
+			"run_id":      createdRun.RunID,
+			"run_index":   createdRun.RunIndex,
+			"namespace":   nsPath,
+			"target_cell": createdRun.TargetCellID,
+			"invocation":  invocationID,
+		}
+
+		if triggerOpts.TriggerKey != "" {
+			auditFields["trigger_key"] = triggerOpts.TriggerKey
+		}
+
+		s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, auditFields)
+	}
+
+	for _, createdRun := range createdRuns {
+		s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAccepted)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	response := triggerJobResponse(jobID, createdRuns)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		s.logger.Error("Failed to encode trigger response: %v", err)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
+
+	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
+	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
+	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
+	for _, createdRun := range createdRuns {
+		jobForRun := cloneJobForRun(&job, createdRun.RunID)
+		go s.finishTriggerEnqueue(bgCtx, jobID, createdRun, jobForRun, definitionHash)
+	}
 }
 
 func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, createdRun dal.CreatedRun, job *api.Job, definitionHash string) {
@@ -1060,12 +1279,13 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetCellIDs, err := parseRunTargetOptions(body)
+	replayOpts, err := parseRunTargetOptions(body)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_replay_options", "invalid replay options", nil)
 		return
 	}
 
+	targetCellIDs := replayOpts.targetCellIDs()
 	if len(targetCellIDs) > 1 {
 		writeAPIError(w, http.StatusBadRequest, "invalid_replay_options", "replay accepts at most one target cell", nil)
 		return
@@ -1157,7 +1377,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeReplay, string(triggerPayloadJSON), []string{targetCellID})
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeReplay, nil, string(triggerPayloadJSON), []string{targetCellID})
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1565,7 +1785,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invocationID, err := s.recordTriggerInvocation(ctx, ephemeralJobID, dal.TriggerTypeManual, string(bytes.TrimSpace(body)), []string{targetCellID})
+	invocationID, err := s.recordTriggerInvocation(ctx, ephemeralJobID, dal.TriggerTypeManual, nil, string(bytes.TrimSpace(body)), []string{targetCellID})
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1756,13 +1976,40 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 	s.logger.Info("Enqueued %s job: %s (run %s)", runKind, jobID, runID)
 }
 
-func (s *APIServer) recordTriggerInvocation(ctx context.Context, jobID, triggerType, triggerPayload string, targetCellIDs []string) (string, error) {
+func (s *APIServer) resolveManualTriggerID(ctx context.Context, w http.ResponseWriter, jobID, triggerKey string) (*int64, bool) {
+	triggerKey = strings.TrimSpace(triggerKey)
+	if triggerKey == "" {
+		return nil, true
+	}
+
+	triggerID, err := s.jobs.GetEnabledTriggerID(ctx, jobID, dal.TriggerTypeManual, triggerKey)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "manual trigger not found", map[string]any{"trigger_key": triggerKey})
+			return nil, false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return nil, false
+		}
+
+		s.logger.Error("Database error resolving manual trigger %s for job %s: %v", triggerKey, jobID, err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return nil, false
+	}
+	s.markDBRecovered()
+
+	return &triggerID, true
+}
+
+func (s *APIServer) recordTriggerInvocation(ctx context.Context, jobID, triggerType string, triggerID *int64, triggerPayload string, targetCellIDs []string) (string, error) {
 	if s.triggerEvents == nil {
 		return "", nil
 	}
 
 	requestedCells := requestedCellsForInvocation(targetCellIDs)
 	rec, err := s.triggerEvents.Record(ctx, dal.TriggerInvocation{
+		TriggerID:          triggerID,
 		JobID:              jobID,
 		TriggerType:        triggerType,
 		TriggerPayloadHash: dal.PayloadHash(triggerPayload),

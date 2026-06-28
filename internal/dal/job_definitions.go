@@ -583,3 +583,34 @@ func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID stri
 
 	return definitionJSON, nil
 }
+
+func (r *SQLJobsRepository) GetEnabledTriggerID(ctx context.Context, jobID, triggerType, triggerKey string) (int64, error) {
+	jobID = strings.TrimSpace(jobID)
+	triggerType = strings.TrimSpace(triggerType)
+	triggerKey = strings.TrimSpace(triggerKey)
+	if jobID == "" || triggerType == "" || triggerKey == "" {
+		return 0, fmt.Errorf("%w: job trigger is required", ErrNotFound)
+	}
+
+	var triggerID int64
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx(`
+			SELECT id
+			FROM job_triggers
+			WHERE job_id = ? AND trigger_type = ? AND trigger_key = ? AND enabled
+			ORDER BY id DESC
+			LIMIT 1
+		`),
+		jobID,
+		triggerType,
+		triggerKey,
+	).Scan(&triggerID); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("%w: job %s trigger %s/%s", ErrNotFound, jobID, triggerType, triggerKey)
+		}
+
+		return 0, normalizeSQLError(err)
+	}
+
+	return triggerID, nil
+}

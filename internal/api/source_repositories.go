@@ -1781,7 +1781,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	targetCellID := runTargetOptions{CellID: req.CellID, TargetCellID: req.TargetCellID}.targetCellID()
 	definitionHash := dal.DefinitionHash(loaded.DefinitionJSON)
 	triggerPayload := string(bytes.TrimSpace(body))
-	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, triggerPayload, []string{targetCellID})
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, nil, triggerPayload, []string{targetCellID})
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)

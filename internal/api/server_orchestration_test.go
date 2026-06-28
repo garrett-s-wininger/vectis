@@ -18,7 +18,7 @@ func TestAPIServer_TriggerJob_RequiresRepositoryID(t *testing.T) {
 
 	server.TriggerJob(rec, req)
 
-	assertAPIError(t, rec, http.StatusBadRequest, "missing_repository_id")
+	assertAPIError(t, rec, http.StatusNotFound, "job_not_found")
 }
 
 func TestAPIServer_GetJobRuns_RequiresRepositoryID(t *testing.T) {

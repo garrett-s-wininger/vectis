@@ -176,6 +176,40 @@ func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID str
 	return def, nil
 }
 
+func (m *MockJobsRepository) GetEnabledTriggerID(ctx context.Context, jobID, triggerType, triggerKey string) (int64, error) {
+	if m.GetErr != nil {
+		return 0, m.GetErr
+	}
+
+	triggerKey = strings.TrimSpace(triggerKey)
+	for i, trigger := range m.Triggers[jobID] {
+		if strings.TrimSpace(trigger.ID) != triggerKey {
+			continue
+		}
+
+		switch triggerType {
+		case dal.TriggerTypeManual:
+			if trigger.Manual == nil {
+				continue
+			}
+		case dal.TriggerTypeCron:
+			if trigger.Cron == nil {
+				continue
+			}
+		case dal.TriggerTypeSCMPoll:
+			if trigger.SCMPoll == nil {
+				continue
+			}
+		default:
+			continue
+		}
+
+		return int64(i + 1), nil
+	}
+
+	return 0, fmt.Errorf("%w: job %s trigger %s/%s", dal.ErrNotFound, jobID, triggerType, triggerKey)
+}
+
 func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, definitionJSON string) (int, error) {
 	return m.updateDefinition(jobID, definitionJSON, nil, false)
 }

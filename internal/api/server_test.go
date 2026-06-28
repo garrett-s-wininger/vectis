@@ -1788,6 +1788,120 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 }
 
+func TestAPIServer_TriggerJob_ManualTriggerKey(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	jobID := "job-manual-key"
+	jobDef := `{"id":"job-manual-key","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo manual"}},"triggers":[{"id":"on_demand","name":"On demand","manual":{}}]}`
+	if err := dal.NewSQLRepositories(db).Jobs().CreateWithTriggers(ctx, jobID, jobDef, 1, []dal.JobTriggerConfig{{
+		ID:     "on_demand",
+		Name:   "On demand",
+		Manual: &dal.JobManualTriggerConfig{},
+	}}); err != nil {
+		t.Fatalf("create job with manual trigger: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"trigger_key":"on_demand"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", jobID)
+	rec := httptest.NewRecorder()
+
+	server.TriggerJob(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("trigger job: expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode trigger response: %v", err)
+	}
+
+	if resp.RunID == "" {
+		t.Fatal("expected run_id in trigger response")
+	}
+
+	var invocationID string
+	if err := db.QueryRowContext(ctx, "SELECT trigger_invocation_id FROM job_runs WHERE run_id = ?", resp.RunID).Scan(&invocationID); err != nil {
+		t.Fatalf("query run invocation: %v", err)
+	}
+
+	var triggerType, triggerKey, triggerName string
+	if err := db.QueryRowContext(ctx, `
+		SELECT ti.trigger_type, jt.trigger_key, jt.display_name
+		FROM trigger_invocations ti
+		JOIN job_triggers jt ON jt.id = ti.trigger_id
+		WHERE ti.invocation_id = ?
+	`, invocationID).Scan(&triggerType, &triggerKey, &triggerName); err != nil {
+		t.Fatalf("query trigger invocation identity: %v", err)
+	}
+
+	if triggerType != dal.TriggerTypeManual || triggerKey != "on_demand" || triggerName != "On demand" {
+		t.Fatalf("unexpected trigger identity: type=%q key=%q name=%q", triggerType, triggerKey, triggerName)
+	}
+
+	getRunReq := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+resp.RunID, nil)
+	getRunReq.SetPathValue("id", resp.RunID)
+	getRunRec := httptest.NewRecorder()
+	server.GetRun(getRunRec, getRunReq)
+	if getRunRec.Code != http.StatusOK {
+		t.Fatalf("GetRun: expected status %d, got %d: %s", http.StatusOK, getRunRec.Code, getRunRec.Body.String())
+	}
+
+	var runResp struct {
+		TriggerKey  *string `json:"trigger_key,omitempty"`
+		TriggerName *string `json:"trigger_name,omitempty"`
+	}
+
+	if err := json.NewDecoder(getRunRec.Body).Decode(&runResp); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+
+	if runResp.TriggerKey == nil || *runResp.TriggerKey != "on_demand" {
+		t.Fatalf("run trigger key: got %+v want on_demand", runResp.TriggerKey)
+	}
+
+	if runResp.TriggerName == nil || *runResp.TriggerName != "On demand" {
+		t.Fatalf("run trigger name: got %+v want On demand", runResp.TriggerName)
+	}
+}
+
+func TestAPIServer_TriggerJob_UnknownManualTriggerKey(t *testing.T) {
+	server, _, queueService, db := setupTestServer(t)
+	ctx := context.Background()
+	jobID := "job-manual-key-missing"
+	jobDef := `{"id":"job-manual-key-missing","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo manual"}},"triggers":[{"id":"on_demand","manual":{}}]}`
+	if err := dal.NewSQLRepositories(db).Jobs().CreateWithTriggers(ctx, jobID, jobDef, 1, []dal.JobTriggerConfig{{
+		ID:     "on_demand",
+		Manual: &dal.JobManualTriggerConfig{},
+	}}); err != nil {
+		t.Fatalf("create job with manual trigger: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"trigger_key":"missing"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", jobID)
+	rec := httptest.NewRecorder()
+
+	server.TriggerJob(rec, req)
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_trigger_options")
+
+	if len(queueService.GetJobs()) != 0 {
+		t.Fatal("expected no job to be enqueued for an unknown manual trigger key")
+	}
+
+	var runCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", jobID).Scan(&runCount); err != nil {
+		t.Fatalf("count runs: %v", err)
+	}
+
+	if runCount != 0 {
+		t.Fatalf("expected no runs for unknown manual trigger key, got %d", runCount)
+	}
+}
+
 func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-replay"
