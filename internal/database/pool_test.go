@@ -160,27 +160,37 @@ func TestSQLiteDSNWithDefaults(t *testing.T) {
 		{
 			name: "plain file path",
 			dsn:  "/tmp/vectis.db",
-			want: "/tmp/vectis.db?_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
+			want: "/tmp/vectis.db?_foreign_keys=on&_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
 		},
 		{
 			name: "preserves existing query",
 			dsn:  "file:/tmp/vectis.db?cache=shared",
-			want: "file:/tmp/vectis.db?cache=shared&_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
+			want: "file:/tmp/vectis.db?cache=shared&_foreign_keys=on&_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
+		},
+		{
+			name: "preserves configured foreign keys",
+			dsn:  "/tmp/vectis.db?_foreign_keys=off",
+			want: "/tmp/vectis.db?_foreign_keys=off&_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
+		},
+		{
+			name: "preserves configured foreign key alias",
+			dsn:  "/tmp/vectis.db?_fk=1",
+			want: "/tmp/vectis.db?_fk=1&_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate",
 		},
 		{
 			name: "preserves configured busy timeout",
 			dsn:  "/tmp/vectis.db?_busy_timeout=250",
-			want: "/tmp/vectis.db?_busy_timeout=250&_journal_mode=WAL&_txlock=immediate",
+			want: "/tmp/vectis.db?_busy_timeout=250&_foreign_keys=on&_journal_mode=WAL&_txlock=immediate",
 		},
 		{
 			name: "preserves configured journal mode",
 			dsn:  "/tmp/vectis.db?_journal_mode=DELETE",
-			want: "/tmp/vectis.db?_journal_mode=DELETE&_busy_timeout=10000&_txlock=immediate",
+			want: "/tmp/vectis.db?_journal_mode=DELETE&_foreign_keys=on&_busy_timeout=10000&_txlock=immediate",
 		},
 		{
 			name: "preserves configured txlock",
 			dsn:  "/tmp/vectis.db?_txlock=deferred",
-			want: "/tmp/vectis.db?_txlock=deferred&_busy_timeout=10000&_journal_mode=WAL",
+			want: "/tmp/vectis.db?_txlock=deferred&_foreign_keys=on&_busy_timeout=10000&_journal_mode=WAL",
 		},
 		{
 			name: "leaves memory database alone",
@@ -195,6 +205,58 @@ func TestSQLiteDSNWithDefaults(t *testing.T) {
 				t.Fatalf("sqliteDSNWithDefaults(%q): want %q, got %q", tt.dsn, tt.want, got)
 			}
 		})
+	}
+}
+
+func TestOpenDB_SqliteEnforcesForeignKeys(t *testing.T) {
+	t.Setenv(EnvDatabaseDriver, "sqlite3")
+
+	db, err := OpenDB(filepath.Join(t.TempDir(), "vectis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var enabled int
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&enabled); err != nil {
+		t.Fatalf("foreign key pragma: %v", err)
+	}
+
+	if enabled != 1 {
+		t.Fatalf("foreign_keys=%d, want 1", enabled)
+	}
+
+	if _, err := db.Exec(`CREATE TABLE parents (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatalf("create parents: %v", err)
+	}
+
+	if _, err := db.Exec(`CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES parents(id) ON DELETE CASCADE)`); err != nil {
+		t.Fatalf("create children: %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO children (id, parent_id) VALUES (1, 100)`); err == nil {
+		t.Fatal("expected orphan child insert to fail")
+	}
+
+	if _, err := db.Exec(`INSERT INTO parents (id) VALUES (100)`); err != nil {
+		t.Fatalf("insert parent: %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO children (id, parent_id) VALUES (1, 100)`); err != nil {
+		t.Fatalf("insert child: %v", err)
+	}
+
+	if _, err := db.Exec(`DELETE FROM parents WHERE id = 100`); err != nil {
+		t.Fatalf("delete parent: %v", err)
+	}
+
+	var childRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM children`).Scan(&childRows); err != nil {
+		t.Fatalf("count children: %v", err)
+	}
+
+	if childRows != 0 {
+		t.Fatalf("child rows after parent delete = %d, want 0", childRows)
 	}
 }
 

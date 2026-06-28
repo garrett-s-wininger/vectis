@@ -169,6 +169,9 @@ func sqliteDSNWithDefaults(dsn string) string {
 		return dsn
 	}
 
+	if !sqliteDSNHasAnyParam(dsn, "_foreign_keys", "_fk") {
+		dsn = sqliteDSNWithParam(dsn, "_foreign_keys", "on")
+	}
 	dsn = sqliteDSNWithParam(dsn, "_busy_timeout", strconv.Itoa(sqliteBusyTimeoutMillis))
 	dsn = sqliteDSNWithParam(dsn, "_journal_mode", "WAL")
 	return sqliteDSNWithParam(dsn, "_txlock", "immediate")
@@ -185,6 +188,16 @@ func sqliteDSNWithParam(dsn, key, value string) string {
 	}
 
 	return dsn + sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+}
+
+func sqliteDSNHasAnyParam(dsn string, keys ...string) bool {
+	for _, key := range keys {
+		if sqliteDSNHasParam(dsn, key) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func sqliteDSNHasParam(dsn, key string) bool {
