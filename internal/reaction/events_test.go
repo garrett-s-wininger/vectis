@@ -342,6 +342,28 @@ func TestPublisherPublishRunCompletedMatchesSubscriptionMetadata(t *testing.T) {
 	assertLocalMessageCount(t, ctx, store, "failed", 0)
 }
 
+func TestPublisherPublishRunCompletedRejectsNonTerminalStatusBeforeEvent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	publisher := &reaction.Publisher{Store: store}
+	_, err := publisher.PublishRunCompleted(ctx, reaction.RunCompleted{
+		EventID: "run-completed-non-terminal",
+		JobID:   "job-a",
+		RunID:   "run-queued",
+		Status:  dal.RunStatusQueued,
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected non-terminal status to return conflict, got %v", err)
+	}
+
+	if _, err := store.GetEvent(ctx, "run-completed-non-terminal"); !dal.IsNotFound(err) {
+		t.Fatalf("expected non-terminal publish to avoid event insert, got %v", err)
+	}
+}
+
 func TestPublisherPublishDefinitionValidationFailedHasNoRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	store := dal.NewSQLRepositories(db).Reactions()
@@ -384,6 +406,26 @@ func TestPublisherPublishDefinitionValidationFailedHasNoRun(t *testing.T) {
 
 	runLocalReactions(t, ctx, store)
 	assertLocalMessageCount(t, ctx, store, "validation", 1)
+}
+
+func TestPublisherPublishDefinitionValidationFailedRequiresJobIDBeforeEvent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	publisher := &reaction.Publisher{Store: store}
+	_, err := publisher.PublishDefinitionValidationFailed(ctx, reaction.DefinitionValidationFailed{
+		EventID: "validation-missing-job",
+		Message: "definition is invalid",
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected missing job_id to return conflict, got %v", err)
+	}
+
+	if _, err := store.GetEvent(ctx, "validation-missing-job"); !dal.IsNotFound(err) {
+		t.Fatalf("expected missing-job publish to avoid event insert, got %v", err)
+	}
 }
 
 func createLocalSubscription(ctx context.Context, store dal.ReactionsRepository, targetName, subscriptionName, eventType, mailbox string) error {

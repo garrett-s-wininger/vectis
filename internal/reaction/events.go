@@ -51,7 +51,7 @@ type DefinitionValidationFailed struct {
 func (p *Publisher) PublishManualNotice(ctx context.Context, notice ManualNotice) (Publication, error) {
 	message := strings.TrimSpace(notice.Message)
 	if message == "" {
-		return Publication{}, fmt.Errorf("manual notice message is required")
+		return Publication{}, fmt.Errorf("%w: manual notice message is required", dal.ErrConflict)
 	}
 
 	severity := strings.TrimSpace(notice.Severity)
@@ -86,12 +86,16 @@ func (p *Publisher) PublishManualNotice(ctx context.Context, notice ManualNotice
 func (p *Publisher) PublishRunCompleted(ctx context.Context, completed RunCompleted) (Publication, error) {
 	runID := strings.TrimSpace(completed.RunID)
 	if runID == "" {
-		return Publication{}, fmt.Errorf("run completed event requires run_id")
+		return Publication{}, fmt.Errorf("%w: run completed event requires run_id", dal.ErrConflict)
 	}
 
 	status := strings.TrimSpace(completed.Status)
 	if status == "" {
-		return Publication{}, fmt.Errorf("run completed event requires status")
+		return Publication{}, fmt.Errorf("%w: run completed event requires status", dal.ErrConflict)
+	}
+
+	if !isRunCompletedStatus(status) {
+		return Publication{}, fmt.Errorf("%w: run completed event requires terminal status, got %q", dal.ErrConflict, status)
 	}
 
 	jobID := strings.TrimSpace(completed.JobID)
@@ -126,11 +130,16 @@ func (p *Publisher) PublishDefinitionValidationFailed(ctx context.Context, failu
 	message := strings.TrimSpace(failure.Message)
 	reason := strings.TrimSpace(failure.Reason)
 	if message == "" && reason == "" {
-		return Publication{}, fmt.Errorf("definition validation failed event requires message or reason")
+		return Publication{}, fmt.Errorf("%w: definition validation failed event requires message or reason", dal.ErrConflict)
+	}
+
+	jobID := strings.TrimSpace(failure.JobID)
+	if jobID == "" {
+		return Publication{}, fmt.Errorf("%w: definition validation failed event requires job_id", dal.ErrConflict)
 	}
 
 	payload, err := marshalPayload(definitionValidationFailedPayload{
-		JobID:          strings.TrimSpace(failure.JobID),
+		JobID:          jobID,
 		Message:        message,
 		Reason:         reason,
 		DefinitionHash: strings.TrimSpace(failure.DefinitionHash),
@@ -145,7 +154,7 @@ func (p *Publisher) PublishDefinitionValidationFailed(ctx context.Context, failu
 		Source:      dal.ReactionEventSourceLifecycle,
 		EventType:   dal.ReactionEventTypeDefinitionValidationFailed,
 		NamespaceID: failure.NamespaceID,
-		JobID:       strings.TrimSpace(failure.JobID),
+		JobID:       jobID,
 		Actor:       strings.TrimSpace(failure.Actor),
 		PayloadJSON: payload,
 		SourceCell:  strings.TrimSpace(failure.SourceCell),
@@ -182,4 +191,18 @@ func marshalPayload(payload any) ([]byte, error) {
 	}
 
 	return raw, nil
+}
+
+func isRunCompletedStatus(status string) bool {
+	switch status {
+	case dal.RunStatusSucceeded,
+		dal.RunStatusFailed,
+		dal.RunStatusOrphaned,
+		dal.RunStatusCancelled,
+		dal.RunStatusAbandoned,
+		dal.RunStatusAborted:
+		return true
+	default:
+		return false
+	}
 }

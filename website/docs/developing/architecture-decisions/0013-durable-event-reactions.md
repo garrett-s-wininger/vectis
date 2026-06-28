@@ -142,6 +142,11 @@ reaction runner crashes after recording a local message but before marking the
 invocation succeeded, a retry reuses the existing local message instead of
 creating duplicate assertion data.
 
+Typed lifecycle emitters validate their event boundary before publishing:
+`run.completed` accepts only terminal run statuses, and
+`definition.validation_failed` requires the job identity even though it may not
+have a run ID.
+
 The minimum durable tables are:
 
 | Table | Purpose |
