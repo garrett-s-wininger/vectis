@@ -2,6 +2,8 @@ package custom
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -158,5 +160,74 @@ func TestProcessActionRejectsEscapingWorkingDirectory(t *testing.T) {
 	result := act.Execute(context.Background(), state, nil, nil)
 	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must stay within the action base directory") {
 		t.Fatalf("Execute result = %+v, want working directory containment failure", result)
+	}
+}
+
+func TestProcessActionExecutesConfiguredWorkingDirectoryInsideBase(t *testing.T) {
+	root := t.TempDir()
+	actionDir := filepath.Join(root, "action")
+	scriptsDir := filepath.Join(actionDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o700); err != nil {
+		t.Fatalf("mkdir scripts: %v", err)
+	}
+
+	resolvedScriptsDir, err := filepath.EvalSymlinks(scriptsDir)
+	if err != nil {
+		t.Fatalf("resolve scripts dir: %v", err)
+	}
+
+	executor := mocks.NewMockExecExecutor()
+	executor.SetProcess(mocks.NewMockProcess())
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Source:        actionregistry.SourceLocalFilesystem,
+		SourcePath:    actionDir,
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "scripts",
+		},
+	}, executor)
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("Execute status = %s err=%v, want success", result.Status, result.Error)
+	}
+
+	if got := executor.GetWorkDirs(); len(got) != 1 || got[0] != resolvedScriptsDir {
+		t.Fatalf("executor workdirs = %v, want %q", got, resolvedScriptsDir)
+	}
+}
+
+func TestProcessActionRejectsSymlinkEscapingWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	actionDir := filepath.Join(root, "action")
+	if err := os.Mkdir(actionDir, 0o700); err != nil {
+		t.Fatalf("mkdir action: %v", err)
+	}
+
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(actionDir, "outside-link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Source:        actionregistry.SourceLocalFilesystem,
+		SourcePath:    actionDir,
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "outside-link",
+		},
+	}, mocks.NewMockExecExecutor())
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must stay within the action base directory") {
+		t.Fatalf("Execute result = %+v, want symlink working directory containment failure", result)
 	}
 }

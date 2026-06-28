@@ -255,7 +255,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		}()
 	}
 
-	if err := os.MkdirAll(filepath.Join(workspace, ".tmp"), 0o700); err != nil {
+	if err := ensureWorkspacePrivateDir(workspace, ".tmp"); err != nil {
 		return fmt.Errorf("failed to create workspace temp dir: %w", err)
 	}
 

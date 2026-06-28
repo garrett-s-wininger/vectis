@@ -131,7 +131,12 @@ func processWorkDir(descriptor actionregistry.Descriptor, state *action.Executio
 			return "", err
 		}
 
-		return filepath.Join(base, configured), nil
+		workDir, err := resolveContainedWorkDir(base, configured)
+		if err != nil {
+			return "", err
+		}
+
+		return workDir, nil
 	}
 
 	return base, nil
@@ -148,6 +153,39 @@ func validateRelativeWorkDir(path string) error {
 	}
 
 	return nil
+}
+
+func resolveContainedWorkDir(base, configured string) (string, error) {
+	root, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("resolve action base directory: %w", err)
+	}
+
+	workDir, err := filepath.Abs(filepath.Join(root, filepath.Clean(configured)))
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve action base directory symlinks: %w", err)
+	}
+
+	realWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory symlinks: %w", err)
+	}
+
+	rel, err := filepath.Rel(realRoot, realWorkDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory relative to action base: %w", err)
+	}
+
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("must stay within the action base directory")
+	}
+
+	return realWorkDir, nil
 }
 
 func processEnv(descriptor actionregistry.Descriptor, state *action.ExecutionState, inputs map[string]any) []string {

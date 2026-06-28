@@ -343,6 +343,43 @@ func TestShellAction_Execute_RejectsOutputsOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestShellAction_Execute_RejectsOutputsSymlinkOutsideWorkspace(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "outputs.json")
+	if err := os.WriteFile(outsideFile, []byte(`{"secret":true}`), 0o600); err != nil {
+		t.Fatalf("write outside outputs: %v", err)
+	}
+
+	if err := os.Symlink(outsideFile, filepath.Join(workspace, "outputs-link.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	shellAction := NewShellAction(mockExecutor)
+	state := createTestState(&mockLogStream{})
+	state.Workspace = workspace
+
+	result := shellAction.Execute(context.Background(), state, map[string]any{
+		"command": "make build",
+		"outputs": "outputs-link.json",
+	}, nil)
+
+	if result.Status != action.StatusFailure {
+		t.Fatalf("expected failure, got %v", result.Status)
+	}
+
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "must stay inside the workspace") {
+		t.Fatalf("expected workspace symlink path error, got %v", result.Error)
+	}
+}
+
 func TestShellAction_Execute_StdoutStderrStreaming(t *testing.T) {
 	mockExecutor := mocks.NewMockExecExecutor()
 	mockProcess := mocks.NewMockProcess()

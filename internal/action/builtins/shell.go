@@ -170,7 +170,26 @@ func workspaceRelativePath(workspace, rawPath string) (string, error) {
 		return "", fmt.Errorf("must stay inside the workspace")
 	}
 
-	return fullPath, nil
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace symlinks: %w", err)
+	}
+
+	realPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve path symlinks: %w", err)
+	}
+
+	realRel, err := filepath.Rel(realRoot, realPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve real path relative to workspace: %w", err)
+	}
+
+	if realRel == ".." || strings.HasPrefix(realRel, ".."+string(os.PathSeparator)) || filepath.IsAbs(realRel) {
+		return "", fmt.Errorf("must stay inside the workspace")
+	}
+
+	return realPath, nil
 }
 
 func (s *ShellAction) processExecutor(state *action.ExecutionState) interfaces.ExecExecutor {

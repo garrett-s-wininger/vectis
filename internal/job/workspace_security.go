@@ -29,9 +29,13 @@ func secureAutoWorkspace(workspace, root string) error {
 }
 
 func warnIfExplicitWorkspaceBroadPermissions(workspace string, logger interfaces.Logger) error {
-	info, err := os.Stat(workspace)
+	info, err := os.Lstat(workspace)
 	if err != nil {
 		return fmt.Errorf("stat workspace: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("workspace must not be a symlink: %s", workspace)
 	}
 
 	if !info.IsDir() {
@@ -44,6 +48,53 @@ func warnIfExplicitWorkspaceBroadPermissions(workspace string, logger interfaces
 
 	if info.Mode().Perm()&0o077 != 0 && logger != nil {
 		logger.Warn("Workspace %s is group/world accessible (%v); use owner-only permissions for stronger local isolation", workspace, info.Mode().Perm())
+	}
+
+	return nil
+}
+
+func ensureWorkspacePrivateDir(workspace, name string) error {
+	if strings.TrimSpace(workspace) == "" {
+		return fmt.Errorf("workspace is required")
+	}
+
+	if strings.TrimSpace(name) == "" || filepath.IsAbs(name) || strings.ContainsRune(name, filepath.Separator) {
+		return fmt.Errorf("workspace private dir name is invalid")
+	}
+
+	path := filepath.Join(workspace, name)
+	info, err := os.Lstat(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("stat %s: %w", name, err)
+		}
+
+		if err := os.Mkdir(path, 0o700); err != nil {
+			if !os.IsExist(err) {
+				return fmt.Errorf("create %s: %w", name, err)
+			}
+		}
+
+		info, err = os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", name, err)
+		}
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink", name)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", name)
+	}
+
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+
+	if err := os.Chmod(path, 0o700); err != nil {
+		return fmt.Errorf("chmod %s: %w", name, err)
 	}
 
 	return nil
