@@ -140,6 +140,7 @@ type APIServer struct {
 	sourceSyncMu             sync.Mutex
 	sourceSyncRunning        map[string]struct{}
 	sourceSyncCheckoutStatus func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrator        func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
 	sourceDefinitionAuthor   SourceDefinitionAuthorFactory
 	sourceAuthoring          SourceAuthoringCapabilityResolver
 	srvCtx                   atomic.Pointer[ctxHolder]
@@ -732,14 +733,18 @@ func (s *APIServer) SetSourceSyncCheckoutStatus(fn func(context.Context, dal.Sou
 	s.sourceSyncCheckoutStatus = fn
 }
 
-func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) {
+func (s *APIServer) SetSourceRefHydrator(fn func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus) {
+	s.sourceRefHydrator = fn
+}
+
+func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
 	s.mu.RLock()
 	auditor := s.auditor
 	policy := s.auditPolicy
 	s.mu.RUnlock()
 
 	if auditor == nil {
-		return
+		return nil
 	}
 
 	ip := ""
@@ -760,6 +765,8 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 	if err != nil {
 		s.logger.Error("Audit event emission failed: event_type=%s durability=%s error=%v", eventType, durability, err)
 	}
+
+	return err
 }
 
 type httpRequestKey struct{}

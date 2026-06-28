@@ -1159,14 +1159,14 @@ func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Requ
 	}
 
 	limit := sourceRepositoryTreeListLimit(r)
-	checkout := newGitCheckoutForSourceRepository(rec)
-	listing, err := checkout.ListTree(ctx, sourcepkg.ListTreeOptions{
+	listing, err := s.listSourceRepositoryTree(ctx, rec, sourcepkg.ListTreeOptions{
 		Ref:       ref,
 		Path:      r.URL.Query().Get("path"),
 		Recursive: recursive,
 		Limit:     limit,
 		Cursor:    r.URL.Query().Get("cursor"),
 	})
+
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
 		return
@@ -1224,18 +1224,13 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 	}
 
 	limit := sourceRepositoryTreeListLimit(r)
-	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
-	if err != nil {
-		s.writeSourceDefinitionError(w, err)
-		return
-	}
-
-	listing, err := store.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
+	listing, err := s.listSourceRepositoryDefinitionFiles(ctx, rec, sourcepkg.ListDefinitionFilesOptions{
 		Ref:    ref,
 		Path:   r.URL.Query().Get("path"),
 		Limit:  limit,
 		Cursor: r.URL.Query().Get("cursor"),
 	})
+
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
 		return
@@ -1290,18 +1285,13 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 	}
 
 	limit := sourceRepositoryTreeListLimit(r)
-	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
-	if err != nil {
-		s.writeSourceDefinitionError(w, err)
-		return
-	}
-
-	listing, err := store.ListDefinitionFiles(ctx, sourcepkg.ListDefinitionFilesOptions{
+	listing, err := s.listSourceRepositoryDefinitionFiles(ctx, rec, sourcepkg.ListDefinitionFilesOptions{
 		Ref:    ref,
 		Path:   r.URL.Query().Get("path"),
 		Limit:  limit,
 		Cursor: r.URL.Query().Get("cursor"),
 	})
+
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
 		return
@@ -1320,6 +1310,7 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 				SizeBytes: file.SizeBytes,
 				Error:     err.Error(),
 			})
+
 			continue
 		}
 
@@ -1331,10 +1322,11 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 				SizeBytes: file.SizeBytes,
 				Error:     "duplicate derived job_id " + jobID + " from " + previous,
 			})
+
 			continue
 		}
-		seenJobIDs[jobID] = file.Path
 
+		seenJobIDs[jobID] = file.Path
 		source := sourceProvenanceResponse{
 			RepositoryID:   rec.RepositoryID,
 			RequestedRef:   listing.RequestedRef,
@@ -1342,6 +1334,7 @@ func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Requ
 			Path:           file.Path,
 			BlobSHA:        file.BlobSHA,
 		}
+
 		jobs = append(jobs, sourceRepositoryJobResponse{
 			JobID:     jobID,
 			Path:      file.Path,
@@ -1402,16 +1395,11 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
-	if err != nil {
-		s.writeSourceDefinitionError(w, err)
-		return
-	}
-
-	loaded, err := store.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
+	loaded, err := s.resolveSourceRepositoryDefinition(ctx, rec, sourcepkg.DefinitionRequest{
 		Ref:  target.Ref,
 		Path: target.Path,
 	})
+
 	if err != nil {
 		s.writeSourceDefinitionError(w, err)
 		return
@@ -1606,12 +1594,6 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
-	if err != nil {
-		s.writeSourceDefinitionError(w, err)
-		return
-	}
-
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("source-trigger:"+rec.RepositoryID+":"+jobID, p)
 	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/source-repositories/"+rec.RepositoryID+"/jobs/"+jobID+"/trigger", string(bytes.TrimSpace(body)))
@@ -1651,7 +1633,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	loaded, err := store.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
+	loaded, err := s.resolveSourceRepositoryDefinition(ctx, rec, sourcepkg.DefinitionRequest{
 		Ref:  target.Ref,
 		Path: target.Path,
 	})
@@ -2270,13 +2252,7 @@ func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Reque
 		ref = strings.TrimSpace(rec.DefaultRef)
 	}
 
-	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
-	if err != nil {
-		s.writeSourceDefinitionError(w, err)
-		return
-	}
-
-	loaded, err := store.ResolveDefinition(ctx, sourcepkg.DefinitionRequest{
+	loaded, err := s.resolveSourceRepositoryDefinition(ctx, rec, sourcepkg.DefinitionRequest{
 		Ref:  ref,
 		Path: req.Path,
 	})
@@ -2987,6 +2963,81 @@ func newGitCheckoutForSourceRepository(rec dal.SourceRepositoryRecord) *sourcepk
 	}
 
 	return sourcepkg.NewGitCheckout(rec.CheckoutPath)
+}
+
+func (s *APIServer) listSourceRepositoryTree(ctx context.Context, rec dal.SourceRepositoryRecord, opts sourcepkg.ListTreeOptions) (sourcepkg.TreeListing, error) {
+	checkout := newGitCheckoutForSourceRepository(rec)
+	listing, err := checkout.ListTree(ctx, opts)
+	if err == nil || !s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, opts.Ref, err) {
+		return listing, err
+	}
+
+	return newGitCheckoutForSourceRepository(rec).ListTree(ctx, opts)
+}
+
+func (s *APIServer) listSourceRepositoryDefinitionFiles(ctx context.Context, rec dal.SourceRepositoryRecord, opts sourcepkg.ListDefinitionFilesOptions) (sourcepkg.DefinitionFileListing, error) {
+	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
+	if err != nil {
+		return sourcepkg.DefinitionFileListing{}, err
+	}
+
+	listing, err := store.ListDefinitionFiles(ctx, opts)
+	if err == nil || !s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, opts.Ref, err) {
+		return listing, err
+	}
+
+	store, err = sourcepkg.NewDefinitionStoreFromRecord(rec)
+	if err != nil {
+		return sourcepkg.DefinitionFileListing{}, err
+	}
+
+	return store.ListDefinitionFiles(ctx, opts)
+}
+
+func (s *APIServer) resolveSourceRepositoryDefinition(ctx context.Context, rec dal.SourceRepositoryRecord, req sourcepkg.DefinitionRequest) (sourcepkg.Definition, error) {
+	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
+	if err != nil {
+		return sourcepkg.Definition{}, err
+	}
+
+	loaded, err := store.ResolveDefinition(ctx, req)
+	if err == nil || !s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, req.Ref, err) {
+		return loaded, err
+	}
+
+	store, err = sourcepkg.NewDefinitionStoreFromRecord(rec)
+	if err != nil {
+		return sourcepkg.Definition{}, err
+	}
+
+	return store.ResolveDefinition(ctx, req)
+}
+
+func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context, rec dal.SourceRepositoryRecord, ref string, err error) bool {
+	if !errors.Is(err, sourcepkg.ErrNotFound) ||
+		strings.TrimSpace(rec.SourceKind) != dal.SourceKindLocalCheckout ||
+		strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
+		return false
+	}
+
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		ref = strings.TrimSpace(rec.DefaultRef)
+	}
+
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	hydrator := s.sourceRefHydrator
+	if hydrator != nil {
+		return hydrator(ctx, rec, ref).ErrorCode == ""
+	}
+
+	return sourcepkg.HydrateManagedGitRef(ctx, sourcepkg.ManagedGitRefHydrationRequest{
+		CheckoutPath: rec.CheckoutPath,
+		Ref:          ref,
+	}).ErrorCode == ""
 }
 
 func validSourceCheckoutMode(mode string) bool {

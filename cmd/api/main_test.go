@@ -792,6 +792,17 @@ func TestConfiguredSourceRepositoryGitCredentialsRequireResolver(t *testing.T) {
 	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
 		t.Fatalf("unexpected credential status: %+v", status)
 	}
+
+	status = configuredSourceRepositoryRefHydratorWithCredentialResolver(nil)(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CheckoutPath:  "/work/private",
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		CredentialRef: "encryptedfs://git/private-repo",
+	}, "feature/new")
+
+	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
+		t.Fatalf("unexpected ref hydrator credential status: %+v", status)
+	}
 }
 
 func TestSourceRepositoryCredentialResolverUsesSecretsResolver(t *testing.T) {

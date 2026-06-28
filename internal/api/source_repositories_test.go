@@ -2405,6 +2405,68 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	}
 }
 
+func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	remotePath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, remotePath, "main", "main definition")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "managed-repo",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_mode": dal.SourceCheckoutModeManaged,
+		"canonical_url": remotePath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register managed source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	syncRec := httptest.NewRecorder()
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	defaultBranch := apiGitOutput(t, remotePath, "branch", "--show-current")
+	apiGit(t, remotePath, "checkout", "-b", "feature/on-demand")
+	writeAPIJobDefinitionAndCommit(t, remotePath, "feature", "feature definition")
+	featureCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
+	apiGit(t, remotePath, "checkout", defaultBranch)
+
+	resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
+		"ref":  "feature/on-demand",
+		"path": ".vectis/jobs/build.json",
+	})
+
+	if resolveRec.Code != http.StatusOK {
+		t.Fatalf("resolve managed missing feature branch: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
+	}
+
+	resolveResp := decodeResolvedSourceDefinitionResponse(t, resolveRec)
+	if resolveResp.Source.RequestedRef != "feature/on-demand" || resolveResp.Source.ResolvedCommit != featureCommit {
+		t.Fatalf("hydrated managed feature resolve mismatch: %+v", resolveResp)
+	}
+
+	var job api.Job
+	if err := json.Unmarshal(resolveResp.Definition, &job); err != nil {
+		t.Fatalf("hydrated managed feature definition JSON: %v", err)
+	}
+
+	if job.GetRoot().GetWith()["command"] != "feature" {
+		t.Fatalf("hydrated managed feature definition command: got %+v", job.GetRoot().GetWith())
+	}
+}
+
 func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	viper.Reset()

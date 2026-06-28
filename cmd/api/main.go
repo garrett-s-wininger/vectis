@@ -352,6 +352,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetAPISecurityMetrics(apiSecurityMetrics)
 	server.SetSourceSyncMetrics(sourceSyncMetrics)
 	server.SetSourceSyncCheckoutStatus(sourceSyncStatus)
+	server.SetSourceRefHydrator(configuredSourceRepositoryRefHydratorWithCredentialResolver(sourceCredentialResolver))
 
 	logger.Info("Establishing orchestrator read client connection...")
 	orchestratorDial, stopOrchestrator, err := resolver.DialOrchestratorWithOwner(cmd.Context(), logger, config.PinnedOrchestratorAddress(), config.APIRegistryDialAddress(), config.CellID(), "api:"+config.CellID(), retryMetrics)

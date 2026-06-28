@@ -17,6 +17,12 @@ type ManagedGitCheckoutRequest struct {
 	Credentials  GitCredentials
 }
 
+type ManagedGitRefHydrationRequest struct {
+	CheckoutPath string
+	Ref          string
+	Credentials  GitCredentials
+}
+
 // SyncManagedGitCheckout materializes or refreshes a Vectis-owned Git checkout.
 func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) GitCheckoutStatus {
 	checkoutPath := strings.TrimSpace(req.CheckoutPath)
@@ -97,6 +103,53 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 	}
 
 	return finalStatus
+}
+
+// HydrateManagedGitRef fetches one safe branch or tag ref into an existing managed checkout.
+func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest) GitCheckoutStatus {
+	checkoutPath := strings.TrimSpace(req.CheckoutPath)
+	ref := strings.TrimSpace(req.Ref)
+	status := GitCheckoutStatus{
+		CheckoutPath: checkoutPath,
+		DefaultRef:   ref,
+	}
+
+	if checkoutPath == "" {
+		status.setError("missing_checkout_path", "checkout path is required")
+		return status
+	}
+
+	if ref == "" {
+		status.setError("missing_ref", "ref is required")
+		return status
+	}
+
+	credentialEnv, credentialCleanup, err := managedGitCredentialEnvironment(req.Credentials)
+	if err != nil {
+		status.setError("git_credentials_invalid", err.Error())
+		return status
+	}
+	defer credentialCleanup()
+
+	checkoutStatus := NewManagedGitCheckout(checkoutPath).Status(ctx, "")
+	if checkoutStatus.ErrorCode != "" {
+		checkoutStatus.DefaultRef = ref
+		return checkoutStatus
+	}
+
+	if err := configureManagedGitCheckout(ctx, checkoutPath); err != nil {
+		checkoutStatus.DefaultRef = ref
+		checkoutStatus.setError("git_config_failed", err.Error())
+		return checkoutStatus
+	}
+
+	if err := fetchManagedGitRef(ctx, checkoutPath, credentialEnv, ref); err != nil {
+		checkoutStatus.DefaultRef = ref
+		checkoutStatus.setError("git_fetch_failed", err.Error())
+		return checkoutStatus
+	}
+
+	return NewManagedGitCheckout(checkoutPath).Status(ctx, ref)
 }
 
 func NewManagedGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitCheckout {

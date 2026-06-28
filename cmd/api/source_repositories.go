@@ -18,6 +18,7 @@ import (
 )
 
 type sourceRepositorySyncStatusFunc func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+type sourceRepositoryRefHydratorFunc func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
 type sourceRepositoryCredentialResolver func(context.Context, dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error)
 type sourceRepositorySyncMetrics interface {
 	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
@@ -596,6 +597,30 @@ func configuredSourceRepositorySyncCheckoutStatusResolved(ctx context.Context, r
 	}
 
 	return sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, syncRef)
+}
+
+func configuredSourceRepositoryRefHydratorWithCredentialResolver(resolver sourceRepositoryCredentialResolver) sourceRepositoryRefHydratorFunc {
+	return func(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+		if strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
+			return sourcepkg.NewGitCheckout(rec.CheckoutPath).Status(ctx, ref)
+		}
+
+		credentials, err := configuredSourceRepositoryGitCredentials(ctx, rec, resolver)
+		if err != nil {
+			return sourcepkg.GitCheckoutStatus{
+				CheckoutPath: rec.CheckoutPath,
+				DefaultRef:   ref,
+				ErrorCode:    "git_credentials_unavailable",
+				ErrorMessage: err.Error(),
+			}
+		}
+
+		return sourcepkg.HydrateManagedGitRef(ctx, sourcepkg.ManagedGitRefHydrationRequest{
+			CheckoutPath: rec.CheckoutPath,
+			Ref:          ref,
+			Credentials:  credentials,
+		})
+	}
 }
 
 func configuredSourceRepositoryGitCredentials(ctx context.Context, rec dal.SourceRepositoryRecord, resolver sourceRepositoryCredentialResolver) (sourcepkg.GitCredentials, error) {

@@ -157,6 +157,55 @@ func TestSyncManagedGitCheckoutFetchesExplicitDefaultTagOnDemand(t *testing.T) {
 	}
 }
 
+func TestHydrateManagedGitRefFetchesOneMissingBranch(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	git(t, remote, "checkout", "-b", "feature/on-demand")
+	writeAndCommit(t, remote, "README.md", "feature\n", "feature")
+	featureCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "checkout", defaultBranch)
+
+	managed := NewManagedGitCheckout(checkoutPath)
+	if _, err := managed.ResolveRevision(context.Background(), "feature/on-demand"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected feature branch to be missing before hydration, got %v", err)
+	}
+
+	status = HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath: checkoutPath,
+		Ref:          "feature/on-demand",
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("hydrate missing feature branch failed: %+v", status)
+	}
+
+	if !status.DefaultRefResolved || status.ResolvedCommit != featureCommit {
+		t.Fatalf("hydrated feature branch status mismatch: %+v", status)
+	}
+
+	rev, err := managed.ResolveRevision(context.Background(), "feature/on-demand")
+	if err != nil {
+		t.Fatalf("resolve hydrated feature branch: %v", err)
+	}
+
+	if rev.Commit != featureCommit {
+		t.Fatalf("hydrated feature branch commit: got %q, want %q", rev.Commit, featureCommit)
+	}
+}
+
 func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
