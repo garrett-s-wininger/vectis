@@ -151,6 +151,7 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | --- | --- | --- |
 | `database.driver` | `sqlite3` | SQL driver; use `pgx` for Postgres production deployments. |
 | `database.dsn` | `{{data_home}}/vectis/db.sqlite3` | Default SQLite DSN template. |
+| `database.pgx.plan_cache_mode` | `""` | Optional pgx Postgres plan cache mode override; empty leaves the driver default. |
 | `database.pgx_pool.max_open_conns` | `25` | Max open Postgres connections per process. |
 | `database.pgx_pool.max_idle_conns` | `10` | Max idle Postgres connections per process. |
 | `database.pgx_pool.conn_max_lifetime` | `1h` | Maximum Postgres connection lifetime. |
@@ -183,6 +184,11 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.artifact_max_bytes` | `1073741824` | Max bytes for one artifact upload; `0` disables the worker-level cap. |
 | `worker.artifact_max_run_bytes` | `10737418240` | Max artifact bytes recorded for one run; `0` disables the cap. |
 | `worker.artifact_max_count` | `1000` | Max artifact manifests recorded for one run; `0` disables the cap. |
+| `worker.queue.dequeue_poll_base_interval` | `250ms` | Base queue dequeue retry interval after an empty poll. |
+| `worker.queue.dequeue_poll_jitter_ratio` | `0.2` | Queue dequeue retry jitter ratio applied around the poll interval. |
+| `worker.queue.dequeue_poll_max_interval` | `1s` | Maximum queue dequeue retry interval. |
+| `worker.queue.dequeue_sticky_success_budget` | `64` | Number of successful sticky dequeues before a worker rebalances shard probing. |
+| `worker.queue.continuation_inline_job_max_bytes` | `65536` | Max continuation job payload size kept inline before spillover behavior. |
 | `worker.execution.backend` | `host` | Worker-core execution backend. |
 | `worker.execution.workspace_root` | `""` | Workspace root used by execution backend. |
 | `worker.execution.lima.path` | `limactl` | Lima CLI path for VM-backed execution. |
@@ -215,6 +221,7 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `cron.claim_ttl` | `5m` | Scheduler claim TTL for cron trigger processing. |
 | `reconciler.interval` | `30s` | Reconciler scan interval. |
 | `reconciler.lease_ttl` | `2m` | Reconciler service lease TTL. |
+| `reconciler.redispatch_limit` | `1000` | Maximum executions the reconciler redispatches in one pass. |
 | `reconciler.metrics_host` | `localhost` | Reconciler metrics bind host. |
 | `reconciler.metrics_port` | `9085` | Reconciler metrics port. |
 | `catalog.interval` | `1s` | Catalog processor drain interval. |

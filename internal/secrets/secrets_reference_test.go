@@ -67,7 +67,7 @@ func TestSecretsReferenceMentionsContractConstants(t *testing.T) {
 		"latest_failed_security_event",
 	}
 
-	for _, token := range []string{
+	tokens = append(tokens, []string{
 		resolveOutcomeSuccess,
 		resolveOutcomeDenied,
 		resolveOutcomeNotFound,
@@ -81,9 +81,7 @@ func TestSecretsReferenceMentionsContractConstants(t *testing.T) {
 		resolveReasonProviderNotFound,
 		resolveReasonProviderError,
 		resolveReasonInvalidBundle,
-	} {
-		tokens = append(tokens, token)
-	}
+	}...)
 
 	var missing []string
 	for _, token := range tokens {

@@ -779,7 +779,7 @@ func finishCheck(result *checkResult, start time.Time) {
 }
 
 func executeCommand(ctx context.Context, cwd string, command []string, log io.Writer) (int, error) {
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...) // #nosec G204 -- release readiness intentionally runs configured local checks.
 	cmd.Dir = cwd
 	cmd.Env = os.Environ()
 	cmd.Stdout = log
@@ -833,7 +833,7 @@ func commandOutput(cwd string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...) // #nosec G204 -- commandOutput only runs fixed local tool probes.
 	cmd.Dir = cwd
 	out, err := cmd.CombinedOutput()
 	if err != nil {

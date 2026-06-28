@@ -26,6 +26,8 @@ func IsPermanentReplayError(err error) bool {
 		"invalid spool magic",
 		"spool batch count",
 		"read magic",
+		"record payload length",
+		"record length suffix",
 		"run id is required",
 		"not found: run ",
 		"has no assigned shard after update",

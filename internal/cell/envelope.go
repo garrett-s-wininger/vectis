@@ -24,25 +24,26 @@ const (
 )
 
 type ExecutionEnvelope struct {
-	EnvelopeVersion   int                         `json:"envelope_version"`
-	RunID             string                      `json:"run_id"`
-	RunIndex          int                         `json:"run_index,omitempty"`
-	TaskID            string                      `json:"task_id"`
-	TaskKey           string                      `json:"task_key"`
-	TaskName          string                      `json:"task_name,omitempty"`
-	TaskAttemptID     string                      `json:"task_attempt_id"`
-	TaskAttempt       int                         `json:"task_attempt"`
-	NamespacePath     string                      `json:"namespace_path,omitempty"`
-	SegmentID         string                      `json:"segment_id"`
-	ExecutionID       string                      `json:"execution_id"`
-	CellID            string                      `json:"cell_id"`
-	Attempt           int                         `json:"attempt,omitempty"`
-	DefinitionVersion int                         `json:"definition_version"`
-	DefinitionHash    string                      `json:"definition_hash"`
-	Job               *api.Job                    `json:"job"`
-	ActionLocks       []actionregistry.ActionLock `json:"action_locks,omitempty"`
-	Metadata          map[string]string           `json:"metadata,omitempty"`
-	CreatedAtUnixNano int64                       `json:"created_at_unix_nano,omitempty"`
+	EnvelopeVersion       int                         `json:"envelope_version"`
+	RunID                 string                      `json:"run_id"`
+	RunIndex              int                         `json:"run_index,omitempty"`
+	TaskID                string                      `json:"task_id"`
+	TaskKey               string                      `json:"task_key"`
+	TaskName              string                      `json:"task_name,omitempty"`
+	TaskAttemptID         string                      `json:"task_attempt_id"`
+	TaskAttempt           int                         `json:"task_attempt"`
+	NamespacePath         string                      `json:"namespace_path,omitempty"`
+	SegmentID             string                      `json:"segment_id"`
+	ExecutionID           string                      `json:"execution_id"`
+	CellID                string                      `json:"cell_id"`
+	Attempt               int                         `json:"attempt,omitempty"`
+	DefinitionVersion     int                         `json:"definition_version"`
+	DefinitionHash        string                      `json:"definition_hash"`
+	StartDeadlineUnixNano int64                       `json:"start_deadline_unix_nano,omitempty"`
+	Job                   *api.Job                    `json:"job"`
+	ActionLocks           []actionregistry.ActionLock `json:"action_locks,omitempty"`
+	Metadata              map[string]string           `json:"metadata,omitempty"`
+	CreatedAtUnixNano     int64                       `json:"created_at_unix_nano,omitempty"`
 }
 
 func NewExecutionEnvelope(dispatch dal.ExecutionDispatchRecord, job *api.Job, metadata map[string]string, createdAtUnixNano int64) (*ExecutionEnvelope, error) {
@@ -65,25 +66,26 @@ func NewExecutionEnvelopeWithActions(dispatch dal.ExecutionDispatchRecord, job *
 	}
 
 	env := &ExecutionEnvelope{
-		EnvelopeVersion:   ExecutionEnvelopeVersion,
-		RunID:             dispatch.RunID,
-		RunIndex:          dispatch.RunIndex,
-		TaskID:            defaultTaskID(dispatch.RunID, dispatch.TaskID, dispatch.TaskKey),
-		TaskKey:           defaultTaskKey(dispatch.TaskKey),
-		TaskName:          dispatch.TaskName,
-		TaskAttemptID:     defaultTaskAttemptID(dispatch.RunID, dispatch.TaskAttemptID, dispatch.TaskID, dispatch.TaskKey, dispatch.Attempt),
-		TaskAttempt:       defaultTaskAttempt(dispatch.Attempt),
-		NamespacePath:     normalizeNamespacePath(dispatch.NamespacePath),
-		SegmentID:         dispatch.SegmentID,
-		ExecutionID:       dispatch.ExecutionID,
-		CellID:            dispatch.CellID,
-		Attempt:           dispatch.Attempt,
-		DefinitionVersion: dispatch.DefinitionVersion,
-		DefinitionHash:    dispatch.DefinitionHash,
-		Job:               job,
-		ActionLocks:       actionLocks,
-		Metadata:          cloneMetadata(metadata),
-		CreatedAtUnixNano: createdAtUnixNano,
+		EnvelopeVersion:       ExecutionEnvelopeVersion,
+		RunID:                 dispatch.RunID,
+		RunIndex:              dispatch.RunIndex,
+		TaskID:                defaultTaskID(dispatch.RunID, dispatch.TaskID, dispatch.TaskKey),
+		TaskKey:               defaultTaskKey(dispatch.TaskKey),
+		TaskName:              dispatch.TaskName,
+		TaskAttemptID:         defaultTaskAttemptID(dispatch.RunID, dispatch.TaskAttemptID, dispatch.TaskID, dispatch.TaskKey, dispatch.Attempt),
+		TaskAttempt:           defaultTaskAttempt(dispatch.Attempt),
+		NamespacePath:         normalizeNamespacePath(dispatch.NamespacePath),
+		SegmentID:             dispatch.SegmentID,
+		ExecutionID:           dispatch.ExecutionID,
+		CellID:                dispatch.CellID,
+		Attempt:               dispatch.Attempt,
+		DefinitionVersion:     dispatch.DefinitionVersion,
+		DefinitionHash:        dispatch.DefinitionHash,
+		StartDeadlineUnixNano: dispatch.StartDeadlineUnixNano,
+		Job:                   job,
+		ActionLocks:           actionLocks,
+		Metadata:              cloneMetadata(metadata),
+		CreatedAtUnixNano:     createdAtUnixNano,
 	}
 
 	if err := env.Validate(); err != nil {

@@ -22,6 +22,8 @@ func TestIsPermanentReplayError(t *testing.T) {
 		{name: "missing run id", err: errors.New("send chunk: run id is required"), want: true},
 		{name: "stale run", err: errors.New("create stream: not found: run stale-run"), want: true},
 		{name: "assignment lost", err: errors.New("assign log shard: run stale-run has no assigned shard after update"), want: true},
+		{name: "binary record too large", err: errors.New("read spool: record payload length 123456 exceeds max 65536"), want: true},
+		{name: "binary record suffix mismatch", err: errors.New("read spool: record length suffix 1 does not match prefix 2"), want: true},
 		{name: "unavailable assigned endpoint", err: errors.New("assigned log endpoint \"log-a\" is not available"), want: false},
 	}
 

@@ -12,9 +12,9 @@ For the public HTTP API, see [API Reference](../../using/api-reference.md) and [
 | --- | --- | --- | --- | --- | --- |
 | `QueueService` | `vectis-queue` | `api/proto/queue.proto` | `Enqueue`, `Dequeue`, `TryDequeue`, `Ack`, `ListDeadLetter`, `RequeueDeadLetter` | `queue.port` (`8081`) | API, cron, reconciler, cell ingress, workers |
 | `RegistryService` | `vectis-registry` | `api/proto/registry.proto` | `Register`, `GetAddress`, `ListRegistrations`, `Gossip`, `GetSnapshot` | `registry.port` (`8082`) | Services that register or resolve queue, orchestrator, log, artifact, and worker-control addresses |
-| `LogService` | `vectis-log` | `api/proto/log.proto` | `StreamLogs`, `GetLogs` | `log.grpc.port` (`8083`) | Workers and log-forwarders write logs; API reads logs for SSE clients |
+| `LogService` | `vectis-log` | `api/proto/log.proto` | `StreamLogs`, `SendLogBatch`, `GetLogs` | `log.grpc.port` (`8083`) | Workers and log-forwarders write logs; API reads logs for SSE clients |
 | `ArtifactService` | `vectis-artifact` | `api/proto/artifact.proto` | `UploadBlob`, `StatBlob`, `ReadBlob` | `artifact.grpc.port` (`8086`) | Workers upload artifacts; API reads blobs for authenticated downloads |
-| `OrchestratorService` | `vectis-orchestrator` | `api/proto/orchestrator.proto` | `LoadRun`, `ListPending`, `ClaimExecution`, `RenewExecutionLease`, `CompleteExecution`, `GetRunTaskCompletion` | `orchestrator.port` (`8087`) | Workers claiming, leasing, completing, and reducing task executions |
+| `OrchestratorService` | `vectis-orchestrator` | `api/proto/orchestrator.proto` | `LoadRun`, `ListPending`, `ClaimExecution`, `RenewExecutionLease`, `CompleteExecution`, `GetRunTaskCompletion`, `GetRunTaskSnapshot`, `ExecutionStream` | `orchestrator.port` (`8087`) | Workers claiming, leasing, completing, and reducing task executions |
 | `SecretsService` | `vectis-secrets` | `api/proto/secrets.proto` | `ResolveSecrets` | `secrets.port` (`8090`) | Workers resolving task-scoped job secret files |
 | `WorkerControlService` | `vectis-worker` | `api/proto/worker_control.proto` | `CancelRun` | `worker.control.port` (`9084`) or `worker.control.port_min` to `worker.control.port_max` | API cancellation path through worker-control discovery |
 | `WorkerCoreService` | `vectis-worker-core` | `api/proto/worker_core.proto` | `DescribeCore`, `ExecuteTask`, `CancelTask` | `worker.core.socket` Unix socket | Worker execution manager |
@@ -38,7 +38,7 @@ Registry discovery is convenient, but it becomes a trust dependency. Operators c
 
 ### `LogService`
 
-`LogService.StreamLogs` ingests worker log chunks. `LogService.GetLogs` streams stored chunks back to the API, which converts them into public SSE log streams. Clients should prefer API/RBAC-mediated log access over dialing the log service directly.
+`LogService.StreamLogs` ingests worker log chunks, while `SendLogBatch` accepts already-batched encoded records from forwarders. `LogService.GetLogs` streams stored chunks back to the API, which converts them into public SSE log streams. Clients should prefer API/RBAC-mediated log access over dialing the log service directly.
 
 ### `ArtifactService`
 
@@ -46,7 +46,7 @@ Registry discovery is convenient, but it becomes a trust dependency. Operators c
 
 ### `OrchestratorService`
 
-`OrchestratorService` owns hot run and task choreography. Workers load pending execution state, claim execution leases, renew active leases, complete executions, and ask for run task completion summaries during fan-in and repair.
+`OrchestratorService` owns hot run and task choreography. Workers load pending execution state, claim execution leases, renew active leases, complete executions, ask for run task completion summaries during fan-in and repair, and use `ExecutionStream` to keep repeated worker/orchestrator round trips on one bidi stream. API read routing can use `GetRunTaskSnapshot` for hot task status before falling back to SQL.
 
 ### `SecretsService`
 

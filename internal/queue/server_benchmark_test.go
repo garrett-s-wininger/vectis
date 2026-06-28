@@ -574,7 +574,7 @@ func TestQueue_BurstEnqueueWakesBlockedCompatibleWorkers(t *testing.T) {
 	waitForQueueWaiters(t, queue, workers)
 	for i := range workers {
 		jobID := fmt.Sprintf("burst-test-job-%d", i)
-		if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+		if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
 			t.Fatalf("enqueue burst job %d: %v", i, err)
 		}
 	}
@@ -653,7 +653,7 @@ func runBlockedWorkerBurstDispatchBenchmark(b *testing.B, workers int) {
 		start := time.Now()
 		for jobIndex := 0; jobIndex < workers; jobIndex++ {
 			jobID := fmt.Sprintf("burst-job-%d-%d", iteration, jobIndex)
-			if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+			if _, err := svc.Enqueue(ctx, queueTestJobRequest(b, &api.Job{Id: &jobID})); err != nil {
 				b.Fatalf("enqueue burst job %d: %v", jobIndex, err)
 			}
 		}
@@ -739,7 +739,7 @@ func runGRPCBlockedWorkerBurstDispatchIteration(b *testing.B, iteration, workers
 	start := time.Now()
 	for jobIndex := 0; jobIndex < workers; jobIndex++ {
 		jobID := fmt.Sprintf("grpc-burst-job-%d-%d", iteration, jobIndex)
-		if _, err := client.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+		if _, err := client.Enqueue(ctx, queueTestJobRequest(b, &api.Job{Id: &jobID})); err != nil {
 			b.Fatalf("enqueue grpc burst job %d: %v", jobIndex, err)
 		}
 	}
@@ -869,7 +869,7 @@ func runGRPCBlockedWorkerBurstDispatchManyConnsIteration(
 	start := time.Now()
 	for jobIndex := 0; jobIndex < workers; jobIndex++ {
 		jobID := fmt.Sprintf("grpc-manyconns-burst-job-%d-%d", iteration, jobIndex)
-		if _, err := enqueuer.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); err != nil {
+		if _, err := enqueuer.Enqueue(ctx, queueTestJobRequest(b, &api.Job{Id: &jobID})); err != nil {
 			b.Fatalf("enqueue grpc many-conn burst job %d: %v", jobIndex, err)
 		}
 	}

@@ -3,8 +3,8 @@ package packaging
 import (
 	"bytes"
 	"compress/gzip"
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  // #nosec G501 -- RPM signature metadata requires MD5.
+	"crypto/sha1" // #nosec G505 -- RPM signature metadata requires SHA-1.
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -135,7 +135,7 @@ func buildRPM(pkg resolvedPackage, outDir string) (string, error) {
 
 	headerSHA1 := sha1Hex(header)
 	headerSHA256 := sha256Hex(header)
-	headerAndPayloadMD5 := md5.Sum(append(append([]byte{}, header...), payload...))
+	headerAndPayloadMD5 := md5.Sum(append(append([]byte{}, header...), payload...)) // #nosec G401 -- RPM signature metadata requires MD5.
 	signature := buildRPMSignatureHeader(int32(len(header)+len(payload)), uncompressedPayloadSize, headerSHA1, headerSHA256, headerAndPayloadMD5[:])
 	lead := buildRPMLead(pkg.Name)
 
@@ -212,7 +212,7 @@ func buildRPMPayload(files []rpmPayloadFile) ([]byte, string, int32, error) {
 
 	var compressed bytes.Buffer
 	gz := gzip.NewWriter(&compressed)
-	gz.Header.ModTime = time.Unix(0, 0)
+	gz.ModTime = time.Unix(0, 0)
 	if _, err := gz.Write(cpio.Bytes()); err != nil {
 		_ = gz.Close()
 		return nil, "", 0, err
@@ -659,7 +659,7 @@ func padBuffer(buf *bytes.Buffer, alignment int) {
 }
 
 func sha1Hex(b []byte) string {
-	digest := sha1.Sum(b)
+	digest := sha1.Sum(b) // #nosec G401 -- RPM signature metadata requires SHA-1.
 	return hex.EncodeToString(digest[:])
 }
 

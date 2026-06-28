@@ -906,6 +906,27 @@ func (s *flakyFinalizeRunsStore) CompleteExecutionAndFinalizeRunByClaim(ctx cont
 	return s.RunsRepository.CompleteExecutionAndFinalizeRunByClaim(ctx, executionID, owner, claimToken, status, failureCode, reason)
 }
 
+func (s *flakyFinalizeRunsStore) ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+	s.mu.Lock()
+	switch update.Outcome {
+	case dal.ExecutionFinalizationOutcomeRunSucceeded:
+		if s.succeedFailuresLeft > 0 {
+			s.succeedFailuresLeft--
+			s.mu.Unlock()
+			return fmt.Errorf("finalize success: %w", sql.ErrConnDone)
+		}
+	case dal.ExecutionFinalizationOutcomeRunFailed:
+		if s.failedFailuresLeft > 0 {
+			s.failedFailuresLeft--
+			s.mu.Unlock()
+			return fmt.Errorf("finalize failed: %w", sql.ErrConnDone)
+		}
+	}
+	s.mu.Unlock()
+
+	return s.RunsRepository.ApplyTerminalExecutionSnapshot(ctx, update)
+}
+
 func (s *flakyFinalizeRunsStore) MarkRunOrphaned(ctx context.Context, runID, reason string) error {
 	s.mu.Lock()
 	if s.orphanFailuresLeft > 0 {

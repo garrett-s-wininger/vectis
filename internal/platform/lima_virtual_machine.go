@@ -137,7 +137,7 @@ func parseLimaStatus(output, instance string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("Lima instance %q was not present in status output", instance)
+	return "", fmt.Errorf("lima instance %q was not present in status output", instance)
 }
 
 func (m *limaVirtualMachineManager) Create(ctx context.Context, instance, template string) error {

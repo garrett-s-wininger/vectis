@@ -92,7 +92,19 @@ func transitionExecutionStatusTx(
 	allowedFrom []string,
 	markAccepted, markStarted, markFinished bool,
 ) error {
-	_, err := transitionExecutionTx(ctx, tx, executionID, targetStatus, targetSegmentStatus, allowedFrom, markAccepted, markStarted, markFinished)
+	_, err := transitionExecutionTxWithDecision(ctx, tx, executionID, targetStatus, targetSegmentStatus, markAccepted, markStarted, markFinished, func(current, target string) statusTransitionDecision {
+		decision := catalogExecutionStatusDecision(current, target)
+		if decision != statusTransitionApply {
+			return decision
+		}
+
+		if !statusIn(current, allowedFrom) {
+			return statusTransitionConflict
+		}
+
+		return statusTransitionApply
+	})
+
 	return err
 }
 
@@ -135,6 +147,10 @@ func (r *SQLRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, 
 		if err := applyTerminalSnapshotStatusBatchTx(ctx, tx, batch); err != nil {
 			return err
 		}
+	}
+
+	if err := pruneTerminalSnapshotNonRootLiveRowsTx(ctx, tx, runUpdate.RunID); err != nil {
+		return err
 	}
 
 	if err := applyTerminalRunStatusUpdateTx(ctx, tx, runUpdate); err != nil {
@@ -298,6 +314,52 @@ func terminalSnapshotSegmentID(root bool, snapshotSegmentID, taskID string) stri
 	}
 
 	return taskSegmentID(taskID)
+}
+
+func pruneTerminalSnapshotNonRootLiveRowsTx(ctx context.Context, tx *sql.Tx, runID string) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+
+	nonRootTaskIDs := "SELECT task_id FROM run_tasks WHERE run_id = ? AND task_key <> ?"
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM segment_executions
+		WHERE run_id = ?
+			AND task_id IN (`+nonRootTaskIDs+`)
+	`), runID, runID, RootTaskKey); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM task_attempts
+		WHERE run_id = ?
+			AND task_id IN (`+nonRootTaskIDs+`)
+	`), runID, runID, RootTaskKey); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM run_segments
+		WHERE run_id = ?
+			AND segment_id NOT IN (
+				SELECT segment_id
+				FROM segment_executions
+				WHERE run_id = ?
+			)
+	`), runID, runID); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebindQueryForPgx(`
+		DELETE FROM run_tasks
+		WHERE run_id = ?
+			AND task_key <> ?
+	`), runID, RootTaskKey); err != nil {
+		return normalizeSQLError(err)
+	}
+
+	return nil
 }
 
 func insertTerminalSnapshotRowsTx(ctx context.Context, tx *sql.Tx, rows []terminalSnapshotRow) error {
@@ -1663,10 +1725,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 
 	namespacePath := strings.TrimSpace(audit.NamespacePath)
 	if namespacePath == "" {
-		namespacePath, err = lookupJobNamespacePathTx(ctx, tx, jobID)
-		if err != nil {
-			return nil, err
-		}
+		namespacePath = "/"
 	}
 
 	if len(targetCellIDs) == 0 {
@@ -1944,10 +2003,7 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 
 	namespacePath := strings.TrimSpace(audit.NamespacePath)
 	if namespacePath == "" {
-		namespacePath, err = lookupJobNamespacePathTx(ctx, tx, jobID)
-		if err != nil {
-			return CreatedRun{}, err
-		}
+		namespacePath = "/"
 	}
 
 	var idx int
@@ -2397,29 +2453,6 @@ func lookupDefinitionHashTx(ctx context.Context, tx *sql.Tx, jobID string, versi
 	} else {
 		return "", normalizeSQLError(err)
 	}
-}
-
-func lookupJobNamespacePathTx(ctx context.Context, tx *sql.Tx, jobID string) (string, error) {
-	var path string
-	err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT COALESCE(ns.path, '/')
-		FROM stored_jobs sj
-		LEFT JOIN namespaces ns ON ns.id = sj.namespace_id
-		WHERE sj.job_id = ?
-	`), jobID).Scan(&path)
-	if err == sql.ErrNoRows {
-		return "/", nil
-	}
-	if err != nil {
-		return "", normalizeSQLError(err)
-	}
-
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "/", nil
-	}
-
-	return path, nil
 }
 
 func (r *SQLRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error) {

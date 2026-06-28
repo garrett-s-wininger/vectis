@@ -610,13 +610,18 @@ func (w *worker) now() time.Time {
 	return time.Now()
 }
 
-func (w *worker) leaseDeadline() time.Time {
+func (w *worker) deadlineBaseNow() time.Time {
 	now := w.now().UTC()
 	realNow := time.Now().UTC()
 	if now.Before(realNow) {
 		now = realNow
 	}
 
+	return now
+}
+
+func (w *worker) leaseDeadline() time.Time {
+	now := w.deadlineBaseNow()
 	return now.Add(dal.DefaultLeaseTTL)
 }
 
@@ -1056,6 +1061,10 @@ func (w *worker) hydrateJobRequest(ctx context.Context, req *api.JobRequest) (*a
 		}
 
 		req.Job = fullJob
+		if err := refreshHydratedExecutionEnvelope(req); err != nil {
+			return req, fmt.Errorf("refresh execution envelope for payload %s: %w", payloadHash, err)
+		}
+
 		trace.SpanFromContext(ctx).AddEvent("execution.payload.hydrated", trace.WithAttributes(
 			attribute.String("vectis.execution.payload_hash", payloadHash),
 			attribute.Bool("vectis.execution.payload_cache_hit", true),
@@ -1091,6 +1100,10 @@ func (w *worker) hydrateJobRequest(ctx context.Context, req *api.JobRequest) (*a
 	}
 
 	req.Job = fullJob
+	if err := refreshHydratedExecutionEnvelope(req); err != nil {
+		return req, fmt.Errorf("refresh execution envelope for payload %s: %w", payloadHash, err)
+	}
+
 	w.noteDBRecovered()
 	trace.SpanFromContext(ctx).AddEvent("execution.payload.hydrated", trace.WithAttributes(
 		attribute.String("vectis.execution.payload_hash", payloadHash),
@@ -1146,6 +1159,41 @@ func applyQueuedJobIdentity(payloadHash string, fullJob *api.Job, currentJob *ap
 		fullJob.DeliveryId = &deliveryID
 	}
 	return nil
+}
+
+func refreshHydratedExecutionEnvelope(req *api.JobRequest) error {
+	if req == nil || req.GetMetadata()[cell.ExecutionEnvelopeMetadataKey] == "" {
+		return nil
+	}
+
+	env, err := cell.DecodeExecutionEnvelope([]byte(req.GetMetadata()[cell.ExecutionEnvelopeMetadataKey]))
+	if err != nil {
+		return err
+	}
+
+	_, err = cell.AttachExecutionEnvelope(req, dal.ExecutionDispatchRecord{
+		RunID:                 env.RunID,
+		JobID:                 req.GetJob().GetId(),
+		NamespacePath:         env.NamespacePath,
+		RunIndex:              env.RunIndex,
+		TaskID:                env.TaskID,
+		TaskKey:               env.TaskKey,
+		TaskName:              env.TaskName,
+		TaskAttemptID:         env.TaskAttemptID,
+		SegmentID:             env.SegmentID,
+		SegmentName:           env.TaskName,
+		SegmentStatus:         dal.SegmentStatusPending,
+		ExecutionID:           env.ExecutionID,
+		ExecutionStatus:       dal.ExecutionStatusPending,
+		CellID:                env.CellID,
+		Attempt:               env.Attempt,
+		DefinitionVersion:     env.DefinitionVersion,
+		DefinitionHash:        env.DefinitionHash,
+		StartDeadlineUnixNano: env.StartDeadlineUnixNano,
+		OwningCell:            env.CellID,
+	}, env.CreatedAtUnixNano)
+
+	return err
 }
 
 func (w *worker) handleJobHydrationError(ctx context.Context, jobReq *api.JobRequest, err error, started time.Time) {
@@ -1235,6 +1283,21 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 		}
 
 		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+		return observability.WorkerOutcomeFailed
+	}
+
+	if expired, err := w.expireExecutionIfPastStartDeadline(ctx, executionEnvelope); err != nil {
+		span.SetStatus(otelcodes.Error, "expire dispatch deadline")
+		span.RecordError(err)
+		w.logger.Error("Failed to expire execution %s after dispatch deadline: %v", executionEnvelope.ExecutionID, err)
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+
+		return observability.WorkerOutcomeFailed
+	} else if expired {
+		w.logger.Warn("Execution %s expired before claim; leaving durable dispatch-expired result", executionEnvelope.ExecutionID)
+		span.AddEvent("execution.dispatch_expired", trace.WithAttributes(executionEnvelopeAttrs(executionEnvelope)...))
+		span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
+
 		return observability.WorkerOutcomeFailed
 	}
 
@@ -1394,6 +1457,33 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 
 	w.setLifecyclePhase(observability.WorkerPhaseFinalizing)
 	return w.finalizeSucceededTaskRunByExecutionClaim(ctx, job, jobID, runID, executionClaim, executionEnvelope)
+}
+
+func (w *worker) expireExecutionIfPastStartDeadline(ctx context.Context, env *cell.ExecutionEnvelope) (bool, error) {
+	if w.store == nil || env == nil || env.StartDeadlineUnixNano <= 0 {
+		return false, nil
+	}
+
+	nowUnixNano := w.deadlineBaseNow().UnixNano()
+	if env.StartDeadlineUnixNano > nowUnixNano {
+		return false, nil
+	}
+
+	expired, err := w.store.MarkExpiredQueuedExecutionsFailed(w.runCtx, nowUnixNano, 1000)
+	if err != nil {
+		w.noteDBError(err)
+		trace.SpanFromContext(ctx).RecordError(err)
+		return false, err
+	}
+
+	w.noteDBRecovered()
+	for _, rec := range expired {
+		if rec.ExecutionID == env.ExecutionID {
+			return true, nil
+		}
+	}
+
+	return true, nil
 }
 
 func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, leaseUntil time.Time) error {
@@ -1673,7 +1763,7 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 		return false, fmt.Errorf("queue client is required")
 	}
 
-	continuationPersisted, persistErr := w.persistTaskContinuation(ctx, source, result)
+	continuationPersisted, persistErr := w.persistTaskContinuation(ctx, j, source, result)
 	if persistErr != nil {
 		w.logger.Warn("Failed to persist task continuation for run %s: %v", source.RunID, persistErr)
 		trace.SpanFromContext(ctx).RecordError(persistErr)
@@ -1758,7 +1848,7 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 	return enqueued > 0, nil
 }
 
-func (w *worker) persistTaskContinuation(ctx context.Context, source *cell.ExecutionEnvelope, result dal.ExecutionFinalizationResult) (bool, error) {
+func (w *worker) persistTaskContinuation(ctx context.Context, j *api.Job, source *cell.ExecutionEnvelope, result dal.ExecutionFinalizationResult) (bool, error) {
 	if w.store == nil || source == nil || len(result.Children) == 0 {
 		return false, nil
 	}
@@ -1772,6 +1862,16 @@ func (w *worker) persistTaskContinuation(ctx context.Context, source *cell.Execu
 		return false, fmt.Errorf("run_id is required to persist task continuation")
 	}
 
+	if source.ExecutionID != "" {
+		if err := w.store.ApplyExecutionStatusUpdate(w.runCtx, dal.ExecutionStatusUpdate{
+			ExecutionID: source.ExecutionID,
+			Status:      dal.ExecutionStatusSucceeded,
+		}); err != nil {
+			w.noteDBError(err)
+			return false, fmt.Errorf("mark source execution %s succeeded: %w", source.ExecutionID, err)
+		}
+	}
+
 	mirrored := 0
 	activated := 0
 	for _, child := range result.Children {
@@ -1779,12 +1879,13 @@ func (w *worker) persistTaskContinuation(ctx context.Context, source *cell.Execu
 			continue
 		}
 
-		if _, didActivate, err := w.store.ActivatePlannedTaskExecution(w.runCtx, child.TaskID); err != nil {
+		if _, didActivate, err := w.activateOrEnsureContinuationTask(ctx, j, source, child); err != nil {
 			w.noteDBError(err)
 			return false, fmt.Errorf("activate child task %s: %w", child.TaskID, err)
 		} else if didActivate {
 			activated++
 		}
+
 		mirrored++
 	}
 
@@ -1823,6 +1924,97 @@ func (w *worker) executionPayloadHashForContinuation(ctx context.Context, runID 
 	return strings.TrimSpace(payloadHash)
 }
 
+func (w *worker) activateOrEnsureContinuationTask(ctx context.Context, j *api.Job, source *cell.ExecutionEnvelope, child dal.TaskExecutionRecord) (dal.TaskExecutionRecord, bool, error) {
+	activated, didActivate, err := w.store.ActivatePlannedTaskExecution(w.runCtx, child.TaskID)
+	if err == nil {
+		w.noteDBRecovered()
+		return activated, didActivate, nil
+	}
+
+	if !dal.IsNotFound(err) {
+		trace.SpanFromContext(ctx).RecordError(err)
+		return dal.TaskExecutionRecord{}, false, err
+	}
+
+	created, didCreate, err := w.ensurePendingContinuationTask(j, source, child)
+	if err != nil {
+		trace.SpanFromContext(ctx).RecordError(err)
+		return dal.TaskExecutionRecord{}, false, err
+	}
+
+	w.noteDBRecovered()
+	return created, didCreate, nil
+}
+
+func (w *worker) ensurePendingContinuationTask(j *api.Job, source *cell.ExecutionEnvelope, child dal.TaskExecutionRecord) (dal.TaskExecutionRecord, bool, error) {
+	if w.store == nil {
+		return dal.TaskExecutionRecord{}, false, fmt.Errorf("runs repository is required")
+	}
+
+	taskKey := strings.TrimSpace(child.TaskKey)
+	if taskKey == "" {
+		return dal.TaskExecutionRecord{}, false, fmt.Errorf("%w: child task_key is required", dal.ErrConflict)
+	}
+
+	plan, err := job.PlanTaskExecutions(j)
+	if err != nil {
+		return dal.TaskExecutionRecord{}, false, err
+	}
+
+	var entry job.TaskPlanEntry
+	found := false
+	for _, candidate := range plan {
+		if candidate.TaskKey == taskKey {
+			entry = candidate
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return dal.TaskExecutionRecord{}, false, fmt.Errorf("%w: task %s is not in job plan", dal.ErrNotFound, taskKey)
+	}
+
+	runID := strings.TrimSpace(child.RunID)
+	if runID == "" && source != nil {
+		runID = source.RunID
+	}
+
+	parentTaskID := strings.TrimSpace(child.ParentTaskID)
+	if parentTaskID == "" && source != nil {
+		parentTaskID = source.TaskID
+	}
+
+	name := strings.TrimSpace(child.Name)
+	if name == "" {
+		name = entry.Name
+	}
+
+	cellID := strings.TrimSpace(child.CellID)
+	if cellID == "" && source != nil {
+		cellID = source.CellID
+	}
+
+	record, created, err := w.store.EnsurePendingTaskExecution(w.runCtx, dal.TaskExecutionCreate{
+		RunID:        runID,
+		ParentTaskID: parentTaskID,
+		TaskKey:      taskKey,
+		Name:         name,
+		SpecHash:     entry.SpecHash,
+		TargetCellID: cellID,
+	})
+
+	if err != nil {
+		return dal.TaskExecutionRecord{}, false, err
+	}
+
+	if child.ExecutionID != "" && record.ExecutionID != child.ExecutionID {
+		return dal.TaskExecutionRecord{}, false, fmt.Errorf("%w: child execution %s materialized as %s", dal.ErrConflict, child.ExecutionID, record.ExecutionID)
+	}
+
+	return record, created, nil
+}
+
 func shouldInlineContinuationJob(j *api.Job, maxBytes int64) bool {
 	if j == nil || maxBytes <= 0 {
 		return false
@@ -1846,20 +2038,19 @@ func cloneMetadataForWorker(in map[string]string) map[string]string {
 
 func (w *worker) prepareContinuationDispatch(ctx context.Context, j *api.Job, source *cell.ExecutionEnvelope, child dal.TaskExecutionRecord) (dal.ExecutionDispatchRecord, error) {
 	if w.store != nil {
-		activated, _, err := w.store.ActivatePlannedTaskExecution(w.runCtx, child.TaskID)
+		activated, _, err := w.activateOrEnsureContinuationTask(ctx, j, source, child)
 		if err != nil {
 			w.noteDBError(err)
 			trace.SpanFromContext(ctx).RecordError(err)
 			return dal.ExecutionDispatchRecord{}, fmt.Errorf("activate child task execution %s: %w", child.ExecutionID, err)
 		}
-		w.noteDBRecovered()
 		if activated.ExecutionID != "" {
 			child = activated
 		}
 	}
 
 	dispatch := executionDispatchRecordFromTaskExecution(j, source, child)
-	deadline := dispatchmeta.DeadlineUnixNano(w.now(), config.DispatchStartTTL())
+	deadline := dispatchmeta.DeadlineUnixNano(w.deadlineBaseNow(), config.DispatchStartTTL())
 	if w.store != nil && dispatch.ExecutionID != "" {
 		stored, err := w.store.EnsureExecutionStartDeadline(w.runCtx, dispatch.ExecutionID, deadline)
 		if err != nil {
@@ -1870,6 +2061,7 @@ func (w *worker) prepareContinuationDispatch(ctx context.Context, j *api.Job, so
 		w.noteDBRecovered()
 		deadline = stored
 	}
+
 	dispatch.StartDeadlineUnixNano = deadline
 	return dispatch, nil
 }
@@ -2430,6 +2622,10 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.
 		return result, nil
 	}
 
+	if !w.executionChoreographer().RequiresDurableTaskRows() {
+		return result, nil
+	}
+
 	durable, err := w.mirrorExecutionFinalizationWithRetry(ctx, env, executionClaim, status, failureCode, reason)
 	if err != nil {
 		return dal.ExecutionFinalizationResult{}, err
@@ -2439,6 +2635,7 @@ func (w *worker) completeExecutionEnvelopeWithRetry(ctx context.Context, j *api.
 		return dal.ExecutionFinalizationResult{}, err
 	}
 
+	durable.Executions = result.Executions
 	return durable, nil
 }
 

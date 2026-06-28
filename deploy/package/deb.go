@@ -4,7 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- Debian package md5sums metadata requires MD5.
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -58,7 +58,7 @@ func buildDebDataArchive(files []resolvedFile) ([]byte, string, error) {
 	)
 
 	gz := gzip.NewWriter(&buf)
-	gz.Header.ModTime = time.Unix(0, 0)
+	gz.ModTime = time.Unix(0, 0)
 	tw := tar.NewWriter(gz)
 
 	sorted := append([]resolvedFile{}, files...)
@@ -94,7 +94,7 @@ func buildDebDataArchive(files []resolvedFile) ([]byte, string, error) {
 			return nil, "", fmt.Errorf("read package file %s: %w", file.Source, err)
 		}
 
-		digest := md5.Sum(content)
+		digest := md5.Sum(content) // #nosec G401 -- Debian md5sums metadata requires MD5.
 		fmt.Fprintf(&md5sum, "%s  %s\n", hex.EncodeToString(digest[:]), strings.TrimPrefix(file.Destination, "/"))
 
 		header := &tar.Header{
@@ -143,7 +143,7 @@ func buildDebControlArchive(pkg resolvedPackage, arch, version, md5sums string) 
 
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	gz.Header.ModTime = time.Unix(0, 0)
+	gz.ModTime = time.Unix(0, 0)
 	tw := tar.NewWriter(gz)
 
 	names := make([]string, 0, len(files))

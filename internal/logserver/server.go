@@ -472,6 +472,10 @@ func (s *Server) StreamLogs(stream api.LogService_StreamLogsServer) error {
 			chunk := received.chunk
 			streamRoute, err := route.Bind(chunk)
 			if err != nil {
+				if flushErr := flushPending(); flushErr != nil {
+					return flushErr
+				}
+
 				return status.Error(codes.InvalidArgument, err.Error())
 			}
 

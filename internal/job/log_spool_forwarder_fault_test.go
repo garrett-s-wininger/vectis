@@ -2,16 +2,15 @@ package job
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+	"vectis/internal/logrecord"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -149,19 +148,21 @@ func writePendingLogSpool(t *testing.T, name string, chunks ...*api.LogChunk) st
 		t.Fatalf("create pending spool dir: %v", err)
 	}
 
-	var b strings.Builder
+	var records []byte
 	for _, chunk := range chunks {
 		payload, err := proto.Marshal(chunk)
 		if err != nil {
 			t.Fatalf("marshal chunk: %v", err)
 		}
 
-		b.WriteString(base64.RawStdEncoding.EncodeToString(payload))
-		b.WriteByte('\n')
+		records, err = logrecord.Append(records, payload)
+		if err != nil {
+			t.Fatalf("append spool record: %v", err)
+		}
 	}
 
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+	if err := os.WriteFile(path, records, 0o600); err != nil {
 		t.Fatalf("write pending spool: %v", err)
 	}
 
