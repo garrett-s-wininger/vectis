@@ -304,8 +304,10 @@ func init() {
 	databaseCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(databaseCmd)
 
+	backupExpectPodmanCmd.Flags().StringVar(&backupExpectPodmanProfile, "profile", podmanProfileSimple, "Podman deployment profile: simple or ha")
+	backupExpectCmd.AddCommand(backupExpectPodmanCmd)
 	backupVerifyCmd.Flags().StringVar(&backupVerifyExpectPath, "expect", "", "Expected backup topology JSON file")
-	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupVerifyCmd)
+	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupExpectCmd, backupVerifyCmd)
 	rootCmd.AddCommand(backupCmd)
 
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")

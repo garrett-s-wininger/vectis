@@ -367,6 +367,107 @@ func TestBackupManifestVerificationReportsMissingExpectedTopology(t *testing.T) 
 	}
 }
 
+func TestBackupPodmanExpectedTopologyHA(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	var buf bytes.Buffer
+	if err := writeBackupPodmanExpectedTopology(&buf, podmanProfileHA); err != nil {
+		t.Fatalf("write podman expected topology: %v", err)
+	}
+
+	var expected backupExpectedTopology
+	if err := json.Unmarshal(buf.Bytes(), &expected); err != nil {
+		t.Fatalf("expected topology JSON: %v\n%s", err, buf.String())
+	}
+
+	if expected.SchemaVersion != backupExpectedTopologySchemaVersion {
+		t.Fatalf("schema version = %d", expected.SchemaVersion)
+	}
+
+	if len(expected.DatabaseRoles) != 3 {
+		t.Fatalf("database roles = %+v", expected.DatabaseRoles)
+	}
+
+	if len(expected.Instances) != 6 {
+		t.Fatalf("instances = %+v", expected.Instances)
+	}
+
+	if len(expected.Paths) != 8 {
+		t.Fatalf("paths = %+v", expected.Paths)
+	}
+
+	pathSet := backupExpectedPathSet(expected.Paths)
+	for _, key := range []string{
+		"local_state/queue.persistence//data/vectis/queue/local-ha/queue-1",
+		"local_state/queue.persistence//data/vectis/queue/local-ha/queue-2",
+		"local_state/log.storage//data/vectis/jobs/log-1",
+		"local_state/log.storage//data/vectis/jobs/log-2",
+		"local_state/artifact.storage//data/vectis/artifact/artifact-1",
+		"local_state/artifact.storage//data/vectis/artifact/artifact-2",
+		"secret_stores/secrets.encryptedfs.root//data/vectis/secrets/encryptedfs",
+		"secret_stores/secrets.encryptedfs.key_file//run/vectis/secrets/encryptedfs.key",
+	} {
+		if !pathSet[key] {
+			t.Fatalf("expected paths missing %s: %+v", key, expected.Paths)
+		}
+	}
+
+	manifest := backupManifest{
+		SchemaVersion: backupManifestSchemaVersion,
+		GeneratedAt:   "2026-06-28T13:00:00Z",
+		Inventories: []backupManifestInventory{
+			{Source: "podman.inventory.json", GeneratedAt: "2026-06-28T12:00:00Z", Version: "test", DatabaseDriver: "pgx"},
+		},
+	}
+
+	version := 42
+	dirty := false
+	for _, role := range expected.DatabaseRoles {
+		manifest.DatabaseRoles = append(manifest.DatabaseRoles, backupManifestDatabaseRole{
+			InventorySource: "podman.inventory.json",
+			Role:            role.Role,
+			Driver:          role.Driver,
+			DSN:             "postgres://vectis:REDACTED@127.0.0.1:5432/vectis",
+			Schema:          backupSchemaInventory{Inspectable: true, CurrentVersion: &version, Dirty: &dirty},
+		})
+	}
+
+	for _, instance := range expected.Instances {
+		manifest.Instances = append(manifest.Instances, backupManifestInstance{
+			InventorySource: "podman.inventory.json",
+			Service:         instance.Service,
+			InstanceID:      instance.InstanceID,
+		})
+	}
+
+	for _, path := range expected.Paths {
+		manifest.RequiredPaths = append(manifest.RequiredPaths, backupManifestPath{
+			InventorySource: "podman.inventory.json",
+			Category:        path.Category,
+			ID:              path.ID,
+			Path:            path.Path,
+			Enabled:         true,
+			Exists:          true,
+			Readable:        true,
+		})
+	}
+
+	manifest.RequiredPaths = append(manifest.RequiredPaths, backupManifestPath{
+		InventorySource: "podman.inventory.json",
+		Category:        "config_paths",
+		ID:              "deploy.config_dir",
+		Path:            "/etc/vectis/deploy",
+		Enabled:         true,
+		Exists:          true,
+		Readable:        true,
+	})
+
+	result := verifyBackupManifest(manifest, &backupExpectedTopologyInput{Source: "podman-expected.json", Expectations: expected}, time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC))
+	if result.Status != backupManifestStatusOK || len(result.Errors) != 0 {
+		t.Fatalf("podman expected topology verification = %+v", result)
+	}
+}
+
 func backupPathsByID(paths []backupPathInventory) map[string]backupPathInventory {
 	out := map[string]backupPathInventory{}
 	for _, path := range paths {
@@ -380,6 +481,15 @@ func backupManifestPathsByCategoryID(paths []backupManifestPath) map[string]back
 	out := map[string]backupManifestPath{}
 	for _, path := range paths {
 		out[path.Category+"/"+path.ID] = path
+	}
+
+	return out
+}
+
+func backupExpectedPathSet(paths []backupExpectedPath) map[string]bool {
+	out := map[string]bool{}
+	for _, path := range paths {
+		out[path.Category+"/"+path.ID+"/"+path.Path] = true
 	}
 
 	return out

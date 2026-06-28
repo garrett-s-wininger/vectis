@@ -55,6 +55,14 @@ failures with an expected topology file:
 vectis-cli backup verify --expect expected-topology.json backup-manifest.json
 ```
 
+For the Podman reference deployment, generate that file from the deployment
+profile:
+
+```sh
+vectis-cli backup expect podman --profile ha --format json > expected-topology.json
+vectis-cli backup verify --expect expected-topology.json backup-manifest.json
+```
+
 Expected topology files are JSON. `inventory_sources` and each
 `inventory_source` matcher must use the same source strings passed to
 `backup manifest`.

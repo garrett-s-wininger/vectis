@@ -218,6 +218,7 @@ type backupExpectedPath struct {
 }
 
 var backupVerifyExpectPath string
+var backupExpectPodmanProfile = podmanProfileSimple
 
 var backupCmd = &cobra.Command{
 	Use:     "backup",
@@ -251,6 +252,32 @@ service instance IDs, and required local paths that the backup set must capture.
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		runCLIError(writeBackupManifest(os.Stdout, args, time.Now().UTC()))
+	},
+}
+
+var backupExpectCmd = &cobra.Command{
+	Use:   "expect",
+	Short: "Generate expected backup topology inputs",
+	Long: `Generate expected backup topology JSON for use with backup verify --expect.
+
+The generated expectation describes deployment-owned backup surfaces that should
+appear in a backup manifest. It does not inspect live state.`,
+	Args: cobra.NoArgs,
+	Run:  showCommandHelp,
+}
+
+var backupExpectPodmanCmd = &cobra.Command{
+	Use:   "podman",
+	Short: "Generate expected topology for the Podman reference deployment",
+	Long: `Generate expected backup topology JSON for the Podman reference deployment.
+
+Use this with vectis-cli backup verify --expect after collecting inventories and
+building a backup manifest. The output is source-agnostic by default: it checks
+that the expected Podman shard instances and paths exist somewhere in the
+submitted manifest without assuming inventory file names.`,
+	Args: cobra.NoArgs,
+	Run: func(cmd *cobra.Command, args []string) {
+		runCLIError(writeBackupPodmanExpectedTopology(os.Stdout, backupExpectPodmanProfile))
 	},
 }
 
@@ -327,6 +354,19 @@ func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath strin
 	}
 
 	return nil
+}
+
+func writeBackupPodmanExpectedTopology(w io.Writer, profile string) error {
+	expected, normalizedProfile, err := backupPodmanExpectedTopology(profile)
+	if err != nil {
+		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, expected)
+	}
+
+	return writeBackupExpectedTopologyText(w, "podman", normalizedProfile, expected)
 }
 
 func collectBackupInventory(generatedAt time.Time) backupInventory {
@@ -562,6 +602,81 @@ func buildBackupManifest(inputs []backupInventoryInput, generatedAt time.Time) b
 	}
 
 	return manifest
+}
+
+func backupPodmanExpectedTopology(profile string) (backupExpectedTopology, string, error) {
+	profile, err := backupNormalizePodmanProfile(profile)
+	if err != nil {
+		return backupExpectedTopology{}, "", err
+	}
+
+	data := podmanTemplateDataForProfile(profile)
+	expected := backupExpectedTopology{
+		SchemaVersion: backupExpectedTopologySchemaVersion,
+		DatabaseRoles: []backupExpectedDatabaseRole{
+			{Role: "default", Driver: "pgx"},
+			{Role: "global", Driver: "pgx"},
+			{Role: "cell", Driver: "pgx"},
+		},
+		RequireCategories: []string{"local_state", "secret_stores", "config_paths"},
+	}
+
+	for _, shard := range data.QueueShards {
+		expected.Instances = append(expected.Instances, backupExpectedInstance{
+			Service:    "queue",
+			InstanceID: shard.InstanceID,
+		})
+		expected.Paths = append(expected.Paths, backupExpectedPath{
+			Category: "local_state",
+			ID:       "queue.persistence",
+			Path:     shard.PersistenceDir,
+		})
+	}
+
+	for _, shard := range data.LogShards {
+		expected.Instances = append(expected.Instances, backupExpectedInstance{
+			Service:    "log",
+			InstanceID: shard.InstanceID,
+		})
+		expected.Paths = append(expected.Paths, backupExpectedPath{
+			Category: "local_state",
+			ID:       "log.storage",
+			Path:     shard.StorageDir,
+		})
+	}
+
+	for _, shard := range data.ArtifactShards {
+		expected.Instances = append(expected.Instances, backupExpectedInstance{
+			Service:    "artifact",
+			InstanceID: shard.InstanceID,
+		})
+		expected.Paths = append(expected.Paths, backupExpectedPath{
+			Category: "local_state",
+			ID:       "artifact.storage",
+			Path:     shard.StorageDir,
+		})
+	}
+
+	expected.Paths = append(expected.Paths,
+		backupExpectedPath{Category: "secret_stores", ID: "secrets.encryptedfs.root", Path: "/data/vectis/secrets/encryptedfs"},
+		backupExpectedPath{Category: "secret_stores", ID: "secrets.encryptedfs.key_file", Path: "/run/vectis/secrets/encryptedfs.key"},
+	)
+
+	return expected, profile, nil
+}
+
+func backupNormalizePodmanProfile(profile string) (string, error) {
+	profile = strings.ToLower(strings.TrimSpace(profile))
+	if profile == "" {
+		profile = podmanProfileSimple
+	}
+
+	switch profile {
+	case podmanProfileSimple, podmanProfileHA:
+		return profile, nil
+	default:
+		return "", fmt.Errorf("invalid podman profile %q (must be simple or ha)", profile)
+	}
 }
 
 func appendBackupManifestPaths(out []backupManifestPath, inventorySource, category string, paths []backupPathInventory) []backupManifestPath {
@@ -1404,6 +1519,39 @@ func writeBackupManifestText(w io.Writer, manifest backupManifest) error {
 				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+func writeBackupExpectedTopologyText(w io.Writer, source, profile string, expected backupExpectedTopology) error {
+	if _, err := fmt.Fprintf(w, "Expected backup topology: %s profile=%s\n", source, profile); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Schema version: %d\n", expected.SchemaVersion); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Database roles: %d\n", len(expected.DatabaseRoles)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Instances: %d\n", len(expected.Instances)); err != nil {
+		return err
+	}
+	for _, instance := range expected.Instances {
+		if _, err := fmt.Fprintf(w, "  %s: %s\n", instance.Service, backupDash(instance.InstanceID)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "Paths: %d\n", len(expected.Paths)); err != nil {
+		return err
+	}
+	for _, path := range expected.Paths {
+		if _, err := fmt.Fprintf(w, "  %s/%s: %s\n", path.Category, path.ID, backupDash(path.Path)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "Required categories: %s\n", strings.Join(expected.RequireCategories, ", ")); err != nil {
+		return err
 	}
 
 	return nil
