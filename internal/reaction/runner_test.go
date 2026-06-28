@@ -165,6 +165,82 @@ func TestRunnerRunOnceRetriesLocalNotificationWithoutDuplicateMessage(t *testing
 	}
 }
 
+func TestRunnerRunOnceFinalizesExpiredMaxAttemptsWithoutExecuting(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := store.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"expired max runner"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "expired-runner-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"expired-runner"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	invocation, err := store.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+		MaxAttempts:          1,
+	})
+
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	claimed, err := store.MarkInvocationRunning(ctx, invocation.InvocationID, "stale-runner", time.Now().Add(-time.Second).UnixNano())
+	if err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected stale runner claim")
+	}
+
+	action := &countingAction{actionType: dal.ReactionActionNotifyLocal}
+	summary, err := (&reaction.Runner{
+		Store:   store,
+		Owner:   "runner-test",
+		Actions: []reaction.Action{action},
+	}).RunOnce(ctx, 10)
+
+	if err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+
+	if summary.Expired != 1 || summary.Scanned != 0 || summary.Claimed != 0 {
+		t.Fatalf("summary: %+v", summary)
+	}
+
+	if action.calls != 0 {
+		t.Fatalf("action should not execute, calls=%d", action.calls)
+	}
+
+	updated, err := store.GetInvocation(ctx, invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+
+	if updated.Status != dal.ReactionInvocationStatusFailed {
+		t.Fatalf("updated invocation: %+v", updated)
+	}
+}
+
 func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	store := dal.NewSQLRepositories(db).Reactions()
@@ -226,6 +302,20 @@ func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 	if updated.LastError == nil || !strings.Contains(*updated.LastError, dal.ReactionActionTriggerJob) {
 		t.Fatalf("last error: %v", updated.LastError)
 	}
+}
+
+type countingAction struct {
+	actionType string
+	calls      int
+}
+
+func (a *countingAction) Type() string {
+	return a.actionType
+}
+
+func (a *countingAction) ExecuteInvocation(context.Context, reaction.ActionRequest) error {
+	a.calls++
+	return nil
 }
 
 type crashAfterLocalNotifyAction struct {

@@ -18,6 +18,7 @@ const (
 type Store interface {
 	GetEvent(ctx context.Context, eventID string) (dal.ReactionEventRecord, error)
 	ListReadyInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]dal.ReactionInvocationRecord, error)
+	MarkExpiredInvocationsFailed(ctx context.Context, nowUnixNano int64) (int, error)
 	MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error)
 	MarkInvocationSucceeded(ctx context.Context, invocationID string, completedAtUnixNano int64) error
 	MarkInvocationFailed(ctx context.Context, invocationID, message string, nextAttemptAtUnixNano int64) error
@@ -49,6 +50,7 @@ type RunSummary struct {
 	Skipped   int
 	Succeeded int
 	Failed    int
+	Expired   int
 }
 
 func (r *Runner) RunOnce(ctx context.Context, limit int) (RunSummary, error) {
@@ -62,12 +64,17 @@ func (r *Runner) RunOnce(ctx context.Context, limit int) (RunSummary, error) {
 	}
 
 	now := time.Now()
+	expired, err := r.Store.MarkExpiredInvocationsFailed(ctx, now.UnixNano())
+	if err != nil {
+		return RunSummary{}, err
+	}
+
 	ready, err := r.Store.ListReadyInvocations(ctx, now.UnixNano(), limit)
 	if err != nil {
 		return RunSummary{}, err
 	}
 
-	summary := RunSummary{Scanned: len(ready)}
+	summary := RunSummary{Scanned: len(ready), Expired: expired}
 	for _, invocation := range ready {
 		claimed, err := r.Store.MarkInvocationRunning(ctx, invocation.InvocationID, r.owner(), now.Add(r.claimTTL()).UnixNano())
 		if err != nil {

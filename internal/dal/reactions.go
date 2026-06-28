@@ -428,7 +428,7 @@ func (r *SQLReactionsRepository) ListReadyInvocations(ctx context.Context, nowUn
 		       created_at, updated_at, completed_at
 		FROM reaction_invocations
 		WHERE (status = ? AND next_attempt_at <= ?)
-		   OR (status = ? AND claim_until IS NOT NULL AND claim_until <= ?)
+		   OR (status = ? AND claim_until IS NOT NULL AND claim_until <= ? AND attempts < max_attempts)
 		ORDER BY next_attempt_at ASC, id ASC
 		LIMIT ?
 	`), ReactionInvocationStatusPending, nowUnixNano, ReactionInvocationStatusRunning, nowUnixNano, limit)
@@ -455,6 +455,38 @@ func (r *SQLReactionsRepository) ListReadyInvocations(ctx context.Context, nowUn
 	return out, nil
 }
 
+func (r *SQLReactionsRepository) MarkExpiredInvocationsFailed(ctx context.Context, nowUnixNano int64) (int, error) {
+	if nowUnixNano <= 0 {
+		nowUnixNano = time.Now().UnixNano()
+	}
+
+	now := time.Now().UnixNano()
+	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		UPDATE reaction_invocations
+		SET status = ?,
+		    claimed_by = '',
+		    claim_until = NULL,
+		    last_error = ?,
+		    updated_at = ?
+		WHERE status = ?
+		  AND claim_until IS NOT NULL
+		  AND claim_until <= ?
+		  AND attempts >= max_attempts
+	`), ReactionInvocationStatusFailed, "reaction invocation claim expired after reaching max attempts", now,
+		ReactionInvocationStatusRunning, nowUnixNano)
+
+	if err != nil {
+		return 0, normalizeSQLError(err)
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	return int(rows), nil
+}
+
 func (r *SQLReactionsRepository) MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error) {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
@@ -477,7 +509,7 @@ func (r *SQLReactionsRepository) MarkInvocationRunning(ctx context.Context, invo
 		WHERE invocation_id = ?
 		  AND (
 		    (status = ? AND next_attempt_at <= ?)
-		    OR (status = ? AND claim_until IS NOT NULL AND claim_until <= ?)
+		    OR (status = ? AND claim_until IS NOT NULL AND claim_until <= ? AND attempts < max_attempts)
 		  )
 	`), ReactionInvocationStatusRunning, owner, claimUntilUnixNano, now, invocationID,
 		ReactionInvocationStatusPending, now, ReactionInvocationStatusRunning, now)

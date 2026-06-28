@@ -502,6 +502,85 @@ func TestReactionsRepository_ListReadyInvocationsIncludesExpiredClaims(t *testin
 	}
 }
 
+func TestReactionsRepository_MarkExpiredInvocationsFailedFinalizesMaxedClaims(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"expired max attempts"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "expired-max-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"expired-max"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	invocation, err := repo.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+		MaxAttempts:          1,
+	})
+
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	claimed, err := repo.MarkInvocationRunning(ctx, invocation.InvocationID, "stale-runner", time.Now().Add(-time.Second).UnixNano())
+	if err != nil {
+		t.Fatalf("mark stale running: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected stale runner claim")
+	}
+
+	ready, err := repo.ListReadyInvocations(ctx, time.Now().UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("list ready: %v", err)
+	}
+
+	if len(ready) != 0 {
+		t.Fatalf("maxed expired claim should not be ready: %+v", ready)
+	}
+
+	expired, err := repo.MarkExpiredInvocationsFailed(ctx, time.Now().UnixNano())
+	if err != nil {
+		t.Fatalf("mark expired failed: %v", err)
+	}
+
+	if expired != 1 {
+		t.Fatalf("expired count: got %d want 1", expired)
+	}
+
+	final, err := repo.GetInvocation(ctx, invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+
+	if final.Status != dal.ReactionInvocationStatusFailed || final.Attempts != 1 || final.ClaimedBy != "" || final.ClaimUntil != nil {
+		t.Fatalf("final invocation: %+v", final)
+	}
+
+	if final.LastError == nil || !strings.Contains(*final.LastError, "claim expired") {
+		t.Fatalf("last error: %v", final.LastError)
+	}
+}
+
 func TestReactionsRepository_MarkInvocationFailedRetriesThenFinalizesAndCapsError(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repo := dal.NewSQLRepositories(db).Reactions()

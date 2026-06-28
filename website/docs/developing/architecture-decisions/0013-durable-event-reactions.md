@@ -123,6 +123,9 @@ Reaction invocation uses at-least-once semantics. Reaction actions receive a
 stable event ID and reaction invocation ID so external sinks and downstream run
 creation can deduplicate where possible. Vectis records invocation state, but it
 does not promise exactly once side effects outside its database.
+Expired running claims are reclaimable only while the invocation has attempts
+remaining; once an expired claim has reached `max_attempts`, the runner marks it
+failed instead of executing the reaction again.
 
 Publishers may supply deterministic event IDs for retry-safe lifecycle emission.
 Duplicate event IDs and duplicate event-target invocations are idempotent only
