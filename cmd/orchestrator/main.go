@@ -52,7 +52,8 @@ func runVectisOrchestrator(cmd *cobra.Command, args []string) {
 	addr := fmt.Sprintf(":%d", port)
 	publishAddr := config.OrchestratorRegistryPublishAddress(addr)
 
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(cmd.Context(), "tcp", addr)
 	if err != nil {
 		logger.Fatal("Failed to listen: %v", err)
 	}

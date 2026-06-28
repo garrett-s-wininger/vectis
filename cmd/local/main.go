@@ -154,14 +154,14 @@ func (svc serviceStage) label() string {
 	return svc.binary
 }
 
-func startService(logger interfaces.Logger, svc serviceStage, logLevel string, tlsEnv []string) (*exec.Cmd, error) {
+func startService(ctx context.Context, logger interfaces.Logger, svc serviceStage, logLevel string, tlsEnv []string) (*exec.Cmd, error) {
 	path, err := supervisor.FindBinary(svc.binary)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find %s: %w", svc.label(), err)
 	}
 
 	// NOTE(garrett): Path comes from supervisor.FindBinary (installed vectis binaries), not arbitrary user input.
-	command := exec.Command(path) //#nosec G204
+	command := exec.CommandContext(ctx, path) //#nosec G204
 	command.Stdin = nil
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
@@ -1547,7 +1547,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 			go func(svc serviceStage) {
 				defer wg.Done()
 
-				proc, err := startService(logger, svc, logLevel, tlsEnv)
+				proc, err := startService(cmd.Context(), logger, svc, logLevel, tlsEnv)
 				if err != nil {
 					errCh <- err
 					return

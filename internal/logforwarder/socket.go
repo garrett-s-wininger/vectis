@@ -1,6 +1,7 @@
 package logforwarder
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -50,7 +51,8 @@ func NewSocketServer(socketPath string, bufferSize int) (*SocketServer, error) {
 		return nil, fmt.Errorf("create socket directory: %w", err)
 	}
 
-	ln, err := net.Listen("unix", socketPath)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("listen on unix socket: %w", err)
 	}

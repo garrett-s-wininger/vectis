@@ -329,14 +329,15 @@ func (a *Authority) startServers(ctx context.Context) error {
 		}
 	}
 
-	workloadListener, err := net.Listen("unix", a.cfg.WorkloadSocketPath)
+	var listenConfig net.ListenConfig
+	workloadListener, err := listenConfig.Listen(ctx, "unix", a.cfg.WorkloadSocketPath)
 	if err != nil {
 		return fmt.Errorf("local spiffe: listen workload API socket: %w", err)
 	}
 	a.workloadListener = workloadListener
 	_ = os.Chmod(a.cfg.WorkloadSocketPath, 0o600)
 
-	registrationListener, err := net.Listen("unix", a.cfg.RegistrationSocketPath)
+	registrationListener, err := listenConfig.Listen(ctx, "unix", a.cfg.RegistrationSocketPath)
 	if err != nil {
 		_ = workloadListener.Close()
 		return fmt.Errorf("local spiffe: listen registration API socket: %w", err)

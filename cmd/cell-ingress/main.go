@@ -94,7 +94,8 @@ func runCellIngress(cmd *cobra.Command, args []string) {
 	defer metricsSrv.Shutdown()
 
 	addr := config.CellIngressListenAddr()
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(ctx, "tcp", addr)
 	if err != nil {
 		logger.Fatal("Listen: %v", err)
 	}

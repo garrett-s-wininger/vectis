@@ -469,7 +469,7 @@ func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 
 func schemaMigrationsReady(db *sql.DB) error {
 	var dirty bool
-	if err := db.QueryRow("SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&dirty); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&dirty); err != nil {
 		return err
 	}
 

@@ -45,7 +45,8 @@ func DefaultInstanceID(bindAddr string) string {
 }
 
 func (s *Server) RunGRPC(ctx context.Context, bindAddr string) error {
-	lis, err := net.Listen("tcp", bindAddr)
+	var listenConfig net.ListenConfig
+	lis, err := listenConfig.Listen(ctx, "tcp", bindAddr)
 	if err != nil {
 		return err
 	}

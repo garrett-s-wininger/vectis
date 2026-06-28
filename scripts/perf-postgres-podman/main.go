@@ -107,7 +107,7 @@ func main() {
 	}
 
 	// #nosec G204 -- this harness intentionally executes the benchmark command supplied after "--".
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.CommandContext(context.Background(), args[0], args[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -144,7 +144,8 @@ func postgresHostPort() (string, error) {
 		return port, nil
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", err
 	}

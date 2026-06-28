@@ -94,7 +94,8 @@ func newUnixServer(socketPath, label string, register func(*grpc.Server), grpcOp
 		return nil, nil, fmt.Errorf("create %s socket directory: %w", label, err)
 	}
 
-	ln, err := net.Listen("unix", socketPath)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen %s socket: %w", label, err)
 	}

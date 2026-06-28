@@ -79,7 +79,8 @@ func runVectisSecrets(cmd *cobra.Command, args []string) {
 	}
 
 	addr := config.SecretsListenAddr()
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(ctx, "tcp", addr)
 	if err != nil {
 		logger.Fatal("Failed to listen: %v", err)
 	}

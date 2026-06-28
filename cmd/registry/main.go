@@ -33,7 +33,8 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	port := config.RegistryEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
 
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(cmd.Context(), "tcp", addr)
 	if err != nil {
 		logger.Fatal("Failed to listen: %v", err)
 	}

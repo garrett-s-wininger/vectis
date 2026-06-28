@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -599,7 +600,7 @@ func macroDatabaseTag(database string) (string, error) {
 
 func runCommand(command []string, env map[string]string) commandResult {
 	// #nosec G204 -- perf harness commands are explicit developer-supplied benchmark commands.
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd := exec.CommandContext(context.Background(), command[0], command[1:]...)
 	cmd.Dir = repoRoot()
 	if env != nil {
 		cmd.Env = envList(env)
@@ -1109,7 +1110,8 @@ func serveRunDir(runDir, host string, port int) error {
 		host = "127.0.0.1"
 	}
 
-	listener, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(context.Background(), "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		return fmt.Errorf("start report server: %w", err)
 	}
@@ -1262,7 +1264,7 @@ func repoRoot() string {
 
 func commandOutputNoRepo(command []string, fallback string) string {
 	// #nosec G204 -- commands are fixed harness metadata probes such as git and go.
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd := exec.CommandContext(context.Background(), command[0], command[1:]...)
 	output, err := cmd.Output()
 	if err != nil {
 		return fallback

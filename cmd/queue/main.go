@@ -70,7 +70,8 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 
 	persistenceDir := queuePersistenceDir(cmd, pool, instanceID)
 
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(cmd.Context(), "tcp", addr)
 	if err != nil {
 		logger.Fatal("Failed to listen: %v", err)
 	}

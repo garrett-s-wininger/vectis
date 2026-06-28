@@ -394,7 +394,8 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	port := config.APIEffectiveListenPort()
 	addr := net.JoinHostPort(config.APIHost(), fmt.Sprintf("%d", port))
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(cmd.Context(), "tcp", addr)
 	if err != nil {
 		logger.Error("Listen: %v", err)
 		exitCode = 1

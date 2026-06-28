@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"github.com/spf13/cobra"
 	"io"
 	"net/http"
@@ -13,7 +14,7 @@ import (
 )
 
 func newAPIRequest(method, path string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, config.PublicAPIBaseURL()+path, body)
+	req, err := http.NewRequestWithContext(context.Background(), method, config.PublicAPIBaseURL()+path, body)
 	if err != nil {
 		return nil, err
 	}

@@ -46,7 +46,8 @@ func StartServer(t *testing.T, register func(*grpc.Server)) *Server {
 func StartServerWithOptions(t *testing.T, opts Options, register func(*grpc.Server)) *Server {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}

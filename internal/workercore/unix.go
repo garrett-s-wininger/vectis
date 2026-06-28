@@ -129,7 +129,8 @@ func NewUnixCoreServer(socketPath string, core api.WorkerCoreServiceServer, opts
 		return nil, nil, fmt.Errorf("create worker core socket directory: %w", err)
 	}
 
-	ln, err := net.Listen("unix", socketPath)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen worker core socket: %w", err)
 	}
@@ -164,7 +165,8 @@ func NewUnixShellServer(socketPath string, shell api.WorkerCoreShellServiceServe
 		return nil, nil, fmt.Errorf("create worker core shell socket directory: %w", err)
 	}
 
-	ln, err := net.Listen("unix", socketPath)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen worker core shell socket: %w", err)
 	}

@@ -1038,7 +1038,8 @@ func isCompletedEvent(entry LogEntry) bool {
 }
 
 func (s *Server) RunGRPC(ctx context.Context, port string) error {
-	lis, err := net.Listen("tcp", port)
+	var listenConfig net.ListenConfig
+	lis, err := listenConfig.Listen(ctx, "tcp", port)
 	if err != nil {
 		return err
 	}

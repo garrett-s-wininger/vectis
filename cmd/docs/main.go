@@ -49,7 +49,8 @@ func runDocs(cmd *cobra.Command, args []string) {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", viper.GetInt("port")))
 	srv := docsHTTPServer(addr, handler)
 
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(cmd.Context(), "tcp", addr)
 	if err != nil {
 		logger.Fatal("Listen: %v", err)
 	}

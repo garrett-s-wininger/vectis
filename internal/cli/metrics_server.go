@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -35,7 +36,8 @@ func StartMetricsHTTPServer(
 
 	srv := newMetricsHTTPServer(addr, metricsServerHandlerForHost(bindHost, handler))
 
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen for metrics: %w", err)
 	}

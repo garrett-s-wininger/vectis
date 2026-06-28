@@ -17,6 +17,7 @@ linters:
     - nilerr
     - nilnil
     - nilnesserr
+    - noctx
     - nolintlint
     - protogetter
     - rowserrcheck
@@ -59,10 +60,11 @@ linters:
       - api/gen/go
       - website
     rules:
-      # NOTE(garrett): Tests use short-lived servers, example URLs, and intentional unchecked errors.
+      # NOTE(garrett): Tests use short-lived servers, direct DB probes, example URLs, and intentional unchecked errors.
       - path: _test\.go$
         linters:
           - gosec
+          - noctx
 
 issues:
   max-same-issues: 50
