@@ -44,6 +44,7 @@ type SourceSyncMetrics struct {
 	objectStorePackFiles metric.Int64ObservableGauge
 	objectStorePackBytes metric.Int64ObservableGauge
 	objectStoreLoose     metric.Int64ObservableGauge
+	objectStoreHydrated  metric.Int64ObservableGauge
 	objectStoreWarnings  metric.Int64ObservableGauge
 	objectStoreMu        sync.RWMutex
 	objectStore          map[string]sourceRepositoryObjectStoreMetricRecord
@@ -62,6 +63,7 @@ type sourceRepositoryObjectStoreMetricRecord struct {
 	packFiles    int
 	packBytes    int64
 	looseObjects int
+	hydratedRefs int
 	warnings     []SourceRepositoryObjectStoreWarning
 }
 
@@ -126,9 +128,18 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		return nil, fmt.Errorf("vectis_source_repository_object_store_loose_objects: %w", err)
 	}
 
+	objectStoreHydrated, err := m.Int64ObservableGauge("vectis_source_repository_object_store_hydrated_refs",
+		metric.WithDescription("Latest source repository Git Vectis-hydrated ref count"),
+		metric.WithUnit("{ref}"))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_repository_object_store_hydrated_refs: %w", err)
+	}
+
 	objectStoreWarnings, err := m.Int64ObservableGauge("vectis_source_repository_object_store_warnings",
 		metric.WithDescription("Latest source repository Git object-store warning conditions; each active warning is observed as 1"),
 		metric.WithUnit("{warning}"))
+
 	if err != nil {
 		return nil, fmt.Errorf("vectis_source_repository_object_store_warnings: %w", err)
 	}
@@ -142,6 +153,7 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		objectStorePackFiles: objectStorePackFiles,
 		objectStorePackBytes: objectStorePackBytes,
 		objectStoreLoose:     objectStoreLoose,
+		objectStoreHydrated:  objectStoreHydrated,
 		objectStoreWarnings:  objectStoreWarnings,
 		objectStore:          make(map[string]sourceRepositoryObjectStoreMetricRecord),
 	}
@@ -151,6 +163,7 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		objectStorePackFiles,
 		objectStorePackBytes,
 		objectStoreLoose,
+		objectStoreHydrated,
 		objectStoreWarnings,
 	)
 
@@ -181,7 +194,7 @@ func (m *SourceSyncMetrics) RecordSourceRefHydration(ctx context.Context, source
 	m.refHydrationDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
 }
 
-func (m *SourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []SourceRepositoryObjectStoreWarning) {
+func (m *SourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects, hydratedRefs int, warnings []SourceRepositoryObjectStoreWarning) {
 	if m == nil {
 		return
 	}
@@ -195,6 +208,7 @@ func (m *SourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context,
 		packFiles:    max(packFiles, 0),
 		packBytes:    max(packBytes, 0),
 		looseObjects: max(looseObjects, 0),
+		hydratedRefs: max(hydratedRefs, 0),
 		warnings:     normalizeSourceRepositoryObjectStoreMetricWarnings(warnings),
 	}
 
@@ -222,6 +236,7 @@ func (m *SourceSyncMetrics) observeSourceRepositoryObjectStoreMetrics(_ context.
 		o.ObserveInt64(m.objectStorePackFiles, int64(rec.packFiles), metric.WithAttributes(attrs...))
 		o.ObserveInt64(m.objectStorePackBytes, rec.packBytes, metric.WithAttributes(attrs...))
 		o.ObserveInt64(m.objectStoreLoose, int64(rec.looseObjects), metric.WithAttributes(attrs...))
+		o.ObserveInt64(m.objectStoreHydrated, int64(rec.hydratedRefs), metric.WithAttributes(attrs...))
 
 		for _, warning := range rec.warnings {
 			warningAttrs := append(append([]attribute.KeyValue(nil), attrs...),

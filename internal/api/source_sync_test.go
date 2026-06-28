@@ -46,6 +46,7 @@ type sourceObjectStoreMetricRecord struct {
 	packFiles    int
 	packBytes    int64
 	looseObjects int
+	hydratedRefs int
 	warnings     []observability.SourceRepositoryObjectStoreWarning
 }
 
@@ -83,7 +84,7 @@ func (m *recordingSourceSyncMetrics) RecordSourceRefHydration(_ context.Context,
 	})
 }
 
-func (m *recordingSourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []observability.SourceRepositoryObjectStoreWarning) {
+func (m *recordingSourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects, hydratedRefs int, warnings []observability.SourceRepositoryObjectStoreWarning) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -95,6 +96,7 @@ func (m *recordingSourceSyncMetrics) RecordSourceRepositoryObjectStore(_ context
 		packFiles:    packFiles,
 		packBytes:    packBytes,
 		looseObjects: looseObjects,
+		hydratedRefs: hydratedRefs,
 		warnings:     append([]observability.SourceRepositoryObjectStoreWarning(nil), warnings...),
 	})
 }

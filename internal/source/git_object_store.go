@@ -1,15 +1,18 @@
 package source
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 const (
 	gitObjectLooseScanLimit               = 10000
+	gitHydratedRefScanLimit               = 5000
 	gitObjectStorePressureOK              = "ok"
 	gitObjectStorePressureWarning         = "warning"
 	gitObjectStorePressureCritical        = "critical"
@@ -17,9 +20,13 @@ const (
 	gitObjectStorePackFilesCritical       = 200
 	gitObjectStoreLooseObjectsWarning     = 5000
 	gitObjectStoreLooseObjectsCritical    = 9000
+	gitObjectStoreHydratedRefsWarning     = 1000
+	gitObjectStoreHydratedRefsCritical    = gitHydratedRefScanLimit
 	gitObjectStoreWarningManyPacks        = "many_pack_files"
 	gitObjectStoreWarningManyLoose        = "many_loose_objects"
+	gitObjectStoreWarningManyHydratedRefs = "many_hydrated_refs"
 	gitObjectStoreWarningLooseTruncated   = "loose_object_scan_truncated"
+	gitObjectStoreWarningHydratedRefsScan = "hydrated_ref_scan_truncated"
 	gitObjectStoreWarningKeepFiles        = "pack_keep_files_present"
 	gitObjectStoreWarningMaintenance      = "maintenance_indicator_files"
 	gitObjectStoreWarningMissingCommit    = "commit_graph_missing"
@@ -33,6 +40,9 @@ type GitCheckoutObjectStoreStatus struct {
 	LooseObjects              int
 	LooseObjectsTruncated     bool
 	LooseObjectScanLimit      int
+	HydratedRefs              int
+	HydratedRefsTruncated     bool
+	HydratedRefScanLimit      int
 	CommitGraph               bool
 	MultiPackIndex            bool
 	MaintenanceIndicatorFiles []string
@@ -49,6 +59,7 @@ type GitCheckoutObjectStoreWarning struct {
 func (g *GitCheckout) objectStoreStatus(ctx context.Context) GitCheckoutObjectStoreStatus {
 	status := GitCheckoutObjectStoreStatus{
 		LooseObjectScanLimit: gitObjectLooseScanLimit,
+		HydratedRefScanLimit: gitHydratedRefScanLimit,
 		Pressure:             gitObjectStorePressureOK,
 	}
 
@@ -61,6 +72,7 @@ func (g *GitCheckout) objectStoreStatus(ctx context.Context) GitCheckoutObjectSt
 	objectsDir := filepath.Join(commonDir, "objects")
 	status.scanPackDirectory(filepath.Join(objectsDir, "pack"))
 	status.scanLooseObjects(objectsDir)
+	status.countHydratedRefs(ctx, g)
 	status.CommitGraph = fileExists(filepath.Join(objectsDir, "info", "commit-graph")) ||
 		fileExists(filepath.Join(objectsDir, "info", "commit-graphs", "commit-graph-chain"))
 
@@ -88,6 +100,15 @@ func (s *GitCheckoutObjectStoreStatus) classifyPressure() {
 		s.addWarning(gitObjectStoreWarningManyLoose, gitObjectStorePressureCritical, "repository has a high number of loose objects")
 	case s.LooseObjects >= gitObjectStoreLooseObjectsWarning:
 		s.addWarning(gitObjectStoreWarningManyLoose, gitObjectStorePressureWarning, "repository has many loose objects")
+	}
+
+	switch {
+	case s.HydratedRefsTruncated:
+		s.addWarning(gitObjectStoreWarningHydratedRefsScan, gitObjectStorePressureCritical, "hydrated ref scan hit the safety limit")
+	case s.HydratedRefs >= gitObjectStoreHydratedRefsCritical:
+		s.addWarning(gitObjectStoreWarningManyHydratedRefs, gitObjectStorePressureCritical, "repository has a high number of hydrated refs")
+	case s.HydratedRefs >= gitObjectStoreHydratedRefsWarning:
+		s.addWarning(gitObjectStoreWarningManyHydratedRefs, gitObjectStorePressureWarning, "repository has many hydrated refs")
 	}
 
 	if s.PackKeepFiles > 0 {
@@ -208,6 +229,37 @@ func (s *GitCheckoutObjectStoreStatus) scanLooseObjects(objectsDir string) {
 				s.LooseObjectsTruncated = true
 				return
 			}
+		}
+	}
+}
+
+func (s *GitCheckoutObjectStoreStatus) countHydratedRefs(ctx context.Context, g *GitCheckout) {
+	if s.HydratedRefScanLimit <= 0 {
+		s.HydratedRefScanLimit = gitHydratedRefScanLimit
+	}
+
+	out, err := g.run(ctx,
+		"for-each-ref",
+		"--count="+strconv.Itoa(s.HydratedRefScanLimit+1),
+		"--format=%(refname)",
+		"refs/vectis/hydrated",
+	)
+	if err != nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) == "" {
+			continue
+		}
+
+		s.HydratedRefs++
+		if s.HydratedRefs >= s.HydratedRefScanLimit {
+			if scanner.Scan() {
+				s.HydratedRefsTruncated = true
+			}
+			return
 		}
 	}
 }

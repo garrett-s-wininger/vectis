@@ -58,7 +58,8 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `vectis_source_repository_object_store_pack_files` | Gauge | `repository_id`, `source_kind`, `checkout_mode` | Latest pack file count for a source checkout. | Detect pack fragmentation in large or high-churn repositories. |
 | `vectis_source_repository_object_store_pack_bytes` | Gauge | `repository_id`, `source_kind`, `checkout_mode` | Latest total bytes across `.pack` files for a source checkout. | Track checkout object-store size growth. |
 | `vectis_source_repository_object_store_loose_objects` | Gauge | `repository_id`, `source_kind`, `checkout_mode` | Latest loose object count for a source checkout, capped by the status scan limit. | Detect loose object buildup before Git maintenance surprises request latency. |
-| `vectis_source_repository_object_store_warnings` | Gauge | `repository_id`, `source_kind`, `checkout_mode`, `code`, `severity` | Active object-store warning conditions, each observed as `1`. | Alert on specific pressure causes such as many pack files, truncated loose-object scans, `.keep` files, or maintenance indicator files. |
+| `vectis_source_repository_object_store_hydrated_refs` | Gauge | `repository_id`, `source_kind`, `checkout_mode` | Latest Vectis-hydrated provider-ref count for a source checkout, capped by the status scan limit. | Detect GitHub pull or Gerrit change ref churn accumulating under the managed checkout namespace. |
+| `vectis_source_repository_object_store_warnings` | Gauge | `repository_id`, `source_kind`, `checkout_mode`, `code`, `severity` | Active object-store warning conditions, each observed as `1`. | Alert on specific pressure causes such as many pack files, loose objects, hydrated refs, truncated scans, `.keep` files, or maintenance indicator files. |
 
 ## Queue
 

@@ -29,7 +29,7 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerManual, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, 25*time.Millisecond)
 	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerPeriodic, "local_checkout", "managed", SourceSyncOutcomeFailed, SourceSyncReasonFromErrorCode("git_credentials_unavailable"), 10*time.Millisecond)
 	m.RecordSourceRefHydration(ctx, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, "fallback-2", SourceRefHydrationCacheHit, 15*time.Millisecond)
-	m.RecordSourceRepositoryObjectStore(ctx, "managed-repo", "local_checkout", "managed", "warning", 64, 128<<20, 6000, []SourceRepositoryObjectStoreWarning{
+	m.RecordSourceRepositoryObjectStore(ctx, "managed-repo", "local_checkout", "managed", "warning", 64, 128<<20, 6000, 42, []SourceRepositoryObjectStoreWarning{
 		{Code: "many_pack_files", Severity: "warning"},
 	})
 
@@ -85,6 +85,7 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 		"vectis_source_repository_object_store_pack_files",
 		"vectis_source_repository_object_store_pack_bytes",
 		"vectis_source_repository_object_store_loose_objects",
+		"vectis_source_repository_object_store_hydrated_refs",
 	} {
 		if !metricFamilyHasLabels(families[family], map[string]string{
 			"repository_id": "managed-repo",

@@ -203,7 +203,7 @@ type sourceRefHydrationMetrics interface {
 }
 
 type sourceRepositoryObjectStoreMetrics interface {
-	RecordSourceRepositoryObjectStore(ctx context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects int, warnings []observability.SourceRepositoryObjectStoreWarning)
+	RecordSourceRepositoryObjectStore(ctx context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects, hydratedRefs int, warnings []observability.SourceRepositoryObjectStoreWarning)
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {

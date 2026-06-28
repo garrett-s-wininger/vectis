@@ -37,7 +37,7 @@ type sourceRepositoryStatusMetricRecorder struct {
 func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositorySync(context.Context, string, string, string, string, string, time.Duration) {
 }
 
-func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, _ int, _ int64, _ int, _ []observability.SourceRepositoryObjectStoreWarning) {
+func (m *sourceRepositoryStatusMetricRecorder) RecordSourceRepositoryObjectStore(_ context.Context, repositoryID, sourceKind, checkoutMode, pressure string, _ int, _ int64, _, _ int, _ []observability.SourceRepositoryObjectStoreWarning) {
 	m.records = append(m.records, sourceRepositoryObjectStoreMetricRecord{
 		repositoryID: repositoryID,
 		sourceKind:   sourceKind,
@@ -1657,6 +1657,8 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
+	apiGit(t, repoPath, "update-ref", "refs/vectis/hydrated/1111111111111111111111111111111111111111", commit)
+	apiGit(t, repoPath, "update-ref", "refs/vectis/hydrated/2222222222222222222222222222222222222222", commit)
 
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
 		"repository_id": "vectis-local",
@@ -1697,6 +1699,8 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 	if statusResp.ObjectStore == nil ||
 		statusResp.ObjectStore.LooseObjects == 0 ||
 		statusResp.ObjectStore.LooseObjectScanLimit == 0 ||
+		statusResp.ObjectStore.HydratedRefs != 2 ||
+		statusResp.ObjectStore.HydratedRefScanLimit == 0 ||
 		statusResp.ObjectStore.Pressure != "ok" ||
 		len(statusResp.ObjectStore.Warnings) != 0 {
 		t.Fatalf("object store status mismatch: %+v", statusResp.ObjectStore)
@@ -3758,6 +3762,9 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 		LooseObjects              int      `json:"loose_objects"`
 		LooseObjectsTruncated     bool     `json:"loose_objects_truncated"`
 		LooseObjectScanLimit      int      `json:"loose_object_scan_limit"`
+		HydratedRefs              int      `json:"hydrated_refs"`
+		HydratedRefsTruncated     bool     `json:"hydrated_refs_truncated"`
+		HydratedRefScanLimit      int      `json:"hydrated_ref_scan_limit"`
 		CommitGraph               bool     `json:"commit_graph"`
 		MultiPackIndex            bool     `json:"multi_pack_index"`
 		MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files"`
@@ -3814,6 +3821,9 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 			LooseObjects              int      `json:"loose_objects"`
 			LooseObjectsTruncated     bool     `json:"loose_objects_truncated"`
 			LooseObjectScanLimit      int      `json:"loose_object_scan_limit"`
+			HydratedRefs              int      `json:"hydrated_refs"`
+			HydratedRefsTruncated     bool     `json:"hydrated_refs_truncated"`
+			HydratedRefScanLimit      int      `json:"hydrated_ref_scan_limit"`
 			CommitGraph               bool     `json:"commit_graph"`
 			MultiPackIndex            bool     `json:"multi_pack_index"`
 			MaintenanceIndicatorFiles []string `json:"maintenance_indicator_files"`

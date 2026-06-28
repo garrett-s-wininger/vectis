@@ -136,6 +136,9 @@ type sourceRepositoryObjectStore struct {
 	LooseObjects              int                                  `json:"loose_objects"`
 	LooseObjectsTruncated     bool                                 `json:"loose_objects_truncated,omitempty"`
 	LooseObjectScanLimit      int                                  `json:"loose_object_scan_limit"`
+	HydratedRefs              int                                  `json:"hydrated_refs"`
+	HydratedRefsTruncated     bool                                 `json:"hydrated_refs_truncated,omitempty"`
+	HydratedRefScanLimit      int                                  `json:"hydrated_ref_scan_limit"`
 	CommitGraph               bool                                 `json:"commit_graph"`
 	MultiPackIndex            bool                                 `json:"multi_pack_index"`
 	MaintenanceIndicatorFiles []string                             `json:"maintenance_indicator_files,omitempty"`
@@ -2711,6 +2714,9 @@ func sourceRepositoryObjectStoreFromStatus(status sourcepkg.GitCheckoutObjectSto
 		LooseObjects:              status.LooseObjects,
 		LooseObjectsTruncated:     status.LooseObjectsTruncated,
 		LooseObjectScanLimit:      status.LooseObjectScanLimit,
+		HydratedRefs:              status.HydratedRefs,
+		HydratedRefsTruncated:     status.HydratedRefsTruncated,
+		HydratedRefScanLimit:      status.HydratedRefScanLimit,
 		CommitGraph:               status.CommitGraph,
 		MultiPackIndex:            status.MultiPackIndex,
 		MaintenanceIndicatorFiles: append([]string(nil), status.MaintenanceIndicatorFiles...),
@@ -2831,6 +2837,7 @@ func (s *APIServer) recordSourceRepositoryObjectStoreMetric(ctx context.Context,
 		objectStore.PackFiles,
 		objectStore.PackBytes,
 		objectStore.LooseObjects,
+		objectStore.HydratedRefs,
 		sourceRepositoryObjectStoreMetricWarnings(objectStore.Warnings),
 	)
 }

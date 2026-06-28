@@ -50,6 +50,35 @@ func TestGitCheckoutObjectStoreStatusClassifiesCriticalPressure(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutObjectStoreStatusClassifiesHydratedRefPressure(t *testing.T) {
+	status := GitCheckoutObjectStoreStatus{
+		HydratedRefs: gitObjectStoreHydratedRefsWarning,
+	}
+
+	status.classifyPressure()
+
+	if status.Pressure != gitObjectStorePressureWarning {
+		t.Fatalf("pressure=%q, want warning; warnings=%+v", status.Pressure, status.Warnings)
+	}
+	if !objectStoreWarningsInclude(status.Warnings, gitObjectStoreWarningManyHydratedRefs) {
+		t.Fatalf("missing hydrated ref warning: %+v", status.Warnings)
+	}
+
+	status = GitCheckoutObjectStoreStatus{
+		HydratedRefs:          gitObjectStoreHydratedRefsCritical,
+		HydratedRefsTruncated: true,
+	}
+
+	status.classifyPressure()
+
+	if status.Pressure != gitObjectStorePressureCritical {
+		t.Fatalf("pressure=%q, want critical; warnings=%+v", status.Pressure, status.Warnings)
+	}
+	if !objectStoreWarningsInclude(status.Warnings, gitObjectStoreWarningHydratedRefsScan) {
+		t.Fatalf("missing hydrated ref scan warning: %+v", status.Warnings)
+	}
+}
+
 func objectStoreWarningsInclude(warnings []GitCheckoutObjectStoreWarning, code string) bool {
 	for _, warning := range warnings {
 		if warning.Code == code {

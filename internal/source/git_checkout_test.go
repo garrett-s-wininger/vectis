@@ -554,6 +554,9 @@ func TestGitCheckoutStatusReportsHealthyCheckout(t *testing.T) {
 func TestGitCheckoutStatusReportsObjectStorePressure(t *testing.T) {
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+	commit := gitOutput(t, repo, "rev-parse", "HEAD")
+	git(t, repo, "update-ref", "refs/vectis/hydrated/1111111111111111111111111111111111111111", commit)
+	git(t, repo, "update-ref", "refs/vectis/hydrated/2222222222222222222222222222222222222222", commit)
 
 	commonDir := gitOutput(t, repo, "rev-parse", "--git-common-dir")
 	if !filepath.IsAbs(commonDir) {
@@ -599,6 +602,9 @@ func TestGitCheckoutStatusReportsObjectStorePressure(t *testing.T) {
 		objectStore.PackKeepFiles != 1 ||
 		objectStore.LooseObjects == 0 ||
 		objectStore.LooseObjectScanLimit != gitObjectLooseScanLimit ||
+		objectStore.HydratedRefs != 2 ||
+		objectStore.HydratedRefsTruncated ||
+		objectStore.HydratedRefScanLimit != gitHydratedRefScanLimit ||
 		!objectStore.CommitGraph ||
 		!objectStore.MultiPackIndex {
 		t.Fatalf("object store pressure mismatch: %+v", objectStore)
