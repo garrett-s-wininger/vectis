@@ -396,20 +396,24 @@ func resolvePackageFiles(file PackageFile, inputs map[string]string) ([]resolved
 	owner := valueOr(file.Owner, "root")
 	group := valueOr(file.Group, "root")
 	info, err := os.Stat(source)
-	if err != nil || !info.IsDir() {
-		return []resolvedFile{{
-			Source:      source,
-			Destination: destination,
-			Mode:        mode,
-			Owner:       owner,
-			Group:       group,
-		}}, nil
+	if err == nil && info.IsDir() {
+		return resolveDirectoryFiles(file.ID, source, destination, owner, group, mode)
 	}
 
+	return []resolvedFile{{
+		Source:      source,
+		Destination: destination,
+		Mode:        mode,
+		Owner:       owner,
+		Group:       group,
+	}}, nil
+}
+
+func resolveDirectoryFiles(fileID, source, destination, owner, group string, mode int64) ([]resolvedFile, error) {
 	var files []resolvedFile
-	if err := filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+	if err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 
 		if entry.IsDir() {
@@ -428,19 +432,17 @@ func resolvePackageFiles(file PackageFile, inputs map[string]string) ([]resolved
 			Owner:       owner,
 			Group:       group,
 		})
+
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("walk file %q source directory %s: %w", file.ID, source, err)
+		return nil, fmt.Errorf("walk file %q source directory %s: %w", fileID, source, err)
 	}
 
 	if len(files) == 0 {
-		return nil, fmt.Errorf("file %q source directory %s did not contain files", file.ID, source)
+		return nil, fmt.Errorf("file %q source directory %s did not contain files", fileID, source)
 	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].Destination < files[j].Destination
-	})
-
+	sort.Slice(files, func(i, j int) bool { return files[i].Destination < files[j].Destination })
 	return files, nil
 }
 

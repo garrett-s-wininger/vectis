@@ -151,7 +151,7 @@ func TestRouteGuardLowercaseMethodReturnsJSON(t *testing.T) {
 	s.SetAPISecurityMetrics(metrics)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("get", "/api/v1/version", nil)
+	req := httptest.NewRequest(strings.ToLower(http.MethodGet), "/api/v1/version", nil)
 	s.Handler().ServeHTTP(rec, req)
 
 	assertRouteGuardAPIError(t, rec, http.StatusMethodNotAllowed, apiErrMethodNotAllowed)

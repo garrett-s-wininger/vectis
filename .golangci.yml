@@ -7,9 +7,12 @@ linters:
   default: none
   enable:
     - bodyclose
+    - copyloopvar
     - govet
+    - ineffassign
     - loggercheck
     - misspell
+    - nilerr
     - nilnesserr
     - nolintlint
     - rowserrcheck
@@ -17,7 +20,9 @@ linters:
     - sqlclosecheck
     - spancheck
     - staticcheck
+    - unconvert
     - unqueryvet
+    - usestdlibvars
     - gosec
   settings:
     gosec:

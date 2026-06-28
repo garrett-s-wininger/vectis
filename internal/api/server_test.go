@@ -3539,7 +3539,7 @@ func TestAPIServer_Handler_AccessLogJSON(t *testing.T) {
 		t.Fatalf("msg=%q", payload.Msg)
 	}
 
-	if payload.CorrelationID == "" || payload.Method != "GET" || payload.Status != http.StatusOK {
+	if payload.CorrelationID == "" || payload.Method != http.MethodGet || payload.Status != http.StatusOK {
 		t.Fatalf("%+v", payload)
 	}
 

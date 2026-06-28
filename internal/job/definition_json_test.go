@@ -82,7 +82,6 @@ func TestExamplesDecodeAndValidate(t *testing.T) {
 	}
 
 	for _, path := range examples {
-		path := path
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			body := readExampleFile(t, path)
 

@@ -166,7 +166,7 @@ func TestHierarchicalRBAC_RolePermissions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.role)+"_"+string(tt.action), func(t *testing.T) {
+		t.Run(tt.role+"_"+string(tt.action), func(t *testing.T) {
 			t.Parallel()
 			rb := newMockRoleBindingsRepo()
 			rb.add(42, 2, tt.role)

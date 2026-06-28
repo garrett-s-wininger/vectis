@@ -111,11 +111,11 @@ func insertedReceipt(result sql.Result) (bool, error) {
 	}
 
 	rows, err := result.RowsAffected()
-	if err != nil {
-		return true, nil
+	if err == nil {
+		return rows > 0, nil
 	}
 
-	return rows > 0, nil
+	return true, nil
 }
 
 func assertRecordedAcceptanceHashTx(ctx context.Context, tx *sql.Tx, executionID, acceptanceHash string) error {
@@ -290,11 +290,11 @@ func requireRowsAffected(result sql.Result, label, id string) error {
 	}
 
 	rows, err := result.RowsAffected()
-	if err != nil || rows > 0 {
-		return nil
+	if err == nil && rows == 0 {
+		return fmt.Errorf("%w: %s %s", ErrNotFound, label, id)
 	}
 
-	return fmt.Errorf("%w: %s %s", ErrNotFound, label, id)
+	return nil
 }
 
 func truncateCellEnqueueError(message string) string {

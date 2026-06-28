@@ -170,7 +170,6 @@ func runQueuePoolGRPCWorkerFanout(b *testing.B, shardCount, workers int) {
 		done.Add(workers)
 
 		for _, client := range workerClients {
-			client := client
 			go func() {
 				defer done.Done()
 				ready.Done()
@@ -311,7 +310,6 @@ func runQueuePoolGRPCIdleWakeLatency(b *testing.B, shardCount, workers int, poll
 		done.Add(workers)
 
 		for _, client := range workerClients {
-			client := client
 			go func() {
 				defer done.Done()
 				ready.Done()
@@ -473,7 +471,6 @@ func runQueuePoolGRPCIdleDequeuePolling(b *testing.B, shardCount, workers int, p
 		done.Add(workers)
 
 		for _, client := range workerClients {
-			client := client
 			go func() {
 				defer done.Done()
 				ready.Done()
@@ -515,11 +512,11 @@ func runQueuePoolGRPCIdleDequeuePolling(b *testing.B, shardCount, workers int, p
 
 	if measured > 0 {
 		b.ReportMetric(float64(emptyDequeueRPCs)/measured.Seconds(), "empty_dequeue_rpcs/s")
-		b.ReportMetric(float64(workers*int(b.N))/measured.Seconds(), "idle_workers/s")
+		b.ReportMetric(float64(workers*b.N)/measured.Seconds(), "idle_workers/s")
 	}
 
 	if workers > 0 && b.N > 0 {
-		b.ReportMetric(float64(emptyDequeueRPCs)/float64(workers*int(b.N)), "empty_dequeue_rpcs_per_worker")
+		b.ReportMetric(float64(emptyDequeueRPCs)/float64(workers*b.N), "empty_dequeue_rpcs_per_worker")
 	}
 
 	b.ReportMetric(float64(shardCount), "shards")

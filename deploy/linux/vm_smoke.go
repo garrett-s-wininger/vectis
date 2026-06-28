@@ -531,11 +531,15 @@ func removeVMSmokeStub(ctx context.Context, opts VMSmokeOptions, binary string) 
 		return nil
 	}
 
-	if err := runVMSmokeGuest(ctx, opts, "sudo", "grep", "-q", vmSmokeMarker, destination); err != nil {
+	if !vmSmokeGuestFileHasMarker(ctx, opts, destination) {
 		return nil
 	}
 
 	return runVMSmokeGuest(ctx, opts, "sudo", "rm", "-f", destination)
+}
+
+func vmSmokeGuestFileHasMarker(ctx context.Context, opts VMSmokeOptions, guestPath string) bool {
+	return runVMSmokeGuest(ctx, opts, "sudo", "grep", "-q", vmSmokeMarker, guestPath) == nil
 }
 
 func findInstallEntryByKind(entries []InstallEntry, kind string) (InstallEntry, bool) {
@@ -580,12 +584,7 @@ func installDestinationsByKind(entries []InstallEntry, kind string) []string {
 }
 
 func vmSmokeGuestPathExists(ctx context.Context, opts VMSmokeOptions, guestPath string) (bool, error) {
-	err := runVMSmokeGuest(ctx, opts, "sudo", "test", "-e", guestPath)
-	if err != nil {
-		return false, nil
-	}
-
-	return true, nil
+	return runVMSmokeGuest(ctx, opts, "sudo", "test", "-e", guestPath) == nil, nil
 }
 
 func runVMSmokeGuest(ctx context.Context, opts VMSmokeOptions, args ...string) error {

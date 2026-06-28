@@ -126,15 +126,16 @@ func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef st
 		ref = "HEAD"
 	}
 
-	ref, err := normalizeRef(ref)
-	if err != nil {
+	normalizedRef, ok := normalizeManagedGitSyncRef(ref)
+	if !ok {
 		return nil
 	}
+	ref = normalizedRef
 
 	branch := ""
 	if ref == "HEAD" {
-		out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-		if err != nil {
+		out, ok := managedGitCommandOutput(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+		if !ok {
 			return nil
 		}
 
@@ -148,8 +149,8 @@ func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef st
 	}
 
 	remoteRef := "refs/remotes/origin/" + branch
-	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", remoteRef+"^{commit}")
-	if err != nil {
+	out, ok := managedGitCommandOutput(ctx, checkoutPath, "rev-parse", "--verify", remoteRef+"^{commit}")
+	if !ok {
 		return nil
 	}
 
@@ -169,6 +170,16 @@ func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef st
 	}
 
 	return nil
+}
+
+func normalizeManagedGitSyncRef(ref string) (string, bool) {
+	normalized, err := normalizeRef(ref)
+	return normalized, err == nil
+}
+
+func managedGitCommandOutput(ctx context.Context, checkoutPath string, args ...string) ([]byte, bool) {
+	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, args...)
+	return out, err == nil
 }
 
 func managedLocalBranchName(ref string) (string, bool) {

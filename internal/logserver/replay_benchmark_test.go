@@ -18,7 +18,6 @@ func BenchmarkLocalRunLogStore_ReplayStrategies(b *testing.B) {
 		{name: "entries_100000/payload_0256", entryCount: 100_000, payloadSize: 256, replayLimit: 10_000, tail: 1_000},
 		{name: "entries_010000/payload_4096", entryCount: 10_000, payloadSize: 4096, replayLimit: 1_000, tail: 1_000},
 	} {
-		cfg := cfg
 		b.Run(cfg.name, func(b *testing.B) {
 			fixture := newReplayBenchmarkFixture(b, cfg.entryCount, cfg.payloadSize)
 			sinceNearEnd := int64(fixture.entryCount - cfg.tail)

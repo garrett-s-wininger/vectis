@@ -69,11 +69,6 @@ type snapshot struct {
 }
 
 func loadSnapshot(opts Options) (*snapshot, error) {
-	minV := opts.MinVersion
-	if minV == 0 {
-		minV = defaultMinVersion
-	}
-
 	s := &snapshot{}
 
 	if opts.ServerCert != "" || opts.ServerKey != "" {

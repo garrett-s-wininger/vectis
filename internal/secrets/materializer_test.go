@@ -59,7 +59,6 @@ func TestMaterializeFilesRejectsUnsafePaths(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range []string{"", "/token", "../token", "nested/../token", "nested//token", `nested\token`} {
-		path := path
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 

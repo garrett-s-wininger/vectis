@@ -94,13 +94,13 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		}
 	}
 
-	caPEM, err := os.ReadFile(caCertPath)
-	if err != nil {
+	caPEM, ok := readExistingMaterial(caCertPath)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
-	srvPEM, err := os.ReadFile(srvCertPath)
-	if err != nil {
+	srvPEM, ok := readExistingMaterial(srvCertPath)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
@@ -109,8 +109,8 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		return materialRegenerateFull, nil
 	}
 
-	caCert, err := x509.ParseCertificate(caBlock.Bytes)
-	if err != nil {
+	caCert, ok := parseExistingCertificate(caBlock.Bytes)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
@@ -119,8 +119,8 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		return materialRegenerateFull, nil
 	}
 
-	srvCert, err := x509.ParseCertificate(srvBlock.Bytes)
-	if err != nil {
+	srvCert, ok := parseExistingCertificate(srvBlock.Bytes)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
@@ -140,11 +140,25 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		return materialRenewServer, nil
 	}
 
-	if err := verifyChain(srvCert, caCert); err != nil {
+	if !existingServerCertificateVerifies(srvCert, caCert) {
 		return materialRegenerateFull, nil
 	}
 
 	return materialOK, nil
+}
+
+func readExistingMaterial(path string) ([]byte, bool) {
+	data, err := os.ReadFile(path)
+	return data, err == nil
+}
+
+func parseExistingCertificate(der []byte) (*x509.Certificate, bool) {
+	cert, err := x509.ParseCertificate(der)
+	return cert, err == nil
+}
+
+func existingServerCertificateVerifies(srvCert, caCert *x509.Certificate) bool {
+	return verifyChain(srvCert, caCert) == nil
 }
 
 func hasLocalhostSANs(c *x509.Certificate) bool {

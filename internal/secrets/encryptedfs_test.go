@@ -74,7 +74,6 @@ func TestEncryptedFSProviderResolveRejectsUnsafeRefs(t *testing.T) {
 	}
 
 	for _, ref := range tests {
-		ref := ref
 		t.Run(ref, func(t *testing.T) {
 			t.Parallel()
 

@@ -842,7 +842,6 @@ func runGRPCBlockedWorkerBurstDispatchManyConnsIteration(
 	results := make(chan error, workers)
 
 	for workerIndex, client := range clients {
-		client := client
 		go func() {
 			got, err := client.Dequeue(ctx, &api.DequeueRequest{})
 			if err != nil {

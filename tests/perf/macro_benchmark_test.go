@@ -3538,8 +3538,6 @@ func triggerMacroBurst(
 	start := time.Now()
 	var wg sync.WaitGroup
 	for client := 0; client < clients; client++ {
-		client := client
-
 		wg.Go(func() {
 			for i := client; i < total; i += clients {
 				if workCtx.Err() != nil {

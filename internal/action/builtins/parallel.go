@@ -43,7 +43,6 @@ func (p *ParallelNode) Execute(ctx context.Context, state *action.ExecutionState
 	failed := false
 
 	for i, child := range branches {
-		i, child := i, child
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
