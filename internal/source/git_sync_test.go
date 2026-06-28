@@ -245,6 +245,79 @@ func TestHydrateManagedGitRefDoesNotPublishFailedCandidate(t *testing.T) {
 	}
 }
 
+func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
+	mirror := initGitRepo(t)
+	writeAndCommit(t, mirror, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, mirror, "branch", "--show-current")
+
+	upstream := filepath.Join(t.TempDir(), "upstream")
+	cloneGitRepo(t, mirror, upstream)
+	git(t, upstream, "config", "user.name", "Vectis Test")
+	git(t, upstream, "config", "user.email", "vectis@example.invalid")
+	git(t, upstream, "config", "commit.gpgsign", "false")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    mirror,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	git(t, upstream, "checkout", "-b", "feature/upstream-only")
+	writeAndCommit(t, upstream, "README.md", "feature\n", "feature")
+	featureCommit := gitOutput(t, upstream, "rev-parse", "HEAD")
+	git(t, upstream, "checkout", defaultBranch)
+
+	git(t, checkoutPath, "remote", "add", "vectis-fallback-01", mirror)
+	git(t, checkoutPath, "remote", "add", "vectis-fallback-02", upstream)
+
+	status = HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath: checkoutPath,
+		Ref:          "feature/upstream-only",
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("hydrate via fallback remote failed: %+v", status)
+	}
+
+	if !status.DefaultRefResolved || status.ResolvedCommit != featureCommit {
+		t.Fatalf("fallback hydrated feature status mismatch: %+v", status)
+	}
+
+	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/vectis/candidates"); got != "" {
+		t.Fatalf("fallback hydrate should clean candidate refs, got %q", got)
+	}
+
+	if got := gitOutput(t, checkoutPath, "rev-parse", "refs/remotes/origin/feature/upstream-only"); got != featureCommit {
+		t.Fatalf("fallback hydrate should publish managed origin ref: got %q, want %q", got, featureCommit)
+	}
+}
+
+func TestManagedGitFetchRemotesSortsFallbacksByNumericSuffix(t *testing.T) {
+	repo := initGitRepo(t)
+	git(t, repo, "remote", "add", "vectis-fallback-10", repo)
+	git(t, repo, "remote", "add", "vectis-fallback-2", repo)
+	git(t, repo, "remote", "add", "vectis-fallback-1", repo)
+	git(t, repo, "remote", "add", "vectis-fallback-upstream", repo)
+
+	got := managedGitFetchRemotes(context.Background(), repo)
+	want := []string{
+		"origin",
+		"vectis-fallback-1",
+		"vectis-fallback-2",
+		"vectis-fallback-10",
+		"vectis-fallback-upstream",
+	}
+
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("fallback remotes order:\ngot:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestHydrateManagedGitRefWaitsForManagedWriterLock(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")

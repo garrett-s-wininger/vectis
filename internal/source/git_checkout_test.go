@@ -605,6 +605,16 @@ func initGitRepo(t *testing.T) string {
 	return repo
 }
 
+func cloneGitRepo(t *testing.T, source, dest string) {
+	t.Helper()
+
+	cmd := exec.Command("git", "clone", source, dest)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git clone %s %s: %v\n%s", source, dest, err, out)
+	}
+}
+
 func writeAndCommit(t *testing.T, repo, name, content, message string) {
 	t.Helper()
 

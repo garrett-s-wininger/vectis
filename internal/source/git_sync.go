@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -256,8 +258,20 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	}()
 
 	refspec := "+" + sourceRef + ":" + candidateRef
-	if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", "origin", refspec)...); err != nil {
-		return err
+	var fetchErrors []string
+	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath) {
+		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
+		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
+			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
+			continue
+		}
+
+		fetchErrors = nil
+		break
+	}
+
+	if len(fetchErrors) > 0 {
+		return fmt.Errorf("fetch managed ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
 	}
 
 	objectOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef)
@@ -288,6 +302,69 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 
 func managedGitCandidateRef() string {
 	return "refs/vectis/candidates/" + uuid.NewString()
+}
+
+func managedGitFetchRemotes(ctx context.Context, checkoutPath string) []string {
+	remotes := []string{"origin"}
+
+	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote")
+	if err != nil {
+		return remotes
+	}
+
+	var fallbacks []managedGitFallbackRemote
+	for _, line := range strings.Split(string(out), "\n") {
+		remote := strings.TrimSpace(line)
+		if !validManagedGitFallbackRemote(remote) {
+			continue
+		}
+
+		tier, numeric := managedGitFallbackRemoteTier(remote)
+		fallbacks = append(fallbacks, managedGitFallbackRemote{name: remote, tier: tier, numeric: numeric})
+	}
+
+	sort.Slice(fallbacks, func(i, j int) bool {
+		if fallbacks[i].numeric != fallbacks[j].numeric {
+			return fallbacks[i].numeric
+		}
+
+		if fallbacks[i].numeric && fallbacks[i].tier != fallbacks[j].tier {
+			return fallbacks[i].tier < fallbacks[j].tier
+		}
+
+		return fallbacks[i].name < fallbacks[j].name
+	})
+
+	for _, remote := range fallbacks {
+		if remote.name != "origin" {
+			remotes = append(remotes, remote.name)
+		}
+	}
+
+	return remotes
+}
+
+type managedGitFallbackRemote struct {
+	name    string
+	tier    int
+	numeric bool
+}
+
+func managedGitFallbackRemoteTier(remote string) (int, bool) {
+	suffix := strings.TrimPrefix(remote, "vectis-fallback-")
+	tier, err := strconv.Atoi(suffix)
+	if err != nil || tier < 0 {
+		return 0, false
+	}
+
+	return tier, true
+}
+
+func validManagedGitFallbackRemote(remote string) bool {
+	return strings.HasPrefix(remote, "vectis-fallback-") &&
+		!strings.HasPrefix(remote, "-") &&
+		!strings.ContainsAny(remote, "\x00\n\r") &&
+		strings.TrimSpace(remote) == remote
 }
 
 func managedGitFetchRefspec(ref string) (string, string, bool) {
