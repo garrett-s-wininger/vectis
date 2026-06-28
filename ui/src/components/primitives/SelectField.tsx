@@ -1,6 +1,7 @@
 import type { SelectHTMLAttributes } from "react";
 import { useId } from "react";
 import styles from "./Field.module.css";
+import { SelectControl } from "./SelectControl";
 
 export type SelectOption = {
   disabled?: boolean;
@@ -26,18 +27,14 @@ export function SelectField({ error, id, label, options, wide, ...props }: Selec
         <span>{label}</span>
       </label>
       <span className={styles.selectWrap}>
-        <select
+        <SelectControl
           {...props}
           aria-describedby={error ? errorID : props["aria-describedby"]}
-          aria-invalid={error ? true : props["aria-invalid"]}
           id={selectID}
-        >
-          {options.map((option) => (
-            <option disabled={option.disabled} key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          invalid={Boolean(error)}
+          options={options}
+          summaryLabel={label}
+        />
       </span>
       {error ? (
         <small className={styles.error} id={errorID}>

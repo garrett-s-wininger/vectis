@@ -8,14 +8,14 @@ describe("EmptyStatePanel", () => {
       <EmptyStatePanel
         actions={<Button>Create</Button>}
         description="Stored jobs are reusable definitions."
-        eyebrow="No stored jobs"
+        eyebrow="No Stored Jobs"
         title="Create One Today"
         titleID="jobs-empty-title"
       />
     );
 
     expect(screen.getByRole("region", { name: "Create One Today" })).toBeInTheDocument();
-    expect(screen.getByText("No stored jobs")).toBeInTheDocument();
+    expect(screen.getByText("No Stored Jobs")).toBeInTheDocument();
     expect(screen.getByText("Stored jobs are reusable definitions.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
   });

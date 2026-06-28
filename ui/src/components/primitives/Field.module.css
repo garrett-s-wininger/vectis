@@ -17,8 +17,8 @@
 }
 
 .root input,
-.root select,
 .root textarea {
+  background: var(--surface-panel);
   border: var(--control-border);
   border-radius: var(--control-radius);
   box-sizing: border-box;
@@ -30,13 +30,7 @@
   padding: 0 var(--space-md);
 }
 
-.root input,
-.root textarea {
-  background: var(--surface-panel);
-}
-
 .root input:disabled,
-.root select:disabled,
 .root textarea:disabled {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 54%), rgb(255 255 255 / 12%)),
@@ -50,49 +44,10 @@
   -webkit-text-fill-color: var(--text-subtle);
 }
 
-.root select {
-  appearance: none;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 82%), rgb(255 255 255 / 18%)),
-    linear-gradient(180deg, #f7fafb 0%, #d9e5eb 100%);
-  border-color: rgb(151 168 177 / 70%);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 86%),
-    inset 0 -1px 0 rgb(32 36 39 / 7%),
-    0 1px 0 rgb(255 255 255 / 78%),
-    0 3px 8px rgb(24 31 36 / 5%);
-  color: var(--text-navigation);
-  cursor: pointer;
-  font-weight: var(--font-weight-strong);
-  padding-right: var(--space-3xl);
-}
-
-.root select:not(:disabled):hover {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 88%), rgb(255 255 255 / 20%)),
-    linear-gradient(180deg, #fbfcfd 0%, #dce9ee 100%);
-  border-color: rgb(98 139 155 / 72%);
-}
-
 .selectWrap {
-  display: grid;
+  display: block;
+  min-width: 0;
   position: relative;
-}
-
-.selectWrap::after {
-  border-color: currentcolor transparent transparent;
-  border-style: solid;
-  border-width: 5px 4px 0;
-  color: var(--text-navigation);
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  right: var(--space-md);
-  top: calc(50% - 1px);
-}
-
-.selectWrap:has(select:disabled)::after {
-  color: var(--text-subtle);
 }
 
 .root textarea {
@@ -119,14 +74,12 @@
 }
 
 .root input:focus-visible,
-.root select:focus-visible,
 .root textarea:focus-visible {
   outline: var(--control-focus-ring);
   outline-offset: var(--control-focus-offset);
 }
 
 .root input[aria-invalid="true"],
-.root select[aria-invalid="true"],
 .root textarea[aria-invalid="true"] {
   border-color: var(--status-danger-border);
   box-shadow:

@@ -27,7 +27,6 @@ type JobEditorFieldErrors = Partial<Record<"cronSpec" | "definition" | "name", s
 type EditorSectionProps = {
   children: ReactNode;
   description: string;
-  fullWidth?: boolean;
   title: string;
   titleID: string;
 };
@@ -112,7 +111,7 @@ export function JobEditor({
   }
 
   return (
-    <section className={`${styles.editorPanel} resource-editor-panel`} aria-labelledby="job-editor-title">
+    <section className={`${styles.editorPanel} polished-panel polished-panel--accent-top`} aria-labelledby="job-editor-title">
       <div className={styles.editorHeader}>
         <ResourceTitle
           className={styles.editorTitle}
@@ -124,11 +123,10 @@ export function JobEditor({
           Cancel
         </Button>
       </div>
-      <form className={`${styles.editorForm} resource-editor-form`} onSubmit={submitJob}>
+      <form className={styles.editorForm} onSubmit={submitJob}>
         <div className={styles.editorLayout}>
           <EditorSection
             description="Display details and whether new runs can be submitted."
-            fullWidth
             title="Basics"
             titleID="job-basics-title"
           >
@@ -206,7 +204,6 @@ export function JobEditor({
           </EditorSection>
           <EditorSection
             description="Payload Vectis stores and submits when this job starts."
-            fullWidth
             title="JSON"
             titleID="job-definition-title"
           >
@@ -227,7 +224,7 @@ export function JobEditor({
           </EditorSection>
         </div>
         <FormError message={error} />
-        <div className="resource-editor-form__actions">
+        <div className={styles.editorActions}>
           <Button type="submit">{mode.kind === "create" ? "Create" : "Save"}</Button>
           <Button onClick={onCancel} variant="quiet">
             Cancel
@@ -238,11 +235,9 @@ export function JobEditor({
   );
 }
 
-function EditorSection({ children, description, fullWidth, title, titleID }: EditorSectionProps) {
-  const sectionClassName = fullWidth ? `${styles.editorSection} ${styles.fullWidthSection}` : styles.editorSection;
-
+function EditorSection({ children, description, title, titleID }: EditorSectionProps) {
   return (
-    <section className={sectionClassName} aria-labelledby={titleID}>
+    <section className={styles.editorSection} aria-labelledby={titleID}>
       <div className={styles.sectionIntro}>
         <h3 id={titleID}>{title}</h3>
         <p>{description}</p>

@@ -9,7 +9,7 @@ const meta = {
     actions: <Button>Create</Button>,
     description:
       "Stored jobs are reusable definitions you can trigger manually now and connect to richer sources later.",
-    eyebrow: "No stored jobs",
+    eyebrow: "No Stored Jobs",
     title: "Create One Today",
     titleID: "empty-state-panel-title"
   }

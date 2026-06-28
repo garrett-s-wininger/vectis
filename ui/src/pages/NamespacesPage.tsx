@@ -163,7 +163,7 @@ export function NamespacesPage({
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: "Root" },
+              { label: "Admin" },
               { current: true, label: "Namespaces" }
             ]}
             label="Namespaces location"
@@ -277,7 +277,7 @@ function NamespaceNotFound({ onOpenNamespaces }: { onOpenNamespaces: () => void 
     <PageMissingState
       actionLabel="View Namespaces"
       breadcrumbs={[
-        { label: "Root" },
+        { label: "Admin" },
         { label: "Namespaces", onClick: onOpenNamespaces },
         { current: true, label: "Missing" }
       ]}
@@ -416,7 +416,7 @@ function NamespaceDetail({
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: "Root" },
+              { label: "Admin" },
               { label: "Namespaces", onClick: onOpenNamespaces },
               { current: true, label: displayPath }
             ]}
@@ -562,7 +562,7 @@ function NamespaceEditor({
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: "Root" },
+              { label: "Admin" },
               { label: "Namespaces", onClick: onOpenNamespaces },
               { label: namespace.path === "/" ? "Root" : namespace.path, onClick: () => onOpenNamespace(namespace.id) },
               { current: true, label: "Configure" }

@@ -1,4 +1,6 @@
+import { useId } from "react";
 import type { Namespace } from "../../domain/console";
+import { SelectControl } from "../primitives/SelectControl";
 import {
   closeOtherDropdowns,
   closeOtherDropdownsFromTrigger,
@@ -15,6 +17,7 @@ type NamespacePickerProps = {
 };
 
 export function NamespacePicker({ compact = false, namespaces, onChange, value }: NamespacePickerProps) {
+  const generatedID = useId();
   const selectedNamespace = namespaces.find((namespace) => namespace.path === value);
   const selectedLabel = formatNamespaceLabel(selectedNamespace?.path ?? value);
 
@@ -54,15 +57,21 @@ export function NamespacePicker({ compact = false, namespaces, onChange, value }
   }
 
   return (
-    <label className={styles.root}>
+    <label className={styles.root} htmlFor={generatedID}>
       <span>Namespace</span>
-      <select aria-label="Namespace" onChange={(event) => onChange(event.target.value)} value={value}>
-        {namespaces.map((namespace) => (
-          <option key={namespace.id} value={namespace.path}>
-            {namespace.path === "/" ? "/ root" : namespace.path}
-          </option>
-        ))}
-      </select>
+      <span className={styles.selectWrap}>
+        <SelectControl
+          aria-label="Namespace"
+          id={generatedID}
+          onChange={(event) => onChange(event.target.value)}
+          options={namespaces.map((namespace) => ({
+            label: formatNamespaceLabel(namespace.path),
+            value: namespace.path
+          }))}
+          summaryLabel="Namespace"
+          value={value}
+        />
+      </span>
     </label>
   );
 }

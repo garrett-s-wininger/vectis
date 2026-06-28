@@ -93,6 +93,7 @@ describe("NamespacesPage", () => {
       />
     );
 
+    expect(screen.getByLabelText("Namespaces location")).toHaveTextContent("AdminNamespaces");
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "sandbox" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Temporary test jobs." } });
@@ -212,6 +213,7 @@ describe("NamespacesPage", () => {
       />
     );
 
+    expect(screen.getByLabelText("Namespace location")).toHaveTextContent("AdminNamespaces/team-a");
     expect(screen.getByRole("heading", { name: "/team-a" })).toBeInTheDocument();
     expect(screen.getByText("deploy-api")).toBeInTheDocument();
     expect(screen.getByText("/team-a/edge")).toBeInTheDocument();
@@ -280,6 +282,7 @@ describe("NamespacesPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Namespace Not Found" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Namespace location")).toHaveTextContent("AdminNamespacesMissing");
     expect(screen.getByRole("region", { name: "No Namespace Found" })).toBeInTheDocument();
     expect(screen.queryByText("Create One Today")).not.toBeInTheDocument();
 
@@ -311,6 +314,7 @@ describe("NamespacesPage", () => {
       />
     );
 
+    expect(screen.getByLabelText("Namespace configure location")).toHaveTextContent("AdminNamespaces/team-aConfigure");
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Updated namespace detail." } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 

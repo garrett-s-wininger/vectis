@@ -178,7 +178,7 @@ export function UsersPage({
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: "Root" },
+              { label: "Admin" },
               { current: true, label: "Users" }
             ]}
             label="Users location"
@@ -278,7 +278,7 @@ export function UsersPage({
 }
 
 function userMissingBreadcrumbItems() {
-  return [{ label: "Root" }, { label: "Users" }, { current: true, label: "Missing" }];
+  return [{ label: "Admin" }, { label: "Users" }, { current: true, label: "Missing" }];
 }
 
 function hasSecureClipboard() {

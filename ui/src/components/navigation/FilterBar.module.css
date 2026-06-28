@@ -3,8 +3,11 @@
   display: grid;
   gap: var(--space-xl);
   grid-template-columns: minmax(0, 1fr) auto;
+  overflow: visible;
   padding: var(--space-xl);
+  position: relative;
   width: min(var(--layout-panel-max), 100%);
+  z-index: 5;
 }
 
 .filters {

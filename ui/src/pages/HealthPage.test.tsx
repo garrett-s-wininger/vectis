@@ -9,6 +9,8 @@ describe("HealthPage", () => {
     render(<HealthPage cells={data.cells} onSelectCell={() => undefined} />);
 
     expect(screen.getByRole("heading", { name: "Health" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Health location")).toHaveTextContent("ClusterHealth");
+    expect(screen.queryByText("Root")).not.toBeInTheDocument();
     expect(screen.getByText("Execution Topology")).toBeInTheDocument();
     expect(screen.getByText("1 healthy")).toBeInTheDocument();
     expect(screen.getByText("1 degraded")).toBeInTheDocument();

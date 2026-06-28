@@ -53,6 +53,7 @@ describe("UserDetailPage", () => {
       />
     );
 
+    expect(screen.getByLabelText("User location")).toHaveTextContent("AdminUsersmira");
     fireEvent.change(screen.getByLabelText("Namespace"), { target: { value: "2" } });
 
     expect(screen.getByRole("option", { name: "/team-a" })).toBeEnabled();

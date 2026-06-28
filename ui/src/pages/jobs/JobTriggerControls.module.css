@@ -2,7 +2,7 @@
   align-items: start;
   display: grid;
   gap: var(--space-lg);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  grid-template-columns: 1fr;
 }
 
 .triggerGroup {

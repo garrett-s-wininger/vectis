@@ -1,0 +1,24 @@
+.runOncePanel {
+  display: grid;
+  gap: var(--space-xl);
+  padding: var(--space-xl);
+  width: min(var(--layout-panel-max), 100%);
+}
+
+.runOnceHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.runOnceForm {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.runOnceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}

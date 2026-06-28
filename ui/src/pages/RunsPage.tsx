@@ -23,6 +23,7 @@ import { navigateTo } from "../routing/routes";
 import { jsonObject } from "../validation/FormValidation";
 import { formatNamespaceCrumb } from "./jobs/JobBreadcrumbs";
 import { ResourceTitle } from "./shared";
+import styles from "./RunsPage.module.css";
 
 type RunsPageProps = {
   jobName?: string;
@@ -110,11 +111,11 @@ export function RunsPage({
         title="Runs"
       />
       {showRunOnce ? (
-        <section className="run-once-panel" aria-labelledby="run-once-title">
-          <div className="run-once-panel__header">
+        <section className={`${styles.runOncePanel} polished-panel polished-panel--accent-top`} aria-labelledby="run-once-title">
+          <div className={styles.runOnceHeader}>
             <ResourceTitle id="run-once-title" subtitle={`Namespace ${namespacePath}`} title="Run once" />
           </div>
-          <form className="run-once-form" onSubmit={submitRunOnce}>
+          <form className={styles.runOnceForm} onSubmit={submitRunOnce}>
             <TextAreaField
               error={definitionError}
               label="Job definition JSON"
@@ -128,7 +129,7 @@ export function RunsPage({
               value={definition}
               wide
             />
-            <div className="run-once-form__actions">
+            <div className={styles.runOnceActions}>
               <Button type="submit">Submit run</Button>
             </div>
           </form>

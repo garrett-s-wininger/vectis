@@ -26,10 +26,11 @@ export function DashboardPage({ cell, onOpenHealth }: DashboardPageProps) {
           onOpenHealth ? (
             <BreadcrumbTrail
               items={[
+                { label: "Cluster" },
                 { label: "Health", onClick: onOpenHealth },
                 { label: cell.name, current: true }
               ]}
-              label="Health breadcrumbs"
+              label="Cell location"
             />
           ) : undefined
         }

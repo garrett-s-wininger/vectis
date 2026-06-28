@@ -1,4 +1,4 @@
-import { ExecutionTopology, MetricCard, PageHeader } from "../components";
+import { BreadcrumbTrail, ExecutionTopology, MetricCard, PageHeader } from "../components";
 import type { Cell } from "../domain/console";
 import { clusterHealthMetricsFor } from "../mocks/consoleData";
 import styles from "./HealthPage.module.css";
@@ -13,7 +13,19 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
 
   return (
     <>
-      <PageHeader description="Execution cells and their status." eyebrow="Cluster" title="Health" />
+      <PageHeader
+        description="Execution cells and their status."
+        navigation={
+          <BreadcrumbTrail
+            items={[
+              { label: "Cluster" },
+              { current: true, label: "Health" }
+            ]}
+            label="Health location"
+          />
+        }
+        title="Health"
+      />
       <div className={styles.healthLayout}>
         <CellStatusDistribution cells={cells} />
         <div className={styles.secondaryMetrics}>
@@ -46,7 +58,7 @@ function CellStatusDistribution({ cells }: { cells: Cell[] }) {
   const summary = cellStatusSummary(counts);
 
   return (
-    <article className={styles.statusMetric}>
+    <article className={`${styles.statusMetric} polished-panel polished-panel--accent-top`}>
       <span className={styles.statusLabel}>Cell Status</span>
       <strong className={styles.statusValue}>{total}</strong>
       <div aria-label={`Cell status distribution: ${summary}`} className={styles.statusBar} role="img">

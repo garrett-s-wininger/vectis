@@ -73,7 +73,7 @@ export function UserDetailPage({
         navigation={
           <BreadcrumbTrail
             items={[
-              { label: "Root" },
+              { label: "Admin" },
               { label: "Users", onClick: onBack },
               { current: true, label: user.username }
             ]}

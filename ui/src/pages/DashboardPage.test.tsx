@@ -6,6 +6,13 @@ import { DashboardPage } from "./DashboardPage";
 const baseCell = createMockConsoleDataSnapshot().cells[0];
 
 describe("DashboardPage", () => {
+  it("anchors cell detail breadcrumbs in cluster health", () => {
+    render(<DashboardPage cell={baseCell} onOpenHealth={() => undefined} />);
+
+    expect(screen.getByLabelText("Cell location")).toHaveTextContent(`ClusterHealth${baseCell.name}`);
+    expect(screen.queryByText("Root")).not.toBeInTheDocument();
+  });
+
   it("shows an empty workload state when telemetry is unavailable", () => {
     render(<DashboardPage cell={missingTelemetryCell()} />);
 

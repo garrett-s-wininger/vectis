@@ -38,7 +38,9 @@ export const SingleCellCluster: Story = {
 };
 
 export const CellDrilldown: Story = {
-  render: () => <DashboardPage cell={data.cells.find((cell) => cell.id === "cell-edge") ?? data.cells[0]} />
+  render: () => (
+    <DashboardPage cell={data.cells.find((cell) => cell.id === "cell-edge") ?? data.cells[0]} onOpenHealth={() => undefined} />
+  )
 };
 
 export const OfflineCell: Story = {
