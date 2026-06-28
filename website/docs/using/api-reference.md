@@ -237,6 +237,7 @@ Common status meanings:
 
 | Status | Meaning |
 | --- | --- |
+| `202` | A duplicate source sync or source ref hydration is already in progress; retry after the `Retry-After` delay when present. |
 | `400` | Invalid JSON, invalid IDs, missing required fields, unexpected request bodies, malformed or unsupported request headers or query parameters, forbidden method override headers, or invalid state transition input. |
 | `401` | Missing, malformed, expired, or invalid bearer credentials. |
 | `403` | Authenticated principal is not allowed to perform a visible global action. |
@@ -281,6 +282,7 @@ This table highlights high-frequency codes. The full catalog, including subsyste
 | `csrf_origin_forbidden` | `403` | A cookie-authenticated unsafe request omitted origin metadata or came from a mismatched origin. |
 | `csrf_token_required` | `403` | A cookie-authenticated unsafe request is missing a valid `X-CSRF-Token`. |
 | `rate_limit_exceeded` | `429` | The request exceeded the configured rate limit; `Retry-After` is set. |
+| `source_ref_hydration_in_flight` | `202` | A source-backed read needs a ref that another API replica is hydrating; `Retry-After` is set. |
 | `idempotency_key_reused` | `409` | The same idempotency key was reused with a different request body or target. |
 | `idempotency_in_progress` | `409` | The original idempotent request has not completed yet. |
 | `validation_failed` | `400` | Job definition semantic validation failed; see [Job Definition Validation](./job-validation.md). |

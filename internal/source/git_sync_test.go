@@ -232,7 +232,7 @@ func TestHydrateManagedGitRefDoesNotPublishFailedCandidate(t *testing.T) {
 		Ref:          "feature/missing",
 	})
 
-	if status.ErrorCode != "git_fetch_failed" {
+	if status.ErrorCode != "source_ref_not_found" {
 		t.Fatalf("expected fetch failure hydrating missing branch, got %+v", status)
 	}
 

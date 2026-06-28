@@ -194,6 +194,7 @@ Most API failures use this JSON envelope:
 | `source_file_too_large` | `413` | Source definition file exceeds the route size limit. |
 | `source_job_conflict` | `409` | Source job write conflicted with another stored job or source mapping. |
 | `source_not_found` | `404` | Source ref, tree entry, or definition path was not found. |
+| `source_ref_hydration_in_flight` | `202` | Requested source ref is being hydrated by another API replica; retry after the `Retry-After` delay. |
 | `source_repositories_not_configured` | `503` | Source repository storage is not configured. |
 | `source_repository_conflict` | `409` | Source repository registration conflicts with an existing checkout path or repository. |
 | `source_repository_declared` | `409` | Source repository is still declared in current config and cannot be deleted directly. |

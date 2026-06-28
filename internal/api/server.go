@@ -79,6 +79,10 @@ type sourceRefAvailabilityEntry struct {
 	expiresAt time.Time
 }
 
+type sourceRefMissEntry struct {
+	expiresAt time.Time
+}
+
 type logReaderClient interface {
 	GetLogs(ctx context.Context, in *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error)
 }
@@ -159,6 +163,9 @@ type APIServer struct {
 	sourceRefAvailabilityMu             sync.Mutex
 	sourceRefAvailability               map[string]sourceRefAvailabilityEntry
 	sourceRefAvailabilityTTL            time.Duration
+	sourceRefMissMu                     sync.Mutex
+	sourceRefMiss                       map[string]sourceRefMissEntry
+	sourceRefMissTTL                    time.Duration
 	sourceRefHydrationLeaseTTL          time.Duration
 	sourceRefHydrationLeaseWait         time.Duration
 	sourceRefHydrationLeasePollInterval time.Duration

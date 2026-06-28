@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -287,7 +288,12 @@ func TestAPIServer_SourceRefHydrationSingleflightsDuplicate(t *testing.T) {
 
 	firstDone := make(chan bool, 1)
 	go func() {
-		firstDone <- server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+		hydrated, err := server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+		if err != nil {
+			t.Errorf("first hydration returned error: %v", err)
+		}
+
+		firstDone <- hydrated
 	}()
 
 	select {
@@ -298,7 +304,12 @@ func TestAPIServer_SourceRefHydrationSingleflightsDuplicate(t *testing.T) {
 
 	secondDone := make(chan bool, 1)
 	go func() {
-		secondDone <- server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+		hydrated, err := server.hydrateSourceRepositoryRefAfterNotFound(context.Background(), rec, "feature/on-demand", sourcepkg.ErrNotFound)
+		if err != nil {
+			t.Errorf("duplicate hydration returned error: %v", err)
+		}
+
+		secondDone <- hydrated
 	}()
 
 	select {
@@ -393,6 +404,60 @@ func TestAPIServer_SourceRefHydrationCachesSuccessfulRemote(t *testing.T) {
 	}
 }
 
+func TestAPIServer_SourceRefHydrationCachesRecentMiss(t *testing.T) {
+	server := &APIServer{sourceRefMissTTL: time.Minute}
+	metrics := &recordingSourceSyncMetrics{}
+	server.SetSourceSyncMetrics(metrics)
+	rec := dal.SourceRepositoryRecord{
+		RepositoryID: "managed-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutMode: dal.SourceCheckoutModeManaged,
+		CheckoutPath: filepath.Join(t.TempDir(), "managed"),
+	}
+
+	var calls atomic.Int32
+	server.sourceRefHydrator = func(_ context.Context, got dal.SourceRepositoryRecord, ref, preferredRemote string) sourcepkg.GitCheckoutStatus {
+		if got.RepositoryID != rec.RepositoryID || ref != "feature/missing" {
+			t.Errorf("hydrator input mismatch: rec=%+v ref=%q", got, ref)
+		}
+
+		if preferredRemote != "" {
+			t.Errorf("missing ref should not have preferred remote, got %q", preferredRemote)
+		}
+
+		calls.Add(1)
+		return sourcepkg.GitCheckoutStatus{
+			CheckoutPath:  got.CheckoutPath,
+			DefaultRef:    ref,
+			ErrorCode:     sourceRefHydrationNotFoundErrorCode,
+			ErrorMessage:  "ref not found",
+			HydrationTier: "origin",
+		}
+	}
+
+	first := server.hydrateSourceRepositoryRef(context.Background(), rec, "feature/missing")
+	if first.ErrorCode != sourceRefHydrationNotFoundErrorCode || first.HydrationCacheHit {
+		t.Fatalf("first hydration status mismatch: %+v", first)
+	}
+
+	second := server.hydrateSourceRepositoryRef(context.Background(), rec, "feature/missing")
+	if second.ErrorCode != sourceRefHydrationNotFoundErrorCode || !second.HydrationCacheHit {
+		t.Fatalf("second hydration status mismatch: %+v", second)
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("hydrator calls=%d, want 1", got)
+	}
+
+	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeFailed, sourceRefHydrationNotFoundErrorCode, "origin", observability.SourceRefHydrationCacheMiss) {
+		t.Fatalf("missing hydration miss metric: %+v", metrics.hydrationRecords)
+	}
+
+	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeFailed, sourceRefHydrationNotFoundErrorCode, "unknown", observability.SourceRefHydrationCacheHit) {
+		t.Fatalf("missing hydration miss-cache metric: %+v", metrics.hydrationRecords)
+	}
+}
+
 func TestAPIServer_SourceRefHydrationDefersToDatabaseLease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -446,6 +511,33 @@ func TestAPIServer_SourceRefHydrationDefersToDatabaseLease(t *testing.T) {
 
 	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeFailed, sourceRefHydrationInFlightErrorCode, "unknown", observability.SourceRefHydrationCacheMiss) {
 		t.Fatalf("missing in-flight hydration metric: %+v", metrics.hydrationRecords)
+	}
+}
+
+func TestAPIServer_WriteSourceDefinitionErrorReportsHydrationInFlight(t *testing.T) {
+	server := &APIServer{logger: mocks.NewMockLogger()}
+	rec := httptest.NewRecorder()
+
+	server.writeSourceDefinitionError(rec, sourceRefHydrationPendingError{
+		repositoryID: "managed-repo",
+		ref:          "feature/on-demand",
+	})
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	if got := rec.Header().Get("Retry-After"); got != strconv.Itoa(sourceRefHydrationRetryAfterSeconds) {
+		t.Fatalf("Retry-After=%q, want %d", got, sourceRefHydrationRetryAfterSeconds)
+	}
+
+	var body apiError
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if body.Code != sourceRefHydrationInFlightErrorCode {
+		t.Fatalf("code=%q, want %q", body.Code, sourceRefHydrationInFlightErrorCode)
 	}
 }
 

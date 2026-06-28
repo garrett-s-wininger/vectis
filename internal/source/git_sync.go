@@ -3,6 +3,7 @@ package source
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -185,7 +186,14 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 	hydrationRemote, err := fetchManagedGitRef(ctx, checkoutPath, credentialEnv, ref, req.PreferredRemote)
 	if err != nil {
 		checkoutStatus.DefaultRef = ref
-		checkoutStatus.setError("git_fetch_failed", err.Error())
+		if strings.TrimSpace(checkoutStatus.ErrorCode) == "" {
+			if errors.Is(err, ErrNotFound) {
+				checkoutStatus.setError("source_ref_not_found", err.Error())
+			} else {
+				checkoutStatus.setError("git_fetch_failed", err.Error())
+			}
+		}
+
 		return checkoutStatus
 	}
 
@@ -281,10 +289,15 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	refspec := "+" + sourceRef + ":" + candidateRef
 	var fetchErrors []string
 	var hydrationRemote string
+	allFetchErrorsMissing := true
 	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath, preferredRemote) {
 		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
 		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
+			if !managedGitFetchErrorIsMissingRef(err) {
+				allFetchErrorsMissing = false
+			}
+
 			continue
 		}
 
@@ -294,7 +307,12 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	}
 
 	if len(fetchErrors) > 0 {
-		return "", fmt.Errorf("fetch managed ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
+		err := fmt.Errorf("fetch managed ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
+		if allFetchErrorsMissing {
+			return "", fmt.Errorf("%w: %v", ErrNotFound, err)
+		}
+
+		return "", err
 	}
 
 	objectOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef)
@@ -331,6 +349,16 @@ func managedGitFetchRemotes(ctx context.Context, checkoutPath, preferredRemote s
 	remotes := []string{"origin"}
 	remotes = append(remotes, managedGitFallbackRemoteNames(ctx, checkoutPath)...)
 	return preferManagedGitFetchRemote(remotes, preferredRemote)
+}
+
+func managedGitFetchErrorIsMissingRef(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "couldn't find remote ref") ||
+		strings.Contains(message, "could not find remote ref")
 }
 
 func preferManagedGitFetchRemote(remotes []string, preferredRemote string) []string {

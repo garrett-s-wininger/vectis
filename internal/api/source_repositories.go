@@ -28,12 +28,24 @@ import (
 
 const (
 	defaultSourceRefAvailabilityTTL            = 30 * time.Second
+	defaultSourceRefMissTTL                    = 5 * time.Second
 	defaultSourceRefHydrationLeaseTTL          = 30 * time.Second
 	defaultSourceRefHydrationLeaseWait         = 2 * time.Second
 	defaultSourceRefHydrationLeasePollInterval = 100 * time.Millisecond
+	sourceRefHydrationRetryAfterSeconds        = 1
 	sourceRefHydrationCoalescedTier            = "coalesced"
 	sourceRefHydrationInFlightErrorCode        = "source_ref_hydration_in_flight"
+	sourceRefHydrationNotFoundErrorCode        = "source_ref_not_found"
 )
+
+type sourceRefHydrationPendingError struct {
+	repositoryID string
+	ref          string
+}
+
+func (e sourceRefHydrationPendingError) Error() string {
+	return "source ref hydration is in flight"
+}
 
 type sourceRepositoryRequest struct {
 	RepositoryID       string   `json:"repository_id"`
@@ -3118,7 +3130,12 @@ func newGitCheckoutForSourceRepository(rec dal.SourceRepositoryRecord) *sourcepk
 func (s *APIServer) listSourceRepositoryTree(ctx context.Context, rec dal.SourceRepositoryRecord, opts sourcepkg.ListTreeOptions) (sourcepkg.TreeListing, error) {
 	checkout := newGitCheckoutForSourceRepository(rec)
 	listing, err := checkout.ListTree(ctx, opts)
-	if err == nil || !s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, opts.Ref, err) {
+	hydrated, hydrationErr := s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, opts.Ref, err)
+	if hydrationErr != nil {
+		return sourcepkg.TreeListing{}, hydrationErr
+	}
+
+	if err == nil || !hydrated {
 		return listing, err
 	}
 
@@ -3132,7 +3149,12 @@ func (s *APIServer) listSourceRepositoryDefinitionFiles(ctx context.Context, rec
 	}
 
 	listing, err := store.ListDefinitionFiles(ctx, opts)
-	if err == nil || !s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, opts.Ref, err) {
+	hydrated, hydrationErr := s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, opts.Ref, err)
+	if hydrationErr != nil {
+		return sourcepkg.DefinitionFileListing{}, hydrationErr
+	}
+
+	if err == nil || !hydrated {
 		return listing, err
 	}
 
@@ -3151,7 +3173,12 @@ func (s *APIServer) resolveSourceRepositoryDefinition(ctx context.Context, rec d
 	}
 
 	loaded, err := store.ResolveDefinition(ctx, req)
-	if err == nil || !s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, req.Ref, err) {
+	hydrated, hydrationErr := s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, req.Ref, err)
+	if hydrationErr != nil {
+		return sourcepkg.Definition{}, hydrationErr
+	}
+
+	if err == nil || !hydrated {
 		return loaded, err
 	}
 
@@ -3163,11 +3190,11 @@ func (s *APIServer) resolveSourceRepositoryDefinition(ctx context.Context, rec d
 	return store.ResolveDefinition(ctx, req)
 }
 
-func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context, rec dal.SourceRepositoryRecord, ref string, err error) bool {
+func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context, rec dal.SourceRepositoryRecord, ref string, err error) (bool, error) {
 	if !errors.Is(err, sourcepkg.ErrNotFound) ||
 		strings.TrimSpace(rec.SourceKind) != dal.SourceKindLocalCheckout ||
 		strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
-		return false
+		return false, nil
 	}
 
 	ref = strings.TrimSpace(ref)
@@ -3179,7 +3206,16 @@ func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context,
 		ref = "HEAD"
 	}
 
-	return s.hydrateSourceRepositoryRef(ctx, rec, ref).ErrorCode == ""
+	status := s.hydrateSourceRepositoryRef(ctx, rec, ref)
+	if status.ErrorCode == "" {
+		return true, nil
+	}
+
+	if status.ErrorCode == sourceRefHydrationInFlightErrorCode {
+		return false, sourceRefHydrationPendingError{repositoryID: rec.RepositoryID, ref: ref}
+	}
+
+	return false, nil
 }
 
 func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
@@ -3187,6 +3223,14 @@ func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.Sour
 	preferredRemote, cacheHit := s.cachedSourceRefHydrationRemote(key)
 	if key == "" {
 		return s.hydrateSourceRepositoryRefAttempt(ctx, rec, ref, key, preferredRemote, cacheHit)
+	}
+
+	if s.cachedSourceRefHydrationMiss(key) {
+		startedAt := time.Now()
+		status := sourceRefHydrationMissCachedStatus(rec, ref)
+		status.HydrationCacheHit = true
+		s.recordSourceRefHydrationMetric(ctx, rec, status, "", true, time.Since(startedAt))
+		return status
 	}
 
 	s.sourceRefHydrationMu.Lock()
@@ -3230,9 +3274,17 @@ func (s *APIServer) hydrateSourceRepositoryRefAttempt(ctx context.Context, rec d
 	status := s.hydrateSourceRepositoryRefWithLease(ctx, rec, ref, key, preferredRemote)
 	status.HydrationCacheHit = cacheHit
 
-	if status.ErrorCode == "" && strings.TrimSpace(status.HydrationRemote) != "" {
-		s.rememberSourceRefHydrationRemote(key, status.HydrationRemote)
-	} else if status.ErrorCode != "" && cacheHit {
+	if status.ErrorCode == "" {
+		s.forgetSourceRefHydrationMiss(key)
+		if strings.TrimSpace(status.HydrationRemote) != "" {
+			s.rememberSourceRefHydrationRemote(key, status.HydrationRemote)
+		}
+	} else if status.ErrorCode == sourceRefHydrationNotFoundErrorCode {
+		s.rememberSourceRefHydrationMiss(key)
+		if cacheHit {
+			s.forgetSourceRefHydrationRemote(key, preferredRemote)
+		}
+	} else if cacheHit {
 		s.forgetSourceRefHydrationRemote(key, preferredRemote)
 	}
 
@@ -3473,6 +3525,71 @@ func (s *APIServer) forgetSourceRefHydrationRemote(key, remote string) {
 	s.sourceRefAvailabilityMu.Unlock()
 }
 
+func (s *APIServer) cachedSourceRefHydrationMiss(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+
+	s.sourceRefMissMu.Lock()
+	defer s.sourceRefMissMu.Unlock()
+
+	entry, ok := s.sourceRefMiss[key]
+	if !ok {
+		return false
+	}
+
+	if !entry.expiresAt.After(time.Now()) {
+		delete(s.sourceRefMiss, key)
+		return false
+	}
+
+	return true
+}
+
+func (s *APIServer) rememberSourceRefHydrationMiss(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+
+	ttl := s.sourceRefMissTTL
+	if ttl <= 0 {
+		ttl = defaultSourceRefMissTTL
+	}
+
+	s.sourceRefMissMu.Lock()
+	if s.sourceRefMiss == nil {
+		s.sourceRefMiss = make(map[string]sourceRefMissEntry)
+	}
+
+	s.sourceRefMiss[key] = sourceRefMissEntry{
+		expiresAt: time.Now().Add(ttl),
+	}
+
+	s.sourceRefMissMu.Unlock()
+}
+
+func (s *APIServer) forgetSourceRefHydrationMiss(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+
+	s.sourceRefMissMu.Lock()
+	delete(s.sourceRefMiss, key)
+	s.sourceRefMissMu.Unlock()
+}
+
+func sourceRefHydrationMissCachedStatus(rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+	return sourcepkg.GitCheckoutStatus{
+		CheckoutPath: rec.CheckoutPath,
+		DefaultRef:   ref,
+		ErrorCode:    sourceRefHydrationNotFoundErrorCode,
+		ErrorMessage: "source ref was recently not found during hydration",
+	}
+}
+
 func sourceRefHydrationTierForMetric(tier, remote string) string {
 	tier = strings.TrimSpace(tier)
 	if tier != "" {
@@ -3600,7 +3717,15 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 		return
 	}
 
+	var pendingHydration sourceRefHydrationPendingError
 	switch {
+	case errors.As(err, &pendingHydration):
+		w.Header().Set("Retry-After", strconv.Itoa(sourceRefHydrationRetryAfterSeconds))
+		writeAPIError(w, http.StatusAccepted, sourceRefHydrationInFlightErrorCode, "source ref hydration is in flight", map[string]string{
+			"repository_id": pendingHydration.repositoryID,
+			"ref":           pendingHydration.ref,
+			"retry":         "retry after the in-flight source ref hydration completes",
+		})
 	case dal.IsConflict(err):
 		writeAPIError(w, http.StatusConflict, "source_job_conflict", "source job conflict", sourceDefinitionErrorDetails("job_version_conflict", "refresh the job definition and retry the source write"))
 	case errors.Is(err, sourcepkg.ErrAlreadyExists):
