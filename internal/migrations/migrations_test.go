@@ -54,6 +54,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableExists(t, db, "api_sessions")
 	assertTableExists(t, db, "source_repositories")
 	assertTableExists(t, db, "job_definition_sources")
+	assertColumnExists(t, db, "job_runs", "namespace_path")
 	for _, column := range []string{
 		"checkout_mode",
 		"authoring_mode",
@@ -70,6 +71,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
 	assertSQLiteForeignKeyTargetsExist(t, db)
+	assertNamespaceExists(t, db, "/ephemeral")
 
 	if err := migrations.Down(db, "sqlite3"); err != nil {
 		t.Fatalf("run down migrations: %v", err)
@@ -95,6 +97,19 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertTableMissing(t, db, "api_sessions")
 	assertTableMissing(t, db, "source_repositories")
 	assertTableMissing(t, db, "job_definition_sources")
+}
+
+func assertNamespaceExists(t *testing.T, db *sql.DB, path string) {
+	t.Helper()
+
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM namespaces WHERE path = ?", path).Scan(&count); err != nil {
+		t.Fatalf("query namespace %s: %v", path, err)
+	}
+
+	if count != 1 {
+		t.Fatalf("expected namespace %s to exist once, got %d", path, count)
+	}
 }
 
 func TestSQLiteMigrations_RunDeleteCascadesThroughTaskGraph(t *testing.T) {

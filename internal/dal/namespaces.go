@@ -14,6 +14,14 @@ var validNamespaceName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 var ErrInvalidNamespaceName = errors.New("invalid namespace name: must match [a-zA-Z0-9_-]+")
 
+const (
+	RootNamespaceID        int64  = 1
+	RootNamespacePath      string = "/"
+	EphemeralNamespaceID          = 2
+	EphemeralNamespaceName        = "ephemeral"
+	EphemeralNamespacePath        = "/ephemeral"
+)
+
 type NamespaceRecord struct {
 	ID               int64
 	GlobalID         string

@@ -780,6 +780,7 @@ type RunsRepository interface {
 	GetRunHotStateOwner(ctx context.Context, runID string) (RunHotStateOwnerRecord, bool, error)
 	ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]RunRecord, int64, error)
 	ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]TaskRecord, int64, error)
+	GetRunNamespacePath(ctx context.Context, runID string) (string, error)
 	RecordExecutionSecurityEvent(ctx context.Context, event RecordExecutionSecurityEventParams) error
 	LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*ExecutionSecurityEvent, error)
 	EnsurePlannedTaskExecution(ctx context.Context, create TaskExecutionCreate) (TaskExecutionRecord, bool, error)
@@ -1153,8 +1154,13 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 		}
 	}
 
+	namespacePath := strings.TrimSpace(audit.NamespacePath)
+	if namespacePath == "" {
+		namespacePath = RootNamespacePath
+	}
+
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, 1, ?, ?, ?, ?, ?, ?)`),
 		runID,
 		jobID,
 		idx,
@@ -1164,6 +1170,7 @@ func (r *SQLRepositories) CreateDefinitionAndRunInCellWithAudit(ctx context.Cont
 		nullableString(audit.ReplayOfRunID),
 		nullableString(audit.TriggerInvocationID),
 		strings.TrimSpace(audit.ExecutionPayloadHash),
+		namespacePath,
 	); err != nil {
 		return "", 0, normalizeSQLError(err)
 	}
@@ -1222,8 +1229,13 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx contex
 	}
 
 	targetCellID = normalizeTargetCellID(targetCellID, r.cellID)
+	namespacePath := strings.TrimSpace(audit.NamespacePath)
+	if namespacePath == "" {
+		namespacePath = RootNamespacePath
+	}
+
 	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
 		runID,
 		jobID,
 		runIndexOut,
@@ -1234,6 +1246,7 @@ func (r *SQLRepositories) CreateSourceDefinitionAndRunInCellWithAudit(ctx contex
 		nullableString(audit.ReplayOfRunID),
 		nullableString(audit.TriggerInvocationID),
 		strings.TrimSpace(audit.ExecutionPayloadHash),
+		namespacePath,
 	); err != nil {
 		return "", 0, 0, normalizeSQLError(err)
 	}

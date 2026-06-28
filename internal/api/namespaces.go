@@ -227,7 +227,7 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if id == 1 {
+	if id == dal.RootNamespaceID {
 		writeAPIErrorCode(w, http.StatusForbidden, apiErrRootNamespaceDeleteForbidden)
 		return
 	}
@@ -257,6 +257,16 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 
 		s.logger.Error("Database error: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if rec.Path == dal.RootNamespacePath {
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrRootNamespaceDeleteForbidden)
+		return
+	}
+
+	if rec.Path == dal.EphemeralNamespacePath {
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrSystemNamespaceDeleteForbidden)
 		return
 	}
 

@@ -142,7 +142,7 @@ curl -sS http://localhost:8080/api/v1/log/reachable
 
 ## Request Conventions
 
-JSON routes expect `Content-Type: application/json`. Job create and run routes accept either the job definition as the whole body or, for namespace selection, a wrapper:
+JSON routes expect `Content-Type: application/json`. Source-backed job create and update routes accept either the job definition as the whole body or, for namespace selection, a wrapper:
 
 ```json
 {
@@ -162,7 +162,7 @@ JSON routes expect `Content-Type: application/json`. Job create and run routes a
 }
 ```
 
-Ephemeral runs do not require a top-level job `id`. Reusable source-backed jobs require an `id` unless the client supplies a job ID separately. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
+Ephemeral direct runs on `POST /api/v1/jobs/run` do not require a top-level job `id`. They always run in the system `/ephemeral` namespace; clients may omit `namespace` or set it to `/ephemeral`, but other namespace paths are rejected. Reusable source-backed jobs require an `id` unless the client supplies a job ID separately. Job definition rules are documented in [Job Definition Validation](./job-validation.md).
 
 Node inputs can also be bound from earlier node outputs in the same local execution scope with `inputs.<field>.from.node` and `inputs.<field>.from.output`; static `with.<field>` and bound `inputs.<field>` are mutually exclusive.
 
@@ -378,7 +378,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/jobs/{id}` | Resolve one source repository job; requires `repository_id` | `job:read` | general | `200` JSON definition |
 | PUT | `/api/v1/jobs/{id}` | Commit a source job definition update; body or query requires `repository_id` | `job:write` | general | `200` JSON source definition |
 | DELETE | `/api/v1/jobs/{id}` | Commit a source definition deletion; requires `repository_id` | `job:write` | general | `200` JSON source deletion |
-| POST | `/api/v1/jobs/run` | Start an ephemeral run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
+| POST | `/api/v1/jobs/run` | Start an ephemeral `/ephemeral` run from JSON body, optionally targeting `cell_id` | `run:trigger` | general | `202` JSON run |
 | POST | `/api/v1/jobs/trigger/{id}` | Trigger a source repository job; body requires `repository_id` | `run:trigger` | general | `202` JSON run |
 | GET | `/api/v1/jobs/{id}/runs` | List global catalog runs for one source-backed job; requires `repository_id` | `run:read` | general | `200` JSON list |
 | GET | `/api/v1/sse/jobs/{id}/runs` | Stream run events for one source-backed job; requires `repository_id` | `run:read` | general | `200` `text/event-stream` |

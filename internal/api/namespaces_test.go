@@ -112,8 +112,8 @@ func TestListNamespaces(t *testing.T) {
 		t.Fatalf("parse response: %v", err)
 	}
 
-	if len(resp) != 3 { // root + team-a + team-b
-		t.Fatalf("expected 3 namespaces, got %d", len(resp))
+	if len(resp) != 4 { // root + ephemeral + team-a + team-b
+		t.Fatalf("expected 4 namespaces, got %d", len(resp))
 	}
 }
 
@@ -217,15 +217,32 @@ func TestDeleteNamespace_HasChildren(t *testing.T) {
 func TestDeleteNamespace_Root(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/namespaces/1", nil)
-	req.SetPathValue("id", "1")
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d", dal.RootNamespaceID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", dal.RootNamespaceID))
 	rec := httptest.NewRecorder()
 
 	server.DeleteNamespace(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for root delete, got %d", rec.Code)
+	assertAPIError(t, rec, http.StatusForbidden, "root_namespace_delete_forbidden")
+}
+
+func TestDeleteNamespace_Ephemeral(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+
+	ns, err := repos.Namespaces().GetByPath(ctx, dal.EphemeralNamespacePath)
+	if err != nil {
+		t.Fatalf("get ephemeral namespace: %v", err)
 	}
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d", ns.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
+	rec := httptest.NewRecorder()
+
+	server.DeleteNamespace(rec, req)
+
+	assertAPIError(t, rec, http.StatusForbidden, "system_namespace_delete_forbidden")
 }
 
 func TestDeleteNamespace_HasJobs(t *testing.T) {

@@ -188,6 +188,7 @@ type MockRunsRepository struct {
 	ExecutionFinalization  dal.ExecutionFinalizationResult
 	TaskFinalizeCandidates []dal.RunTaskCompletion
 	RunRecords             map[string]dal.RunRecord
+	RunNamespacePaths      map[string]string
 	QueuedRuns             []dal.QueuedRun
 	PendingExecution       dal.ExecutionDispatchRecord
 	PendingExecutions      []dal.ExecutionDispatchRecord
@@ -519,6 +520,18 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 			runID = fmt.Sprintf("%s-%d", baseRunID, i+1)
 		}
 
+		namespacePath := strings.TrimSpace(audit.NamespacePath)
+		if namespacePath == "" {
+			namespacePath = dal.RootNamespacePath
+		}
+
+		m.mu.Lock()
+		if m.RunNamespacePaths == nil {
+			m.RunNamespacePaths = map[string]string{}
+		}
+		m.RunNamespacePaths[runID] = namespacePath
+		m.mu.Unlock()
+
 		created = append(created, dal.CreatedRun{
 			RunID:        runID,
 			JobID:        jobID,
@@ -531,7 +544,7 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 				targetCellID,
 				definitionVersion,
 				definitionHash,
-				audit.NamespacePath,
+				namespacePath,
 				audit.StartDeadlineUnixNano,
 			),
 		})
@@ -1371,6 +1384,21 @@ func (m *MockRunsRepository) CountPendingTaskContinuationsByCell(ctx context.Con
 
 func (m *MockRunsRepository) GetRunJobID(ctx context.Context, runID string) (string, error) {
 	return m.LastCreateJobID, nil
+}
+
+func (m *MockRunsRepository) GetRunNamespacePath(ctx context.Context, runID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if namespacePath := strings.TrimSpace(m.RunNamespacePaths[runID]); namespacePath != "" {
+		return namespacePath, nil
+	}
+
+	if namespacePath := strings.TrimSpace(m.LastRunAudit.NamespacePath); namespacePath != "" {
+		return namespacePath, nil
+	}
+
+	return dal.RootNamespacePath, nil
 }
 
 func (m *MockRunsRepository) GetRunForCancel(ctx context.Context, runID string) (dal.RunForCancel, error) {

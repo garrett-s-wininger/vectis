@@ -516,7 +516,7 @@ func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (s
 		return nsPath, nil
 	}
 
-	return "/", nil
+	return s.runs.GetRunNamespacePath(ctx, runID)
 }
 
 func (s *APIServer) getSourceRunNamespacePath(ctx context.Context, runID, jobID string) (string, error) {

@@ -113,6 +113,8 @@ Most API failures use this JSON envelope:
 | `password_too_short` | `400` | User password is too short. |
 | `role_bindings_not_configured` | `503` | API server was not wired with role-binding storage. |
 | `root_namespace_delete_forbidden` | `403` | Root namespace cannot be deleted. |
+| `system_namespace_delete_forbidden` | `403` | A protected system namespace cannot be deleted. |
+| `unsupported_namespace` | `400` | Route does not support the requested namespace path. |
 | `scoped_token_scope_required` | `403` | A scoped token tried to create an unscoped token. |
 | `self_delete_forbidden` | `400` | A user cannot delete itself. |
 | `self_disable_forbidden` | `400` | A user cannot disable itself. |

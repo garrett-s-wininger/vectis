@@ -91,6 +91,7 @@ const (
 	apiErrSetupAlreadyComplete           apiErrorCode = "setup_already_complete"
 	apiErrSetupRequired                  apiErrorCode = "setup_required"
 	apiErrStreamingUnsupported           apiErrorCode = "streaming_unsupported"
+	apiErrSystemNamespaceDeleteForbidden apiErrorCode = "system_namespace_delete_forbidden"
 	apiErrTokenNotFound                  apiErrorCode = "token_not_found"
 	apiErrUnsupportedMediaType           apiErrorCode = "unsupported_media_type"
 	apiErrUserNotFound                   apiErrorCode = "user_not_found"
@@ -248,6 +249,8 @@ func (c apiErrorCode) message() string {
 		return "complete initial setup before using the API"
 	case apiErrStreamingUnsupported:
 		return "streaming unsupported"
+	case apiErrSystemNamespaceDeleteForbidden:
+		return "cannot delete system namespace"
 	case apiErrTokenNotFound:
 		return "token not found"
 	case apiErrUnsupportedMediaType:

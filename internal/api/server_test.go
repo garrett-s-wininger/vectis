@@ -2212,7 +2212,8 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 	}
 
 	var resp struct {
-		ID string `json:"id"`
+		ID    string `json:"id"`
+		RunID string `json:"run_id"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
@@ -2226,6 +2227,10 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 		t.Errorf("expected id to be a valid UUID, got %q: %v", resp.ID, err)
 	}
 
+	if resp.RunID == "" {
+		t.Fatal("expected non-empty run_id in response")
+	}
+
 	var jdCount int
 	err := db.QueryRow("SELECT COUNT(*) FROM job_definitions WHERE job_id = ? AND version = 1", resp.ID).Scan(&jdCount)
 	if err != nil {
@@ -2234,6 +2239,24 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 
 	if jdCount != 1 {
 		t.Errorf("expected 1 row in job_definitions for ephemeral id %q, got %d", resp.ID, jdCount)
+	}
+
+	var namespacePath string
+	if err := db.QueryRow("SELECT namespace_path FROM job_runs WHERE run_id = ?", resp.RunID).Scan(&namespacePath); err != nil {
+		t.Fatalf("failed to query run namespace: %v", err)
+	}
+
+	if namespacePath != dal.EphemeralNamespacePath {
+		t.Fatalf("run namespace: got %q, want %s", namespacePath, dal.EphemeralNamespacePath)
+	}
+
+	dispatch, err := dal.NewSQLRepositories(db).Runs().GetPendingExecution(context.Background(), resp.RunID)
+	if err != nil {
+		t.Fatalf("get pending execution: %v", err)
+	}
+
+	if dispatch.NamespacePath != dal.EphemeralNamespacePath {
+		t.Fatalf("dispatch namespace: got %q, want %s", dispatch.NamespacePath, dal.EphemeralNamespacePath)
 	}
 
 	waitForNEnqueuedJobs(t, queueService, 1)
@@ -2262,6 +2285,77 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 
 	if !hasEnqueuedMsg {
 		t.Errorf("expected logger to contain 'Enqueued ephemeral job: %s', got: %v", resp.ID, logger.GetInfoCalls())
+	}
+}
+
+func TestAPIServer_RunJob_ExplicitEphemeralNamespace(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo explicit"},
+		},
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"namespace": dal.EphemeralNamespacePath,
+		"job":       jobDef,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		RunID string `json:"run_id"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	var namespacePath string
+	if err := db.QueryRow("SELECT namespace_path FROM job_runs WHERE run_id = ?", resp.RunID).Scan(&namespacePath); err != nil {
+		t.Fatalf("failed to query run namespace: %v", err)
+	}
+
+	if namespacePath != dal.EphemeralNamespacePath {
+		t.Fatalf("run namespace: got %q, want %s", namespacePath, dal.EphemeralNamespacePath)
+	}
+}
+
+func TestAPIServer_RunJob_RejectsNonEphemeralNamespace(t *testing.T) {
+	server, _, queueService, _ := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo forbidden"},
+		},
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"namespace": "/team-a",
+		"job":       jobDef,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadRequest, "unsupported_namespace")
+
+	if got := len(queueService.GetJobs()); got != 0 {
+		t.Fatalf("expected no enqueued jobs, got %d", got)
 	}
 }
 
@@ -2782,7 +2876,7 @@ func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
 func TestAPIServer_RunJob_IdempotencyCrashRecoveryReplaysGeneratedJob(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	key := "run-key-crash"
-	scope := "run:/:anonymous"
+	scope := "run:/ephemeral:anonymous"
 
 	jobDef := map[string]any{
 		"root": map[string]any{

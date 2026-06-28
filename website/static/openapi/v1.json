@@ -3032,7 +3032,8 @@
             ],
             "properties": {
               "namespace": {
-                "type": "string"
+                "type": "string",
+                "description": "Namespace path for source-backed job create/update routes. Direct /api/v1/jobs/run requests may omit this field or set it to /ephemeral."
               },
               "job": {
                 "$ref": "#/components/schemas/JobDefinition"

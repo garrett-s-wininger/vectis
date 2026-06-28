@@ -1251,9 +1251,16 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	namespacePath := "/"
-	if req.Namespace != "" {
-		namespacePath = req.Namespace
+	namespacePath := strings.TrimSpace(req.Namespace)
+	if namespacePath == "" {
+		namespacePath = dal.EphemeralNamespacePath
+	}
+
+	if namespacePath != dal.EphemeralNamespacePath {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_namespace", "direct job runs must use /ephemeral namespace", map[string]any{
+			"namespace": namespacePath,
+		})
+		return
 	}
 
 	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
@@ -1340,7 +1347,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	var runID string
 	if starter, ok := s.ephemeralRuns.(dal.EphemeralRunStarterWithAudit); ok {
-		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, newRunAuditMetadata(invocationID, "/"))
+		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, newRunAuditMetadata(invocationID, ns.Path))
 	} else {
 		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
 	}

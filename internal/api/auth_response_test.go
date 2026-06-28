@@ -203,6 +203,7 @@ func TestAPIErrorCodeMessages_areNonEmpty(t *testing.T) {
 		apiErrSetupAlreadyComplete,
 		apiErrSetupRequired,
 		apiErrStreamingUnsupported,
+		apiErrSystemNamespaceDeleteForbidden,
 		apiErrTokenNotFound,
 		apiErrUnsupportedMediaType,
 		apiErrUserNotFound,

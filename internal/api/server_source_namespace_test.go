@@ -53,13 +53,16 @@ func TestGetRunJobNamespacePathUsesSourceRepositoryNamespace(t *testing.T) {
 	}
 }
 
-func TestGetRunJobNamespacePathKeepsEphemeralRootFallback(t *testing.T) {
+func TestGetRunJobNamespacePathUsesPersistedEphemeralNamespace(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	server := NewAPIServer(mocks.NewMockLogger(), db)
 	ctx := context.Background()
 
-	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "ephemeral-job", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, nil, "", dal.RunAuditMetadata{})
+	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "ephemeral-job", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, nil, "", dal.RunAuditMetadata{
+		NamespacePath: dal.EphemeralNamespacePath,
+	})
+
 	if err != nil {
 		t.Fatalf("CreateDefinitionAndRunInCellWithAudit: %v", err)
 	}
@@ -69,7 +72,28 @@ func TestGetRunJobNamespacePathKeepsEphemeralRootFallback(t *testing.T) {
 		t.Fatalf("getRunJobNamespacePath: %v", err)
 	}
 
-	if got != "/" {
-		t.Fatalf("ephemeral run namespace: got %q, want /", got)
+	if got != dal.EphemeralNamespacePath {
+		t.Fatalf("ephemeral run namespace: got %q, want %s", got, dal.EphemeralNamespacePath)
+	}
+}
+
+func TestGetRunJobNamespacePathKeepsLegacyRootFallback(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	server := NewAPIServer(mocks.NewMockLogger(), db)
+	ctx := context.Background()
+
+	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "legacy-ephemeral-job", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, nil, "", dal.RunAuditMetadata{})
+	if err != nil {
+		t.Fatalf("CreateDefinitionAndRunInCellWithAudit: %v", err)
+	}
+
+	got, err := server.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		t.Fatalf("getRunJobNamespacePath: %v", err)
+	}
+
+	if got != dal.RootNamespacePath {
+		t.Fatalf("legacy run namespace: got %q, want %s", got, dal.RootNamespacePath)
 	}
 }

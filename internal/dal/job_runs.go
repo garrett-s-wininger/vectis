@@ -1725,7 +1725,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 
 	namespacePath := strings.TrimSpace(audit.NamespacePath)
 	if namespacePath == "" {
-		namespacePath = "/"
+		namespacePath = RootNamespacePath
 	}
 
 	if len(targetCellIDs) == 0 {
@@ -1743,7 +1743,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 		runIndexOut := idx + i
 
 		_, err = tx.ExecContext(ctx,
-			rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?)`),
+			rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
 			runID,
 			jobID,
 			runIndexOut,
@@ -1754,6 +1754,7 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 			nullableString(replayOfRunID),
 			nullableString(triggerInvocationID),
 			executionPayloadHash,
+			namespacePath,
 		)
 
 		if err != nil {
@@ -1932,9 +1933,13 @@ func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex 
 	triggerInvocationID := strings.TrimSpace(audit.TriggerInvocationID)
 	executionPayloadHash := strings.TrimSpace(audit.ExecutionPayloadHash)
 	replayOfRunID := strings.TrimSpace(audit.ReplayOfRunID)
+	namespacePath := strings.TrimSpace(audit.NamespacePath)
+	if namespacePath == "" {
+		namespacePath = RootNamespacePath
+	}
 
 	_, err = tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
 		runID,
 		jobID,
 		idx,
@@ -1945,6 +1950,7 @@ func createRunTx(ctx context.Context, tx *sql.Tx, runID, jobID string, runIndex 
 		nullableString(replayOfRunID),
 		nullableString(triggerInvocationID),
 		executionPayloadHash,
+		namespacePath,
 	)
 
 	if err != nil {
@@ -2003,7 +2009,7 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 
 	namespacePath := strings.TrimSpace(audit.NamespacePath)
 	if namespacePath == "" {
-		namespacePath = "/"
+		namespacePath = RootNamespacePath
 	}
 
 	var idx int
@@ -2018,7 +2024,7 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 	}
 
 	_, err = tx.ExecContext(ctx,
-		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?)`),
+		rebindQueryForPgx(`INSERT INTO job_runs (run_id, job_id, run_index, status, created_at, started_at, definition_version, definition_hash, owning_cell, replay_of_run_id, trigger_invocation_id, execution_payload_hash, namespace_path) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?, ?, ?, ?)`),
 		runID,
 		jobID,
 		idx,
@@ -2029,6 +2035,7 @@ func (r *SQLRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID str
 		replayOfRunID,
 		nullableString(audit.TriggerInvocationID),
 		strings.TrimSpace(audit.ExecutionPayloadHash),
+		namespacePath,
 	)
 
 	if err != nil {
@@ -4597,7 +4604,7 @@ func (r *SQLRunsRepository) ListPendingExecutions(ctx context.Context, runID str
 		SELECT
 			jr.run_id,
 			jr.job_id,
-			COALESCE(ns.path, '/'),
+			COALESCE(ns.path, NULLIF(jr.namespace_path, ''), '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -4662,7 +4669,7 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 		SELECT
 			jr.run_id,
 			jr.job_id,
-			COALESCE(ns.path, '/'),
+			COALESCE(ns.path, NULLIF(jr.namespace_path, ''), '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -4717,7 +4724,7 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runI
 		SELECT
 			jr.run_id,
 			jr.job_id,
-			COALESCE(ns.path, '/'),
+			COALESCE(ns.path, NULLIF(jr.namespace_path, ''), '/'),
 			jr.run_index,
 			rt.task_id,
 			rt.task_key,
@@ -5904,6 +5911,23 @@ func (r *SQLRunsRepository) GetRunJobID(ctx context.Context, runID string) (stri
 	}
 
 	return jobID, nil
+}
+
+func (r *SQLRunsRepository) GetRunNamespacePath(ctx context.Context, runID string) (string, error) {
+	var namespacePath string
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT COALESCE(NULLIF(namespace_path, ''), ?) FROM job_runs WHERE run_id = ?"),
+		RootNamespacePath,
+		runID,
+	).Scan(&namespacePath); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return "", normalizeSQLError(err)
+	}
+
+	return namespacePath, nil
 }
 
 func (r *SQLRunsRepository) CountByStatus(ctx context.Context, status string) (int64, error) {

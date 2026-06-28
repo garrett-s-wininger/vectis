@@ -63,7 +63,7 @@ Namespaces form a tree rooted at `/`.
 | Explicit descendant role | A role bound below a break still applies at that namespace and its descendants. |
 | Missing namespace or repository error | Authorization fails closed. |
 
-The namespace path is the authorization boundary. A stored job, run, log stream, artifact, and repair route resolves back to a namespace before the handler finishes the authorization decision.
+The namespace path is the authorization boundary. A stored job, run, log stream, artifact, and repair route resolves back to a namespace before the handler finishes the authorization decision. Direct inline runs created through `POST /api/v1/jobs/run` resolve to the system `/ephemeral` namespace.
 
 ## Token Scopes
 
