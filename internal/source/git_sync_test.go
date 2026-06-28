@@ -196,6 +196,10 @@ func TestHydrateManagedGitRefFetchesOneMissingBranch(t *testing.T) {
 		t.Fatalf("hydrated feature branch status mismatch: %+v", status)
 	}
 
+	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/vectis/candidates"); got != "" {
+		t.Fatalf("hydrate should clean candidate refs, got %q", got)
+	}
+
 	rev, err := managed.ResolveRevision(context.Background(), "feature/on-demand")
 	if err != nil {
 		t.Fatalf("resolve hydrated feature branch: %v", err)
@@ -203,6 +207,40 @@ func TestHydrateManagedGitRefFetchesOneMissingBranch(t *testing.T) {
 
 	if rev.Commit != featureCommit {
 		t.Fatalf("hydrated feature branch commit: got %q, want %q", rev.Commit, featureCommit)
+	}
+}
+
+func TestHydrateManagedGitRefDoesNotPublishFailedCandidate(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   defaultBranch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("initial sync failed: %+v", status)
+	}
+
+	status = HydrateManagedGitRef(context.Background(), ManagedGitRefHydrationRequest{
+		CheckoutPath: checkoutPath,
+		Ref:          "feature/missing",
+	})
+
+	if status.ErrorCode != "git_fetch_failed" {
+		t.Fatalf("expected fetch failure hydrating missing branch, got %+v", status)
+	}
+
+	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/remotes/origin/feature/missing"); got != "" {
+		t.Fatalf("failed hydrate should not publish destination ref, got %q", got)
+	}
+
+	if got := gitOutput(t, checkoutPath, "for-each-ref", "--format=%(refname)", "refs/vectis/candidates"); got != "" {
+		t.Fatalf("failed hydrate should not leave candidate refs, got %q", got)
 	}
 }
 

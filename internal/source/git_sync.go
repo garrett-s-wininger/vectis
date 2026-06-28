@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 type ManagedGitCheckoutRequest struct {
@@ -228,9 +230,44 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 		return fmt.Errorf("%w: managed fetch ref %q is not supported", ErrInvalidReference, ref)
 	}
 
-	refspec := "+" + sourceRef + ":" + destRef
-	_, err = (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", "origin", refspec)...)
-	return err
+	candidateRef := managedGitCandidateRef()
+	defer func() {
+		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
+	}()
+
+	refspec := "+" + sourceRef + ":" + candidateRef
+	if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", "origin", refspec)...); err != nil {
+		return err
+	}
+
+	objectOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef)
+	if err != nil {
+		return fmt.Errorf("%w: candidate ref %s did not resolve: %v", ErrNotFound, candidateRef, err)
+	}
+
+	objectID := strings.TrimSpace(string(objectOut))
+	if objectID == "" {
+		return fmt.Errorf("%w: candidate ref %s resolved to an empty object", ErrInvalidReference, candidateRef)
+	}
+
+	commitOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef+"^{commit}")
+	if err != nil {
+		return fmt.Errorf("%w: candidate ref %s did not resolve to a commit: %v", ErrNotFound, candidateRef, err)
+	}
+
+	if strings.TrimSpace(string(commitOut)) == "" {
+		return fmt.Errorf("%w: candidate ref %s resolved to an empty commit", ErrInvalidReference, candidateRef)
+	}
+
+	if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", destRef, objectID); err != nil {
+		return fmt.Errorf("publish managed ref %s: %w", destRef, err)
+	}
+
+	return nil
+}
+
+func managedGitCandidateRef() string {
+	return "refs/vectis/candidates/" + uuid.NewString()
 }
 
 func managedGitFetchRefspec(ref string) (string, string, bool) {
