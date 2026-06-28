@@ -26,7 +26,14 @@ import (
 	"vectis/internal/utils"
 )
 
-const defaultSourceRefAvailabilityTTL = 30 * time.Second
+const (
+	defaultSourceRefAvailabilityTTL            = 30 * time.Second
+	defaultSourceRefHydrationLeaseTTL          = 30 * time.Second
+	defaultSourceRefHydrationLeaseWait         = 2 * time.Second
+	defaultSourceRefHydrationLeasePollInterval = 100 * time.Millisecond
+	sourceRefHydrationCoalescedTier            = "coalesced"
+	sourceRefHydrationInFlightErrorCode        = "source_ref_hydration_in_flight"
+)
 
 type sourceRepositoryRequest struct {
 	RepositoryID       string   `json:"repository_id"`
@@ -3134,7 +3141,7 @@ func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.Sour
 
 func (s *APIServer) hydrateSourceRepositoryRefAttempt(ctx context.Context, rec dal.SourceRepositoryRecord, ref, key, preferredRemote string, cacheHit bool) sourcepkg.GitCheckoutStatus {
 	startedAt := time.Now()
-	status := s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
+	status := s.hydrateSourceRepositoryRefWithLease(ctx, rec, ref, key, preferredRemote)
 	status.HydrationCacheHit = cacheHit
 
 	if status.ErrorCode == "" && strings.TrimSpace(status.HydrationRemote) != "" {
@@ -3145,6 +3152,143 @@ func (s *APIServer) hydrateSourceRepositoryRefAttempt(ctx context.Context, rec d
 
 	s.recordSourceRefHydrationMetric(ctx, rec, status, preferredRemote, cacheHit, time.Since(startedAt))
 	return status
+}
+
+func (s *APIServer) hydrateSourceRepositoryRefWithLease(ctx context.Context, rec dal.SourceRepositoryRecord, ref, key, preferredRemote string) sourcepkg.GitCheckoutStatus {
+	if strings.TrimSpace(key) == "" || s.serviceLeases == nil {
+		return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
+	}
+
+	releaseLease, acquired, err := s.tryAcquireSourceRefHydrationLease(ctx, key)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Source ref hydration lease acquire failed for repository %s ref %s: %v", rec.RepositoryID, ref, err)
+		}
+
+		return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
+	}
+
+	if acquired {
+		defer releaseLease()
+		return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
+	}
+
+	return s.waitForSourceRefHydrationLease(ctx, rec, ref, key, preferredRemote)
+}
+
+func (s *APIServer) waitForSourceRefHydrationLease(ctx context.Context, rec dal.SourceRepositoryRecord, ref, key, preferredRemote string) sourcepkg.GitCheckoutStatus {
+	wait := s.sourceRefHydrationLeaseWait
+	if wait <= 0 {
+		wait = defaultSourceRefHydrationLeaseWait
+	}
+
+	pollInterval := s.sourceRefHydrationLeasePollInterval
+	if pollInterval <= 0 {
+		pollInterval = defaultSourceRefHydrationLeasePollInterval
+	}
+
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+
+	for {
+		status := sourceRefHydrationLocalStatus(ctx, rec, ref)
+		if status.ErrorCode == "" {
+			return status
+		}
+
+		releaseLease, acquired, err := s.tryAcquireSourceRefHydrationLease(ctx, key)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Warn("Source ref hydration lease retry failed for repository %s ref %s: %v", rec.RepositoryID, ref, err)
+			}
+			return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
+		}
+
+		if acquired {
+			defer releaseLease()
+
+			status = sourceRefHydrationLocalStatus(ctx, rec, ref)
+			if status.ErrorCode == "" {
+				return status
+			}
+
+			return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
+		}
+
+		poll := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			poll.Stop()
+			return sourceRefHydrationContextStatus(ctx, rec, ref)
+		case <-deadline.C:
+			poll.Stop()
+			return sourceRefHydrationInFlightStatus(rec, ref)
+		case <-poll.C:
+		}
+	}
+}
+
+func (s *APIServer) tryAcquireSourceRefHydrationLease(ctx context.Context, key string) (func(), bool, error) {
+	if s.serviceLeases == nil {
+		return func() {}, true, nil
+	}
+
+	name := sourceRefHydrationLeaseName(key)
+	if name == "" {
+		return func() {}, true, nil
+	}
+
+	ttl := s.sourceRefHydrationLeaseTTL
+	if ttl <= 0 {
+		ttl = defaultSourceRefHydrationLeaseTTL
+	}
+
+	now := time.Now()
+	owner := sourceRefHydrationLeaseOwner(key)
+	acquired, err := s.serviceLeases.TryAcquire(ctx, name, owner, now, now.Add(ttl))
+	if err != nil || !acquired {
+		return func() {}, acquired, err
+	}
+
+	return func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := s.serviceLeases.Release(releaseCtx, name, owner); err != nil && s.logger != nil {
+			s.logger.Warn("Source ref hydration lease release failed for %s: %v", name, err)
+		}
+	}, true, nil
+}
+
+func sourceRefHydrationLocalStatus(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+	status := sourcepkg.NewManagedGitCheckout(rec.CheckoutPath).Status(ctx, ref)
+	if status.ErrorCode == "" {
+		status.HydrationTier = sourceRefHydrationCoalescedTier
+	}
+
+	return status
+}
+
+func sourceRefHydrationContextStatus(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+	err := ctx.Err()
+	if err == nil {
+		err = context.Canceled
+	}
+
+	return sourcepkg.GitCheckoutStatus{
+		CheckoutPath: rec.CheckoutPath,
+		DefaultRef:   ref,
+		ErrorCode:    sourceHydrationContextErrorCode(err),
+		ErrorMessage: err.Error(),
+	}
+}
+
+func sourceRefHydrationInFlightStatus(rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+	return sourcepkg.GitCheckoutStatus{
+		CheckoutPath: rec.CheckoutPath,
+		DefaultRef:   ref,
+		ErrorCode:    sourceRefHydrationInFlightErrorCode,
+		ErrorMessage: "source ref hydration is already running on another API replica",
+	}
 }
 
 func (s *APIServer) hydrateSourceRepositoryRefDirect(ctx context.Context, rec dal.SourceRepositoryRecord, ref, preferredRemote string) sourcepkg.GitCheckoutStatus {
@@ -3270,6 +3414,19 @@ func sourceRefHydrationKey(repositoryID, ref string) string {
 	}
 
 	return repositoryID + "\x00" + ref
+}
+
+func sourceRefHydrationLeaseName(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+
+	return "source-ref-hydration:" + hashIdempotencyRequest(key)
+}
+
+func sourceRefHydrationLeaseOwner(key string) string {
+	return "api:" + hashIdempotencyRequest(key, strconv.FormatInt(time.Now().UnixNano(), 10))
 }
 
 func sourceHydrationContextErrorCode(err error) string {

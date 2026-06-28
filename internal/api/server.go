@@ -100,6 +100,7 @@ type APIServer struct {
 	triggerEvents            dal.TriggerInvocationsRepository
 	catalogEvents            dal.CatalogEventsRepository
 	schedules                dal.SchedulesRepository
+	serviceLeases            dal.ServiceLeasesRepository
 	sources                  dal.SourcesRepository
 	logger                   interfaces.Logger
 	actionResolver           action.Resolver
@@ -145,21 +146,24 @@ type APIServer struct {
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(ctx context.Context, workerID string) (string, error)
 
-	mu                        sync.RWMutex
-	executionIngress          cell.ExecutionIngress
-	sourceSyncMu              sync.Mutex
-	sourceSyncRunning         map[string]struct{}
-	sourceSyncCheckoutStatus  func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
-	sourceRefHydrator         func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus
-	sourceRefHydrationMetrics sourceRefHydrationMetrics
-	sourceRefHydrationMu      sync.Mutex
-	sourceRefHydration        map[string]*sourceRefHydrationCall
-	sourceRefAvailabilityMu   sync.Mutex
-	sourceRefAvailability     map[string]sourceRefAvailabilityEntry
-	sourceRefAvailabilityTTL  time.Duration
-	sourceDefinitionAuthor    SourceDefinitionAuthorFactory
-	sourceAuthoring           SourceAuthoringCapabilityResolver
-	srvCtx                    atomic.Pointer[ctxHolder]
+	mu                                  sync.RWMutex
+	executionIngress                    cell.ExecutionIngress
+	sourceSyncMu                        sync.Mutex
+	sourceSyncRunning                   map[string]struct{}
+	sourceSyncCheckoutStatus            func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrator                   func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrationMetrics           sourceRefHydrationMetrics
+	sourceRefHydrationMu                sync.Mutex
+	sourceRefHydration                  map[string]*sourceRefHydrationCall
+	sourceRefAvailabilityMu             sync.Mutex
+	sourceRefAvailability               map[string]sourceRefAvailabilityEntry
+	sourceRefAvailabilityTTL            time.Duration
+	sourceRefHydrationLeaseTTL          time.Duration
+	sourceRefHydrationLeaseWait         time.Duration
+	sourceRefHydrationLeasePollInterval time.Duration
+	sourceDefinitionAuthor              SourceDefinitionAuthorFactory
+	sourceAuthoring                     SourceAuthoringCapabilityResolver
+	srvCtx                              atomic.Pointer[ctxHolder]
 }
 
 type SourceDefinitionAuthorFactory func(dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error)
@@ -202,6 +206,7 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.triggerEvents = repos.TriggerInvocations()
 	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
+	s.serviceLeases = repos.ServiceLeases()
 	s.sources = repos.Sources()
 	s.artifacts = repos.Artifacts()
 	s.cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
@@ -221,11 +226,19 @@ func NewAPIServerWithRepositories(
 		artifacts = repos.Artifacts()
 	}
 
+	var serviceLeases dal.ServiceLeasesRepository
+	if repos, ok := ephemeralRuns.(interface {
+		ServiceLeases() dal.ServiceLeasesRepository
+	}); ok {
+		serviceLeases = repos.ServiceLeases()
+	}
+
 	s := &APIServer{
 		jobs:                   jobs,
 		runs:                   runs,
 		ephemeralRuns:          ephemeralRuns,
 		artifacts:              artifacts,
+		serviceLeases:          serviceLeases,
 		logger:                 logger,
 		runBroadcaster:         NewRunBroadcaster(logger),
 		auditPolicy:            audit.DefaultPolicy(),

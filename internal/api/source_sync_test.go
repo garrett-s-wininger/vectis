@@ -349,6 +349,62 @@ func TestAPIServer_SourceRefHydrationCachesSuccessfulRemote(t *testing.T) {
 	}
 }
 
+func TestAPIServer_SourceRefHydrationDefersToDatabaseLease(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	server := NewAPIServer(mocks.NewMockLogger(), db)
+	metrics := &recordingSourceSyncMetrics{}
+	server.SetSourceSyncMetrics(metrics)
+	server.sourceRefHydrationLeaseWait = 25 * time.Millisecond
+	server.sourceRefHydrationLeasePollInterval = 5 * time.Millisecond
+
+	rec := dal.SourceRepositoryRecord{
+		RepositoryID: "managed-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutMode: dal.SourceCheckoutModeManaged,
+		CheckoutPath: filepath.Join(t.TempDir(), "managed"),
+	}
+
+	ref := "feature/on-demand"
+	key := sourceRefHydrationKey(rec.RepositoryID, ref)
+	leaseName := sourceRefHydrationLeaseName(key)
+	now := time.Now().UTC()
+	acquired, err := repos.ServiceLeases().TryAcquire(context.Background(), leaseName, "other-api", now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("acquire competing lease: %v", err)
+	}
+
+	if !acquired {
+		t.Fatal("expected competing lease to be acquired")
+	}
+
+	var calls atomic.Int32
+	server.sourceRefHydrator = func(_ context.Context, got dal.SourceRepositoryRecord, gotRef, preferredRemote string) sourcepkg.GitCheckoutStatus {
+		calls.Add(1)
+		return sourcepkg.GitCheckoutStatus{
+			CheckoutPath:       got.CheckoutPath,
+			DefaultRef:         gotRef,
+			GitRepository:      true,
+			DefaultRefResolved: true,
+			ResolvedCommit:     "0123456789abcdef0123456789abcdef01234567",
+			HydrationRemote:    preferredRemote,
+		}
+	}
+
+	status := server.hydrateSourceRepositoryRef(context.Background(), rec, ref)
+	if status.ErrorCode != sourceRefHydrationInFlightErrorCode {
+		t.Fatalf("hydration status error=%q, want %q; status=%+v", status.ErrorCode, sourceRefHydrationInFlightErrorCode, status)
+	}
+
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("hydrator calls while DB lease held: got %d, want 0", got)
+	}
+
+	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeFailed, sourceRefHydrationInFlightErrorCode, "unknown", observability.SourceRefHydrationCacheMiss) {
+		t.Fatalf("missing in-flight hydration metric: %+v", metrics.hydrationRecords)
+	}
+}
+
 func TestAPIServer_SyncSourceRepositoryReturnsRunningForDatabaseReservation(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
