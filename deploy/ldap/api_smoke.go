@@ -17,6 +17,7 @@ import (
 	"vectis/internal/api"
 	"vectis/internal/api/ratelimit"
 	"vectis/internal/cache"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/migrations"
 	sdkauth "vectis/sdk/auth"
@@ -43,16 +44,18 @@ type APISmokeOptions struct {
 }
 
 type APISmokeResult struct {
-	Status                    string `json:"status"`
-	LDAPURL                   string `json:"ldap_url"`
-	APIURL                    string `json:"api_url"`
-	Username                  string `json:"username"`
-	UserID                    int64  `json:"user_id"`
-	TokenReturned             bool   `json:"token_returned"`
-	AuthenticatedRequestOK    bool   `json:"authenticated_request_ok"`
-	WrongPasswordDenied       bool   `json:"wrong_password_denied"`
-	AutoProvisionedLocalUser  bool   `json:"auto_provisioned_local_user"`
-	AuthenticatedAPIProbePath string `json:"authenticated_api_probe_path"`
+	Status                      string `json:"status"`
+	LDAPURL                     string `json:"ldap_url"`
+	APIURL                      string `json:"api_url"`
+	Username                    string `json:"username"`
+	UserID                      int64  `json:"user_id"`
+	TokenReturned               bool   `json:"token_returned"`
+	AuthenticatedRequestOK      bool   `json:"authenticated_request_ok"`
+	WrongPasswordDenied         bool   `json:"wrong_password_denied"`
+	SetupExternalIdentityLinked bool   `json:"setup_external_identity_linked"`
+	PasswordLoginDenied         bool   `json:"password_login_denied"`
+	ExternalLoginMatchedSetup   bool   `json:"external_login_matched_setup"`
+	AuthenticatedAPIProbePath   string `json:"authenticated_api_probe_path"`
 }
 
 func RunAPISmoke(ctx context.Context, opts APISmokeOptions) (APISmokeResult, error) {
@@ -100,6 +103,7 @@ func normalizeAPISmokeOptions(opts APISmokeOptions) APISmokeOptions {
 	}
 
 	opts.LDAP.UserFilter = strings.TrimSpace(opts.LDAP.UserFilter)
+	opts.LDAP.SubjectAttribute = strings.TrimSpace(opts.LDAP.SubjectAttribute)
 	opts.LDAP.UsernameAttribute = strings.TrimSpace(opts.LDAP.UsernameAttribute)
 	opts.LDAP.DisplayNameAttribute = strings.TrimSpace(opts.LDAP.DisplayNameAttribute)
 
@@ -188,6 +192,27 @@ func runAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmokeResult,
 		return APISmokeResult{}, err
 	}
 
+	identity, err := provider.Authenticate(ctx, opts.LDAP.Username, opts.LDAP.Password)
+	if err != nil {
+		return APISmokeResult{}, fmt.Errorf("discover LDAP setup identity: %w", err)
+	}
+
+	if strings.TrimSpace(identity.Provider) == "" {
+		identity.Provider = ldapauth.DefaultProviderID
+	}
+
+	if identity.Provider != ldapauth.DefaultProviderID {
+		return APISmokeResult{}, fmt.Errorf("LDAP setup identity provider = %q, want %q", identity.Provider, ldapauth.DefaultProviderID)
+	}
+
+	if strings.TrimSpace(identity.Subject) == "" {
+		return APISmokeResult{}, fmt.Errorf("LDAP setup identity subject is empty")
+	}
+
+	if strings.TrimSpace(identity.Username) == "" {
+		return APISmokeResult{}, fmt.Errorf("LDAP setup identity username is empty")
+	}
+
 	restoreEnv := setEnvForAPISmoke(map[string]string{
 		"VECTIS_API_AUTH_ENABLED":         "true",
 		"VECTIS_API_AUTH_BOOTSTRAP_TOKEN": opts.BootstrapToken,
@@ -205,18 +230,53 @@ func runAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmokeResult,
 		Provider: provider,
 	}})
 
-	apiServer.SetExternalLoginAutoProvision(true)
+	if _, err := dal.NewSQLRepositories(db).Auth().EnsureAuthProvider(ctx, ldapauth.DefaultProviderID, ldapauth.ProviderKind); err != nil {
+		return APISmokeResult{}, fmt.Errorf("register LDAP auth provider for API smoke setup: %w", err)
+	}
+
+	apiServer.SetExternalLoginAutoProvision(false)
+	apiServer.SetExternalLoginAutoLinkUsers(false)
 	httpServer := httptest.NewServer(apiServer.Handler())
 	defer httpServer.Close()
 
 	client := httpServer.Client()
+	var setup setupCompleteResponse
 	if err := postAPIJSON(ctx, client, httpServer.URL+"/api/v1/setup/complete", map[string]any{
-		"bootstrap_token": opts.BootstrapToken,
-		"admin_username":  opts.AdminUsername,
-		"admin_password":  opts.AdminPassword,
-	}, http.StatusOK, nil); err != nil {
+		"bootstrap_token":       opts.BootstrapToken,
+		"admin_username":        opts.AdminUsername,
+		"admin_password":        opts.AdminPassword,
+		"password_auth_enabled": false,
+		"external_identity": map[string]any{
+			"provider_id":  ldapauth.DefaultProviderID,
+			"subject":      identity.Subject,
+			"username":     identity.Username,
+			"display_name": identity.DisplayName,
+		},
+	}, http.StatusOK, &setup); err != nil {
 		return APISmokeResult{}, err
 	}
+
+	if setup.APIToken == "" || setup.Username != opts.AdminUsername || setup.PasswordAuthEnabled {
+		return APISmokeResult{}, fmt.Errorf("ldap API smoke setup response token_present=%t username=%q password_auth_enabled=%t", setup.APIToken != "", setup.Username, setup.PasswordAuthEnabled)
+	}
+
+	if setup.ExternalIdentity == nil || setup.ExternalIdentity.ProviderID != ldapauth.DefaultProviderID || setup.ExternalIdentity.Subject != identity.Subject {
+		return APISmokeResult{}, fmt.Errorf("ldap API smoke setup external identity = %+v, want provider=%q subject=%q", setup.ExternalIdentity, ldapauth.DefaultProviderID, identity.Subject)
+	}
+
+	setupExternalIdentityLinked := setup.ExternalIdentity.LocalUserID != 0
+	if !setupExternalIdentityLinked {
+		return APISmokeResult{}, fmt.Errorf("ldap API smoke setup external identity missing local user id")
+	}
+
+	if err := postAPIJSON(ctx, client, httpServer.URL+"/api/v1/login", map[string]any{
+		"username": opts.AdminUsername,
+		"password": opts.AdminPassword,
+	}, http.StatusUnauthorized, nil); err != nil {
+		return APISmokeResult{}, err
+	}
+
+	passwordLoginDenied := true
 
 	var login loginResponse
 	if err := postAPIJSON(ctx, client, httpServer.URL+"/api/v1/login", map[string]any{
@@ -229,6 +289,11 @@ func runAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmokeResult,
 
 	if login.UserID == 0 || strings.TrimSpace(login.Token) == "" {
 		return APISmokeResult{}, fmt.Errorf("ldap API smoke login returned user_id=%d token_present=%t", login.UserID, strings.TrimSpace(login.Token) != "")
+	}
+
+	externalLoginMatchedSetup := login.UserID == setup.ExternalIdentity.LocalUserID
+	if !externalLoginMatchedSetup {
+		return APISmokeResult{}, fmt.Errorf("ldap API smoke login user_id=%d, want setup linked user_id=%d", login.UserID, setup.ExternalIdentity.LocalUserID)
 	}
 
 	if err := getAuthenticatedAPI(ctx, client, httpServer.URL+opts.authenticatedAPIPath, login.Token); err != nil {
@@ -249,26 +314,19 @@ func runAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmokeResult,
 		wrongPasswordDenied = true
 	}
 
-	autoProvisioned, err := localUserExists(ctx, db, opts.LDAP.Username)
-	if err != nil {
-		return APISmokeResult{}, err
-	}
-
-	if !autoProvisioned {
-		return APISmokeResult{}, fmt.Errorf("ldap API smoke did not auto-provision local user %q", opts.LDAP.Username)
-	}
-
 	return APISmokeResult{
-		Status:                    "ok",
-		LDAPURL:                   opts.LDAP.URL,
-		APIURL:                    httpServer.URL,
-		Username:                  opts.LDAP.Username,
-		UserID:                    login.UserID,
-		TokenReturned:             true,
-		AuthenticatedRequestOK:    true,
-		WrongPasswordDenied:       wrongPasswordDenied,
-		AutoProvisionedLocalUser:  true,
-		AuthenticatedAPIProbePath: opts.authenticatedAPIPath,
+		Status:                      "ok",
+		LDAPURL:                     opts.LDAP.URL,
+		APIURL:                      httpServer.URL,
+		Username:                    opts.LDAP.Username,
+		UserID:                      login.UserID,
+		TokenReturned:               true,
+		AuthenticatedRequestOK:      true,
+		WrongPasswordDenied:         wrongPasswordDenied,
+		SetupExternalIdentityLinked: setupExternalIdentityLinked,
+		PasswordLoginDenied:         passwordLoginDenied,
+		ExternalLoginMatchedSetup:   externalLoginMatchedSetup,
+		AuthenticatedAPIProbePath:   opts.authenticatedAPIPath,
 	}, nil
 }
 
@@ -288,6 +346,7 @@ func apiSmokeLoginProvider(opts APISmokeOptions) (sdkauth.LoginProvider, error) 
 		BindPassword:         bindPassword,
 		BaseDN:               opts.LDAP.BaseDN,
 		UserFilter:           opts.LDAP.UserFilter,
+		SubjectAttribute:     opts.LDAP.SubjectAttribute,
 		UsernameAttribute:    opts.LDAP.UsernameAttribute,
 		DisplayNameAttribute: opts.LDAP.DisplayNameAttribute,
 		StartTLS:             opts.LDAP.StartTLS,
@@ -328,6 +387,19 @@ func openSmokeDB() (*sql.DB, error) {
 type loginResponse struct {
 	Token  string `json:"token"`
 	UserID int64  `json:"user_id"`
+}
+
+type setupCompleteResponse struct {
+	APIToken            string                    `json:"api_token"`
+	Username            string                    `json:"username"`
+	PasswordAuthEnabled bool                      `json:"password_auth_enabled"`
+	ExternalIdentity    *externalIdentityResponse `json:"external_identity,omitempty"`
+}
+
+type externalIdentityResponse struct {
+	LocalUserID int64  `json:"local_user_id"`
+	ProviderID  string `json:"provider_id"`
+	Subject     string `json:"subject"`
 }
 
 func postAPIJSON(ctx context.Context, client *http.Client, url string, body map[string]any, wantStatus int, out any) error {
@@ -387,15 +459,6 @@ func getAuthenticatedAPI(ctx context.Context, client *http.Client, url, token st
 
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
-}
-
-func localUserExists(ctx context.Context, db *sql.DB, username string) (bool, error) {
-	var count int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM local_users WHERE username = ?`, username).Scan(&count); err != nil {
-		return false, err
-	}
-
-	return count == 1, nil
 }
 
 func setEnvForAPISmoke(values map[string]string) func() {

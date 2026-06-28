@@ -23,6 +23,7 @@ func main() {
 	flag.StringVar(&opts.LDAP.BindPasswordFile, "bind-password-file", os.Getenv(ldapauth.EnvBindPasswordFile), "File containing the LDAP service-account bind password")
 	flag.StringVar(&opts.LDAP.BaseDN, "base-dn", envDefault(ldapauth.EnvBaseDN, ldapauth.DefaultSmokeBaseDN), "LDAP base DN used for user search")
 	flag.StringVar(&opts.LDAP.UserFilter, "user-filter", envDefault(ldapauth.EnvUserFilter, "(uid={username})"), "LDAP user search filter")
+	flag.StringVar(&opts.LDAP.SubjectAttribute, "subject-attribute", os.Getenv(ldapauth.EnvSubjectAttribute), "LDAP attribute used as the stable external subject")
 	flag.StringVar(&opts.LDAP.UsernameAttribute, "username-attribute", envDefault(ldapauth.EnvUsernameAttribute, "uid"), "LDAP attribute mapped to username")
 	flag.StringVar(&opts.LDAP.DisplayNameAttribute, "display-name-attribute", envDefault(ldapauth.EnvDisplayNameAttribute, "cn"), "LDAP attribute mapped to display name")
 	flag.BoolVar(&opts.LDAP.StartTLS, "start-tls", envBoolDefault(ldapauth.EnvStartTLS, false), "Upgrade ldap:// connections with StartTLS")
@@ -61,7 +62,7 @@ func main() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "LDAP API smoke succeeded: username=%s user_id=%d token_returned=%t api_probe=%s wrong_password_denied=%t\n", result.Username, result.UserID, result.TokenReturned, result.AuthenticatedAPIProbePath, result.WrongPasswordDenied)
+	fmt.Fprintf(os.Stdout, "LDAP API smoke succeeded: username=%s user_id=%d token_returned=%t api_probe=%s setup_external_identity_linked=%t password_login_denied=%t external_login_matched_setup=%t wrong_password_denied=%t\n", result.Username, result.UserID, result.TokenReturned, result.AuthenticatedAPIProbePath, result.SetupExternalIdentityLinked, result.PasswordLoginDenied, result.ExternalLoginMatchedSetup, result.WrongPasswordDenied)
 }
 
 func envDefault(key, fallback string) string {

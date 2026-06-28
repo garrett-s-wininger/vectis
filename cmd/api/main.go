@@ -348,7 +348,8 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 			}})
 
 			server.SetExternalLoginAutoProvision(ldapConfig.AutoCreateUsers)
-			logger.Info("LDAP login provider enabled provider_id=%s url=%s base_dn=%s auto_create_users=%t", ldapConfig.ProviderID, ldapConfig.URL, ldapConfig.BaseDN, ldapConfig.AutoCreateUsers)
+			server.SetExternalLoginAutoLinkUsers(ldapConfig.AutoLinkUsers)
+			logger.Info("LDAP login provider enabled provider_id=%s url=%s base_dn=%s auto_link_users=%t auto_create_users=%t", ldapConfig.ProviderID, ldapConfig.URL, ldapConfig.BaseDN, ldapConfig.AutoLinkUsers, ldapConfig.AutoCreateUsers)
 		}
 	}
 

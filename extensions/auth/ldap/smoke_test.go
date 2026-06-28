@@ -13,8 +13,9 @@ func TestRunSmokeAuthenticatesAndRejectsWrongPassword(t *testing.T) {
 	fake := &fakeConn{
 		searchResult: &goldap.SearchResult{Entries: []*goldap.Entry{
 			goldap.NewEntry("uid=alice,ou=people,dc=example,dc=org", map[string][]string{
-				"uid": {"alice"},
-				"cn":  {"Alice Example"},
+				"uid":       {"alice"},
+				"cn":        {"Alice Example"},
+				"entryUUID": {"uuid-123"},
 			}),
 		}},
 		validUserPassword: "alice-secret",
@@ -26,10 +27,11 @@ func TestRunSmokeAuthenticatesAndRejectsWrongPassword(t *testing.T) {
 		BindDN:              "cn=svc,dc=example,dc=org",
 		BindPassword:        "svc-secret",
 		BaseDN:              "ou=people,dc=example,dc=org",
+		SubjectAttribute:    "entryUUID",
 		Username:            "alice",
 		Password:            "alice-secret",
 		WrongPassword:       "wrong-secret",
-		ExpectedSubject:     "uid=alice,ou=people,dc=example,dc=org",
+		ExpectedSubject:     "uuid-123",
 		ExpectedUsername:    "alice",
 		ExpectedDisplayName: "Alice Example",
 		Stdout:              &out,
@@ -45,7 +47,7 @@ func TestRunSmokeAuthenticatesAndRejectsWrongPassword(t *testing.T) {
 	if result.Status != "ok" ||
 		result.URL != "ldap://ldap.example.org:389" ||
 		result.Username != "alice" ||
-		result.Subject != "uid=alice,ou=people,dc=example,dc=org" ||
+		result.Subject != "uuid-123" ||
 		result.DisplayName != "Alice Example" ||
 		!result.WrongPasswordDenied {
 		t.Fatalf("unexpected result: %+v", result)

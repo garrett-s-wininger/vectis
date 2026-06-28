@@ -177,7 +177,9 @@ Standalone API authentication is off by default. `vectis-local` enables HTTP API
 | `VECTIS_API_AUTH_LDAP_BIND_PASSWORD_FILE` / `api.auth.ldap.bind_password_file` | File containing the LDAP service-account password. Prefer this over `VECTIS_API_AUTH_LDAP_BIND_PASSWORD`. |
 | `VECTIS_API_AUTH_LDAP_BASE_DN` / `api.auth.ldap.base_dn` | Base DN for user search, such as `ou=people,dc=example,dc=org`. |
 | `VECTIS_API_AUTH_LDAP_USER_FILTER` / `api.auth.ldap.user_filter` | User search filter. Defaults to `(uid={username})`; `{username}` is LDAP-filter escaped. |
+| `VECTIS_API_AUTH_LDAP_SUBJECT_ATTRIBUTE` / `api.auth.ldap.subject_attribute` | LDAP attribute used as the stable external subject, such as `entryUUID` for OpenLDAP or `objectGUID` for Active Directory. Defaults to the entry DN when empty. |
 | `VECTIS_API_AUTH_LDAP_USERNAME_ATTRIBUTE` / `api.auth.ldap.username_attribute` | LDAP attribute mapped to the Vectis local username. Defaults to `uid`. |
+| `VECTIS_API_AUTH_LDAP_AUTO_LINK_USERS` / `api.auth.ldap.auto_link_users` | When `true`, a first-seen LDAP subject may be linked to an existing local user with the same mapped username. Defaults to `true`; set `false` to require explicit pre-linking. |
 | `VECTIS_API_AUTH_LDAP_AUTO_CREATE_USERS` / `api.auth.ldap.auto_create_users` | When `true`, successful LDAP logins create missing local Vectis user rows. Defaults to `false`; pre-create users when you want explicit provisioning. Successful LDAP logins record an external identity link keyed by provider ID and LDAP subject. |
 
 `vectis-cli login` calls `POST /api/v1/login` and saves the returned token in the OS user config directory. You can override the saved token for one shell session with:
@@ -188,9 +190,33 @@ export VECTIS_API_TOKEN=<token>
 
 LDAP login is additive to local username/password login. After LDAP authenticates
 a user, Vectis records a provider/subject link and maps it to a local user row.
-That local user ID is used for sessions, API tokens, role bindings, and audit
-actor IDs. If no link exists yet, the LDAP username attribute is used to find or
-auto-create the local user according to `api.auth.ldap.auto_create_users`.
+Use `api.auth.ldap.subject_attribute` for a stable directory subject; leaving it
+empty uses the entry DN. That local user ID is used for sessions, API tokens,
+role bindings, and audit actor IDs. If no link exists yet, the LDAP username
+attribute is used to find or auto-create the local user according to
+`api.auth.ldap.auto_link_users` and `api.auth.ldap.auto_create_users`.
+Operators can pre-link an accepted provider subject with
+`vectis-cli users external-identities link` before the user's first login.
+On a fresh database, setup can bind the first admin to an already registered
+provider subject in the same bootstrap transaction:
+
+```json
+{
+  "bootstrap_token": "<bootstrap-token>",
+  "admin_username": "alice",
+  "password_auth_enabled": false,
+  "external_identity": {
+    "provider_id": "corp-ldap",
+    "subject": "entryUUID-or-objectGUID",
+    "username": "alice"
+  }
+}
+```
+
+When `password_auth_enabled=false`, the first admin has no usable local password
+login path; the setup response still returns the initial API token for recovery
+and automation. Admin-set password changes explicitly re-enable local password
+auth for a user.
 LDAP groups do not grant Vectis roles in this slice; assign roles through Vectis
 role bindings. For local compatibility validation, run `make ldap-smoke` to
 exercise service-account search, user bind, identity mapping, API login/session

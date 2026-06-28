@@ -32,6 +32,7 @@ type SmokeOptions struct {
 	BindPasswordFile     string
 	BaseDN               string
 	UserFilter           string
+	SubjectAttribute     string
 	UsernameAttribute    string
 	DisplayNameAttribute string
 	StartTLS             bool
@@ -102,6 +103,8 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	if opts.UserFilter == "" {
 		opts.UserFilter = defaultUserFilter
 	}
+
+	opts.SubjectAttribute = strings.TrimSpace(opts.SubjectAttribute)
 
 	opts.UsernameAttribute = strings.TrimSpace(opts.UsernameAttribute)
 	if opts.UsernameAttribute == "" {
@@ -183,6 +186,7 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 		BindPassword:         bindPassword,
 		BaseDN:               opts.BaseDN,
 		UserFilter:           opts.UserFilter,
+		SubjectAttribute:     opts.SubjectAttribute,
 		UsernameAttribute:    opts.UsernameAttribute,
 		DisplayNameAttribute: opts.DisplayNameAttribute,
 		StartTLS:             opts.StartTLS,

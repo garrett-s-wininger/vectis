@@ -324,7 +324,7 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	_, _ = s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	var principal *authn.Principal
@@ -393,7 +393,7 @@ func TestAccessControlledHandler_authorizationDenied(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	_, _ = s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	// Override authorizer to deny everything
@@ -482,7 +482,7 @@ func TestAccessControlledHandler_tokenScopesLoaded(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	tokenID, _ := s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	// Add a scope to the token
@@ -556,7 +556,7 @@ func TestAccessControlledHandler_tokenScopeDBErrorReturns500(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	_, _ = s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	mockAuditor := &mockAuditor{}

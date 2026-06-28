@@ -56,6 +56,85 @@ func TestProviderAuthenticate(t *testing.T) {
 	}
 }
 
+func TestProviderAuthenticateUsesSubjectAttribute(t *testing.T) {
+	fake := &fakeConn{
+		searchResult: &goldap.SearchResult{Entries: []*goldap.Entry{
+			goldap.NewEntry("uid=alice,ou=people,dc=example,dc=org", map[string][]string{
+				"uid":       {"alice"},
+				"cn":        {"Alice Example"},
+				"entryUUID": {"uuid-123"},
+			}),
+		}},
+	}
+
+	provider, err := NewProvider(ProviderOptions{
+		URL:                  "ldap://ldap.example.org:389",
+		BindDN:               "cn=svc,dc=example,dc=org",
+		BindPassword:         "svc-secret",
+		BaseDN:               "ou=people,dc=example,dc=org",
+		UserFilter:           "(uid={username})",
+		SubjectAttribute:     "entryUUID",
+		UsernameAttribute:    "uid",
+		DisplayNameAttribute: "cn",
+		Timeout:              time.Second,
+		Dial: func(context.Context) (conn, error) {
+			return fake, nil
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	identity, err := provider.Authenticate(context.Background(), "alice", "secret")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+
+	if identity.Subject != "uuid-123" {
+		t.Fatalf("subject = %q, want stable attribute", identity.Subject)
+	}
+
+	if got := identity.Attributes["entryUUID"]; !reflect.DeepEqual(got, []string{"uuid-123"}) {
+		t.Fatalf("entryUUID attributes = %+v", got)
+	}
+
+	if !containsString(fake.searchRequest.Attributes, "entryUUID") {
+		t.Fatalf("search attributes = %+v, want entryUUID", fake.searchRequest.Attributes)
+	}
+}
+
+func TestProviderAuthenticateRejectsMissingSubjectAttribute(t *testing.T) {
+	fake := &fakeConn{
+		searchResult: &goldap.SearchResult{Entries: []*goldap.Entry{
+			goldap.NewEntry("uid=alice,ou=people,dc=example,dc=org", map[string][]string{
+				"uid": {"alice"},
+			}),
+		}},
+	}
+
+	provider, err := NewProvider(ProviderOptions{
+		URL:               "ldap://ldap.example.org:389",
+		BaseDN:            "ou=people,dc=example,dc=org",
+		UserFilter:        "(uid={username})",
+		SubjectAttribute:  "entryUUID",
+		UsernameAttribute: "uid",
+		Timeout:           time.Second,
+		Dial: func(context.Context) (conn, error) {
+			return fake, nil
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	_, err = provider.Authenticate(context.Background(), "alice", "secret")
+	if !errors.Is(err, sdkauth.ErrIdentityNotAllowed) {
+		t.Fatalf("Authenticate error = %v, want identity not allowed", err)
+	}
+}
+
 func TestProviderAuthenticateEscapesUsernameInFilter(t *testing.T) {
 	fake := &fakeConn{searchResult: &goldap.SearchResult{Entries: []*goldap.Entry{
 		goldap.NewEntry("uid=a,ou=people,dc=example,dc=org", map[string][]string{"uid": {"a"}}),
@@ -70,6 +149,16 @@ func TestProviderAuthenticateEscapesUsernameInFilter(t *testing.T) {
 	if fake.searchRequest.Filter != `(uid=a\2a\29\28uid=\2a)` {
 		t.Fatalf("filter = %q", fake.searchRequest.Filter)
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestProviderAuthenticateInvalidCredentials(t *testing.T) {

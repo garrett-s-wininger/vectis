@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("not found")
-	ErrConflict        = errors.New("conflict")
-	ErrDispatchExpired = errors.New("dispatch expired")
+	ErrNotFound             = errors.New("not found")
+	ErrConflict             = errors.New("conflict")
+	ErrPasswordAuthDisabled = errors.New("password auth disabled")
+	ErrDispatchExpired      = errors.New("dispatch expired")
 )
 
 func IsNotFound(err error) bool {

@@ -330,6 +330,15 @@ func TestLogin_externalProvider(t *testing.T) {
 			t.Fatalf("alice user count = %d, want 1", count)
 		}
 
+		var passwordAuthEnabled bool
+		if err := db.QueryRow(`SELECT password_auth_enabled FROM local_users WHERE username = 'alice'`).Scan(&passwordAuthEnabled); err != nil {
+			t.Fatalf("query alice password_auth_enabled: %v", err)
+		}
+
+		if passwordAuthEnabled {
+			t.Fatal("auto-provisioned external user should have password auth disabled")
+		}
+
 		var linkCount int
 		if err := db.QueryRow(`SELECT COUNT(*)
 FROM external_identities ei
@@ -386,6 +395,98 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 
 		if linkedUserID != localUserID {
 			t.Fatalf("external identity local_user_id = %d, want %d", linkedUserID, localUserID)
+		}
+	})
+
+	t.Run("requires_existing_link_when_auto_link_disabled", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		localUserID, err := s.authRepo.CreateLocalUser(context.Background(), "dana", string(passHash))
+		if err != nil {
+			t.Fatalf("CreateLocalUser: %v", err)
+		}
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=dana,ou=people,dc=example,dc=org",
+			Username: "dana",
+		}}
+
+		setFakeExternalLoginProvider(s, "ldap", provider)
+		s.SetExternalLoginAutoLinkUsers(false)
+
+		postLoginForTest(t, h, map[string]any{
+			"username": "dana",
+			"password": "ldap-secret",
+		}, http.StatusUnauthorized)
+
+		if _, err := s.authRepo.LinkExternalIdentity(context.Background(), localUserID, "ldap", "uid=dana,ou=people,dc=example,dc=org", "dana", ""); err != nil {
+			t.Fatalf("LinkExternalIdentity: %v", err)
+		}
+
+		out := postLoginForTest(t, h, map[string]any{
+			"username": "dana",
+			"password": "ldap-secret",
+		}, http.StatusOK)
+
+		if out.UserID != localUserID {
+			t.Fatalf("UserID = %d, want %d", out.UserID, localUserID)
+		}
+	})
+
+	t.Run("password_auth_disabled_user_requires_external_identity", func(t *testing.T) {
+		db := dbtest.NewTestDB(t)
+		s := NewAPIServer(mocks.NewMockLogger(), db)
+		s.SetQueueClient(mocks.NewMockQueueService())
+		h := s.Handler()
+		completeLoginTestSetup(t, h)
+
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		localUserID, err := s.authRepo.CreateLocalUserWithPasswordAuth(context.Background(), "dana", string(passHash), false)
+		if err != nil {
+			t.Fatalf("CreateLocalUserWithPasswordAuth: %v", err)
+		}
+
+		if _, err := s.authRepo.EnsureAuthProvider(context.Background(), "ldap", "test"); err != nil {
+			t.Fatalf("EnsureAuthProvider: %v", err)
+		}
+
+		if _, err := s.authRepo.LinkExternalIdentity(context.Background(), localUserID, "ldap", "uid=dana,ou=people,dc=example,dc=org", "dana", ""); err != nil {
+			t.Fatalf("LinkExternalIdentity: %v", err)
+		}
+
+		postLoginForTest(t, h, map[string]any{
+			"username": "dana",
+			"password": "local-password",
+		}, http.StatusUnauthorized)
+
+		provider := &fakeLoginProvider{identity: sdkauth.Identity{
+			Provider: "ldap",
+			Subject:  "uid=dana,ou=people,dc=example,dc=org",
+			Username: "dana",
+		}}
+
+		setFakeExternalLoginProvider(s, "ldap", provider)
+		out := postLoginForTest(t, h, map[string]any{
+			"username": "dana",
+			"password": "ldap-secret",
+		}, http.StatusOK)
+
+		if out.UserID != localUserID {
+			t.Fatalf("UserID = %d, want %d", out.UserID, localUserID)
 		}
 	})
 
@@ -1175,7 +1276,11 @@ type conflictDisabledAuthRepo struct {
 }
 
 func (r *conflictDisabledAuthRepo) CreateLocalUser(ctx context.Context, username, passwordHash string) (int64, error) {
-	id, err := r.AuthRepository.CreateLocalUser(ctx, username, passwordHash)
+	return r.CreateLocalUserWithPasswordAuth(ctx, username, passwordHash, true)
+}
+
+func (r *conflictDisabledAuthRepo) CreateLocalUserWithPasswordAuth(ctx context.Context, username, passwordHash string, passwordAuthEnabled bool) (int64, error) {
+	id, err := r.AuthRepository.CreateLocalUserWithPasswordAuth(ctx, username, passwordHash, passwordAuthEnabled)
 	if err != nil {
 		return 0, err
 	}

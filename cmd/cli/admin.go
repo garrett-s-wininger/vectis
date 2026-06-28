@@ -22,17 +22,30 @@ type namespaceCLIResponse struct {
 }
 
 type userCLIResponse struct {
-	ID              int64  `json:"id"`
-	Username        string `json:"username"`
-	Enabled         bool   `json:"enabled"`
-	CreatedAt       string `json:"created_at"`
-	InitialPassword string `json:"initial_password,omitempty"`
+	ID                  int64  `json:"id"`
+	Username            string `json:"username"`
+	Enabled             bool   `json:"enabled"`
+	PasswordAuthEnabled bool   `json:"password_auth_enabled"`
+	CreatedAt           string `json:"created_at"`
+	InitialPassword     string `json:"initial_password,omitempty"`
 }
 
 type bindingCLIResponse struct {
 	LocalUserID int64  `json:"local_user_id"`
 	Username    string `json:"username,omitempty"`
 	Role        string `json:"role"`
+}
+
+type externalIdentityCLIResponse struct {
+	ID          int64  `json:"id"`
+	LocalUserID int64  `json:"local_user_id"`
+	ProviderID  string `json:"provider_id"`
+	Kind        string `json:"kind"`
+	Subject     string `json:"subject"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	LastSeenAt  string `json:"last_seen_at"`
 }
 
 func apiStatusError(resp *http.Response) error {
@@ -197,7 +210,7 @@ func userList(w io.Writer) error {
 	}
 
 	for _, u := range users {
-		fmt.Fprintf(w, "%d\t%s\tenabled=%t\tcreated=%s\n", u.ID, u.Username, u.Enabled, u.CreatedAt)
+		fmt.Fprintf(w, "%d\t%s\tenabled=%t\tpassword_auth=%t\tcreated=%s\n", u.ID, u.Username, u.Enabled, u.PasswordAuthEnabled, u.CreatedAt)
 	}
 
 	return nil
@@ -213,7 +226,7 @@ func userGet(id int64, w io.Writer) error {
 		return writeJSON(w, u)
 	}
 
-	fmt.Fprintf(w, "id=%d\nusername=%s\nenabled=%t\ncreated_at=%s\n", u.ID, u.Username, u.Enabled, u.CreatedAt)
+	fmt.Fprintf(w, "id=%d\nusername=%s\nenabled=%t\npassword_auth_enabled=%t\ncreated_at=%s\n", u.ID, u.Username, u.Enabled, u.PasswordAuthEnabled, u.CreatedAt)
 	return nil
 }
 
@@ -259,6 +272,52 @@ func userChangePassword(userID int64, currentPassword, newPassword string) error
 	}
 
 	return doJSONAPI(http.MethodPost, "/api/v1/users/change-password", payload, http.StatusNoContent, nil)
+}
+
+func userExternalIdentityList(userID int64, w io.Writer) error {
+	var identities []externalIdentityCLIResponse
+	if err := doJSONAPI(http.MethodGet, fmt.Sprintf("/api/v1/users/%d/external-identities", userID), nil, http.StatusOK, &identities); err != nil {
+		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, identities)
+	}
+
+	for _, identity := range identities {
+		fmt.Fprintf(w, "%d\tprovider=%s\tkind=%s\tsubject=%s\tusername=%s\tlast_seen=%s\n", identity.ID, identity.ProviderID, identity.Kind, identity.Subject, identity.Username, identity.LastSeenAt)
+	}
+
+	return nil
+}
+
+func userExternalIdentityLink(userID int64, providerID, subject, username, displayName string, w io.Writer) error {
+	payload := map[string]any{
+		"provider_id": providerID,
+		"subject":     subject,
+	}
+	if username != "" {
+		payload["username"] = username
+	}
+	if displayName != "" {
+		payload["display_name"] = displayName
+	}
+
+	var identity externalIdentityCLIResponse
+	if err := doJSONAPI(http.MethodPost, fmt.Sprintf("/api/v1/users/%d/external-identities", userID), payload, http.StatusCreated, &identity); err != nil {
+		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, identity)
+	}
+
+	fmt.Fprintf(w, "External identity linked: user=%d identity=%d provider=%s subject=%s\n", userID, identity.ID, identity.ProviderID, identity.Subject)
+	return nil
+}
+
+func userExternalIdentityUnlink(userID, identityID int64) error {
+	return doJSONAPI(http.MethodDelete, fmt.Sprintf("/api/v1/users/%d/external-identities/%d", userID, identityID), nil, http.StatusNoContent, nil)
 }
 
 func bindingList(namespaceID int64, w io.Writer) error {
@@ -393,6 +452,41 @@ func runUserChangePassword(cmd *cobra.Command, args []string) {
 	runCLIError(writeAction(os.Stdout, "Password changed.", cliActionResult{Status: "changed"}))
 }
 
+func runUserExternalIdentityList(cmd *cobra.Command, args []string) {
+	userID, err := parseInt64Arg("user id", args[0])
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(userExternalIdentityList(userID, os.Stdout))
+}
+
+func runUserExternalIdentityLink(cmd *cobra.Command, args []string) {
+	userID, err := parseInt64Arg("user id", args[0])
+	if err != nil {
+		runCLIError(err)
+	}
+
+	username, _ := cmd.Flags().GetString("username")
+	displayName, _ := cmd.Flags().GetString("display-name")
+	runCLIError(userExternalIdentityLink(userID, args[1], args[2], username, displayName, os.Stdout))
+}
+
+func runUserExternalIdentityUnlink(cmd *cobra.Command, args []string) {
+	userID, err := parseInt64Arg("user id", args[0])
+	if err != nil {
+		runCLIError(err)
+	}
+
+	identityID, err := parseInt64Arg("identity id", args[1])
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(userExternalIdentityUnlink(userID, identityID))
+	runCLIError(writeAction(os.Stdout, "External identity unlinked.", cliActionResult{Status: "deleted"}))
+}
+
 func runBindingList(cmd *cobra.Command, args []string) {
 	nsID, err := parseInt64Arg("namespace id", args[0])
 	if err != nil {
@@ -453,6 +547,14 @@ var userEnableCmd = &cobra.Command{Use: "enable [user-id]", Short: "Enable a use
 var userDisableCmd = &cobra.Command{Use: "disable [user-id]", Short: "Disable a user", Args: cobra.ExactArgs(1), Run: runUserDisable}
 var userDeleteCmd = &cobra.Command{Use: "delete [user-id]", Short: "Delete a user", Args: cobra.ExactArgs(1), Run: runUserDelete}
 var userChangePasswordCmd = &cobra.Command{Use: "change-password", Short: "Change a user password", Run: runUserChangePassword}
+var userExternalIdentityCmd = &cobra.Command{
+	Use:   "external-identities",
+	Short: "List, link, and unlink external identity mappings",
+}
+
+var userExternalIdentityListCmd = &cobra.Command{Use: "list [user-id]", Short: "List external identities for a user", Args: cobra.ExactArgs(1), Run: runUserExternalIdentityList}
+var userExternalIdentityLinkCmd = &cobra.Command{Use: "link [user-id] [provider-id] [subject]", Short: "Link an external identity to a user", Args: cobra.ExactArgs(3), Run: runUserExternalIdentityLink}
+var userExternalIdentityUnlinkCmd = &cobra.Command{Use: "unlink [user-id] [identity-id]", Short: "Unlink an external identity from a user", Args: cobra.ExactArgs(2), Run: runUserExternalIdentityUnlink}
 
 var roleBindingCmd = &cobra.Command{
 	Use:   "role-bindings",

@@ -16,7 +16,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Auth sessions | Log in and out for API-backed CLI use. | `vectis-cli auth login`, `logout` |
 | API tokens | Manage personal/API tokens through the auth API. | `vectis-cli auth tokens list`, `create`, `delete` |
 | Namespaces | Manage namespace hierarchy. | `vectis-cli namespaces list`, `show`, `create`, `delete` |
-| Users | Manage user accounts. | `vectis-cli users list`, `show`, `create`, `enable`, `disable`, `delete`, `change-password` |
+| Users | Manage user accounts and external identity links. | `vectis-cli users list`, `show`, `create`, `enable`, `disable`, `delete`, `change-password`, `external-identities` |
 | Role bindings | Grant or revoke namespace roles. | `vectis-cli role-bindings list`, `grant`, `revoke` |
 | Source control | Register, sync, inspect, author, and clean up source repositories and schedules. | `vectis-cli sources overview`, `list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--format json`, `--strict` |

@@ -545,6 +545,7 @@ CREATE TABLE local_users (
     global_id TEXT UNIQUE,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    password_auth_enabled INTEGER NOT NULL DEFAULT 1 CHECK (password_auth_enabled IN (0, 1)),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

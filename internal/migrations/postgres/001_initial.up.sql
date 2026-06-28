@@ -546,6 +546,7 @@ CREATE TABLE local_users (
     global_id TEXT UNIQUE,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    password_auth_enabled BOOLEAN NOT NULL DEFAULT true,
     enabled BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

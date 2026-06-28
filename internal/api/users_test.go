@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -406,6 +407,42 @@ func TestChangePassword_endToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("self_service_password_change_rejects_password_auth_disabled_user", func(t *testing.T) {
+		if _, err := db.Exec("UPDATE local_users SET password_auth_enabled = ? WHERE id = ?", false, regularUserID); err != nil {
+			t.Fatalf("disable regular password auth: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := db.Exec("UPDATE local_users SET password_auth_enabled = ? WHERE id = ?", true, regularUserID); err != nil {
+				t.Errorf("restore regular password auth: %v", err)
+			}
+		})
+
+		body := map[string]string{
+			"current_password": "password123",
+			"new_password":     "anotherpassword",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/change-password", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+regularToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+		}
+
+		var errResp apiError
+		if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+			t.Fatal(err)
+		}
+
+		if errResp.Code != string(apiErrPasswordAuthDisabled) {
+			t.Fatalf("code=%q, want %q", errResp.Code, apiErrPasswordAuthDisabled)
+		}
+	})
+
 	t.Run("admin_reset_other_user_password", func(t *testing.T) {
 		// First create a new admin token since the old one was revoked
 		var newAdminToken string
@@ -452,6 +489,16 @@ func TestChangePassword_endToEnd(t *testing.T) {
 
 		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte("resetpassword456")); err != nil {
 			t.Fatal("password was not updated by admin")
+		}
+
+		var passwordAuthEnabled bool
+		row = db.QueryRow("SELECT password_auth_enabled FROM local_users WHERE id = ?", regularUserID)
+		if err := row.Scan(&passwordAuthEnabled); err != nil {
+			t.Fatalf("failed to get password auth flag: %v", err)
+		}
+
+		if !passwordAuthEnabled {
+			t.Fatal("admin password reset should re-enable password auth")
 		}
 
 		// Verify regular user's tokens were revoked
@@ -731,6 +778,111 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 
 		if !enabled {
 			t.Fatal("expected user to be enabled")
+		}
+	})
+
+	t.Run("external_identity_links", func(t *testing.T) {
+		if _, err := s.authRepo.EnsureAuthProvider(context.Background(), "corp-ldap", "ldap"); err != nil {
+			t.Fatalf("EnsureAuthProvider: %v", err)
+		}
+
+		body := map[string]string{
+			"provider_id":  "corp-ldap",
+			"subject":      "uuid-123",
+			"username":     "newuser",
+			"display_name": "New User",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("link code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		var linked externalIdentityResponse
+		if err := json.NewDecoder(rec.Body).Decode(&linked); err != nil {
+			t.Fatal(err)
+		}
+
+		if linked.ProviderID != "corp-ldap" || linked.Kind != "ldap" || linked.Subject != "uuid-123" || linked.LocalUserID != createdUserID {
+			t.Fatalf("unexpected link: %+v", linked)
+		}
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodGet, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list links code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		var links []externalIdentityResponse
+		if err := json.NewDecoder(rec.Body).Decode(&links); err != nil {
+			t.Fatal(err)
+		}
+
+		if len(links) != 1 || links[0].ID != linked.ID {
+			t.Fatalf("links = %+v, want created link", links)
+		}
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("duplicate link code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities/"+formatInt64(linked.ID), nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("delete link code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodGet, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list links after delete code=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		if err := json.NewDecoder(rec.Body).Decode(&links); err != nil {
+			t.Fatal(err)
+		}
+
+		if len(links) != 0 {
+			t.Fatalf("links after delete = %+v, want empty", links)
+		}
+	})
+
+	t.Run("external_identity_requires_registered_provider", func(t *testing.T) {
+		body := map[string]string{
+			"provider_id": "missing-ldap",
+			"subject":     "uuid-404",
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+formatInt64(createdUserID)+"/external-identities", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("missing provider link code=%d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 

@@ -61,6 +61,7 @@ Most API failures use this JSON envelope:
 | --- | --- | --- |
 | `admin_password_too_short` | `400` | Initial setup admin password is too short. |
 | `auth_not_configured` | `503` | API auth repository is unavailable to the route. |
+| `auth_provider_not_found` | `400` | External identity setup or link request referenced an unknown auth provider. |
 | `auth_unavailable` | `503` | Authentication persistence or setup state cannot be used. |
 | `authentication_required` | `401` | Bearer token, API token, or session credential is missing, invalid, expired, or malformed. |
 | `authorization_denied` | `403` | Authenticated principal lacks the required action or namespace permission. |
@@ -79,7 +80,10 @@ Most API failures use this JSON envelope:
 | --- | --- | --- |
 | `binding_already_exists` | `409` | Namespace role binding already exists. |
 | `binding_not_found` | `404` | Namespace role binding does not exist. |
+| `external_identity_already_exists` | `409` | External identity is already linked to a local user. |
+| `external_identity_not_found` | `404` | External identity link does not exist for the user. |
 | `invalid_expires_in` | `400` | Token expiry duration is invalid. |
+| `invalid_external_identity` | `400` | External identity provider, subject, username, or display name is invalid. |
 | `invalid_id` | `400` | Path ID is missing, malformed, or not positive. |
 | `invalid_namespace_id` | `400` | Namespace ID is missing, malformed, or not positive. |
 | `invalid_namespace_name` | `400` | Namespace name is invalid. |
@@ -110,6 +114,7 @@ Most API failures use this JSON envelope:
 | `namespaces_not_configured` | `503` | API server was not wired with namespace storage. |
 | `new_password_too_short` | `400` | New password is too short. |
 | `parent_namespace_not_found` | `404` | Parent namespace for a create request does not exist. |
+| `password_auth_disabled` | `400` | Local password authentication is disabled for the user. |
 | `password_too_short` | `400` | User password is too short. |
 | `role_bindings_not_configured` | `503` | API server was not wired with role-binding storage. |
 | `root_namespace_delete_forbidden` | `403` | Root namespace cannot be deleted. |

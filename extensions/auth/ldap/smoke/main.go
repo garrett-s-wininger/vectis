@@ -22,6 +22,7 @@ func main() {
 	flag.StringVar(&opts.BindPasswordFile, "bind-password-file", os.Getenv(ldapauth.EnvBindPasswordFile), "File containing the LDAP service-account bind password")
 	flag.StringVar(&opts.BaseDN, "base-dn", envDefault(ldapauth.EnvBaseDN, ldapauth.DefaultSmokeBaseDN), "LDAP base DN used for user search")
 	flag.StringVar(&opts.UserFilter, "user-filter", envDefault(ldapauth.EnvUserFilter, "(uid={username})"), "LDAP user search filter")
+	flag.StringVar(&opts.SubjectAttribute, "subject-attribute", os.Getenv(ldapauth.EnvSubjectAttribute), "LDAP attribute used as the stable external subject")
 	flag.StringVar(&opts.UsernameAttribute, "username-attribute", envDefault(ldapauth.EnvUsernameAttribute, "uid"), "LDAP attribute mapped to username")
 	flag.StringVar(&opts.DisplayNameAttribute, "display-name-attribute", envDefault(ldapauth.EnvDisplayNameAttribute, "cn"), "LDAP attribute mapped to display name")
 	flag.BoolVar(&opts.StartTLS, "start-tls", envBoolDefault(ldapauth.EnvStartTLS, false), "Upgrade ldap:// connections with StartTLS")

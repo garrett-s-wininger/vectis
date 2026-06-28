@@ -616,6 +616,25 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			RateLimit: defaultLimits.General,
 		},
 		{
+			Pattern:   "GET /api/v1/users/{id}/external-identities",
+			Handler:   http.HandlerFunc(s.ListUserExternalIdentities),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "POST /api/v1/users/{id}/external-identities",
+			Handler:   http.HandlerFunc(s.CreateUserExternalIdentity),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			Body:      routeBodyJSONPolicy(maxUserBodyBytes),
+			RateLimit: defaultLimits.General,
+		},
+		{
+			Pattern:   "DELETE /api/v1/users/{id}/external-identities/{identity_id}",
+			Handler:   http.HandlerFunc(s.DeleteUserExternalIdentity),
+			Auth:      routeAuthPolicy{Action: authz.ActionUserAdmin},
+			RateLimit: defaultLimits.General,
+		},
+		{
 			Pattern:   "GET /api/v1/namespaces",
 			Handler:   http.HandlerFunc(s.ListNamespaces),
 			Auth:      routeAuthPolicy{Action: authz.ActionJobRead},

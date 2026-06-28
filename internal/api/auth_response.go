@@ -30,6 +30,10 @@ const (
 	apiErrDatabaseNotReady               apiErrorCode = "database_not_ready"
 	apiErrFetchMetadataForbidden         apiErrorCode = "fetch_metadata_forbidden"
 	apiErrInternal                       apiErrorCode = "internal_error"
+	apiErrAuthProviderNotFound           apiErrorCode = "auth_provider_not_found"
+	apiErrExternalIdentityAlreadyExists  apiErrorCode = "external_identity_already_exists"
+	apiErrExternalIdentityNotFound       apiErrorCode = "external_identity_not_found"
+	apiErrInvalidExternalIdentity        apiErrorCode = "invalid_external_identity"
 	apiErrInvalidHostHeader              apiErrorCode = "invalid_host_header"
 	apiErrInvalidQueryParameter          apiErrorCode = "invalid_query_parameter"
 	apiErrInvalidAdminPassword           apiErrorCode = "invalid_admin_password"
@@ -75,6 +79,7 @@ const (
 	apiErrNamespacesNotConfigured        apiErrorCode = "namespaces_not_configured"
 	apiErrNotAcceptable                  apiErrorCode = "not_acceptable"
 	apiErrParentNamespaceNotFound        apiErrorCode = "parent_namespace_not_found"
+	apiErrPasswordAuthDisabled           apiErrorCode = "password_auth_disabled"
 	apiErrPasswordTooShort               apiErrorCode = "password_too_short"
 	apiErrQueueNotReady                  apiErrorCode = "queue_not_ready"
 	apiErrRateLimitExceeded              apiErrorCode = "rate_limit_exceeded"
@@ -127,6 +132,14 @@ func (c apiErrorCode) message() string {
 		return "fetch metadata forbidden"
 	case apiErrInternal:
 		return "internal server error"
+	case apiErrAuthProviderNotFound:
+		return "auth provider not found"
+	case apiErrExternalIdentityAlreadyExists:
+		return "external identity already exists"
+	case apiErrExternalIdentityNotFound:
+		return "external identity not found"
+	case apiErrInvalidExternalIdentity:
+		return "invalid external identity"
 	case apiErrInvalidHostHeader:
 		return "invalid host header"
 	case apiErrInvalidQueryParameter:
@@ -217,6 +230,8 @@ func (c apiErrorCode) message() string {
 		return "requested response media type is not acceptable"
 	case apiErrParentNamespaceNotFound:
 		return "parent namespace not found"
+	case apiErrPasswordAuthDisabled:
+		return "password auth is disabled for this user"
 	case apiErrPasswordTooShort:
 		return "password must be at least 8 characters"
 	case apiErrQueueNotReady:

@@ -479,6 +479,16 @@ Create a user:
 ./bin/vectis-cli users create alice
 ```
 
+Pre-link an external identity for a user:
+
+```sh
+./bin/vectis-cli users external-identities link <user-id> corp-ldap <subject>
+```
+
+User list and show output includes `password_auth_enabled` so operators can
+distinguish local-password users from IdP-only users. Admin password changes
+re-enable local password auth for the target user.
+
 Create an API token for yourself:
 
 ```sh

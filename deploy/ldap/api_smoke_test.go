@@ -31,7 +31,9 @@ func TestRunAPISmokeWithInjectedProvider(t *testing.T) {
 		!result.TokenReturned ||
 		!result.AuthenticatedRequestOK ||
 		!result.WrongPasswordDenied ||
-		!result.AutoProvisionedLocalUser {
+		!result.SetupExternalIdentityLinked ||
+		!result.PasswordLoginDenied ||
+		!result.ExternalLoginMatchedSetup {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }

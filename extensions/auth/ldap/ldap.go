@@ -28,6 +28,7 @@ type ProviderOptions struct {
 	BindPassword         string
 	BaseDN               string
 	UserFilter           string
+	SubjectAttribute     string
 	UsernameAttribute    string
 	DisplayNameAttribute string
 	StartTLS             bool
@@ -43,6 +44,7 @@ type Provider struct {
 	bindPassword         string
 	baseDN               string
 	userFilter           string
+	subjectAttribute     string
 	usernameAttribute    string
 	displayNameAttribute string
 	startTLS             bool
@@ -96,6 +98,8 @@ func NewProvider(opts ProviderOptions) (*Provider, error) {
 		usernameAttribute = defaultUsernameAttribute
 	}
 
+	subjectAttribute := strings.TrimSpace(opts.SubjectAttribute)
+
 	displayNameAttribute := strings.TrimSpace(opts.DisplayNameAttribute)
 	if displayNameAttribute == "" {
 		displayNameAttribute = defaultDisplayNameAttribute
@@ -113,6 +117,7 @@ func NewProvider(opts ProviderOptions) (*Provider, error) {
 		bindPassword:         opts.BindPassword,
 		baseDN:               baseDN,
 		userFilter:           userFilter,
+		subjectAttribute:     subjectAttribute,
 		usernameAttribute:    usernameAttribute,
 		displayNameAttribute: displayNameAttribute,
 		startTLS:             opts.StartTLS,
@@ -185,14 +190,20 @@ func (p *Provider) Authenticate(ctx context.Context, username, password string) 
 		mappedUsername = username
 	}
 
+	subject := strings.TrimSpace(entry.DN)
+	if p.subjectAttribute != "" {
+		subject = strings.TrimSpace(entry.GetAttributeValue(p.subjectAttribute))
+		if subject == "" {
+			return sdkauth.Identity{}, fmt.Errorf("%w: ldap subject attribute %q is empty", sdkauth.ErrIdentityNotAllowed, p.subjectAttribute)
+		}
+	}
+
 	return sdkauth.Identity{
 		Provider:    p.providerID,
-		Subject:     entry.DN,
+		Subject:     subject,
 		Username:    mappedUsername,
 		DisplayName: strings.TrimSpace(entry.GetAttributeValue(p.displayNameAttribute)),
-		Attributes: map[string][]string{
-			p.usernameAttribute: append([]string(nil), entry.GetAttributeValues(p.usernameAttribute)...),
-		},
+		Attributes:  p.identityAttributes(entry),
 	}, nil
 }
 
@@ -202,10 +213,7 @@ func (p *Provider) searchUser(ctx context.Context, c conn, username string) (*go
 	}
 
 	filter := strings.ReplaceAll(p.userFilter, "{username}", goldap.EscapeFilter(username))
-	attributes := []string{p.usernameAttribute}
-	if p.displayNameAttribute != "" && p.displayNameAttribute != p.usernameAttribute {
-		attributes = append(attributes, p.displayNameAttribute)
-	}
+	attributes := ldapSearchAttributes(p.usernameAttribute, p.displayNameAttribute, p.subjectAttribute)
 
 	result, err := c.Search(goldap.NewSearchRequest(
 		p.baseDN,
@@ -231,6 +239,38 @@ func (p *Provider) searchUser(ctx context.Context, c conn, username string) (*go
 	default:
 		return nil, fmt.Errorf("%w: ldap user search returned multiple entries", sdkauth.ErrIdentityNotAllowed)
 	}
+}
+
+func (p *Provider) identityAttributes(entry *goldap.Entry) map[string][]string {
+	attributes := map[string][]string{}
+	for _, attribute := range ldapSearchAttributes(p.usernameAttribute, p.displayNameAttribute, p.subjectAttribute) {
+		values := entry.GetAttributeValues(attribute)
+		if len(values) > 0 {
+			attributes[attribute] = append([]string(nil), values...)
+		}
+	}
+
+	return attributes
+}
+
+func ldapSearchAttributes(attributes ...string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(attributes))
+	for _, attribute := range attributes {
+		attribute = strings.TrimSpace(attribute)
+		if attribute == "" {
+			continue
+		}
+
+		if _, ok := seen[attribute]; ok {
+			continue
+		}
+
+		seen[attribute] = struct{}{}
+		out = append(out, attribute)
+	}
+
+	return out
 }
 
 func (p *Provider) dialLDAP(ctx context.Context) (conn, error) {

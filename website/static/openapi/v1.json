@@ -2401,6 +2401,124 @@
         }
       }
     },
+    "/api/v1/users/{id}/external-identities": {
+      "get": {
+        "operationId": "listUserExternalIdentities",
+        "summary": "List external identities linked to a user",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "External identity links",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalIdentityResponse"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createUserExternalIdentity",
+        "summary": "Link an external identity to a user",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExternalIdentityRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "External identity linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalIdentityResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/external-identities/{identity_id}": {
+      "delete": {
+        "operationId": "deleteUserExternalIdentity",
+        "summary": "Unlink an external identity from a user",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "user:admin",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          },
+          {
+            "name": "identity_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/components/responses/NoContent"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/v1/namespaces": {
       "get": {
         "operationId": "listNamespaces",
@@ -3427,6 +3545,69 @@
             "type": "string",
             "format": "password",
             "minLength": 8
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateExternalIdentityRequest": {
+        "type": "object",
+        "required": [
+          "provider_id",
+          "subject"
+        ],
+        "properties": {
+          "provider_id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ExternalIdentityResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider_id",
+          "subject",
+          "local_user_id",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "local_user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "username": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_login_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false

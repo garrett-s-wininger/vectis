@@ -187,7 +187,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) authenticateLogin(ctx context.Context, w http.ResponseWriter, r *http.Request, req loginRequest) (loginPrincipal, bool) {
-	uid, passHash, enabled, err := s.authRepo.GetLocalUserByUsername(ctx, req.Username)
+	uid, passHash, enabled, passwordAuthEnabled, err := s.authRepo.GetLocalUserByUsername(ctx, req.Username)
 	localUserFound := false
 	if err == nil {
 		localUserFound = true
@@ -202,8 +202,12 @@ func (s *APIServer) authenticateLogin(ctx context.Context, w http.ResponseWriter
 			return loginPrincipal{}, false
 		}
 
-		if err := bcrypt.CompareHashAndPassword([]byte(passHash), []byte(req.Password)); err == nil {
-			return loginPrincipal{LocalUserID: uid, Username: req.Username, Method: "password"}, true
+		if passwordAuthEnabled {
+			if err := bcrypt.CompareHashAndPassword([]byte(passHash), []byte(req.Password)); err == nil {
+				return loginPrincipal{LocalUserID: uid, Username: req.Username, Method: "password"}, true
+			}
+		} else {
+			_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(req.Password))
 		}
 	} else if dal.IsNotFound(err) {
 		_ = bcrypt.CompareHashAndPassword([]byte(dummyBcryptHash), []byte(req.Password))
@@ -352,11 +356,27 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 		return loginPrincipal{}, false
 	}
 
-	uid, _, enabled, err := s.authRepo.GetLocalUserByUsername(ctx, username)
+	uid, _, enabled, _, err := s.authRepo.GetLocalUserByUsername(ctx, username)
 	if err == nil {
 		if !enabled {
 			s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
 				"reason":   "user_disabled",
+				"username": username,
+				"provider": providerID,
+				"subject":  subject,
+			})
+
+			writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+			return loginPrincipal{}, false
+		}
+
+		s.mu.RLock()
+		autoLink := s.externalLoginAutoLinkUsers
+		s.mu.RUnlock()
+
+		if !autoLink {
+			s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+				"reason":   "external_identity_not_linked",
 				"username": username,
 				"provider": providerID,
 				"subject":  subject,
@@ -409,13 +429,29 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 		return loginPrincipal{}, false
 	}
 
-	uid, err = s.authRepo.CreateLocalUser(ctx, username, string(passHash))
+	uid, err = s.authRepo.CreateLocalUserWithPasswordAuth(ctx, username, string(passHash), false)
 	if err != nil {
 		if dal.IsConflict(err) {
 			var lookupErr error
-			uid, _, enabled, lookupErr = s.authRepo.GetLocalUserByUsername(ctx, username)
+			uid, _, enabled, _, lookupErr = s.authRepo.GetLocalUserByUsername(ctx, username)
 			if lookupErr == nil {
 				if enabled {
+					s.mu.RLock()
+					autoLink := s.externalLoginAutoLinkUsers
+					s.mu.RUnlock()
+
+					if !autoLink {
+						s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+							"reason":   "external_identity_not_linked",
+							"username": username,
+							"provider": providerID,
+							"subject":  subject,
+						})
+
+						writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
+						return loginPrincipal{}, false
+					}
+
 					return s.linkExternalIdentityToLocalUser(ctx, w, r, uid, username, providerID, subject, displayName)
 				}
 

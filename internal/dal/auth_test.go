@@ -62,6 +62,10 @@ func TestAuthRepository_ExternalIdentities(t *testing.T) {
 		t.Fatalf("existing provider id = %d, want %d", sameProvider.ID, provider.ID)
 	}
 
+	if _, err := repo.EnsureAuthProvider(ctx, "corp-ldap", "oidc"); !IsConflict(err) {
+		t.Fatalf("EnsureAuthProvider kind mismatch error = %v, want conflict", err)
+	}
+
 	userID, err := repo.CreateLocalUser(ctx, "alice", "hash")
 	if err != nil {
 		t.Fatalf("CreateLocalUser: %v", err)
@@ -74,6 +78,15 @@ func TestAuthRepository_ExternalIdentities(t *testing.T) {
 
 	if link.LocalUserID != userID || link.ProviderID != "corp-ldap" || link.Subject != "uid=alice,ou=people,dc=example,dc=org" || link.LocalUsername != "alice" {
 		t.Fatalf("unexpected link: %+v", link)
+	}
+
+	links, err := repo.ListExternalIdentitiesForUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListExternalIdentitiesForUser: %v", err)
+	}
+
+	if len(links) != 1 || links[0].ID != link.ID {
+		t.Fatalf("links = %+v, want one created link", links)
 	}
 
 	found, err := repo.GetExternalIdentity(ctx, "corp-ldap", "uid=alice,ou=people,dc=example,dc=org")
@@ -109,6 +122,19 @@ func TestAuthRepository_ExternalIdentities(t *testing.T) {
 
 	if _, err := repo.LinkExternalIdentity(ctx, userID, "contractor-ldap", "uid=alice,ou=people,dc=example,dc=org", "alice", "Alice"); err != nil {
 		t.Fatalf("same subject under different provider should link: %v", err)
+	}
+
+	if err := repo.DeleteExternalIdentity(ctx, userID, link.ID); err != nil {
+		t.Fatalf("DeleteExternalIdentity: %v", err)
+	}
+
+	_, err = repo.GetExternalIdentity(ctx, "corp-ldap", "uid=alice,ou=people,dc=example,dc=org")
+	if !IsNotFound(err) {
+		t.Fatalf("GetExternalIdentity after delete error = %v, want not found", err)
+	}
+
+	if err := repo.DeleteExternalIdentity(ctx, userID, link.ID); !IsNotFound(err) {
+		t.Fatalf("DeleteExternalIdentity missing error = %v, want not found", err)
 	}
 }
 
@@ -164,6 +190,102 @@ func TestAuthRepository_CompleteInitialSetup_and_IsSetupComplete(t *testing.T) {
 	_, err = repo.CompleteInitialSetup(ctx, "other", string(passHash), tokenHash+"x", "x")
 	if !errors.Is(err, ErrSetupAlreadyComplete) {
 		t.Fatalf("expected ErrSetupAlreadyComplete, got %v", err)
+	}
+}
+
+func TestAuthRepository_CompleteInitialSetupWithExternalIdentity(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+	ctx := context.Background()
+
+	if _, err := repo.EnsureAuthProvider(ctx, "corp-ldap", "ldap"); err != nil {
+		t.Fatalf("EnsureAuthProvider: %v", err)
+	}
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte("longenough"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uid, err := repo.CompleteInitialSetupWithOptions(ctx, CompleteInitialSetupOptions{
+		Username:            "admin",
+		PasswordHash:        string(passHash),
+		PasswordAuthEnabled: false,
+		TokenHash:           "aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+		TokenLabel:          "initial",
+		ExternalIdentity: &InitialSetupExternalIdentity{
+			ProviderID:  "corp-ldap",
+			Subject:     "entryUUID=admin-uuid",
+			Username:    "admin",
+			DisplayName: "Admin User",
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("CompleteInitialSetupWithOptions: %v", err)
+	}
+
+	user, err := repo.GetLocalUser(ctx, uid)
+	if err != nil {
+		t.Fatalf("GetLocalUser: %v", err)
+	}
+
+	if user.PasswordAuthEnabled {
+		t.Fatal("expected setup admin password auth disabled")
+	}
+
+	if _, err := repo.GetUserPasswordHash(ctx, uid); !errors.Is(err, ErrPasswordAuthDisabled) {
+		t.Fatalf("GetUserPasswordHash error = %v, want ErrPasswordAuthDisabled", err)
+	}
+
+	identity, err := repo.GetExternalIdentity(ctx, "corp-ldap", "entryUUID=admin-uuid")
+	if err != nil {
+		t.Fatalf("GetExternalIdentity: %v", err)
+	}
+
+	if identity.LocalUserID != uid || identity.Username != "admin" || identity.DisplayName != "Admin User" {
+		t.Fatalf("bad external identity: %+v", identity)
+	}
+}
+
+func TestAuthRepository_CompleteInitialSetupExternalIdentityMissingProviderRollsBack(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+	ctx := context.Background()
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte("longenough"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = repo.CompleteInitialSetupWithOptions(ctx, CompleteInitialSetupOptions{
+		Username:            "admin",
+		PasswordHash:        string(passHash),
+		PasswordAuthEnabled: false,
+		TokenHash:           "aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabbccdd0000",
+		TokenLabel:          "initial",
+		ExternalIdentity: &InitialSetupExternalIdentity{
+			ProviderID: "missing-ldap",
+			Subject:    "entryUUID=admin-uuid",
+			Username:   "admin",
+		},
+	})
+
+	if !IsNotFound(err) {
+		t.Fatalf("CompleteInitialSetupWithOptions error = %v, want not found", err)
+	}
+
+	complete, err := repo.IsSetupComplete(ctx)
+	if err != nil {
+		t.Fatalf("IsSetupComplete: %v", err)
+	}
+
+	if complete {
+		t.Fatal("setup should remain incomplete after failed external identity link")
 	}
 }
 

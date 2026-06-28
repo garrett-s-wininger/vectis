@@ -146,6 +146,10 @@ type APIServer struct {
 	// external identities that do not already have a local user row.
 	externalLoginAutoProvision bool
 
+	// externalLoginAutoLinkUsers links a first-seen external identity to an
+	// existing local user with the same mapped username.
+	externalLoginAutoLinkUsers bool
+
 	// auditor, when set, logs audit events for auth operations.
 	auditor audit.Auditor
 	// auditPolicy resolves event-specific audit durability.
@@ -269,16 +273,17 @@ func NewAPIServerWithRepositories(
 	}
 
 	s := &APIServer{
-		jobs:                   jobs,
-		runs:                   runs,
-		ephemeralRuns:          ephemeralRuns,
-		artifacts:              artifacts,
-		serviceLeases:          serviceLeases,
-		logger:                 logger,
-		runBroadcaster:         NewRunBroadcaster(logger),
-		auditPolicy:            audit.DefaultPolicy(),
-		sourceDefinitionAuthor: sourcepkg.NewDefinitionAuthorFromRecord,
-		sourceAuthoring:        sourcepkg.AuthoringCapabilityFromRecord,
+		jobs:                       jobs,
+		runs:                       runs,
+		ephemeralRuns:              ephemeralRuns,
+		artifacts:                  artifacts,
+		serviceLeases:              serviceLeases,
+		logger:                     logger,
+		runBroadcaster:             NewRunBroadcaster(logger),
+		auditPolicy:                audit.DefaultPolicy(),
+		externalLoginAutoLinkUsers: true,
+		sourceDefinitionAuthor:     sourcepkg.NewDefinitionAuthorFromRecord,
+		sourceAuthoring:            sourcepkg.AuthoringCapabilityFromRecord,
 	}
 
 	return s
@@ -802,6 +807,12 @@ func (s *APIServer) SetExternalLoginAutoProvision(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.externalLoginAutoProvision = enabled
+}
+
+func (s *APIServer) SetExternalLoginAutoLinkUsers(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.externalLoginAutoLinkUsers = enabled
 }
 
 func (s *APIServer) SetActionResolver(resolver action.Resolver) {

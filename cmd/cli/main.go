@@ -403,9 +403,13 @@ func init() {
 	userChangePasswordCmd.Flags().Int64("user-id", 0, "Target user ID (default: current user)")
 	userChangePasswordCmd.Flags().String("current-password", "", "Current password for self-service password changes")
 	userChangePasswordCmd.Flags().String("new-password", "", "New password")
+	userExternalIdentityLinkCmd.Flags().String("username", "", "External username claim to store on the link")
+	userExternalIdentityLinkCmd.Flags().String("display-name", "", "External display name claim to store on the link")
+	userExternalIdentityCmd.Run = showCommandHelp
+	userExternalIdentityCmd.AddCommand(userExternalIdentityListCmd, userExternalIdentityLinkCmd, userExternalIdentityUnlinkCmd)
 	userCmd.GroupID = cliGroupAccess
 	userCmd.Run = showCommandHelp
-	userCmd.AddCommand(userListCmd, userGetCmd, userCreateCmd, userEnableCmd, userDisableCmd, userDeleteCmd, userChangePasswordCmd)
+	userCmd.AddCommand(userListCmd, userGetCmd, userCreateCmd, userEnableCmd, userDisableCmd, userDeleteCmd, userChangePasswordCmd, userExternalIdentityCmd)
 	rootCmd.AddCommand(userCmd)
 
 	roleBindingCmd.GroupID = cliGroupAccess

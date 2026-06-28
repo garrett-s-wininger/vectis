@@ -30,14 +30,17 @@ func (m *mockAuthRepo) IsSetupComplete(_ context.Context) (bool, error) { return
 func (m *mockAuthRepo) CompleteInitialSetup(_ context.Context, _, _, _, _ string) (int64, error) {
 	return 0, nil
 }
+func (m *mockAuthRepo) CompleteInitialSetupWithOptions(_ context.Context, _ dal.CompleteInitialSetupOptions) (int64, error) {
+	return 0, nil
+}
 func (m *mockAuthRepo) ResolveAPIToken(_ context.Context, _ string) (int64, string, int64, error) {
 	return 0, "", 0, nil
 }
 func (m *mockAuthRepo) TouchAPITokenUsed(_ context.Context, _ string) error  { return nil }
 func (m *mockAuthRepo) UserExists(_ context.Context, _ int64) (bool, error)  { return false, nil }
 func (m *mockAuthRepo) UserEnabled(_ context.Context, _ int64) (bool, error) { return false, nil }
-func (m *mockAuthRepo) GetLocalUserByUsername(_ context.Context, _ string) (int64, string, bool, error) {
-	return 0, "", false, nil
+func (m *mockAuthRepo) GetLocalUserByUsername(_ context.Context, _ string) (int64, string, bool, bool, error) {
+	return 0, "", false, false, nil
 }
 func (m *mockAuthRepo) GetUserPasswordHash(_ context.Context, _ int64) (string, error) {
 	return "", nil
@@ -59,14 +62,23 @@ func (m *mockAuthRepo) CreateAPIToken(_ context.Context, _ int64, _, _ string, _
 func (m *mockAuthRepo) DeleteAPIToken(_ context.Context, _ int64) error               { return nil }
 func (m *mockAuthRepo) GetAPITokenOwner(_ context.Context, _ int64) (int64, error)    { return 0, nil }
 func (m *mockAuthRepo) CreateLocalUser(_ context.Context, _, _ string) (int64, error) { return 0, nil }
+func (m *mockAuthRepo) CreateLocalUserWithPasswordAuth(_ context.Context, _, _ string, _ bool) (int64, error) {
+	return 0, nil
+}
 func (m *mockAuthRepo) EnsureAuthProvider(_ context.Context, _, _ string) (*dal.AuthProviderRecord, error) {
 	return nil, nil
 }
 func (m *mockAuthRepo) GetExternalIdentity(_ context.Context, _, _ string) (*dal.ExternalIdentityRecord, error) {
 	return nil, nil
 }
+func (m *mockAuthRepo) ListExternalIdentitiesForUser(_ context.Context, _ int64) ([]*dal.ExternalIdentityRecord, error) {
+	return nil, nil
+}
 func (m *mockAuthRepo) LinkExternalIdentity(_ context.Context, _ int64, _, _, _, _ string) (*dal.ExternalIdentityRecord, error) {
 	return nil, nil
+}
+func (m *mockAuthRepo) DeleteExternalIdentity(_ context.Context, _, _ int64) error {
+	return nil
 }
 func (m *mockAuthRepo) TouchExternalIdentity(_ context.Context, _ int64, _, _ string) error {
 	return nil

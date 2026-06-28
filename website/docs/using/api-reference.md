@@ -176,6 +176,8 @@ Authorization: Bearer <api_token>
 
 Health endpoints and `POST /api/v1/login` are public. Setup routes use setup-specific authorization while the first admin is being created. Diagnostics, API metrics, and data routes authorize the action listed in the route table below; namespace-scoped resources are hidden with `404` when the caller is not allowed to see that namespace. Browser-facing requests must use a trusted `Host` value from the API host allowlist.
 
+`POST /api/v1/setup/complete` accepts `bootstrap_token`, `admin_username`, and, by default, `admin_password`. To bind the first admin to an accepted external provider during bootstrap, include `external_identity` with `provider_id`, `subject`, and optional `username` / `display_name`. Set `password_auth_enabled=false` to make that first admin IdP-only; in that mode `admin_password` may be omitted and the setup token remains the recovery credential. If the provider is not already registered by API configuration, setup fails and remains incomplete.
+
 `POST /api/v1/login` creates an expiring server-side session. Browser clients receive a `Secure` HttpOnly `__Host-vectis_session` cookie plus a `Secure` readable `__Host-vectis_csrf` cookie and `csrf_token` response field. Cookie-authenticated browser login requires HTTPS or local TLS because Vectis does not issue or accept unprefixed fallback session cookies. Browser-marked cross-site requests without `Origin` are rejected before route handling; cross-site requests with `Origin` must pass CORS. Browser requests with Fetch Metadata must use API request shapes such as `Sec-Fetch-Mode: cors` or `same-origin` and `Sec-Fetch-Dest: empty`; document navigations and subresource loads are rejected. Cookie-authenticated requests carrying `Sec-Fetch-Site: cross-site` are rejected even when other metadata is present. Unsafe cookie-authenticated requests must copy the CSRF token into `X-CSRF-Token` and include an `Origin` or `Referer` matching the browser-facing scheme, host, and port; requests without origin metadata are rejected.
 
 Password changes, user disables, and user deletes revoke that user's API tokens and login sessions. Re-enabling a disabled user does not resurrect old credentials.
@@ -269,6 +271,7 @@ This table highlights high-frequency codes. The full catalog, including subsyste
 | `setup_required` | `503` | Initial setup must be completed before using the requested route. |
 | `bootstrap_not_configured` | `503` | Initial setup needs a sufficiently long configured bootstrap token. |
 | `invalid_bootstrap_token` | `401` | The supplied setup bootstrap token does not match the server configuration. |
+| `password_auth_disabled` | `400` | The user cannot use self-service password change because local password auth is disabled. |
 | `cors_origin_forbidden` | `403` | A cross-origin request came from an origin that is not in the CORS allowlist. |
 | `unsupported_media_type` | `415` | A JSON route received a non-JSON `Content-Type`. |
 | `request_body_not_allowed` | `400` | The route does not accept a request body. |
@@ -411,7 +414,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | POST | `/api/v1/runs/{id}/force-requeue` | Requeue a run from a repairable state | `run:operator` | general | `204` empty |
 | GET | `/api/v1/runs/{id}/logs` | Stream run logs as SSE | `run:read` | general | `200` `text/event-stream` |
 | GET | `/api/v1/setup/status` | Report whether initial setup is complete and API auth is enabled | `setup:status` | auth | `200` JSON status |
-| POST | `/api/v1/setup/complete` | Create the first admin account | `setup:complete` | auth | `200` JSON token |
+| POST | `/api/v1/setup/complete` | Create the first admin account, optionally linked to an external identity | `setup:complete` | auth | `200` JSON token |
 | POST | `/api/v1/login` | Exchange username/password for a session | Public | auth | `200` JSON session and cookies |
 | POST | `/api/v1/logout` | Invalidate the current login session | `api:any` | auth | `204` empty |
 | GET | `/api/v1/tokens` | List API tokens visible to the caller | `api:any` | token | `200` JSON list |
@@ -423,6 +426,9 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/users/{id}` | Get one user | `user:admin` | general | `200` JSON user |
 | PUT | `/api/v1/users/{id}` | Enable or disable a user; disabling revokes API tokens and login sessions | `user:admin` | general | `204` empty |
 | DELETE | `/api/v1/users/{id}` | Delete a user | `user:admin` | general | `204` empty |
+| GET | `/api/v1/users/{id}/external-identities` | List external identity links for one user | `user:admin` | general | `200` JSON list |
+| POST | `/api/v1/users/{id}/external-identities` | Link an accepted provider subject to one user | `user:admin` | general | `201` JSON identity link |
+| DELETE | `/api/v1/users/{id}/external-identities/{identity_id}` | Unlink one external identity from one user | `user:admin` | general | `204` empty |
 | GET | `/api/v1/namespaces` | List namespaces visible to the caller | `job:read` | general | `200` JSON list |
 | POST | `/api/v1/namespaces` | Create a namespace | `admin:*` | general | `201` JSON namespace |
 | GET | `/api/v1/namespaces/{id}` | Get one namespace | `job:read` | general | `200` JSON namespace |

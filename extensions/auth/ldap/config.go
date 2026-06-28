@@ -18,10 +18,12 @@ const (
 	FlagBindPasswordFile     = "ldap-bind-password-file"
 	FlagBaseDN               = "ldap-base-dn"
 	FlagUserFilter           = "ldap-user-filter"
+	FlagSubjectAttribute     = "ldap-subject-attribute"
 	FlagUsernameAttribute    = "ldap-username-attribute"
 	FlagDisplayNameAttribute = "ldap-display-name-attribute"
 	FlagStartTLS             = "ldap-start-tls"
 	FlagTimeout              = "ldap-timeout"
+	FlagAutoLinkUsers        = "ldap-auto-link-users"
 	FlagAutoCreateUsers      = "ldap-auto-create-users"
 
 	ConfigKeyProviderID           = "api.auth.ldap.provider_id"
@@ -31,10 +33,12 @@ const (
 	ConfigKeyBindPasswordFile     = "api.auth.ldap.bind_password_file"
 	ConfigKeyBaseDN               = "api.auth.ldap.base_dn"
 	ConfigKeyUserFilter           = "api.auth.ldap.user_filter"
+	ConfigKeySubjectAttribute     = "api.auth.ldap.subject_attribute"
 	ConfigKeyUsernameAttribute    = "api.auth.ldap.username_attribute"
 	ConfigKeyDisplayNameAttribute = "api.auth.ldap.display_name_attribute"
 	ConfigKeyStartTLS             = "api.auth.ldap.start_tls"
 	ConfigKeyTimeout              = "api.auth.ldap.timeout"
+	ConfigKeyAutoLinkUsers        = "api.auth.ldap.auto_link_users"
 	ConfigKeyAutoCreateUsers      = "api.auth.ldap.auto_create_users"
 
 	EnvProviderID           = "VECTIS_API_AUTH_LDAP_PROVIDER_ID"
@@ -44,10 +48,12 @@ const (
 	EnvBindPasswordFile     = "VECTIS_API_AUTH_LDAP_BIND_PASSWORD_FILE"
 	EnvBaseDN               = "VECTIS_API_AUTH_LDAP_BASE_DN"
 	EnvUserFilter           = "VECTIS_API_AUTH_LDAP_USER_FILTER"
+	EnvSubjectAttribute     = "VECTIS_API_AUTH_LDAP_SUBJECT_ATTRIBUTE"
 	EnvUsernameAttribute    = "VECTIS_API_AUTH_LDAP_USERNAME_ATTRIBUTE"
 	EnvDisplayNameAttribute = "VECTIS_API_AUTH_LDAP_DISPLAY_NAME_ATTRIBUTE"
 	EnvStartTLS             = "VECTIS_API_AUTH_LDAP_START_TLS"
 	EnvTimeout              = "VECTIS_API_AUTH_LDAP_TIMEOUT"
+	EnvAutoLinkUsers        = "VECTIS_API_AUTH_LDAP_AUTO_LINK_USERS"
 	EnvAutoCreateUsers      = "VECTIS_API_AUTH_LDAP_AUTO_CREATE_USERS"
 )
 
@@ -66,10 +72,12 @@ type Config struct {
 	BindPasswordFile     string
 	BaseDN               string
 	UserFilter           string
+	SubjectAttribute     string
 	UsernameAttribute    string
 	DisplayNameAttribute string
 	StartTLS             bool
 	Timeout              time.Duration
+	AutoLinkUsers        bool
 	AutoCreateUsers      bool
 }
 
@@ -85,10 +93,12 @@ func AddConfigFlags(flags *pflag.FlagSet) {
 	flags.String(FlagBindPasswordFile, "", "File containing the LDAP service-account bind password")
 	flags.String(FlagBaseDN, "", "LDAP base DN used for user search")
 	flags.String(FlagUserFilter, defaultUserFilter, "LDAP user search filter; {username} is replaced with the escaped login username")
+	flags.String(FlagSubjectAttribute, "", "LDAP attribute used as the stable external subject; defaults to the entry DN when empty")
 	flags.String(FlagUsernameAttribute, defaultUsernameAttribute, "LDAP attribute mapped to the Vectis local username")
 	flags.String(FlagDisplayNameAttribute, defaultDisplayNameAttribute, "LDAP attribute used as the display name")
 	flags.Bool(FlagStartTLS, false, "Upgrade ldap:// connections with StartTLS before binding")
 	flags.Duration(FlagTimeout, defaultTimeout, "LDAP dial and authentication timeout")
+	flags.Bool(FlagAutoLinkUsers, true, "Link first-seen LDAP identities to existing local users with matching usernames")
 	flags.Bool(FlagAutoCreateUsers, false, "Create a local Vectis user row on successful LDAP login when none exists")
 }
 
@@ -103,6 +113,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		ConfigKeyBindPassword,
 		ConfigKeyBindPasswordFile,
 		ConfigKeyBaseDN,
+		ConfigKeySubjectAttribute,
 	} {
 		v.SetDefault(key, "")
 	}
@@ -113,6 +124,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 	v.SetDefault(ConfigKeyDisplayNameAttribute, defaultDisplayNameAttribute)
 	v.SetDefault(ConfigKeyStartTLS, false)
 	v.SetDefault(ConfigKeyTimeout, defaultTimeout)
+	v.SetDefault(ConfigKeyAutoLinkUsers, true)
 	v.SetDefault(ConfigKeyAutoCreateUsers, false)
 
 	bindFlag := func(key, flagName string) error {
@@ -138,10 +150,12 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		{ConfigKeyBindPasswordFile, FlagBindPasswordFile},
 		{ConfigKeyBaseDN, FlagBaseDN},
 		{ConfigKeyUserFilter, FlagUserFilter},
+		{ConfigKeySubjectAttribute, FlagSubjectAttribute},
 		{ConfigKeyUsernameAttribute, FlagUsernameAttribute},
 		{ConfigKeyDisplayNameAttribute, FlagDisplayNameAttribute},
 		{ConfigKeyStartTLS, FlagStartTLS},
 		{ConfigKeyTimeout, FlagTimeout},
+		{ConfigKeyAutoLinkUsers, FlagAutoLinkUsers},
 		{ConfigKeyAutoCreateUsers, FlagAutoCreateUsers},
 	} {
 		if err := bindFlag(pair.key, pair.flag); err != nil {
@@ -160,10 +174,12 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		{ConfigKeyBindPasswordFile, EnvBindPasswordFile},
 		{ConfigKeyBaseDN, EnvBaseDN},
 		{ConfigKeyUserFilter, EnvUserFilter},
+		{ConfigKeySubjectAttribute, EnvSubjectAttribute},
 		{ConfigKeyUsernameAttribute, EnvUsernameAttribute},
 		{ConfigKeyDisplayNameAttribute, EnvDisplayNameAttribute},
 		{ConfigKeyStartTLS, EnvStartTLS},
 		{ConfigKeyTimeout, EnvTimeout},
+		{ConfigKeyAutoLinkUsers, EnvAutoLinkUsers},
 		{ConfigKeyAutoCreateUsers, EnvAutoCreateUsers},
 	} {
 		if err := v.BindEnv(pair.key, pair.env); err != nil {
@@ -187,10 +203,12 @@ func ConfigFromViper(v *viper.Viper) Config {
 		BindPasswordFile:     configString(v, ConfigKeyBindPasswordFile),
 		BaseDN:               configString(v, ConfigKeyBaseDN),
 		UserFilter:           configStringWithDefault(v, defaultUserFilter, ConfigKeyUserFilter),
+		SubjectAttribute:     configString(v, ConfigKeySubjectAttribute),
 		UsernameAttribute:    configStringWithDefault(v, defaultUsernameAttribute, ConfigKeyUsernameAttribute),
 		DisplayNameAttribute: configStringWithDefault(v, defaultDisplayNameAttribute, ConfigKeyDisplayNameAttribute),
 		StartTLS:             configBool(v, ConfigKeyStartTLS),
 		Timeout:              configDuration(v, defaultTimeout, ConfigKeyTimeout),
+		AutoLinkUsers:        configBoolWithDefault(v, true, ConfigKeyAutoLinkUsers),
 		AutoCreateUsers:      configBool(v, ConfigKeyAutoCreateUsers),
 	}
 }
@@ -212,6 +230,7 @@ func (c Config) NewProvider() (*Provider, error) {
 		BindPassword:         bindPassword,
 		BaseDN:               c.BaseDN,
 		UserFilter:           c.UserFilter,
+		SubjectAttribute:     c.SubjectAttribute,
 		UsernameAttribute:    c.UsernameAttribute,
 		DisplayNameAttribute: c.DisplayNameAttribute,
 		StartTLS:             c.StartTLS,
@@ -258,6 +277,16 @@ func configBool(v *viper.Viper, keys ...string) bool {
 	}
 
 	return false
+}
+
+func configBoolWithDefault(v *viper.Viper, fallback bool, keys ...string) bool {
+	for _, key := range keys {
+		if v.IsSet(key) {
+			return v.GetBool(key)
+		}
+	}
+
+	return fallback
 }
 
 func configDuration(v *viper.Viper, fallback time.Duration, keys ...string) time.Duration {
