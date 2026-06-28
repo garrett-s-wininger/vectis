@@ -71,12 +71,7 @@ build:
 	SKIP_WEB_BUILD="$(SKIP_WEB_BUILD)" SKIP_DOCS_ASSETS="$(SKIP_DOCS_ASSETS)" OUT_DIR="$(OUT_DIR)" CGO_ENABLED="$(CGO_ENABLED)" BUILD_OPTS="$(BUILD_OPTS)" GO="$(GO)" $(MAGE) build
 
 $(DOCS_ASSETS_STAMP): $(WEBSITE_SOURCES)
-	cd website && npm ci
-	cd website && npm run build
-	mkdir -p $(DOCS_EMBED_DIR)
-	find $(DOCS_EMBED_DIR) -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
-	cp -R website/build/. $(DOCS_EMBED_DIR)/
-	touch $(DOCS_ASSETS_STAMP)
+	GO="$(GO)" $(MAGE) docsAssets
 
 .PHONY: docs-assets
 docs-assets: $(DOCS_ASSETS_STAMP)
@@ -599,14 +594,7 @@ fuzz-api-auth:
 
 .PHONY: clean
 clean:
-	rm -rf artifacts/perf/
-	rm -rf artifacts/deploy/
-	rm -rf artifacts/release-readiness/
-	rm -rf ${OUT_DIR}
-	rm -rf formal/tla/*_TTrace_*
-	rm -rf states/
-	rm -rf website/.docusaurus website/build
-	find $(DOCS_EMBED_DIR) -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
+	OUT_DIR="$(OUT_DIR)" GO="$(GO)" $(MAGE) clean
 
 .PHONY: image-full
 image-full:

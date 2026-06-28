@@ -114,9 +114,46 @@ func BuildContainer() error {
 	})
 }
 
+// Clean removes generated local build, test, and docs artifacts.
+func Clean() error {
+	paths := []string{
+		filepath.Join("artifacts", "perf"),
+		filepath.Join("artifacts", "deploy"),
+		filepath.Join("artifacts", "release-readiness"),
+		envDefault("OUT_DIR", "bin"),
+		"states",
+		filepath.Join("website", ".docusaurus"),
+		filepath.Join("website", "build"),
+	}
+
+	for _, path := range paths {
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+	}
+
+	traces, err := filepath.Glob(filepath.Join("formal", "tla", "*_TTrace_*"))
+	if err != nil {
+		return err
+	}
+
+	for _, trace := range traces {
+		if err := os.RemoveAll(trace); err != nil {
+			return err
+		}
+	}
+
+	return cleanDirExcept(filepath.Join("cmd", "docs", "embedded"), ".gitkeep")
+}
+
 // PodmanGrafanaConfigmaps regenerates Podman Grafana configmaps.
 func PodmanGrafanaConfigmaps() error {
 	return run("", nil, goCommand(), "run", "./deploy/podman/cmd/generate-grafana-configmaps", "-o", filepath.Join("deploy", "podman", "grafana-configmaps.gen.yaml"))
+}
+
+// DocsAssets rebuilds and embeds the documentation site assets.
+func DocsAssets() error {
+	return buildDocsAssets()
 }
 
 // DeployArtifactsRender renders Linux deployment artifacts.
@@ -364,19 +401,8 @@ func buildDocsAssets() error {
 		return err
 	}
 
-	entries, err := os.ReadDir(dest)
-	if err != nil {
+	if err := cleanDirExcept(dest, ".gitkeep"); err != nil {
 		return err
-	}
-
-	for _, entry := range entries {
-		if entry.Name() == ".gitkeep" {
-			continue
-		}
-
-		if err := os.RemoveAll(filepath.Join(dest, entry.Name())); err != nil {
-			return err
-		}
 	}
 
 	if err := copyDir(filepath.Join("website", "build"), dest); err != nil {
@@ -385,6 +411,34 @@ func buildDocsAssets() error {
 
 	stamp := []byte(time.Now().UTC().Format(time.RFC3339) + "\n")
 	return os.WriteFile(filepath.Join(dest, ".stamp"), stamp, 0o644)
+}
+
+func cleanDirExcept(dir string, keep ...string) error {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	keepSet := make(map[string]struct{}, len(keep))
+	for _, name := range keep {
+		keepSet[name] = struct{}{}
+	}
+
+	for _, entry := range entries {
+		if _, ok := keepSet[entry.Name()]; ok {
+			continue
+		}
+
+		if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func copyDir(src, dest string) error {
