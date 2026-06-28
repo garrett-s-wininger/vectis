@@ -144,7 +144,8 @@ Reaction targets are also namespace-scoped. Global targets can receive any
 matching event, but a namespace-scoped target can only receive events from that
 same namespace, including when the target is named explicitly by a manual
 notice. Namespace-scoped subscriptions cannot bind to targets scoped to another
-namespace.
+namespace. Target and subscription names are unique within their scope,
+including the global scope.
 
 The local notification sink is idempotent per reaction invocation. If the
 reaction runner crashes after recording a local message but before marking the

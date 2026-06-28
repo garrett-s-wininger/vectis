@@ -75,6 +75,8 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task", []string{"run_id", "task_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_task_attempt", []string{"run_id", "task_attempt_id", "id"})
 	assertSQLiteIndexColumns(t, db, "idx_run_artifacts_execution", []string{"run_id", "execution_id", "id"})
+	assertSQLiteIndexColumns(t, db, "idx_reaction_targets_global_name", []string{"name"})
+	assertSQLiteIndexColumns(t, db, "idx_reaction_subscriptions_global_name", []string{"name"})
 	assertSQLiteForeignKeyTargetsExist(t, db)
 	assertSQLiteSecurityConstraints(t, db)
 	assertNamespaceExists(t, db, "/ephemeral")

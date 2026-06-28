@@ -363,6 +363,7 @@ CREATE TABLE reaction_targets (
 
 CREATE INDEX idx_reaction_targets_kind ON reaction_targets(kind);
 CREATE INDEX idx_reaction_targets_enabled ON reaction_targets(enabled);
+CREATE UNIQUE INDEX idx_reaction_targets_global_name ON reaction_targets(name) WHERE namespace_id IS NULL;
 
 CREATE TABLE reaction_subscriptions (
     id BIGSERIAL PRIMARY KEY,
@@ -383,6 +384,7 @@ CREATE TABLE reaction_subscriptions (
 
 CREATE INDEX idx_reaction_subscriptions_target ON reaction_subscriptions(target_id);
 CREATE INDEX idx_reaction_subscriptions_event ON reaction_subscriptions(event_type, enabled);
+CREATE UNIQUE INDEX idx_reaction_subscriptions_global_name ON reaction_subscriptions(name) WHERE namespace_id IS NULL;
 
 CREATE TABLE reaction_invocations (
     id BIGSERIAL PRIMARY KEY,

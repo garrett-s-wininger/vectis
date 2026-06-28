@@ -116,6 +116,90 @@ func TestReactionsRepository_DurableLocalInvocationFlow(t *testing.T) {
 	}
 }
 
+func TestReactionsRepository_TargetAndSubscriptionNamesAreScoped(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	repo := repos.Reactions()
+	ctx := context.Background()
+
+	nsA, err := repos.Namespaces().Create(ctx, "reaction-name-team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace a: %v", err)
+	}
+
+	nsB, err := repos.Namespaces().Create(ctx, "reaction-name-team-b", nil)
+	if err != nil {
+		t.Fatalf("create namespace b: %v", err)
+	}
+
+	globalTarget, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "shared-name-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"global"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create global target: %v", err)
+	}
+
+	if _, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "shared-name-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"duplicate-global"}`),
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected duplicate global target conflict, got %v", err)
+	}
+
+	targetA, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: nsA.ID,
+		Name:        "shared-name-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"team-a"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create namespace target a: %v", err)
+	}
+
+	if _, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		NamespaceID: nsB.ID,
+		Name:        "shared-name-target",
+		Kind:        dal.ReactionTargetKindLocal,
+		Uses:        dal.ReactionActionNotifyLocal,
+		ConfigJSON:  []byte(`{"mailbox":"team-b"}`),
+	}); err != nil {
+		t.Fatalf("same target name in different namespace should be allowed: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:  globalTarget.TargetID,
+		Name:      "shared-name-subscription",
+		EventType: dal.ReactionEventTypeManualNotice,
+	}); err != nil {
+		t.Fatalf("create global subscription: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:  globalTarget.TargetID,
+		Name:      "shared-name-subscription",
+		EventType: dal.ReactionEventTypeManualNotice,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected duplicate global subscription conflict, got %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		NamespaceID: nsA.ID,
+		TargetID:    targetA.TargetID,
+		Name:        "shared-name-subscription",
+		EventType:   dal.ReactionEventTypeManualNotice,
+	}); err != nil {
+		t.Fatalf("same subscription name in namespace should be allowed: %v", err)
+	}
+}
+
 func TestReactionsRepository_RecordEventIsIdempotentForSameEventID(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repo := dal.NewSQLRepositories(db).Reactions()
