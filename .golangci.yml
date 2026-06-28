@@ -8,9 +8,16 @@ linters:
   enable:
     - bodyclose
     - govet
+    - loggercheck
+    - misspell
+    - nilnesserr
+    - nolintlint
     - rowserrcheck
+    - sloglint
     - sqlclosecheck
+    - spancheck
     - staticcheck
+    - unqueryvet
     - gosec
   settings:
     gosec:

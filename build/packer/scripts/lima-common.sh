@@ -67,8 +67,8 @@ prepare_lima_vm() {
 	} | "$limactl_bin" --tty=false shell "$instance" -- sh -s -- "$@"
 
 	case "$stop_after" in
-		1|t|T|true|TRUE|y|Y|yes|YES|on|ON)
-			"$limactl_bin" --tty=false stop "$instance"
-			;;
+	1 | t | T | true | TRUE | y | Y | yes | YES | on | ON)
+		"$limactl_bin" --tty=false stop "$instance"
+		;;
 	esac
 }
