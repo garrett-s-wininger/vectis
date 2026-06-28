@@ -78,6 +78,7 @@ const sidebars = {
           items: [
             "operating/reference/run-state-reference",
             "operating/reference/internal-grpc-service-reference",
+            "operating/reference/lifecycle-contracts",
             "operating/reference/upgrade-compatibility-matrix",
             "operating/reference/configuration-key-reference",
             "operating/reference/authorization-reference",
