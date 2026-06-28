@@ -21,8 +21,10 @@ type Process interface {
 	Stderr() io.ReadCloser
 }
 
-// StartProcess starts cmd in an isolated child process group when supported and
-// adapts it to the Process interface.
+// StartProcess starts cmd with worker-safe process defaults and adapts it to
+// the Process interface. A nil Stdin intentionally lets os/exec connect the
+// child to the null device, and ExtraFiles are inherited only when the caller
+// explicitly configured them.
 func StartProcess(cmd *exec.Cmd) (Process, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

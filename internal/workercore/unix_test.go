@@ -3,6 +3,8 @@ package workercore
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -75,6 +77,52 @@ func TestUnixCoreTransportValidatesSocketPath(t *testing.T) {
 	}
 }
 
+func TestUnixCoreServerSecuresSocketPath(t *testing.T) {
+	socketPath := socktest.ShortPath(t, "worker-core.sock")
+	server, listener, err := NewUnixCoreServer(socketPath, fakeWorkerCoreServer{})
+	if err != nil {
+		t.Fatalf("NewUnixCoreServer: %v", err)
+	}
+	defer server.Stop()
+	defer listener.Close()
+
+	assertSocketPathModes(t, socketPath)
+}
+
+func TestUnixShellServerSecuresSocketPath(t *testing.T) {
+	socketPath := socktest.ShortPath(t, "worker-core-shell.sock")
+	server, listener, err := NewUnixShellServer(socketPath, fakeWorkerCoreShellServer{})
+	if err != nil {
+		t.Fatalf("NewUnixShellServer: %v", err)
+	}
+	defer server.Stop()
+	defer listener.Close()
+
+	assertSocketPathModes(t, socketPath)
+}
+
+func assertSocketPathModes(t *testing.T, socketPath string) {
+	t.Helper()
+
+	dirInfo, err := os.Stat(filepath.Dir(socketPath))
+	if err != nil {
+		t.Fatalf("stat socket dir: %v", err)
+	}
+
+	if got := dirInfo.Mode().Perm(); got != unixSocketDirMode {
+		t.Fatalf("socket dir mode = %v, want %v", got, os.FileMode(unixSocketDirMode))
+	}
+
+	socketInfo, err := os.Stat(socketPath)
+	if err != nil {
+		t.Fatalf("stat socket: %v", err)
+	}
+
+	if got := socketInfo.Mode().Perm(); got != unixSocketFileMode {
+		t.Fatalf("socket mode = %v, want %v", got, os.FileMode(unixSocketFileMode))
+	}
+}
+
 type fakeWorkerCoreServer struct {
 	api.UnimplementedWorkerCoreServiceServer
 	describe func(context.Context, *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error)
@@ -95,4 +143,8 @@ func (s fakeWorkerCoreServer) ExecuteTask(ctx context.Context, req *api.ExecuteW
 	}
 
 	return &api.ExecuteWorkerCoreTaskResponse{}, nil
+}
+
+type fakeWorkerCoreShellServer struct {
+	api.UnimplementedWorkerCoreShellServiceServer
 }

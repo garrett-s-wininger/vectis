@@ -3,11 +3,15 @@
 package interfaces
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 const directExecutorSignalGroupHelperEnv = "VECTIS_DIRECT_EXECUTOR_SIGNAL_GROUP_HELPER"
@@ -67,6 +71,49 @@ func TestDirectExecutorIsolatesChildSignalGroup(t *testing.T) {
 	}
 }
 
+func TestDirectExecutorCancellationSignalsProcessGroup(t *testing.T) {
+	previousGrace := commandProcessGroupCancelGrace
+	commandProcessGroupCancelGrace = 50 * time.Millisecond
+	t.Cleanup(func() { commandProcessGroupCancelGrace = previousGrace })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	process, err := NewDirectExecutor().Start(
+		ctx,
+		"sh",
+		[]string{"-c", "sleep 30 & echo $!; wait"},
+		t.TempDir(),
+		[]string{"PATH=" + os.Getenv("PATH")},
+	)
+	if err != nil {
+		cancel()
+		t.Fatalf("Start: %v", err)
+	}
+
+	sleepLine, err := bufio.NewReader(process.Stdout()).ReadString('\n')
+	if err != nil {
+		cancel()
+		_ = process.Wait()
+		t.Fatalf("read background pid: %v", err)
+	}
+
+	sleepPID, err := strconv.Atoi(strings.TrimSpace(sleepLine))
+	if err != nil {
+		cancel()
+		_ = process.Wait()
+		t.Fatalf("parse background pid %q: %v", sleepLine, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(sleepPID, syscall.SIGKILL) })
+
+	cancel()
+	if err := process.Wait(); err == nil {
+		t.Fatal("Wait error = nil, want cancellation error")
+	}
+
+	if err := waitForNoProcess(sleepPID, time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDirectExecutorSignalGroupHelper(t *testing.T) {
 	if os.Getenv(directExecutorSignalGroupHelperEnv) != "1" {
 		return
@@ -87,4 +134,26 @@ func TestDirectExecutorSignalGroupHelper(t *testing.T) {
 	if err := process.Wait(); err == nil {
 		t.Fatal("command exited successfully; want termination by its own process-group signal")
 	}
+}
+
+func waitForNoProcess(pid int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		err := syscall.Kill(pid, 0)
+		if err == syscall.ESRCH {
+			return nil
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return &processStillRunningError{pid: pid}
+}
+
+type processStillRunningError struct {
+	pid int
+}
+
+func (e *processStillRunningError) Error() string {
+	return "background process " + strconv.Itoa(e.pid) + " still exists after cancellation"
 }

@@ -19,6 +19,8 @@ import (
 const (
 	defaultCoreSocketName  = "worker-core.sock"
 	defaultShellSocketName = "worker-core-shell.sock"
+	unixSocketDirMode      = 0o700
+	unixSocketFileMode     = 0o600
 )
 
 func DefaultCoreSocketPath() string {
@@ -125,12 +127,8 @@ func NewUnixCoreServerContext(ctx context.Context, socketPath string, core api.W
 		return nil, nil, fmt.Errorf("worker core service is required")
 	}
 
-	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("remove stale worker core socket: %w", err)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
-		return nil, nil, fmt.Errorf("create worker core socket directory: %w", err)
+	if err := prepareUnixSocketPath(socketPath, "worker core"); err != nil {
+		return nil, nil, err
 	}
 
 	var listenConfig net.ListenConfig
@@ -139,7 +137,7 @@ func NewUnixCoreServerContext(ctx context.Context, socketPath string, core api.W
 		return nil, nil, fmt.Errorf("listen worker core socket: %w", err)
 	}
 
-	if err := os.Chmod(socketPath, 0o600); err != nil {
+	if err := os.Chmod(socketPath, unixSocketFileMode); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(socketPath)
 		return nil, nil, fmt.Errorf("chmod worker core socket: %w", err)
@@ -165,12 +163,8 @@ func NewUnixShellServerContext(ctx context.Context, socketPath string, shell api
 		return nil, nil, fmt.Errorf("worker core shell service is required")
 	}
 
-	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		return nil, nil, fmt.Errorf("remove stale worker core shell socket: %w", err)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
-		return nil, nil, fmt.Errorf("create worker core shell socket directory: %w", err)
+	if err := prepareUnixSocketPath(socketPath, "worker core shell"); err != nil {
+		return nil, nil, err
 	}
 
 	var listenConfig net.ListenConfig
@@ -179,7 +173,7 @@ func NewUnixShellServerContext(ctx context.Context, socketPath string, shell api
 		return nil, nil, fmt.Errorf("listen worker core shell socket: %w", err)
 	}
 
-	if err := os.Chmod(socketPath, 0o600); err != nil {
+	if err := os.Chmod(socketPath, unixSocketFileMode); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(socketPath)
 		return nil, nil, fmt.Errorf("chmod worker core shell socket: %w", err)
@@ -189,6 +183,23 @@ func NewUnixShellServerContext(ctx context.Context, socketPath string, shell api
 	api.RegisterWorkerCoreShellServiceServer(server, shell)
 
 	return server, ln, nil
+}
+
+func prepareUnixSocketPath(socketPath, label string) error {
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale %s socket: %w", label, err)
+	}
+
+	dir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(dir, unixSocketDirMode); err != nil {
+		return fmt.Errorf("create %s socket directory: %w", label, err)
+	}
+
+	if err := os.Chmod(dir, unixSocketDirMode); err != nil {
+		return fmt.Errorf("chmod %s socket directory: %w", label, err)
+	}
+
+	return nil
 }
 
 func waitForClientConnReady(ctx context.Context, conn *grpc.ClientConn) error {
