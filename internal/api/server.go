@@ -74,6 +74,11 @@ type sourceRefHydrationCall struct {
 	status sourcepkg.GitCheckoutStatus
 }
 
+type sourceRefAvailabilityEntry struct {
+	remote    string
+	expiresAt time.Time
+}
+
 type logReaderClient interface {
 	GetLogs(ctx context.Context, in *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error)
 }
@@ -140,17 +145,21 @@ type APIServer struct {
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(ctx context.Context, workerID string) (string, error)
 
-	mu                       sync.RWMutex
-	executionIngress         cell.ExecutionIngress
-	sourceSyncMu             sync.Mutex
-	sourceSyncRunning        map[string]struct{}
-	sourceSyncCheckoutStatus func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
-	sourceRefHydrator        func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
-	sourceRefHydrationMu     sync.Mutex
-	sourceRefHydration       map[string]*sourceRefHydrationCall
-	sourceDefinitionAuthor   SourceDefinitionAuthorFactory
-	sourceAuthoring          SourceAuthoringCapabilityResolver
-	srvCtx                   atomic.Pointer[ctxHolder]
+	mu                        sync.RWMutex
+	executionIngress          cell.ExecutionIngress
+	sourceSyncMu              sync.Mutex
+	sourceSyncRunning         map[string]struct{}
+	sourceSyncCheckoutStatus  func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrator         func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrationMetrics sourceRefHydrationMetrics
+	sourceRefHydrationMu      sync.Mutex
+	sourceRefHydration        map[string]*sourceRefHydrationCall
+	sourceRefAvailabilityMu   sync.Mutex
+	sourceRefAvailability     map[string]sourceRefAvailabilityEntry
+	sourceRefAvailabilityTTL  time.Duration
+	sourceDefinitionAuthor    SourceDefinitionAuthorFactory
+	sourceAuthoring           SourceAuthoringCapabilityResolver
+	srvCtx                    atomic.Pointer[ctxHolder]
 }
 
 type SourceDefinitionAuthorFactory func(dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error)
@@ -175,6 +184,10 @@ type dispatchMetrics interface {
 
 type sourceRepositorySyncMetrics interface {
 	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
+}
+
+type sourceRefHydrationMetrics interface {
+	RecordSourceRefHydration(ctx context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, d time.Duration)
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -734,13 +747,16 @@ func (s *APIServer) SetAPISecurityMetrics(m securityRejectionMetrics) {
 
 func (s *APIServer) SetSourceSyncMetrics(m sourceRepositorySyncMetrics) {
 	s.sourceSyncMetrics = m
+	if hydrationMetrics, ok := m.(sourceRefHydrationMetrics); ok {
+		s.sourceRefHydrationMetrics = hydrationMetrics
+	}
 }
 
 func (s *APIServer) SetSourceSyncCheckoutStatus(fn func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus) {
 	s.sourceSyncCheckoutStatus = fn
 }
 
-func (s *APIServer) SetSourceRefHydrator(fn func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus) {
+func (s *APIServer) SetSourceRefHydrator(fn func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus) {
 	s.sourceRefHydrator = fn
 }
 

@@ -52,6 +52,8 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | --- | --- | --- | --- | --- |
 | `vectis_source_repository_syncs_total` | Counter | `trigger`, `source_kind`, `checkout_mode`, `outcome`, `reason` | Source repository sync attempts. `trigger` identifies startup, background, or explicit API sync paths; `outcome` is success or failure-oriented, with `reason` carrying a bounded failure class. | Alert on unexpected failures before scheduled source-backed jobs depend on fresh checkout state. |
 | `vectis_source_repository_sync_duration_seconds` | Histogram | `trigger`, `source_kind`, `checkout_mode`, `outcome`, `reason` | Wall time spent handling source repository sync attempts. | Track slow checkout probes, fetches, and managed-clone latency. |
+| `vectis_source_ref_hydrations_total` | Counter | `source_kind`, `checkout_mode`, `outcome`, `reason`, `tier`, `cache` | Request-time managed ref hydration attempts after a source ref misses locally. `tier` identifies the remote tier that satisfied the request, such as `origin` or `fallback-2`; `cache` indicates whether a recent hydration steered the retry order. | Detect mirror lag, fallback-tier dependence, and repeated failures for fresh refs in high-churn repositories. |
+| `vectis_source_ref_hydration_duration_seconds` | Histogram | `source_kind`, `checkout_mode`, `outcome`, `reason`, `tier`, `cache` | Wall time spent hydrating a missing managed source ref. | Track request-path latency from targeted fetches and compare origin versus fallback tier performance. |
 
 ## Queue
 

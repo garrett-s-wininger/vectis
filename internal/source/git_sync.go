@@ -25,6 +25,7 @@ type ManagedGitCheckoutRequest struct {
 type ManagedGitRefHydrationRequest struct {
 	CheckoutPath       string
 	Ref                string
+	PreferredRemote    string
 	FallbackRemoteURLs []string
 	Credentials        GitCredentials
 }
@@ -181,13 +182,17 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 		return checkoutStatus
 	}
 
-	if err := fetchManagedGitRef(ctx, checkoutPath, credentialEnv, ref); err != nil {
+	hydrationRemote, err := fetchManagedGitRef(ctx, checkoutPath, credentialEnv, ref, req.PreferredRemote)
+	if err != nil {
 		checkoutStatus.DefaultRef = ref
 		checkoutStatus.setError("git_fetch_failed", err.Error())
 		return checkoutStatus
 	}
 
-	return NewManagedGitCheckout(checkoutPath).Status(ctx, ref)
+	finalStatus := NewManagedGitCheckout(checkoutPath).Status(ctx, ref)
+	finalStatus.HydrationRemote = hydrationRemote
+	finalStatus.HydrationTier = managedGitHydrationTier(hydrationRemote)
+	return finalStatus
 }
 
 func NewManagedGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitCheckout {
@@ -240,7 +245,8 @@ func fetchManagedGitMissingDefaultRef(ctx context.Context, checkoutPath, default
 	}
 
 	if strings.HasPrefix(normalized, "refs/tags/") {
-		return fetchManagedGitRef(ctx, checkoutPath, env, normalized)
+		_, err := fetchManagedGitRef(ctx, checkoutPath, env, normalized, "")
+		return err
 	}
 
 	if strings.HasPrefix(normalized, "refs/") {
@@ -252,18 +258,19 @@ func fetchManagedGitMissingDefaultRef(ctx context.Context, checkoutPath, default
 		return err
 	}
 
-	return fetchManagedGitRef(ctx, checkoutPath, env, tagRef)
+	_, err = fetchManagedGitRef(ctx, checkoutPath, env, tagRef, "")
+	return err
 }
 
-func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, ref string) error {
+func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, ref, preferredRemote string) (string, error) {
 	ref, err := normalizeRef(ref)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	sourceRef, destRef, ok := managedGitFetchRefspec(ref)
 	if !ok {
-		return fmt.Errorf("%w: managed fetch ref %q is not supported", ErrInvalidReference, ref)
+		return "", fmt.Errorf("%w: managed fetch ref %q is not supported", ErrInvalidReference, ref)
 	}
 
 	candidateRef := managedGitCandidateRef()
@@ -273,7 +280,8 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 
 	refspec := "+" + sourceRef + ":" + candidateRef
 	var fetchErrors []string
-	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath) {
+	var hydrationRemote string
+	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath, preferredRemote) {
 		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
 		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
@@ -281,46 +289,73 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 		}
 
 		fetchErrors = nil
+		hydrationRemote = remote
 		break
 	}
 
 	if len(fetchErrors) > 0 {
-		return fmt.Errorf("fetch managed ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
+		return "", fmt.Errorf("fetch managed ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
 	}
 
 	objectOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef)
 	if err != nil {
-		return fmt.Errorf("%w: candidate ref %s did not resolve: %v", ErrNotFound, candidateRef, err)
+		return "", fmt.Errorf("%w: candidate ref %s did not resolve: %v", ErrNotFound, candidateRef, err)
 	}
 
 	objectID := strings.TrimSpace(string(objectOut))
 	if objectID == "" {
-		return fmt.Errorf("%w: candidate ref %s resolved to an empty object", ErrInvalidReference, candidateRef)
+		return "", fmt.Errorf("%w: candidate ref %s resolved to an empty object", ErrInvalidReference, candidateRef)
 	}
 
 	commitOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef+"^{commit}")
 	if err != nil {
-		return fmt.Errorf("%w: candidate ref %s did not resolve to a commit: %v", ErrNotFound, candidateRef, err)
+		return "", fmt.Errorf("%w: candidate ref %s did not resolve to a commit: %v", ErrNotFound, candidateRef, err)
 	}
 
 	if strings.TrimSpace(string(commitOut)) == "" {
-		return fmt.Errorf("%w: candidate ref %s resolved to an empty commit", ErrInvalidReference, candidateRef)
+		return "", fmt.Errorf("%w: candidate ref %s resolved to an empty commit", ErrInvalidReference, candidateRef)
 	}
 
 	if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", destRef, objectID); err != nil {
-		return fmt.Errorf("publish managed ref %s: %w", destRef, err)
+		return "", fmt.Errorf("publish managed ref %s: %w", destRef, err)
 	}
 
-	return nil
+	return hydrationRemote, nil
 }
 
 func managedGitCandidateRef() string {
 	return "refs/vectis/candidates/" + uuid.NewString()
 }
 
-func managedGitFetchRemotes(ctx context.Context, checkoutPath string) []string {
+func managedGitFetchRemotes(ctx context.Context, checkoutPath, preferredRemote string) []string {
 	remotes := []string{"origin"}
-	return append(remotes, managedGitFallbackRemoteNames(ctx, checkoutPath)...)
+	remotes = append(remotes, managedGitFallbackRemoteNames(ctx, checkoutPath)...)
+	return preferManagedGitFetchRemote(remotes, preferredRemote)
+}
+
+func preferManagedGitFetchRemote(remotes []string, preferredRemote string) []string {
+	preferredRemote = strings.TrimSpace(preferredRemote)
+	if preferredRemote == "" || len(remotes) < 2 {
+		return remotes
+	}
+
+	var preferredIndex = -1
+	for i, remote := range remotes {
+		if remote == preferredRemote {
+			preferredIndex = i
+			break
+		}
+	}
+
+	if preferredIndex <= 0 {
+		return remotes
+	}
+
+	out := make([]string, 0, len(remotes))
+	out = append(out, remotes[preferredIndex])
+	out = append(out, remotes[:preferredIndex]...)
+	out = append(out, remotes[preferredIndex+1:]...)
+	return out
 }
 
 func managedGitFallbackRemoteNames(ctx context.Context, checkoutPath string) []string {
@@ -474,6 +509,20 @@ func configureManagedGitFallbackRemotes(ctx context.Context, checkoutPath string
 
 func managedGitFallbackRemoteName(tier int) string {
 	return fmt.Sprintf("vectis-fallback-%d", tier)
+}
+
+func managedGitHydrationTier(remote string) string {
+	remote = strings.TrimSpace(remote)
+	switch {
+	case remote == "":
+		return ""
+	case remote == "origin":
+		return "origin"
+	case strings.HasPrefix(remote, "vectis-fallback-"):
+		return strings.TrimPrefix(remote, "vectis-")
+	default:
+		return "other"
+	}
 }
 
 func managedGitCommandArgs(args ...string) []string {

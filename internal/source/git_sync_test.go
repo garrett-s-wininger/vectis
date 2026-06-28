@@ -286,6 +286,10 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 		t.Fatalf("fallback hydrated feature status mismatch: %+v", status)
 	}
 
+	if status.HydrationRemote != "vectis-fallback-2" || status.HydrationTier != "fallback-2" {
+		t.Fatalf("fallback hydration evidence: got remote=%q tier=%q", status.HydrationRemote, status.HydrationTier)
+	}
+
 	if got := gitOutput(t, checkoutPath, "remote", "get-url", "vectis-fallback-1"); got != mirror {
 		t.Fatalf("configured first fallback remote: got %q, want %q", got, mirror)
 	}
@@ -302,6 +306,10 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 
 	if status.ErrorCode != "" {
 		t.Fatalf("hydrate after fallback remote update failed: %+v", status)
+	}
+
+	if status.HydrationRemote != "vectis-fallback-1" || status.HydrationTier != "fallback-1" {
+		t.Fatalf("updated fallback hydration evidence: got remote=%q tier=%q", status.HydrationRemote, status.HydrationTier)
 	}
 
 	if got := gitOutput(t, checkoutPath, "remote", "get-url", "vectis-fallback-1"); got != upstream {
@@ -328,7 +336,7 @@ func TestManagedGitFetchRemotesSortsFallbacksByNumericSuffix(t *testing.T) {
 	git(t, repo, "remote", "add", "vectis-fallback-1", repo)
 	git(t, repo, "remote", "add", "vectis-fallback-upstream", repo)
 
-	got := managedGitFetchRemotes(context.Background(), repo)
+	got := managedGitFetchRemotes(context.Background(), repo, "")
 	want := []string{
 		"origin",
 		"vectis-fallback-1",
@@ -339,6 +347,19 @@ func TestManagedGitFetchRemotesSortsFallbacksByNumericSuffix(t *testing.T) {
 
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("fallback remotes order:\ngot:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	got = managedGitFetchRemotes(context.Background(), repo, "vectis-fallback-10")
+	want = []string{
+		"vectis-fallback-10",
+		"origin",
+		"vectis-fallback-1",
+		"vectis-fallback-2",
+		"vectis-fallback-upstream",
+	}
+
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("preferred fallback remotes order:\ngot:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 

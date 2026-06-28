@@ -38,6 +38,9 @@ type GitCheckoutStatus struct {
 	DefaultRef         string
 	DefaultRefResolved bool
 	ResolvedCommit     string
+	HydrationRemote    string
+	HydrationTier      string
+	HydrationCacheHit  bool
 	ErrorCode          string
 	ErrorMessage       string
 }

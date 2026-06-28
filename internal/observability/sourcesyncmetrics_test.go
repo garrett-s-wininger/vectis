@@ -28,6 +28,7 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 
 	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerManual, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, 25*time.Millisecond)
 	m.RecordSourceRepositorySync(ctx, SourceSyncTriggerPeriodic, "local_checkout", "managed", SourceSyncOutcomeFailed, SourceSyncReasonFromErrorCode("git_credentials_unavailable"), 10*time.Millisecond)
+	m.RecordSourceRefHydration(ctx, "local_checkout", "managed", SourceSyncOutcomeSucceeded, SourceSyncReasonNone, "fallback-2", SourceRefHydrationCacheHit, 15*time.Millisecond)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -61,6 +62,19 @@ func TestSourceSyncMetrics_RecordSourceRepositorySync(t *testing.T) {
 			"reason":        "git_credentials_unavailable",
 		}) {
 			t.Fatalf("metric family %s missing credential failure labels: %v", family, families[family])
+		}
+	}
+
+	for _, family := range []string{"vectis_source_ref_hydrations_total", "vectis_source_ref_hydration_duration_seconds"} {
+		if !metricFamilyHasLabels(families[family], map[string]string{
+			"source_kind":   "local_checkout",
+			"checkout_mode": "managed",
+			"outcome":       SourceSyncOutcomeSucceeded,
+			"reason":        SourceSyncReasonNone,
+			"tier":          "fallback-2",
+			"cache":         SourceRefHydrationCacheHit,
+		}) {
+			t.Fatalf("metric family %s missing hydration labels: %v", family, families[family])
 		}
 	}
 }

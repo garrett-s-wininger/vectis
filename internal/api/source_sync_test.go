@@ -28,9 +28,19 @@ type sourceSyncMetricRecord struct {
 	reason       string
 }
 
+type sourceRefHydrationMetricRecord struct {
+	sourceKind   string
+	checkoutMode string
+	outcome      string
+	reason       string
+	tier         string
+	cacheState   string
+}
+
 type recordingSourceSyncMetrics struct {
-	mu      sync.Mutex
-	records []sourceSyncMetricRecord
+	mu               sync.Mutex
+	records          []sourceSyncMetricRecord
+	hydrationRecords []sourceRefHydrationMetricRecord
 }
 
 func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
@@ -46,6 +56,20 @@ func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Contex
 	})
 }
 
+func (m *recordingSourceSyncMetrics) RecordSourceRefHydration(_ context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, _ time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.hydrationRecords = append(m.hydrationRecords, sourceRefHydrationMetricRecord{
+		sourceKind:   sourceKind,
+		checkoutMode: checkoutMode,
+		outcome:      outcome,
+		reason:       reason,
+		tier:         tier,
+		cacheState:   cacheState,
+	})
+}
+
 func (m *recordingSourceSyncMetrics) has(trigger, sourceKind, checkoutMode, outcome, reason string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -56,6 +80,24 @@ func (m *recordingSourceSyncMetrics) has(trigger, sourceKind, checkoutMode, outc
 			rec.checkoutMode == checkoutMode &&
 			rec.outcome == outcome &&
 			rec.reason == reason {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (m *recordingSourceSyncMetrics) hasHydration(sourceKind, checkoutMode, outcome, reason, tier, cacheState string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, rec := range m.hydrationRecords {
+		if rec.sourceKind == sourceKind &&
+			rec.checkoutMode == checkoutMode &&
+			rec.outcome == outcome &&
+			rec.reason == reason &&
+			rec.tier == tier &&
+			rec.cacheState == cacheState {
 			return true
 		}
 	}
@@ -177,9 +219,13 @@ func TestAPIServer_SourceRefHydrationSingleflightsDuplicate(t *testing.T) {
 	var startedOnce sync.Once
 	var calls atomic.Int32
 
-	server.sourceRefHydrator = func(_ context.Context, got dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+	server.sourceRefHydrator = func(_ context.Context, got dal.SourceRepositoryRecord, ref, preferredRemote string) sourcepkg.GitCheckoutStatus {
 		if got.RepositoryID != rec.RepositoryID || ref != "feature/on-demand" {
 			t.Errorf("hydrator input mismatch: rec=%+v ref=%q", got, ref)
+		}
+
+		if preferredRemote != "" {
+			t.Errorf("duplicate hydration should not have cached remote yet, got %q", preferredRemote)
 		}
 
 		calls.Add(1)
@@ -235,6 +281,71 @@ func TestAPIServer_SourceRefHydrationSingleflightsDuplicate(t *testing.T) {
 
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("hydrator calls after duplicate completed: got %d, want 1", got)
+	}
+}
+
+func TestAPIServer_SourceRefHydrationCachesSuccessfulRemote(t *testing.T) {
+	server := &APIServer{}
+	metrics := &recordingSourceSyncMetrics{}
+	server.SetSourceSyncMetrics(metrics)
+	rec := dal.SourceRepositoryRecord{
+		RepositoryID: "managed-repo",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutMode: dal.SourceCheckoutModeManaged,
+		CheckoutPath: filepath.Join(t.TempDir(), "managed"),
+	}
+
+	var calls atomic.Int32
+	var preferredRemotesMu sync.Mutex
+	var preferredRemotes []string
+	server.sourceRefHydrator = func(_ context.Context, got dal.SourceRepositoryRecord, ref, preferredRemote string) sourcepkg.GitCheckoutStatus {
+		if got.RepositoryID != rec.RepositoryID || ref != "feature/on-demand" {
+			t.Errorf("hydrator input mismatch: rec=%+v ref=%q", got, ref)
+		}
+
+		preferredRemotesMu.Lock()
+		preferredRemotes = append(preferredRemotes, preferredRemote)
+		preferredRemotesMu.Unlock()
+		calls.Add(1)
+
+		return sourcepkg.GitCheckoutStatus{
+			CheckoutPath:       got.CheckoutPath,
+			DefaultRef:         ref,
+			GitRepository:      true,
+			DefaultRefResolved: true,
+			ResolvedCommit:     "0123456789abcdef0123456789abcdef01234567",
+			HydrationRemote:    "vectis-fallback-2",
+			HydrationTier:      "fallback-2",
+		}
+	}
+
+	first := server.hydrateSourceRepositoryRef(context.Background(), rec, "feature/on-demand")
+	if first.ErrorCode != "" || first.HydrationCacheHit {
+		t.Fatalf("first hydration status mismatch: %+v", first)
+	}
+
+	second := server.hydrateSourceRepositoryRef(context.Background(), rec, "feature/on-demand")
+	if second.ErrorCode != "" || !second.HydrationCacheHit {
+		t.Fatalf("second hydration status mismatch: %+v", second)
+	}
+
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("hydrator calls=%d, want 2", got)
+	}
+
+	preferredRemotesMu.Lock()
+	gotPreferred := append([]string(nil), preferredRemotes...)
+	preferredRemotesMu.Unlock()
+	if len(gotPreferred) != 2 || gotPreferred[0] != "" || gotPreferred[1] != "vectis-fallback-2" {
+		t.Fatalf("preferred remotes = %+v", gotPreferred)
+	}
+
+	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone, "fallback-2", observability.SourceRefHydrationCacheMiss) {
+		t.Fatalf("missing hydration cache-miss metric: %+v", metrics.hydrationRecords)
+	}
+
+	if !metrics.hasHydration(dal.SourceKindLocalCheckout, dal.SourceCheckoutModeManaged, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone, "fallback-2", observability.SourceRefHydrationCacheHit) {
+		t.Fatalf("missing hydration cache-hit metric: %+v", metrics.hydrationRecords)
 	}
 }
 

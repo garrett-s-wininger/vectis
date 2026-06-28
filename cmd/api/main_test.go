@@ -808,7 +808,7 @@ func TestConfiguredSourceRepositoryGitCredentialsRequireResolver(t *testing.T) {
 		CheckoutPath:  "/work/private",
 		CheckoutMode:  dal.SourceCheckoutModeManaged,
 		CredentialRef: "encryptedfs://git/private-repo",
-	}, "feature/new")
+	}, "feature/new", "")
 
 	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
 		t.Fatalf("unexpected ref hydrator credential status: %+v", status)

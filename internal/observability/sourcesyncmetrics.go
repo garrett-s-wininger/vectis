@@ -20,6 +20,9 @@ const (
 	SourceSyncOutcomeFailed         = "failed"
 	SourceSyncOutcomeSucceeded      = "succeeded"
 
+	SourceRefHydrationCacheHit  = "hit"
+	SourceRefHydrationCacheMiss = "miss"
+
 	SourceSyncReasonNone                  = "none"
 	SourceSyncReasonContextCanceled       = "context_canceled"
 	SourceSyncReasonContextDeadline       = "context_deadline_exceeded"
@@ -32,8 +35,10 @@ const (
 )
 
 type SourceSyncMetrics struct {
-	syncs    metric.Int64Counter
-	duration metric.Float64Histogram
+	syncs                metric.Int64Counter
+	syncDuration         metric.Float64Histogram
+	refHydrations        metric.Int64Counter
+	refHydrationDuration metric.Float64Histogram
 }
 
 func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
@@ -46,7 +51,7 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		return nil, fmt.Errorf("vectis_source_repository_syncs_total: %w", err)
 	}
 
-	duration, err := m.Float64Histogram("vectis_source_repository_sync_duration_seconds",
+	syncDuration, err := m.Float64Histogram("vectis_source_repository_sync_duration_seconds",
 		metric.WithDescription("Wall time spent handling source repository sync attempts"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300))
@@ -54,9 +59,26 @@ func NewSourceSyncMetrics() (*SourceSyncMetrics, error) {
 		return nil, fmt.Errorf("vectis_source_repository_sync_duration_seconds: %w", err)
 	}
 
+	refHydrations, err := m.Int64Counter("vectis_source_ref_hydrations_total",
+		metric.WithDescription("Total managed source ref hydration attempts by repository kind, checkout mode, outcome, reason, tier, and cache state"),
+		metric.WithUnit("{hydration}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_ref_hydrations_total: %w", err)
+	}
+
+	refHydrationDuration, err := m.Float64Histogram("vectis_source_ref_hydration_duration_seconds",
+		metric.WithDescription("Wall time spent hydrating missing managed source refs"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_source_ref_hydration_duration_seconds: %w", err)
+	}
+
 	return &SourceSyncMetrics{
-		syncs:    syncs,
-		duration: duration,
+		syncs:                syncs,
+		syncDuration:         syncDuration,
+		refHydrations:        refHydrations,
+		refHydrationDuration: refHydrationDuration,
 	}, nil
 }
 
@@ -67,7 +89,17 @@ func (m *SourceSyncMetrics) RecordSourceRepositorySync(ctx context.Context, trig
 
 	attrs := sourceSyncMetricAttributes(trigger, sourceKind, checkoutMode, outcome, reason)
 	m.syncs.Add(ctx, 1, metric.WithAttributes(attrs...))
-	m.duration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
+	m.syncDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
+}
+
+func (m *SourceSyncMetrics) RecordSourceRefHydration(ctx context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, d time.Duration) {
+	if m == nil {
+		return
+	}
+
+	attrs := sourceRefHydrationMetricAttributes(sourceKind, checkoutMode, outcome, reason, tier, cacheState)
+	m.refHydrations.Add(ctx, 1, metric.WithAttributes(attrs...))
+	m.refHydrationDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
 }
 
 func SourceSyncReasonFromErrorCode(code string) string {
@@ -124,6 +156,24 @@ func sourceSyncMetricAttributes(trigger, sourceKind, checkoutMode, outcome, reas
 		attribute.String("checkout_mode", checkoutMode),
 		attribute.String("outcome", outcome),
 		attribute.String("reason", reason),
+	}
+}
+
+func sourceRefHydrationMetricAttributes(sourceKind, checkoutMode, outcome, reason, tier, cacheState string) []attribute.KeyValue {
+	sourceKind = sourceSyncMetricLabel(sourceKind, "unknown")
+	checkoutMode = sourceSyncMetricLabel(checkoutMode, "unknown")
+	outcome = sourceSyncMetricLabel(outcome, SourceSyncOutcomeFailed)
+	reason = sourceSyncMetricLabel(reason, SourceSyncReasonUnknown)
+	tier = sourceSyncMetricLabel(tier, "unknown")
+	cacheState = sourceSyncMetricLabel(cacheState, SourceRefHydrationCacheMiss)
+
+	return []attribute.KeyValue{
+		attribute.String("source_kind", sourceKind),
+		attribute.String("checkout_mode", checkoutMode),
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+		attribute.String("tier", tier),
+		attribute.String("cache", cacheState),
 	}
 }
 

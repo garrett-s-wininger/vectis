@@ -26,6 +26,8 @@ import (
 	"vectis/internal/utils"
 )
 
+const defaultSourceRefAvailabilityTTL = 30 * time.Second
+
 type sourceRepositoryRequest struct {
 	RepositoryID       string   `json:"repository_id"`
 	Namespace          string   `json:"namespace"`
@@ -3089,8 +3091,9 @@ func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context,
 
 func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
 	key := sourceRefHydrationKey(rec.RepositoryID, ref)
+	preferredRemote, cacheHit := s.cachedSourceRefHydrationRemote(key)
 	if key == "" {
-		return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref)
+		return s.hydrateSourceRepositoryRefAttempt(ctx, rec, ref, key, preferredRemote, cacheHit)
 	}
 
 	s.sourceRefHydrationMu.Lock()
@@ -3119,7 +3122,7 @@ func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.Sour
 	s.sourceRefHydration[key] = call
 	s.sourceRefHydrationMu.Unlock()
 
-	call.status = s.hydrateSourceRepositoryRefDirect(ctx, rec, ref)
+	call.status = s.hydrateSourceRepositoryRefAttempt(ctx, rec, ref, key, preferredRemote, cacheHit)
 
 	s.sourceRefHydrationMu.Lock()
 	delete(s.sourceRefHydration, key)
@@ -3129,16 +3132,134 @@ func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.Sour
 	return call.status
 }
 
-func (s *APIServer) hydrateSourceRepositoryRefDirect(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) hydrateSourceRepositoryRefAttempt(ctx context.Context, rec dal.SourceRepositoryRecord, ref, key, preferredRemote string, cacheHit bool) sourcepkg.GitCheckoutStatus {
+	startedAt := time.Now()
+	status := s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
+	status.HydrationCacheHit = cacheHit
+
+	if status.ErrorCode == "" && strings.TrimSpace(status.HydrationRemote) != "" {
+		s.rememberSourceRefHydrationRemote(key, status.HydrationRemote)
+	} else if status.ErrorCode != "" && cacheHit {
+		s.forgetSourceRefHydrationRemote(key, preferredRemote)
+	}
+
+	s.recordSourceRefHydrationMetric(ctx, rec, status, preferredRemote, cacheHit, time.Since(startedAt))
+	return status
+}
+
+func (s *APIServer) hydrateSourceRepositoryRefDirect(ctx context.Context, rec dal.SourceRepositoryRecord, ref, preferredRemote string) sourcepkg.GitCheckoutStatus {
 	if hydrator := s.sourceRefHydrator; hydrator != nil {
-		return hydrator(ctx, rec, ref)
+		return hydrator(ctx, rec, ref, preferredRemote)
 	}
 
 	return sourcepkg.HydrateManagedGitRef(ctx, sourcepkg.ManagedGitRefHydrationRequest{
 		CheckoutPath:       rec.CheckoutPath,
 		Ref:                ref,
+		PreferredRemote:    preferredRemote,
 		FallbackRemoteURLs: rec.FallbackRemoteURLs,
 	})
+}
+
+func (s *APIServer) recordSourceRefHydrationMetric(ctx context.Context, rec dal.SourceRepositoryRecord, status sourcepkg.GitCheckoutStatus, preferredRemote string, cacheHit bool, d time.Duration) {
+	metrics := s.sourceRefHydrationMetrics
+	if metrics == nil {
+		return
+	}
+
+	outcome := observability.SourceSyncOutcomeSucceeded
+	reason := observability.SourceSyncReasonNone
+	if status.ErrorCode != "" {
+		outcome = observability.SourceSyncOutcomeFailed
+		reason = sourceRepositorySyncMetricReason(status.ErrorCode)
+	}
+
+	cacheState := observability.SourceRefHydrationCacheMiss
+	if cacheHit {
+		cacheState = observability.SourceRefHydrationCacheHit
+	}
+
+	tier := sourceRefHydrationTierForMetric(status.HydrationTier, preferredRemote)
+	metrics.RecordSourceRefHydration(ctx, rec.SourceKind, rec.CheckoutMode, outcome, reason, tier, cacheState, d)
+}
+
+func (s *APIServer) cachedSourceRefHydrationRemote(key string) (string, bool) {
+	if strings.TrimSpace(key) == "" {
+		return "", false
+	}
+
+	s.sourceRefAvailabilityMu.Lock()
+	defer s.sourceRefAvailabilityMu.Unlock()
+
+	entry, ok := s.sourceRefAvailability[key]
+	if !ok {
+		return "", false
+	}
+
+	if !entry.expiresAt.After(time.Now()) {
+		delete(s.sourceRefAvailability, key)
+		return "", false
+	}
+
+	return entry.remote, entry.remote != ""
+}
+
+func (s *APIServer) rememberSourceRefHydrationRemote(key, remote string) {
+	key = strings.TrimSpace(key)
+	remote = strings.TrimSpace(remote)
+	if key == "" || remote == "" {
+		return
+	}
+
+	ttl := s.sourceRefAvailabilityTTL
+	if ttl <= 0 {
+		ttl = defaultSourceRefAvailabilityTTL
+	}
+
+	s.sourceRefAvailabilityMu.Lock()
+	if s.sourceRefAvailability == nil {
+		s.sourceRefAvailability = make(map[string]sourceRefAvailabilityEntry)
+	}
+
+	s.sourceRefAvailability[key] = sourceRefAvailabilityEntry{
+		remote:    remote,
+		expiresAt: time.Now().Add(ttl),
+	}
+
+	s.sourceRefAvailabilityMu.Unlock()
+}
+
+func (s *APIServer) forgetSourceRefHydrationRemote(key, remote string) {
+	key = strings.TrimSpace(key)
+	remote = strings.TrimSpace(remote)
+	if key == "" || remote == "" {
+		return
+	}
+
+	s.sourceRefAvailabilityMu.Lock()
+	if entry, ok := s.sourceRefAvailability[key]; ok && entry.remote == remote {
+		delete(s.sourceRefAvailability, key)
+	}
+
+	s.sourceRefAvailabilityMu.Unlock()
+}
+
+func sourceRefHydrationTierForMetric(tier, remote string) string {
+	tier = strings.TrimSpace(tier)
+	if tier != "" {
+		return tier
+	}
+
+	remote = strings.TrimSpace(remote)
+	switch {
+	case remote == "origin":
+		return "origin"
+	case strings.HasPrefix(remote, "vectis-fallback-"):
+		return strings.TrimPrefix(remote, "vectis-")
+	case remote != "":
+		return "other"
+	default:
+		return "unknown"
+	}
 }
 
 func sourceRefHydrationKey(repositoryID, ref string) string {
