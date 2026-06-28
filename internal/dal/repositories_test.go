@@ -2511,6 +2511,42 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_Succeeds(t *testi
 	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
 }
 
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_SuccessCanWinCancelRace(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "success-after-cancel")
+
+	if _, err := repos.Runs().RequestRunCancel(ctx, setup.RunID, dal.CancelReasonAPI); err != nil {
+		t.Fatalf("request cancel: %v", err)
+	}
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim success after cancel: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunSucceeded || !result.Summary.AllSucceeded() {
+		t.Fatalf("success after cancel result mismatch: %+v", result)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+	if !found || status != dal.RunStatusSucceeded {
+		t.Fatalf("run status after cancel/success race: found=%v status=%q", found, status)
+	}
+
+	requested, err := repos.Runs().RunCancelRequested(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("run cancel requested after success: %v", err)
+	}
+	if requested {
+		t.Fatal("terminal success should clear durable cancel request")
+	}
+}
+
 func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_FailsRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
@@ -2544,6 +2580,38 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_FailsRun(t *testi
 	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusFailed, dal.SegmentStatusFailed, 2)
 	assertRootTaskAndAttemptStatus(t, db, setup.RunID, dal.TaskStatusFailed, dal.TaskStatusFailed, 2)
 	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_TerminalClearsSiblingClaims(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "terminal-clears-sibling")
+
+	sibling, created, err := repos.Runs().EnsurePendingTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:    setup.RunID,
+		TaskKey:  "sibling",
+		SpecHash: "sha256:sibling",
+	})
+	if err != nil {
+		t.Fatalf("ensure sibling: %v", err)
+	}
+	if !created {
+		t.Fatal("expected sibling task to be created")
+	}
+
+	claimExecutionAccepted(t, ctx, repos.Runs(), sibling.ExecutionID, "worker-sibling")
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusFailed, dal.FailureCodeExecution, "boom")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim failed: %v", err)
+	}
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunFailed {
+		t.Fatalf("failed result mismatch: %+v", result)
+	}
+
+	assertExecutionClaimCleared(t, db, setup.Dispatch.ExecutionID)
+	assertExecutionClaimCleared(t, db, sibling.ExecutionID)
 }
 
 func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_CancelsRun(t *testing.T) {
@@ -2667,6 +2735,58 @@ func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_ActivatesChildren
 	}
 
 	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPending, dal.SegmentStatusPending, dal.ExecutionStatusPending, 0)
+}
+
+func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_CancelRequestStopsContinuation(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+	setup := setupClaimedExecutionFinalizationRun(t, ctx, repos, "continued-cancelled")
+
+	child, _, err := repos.Runs().EnsurePlannedTaskExecution(ctx, dal.TaskExecutionCreate{
+		RunID:        setup.RunID,
+		ParentTaskID: setup.Dispatch.TaskID,
+		TaskKey:      "child",
+		SpecHash:     "sha256:child",
+	})
+
+	if err != nil {
+		t.Fatalf("ensure child: %v", err)
+	}
+
+	if _, err := repos.Runs().RequestRunCancel(ctx, setup.RunID, dal.CancelReasonAPI); err != nil {
+		t.Fatalf("request cancel: %v", err)
+	}
+
+	result, err := repos.Runs().CompleteExecutionAndFinalizeRunByClaim(ctx, setup.Dispatch.ExecutionID, "worker-a", setup.Token, dal.ExecutionStatusSucceeded, "", "")
+	if err != nil {
+		t.Fatalf("CompleteExecutionAndFinalizeRunByClaim after cancel: %v", err)
+	}
+
+	if result.Outcome != dal.ExecutionFinalizationOutcomeRunCancelled || result.Activated != 0 || len(result.Children) != 0 {
+		t.Fatalf("cancelled continuation result mismatch: %+v", result)
+	}
+
+	status, found, err := repos.Runs().GetRunStatus(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+
+	if !found || status != dal.RunStatusCancelled {
+		t.Fatalf("run should be cancelled after cancel races with continuation: found=%v status=%q", found, status)
+	}
+
+	requested, err := repos.Runs().RunCancelRequested(ctx, setup.RunID)
+	if err != nil {
+		t.Fatalf("run cancel requested after terminal transition: %v", err)
+	}
+
+	if requested {
+		t.Fatal("terminal cancellation should clear durable cancel request")
+	}
+
+	assertExecutionAndSegmentStatus(t, db, setup.Dispatch.ExecutionID, setup.Dispatch.SegmentID, dal.ExecutionStatusSucceeded, dal.SegmentStatusSucceeded, 2)
+	assertTaskExecutionStatuses(t, db, child, dal.TaskStatusPlanned, dal.SegmentStatusPlanned, dal.ExecutionStatusPlanned, 0)
 }
 
 func TestRunsRepository_CompleteExecutionAndFinalizeRunByClaim_RejectsDuplicateAfterActivatingChildren(t *testing.T) {

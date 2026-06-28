@@ -5530,6 +5530,8 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 
 	var children []TaskExecutionRecord
 	var activated int
+	var cancelRequested bool
+	var cancelReason string
 	if status == ExecutionStatusSucceeded {
 		var taskID string
 		taskID, err = transitionExecutionTx(ctx, tx, executionID, ExecutionStatusSucceeded, SegmentStatusSucceeded, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true)
@@ -5537,15 +5539,84 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 			return ExecutionFinalizationResult{}, err
 		}
 
-		children, activated, err = activatePlannedContinuationsTx(ctx, tx, runID, taskID)
+		summary, err := getRunTaskCompletionTx(ctx, tx, runID)
 		if err != nil {
 			return ExecutionFinalizationResult{}, err
 		}
 
-	} else {
-		if _, err := transitionExecutionTx(ctx, tx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true); err != nil {
+		cancelRequested, cancelReason, err = getRunCancelIntentTx(ctx, tx, runID)
+		if err != nil {
 			return ExecutionFinalizationResult{}, err
 		}
+
+		if !cancelRequested || summary.AllSucceeded() {
+			children, activated, err = activatePlannedContinuationsTx(ctx, tx, runID, taskID)
+			if err != nil {
+				return ExecutionFinalizationResult{}, err
+			}
+		}
+
+		result := ExecutionFinalizationResult{
+			ExecutionID: executionID,
+			RunID:       runID,
+			Outcome:     ExecutionFinalizationOutcomeWaiting,
+			Summary:     summary,
+			Children:    children,
+			Activated:   activated,
+		}
+
+		switch {
+		case cancelRequested && !summary.AllSucceeded():
+			if cancelReason == "" {
+				cancelReason = CancelReasonAPI
+			}
+
+			if err := markRunTerminalTx(ctx, tx, runID, RunStatusCancelled, "", cancelReason); err != nil {
+				return ExecutionFinalizationResult{}, err
+			}
+
+			result.Outcome = ExecutionFinalizationOutcomeRunCancelled
+		case summary.TerminalFailed > 0:
+			if failureCode == "" {
+				failureCode = FailureCodeExecution
+			}
+
+			if reason == "" {
+				reason = fmt.Sprintf("%d task execution(s) ended in a terminal failure", summary.TerminalFailed)
+			}
+
+			if err := markRunTerminalTx(ctx, tx, runID, RunStatusFailed, failureCode, reason); err != nil {
+				return ExecutionFinalizationResult{}, err
+			}
+
+			result.Outcome = ExecutionFinalizationOutcomeRunFailed
+		case summary.AllSucceeded():
+			if err := markRunTerminalTx(ctx, tx, runID, RunStatusSucceeded, "", ""); err != nil {
+				return ExecutionFinalizationResult{}, err
+			}
+
+			result.Outcome = ExecutionFinalizationOutcomeRunSucceeded
+		case len(children) > 0:
+			if err := markRunQueuedForContinuationTx(ctx, tx, runID); err != nil {
+				return ExecutionFinalizationResult{}, err
+			}
+
+			result.Outcome = ExecutionFinalizationOutcomeContinued
+		default:
+			if err := markRunQueuedForContinuationTx(ctx, tx, runID); err != nil {
+				return ExecutionFinalizationResult{}, err
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			return ExecutionFinalizationResult{}, err
+		}
+
+		return result, nil
+	}
+
+	if _, err := transitionExecutionTx(ctx, tx, executionID, status, status, []string{ExecutionStatusPending, ExecutionStatusAccepted, ExecutionStatusRunning}, true, false, true); err != nil {
+		return ExecutionFinalizationResult{}, err
 	}
 
 	summary, err := getRunTaskCompletionTx(ctx, tx, runID)
@@ -5587,22 +5658,6 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 		}
 
 		result.Outcome = ExecutionFinalizationOutcomeRunFailed
-	case summary.AllSucceeded():
-		if err := markRunTerminalTx(ctx, tx, runID, RunStatusSucceeded, "", ""); err != nil {
-			return ExecutionFinalizationResult{}, err
-		}
-
-		result.Outcome = ExecutionFinalizationOutcomeRunSucceeded
-	case len(children) > 0:
-		if err := markRunQueuedForContinuationTx(ctx, tx, runID); err != nil {
-			return ExecutionFinalizationResult{}, err
-		}
-
-		result.Outcome = ExecutionFinalizationOutcomeContinued
-	default:
-		if err := markRunQueuedForContinuationTx(ctx, tx, runID); err != nil {
-			return ExecutionFinalizationResult{}, err
-		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -5610,6 +5665,29 @@ func (r *SQLRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.C
 	}
 
 	return result, nil
+}
+
+func getRunCancelIntentTx(ctx context.Context, tx *sql.Tx, runID string) (bool, string, error) {
+	var requestedAt sql.NullInt64
+	var reason sql.NullString
+	if err := tx.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT cancel_requested_at, cancel_reason
+		FROM job_runs
+		WHERE run_id = ?
+	`), runID).Scan(&requestedAt, &reason); err != nil {
+		if err == sql.ErrNoRows {
+			return false, "", fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return false, "", normalizeSQLError(err)
+	}
+
+	outReason := ""
+	if reason.Valid {
+		outReason = reason.String
+	}
+
+	return requestedAt.Valid && requestedAt.Int64 > 0, outReason, nil
 }
 
 func validateExecutionClaimForCompletionTx(ctx context.Context, tx *sql.Tx, executionID, owner, claimToken string, nowUnix int64) (string, error) {
@@ -5706,6 +5784,10 @@ func markRunTerminalTx(ctx context.Context, tx *sql.Tx, runID, status, failureCo
 
 	if n != 1 {
 		return fmt.Errorf("%w: run %s cannot be finalized from active status", ErrConflict, runID)
+	}
+
+	if err := clearExecutionClaimsForTerminalRunTx(ctx, tx, runID); err != nil {
+		return err
 	}
 
 	return clearRunHotStateOwnerTx(ctx, tx, runID)
