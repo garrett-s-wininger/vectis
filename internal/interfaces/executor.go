@@ -21,7 +21,8 @@ type Process interface {
 	Stderr() io.ReadCloser
 }
 
-// StartProcess starts cmd and adapts it to the Process interface.
+// StartProcess starts cmd in an isolated child process group when supported and
+// adapts it to the Process interface.
 func StartProcess(cmd *exec.Cmd) (Process, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -32,6 +33,8 @@ func StartProcess(cmd *exec.Cmd) (Process, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
+
+	configureCommandProcessIsolation(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start command: %w", err)
