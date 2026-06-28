@@ -2,7 +2,8 @@ package api
 
 const (
 	adminUsernameMaxLen        = 128
-	adminPasswordMaxLen        = 512
+	bcryptPasswordMaxBytes     = 72
+	adminPasswordMaxLen        = bcryptPasswordMaxBytes
 	maxJSONDocumentBodyBytes   = 64 << 10
 	maxSetupCompleteBodyBytes  = maxJSONDocumentBodyBytes
 	maxJobDefinitionBodyBytes  = 10 * 1024 * 1024

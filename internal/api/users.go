@@ -457,6 +457,22 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.RLock()
+	cacheService := s.cacheService
+	s.mu.RUnlock()
+
+	if cacheService != nil {
+		if err := cacheService.DeleteUserSessions(ctx, id); err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Cache error revoking deleted user sessions: %v", err)
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+	}
+
 	s.markDBRecovered()
 
 	actorID := int64(0)

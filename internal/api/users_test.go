@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"vectis/internal/cache"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 
@@ -130,6 +131,98 @@ func TestDisableUserRevokesCredentialsAcrossReenable(t *testing.T) {
 
 	assertVersionStatus("target api token after re-enable", targetAPIToken, nil, http.StatusUnauthorized)
 	assertVersionStatus("target session after re-enable", "", sessionCookies, http.StatusUnauthorized)
+}
+
+func TestDeleteUserRevokesMemoryCachedSessions(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+	t.Setenv("VECTIS_API_AUTHZ_ENGINE", "authenticated_full")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetCacheService(cache.NewMemoryService())
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	setupBody := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	setupJSON, _ := json.Marshal(setupBody)
+	setupRec := httptest.NewRecorder()
+	setupReq := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(setupJSON))
+	setupReq.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(setupRec, setupReq)
+	if setupRec.Code != http.StatusOK {
+		t.Fatalf("setup failed: code=%d body=%s", setupRec.Code, setupRec.Body.String())
+	}
+
+	var setupOut setupCompleteResponse
+	if err := json.NewDecoder(setupRec.Body).Decode(&setupOut); err != nil {
+		t.Fatal(err)
+	}
+
+	passHash, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "target", string(passHash), true)
+	if err != nil {
+		t.Fatalf("insert target user: %v", err)
+	}
+
+	targetUserID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("target user id: %v", err)
+	}
+
+	loginBody := map[string]string{
+		"username": "target",
+		"password": "password123",
+	}
+
+	loginJSON, _ := json.Marshal(loginBody)
+	loginRec := httptest.NewRecorder()
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/login", bytes.NewReader(loginJSON))
+	loginReq.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login failed: code=%d body=%s", loginRec.Code, loginRec.Body.String())
+	}
+
+	sessionCookies := loginRec.Result().Cookies()
+	if len(sessionCookies) == 0 {
+		t.Fatal("login did not set session cookies")
+	}
+
+	assertCookieVersionStatus := func(name string, want int) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+		for _, cookie := range sessionCookies {
+			req.AddCookie(cookie)
+		}
+
+		h.ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Fatalf("%s status=%d, want %d; body=%s", name, rec.Code, want, rec.Body.String())
+		}
+	}
+
+	assertCookieVersionStatus("target session before delete", http.StatusOK)
+
+	deleteRec := httptest.NewRecorder()
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+formatInt64(targetUserID), nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
+	h.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("delete failed: code=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	assertCookieVersionStatus("target session after delete", http.StatusUnauthorized)
 }
 
 func TestChangePassword_endToEnd(t *testing.T) {
@@ -292,6 +385,24 @@ func TestChangePassword_endToEnd(t *testing.T) {
 
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("too_long_new_password", func(t *testing.T) {
+		body := map[string]string{
+			"current_password": "password123",
+			"new_password":     string(bytes.Repeat([]byte("a"), adminPasswordMaxLen+1)),
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/change-password", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+regularToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 
@@ -514,6 +625,24 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("expected 409, got %d", rec.Code)
+		}
+	})
+
+	t.Run("create_user_too_long_password", func(t *testing.T) {
+		body := map[string]string{
+			"username": "longpassuser",
+			"password": string(bytes.Repeat([]byte("a"), adminPasswordMaxLen+1)),
+		}
+
+		b, _ := json.Marshal(body)
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 

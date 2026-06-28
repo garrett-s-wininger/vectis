@@ -228,6 +228,31 @@ func TestPostSetupComplete_shortPassword(t *testing.T) {
 	}
 }
 
+func TestPostSetupComplete_tooLongPassword(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	s.SetQueueClient(mocks.NewMockQueueService())
+	h := s.Handler()
+
+	body := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  string(bytes.Repeat([]byte("a"), adminPasswordMaxLen+1)),
+	}
+
+	b, _ := json.Marshal(body)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPostSetupComplete_wrongContentType(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
