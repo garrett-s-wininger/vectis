@@ -62,7 +62,7 @@ before Vectis creates a run row.
 Reaction events are evaluated by a reaction worker loop. The first
 implementation can live inside `vectis-api` or a small `vectis-reactions`
 binary, but the storage contract should not require in-process execution. The
-loop claims pending reaction invocations through the database, runs the selected
+loop claims ready reaction invocations through the database, runs the selected
 reaction action, records success or retryable failure, and leaves enough
 operator-visible state to debug stuck reactions.
 

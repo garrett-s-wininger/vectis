@@ -742,9 +742,11 @@ type CatalogEventsRepository interface {
 
 type ReactionsRepository interface {
 	RecordEvent(ctx context.Context, create ReactionEventCreate) (ReactionEventRecord, error)
+	GetEvent(ctx context.Context, eventID string) (ReactionEventRecord, error)
 	CreateTarget(ctx context.Context, create ReactionTargetCreate) (ReactionTargetRecord, error)
 	CreateInvocation(ctx context.Context, create ReactionInvocationCreate) (ReactionInvocationRecord, error)
-	ListPendingInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error)
+	GetInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error)
+	ListReadyInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error)
 	MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error)
 	MarkInvocationSucceeded(ctx context.Context, invocationID string, completedAtUnixNano int64) error
 	MarkInvocationFailed(ctx context.Context, invocationID, message string, nextAttemptAtUnixNano int64) error

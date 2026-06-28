@@ -66,6 +66,15 @@ func (r *SQLReactionsRepository) RecordEvent(ctx context.Context, create Reactio
 	return r.getEvent(ctx, eventID)
 }
 
+func (r *SQLReactionsRepository) GetEvent(ctx context.Context, eventID string) (ReactionEventRecord, error) {
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		return ReactionEventRecord{}, fmt.Errorf("%w: event_id is required", ErrConflict)
+	}
+
+	return r.getEvent(ctx, eventID)
+}
+
 func (r *SQLReactionsRepository) CreateTarget(ctx context.Context, create ReactionTargetCreate) (ReactionTargetRecord, error) {
 	targetID := strings.TrimSpace(create.TargetID)
 	if targetID == "" {
@@ -198,7 +207,16 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 	return r.getInvocation(ctx, invocationID)
 }
 
-func (r *SQLReactionsRepository) ListPendingInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error) {
+func (r *SQLReactionsRepository) GetInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error) {
+	invocationID = strings.TrimSpace(invocationID)
+	if invocationID == "" {
+		return ReactionInvocationRecord{}, fmt.Errorf("%w: invocation_id is required", ErrConflict)
+	}
+
+	return r.getInvocation(ctx, invocationID)
+}
+
+func (r *SQLReactionsRepository) ListReadyInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error) {
 	if nowUnixNano <= 0 {
 		nowUnixNano = time.Now().UnixNano()
 	}
@@ -212,10 +230,11 @@ func (r *SQLReactionsRepository) ListPendingInvocations(ctx context.Context, now
 		       target_config_json, attempts, max_attempts, next_attempt_at, claimed_by, claim_until, last_error,
 		       created_at, updated_at, completed_at
 		FROM reaction_invocations
-		WHERE status = ? AND next_attempt_at <= ?
+		WHERE (status = ? AND next_attempt_at <= ?)
+		   OR (status = ? AND claim_until IS NOT NULL AND claim_until <= ?)
 		ORDER BY next_attempt_at ASC, id ASC
 		LIMIT ?
-	`), ReactionInvocationStatusPending, nowUnixNano, limit)
+	`), ReactionInvocationStatusPending, nowUnixNano, ReactionInvocationStatusRunning, nowUnixNano, limit)
 
 	if err != nil {
 		return nil, normalizeSQLError(err)
@@ -258,8 +277,13 @@ func (r *SQLReactionsRepository) MarkInvocationRunning(ctx context.Context, invo
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE reaction_invocations
 		SET status = ?, claimed_by = ?, claim_until = ?, attempts = attempts + 1, updated_at = ?
-		WHERE invocation_id = ? AND status = ?
-	`), ReactionInvocationStatusRunning, owner, claimUntilUnixNano, now, invocationID, ReactionInvocationStatusPending)
+		WHERE invocation_id = ?
+		  AND (
+		    (status = ? AND next_attempt_at <= ?)
+		    OR (status = ? AND claim_until IS NOT NULL AND claim_until <= ?)
+		  )
+	`), ReactionInvocationStatusRunning, owner, claimUntilUnixNano, now, invocationID,
+		ReactionInvocationStatusPending, now, ReactionInvocationStatusRunning, now)
 
 	if err != nil {
 		return false, normalizeSQLError(err)

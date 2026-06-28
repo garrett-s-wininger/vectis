@@ -406,7 +406,8 @@ CREATE TABLE reaction_invocations (
     UNIQUE(event_id, target_id)
 );
 
-CREATE INDEX idx_reaction_invocations_pending ON reaction_invocations(status, next_attempt_at, id);
+CREATE INDEX idx_reaction_invocations_ready ON reaction_invocations(status, next_attempt_at, id);
+CREATE INDEX idx_reaction_invocations_claims ON reaction_invocations(status, claim_until, id);
 CREATE INDEX idx_reaction_invocations_event ON reaction_invocations(event_id, id);
 CREATE INDEX idx_reaction_invocations_target ON reaction_invocations(target_id, id);
 

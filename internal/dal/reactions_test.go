@@ -64,13 +64,13 @@ func TestReactionsRepository_DurableLocalInvocationFlow(t *testing.T) {
 		t.Fatalf("unexpected invocation: %+v", invocation)
 	}
 
-	pending, err := repo.ListPendingInvocations(ctx, now, 10)
+	ready, err := repo.ListReadyInvocations(ctx, now, 10)
 	if err != nil {
-		t.Fatalf("list pending: %v", err)
+		t.Fatalf("list ready: %v", err)
 	}
 
-	if len(pending) != 1 || pending[0].InvocationID != invocation.InvocationID {
-		t.Fatalf("pending invocations: %+v", pending)
+	if len(ready) != 1 || ready[0].InvocationID != invocation.InvocationID {
+		t.Fatalf("ready invocations: %+v", ready)
 	}
 
 	claimed, err := repo.MarkInvocationRunning(ctx, invocation.InvocationID, "notifier-1", now+int64(time.Minute))
@@ -112,6 +112,83 @@ func TestReactionsRepository_DurableLocalInvocationFlow(t *testing.T) {
 
 	if string(messages[0].PayloadJSON) != string(event.PayloadJSON) {
 		t.Fatalf("message payload: got %s want %s", messages[0].PayloadJSON, event.PayloadJSON)
+	}
+}
+
+func TestReactionsRepository_ListReadyInvocationsIncludesExpiredClaims(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   "run.completed",
+		PayloadJSON: []byte(`{"run_id":"run-1","status":"succeeded"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "expired-claim-test",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"expired-claims"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	now := time.Now().UnixNano()
+	invocation, err := repo.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+		MaxAttempts:          3,
+		NextAttemptAt:        now,
+	})
+
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	claimed, err := repo.MarkInvocationRunning(ctx, invocation.InvocationID, "stale-runner", time.Now().Add(-time.Second).UnixNano())
+	if err != nil {
+		t.Fatalf("mark stale running: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected stale runner claim")
+	}
+
+	ready, err := repo.ListReadyInvocations(ctx, time.Now().UnixNano(), 10)
+	if err != nil {
+		t.Fatalf("list ready: %v", err)
+	}
+
+	if len(ready) != 1 || ready[0].InvocationID != invocation.InvocationID || ready[0].Status != dal.ReactionInvocationStatusRunning {
+		t.Fatalf("ready expired invocations: %+v", ready)
+	}
+
+	claimed, err = repo.MarkInvocationRunning(ctx, invocation.InvocationID, "fresh-runner", time.Now().Add(time.Minute).UnixNano())
+	if err != nil {
+		t.Fatalf("reclaim running: %v", err)
+	}
+
+	if !claimed {
+		t.Fatal("expected expired invocation reclaim")
+	}
+
+	reclaimed, err := repo.GetInvocation(ctx, invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+
+	if reclaimed.ClaimedBy != "fresh-runner" || reclaimed.Attempts != 2 {
+		t.Fatalf("reclaimed invocation: %+v", reclaimed)
 	}
 }
 

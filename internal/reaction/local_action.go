@@ -28,6 +28,16 @@ func (a *LocalNotifyAction) Type() string {
 	return dal.ReactionActionNotifyLocal
 }
 
+func (a *LocalNotifyAction) ExecuteInvocation(ctx context.Context, req ActionRequest) error {
+	_, err := a.Execute(ctx, LocalNotifyActionRequest{
+		Event:      req.Event,
+		Invocation: req.Invocation,
+		Payload:    req.Payload,
+	})
+
+	return err
+}
+
 func (a *LocalNotifyAction) Execute(ctx context.Context, req LocalNotifyActionRequest) (dal.ReactionLocalMessageRecord, error) {
 	if a == nil || a.Store == nil {
 		return dal.ReactionLocalMessageRecord{}, fmt.Errorf("local notify reaction action requires a store")
