@@ -50,7 +50,7 @@ func ensureJobRequestDeliveryID(req *api.JobRequest, deliveryID string) {
 		return
 	}
 
-	if req.Job == nil {
+	if req.GetJob() == nil {
 		req.Job = &api.Job{}
 	}
 

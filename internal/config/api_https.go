@@ -121,7 +121,7 @@ func ValidateAPIHTTPS() error {
 
 func NewAPIHTTPSReloader() (*tlsconfig.Reloader, error) {
 	if !APIHTTPSEnabled() {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil reloader means API HTTPS is disabled.
 	}
 
 	return tlsconfig.NewReloader(apiHTTPSOptionsFromConfig())

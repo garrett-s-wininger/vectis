@@ -2546,7 +2546,7 @@ func sourceCronScheduleRecordToResponseWithSync(rec dal.CronScheduleRecord, name
 
 func (s *APIServer) sourceRepositorySyncResponsesByID(ctx context.Context, namespaceID int64) (map[string]sourceRepositorySyncResponse, error) {
 	if s.sources == nil {
-		return nil, nil
+		return map[string]sourceRepositorySyncResponse{}, nil
 	}
 
 	recs, err := s.sources.ListRepositories(ctx, namespaceID)
@@ -3033,7 +3033,7 @@ func (s *APIServer) definitionSourceProvenance(ctx context.Context, jobID string
 
 	source, ok := sources[version]
 	if !ok {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Missing provenance is optional and omitted from API responses.
 	}
 
 	return &source, nil

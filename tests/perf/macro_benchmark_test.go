@@ -4096,7 +4096,7 @@ func macroCloneCachedExecutionPayloadJob(j *apipb.Job) *apipb.Job {
 	return &apipb.Job{
 		Id:               j.Id,
 		RunId:            j.RunId,
-		Root:             j.Root,
+		Root:             j.GetRoot(),
 		DeliveryId:       j.DeliveryId,
 		DefaultIsolation: j.DefaultIsolation,
 		Secrets:          append([]*apipb.SecretReference(nil), j.GetSecrets()...),
@@ -4523,7 +4523,7 @@ func finishDequeuedMacroExecution(
 
 func hydrateMacroJobRequest(ctx context.Context, env macroBenchEnv, req *apipb.JobRequest) (*apipb.JobRequest, error) {
 	if req == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil request remains nil; callers already treat it as no job.
 	}
 
 	payloadHash := strings.TrimSpace(req.GetMetadata()[cell.ExecutionPayloadHashMetadataKey])

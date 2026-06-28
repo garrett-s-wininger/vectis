@@ -472,7 +472,7 @@ func editJob(cmd *cobra.Command, args []string) {
 	}
 
 	if strings.TrimSpace(job.GetId()) != "" && strings.TrimSpace(job.GetId()) != jobID {
-		runCLIError(fmt.Errorf("job id mismatch (expected %q, got %v)", jobID, job.Id))
+		runCLIError(fmt.Errorf("job id mismatch (expected %q, got %v)", jobID, job.GetId()))
 	}
 
 	// NOTE(garrett): Always re-indent the job before updating.

@@ -186,7 +186,7 @@ func (r *Reloader) ClientTLS(serverName string) (*tls.Config, error) {
 			defer r.mu.RUnlock()
 
 			if r.clientLeaf == nil {
-				return nil, nil
+				return nil, nil //nolint:nilnil // crypto/tls uses nil certificate with nil error to continue without a client cert.
 			}
 
 			return r.clientLeaf, nil

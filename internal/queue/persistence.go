@@ -248,7 +248,7 @@ func (p *persistenceStore) loadSnapshot() (*queueSnapshot, error) {
 	f, err := os.Open(p.snapshotPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return &queueSnapshot{}, nil
 		}
 		return nil, fmt.Errorf("open snapshot: %w", err)
 	}

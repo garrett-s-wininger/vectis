@@ -310,6 +310,7 @@ func (s *Service) repairTaskFinalization(ctx context.Context) error {
 
 			s.recordTaskFinalizationRepair(ctx, observability.ReconcilerTaskFinalizationOutcomeSuccess, string(decision.Outcome))
 			s.logger.Info("reconciler: repaired orphaned task run %s to succeeded", summary.RunID)
+		case taskreduce.OutcomeWaiting:
 		case taskreduce.OutcomeFailed:
 			reason := taskfinalize.FailureReason(taskfinalize.Decision{Reduce: decision})
 			if err := s.runs.RepairMarkRunFailedWithCode(ctx, summary.RunID, dal.FailureCodeExecution, reason); err != nil {

@@ -84,7 +84,7 @@ var (
 
 func metricsTLSReloader() (*tlsconfig.Reloader, error) {
 	if MetricsTLSInsecure() {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil reloader means metrics TLS is disabled.
 	}
 
 	metricsTLSOnce.Do(func() {

@@ -141,7 +141,7 @@ func (r *SQLDispatchEventsRepository) LastReconcilerActivity(ctx context.Context
 	}
 
 	if !ts.Valid {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No reconciler activity is represented as a nil timestamp.
 	}
 
 	return &ts.Int64, nil

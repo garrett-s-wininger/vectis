@@ -49,7 +49,7 @@ func TestSampleCoreServerConformance(t *testing.T) {
 func shortSocketPath(t *testing.T, name string) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-worker-core-example-")
+	dir, err := os.MkdirTemp("/tmp", "vectis-worker-core-example-") //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}

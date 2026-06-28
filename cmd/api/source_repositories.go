@@ -614,7 +614,7 @@ func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (
 	root := strings.TrimSpace(config.SecretsEncryptedFSRoot())
 	keyFile := strings.TrimSpace(config.SecretsEncryptedFSKeyFile())
 	if root == "" && keyFile == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil resolver means source repository credentials are disabled.
 	}
 
 	if root == "" || keyFile == "" {

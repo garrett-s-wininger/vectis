@@ -10,7 +10,7 @@ import (
 // on platforms with long temp roots.
 func ShortPath(t testing.TB, name string) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "vectis-sock-*")
+	dir, err := os.MkdirTemp("/tmp", "vectis-sock-*") //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
 	if err != nil {
 		t.Fatalf("mkdtemp: %v", err)
 	}

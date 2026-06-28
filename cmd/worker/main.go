@@ -563,7 +563,7 @@ type executionSPIFFERegistration struct {
 func newSecretsResolverFactory(logger interfaces.Logger) (secretResolverFactory, error) {
 	addr := strings.TrimSpace(config.WorkerSecretsAddress())
 	if secretsAddressDisabled(addr) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil factory means the workload-authenticated secrets service is disabled.
 	}
 
 	if logger != nil {
@@ -1047,7 +1047,7 @@ func (w *worker) handleJob(jobReq *api.JobRequest) {
 
 func (w *worker) hydrateJobRequest(ctx context.Context, req *api.JobRequest) (*api.JobRequest, error) {
 	if req == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil request remains nil; callers already treat it as no job.
 	}
 
 	payloadHash := strings.TrimSpace(req.GetMetadata()[cell.ExecutionPayloadHashMetadataKey])
@@ -1445,6 +1445,8 @@ func (w *worker) runTaskExecution(ctx context.Context, job *api.Job, jobID, runI
 
 			span.SetAttributes(attribute.String("vectis.worker.outcome", observability.WorkerOutcomeFailed))
 			return observability.WorkerOutcomeFailed
+		case executionErrorFailed:
+			// Fall through to normal failed-execution finalization below.
 		}
 
 		w.logger.Error("Job %s failed: %v", jobID, execErr)
@@ -1641,6 +1643,8 @@ func decideExecutionError(err error) executionErrorDecision {
 		out.reason = truncateFailureReason(workerCoreUnknownOrphanReason(resultErr, err))
 	case api.RunOutcome_RUN_OUTCOME_FAILURE:
 		out.reason = truncateFailureReason(workerCoreResultReason(resultErr, err))
+	case api.RunOutcome_RUN_OUTCOME_UNSPECIFIED, api.RunOutcome_RUN_OUTCOME_SUCCESS:
+		// Keep the default failed disposition for invalid task-result errors.
 	}
 
 	return out
@@ -2179,7 +2183,7 @@ func cloneCachedExecutionPayloadJobForWorker(j *api.Job) *api.Job {
 	return &api.Job{
 		Id:               j.Id,
 		RunId:            j.RunId,
-		Root:             j.Root,
+		Root:             j.GetRoot(),
 		DeliveryId:       j.DeliveryId,
 		DefaultIsolation: j.DefaultIsolation,
 		Secrets:          append([]*api.SecretReference(nil), j.GetSecrets()...),
@@ -2239,7 +2243,7 @@ func executionFromEnvelope(env *cell.ExecutionEnvelope) workloadidentity.Executi
 
 func executionWorkloadIdentity(env *cell.ExecutionEnvelope) (*workloadidentity.Identity, error) {
 	if !config.WorkerExecutionIdentityEnabled() {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil identity means execution workload identity is disabled.
 	}
 
 	if env == nil {
@@ -2727,6 +2731,8 @@ func (w *worker) recordRunCatalogEventForExecutionFinalization(result dal.Execut
 		}
 
 		w.recordRunCatalogEvent(dal.RunStatusUpdate{RunID: result.RunID, Status: dal.RunStatusCancelled, Reason: reason})
+	case dal.ExecutionFinalizationOutcomeWaiting:
+		// Waiting outcomes do not change the run catalog status.
 	}
 }
 

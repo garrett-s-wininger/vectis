@@ -96,7 +96,7 @@ func taskSpecHash(node *api.Node, nodeID, uses string, childTaskKeys []string, a
 
 func taskActionDigests(job *api.Job, resolver actionregistry.Resolver) (map[string]string, error) {
 	if resolver == nil {
-		return nil, nil
+		return map[string]string{}, nil
 	}
 
 	locks, err := actionregistry.ResolveJobActions(job, resolver)
@@ -105,7 +105,7 @@ func taskActionDigests(job *api.Job, resolver actionregistry.Resolver) (map[stri
 	}
 
 	if len(locks) == 0 {
-		return nil, nil
+		return map[string]string{}, nil
 	}
 
 	out := make(map[string]string, len(locks))

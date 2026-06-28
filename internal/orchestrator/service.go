@@ -325,7 +325,7 @@ func (s *Service) RenewExecutionLease(ctx context.Context, runID, executionID, o
 		}
 
 		task.leaseUntil = leaseUntil
-		return nil, nil
+		return struct{}{}, nil
 	})
 
 	return err

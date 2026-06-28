@@ -320,7 +320,7 @@ type postgresWaitSampler struct {
 func startPostgresWaitSampler(ctx context.Context, dsn string) (*postgresWaitSampler, error) {
 	outputPath := strings.TrimSpace(os.Getenv(envPGWaitSamplesOutput))
 	if outputPath == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil sampler means wait sampling output is disabled.
 	}
 
 	interval := postgresWaitSampleInterval()

@@ -74,7 +74,7 @@ func TestRecordExecutionHandoffPayloadRejectsInvalidNewPayloadBeforeRecord(t *te
 	ctx := context.Background()
 	runs := mocks.NewMockRunsRepository()
 	req := validPayloadJobRequest(t, "run-1", "sha256:abc123", "execution-current", 99)
-	delete(req.Metadata, ExecutionEnvelopeMetadataKey)
+	delete(req.GetMetadata(), ExecutionEnvelopeMetadataKey)
 
 	if _, err := RecordExecutionHandoffPayload(ctx, runs, "run-1", req, "sha256:abc123"); err == nil {
 		t.Fatal("RecordExecutionHandoffPayload succeeded, want missing envelope error")

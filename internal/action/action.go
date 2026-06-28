@@ -341,6 +341,7 @@ func ValidateWithSpec(with map[string]string, specs []FieldSpec) []FieldError {
 		}
 
 		switch spec.Type {
+		case FieldString:
 		case FieldURL:
 			if !isValidURL(val) {
 				errs = append(errs, FieldError{Field: spec.Name, Message: "must be a valid URL"})

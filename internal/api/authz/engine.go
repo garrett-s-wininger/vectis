@@ -19,6 +19,7 @@ func (r *HierarchicalRBAC) Allow(ctx context.Context, p *authn.Principal, action
 	switch action {
 	case ActionSetupStatus, ActionSetupComplete:
 		return true
+	default:
 	}
 
 	if p == nil {

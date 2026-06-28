@@ -50,7 +50,7 @@ func (m *mockLogStream) Context() context.Context {
 }
 
 func (m *mockLogStream) Header() (metadata.MD, error) {
-	return nil, nil
+	return metadata.MD{}, nil
 }
 
 func (m *mockLogStream) Trailer() metadata.MD {
@@ -374,6 +374,7 @@ func TestShellAction_Execute_StdoutStderrStreaming(t *testing.T) {
 			stdoutCount++
 		case api.Stream_STREAM_STDERR:
 			stderrCount++
+		case api.Stream_STREAM_CONTROL:
 		}
 	}
 

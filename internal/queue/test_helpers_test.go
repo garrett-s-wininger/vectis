@@ -49,23 +49,23 @@ func newQueueTestRequest(req *api.JobRequest, deadlineUnixNano int64) (*api.JobR
 		return nil, fmt.Errorf("clone job request")
 	}
 
-	if cloned.Job == nil {
+	if cloned.GetJob() == nil {
 		cloned.Job = &api.Job{}
 	}
 
-	jobID := strings.TrimSpace(cloned.Job.GetId())
+	jobID := strings.TrimSpace(cloned.GetJob().GetId())
 	if jobID == "" {
 		jobID = "queue-test-job"
 		cloned.Job.Id = &jobID
 	}
 
-	runID := strings.TrimSpace(cloned.Job.GetRunId())
+	runID := strings.TrimSpace(cloned.GetJob().GetRunId())
 	if runID == "" {
 		runID = jobID + ":run"
 		cloned.Job.RunId = &runID
 	}
 
-	if cloned.Job.GetRoot() == nil {
+	if cloned.GetJob().GetRoot() == nil {
 		cloned.Job.Root = queueTestNode("root", "builtins/shell")
 	}
 

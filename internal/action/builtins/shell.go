@@ -106,7 +106,7 @@ func (s *ShellAction) Execute(ctx context.Context, state *action.ExecutionState,
 func readShellOutputsFile(workspace string, inputs map[string]any) (map[string]any, error) {
 	raw, exists := inputs[ShellOutputsField]
 	if !exists {
-		return nil, nil
+		return map[string]any{}, nil
 	}
 
 	outputPath, ok := raw.(string)

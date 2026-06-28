@@ -1064,6 +1064,7 @@ func (r *SQLRunsRepository) applyCatalogRunStatusUpdate(ctx context.Context, upd
 		return tx.Commit()
 	case statusTransitionConflict:
 		return fmt.Errorf("%w: catalog run status %s cannot replace current status %s for run %s", ErrConflict, targetStatus, currentStatus, runID)
+	case statusTransitionApply:
 	}
 
 	var res sql.Result
@@ -5955,6 +5956,7 @@ func transitionExecutionTxWithDecision(
 		return taskID, nil
 	case statusTransitionConflict:
 		return "", fmt.Errorf("%w: execution %s status %s cannot transition to %s", ErrConflict, executionID, currentStatus, targetStatus)
+	case statusTransitionApply:
 	}
 
 	setParts := []string{"status = ?"}

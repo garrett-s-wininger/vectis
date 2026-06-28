@@ -17,6 +17,7 @@ func IsPermanentReplayError(err error) bool {
 	switch status.Code(err) {
 	case codes.InvalidArgument, codes.NotFound:
 		return true
+	default:
 	}
 
 	return containsAny(err.Error(), []string{

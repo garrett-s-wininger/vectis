@@ -234,7 +234,7 @@ func TestSubmitExecutionRequiresEnvelope(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	srv := NewQueueServer("iad-a", queue, mocks.NewMockLogger())
 	jobReq := validJobRequestForCell(t, "iad-a")
-	delete(jobReq.Metadata, cell.ExecutionEnvelopeMetadataKey)
+	delete(jobReq.GetMetadata(), cell.ExecutionEnvelopeMetadataKey)
 	req := newExecutionRequest(t, executionBody(t, jobReq))
 	rr := httptest.NewRecorder()
 

@@ -510,7 +510,7 @@ func (r staticExecutionScopeResolver) ResolveExecutionScope(context.Context, str
 func testConfig(t *testing.T) Config {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-spiffe-*")
+	dir, err := os.MkdirTemp("/tmp", "vectis-spiffe-*") //nolint:usetesting // Keep SPIFFE runtime socket paths under a short temp root.
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}

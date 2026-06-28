@@ -278,7 +278,7 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 		}
 
 		if !wait {
-			return nil, nil
+			return nil, nil //nolint:nilnil // TryDequeue represents an empty queue as nil request and nil error.
 		}
 
 		waiter := &queueWaiter{

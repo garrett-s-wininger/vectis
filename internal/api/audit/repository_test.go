@@ -47,7 +47,7 @@ func (m *mockAuthRepo) DisableLocalUserAndRevokeTokens(_ context.Context, _ int6
 	return nil
 }
 func (m *mockAuthRepo) ListAPITokens(_ context.Context, _ int64) ([]*dal.APITokenRecord, error) {
-	return nil, nil
+	return []*dal.APITokenRecord{}, nil
 }
 func (m *mockAuthRepo) CreateAPIToken(_ context.Context, _ int64, _, _ string, _ *time.Time) (int64, error) {
 	return 0, nil
@@ -56,10 +56,10 @@ func (m *mockAuthRepo) DeleteAPIToken(_ context.Context, _ int64) error         
 func (m *mockAuthRepo) GetAPITokenOwner(_ context.Context, _ int64) (int64, error)    { return 0, nil }
 func (m *mockAuthRepo) CreateLocalUser(_ context.Context, _, _ string) (int64, error) { return 0, nil }
 func (m *mockAuthRepo) ListLocalUsers(_ context.Context) ([]*dal.LocalUserRecord, error) {
-	return nil, nil
+	return []*dal.LocalUserRecord{}, nil
 }
 func (m *mockAuthRepo) GetLocalUser(_ context.Context, _ int64) (*dal.LocalUserRecord, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // This test mock uses nil user with nil error for the unused default path.
 }
 func (m *mockAuthRepo) UpdateLocalUserEnabled(_ context.Context, _ int64, _ bool) error { return nil }
 func (m *mockAuthRepo) DeleteLocalUser(_ context.Context, _ int64) error                { return nil }
@@ -71,7 +71,7 @@ func (m *mockAuthRepo) CreateAPITokenWithScopes(_ context.Context, _ int64, _, _
 	return 0, nil
 }
 func (m *mockAuthRepo) GetTokenScopes(_ context.Context, _ int64) ([]*dal.TokenScopeRecord, error) {
-	return nil, nil
+	return []*dal.TokenScopeRecord{}, nil
 }
 
 func TestDALRepository_InsertAuditEvents_empty(t *testing.T) {

@@ -122,7 +122,7 @@ func (m *MockQueueClient) TryDequeue(ctx context.Context) (*api.JobRequest, erro
 	}
 
 	if len(m.reqs) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Empty queue is represented as nil request and nil error.
 	}
 
 	req := m.reqs[0]

@@ -103,7 +103,7 @@ func CellIngressHTTPClientTLSConfig(endpoint string) (*tls.Config, error) {
 			return nil, fmt.Errorf("cell ingress endpoint %q must use https when grpc_tls.insecure is false", endpoint)
 		}
 
-		return nil, nil
+		return nil, nil //nolint:nilnil // Loopback HTTP cell ingress intentionally has no TLS client config.
 	case "https":
 		if GRPCTLSInsecure() {
 			return nil, fmt.Errorf("cell ingress endpoint %q uses https, but grpc_tls.insecure is true", endpoint)

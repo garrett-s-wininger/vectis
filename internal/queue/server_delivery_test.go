@@ -408,8 +408,8 @@ func TestQueueDelivery_ExpiredPendingDeadlineDropsBeforeDelivery(t *testing.T) {
 		t.Fatalf("list dead letter: %v", err)
 	}
 
-	if len(dlq.Items) != 0 {
-		t.Fatalf("expired dispatch deadline should not enter DLQ, got %+v", dlq.Items)
+	if len(dlq.GetItems()) != 0 {
+		t.Fatalf("expired dispatch deadline should not enter DLQ, got %+v", dlq.GetItems())
 	}
 }
 
@@ -470,8 +470,8 @@ func TestQueueDelivery_ExpiredFilteredPendingDeadlineDropsBeforeDelivery(t *test
 		t.Fatalf("list dead letter: %v", err)
 	}
 
-	if len(dlq.Items) != 0 {
-		t.Fatalf("expired filtered dispatch deadline should not enter DLQ, got %+v", dlq.Items)
+	if len(dlq.GetItems()) != 0 {
+		t.Fatalf("expired filtered dispatch deadline should not enter DLQ, got %+v", dlq.GetItems())
 	}
 }
 
@@ -513,8 +513,8 @@ func TestQueueDelivery_ExpiredInflightDeadlineDropsInsteadOfRequeue(t *testing.T
 		t.Fatalf("list dead letter: %v", err)
 	}
 
-	if len(dlq.Items) != 0 {
-		t.Fatalf("expired in-flight dispatch should not enter DLQ, got %+v", dlq.Items)
+	if len(dlq.GetItems()) != 0 {
+		t.Fatalf("expired in-flight dispatch should not enter DLQ, got %+v", dlq.GetItems())
 	}
 }
 
@@ -560,16 +560,16 @@ func TestQueueDelivery_DLQAfterMaxAttempts(t *testing.T) {
 		t.Fatalf("list dead letter: %v", err)
 	}
 
-	if len(dlq.Items) != 1 {
-		t.Fatalf("expected 1 dead letter item, got %d", len(dlq.Items))
+	if len(dlq.GetItems()) != 1 {
+		t.Fatalf("expected 1 dead letter item, got %d", len(dlq.GetItems()))
 	}
 
-	if dlq.Items[0].GetJobRequest().GetJob().GetId() != jobID {
-		t.Fatalf("expected dead letter job %s, got %s", jobID, dlq.Items[0].GetJobRequest().GetJob().GetId())
+	if dlq.GetItems()[0].GetJobRequest().GetJob().GetId() != jobID {
+		t.Fatalf("expected dead letter job %s, got %s", jobID, dlq.GetItems()[0].GetJobRequest().GetJob().GetId())
 	}
 
-	if dlq.Items[0].GetAttemptCount() != 3 {
-		t.Fatalf("expected attempt count 3, got %d", dlq.Items[0].GetAttemptCount())
+	if dlq.GetItems()[0].GetAttemptCount() != 3 {
+		t.Fatalf("expected attempt count 3, got %d", dlq.GetItems()[0].GetAttemptCount())
 	}
 
 	// Queue should be empty.
@@ -630,8 +630,8 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 		t.Fatalf("list dead letter before restart: %v", err)
 	}
 
-	if len(dlq.Items) != 1 {
-		t.Fatalf("expected 1 dead letter item before restart, got %d", len(dlq.Items))
+	if len(dlq.GetItems()) != 1 {
+		t.Fatalf("expected 1 dead letter item before restart, got %d", len(dlq.GetItems()))
 	}
 
 	// Restart.
@@ -652,16 +652,16 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 		t.Fatalf("list dead letter after restart: %v", err)
 	}
 
-	if len(dlq2.Items) != 1 {
-		t.Fatalf("expected 1 dead letter item after restart, got %d", len(dlq2.Items))
+	if len(dlq2.GetItems()) != 1 {
+		t.Fatalf("expected 1 dead letter item after restart, got %d", len(dlq2.GetItems()))
 	}
 
-	if dlq2.Items[0].GetJobRequest().GetJob().GetId() != jobID {
-		t.Fatalf("expected dead letter job %s after restart, got %s", jobID, dlq2.Items[0].GetJobRequest().GetJob().GetId())
+	if dlq2.GetItems()[0].GetJobRequest().GetJob().GetId() != jobID {
+		t.Fatalf("expected dead letter job %s after restart, got %s", jobID, dlq2.GetItems()[0].GetJobRequest().GetJob().GetId())
 	}
 
-	if dlq2.Items[0].GetAttemptCount() != 2 {
-		t.Fatalf("expected attempt count 2 after restart, got %d", dlq2.Items[0].GetAttemptCount())
+	if dlq2.GetItems()[0].GetAttemptCount() != 2 {
+		t.Fatalf("expected attempt count 2 after restart, got %d", dlq2.GetItems()[0].GetAttemptCount())
 	}
 }
 

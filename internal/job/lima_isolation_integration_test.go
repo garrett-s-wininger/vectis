@@ -26,7 +26,7 @@ func TestVirtualMachineIntegration_ActionIsolation(t *testing.T) {
 		workspaceRoot = "."
 	}
 
-	workspace, err := os.MkdirTemp(workspaceRoot, ".vectis-lima-isolation-*")
+	workspace, err := os.MkdirTemp(workspaceRoot, ".vectis-lima-isolation-*") //nolint:usetesting // Honor caller-selected Lima workspace root.
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}

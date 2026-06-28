@@ -52,7 +52,7 @@ func (f *fakeQueueServiceClient) Dequeue(_ context.Context, req *api.DequeueRequ
 	}
 
 	if len(f.dequeueJobs) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Test fake models an empty queue as nil request and nil error.
 	}
 
 	job := f.dequeueJobs[0]
@@ -75,7 +75,7 @@ func (f *fakeQueueServiceClient) tryDequeue() (*api.JobRequest, error) {
 	}
 
 	if len(f.tryJobs) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Test fake models an empty queue as nil request and nil error.
 	}
 
 	job := f.tryJobs[0]

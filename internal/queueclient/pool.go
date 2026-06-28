@@ -763,7 +763,7 @@ func (p *queuePool) blockingDequeue(ctx context.Context, wait time.Duration) (*a
 	}
 
 	if isDequeueWaitTimeout(err) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Dequeue timeout means no job was available before the wait expired.
 	}
 
 	return nil, err
@@ -843,7 +843,7 @@ func (p *queuePool) blockingDequeueOnce(ctx context.Context) (*api.JobRequest, e
 		return nil, lastErr
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // No reachable endpoint had a job available.
 }
 
 func isDequeueWaitTimeout(err error) bool {
@@ -916,7 +916,7 @@ func (p *queuePool) tryDequeue(ctx context.Context) (*api.JobRequest, error) {
 		return nil, lastErr
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // No reachable endpoint had a job available.
 }
 
 func (p *queuePool) tryDequeueEndpoint(ctx context.Context, ep *queuePoolEndpoint) (*api.JobRequest, error) {

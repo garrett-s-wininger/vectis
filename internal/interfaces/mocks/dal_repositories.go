@@ -832,7 +832,7 @@ func (m *MockRunsRepository) RecordExecutionSecurityEvent(ctx context.Context, e
 
 func (m *MockRunsRepository) LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*dal.ExecutionSecurityEvent, error) {
 	if m.LatestSecurityEvent == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Mock default is no optional security event.
 	}
 
 	rec := *m.LatestSecurityEvent

@@ -481,11 +481,11 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 	if err != nil {
 		t.Fatalf("list dead letter before requeue: %v", err)
 	}
-	if len(dlq.Items) != 1 {
-		t.Fatalf("expected 1 dead letter item before requeue, got %d", len(dlq.Items))
+	if len(dlq.GetItems()) != 1 {
+		t.Fatalf("expected 1 dead letter item before requeue, got %d", len(dlq.GetItems()))
 	}
 
-	deliveryID := dlq.Items[0].GetDeliveryId()
+	deliveryID := dlq.GetItems()[0].GetDeliveryId()
 	if _, err := svc.RequeueDeadLetter(ctx, &api.RequeueDeadLetterRequest{DeliveryId: &deliveryID}); err != nil {
 		t.Fatalf("requeue dead letter: %v", err)
 	}
@@ -507,8 +507,8 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 		t.Fatalf("list dead letter after restart: %v", err)
 	}
 
-	if len(dlqAfter.Items) != 0 {
-		t.Fatalf("expected dead letter to be empty after restart, got %d", len(dlqAfter.Items))
+	if len(dlqAfter.GetItems()) != 0 {
+		t.Fatalf("expected dead letter to be empty after restart, got %d", len(dlqAfter.GetItems()))
 	}
 }
 

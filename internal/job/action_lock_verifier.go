@@ -19,7 +19,7 @@ var _ action.ActionVerifier = (*actionLockVerifier)(nil)
 
 func newActionLockVerifier(resolver actionregistry.Resolver, locks []actionregistry.ActionLock) (action.ActionVerifier, error) {
 	if len(locks) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil verifier means no action locks are configured.
 	}
 
 	if resolver == nil {

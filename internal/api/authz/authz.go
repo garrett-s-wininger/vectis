@@ -98,6 +98,7 @@ func (AuthenticatedFull) Allow(_ context.Context, p *authn.Principal, action Act
 	switch action {
 	case ActionSetupStatus, ActionSetupComplete:
 		return true
+	default:
 	}
 
 	if p == nil {

@@ -137,7 +137,7 @@ var (
 
 func grpcTLSReloader() (*tlsconfig.Reloader, error) {
 	if GRPCTLSInsecure() {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil reloader means internal gRPC TLS is disabled.
 	}
 
 	grpcTLSOnce.Do(func() {

@@ -935,6 +935,7 @@ func (s *flakyFinalizeRunsStore) ApplyTerminalExecutionSnapshot(ctx context.Cont
 			s.mu.Unlock()
 			return fmt.Errorf("finalize failed: %w", sql.ErrConnDone)
 		}
+	case dal.ExecutionFinalizationOutcomeContinued, dal.ExecutionFinalizationOutcomeWaiting, dal.ExecutionFinalizationOutcomeRunCancelled:
 	}
 	s.mu.Unlock()
 

@@ -528,7 +528,7 @@ func TestExecutionEnvelopeFromRequestRejectsRequestMismatch(t *testing.T) {
 		Job: &api.Job{
 			Id:    env.Job.Id,
 			RunId: &otherRunID,
-			Root:  env.Job.Root,
+			Root:  env.Job.GetRoot(),
 		},
 		Metadata: map[string]string{
 			ExecutionEnvelopeMetadataKey: string(payload),

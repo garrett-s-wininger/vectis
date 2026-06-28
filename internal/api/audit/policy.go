@@ -115,7 +115,7 @@ func ParseDurability(s string) (Durability, error) {
 func ParseDurabilityOverrides(s string) (map[string]Durability, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil, nil
+		return map[string]Durability{}, nil
 	}
 
 	overrides := map[string]Durability{}

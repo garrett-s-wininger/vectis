@@ -122,7 +122,7 @@ func (r *SQLRunsRepository) LatestRunSecurityEvent(ctx context.Context, runID st
 	rec, err := scanExecutionSecurityEvent(r.db.QueryRowContext(ctx, rebindQueryForPgx(query), args...))
 	if err != nil {
 		if IsNotFound(err) {
-			return nil, nil
+			return nil, nil //nolint:nilnil // No matching security event is an optional nil record.
 		}
 
 		return nil, err

@@ -88,6 +88,7 @@ func ValidateComponentMetadata(component api.Component, metadata map[string]stri
 		return validateWriteStateMetadata(metadata, MetadataArtifactWriteState, ArtifactWriteStateWritable, ArtifactWriteStateReadOnly)
 	case api.Component_COMPONENT_WORKER:
 		return validateWorkerMetadata(metadata)
+	case api.Component_COMPONENT_ORCHESTRATOR:
 	case api.Component_COMPONENT_UNKNOWN:
 		if len(metadata) > 0 {
 			return fmt.Errorf("metadata is not supported for unknown component")

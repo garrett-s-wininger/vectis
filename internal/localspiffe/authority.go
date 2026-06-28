@@ -188,9 +188,9 @@ func (a *Authority) BatchCreateEntry(_ context.Context, req *entryv1.BatchCreate
 			continue
 		}
 
-		a.entriesByID[entry.Id] = entry
-		a.entryIDsByKey[key] = entry.Id
-		a.keysByEntryID[entry.Id] = key
+		a.entriesByID[entry.GetId()] = entry
+		a.entryIDsByKey[key] = entry.GetId()
+		a.keysByEntryID[entry.GetId()] = key
 		resp.Results = append(resp.Results, &entryv1.BatchCreateEntryResponse_Result{
 			Status: apiStatus(codes.OK, ""),
 			Entry:  cloneEntry(entry),
@@ -529,10 +529,10 @@ func (a *Authority) prepareEntry(incoming *spiretypes.Entry, now time.Time) (*sp
 	}
 
 	entry.Id = entryID(entry)
-	if entry.CreatedAt == 0 {
+	if entry.GetCreatedAt() == 0 {
 		entry.CreatedAt = now.Unix()
 	}
-	if entry.RevisionNumber == 0 {
+	if entry.GetRevisionNumber() == 0 {
 		entry.RevisionNumber = 1
 	}
 

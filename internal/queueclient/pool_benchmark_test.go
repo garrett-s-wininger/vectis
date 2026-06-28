@@ -94,7 +94,7 @@ func (b *benchmarkQueueServiceClient) tryDequeue() (*api.JobRequest, error) {
 			if b.state != nil {
 				b.state.stats.tryDequeueEmpty.Add(1)
 			}
-			return nil, nil
+			return nil, nil //nolint:nilnil // Benchmark fake models an empty queue as nil request and nil error.
 		}
 		if b.pending.CompareAndSwap(pending, pending-1) {
 			deliveryID := queueid.Encode(b.id, fmt.Sprintf("delivery-%d", b.deliverySeq.Add(1)))

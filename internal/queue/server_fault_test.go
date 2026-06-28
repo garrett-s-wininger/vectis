@@ -245,8 +245,8 @@ func TestQueueFault_ExpiredRequeueFailureDoesNotBurnAttempt(t *testing.T) {
 		t.Fatalf("list dead letter: %v", err)
 	}
 
-	if len(dlqAfter.Items) != 0 {
-		t.Fatalf("requeue failure burned attempt and moved job to DLQ: %+v", dlqAfter.Items)
+	if len(dlqAfter.GetItems()) != 0 {
+		t.Fatalf("requeue failure burned attempt and moved job to DLQ: %+v", dlqAfter.GetItems())
 	}
 }
 
@@ -307,7 +307,7 @@ func TestQueueFault_DeadLetterPersistenceFailureDoesNotMoveInMemory(t *testing.T
 		t.Fatalf("list dead letter after recovery: %v", err)
 	}
 
-	if len(dlqAfter.Items) != 1 {
-		t.Fatalf("expected durable DLQ move after recovery, got %d item(s)", len(dlqAfter.Items))
+	if len(dlqAfter.GetItems()) != 1 {
+		t.Fatalf("expected durable DLQ move after recovery, got %d item(s)", len(dlqAfter.GetItems()))
 	}
 }

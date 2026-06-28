@@ -66,6 +66,7 @@ func GetDBPathForRole(role Role) string {
 		if dsn := expandDSN(os.Getenv(EnvCellDatabaseDSN)); dsn != "" {
 			return dsn
 		}
+	case RoleDefault:
 	}
 
 	return GetDBPath()

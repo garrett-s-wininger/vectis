@@ -9,13 +9,16 @@ linters:
     - bodyclose
     - copyloopvar
     - errorlint
+    - exhaustive
     - govet
     - ineffassign
     - loggercheck
     - misspell
     - nilerr
+    - nilnil
     - nilnesserr
     - nolintlint
+    - protogetter
     - rowserrcheck
     - sloglint
     - sqlclosecheck
@@ -23,9 +26,19 @@ linters:
     - staticcheck
     - unconvert
     - unqueryvet
+    - usetesting
     - usestdlibvars
     - gosec
   settings:
+    errcheck:
+      exclude-functions:
+        # NOTE(garrett): CLI/report rendering writes to caller-owned writers; downstream write
+        # errors are surfaced by the command/test harness where they matter.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    exhaustive:
+      default-signifies-exhaustive: true
     gosec:
       excludes:
         # NOTE(garrett):Bounded backoff uses non-crypto bit shifts; values are capped by caller.
