@@ -27,6 +27,13 @@ Back up the SQL database first and most carefully. It is the source of truth for
 
 Treat this inventory as sensitive data. Database backups, queue persistence, log storage, artifact storage, job secret stores, and rendered config can contain job definitions, token hashes, operational metadata, and secrets.
 
+Use `vectis-cli backup inventory --format json` on each host that owns local
+Vectis state before a planned backup or restore drill. The command emits Vectis
+version, schema visibility, redacted database DSNs, queue/log/artifact/spool
+paths, configured secret and TLS paths, service instance IDs, and path
+readability evidence. It does not perform a backup; store its JSON output as
+scope evidence next to the backup set.
+
 ## Backup Timing
 
 Prefer backups that capture these pieces close together:
@@ -64,7 +71,7 @@ rollback proof, see [Production Drills](./production-drills.md).
 
 Recommended drill flow:
 
-1. Pick a recent backup set and record the expected restore point.
+1. Run `vectis-cli backup inventory --format json` from each relevant host and record the expected restore point.
 2. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
 3. Restore config, secrets, TLS material, and manifests before starting services.
 4. Restore PostgreSQL through the database platform's documented process.

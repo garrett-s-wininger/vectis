@@ -304,6 +304,9 @@ func init() {
 	databaseCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(databaseCmd)
 
+	backupCmd.AddCommand(backupInventoryCmd)
+	rootCmd.AddCommand(backupCmd)
+
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanProfile, "profile", podmanProfileSimple, "Deployment profile: simple or ha")
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanKubeSpec, "kube-spec", defaultPodmanKubeSpec, "Path to the Podman kube spec template")
