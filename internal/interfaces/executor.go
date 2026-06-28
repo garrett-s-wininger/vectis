@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 )
 
 type CommandExecutor interface {
@@ -60,6 +61,10 @@ func NewDirectExecutor() *DirectExecutor {
 type DirectExecutor struct{}
 
 func (e *DirectExecutor) Start(ctx context.Context, path string, args []string, workDir string, env []string) (Process, error) {
+	if strings.TrimSpace(workDir) == "" {
+		return nil, fmt.Errorf("work directory is required")
+	}
+
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = workDir
 	cmd.Env = append([]string{}, env...)
@@ -73,6 +78,10 @@ func NewOSExecutor() *OSExecutor {
 }
 
 func (e *OSExecutor) Start(ctx context.Context, command string, workDir string, env []string) (Process, error) {
+	if strings.TrimSpace(workDir) == "" {
+		return nil, fmt.Errorf("work directory is required")
+	}
+
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = workDir
 	cmd.Env = append([]string{}, env...)

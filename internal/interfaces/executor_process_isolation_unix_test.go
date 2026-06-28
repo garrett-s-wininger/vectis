@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -114,6 +115,84 @@ func TestDirectExecutorCancellationSignalsProcessGroup(t *testing.T) {
 	}
 }
 
+func TestDirectExecutorCancellationSendsTermBeforeKill(t *testing.T) {
+	previousGrace := commandProcessGroupCancelGrace
+	commandProcessGroupCancelGrace = 500 * time.Millisecond
+	t.Cleanup(func() { commandProcessGroupCancelGrace = previousGrace })
+
+	workspace := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	process, err := NewDirectExecutor().Start(
+		ctx,
+		"sh",
+		[]string{"-c", `trap 'echo term > term.marker; exit 0' TERM; echo ready; while :; do :; done`},
+		workspace,
+		[]string{"PATH=" + os.Getenv("PATH")},
+	)
+
+	if err != nil {
+		cancel()
+		t.Fatalf("Start: %v", err)
+	}
+
+	if ready, err := bufio.NewReader(process.Stdout()).ReadString('\n'); err != nil || strings.TrimSpace(ready) != "ready" {
+		cancel()
+		_ = process.Wait()
+		t.Fatalf("read ready line = %q, err=%v", ready, err)
+	}
+
+	cancel()
+	_ = process.Wait()
+
+	if err := waitForFile(filepath.Join(workspace, "term.marker"), time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDirectExecutorCancellationKillsTermIgnoringProcessGroup(t *testing.T) {
+	previousGrace := commandProcessGroupCancelGrace
+	commandProcessGroupCancelGrace = 50 * time.Millisecond
+	t.Cleanup(func() { commandProcessGroupCancelGrace = previousGrace })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	process, err := NewDirectExecutor().Start(
+		ctx,
+		"sh",
+		[]string{"-c", "trap '' TERM; sleep 30 & echo $!; wait"},
+		t.TempDir(),
+		[]string{"PATH=" + os.Getenv("PATH")},
+	)
+
+	if err != nil {
+		cancel()
+		t.Fatalf("Start: %v", err)
+	}
+
+	sleepLine, err := bufio.NewReader(process.Stdout()).ReadString('\n')
+	if err != nil {
+		cancel()
+		_ = process.Wait()
+		t.Fatalf("read background pid: %v", err)
+	}
+
+	sleepPID, err := strconv.Atoi(strings.TrimSpace(sleepLine))
+	if err != nil {
+		cancel()
+		_ = process.Wait()
+		t.Fatalf("parse background pid %q: %v", sleepLine, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(sleepPID, syscall.SIGKILL) })
+
+	cancel()
+	if err := process.Wait(); err == nil {
+		t.Fatal("Wait error = nil, want cancellation error")
+	}
+
+	if err := waitForNoProcess(sleepPID, time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTerminateActiveProcessesSignalsProcessGroup(t *testing.T) {
 	previousGrace := commandProcessGroupCancelGrace
 	commandProcessGroupCancelGrace = 50 * time.Millisecond
@@ -178,6 +257,19 @@ func waitForNoProcess(pid int, timeout time.Duration) error {
 	}
 
 	return &processStillRunningError{pid: pid}
+}
+
+func waitForFile(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return os.ErrNotExist
 }
 
 type processStillRunningError struct {

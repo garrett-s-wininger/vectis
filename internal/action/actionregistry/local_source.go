@@ -344,10 +344,34 @@ func validateLocalRuntime(runtime RuntimeType) error {
 }
 
 func validateRuntimeConfig(config map[string]string) error {
-	for key := range config {
+	for key, value := range config {
 		if strings.TrimSpace(key) == "" {
 			return fmt.Errorf("local action manifest runtime_config contains an empty key")
 		}
+
+		if strings.TrimSpace(key) == "working_directory" {
+			if err := validateRuntimeConfigWorkingDirectory(value); err != nil {
+				return fmt.Errorf("local action manifest runtime_config.working_directory: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateRuntimeConfigWorkingDirectory(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("must be relative")
+	}
+
+	clean := filepath.Clean(path)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("must stay within the action base directory")
 	}
 
 	return nil

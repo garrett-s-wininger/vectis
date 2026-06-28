@@ -99,3 +99,64 @@ func TestProcessActionRejectsChildrenWhenUnsupported(t *testing.T) {
 		t.Fatalf("Execute result = %+v, want child-port failure", result)
 	}
 }
+
+func TestProcessActionRejectsMissingWorkingDirectoryBase(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "true"},
+	}, mocks.NewMockExecExecutor())
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "base directory is required") {
+		t.Fatalf("Execute result = %+v, want working directory base failure", result)
+	}
+}
+
+func TestProcessActionRejectsAbsoluteWorkingDirectory(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "/tmp",
+		},
+	}, mocks.NewMockExecExecutor())
+
+	state := &action.ExecutionState{
+		Workspace: "/work/run-1",
+		Logger:    mocks.NewMockLogger(),
+	}
+
+	result := act.Execute(context.Background(), state, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must be relative") {
+		t.Fatalf("Execute result = %+v, want relative working directory failure", result)
+	}
+}
+
+func TestProcessActionRejectsEscapingWorkingDirectory(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "../outside",
+		},
+	}, mocks.NewMockExecExecutor())
+
+	state := &action.ExecutionState{
+		Workspace: "/work/run-1",
+		Logger:    mocks.NewMockLogger(),
+	}
+
+	result := act.Execute(context.Background(), state, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must stay within the action base directory") {
+		t.Fatalf("Execute result = %+v, want working directory containment failure", result)
+	}
+}

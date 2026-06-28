@@ -65,9 +65,12 @@ func (a *ProcessAction) Execute(ctx context.Context, state *action.ExecutionStat
 		return action.NewFailureResult(fmt.Errorf("custom process action %s requires runtime_config.command", a.Type()))
 	}
 
-	workDir := processWorkDir(a.descriptor, state)
-	env := processEnv(a.descriptor, state, inputs)
+	workDir, err := processWorkDir(a.descriptor, state)
+	if err != nil {
+		return action.NewFailureResult(fmt.Errorf("custom process action %s working directory: %w", a.Type(), err))
+	}
 
+	env := processEnv(a.descriptor, state, inputs)
 	logLine(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", command))
 	process, err := a.executor.Start(ctx, "sh", []string{"-c", command}, workDir, env)
 	if err != nil {
@@ -108,8 +111,8 @@ func processCommand(config map[string]string) string {
 	return strings.TrimSpace(config["entrypoint"])
 }
 
-func processWorkDir(descriptor actionregistry.Descriptor, state *action.ExecutionState) string {
-	workspace := "."
+func processWorkDir(descriptor actionregistry.Descriptor, state *action.ExecutionState) (string, error) {
+	workspace := ""
 	if state != nil && strings.TrimSpace(state.Workspace) != "" {
 		workspace = strings.TrimSpace(state.Workspace)
 	}
@@ -119,15 +122,32 @@ func processWorkDir(descriptor actionregistry.Descriptor, state *action.Executio
 		base = strings.TrimSpace(descriptor.SourcePath)
 	}
 
-	if configured := strings.TrimSpace(descriptor.RuntimeConfig["working_directory"]); configured != "" {
-		if filepath.IsAbs(configured) {
-			return configured
-		}
-
-		return filepath.Join(base, configured)
+	if base == "" {
+		return "", fmt.Errorf("base directory is required")
 	}
 
-	return base
+	if configured := strings.TrimSpace(descriptor.RuntimeConfig["working_directory"]); configured != "" {
+		if err := validateRelativeWorkDir(configured); err != nil {
+			return "", err
+		}
+
+		return filepath.Join(base, configured), nil
+	}
+
+	return base, nil
+}
+
+func validateRelativeWorkDir(path string) error {
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("must be relative")
+	}
+
+	clean := filepath.Clean(path)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("must stay within the action base directory")
+	}
+
+	return nil
 }
 
 func processEnv(descriptor actionregistry.Descriptor, state *action.ExecutionState, inputs map[string]any) []string {

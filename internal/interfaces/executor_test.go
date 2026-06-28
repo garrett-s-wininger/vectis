@@ -2,6 +2,10 @@ package interfaces
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -30,6 +34,74 @@ func TestDirectExecutorNilEnvDoesNotInherit(t *testing.T) {
 	}
 }
 
+func TestDirectExecutorRequiresWorkDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use sh")
+	}
+
+	_, err := NewDirectExecutor().Start(context.Background(), "sh", []string{"-c", "true"}, "", nil)
+	if err == nil || !strings.Contains(err.Error(), "work directory is required") {
+		t.Fatalf("Start error = %v, want work directory error", err)
+	}
+}
+
+func TestOSExecutorRequiresWorkDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use sh")
+	}
+
+	_, err := NewOSExecutor().Start(context.Background(), "true", "", nil)
+	if err == nil || !strings.Contains(err.Error(), "work directory is required") {
+		t.Fatalf("Start error = %v, want work directory error", err)
+	}
+}
+
+func TestDirectExecutorRunsInWorkDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use sh")
+	}
+
+	workspace := t.TempDir()
+	markerName := "vectis-cwd-marker"
+	process, err := NewDirectExecutor().Start(
+		context.Background(),
+		"sh",
+		[]string{"-c", "printf ok > " + markerName},
+		workspace,
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if _, err := io.ReadAll(process.Stdout()); err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+
+	if _, err := io.ReadAll(process.Stderr()); err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+
+	if err := process.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(workspace, markerName))
+	if err != nil {
+		t.Fatalf("read workspace marker: %v", err)
+	}
+
+	if string(got) != "ok" {
+		t.Fatalf("workspace marker = %q, want ok", got)
+	}
+
+	if cwdMarker := filepath.Join(".", markerName); fileExists(cwdMarker) {
+		t.Cleanup(func() { _ = os.Remove(cwdMarker) })
+		t.Fatalf("marker was created in worker cwd")
+	}
+}
+
 func TestDirectExecutorDefaultStdinIsNullDevice(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell process tests use sh")
@@ -48,6 +120,46 @@ func TestDirectExecutorDefaultStdinIsNullDevice(t *testing.T) {
 
 	if err := process.Wait(); err != nil {
 		t.Fatalf("process stdin was not null device EOF: %v", err)
+	}
+}
+
+func TestDirectExecutorDoesNotInheritParentFileDescriptor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process tests use sh")
+	}
+
+	dir := t.TempDir()
+	leakPath := filepath.Join(dir, "leak")
+	file, err := os.OpenFile(leakPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("open leak file: %v", err)
+	}
+	defer file.Close()
+
+	fd := int(file.Fd())
+	process, err := NewDirectExecutor().Start(
+		context.Background(),
+		"sh",
+		[]string{"-c", fmt.Sprintf(`if sh -c 'printf leak >&%d' 2>/dev/null; then exit 7; fi`, fd)},
+		dir,
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if err := process.Wait(); err != nil {
+		t.Fatalf("process inherited parent fd %d: %v", fd, err)
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatalf("stat leak file: %v", err)
+	}
+
+	if info.Size() != 0 {
+		t.Fatalf("leak file size = %d, want 0", info.Size())
 	}
 }
 
@@ -70,4 +182,9 @@ func TestDirectExecutorDoesNotPassExtraFileDescriptorsByDefault(t *testing.T) {
 	if err := process.Wait(); err == nil || !strings.Contains(err.Error(), "exit status") {
 		t.Fatalf("process unexpectedly wrote to fd 3: %v", err)
 	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
