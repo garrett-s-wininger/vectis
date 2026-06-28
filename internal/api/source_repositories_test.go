@@ -2523,6 +2523,74 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T
 	}
 }
 
+func TestAPIServer_ResolveManagedSourceDefinitionHydratesProviderRefs(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
+
+	server, _, _, _ := setupTestServer(t)
+	handler := server.Handler()
+	remotePath := initAPIGitRepo(t)
+	writeAPIJobDefinitionAndCommit(t, remotePath, "main", "main definition")
+
+	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
+		"repository_id": "managed-repo",
+		"source_kind":   dal.SourceKindLocalCheckout,
+		"checkout_mode": dal.SourceCheckoutModeManaged,
+		"canonical_url": remotePath,
+		"default_ref":   "HEAD",
+	})
+
+	if registerRec.Code != http.StatusCreated {
+		t.Fatalf("register managed source repository: status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-repositories/managed-repo/sync", nil)
+	syncRec := httptest.NewRecorder()
+	handler.ServeHTTP(syncRec, syncReq)
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync managed source repository: status=%d body=%s", syncRec.Code, syncRec.Body.String())
+	}
+
+	defaultBranch := apiGitOutput(t, remotePath, "branch", "--show-current")
+	apiGit(t, remotePath, "checkout", "-b", "review/provider-ref")
+	writeAPIJobDefinitionAndCommit(t, remotePath, "provider", "provider definition")
+	providerCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
+	apiGit(t, remotePath, "update-ref", "refs/pull/123/head", providerCommit)
+	apiGit(t, remotePath, "update-ref", "refs/changes/34/1234/5", providerCommit)
+	apiGit(t, remotePath, "checkout", defaultBranch)
+
+	for _, ref := range []string{"refs/pull/123/head", "refs/changes/34/1234/5"} {
+		t.Run(ref, func(t *testing.T) {
+			resolveRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories/managed-repo/definitions/resolve", map[string]any{
+				"ref":  ref,
+				"path": ".vectis/jobs/build.json",
+			})
+
+			if resolveRec.Code != http.StatusOK {
+				t.Fatalf("resolve managed provider ref: status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
+			}
+
+			resolveResp := decodeResolvedSourceDefinitionResponse(t, resolveRec)
+			if resolveResp.Source.RequestedRef != ref || resolveResp.Source.ResolvedCommit != providerCommit {
+				t.Fatalf("hydrated managed provider resolve mismatch: %+v", resolveResp)
+			}
+
+			var job api.Job
+			if err := json.Unmarshal(resolveResp.Definition, &job); err != nil {
+				t.Fatalf("hydrated managed provider definition JSON: %v", err)
+			}
+
+			if job.GetRoot().GetWith()["command"] != "provider" {
+				t.Fatalf("hydrated managed provider definition command: got %+v", job.GetRoot().GetWith())
+			}
+		})
+	}
+}
+
 func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	viper.Reset()
