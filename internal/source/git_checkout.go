@@ -303,7 +303,7 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 
 	blobOut, err := g.runWithInputEnv(ctx, opts.Content, nil, "hash-object", "-w", "--stdin")
 	if err != nil {
-		return FileCommit{}, fmt.Errorf("%w: write blob for %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: write blob for %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 	blobSHA := strings.TrimSpace(string(blobOut))
 	if blobSHA == "" {
@@ -318,16 +318,16 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 
 	indexEnv := []string{"GIT_INDEX_FILE=" + indexFile}
 	if _, err := g.runWithEnv(ctx, indexEnv, "read-tree", parent); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: prepare index for %s: %v", ErrInvalidReference, parent, err)
+		return FileCommit{}, fmt.Errorf("%w: prepare index for %s: %w", ErrInvalidReference, parent, err)
 	}
 
 	if _, err := g.runWithEnv(ctx, indexEnv, "update-index", "--add", "--cacheinfo", "100644", blobSHA, cleanPath); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: update index for %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: update index for %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 
 	treeOut, err := g.runWithEnv(ctx, indexEnv, "write-tree")
 	if err != nil {
-		return FileCommit{}, fmt.Errorf("%w: write tree for %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: write tree for %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 	treeSHA := strings.TrimSpace(string(treeOut))
 	if treeSHA == "" {
@@ -336,7 +336,7 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 
 	parentTreeOut, err := g.run(ctx, "rev-parse", parent+"^{tree}")
 	if err != nil {
-		return FileCommit{}, fmt.Errorf("%w: resolve parent tree for %s: %v", ErrInvalidReference, parent, err)
+		return FileCommit{}, fmt.Errorf("%w: resolve parent tree for %s: %w", ErrInvalidReference, parent, err)
 	}
 	if strings.TrimSpace(string(parentTreeOut)) == treeSHA {
 		return FileCommit{
@@ -357,7 +357,7 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	)
 	commitOut, err := g.runWithEnv(ctx, commitEnv, "commit-tree", treeSHA, "-p", parent, "-m", message)
 	if err != nil {
-		return FileCommit{}, fmt.Errorf("%w: commit %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: commit %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 	commitSHA := strings.TrimSpace(string(commitOut))
 	if commitSHA == "" {
@@ -365,7 +365,7 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	}
 
 	if _, err := g.run(ctx, "update-ref", "refs/heads/"+branch, commitSHA, parent); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: branch %s moved while committing %s: %v", ErrConflict, branch, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: branch %s moved while committing %s: %w", ErrConflict, branch, cleanPath, err)
 	}
 
 	return FileCommit{
@@ -410,7 +410,7 @@ func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (F
 
 	existing, err := g.run(ctx, "ls-tree", "-z", parent, "--", cleanPath)
 	if err != nil {
-		return FileCommit{}, fmt.Errorf("%w: read tree for %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: read tree for %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 
 	if len(bytes.Trim(existing, "\x00\n\r ")) == 0 {
@@ -430,16 +430,16 @@ func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (F
 
 	indexEnv := []string{"GIT_INDEX_FILE=" + indexFile}
 	if _, err := g.runWithEnv(ctx, indexEnv, "read-tree", parent); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: prepare index for %s: %v", ErrInvalidReference, parent, err)
+		return FileCommit{}, fmt.Errorf("%w: prepare index for %s: %w", ErrInvalidReference, parent, err)
 	}
 
 	if _, err := g.runWithEnv(ctx, indexEnv, "update-index", "--force-remove", "--", cleanPath); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: remove index entry for %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: remove index entry for %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 
 	treeOut, err := g.runWithEnv(ctx, indexEnv, "write-tree")
 	if err != nil {
-		return FileCommit{}, fmt.Errorf("%w: write tree for %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: write tree for %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 
 	treeSHA := strings.TrimSpace(string(treeOut))
@@ -457,7 +457,7 @@ func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (F
 
 	commitOut, err := g.runWithEnv(ctx, commitEnv, "commit-tree", treeSHA, "-p", parent, "-m", message)
 	if err != nil {
-		return FileCommit{}, fmt.Errorf("%w: commit %s: %v", ErrInvalidReference, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: commit %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 
 	commitSHA := strings.TrimSpace(string(commitOut))
@@ -466,7 +466,7 @@ func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (F
 	}
 
 	if _, err := g.run(ctx, "update-ref", "refs/heads/"+branch, commitSHA, parent); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: branch %s moved while deleting %s: %v", ErrConflict, branch, cleanPath, err)
+		return FileCommit{}, fmt.Errorf("%w: branch %s moved while deleting %s: %w", ErrConflict, branch, cleanPath, err)
 	}
 
 	return FileCommit{
@@ -641,7 +641,7 @@ func (g *GitCheckout) validateCheckout() error {
 
 	info, err := os.Stat(checkoutPath)
 	if err != nil {
-		return fmt.Errorf("%w: checkout path %s: %v", ErrNotFound, checkoutPath, err)
+		return fmt.Errorf("%w: checkout path %s: %w", ErrNotFound, checkoutPath, err)
 	}
 
 	if !info.IsDir() {
@@ -668,7 +668,7 @@ func (g *GitCheckout) listBranchScope(ctx context.Context, scope branchRefScope,
 
 	out, err := g.run(ctx, "for-each-ref", "--format=%(refname)%00%(objectname)", "--count="+strconv.Itoa(limit), pattern)
 	if err != nil {
-		return nil, fmt.Errorf("%w: list branches: %v", ErrInvalidReference, err)
+		return nil, fmt.Errorf("%w: list branches: %w", ErrInvalidReference, err)
 	}
 
 	lines := bytes.Split(out, []byte{'\n'})
@@ -746,10 +746,10 @@ func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath stri
 
 	if err != nil {
 		if treePath == "" {
-			return nil, false, "", fmt.Errorf("%w: list tree at %s: %v", ErrNotFound, commit, err)
+			return nil, false, "", fmt.Errorf("%w: list tree at %s: %w", ErrNotFound, commit, err)
 		}
 
-		return nil, false, "", fmt.Errorf("%w: list tree %s at %s: %v", ErrNotFound, treePath, commit, err)
+		return nil, false, "", fmt.Errorf("%w: list tree %s at %s: %w", ErrNotFound, treePath, commit, err)
 	}
 
 	return entries, truncated, nextCursor, nil
@@ -797,10 +797,10 @@ func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, tre
 	})
 	if err != nil {
 		if treePath == "" {
-			return nil, false, "", fmt.Errorf("%w: list definition files at %s: %v", ErrNotFound, commit, err)
+			return nil, false, "", fmt.Errorf("%w: list definition files at %s: %w", ErrNotFound, commit, err)
 		}
 
-		return nil, false, "", fmt.Errorf("%w: list definition files %s at %s: %v", ErrNotFound, treePath, commit, err)
+		return nil, false, "", fmt.Errorf("%w: list definition files %s at %s: %w", ErrNotFound, treePath, commit, err)
 	}
 
 	return files, truncated, nextCursor, nil
@@ -962,7 +962,7 @@ func NormalizeTreePath(filePath string) (string, error) {
 func normalizeRef(ref string) (string, error) {
 	ref, err := refspec.NormalizeRef(ref)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidReference, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidReference, err)
 	}
 
 	return ref, nil
@@ -1030,7 +1030,7 @@ func normalizeBranchPrefix(prefix, remote string) (string, error) {
 func normalizeTreeListPath(filePath string) (string, error) {
 	filePath, err := refspec.NormalizeTreeListPath(filePath)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidReference, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidReference, err)
 	}
 
 	return filePath, nil
@@ -1048,7 +1048,7 @@ func normalizeTreeListCursor(cursor string) (string, error) {
 func normalizeTreePath(filePath string) (string, error) {
 	filePath, err := refspec.NormalizeTreePath(filePath)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidReference, err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidReference, err)
 	}
 
 	return filePath, nil
@@ -1141,16 +1141,16 @@ func (execGitRunner) RunGitWithInputEnv(ctx context.Context, checkoutPath string
 func tempGitIndexFile() (string, error) {
 	f, err := os.CreateTemp("", "vectis-source-index-*")
 	if err != nil {
-		return "", fmt.Errorf("%w: create temporary git index: %v", ErrInvalidReference, err)
+		return "", fmt.Errorf("%w: create temporary git index: %w", ErrInvalidReference, err)
 	}
 
 	name := f.Name()
 	if err := f.Close(); err != nil {
 		_ = os.Remove(name)
-		return "", fmt.Errorf("%w: close temporary git index: %v", ErrInvalidReference, err)
+		return "", fmt.Errorf("%w: close temporary git index: %w", ErrInvalidReference, err)
 	}
 	if err := os.Remove(name); err != nil {
-		return "", fmt.Errorf("%w: prepare temporary git index: %v", ErrInvalidReference, err)
+		return "", fmt.Errorf("%w: prepare temporary git index: %w", ErrInvalidReference, err)
 	}
 
 	return name, nil

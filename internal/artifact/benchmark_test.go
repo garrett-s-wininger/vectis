@@ -548,7 +548,7 @@ func newBenchmarkArtifactServiceClient(b *testing.B, store Store, opts ServerOpt
 	api.RegisterArtifactServiceServer(srv, NewServerWithOptions(store, opts))
 
 	go func() {
-		if err := srv.Serve(lis); err != nil && err != grpc.ErrServerStopped {
+		if err := srv.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			b.Logf("artifact benchmark gRPC server error: %v", err)
 		}
 	}()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -1438,7 +1439,7 @@ func ensureRetryPendingExecutionTx(ctx context.Context, tx *sql.Tx, runID, cellI
 		return nil
 	}
 
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return normalizeSQLError(err)
 	}
 
@@ -3859,7 +3860,7 @@ func taskExecutionStatusSnapshotByTaskIDTx(ctx context.Context, tx *sql.Tx, task
 		LIMIT 1
 	`), taskID))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return taskExecutionStatusSnapshot{}, fmt.Errorf("%w: task execution %s", ErrNotFound, taskID)
 		}
 
@@ -4845,7 +4846,7 @@ func (r *SQLRunsRepository) GetExecutionDispatch(ctx context.Context, executionI
 	`), executionID, SegmentStatusPending, ExecutionStatusPending, TaskStatusPending, TaskStatusPending))
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return ExecutionDispatchRecord{}, fmt.Errorf("%w: pending execution %s", ErrNotFound, executionID)
 		}
 
@@ -4914,7 +4915,7 @@ func (r *SQLRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runI
 	))
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return ExecutionDispatchRecord{}, fmt.Errorf("%w: active execution %s in run %s", ErrNotFound, executionID, runID)
 		}
 

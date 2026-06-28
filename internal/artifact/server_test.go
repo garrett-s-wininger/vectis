@@ -188,7 +188,7 @@ func newArtifactServiceClient(t *testing.T, store Store, opts ServerOptions) api
 	api.RegisterArtifactServiceServer(srv, NewServerWithOptions(store, opts))
 
 	go func() {
-		if err := srv.Serve(lis); err != nil && err != grpc.ErrServerStopped {
+		if err := srv.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Logf("artifact test gRPC server error: %v", err)
 		}
 	}()

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func TestRenderGrafanaConfigMapsProducesYAMLConfigMaps(t *testing.T) {
 	for {
 		var doc map[string]any
 		err := dec.Decode(&doc)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

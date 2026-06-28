@@ -50,7 +50,7 @@ func (f *FinallyNode) Execute(ctx context.Context, state *action.ExecutionState,
 	alwaysResult := executeOrderedChildren(ctx, state, taskgraph.AlwaysPort, always)
 
 	if bodyResult.Status == action.StatusFailure && alwaysResult.Status == action.StatusFailure {
-		return action.NewFailureResult(fmt.Errorf("finally body failed: %v; always failed: %w", bodyResult.Error, alwaysResult.Error))
+		return action.NewFailureResult(fmt.Errorf("finally body failed: %w; always failed: %w", bodyResult.Error, alwaysResult.Error))
 	}
 
 	if bodyResult.Status == action.StatusFailure {

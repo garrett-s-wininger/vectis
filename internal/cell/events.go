@@ -264,28 +264,28 @@ func CatalogEventFromRecord(rec dal.CatalogEventRecord) (CatalogEvent, error) {
 	case CatalogEventTypeRunStatus:
 		var update dal.RunStatusUpdate
 		if err := json.Unmarshal(rec.Payload, &update); err != nil {
-			return CatalogEvent{}, fmt.Errorf("%w: decode run status payload: %v", ErrInvalidCatalogEvent, err)
+			return CatalogEvent{}, fmt.Errorf("%w: decode run status payload: %w", ErrInvalidCatalogEvent, err)
 		}
 
 		event.RunStatus = &update
 	case CatalogEventTypeExecutionStatus:
 		var update dal.ExecutionStatusUpdate
 		if err := json.Unmarshal(rec.Payload, &update); err != nil {
-			return CatalogEvent{}, fmt.Errorf("%w: decode execution status payload: %v", ErrInvalidCatalogEvent, err)
+			return CatalogEvent{}, fmt.Errorf("%w: decode execution status payload: %w", ErrInvalidCatalogEvent, err)
 		}
 
 		event.ExecutionStatus = &update
 	case CatalogEventTypeArtifactRecord:
 		var create dal.ArtifactCreate
 		if err := json.Unmarshal(rec.Payload, &create); err != nil {
-			return CatalogEvent{}, fmt.Errorf("%w: decode artifact payload: %v", ErrInvalidCatalogEvent, err)
+			return CatalogEvent{}, fmt.Errorf("%w: decode artifact payload: %w", ErrInvalidCatalogEvent, err)
 		}
 
 		event.Artifact = &create
 	case CatalogEventTypeExecutionSecurity:
 		var securityEvent dal.RecordExecutionSecurityEventParams
 		if err := json.Unmarshal(rec.Payload, &securityEvent); err != nil {
-			return CatalogEvent{}, fmt.Errorf("%w: decode execution security payload: %v", ErrInvalidCatalogEvent, err)
+			return CatalogEvent{}, fmt.Errorf("%w: decode execution security payload: %w", ErrInvalidCatalogEvent, err)
 		}
 
 		if strings.TrimSpace(securityEvent.EventKey) == "" {
@@ -296,7 +296,7 @@ func CatalogEventFromRecord(rec dal.CatalogEventRecord) (CatalogEvent, error) {
 	case CatalogEventTypeTerminalSnapshot:
 		var update dal.TerminalExecutionSnapshotUpdate
 		if err := json.Unmarshal(rec.Payload, &update); err != nil {
-			return CatalogEvent{}, fmt.Errorf("%w: decode terminal execution snapshot payload: %v", ErrInvalidCatalogEvent, err)
+			return CatalogEvent{}, fmt.Errorf("%w: decode terminal execution snapshot payload: %w", ErrInvalidCatalogEvent, err)
 		}
 
 		event.TerminalSnapshot = &update

@@ -31,7 +31,7 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	defer server.Stop()
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Errorf("worker core shell server: %v", err)
 		}
 	}()
@@ -141,7 +141,7 @@ func TestShellServerRejectsMismatchedLogChunkRun(t *testing.T) {
 	defer server.Stop()
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Errorf("worker core shell server: %v", err)
 		}
 	}()

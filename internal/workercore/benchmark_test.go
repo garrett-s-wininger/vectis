@@ -2,6 +2,7 @@ package workercore
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -82,7 +83,7 @@ func BenchmarkWorkerCore_RemoteExecuteTask_UnixSocket(b *testing.B) {
 	defer server.Stop()
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			b.Errorf("worker core server: %v", err)
 		}
 	}()

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -128,7 +129,8 @@ func main() {
 	}
 
 	if runErr != nil {
-		if exitErr, ok := runErr.(*exec.ExitError); ok {
+		exitErr := &exec.ExitError{}
+		if errors.As(runErr, &exitErr) {
 			os.Exit(exitErr.ExitCode())
 		}
 

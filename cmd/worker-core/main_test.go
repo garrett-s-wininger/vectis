@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -74,7 +75,7 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	defer shellServer.Stop()
 
 	go func() {
-		if err := shellServer.Serve(shellListener); err != nil && err != grpc.ErrServerStopped {
+		if err := shellServer.Serve(shellListener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Errorf("worker core shell server: %v", err)
 		}
 	}()

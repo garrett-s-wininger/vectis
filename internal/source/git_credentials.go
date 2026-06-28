@@ -143,7 +143,7 @@ func gitCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {
 func gitHTTPCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {
 	f, err := os.CreateTemp("", "vectis-git-askpass-*")
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: create git askpass helper: %v", ErrInvalidReference, err)
+		return nil, nil, fmt.Errorf("%w: create git askpass helper: %w", ErrInvalidReference, err)
 	}
 
 	path := f.Name()
@@ -157,15 +157,15 @@ esac
 	if _, err := f.WriteString(script); err != nil {
 		_ = f.Close()
 		cleanup()
-		return nil, nil, fmt.Errorf("%w: write git askpass helper: %v", ErrInvalidReference, err)
+		return nil, nil, fmt.Errorf("%w: write git askpass helper: %w", ErrInvalidReference, err)
 	}
 	if err := f.Close(); err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("%w: close git askpass helper: %v", ErrInvalidReference, err)
+		return nil, nil, fmt.Errorf("%w: close git askpass helper: %w", ErrInvalidReference, err)
 	}
 	if err := os.Chmod(path, 0o700); err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("%w: chmod git askpass helper: %v", ErrInvalidReference, err)
+		return nil, nil, fmt.Errorf("%w: chmod git askpass helper: %w", ErrInvalidReference, err)
 	}
 
 	return []string{
@@ -226,7 +226,7 @@ func gitSSHCredentialEnvironment(creds GitCredentials) ([]string, func(), error)
 func writeGitCredentialTempFile(pattern string, data []byte, perm os.FileMode) (string, func(), error) {
 	f, err := os.CreateTemp("", pattern)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: create git credential file: %v", ErrInvalidReference, err)
+		return "", nil, fmt.Errorf("%w: create git credential file: %w", ErrInvalidReference, err)
 	}
 
 	path := f.Name()
@@ -235,18 +235,18 @@ func writeGitCredentialTempFile(pattern string, data []byte, perm os.FileMode) (
 		if _, err := f.Write(data); err != nil {
 			_ = f.Close()
 			cleanup()
-			return "", nil, fmt.Errorf("%w: write git credential file: %v", ErrInvalidReference, err)
+			return "", nil, fmt.Errorf("%w: write git credential file: %w", ErrInvalidReference, err)
 		}
 	}
 
 	if err := f.Close(); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("%w: close git credential file: %v", ErrInvalidReference, err)
+		return "", nil, fmt.Errorf("%w: close git credential file: %w", ErrInvalidReference, err)
 	}
 
 	if err := os.Chmod(path, perm); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("%w: chmod git credential file: %v", ErrInvalidReference, err)
+		return "", nil, fmt.Errorf("%w: chmod git credential file: %w", ErrInvalidReference, err)
 	}
 
 	return path, cleanup, nil

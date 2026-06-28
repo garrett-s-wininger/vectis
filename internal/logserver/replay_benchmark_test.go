@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -430,5 +431,5 @@ func countDelimitedTailBoundaries(data []byte, tail int) int {
 }
 
 func errorsIsEOF(err error) bool {
-	return err == io.EOF
+	return errors.Is(err, io.EOF)
 }

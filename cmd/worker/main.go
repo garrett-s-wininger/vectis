@@ -3525,7 +3525,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			return nil
 		}
 
-		return fmt.Errorf("%w: %v", errRunCancelled, err)
+		return fmt.Errorf("%w: %w", errRunCancelled, err)
 	default:
 	}
 
@@ -3773,7 +3773,7 @@ func (w *worker) leaseRenewalLoop(
 							continue
 						}
 						if recoverErr != nil {
-							err = fmt.Errorf("%w; recovery failed: %v", err, recoverErr)
+							err = fmt.Errorf("%w; recovery failed: %w", err, recoverErr)
 						}
 					}
 					w.logger.Warn("Execution %s: lease renew failed (will retry): %v", executionEnvelope.ExecutionID, err)

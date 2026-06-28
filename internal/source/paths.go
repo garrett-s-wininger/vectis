@@ -41,7 +41,7 @@ func ResolveDefinitionTarget(req DefinitionTargetRequest) (DefinitionTarget, err
 	if definitionPath == "" {
 		definitionPath, err = DefinitionPathForJobID(req.JobID)
 		if err != nil {
-			return DefinitionTarget{}, fmt.Errorf("%w: %v", ErrInvalidReference, err)
+			return DefinitionTarget{}, fmt.Errorf("%w: %w", ErrInvalidReference, err)
 		}
 	} else {
 		definitionPath, err = normalizeTreePath(definitionPath)

@@ -1,6 +1,7 @@
 package grpctest
 
 import (
+	"errors"
 	"net"
 	"testing"
 
@@ -64,7 +65,7 @@ func StartServerOnListenerWithOptions(t *testing.T, listener net.Listener, opts 
 	register(server)
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Logf("server error: %v", err)
 		}
 	}()

@@ -33,7 +33,7 @@ func TestMockRegistryClient_RegisterError(t *testing.T) {
 	client.SetRegisterError(expectedErr)
 
 	err := client.Register(context.Background(), api.Component_COMPONENT_QUEUE, "localhost:8081")
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 }
@@ -67,7 +67,7 @@ func TestMockRegistryClient_AddressError(t *testing.T) {
 	client.SetAddressError(expectedErr)
 
 	_, err := client.Address(context.Background(), api.Component_COMPONENT_QUEUE)
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 }

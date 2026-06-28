@@ -43,7 +43,7 @@ func ValidateResolvedBundle(req ResolveRequest, bundle Bundle) error {
 		seen[id] = struct{}{}
 		path, err := canonicalFileDeliveryPath(file.Path)
 		if err != nil {
-			return fmt.Errorf("%w: file material for secret %q has invalid path: %v", ErrInvalidBundle, id, err)
+			return fmt.Errorf("%w: file material for secret %q has invalid path: %w", ErrInvalidBundle, id, err)
 		}
 
 		if path != file.Path {
@@ -55,7 +55,7 @@ func ValidateResolvedBundle(req ResolveRequest, bundle Bundle) error {
 		}
 
 		if err := validateSecretFileMode(file.Mode); err != nil {
-			return fmt.Errorf("%w: file material for secret %q has invalid mode: %v", ErrInvalidBundle, id, err)
+			return fmt.Errorf("%w: file material for secret %q has invalid mode: %w", ErrInvalidBundle, id, err)
 		}
 	}
 
@@ -91,7 +91,7 @@ func expectedFileMaterials(refs []Reference) (map[string]expectedFileMaterial, e
 
 		path, err := canonicalFileDeliveryPath(ref.Delivery.Path)
 		if err != nil {
-			return nil, fmt.Errorf("%w: requested secret %q has invalid file path: %v", ErrInvalidBundle, id, err)
+			return nil, fmt.Errorf("%w: requested secret %q has invalid file path: %w", ErrInvalidBundle, id, err)
 		}
 
 		if path != ref.Delivery.Path {

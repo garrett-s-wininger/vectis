@@ -2,6 +2,7 @@ package logforwarder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -562,7 +563,7 @@ func (f *Forwarder) forwardSpoolFile(parentCtx context.Context, path string) err
 	for {
 		chunks, err := reader.ReadBatch()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 

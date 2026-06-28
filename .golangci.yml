@@ -8,6 +8,7 @@ linters:
   enable:
     - bodyclose
     - copyloopvar
+    - errorlint
     - govet
     - ineffassign
     - loggercheck

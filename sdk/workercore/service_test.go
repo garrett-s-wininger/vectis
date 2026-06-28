@@ -2,6 +2,7 @@ package workercore
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -273,7 +274,7 @@ type recordingShellServer struct {
 func (s *recordingShellServer) StreamLogs(stream api.WorkerCoreShellService_StreamLogsServer) error {
 	for {
 		chunk, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.Empty{})
 		}
 
@@ -290,7 +291,7 @@ func (s *recordingShellServer) StreamLogs(stream api.WorkerCoreShellService_Stre
 func (s *recordingShellServer) PublishArtifact(stream api.WorkerCoreShellService_PublishArtifactServer) error {
 	for {
 		chunk, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(s.artifact)
 		}
 
@@ -322,7 +323,7 @@ func serveGRPC(t *testing.T, server *grpc.Server, listener net.Listener) {
 	t.Helper()
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Errorf("grpc server: %v", err)
 		}
 	}()

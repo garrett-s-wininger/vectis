@@ -88,7 +88,7 @@ func FetchX509SVID(ctx context.Context, source X509SVIDSource, expectedSPIFFEID 
 
 	normalized, err := serviceidentity.NormalizeSPIFFEAllowlist([]string{expectedSPIFFEID})
 	if err != nil {
-		return X509SVID{}, fmt.Errorf("%w: %v", ErrExpectedSPIFFEIDInvalid, err)
+		return X509SVID{}, fmt.Errorf("%w: %w", ErrExpectedSPIFFEIDInvalid, err)
 	}
 	expectedSPIFFEID = normalized[0]
 

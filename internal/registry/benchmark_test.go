@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -253,7 +254,7 @@ func newBenchmarkRegistryGRPCClient(b *testing.B, svc api.RegistryServiceServer)
 	api.RegisterRegistryServiceServer(srv, svc)
 
 	go func() {
-		if err := srv.Serve(lis); err != nil && err != grpc.ErrServerStopped {
+		if err := srv.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			b.Logf("registry benchmark gRPC server error: %v", err)
 		}
 	}()

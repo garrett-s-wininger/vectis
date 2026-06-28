@@ -3,6 +3,7 @@ package dal
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -171,7 +172,7 @@ func (r *SQLSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Context
 
 	rec, err := r.scanCronScheduleRecordRow(r.db.QueryRowContext(ctx, rebindQueryForPgx(query), scheduleID))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return CronScheduleRecord{}, fmt.Errorf("%w: cron schedule %s", ErrNotFound, scheduleID)
 		}
 

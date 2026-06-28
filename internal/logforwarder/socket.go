@@ -134,7 +134,7 @@ func (s *SocketServer) handleConn(conn net.Conn) {
 	for {
 		chunk, err := readChunk(conn)
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return
 			}
 

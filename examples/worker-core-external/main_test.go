@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +34,7 @@ func TestSampleCoreServerConformance(t *testing.T) {
 		t.Cleanup(server.Stop)
 
 		go func() {
-			if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+			if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 				t.Errorf("worker core example server: %v", err)
 			}
 		}()

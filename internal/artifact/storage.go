@@ -552,7 +552,7 @@ func normalizeSHA256Digest(digest string) (string, error) {
 	}
 
 	if _, err := hex.DecodeString(digest); err != nil {
-		return "", fmt.Errorf("%w: sha256 digest must be lowercase hex: %v", ErrInvalidDigest, err)
+		return "", fmt.Errorf("%w: sha256 digest must be lowercase hex: %w", ErrInvalidDigest, err)
 	}
 
 	return digest, nil

@@ -262,7 +262,7 @@ func encryptedFSPathForRef(root, raw string) (encryptedFSResolvedRef, error) {
 	target := filepath.Join(root, filepath.FromSlash(rel))
 	rootRel, err := filepath.Rel(root, target)
 	if err != nil {
-		return encryptedFSResolvedRef{}, fmt.Errorf("%w: resolve encryptedfs ref path: %v", ErrNotFound, err)
+		return encryptedFSResolvedRef{}, fmt.Errorf("%w: resolve encryptedfs ref path: %w", ErrNotFound, err)
 	}
 
 	if rootRel == "." || rootRel == ".." || strings.HasPrefix(rootRel, ".."+string(filepath.Separator)) {
@@ -283,7 +283,7 @@ func encryptedFSRelativePath(raw string) (string, error) {
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("%w: parse encryptedfs ref: %v", ErrNotFound, err)
+		return "", fmt.Errorf("%w: parse encryptedfs ref: %w", ErrNotFound, err)
 	}
 
 	if u.Scheme != EncryptedFSScheme {
@@ -302,7 +302,7 @@ func encryptedFSRelativePath(raw string) (string, error) {
 	if u.EscapedPath() != "" {
 		decodedPath, err := url.PathUnescape(u.EscapedPath())
 		if err != nil {
-			return "", fmt.Errorf("%w: encryptedfs ref path: %v", ErrNotFound, err)
+			return "", fmt.Errorf("%w: encryptedfs ref path: %w", ErrNotFound, err)
 		}
 
 		parts = append(parts, strings.TrimPrefix(decodedPath, "/"))
@@ -330,7 +330,7 @@ func encryptedFSRelativePath(raw string) (string, error) {
 func (p *EncryptedFSProvider) readSecret(ref encryptedFSResolvedRef) ([]byte, error) {
 	resolvedRoot, err := filepath.EvalSymlinks(p.root)
 	if err != nil {
-		return nil, fmt.Errorf("%w: encryptedfs root is not readable: %v", ErrNotFound, err)
+		return nil, fmt.Errorf("%w: encryptedfs root is not readable: %w", ErrNotFound, err)
 	}
 
 	resolvedTarget, err := filepath.EvalSymlinks(ref.target)
@@ -340,7 +340,7 @@ func (p *EncryptedFSProvider) readSecret(ref encryptedFSResolvedRef) ([]byte, er
 
 	rel, err := filepath.Rel(resolvedRoot, resolvedTarget)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve encryptedfs secret path: %v", ErrNotFound, err)
+		return nil, fmt.Errorf("%w: resolve encryptedfs secret path: %w", ErrNotFound, err)
 	}
 
 	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {

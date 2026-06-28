@@ -127,7 +127,7 @@ func RunVMSmokeVerify(ctx context.Context, opts VMSmokeOptions) (VMSmokeResult, 
 
 	if err := installAndVerifyVMSmokeGuest(ctx, opts, installPlan, stubBinaries); err != nil {
 		if cleanupErr := cleanGuest(); cleanupErr != nil {
-			return VMSmokeResult{}, fmt.Errorf("verify Linux systemd artifacts: %w; cleanup failed: %v", err, cleanupErr)
+			return VMSmokeResult{}, fmt.Errorf("verify Linux systemd artifacts: %w; cleanup failed: %w", err, cleanupErr)
 		}
 
 		return VMSmokeResult{}, err

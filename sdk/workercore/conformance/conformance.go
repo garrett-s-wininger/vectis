@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -351,7 +352,7 @@ type recordingShell struct {
 func (s *recordingShell) StreamLogs(stream api.WorkerCoreShellService_StreamLogsServer) error {
 	for {
 		chunk, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.Empty{})
 		}
 
@@ -366,7 +367,7 @@ func (s *recordingShell) StreamLogs(stream api.WorkerCoreShellService_StreamLogs
 func (s *recordingShell) PublishArtifact(stream api.WorkerCoreShellService_PublishArtifactServer) error {
 	for {
 		chunk, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(s.artifact)
 		}
 		if err != nil {
@@ -389,7 +390,7 @@ func serveGRPC(t *testing.T, server *grpc.Server, listener net.Listener) {
 	t.Helper()
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Errorf("grpc server: %v", err)
 		}
 	}()

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/spf13/cobra"
 	"io"
@@ -446,7 +447,8 @@ func editJob(cmd *cobra.Command, args []string) {
 	editCmd.Stderr = os.Stderr
 
 	if err := editCmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
 			if exitErr.ExitCode() != 0 {
 				os.Exit(exitErr.ExitCode())
 			}

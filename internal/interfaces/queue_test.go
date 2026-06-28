@@ -47,7 +47,7 @@ func TestMockQueueClient_EnqueueError(t *testing.T) {
 	}
 
 	err := client.Enqueue(context.Background(), wrapJob(job))
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 }
@@ -104,7 +104,7 @@ func TestMockQueueClient_DequeueError(t *testing.T) {
 	client.SetDequeueError(expectedErr)
 
 	_, err := client.Dequeue(context.Background())
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 }

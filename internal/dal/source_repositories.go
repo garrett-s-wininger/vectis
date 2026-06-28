@@ -3,6 +3,7 @@ package dal
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -271,7 +272,7 @@ func (r *SQLSourcesRepository) GetRepository(ctx context.Context, repositoryID s
 
 	rec, err := r.scanRepositoryRow(r.db.QueryRowContext(ctx, rebindQueryForPgx(query), repositoryID))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return SourceRepositoryRecord{}, fmt.Errorf("%w: source repository %s", ErrNotFound, repositoryID)
 		}
 

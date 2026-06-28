@@ -147,7 +147,7 @@ func providerSchemeForRef(rawRef string) (string, error) {
 
 	u, err := url.Parse(rawRef)
 	if err != nil {
-		return "", fmt.Errorf("%w: parse secret ref: %v", ErrNotFound, err)
+		return "", fmt.Errorf("%w: parse secret ref: %w", ErrNotFound, err)
 	}
 
 	scheme := normalizeProviderScheme(u.Scheme)

@@ -102,7 +102,7 @@ func (r *SQLNamespacesRepository) GetByID(ctx context.Context, id int64) (*Names
 	).Scan(&rec.ID, &rec.GlobalID, &rec.Name, &parentID, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: namespace %d", ErrNotFound, id)
 		}
 
@@ -132,7 +132,7 @@ func (r *SQLNamespacesRepository) GetByPath(ctx context.Context, path string) (*
 	).Scan(&rec.ID, &rec.GlobalID, &rec.Name, &parentID, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: namespace %s", ErrNotFound, path)
 		}
 

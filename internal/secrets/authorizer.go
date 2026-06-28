@@ -72,22 +72,22 @@ func (a *ClaimAuthorizer) AuthorizeResolve(ctx context.Context, req *ResolveRequ
 	req.ExecutionClaimToken = claimToken
 	req.PeerSPIFFEID = peerSPIFFEID
 	if err := ValidateResolveIdentityBinding(req); err != nil {
-		return fmt.Errorf("%w: %v", ErrDenied, err)
+		return fmt.Errorf("%w: %w", ErrDenied, err)
 	}
 
 	if err := a.claims.ValidateActiveExecutionClaim(ctx, runID, executionID, claimToken); err != nil {
-		return fmt.Errorf("%w: execution claim is not active: %v", ErrDenied, err)
+		return fmt.Errorf("%w: execution claim is not active: %w", ErrDenied, err)
 	}
 
 	if a.executionScopes != nil {
 		scope, err := a.executionScopes.ResolveExecutionScope(ctx, runID, executionID)
 		if err != nil {
-			return fmt.Errorf("%w: execution scope is unavailable: %v", ErrDenied, err)
+			return fmt.Errorf("%w: execution scope is unavailable: %w", ErrDenied, err)
 		}
 
 		req.Scope = scope
 		if err := ValidateResolveIdentityBinding(req); err != nil {
-			return fmt.Errorf("%w: %v", ErrDenied, err)
+			return fmt.Errorf("%w: %w", ErrDenied, err)
 		}
 	}
 

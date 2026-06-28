@@ -132,7 +132,7 @@ func TestRetryer_Do_MaxRetriesExceeded(t *testing.T) {
 		return finalErr
 	}, nil)
 
-	if err != finalErr {
+	if !errors.Is(err, finalErr) {
 		t.Errorf("expected error %v, got %v", finalErr, err)
 	}
 
@@ -180,7 +180,7 @@ func TestRetryer_Do_OnRetryCallback(t *testing.T) {
 		if cb.attempt != i+1 {
 			t.Errorf("callback %d: expected attempt %d, got %d", i, i+1, cb.attempt)
 		}
-		if cb.err != targetErr {
+		if !errors.Is(cb.err, targetErr) {
 			t.Errorf("callback %d: expected error %v, got %v", i, targetErr, cb.err)
 		}
 	}
@@ -209,7 +209,7 @@ func TestRetryer_Do_ContextCancellation(t *testing.T) {
 		return errors.New("will retry")
 	}, nil)
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }
@@ -231,7 +231,7 @@ func TestRetryer_Do_ContextCancellationDuringSleep(t *testing.T) {
 		return errors.New("retry me")
 	}, nil)
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }

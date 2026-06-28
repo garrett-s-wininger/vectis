@@ -2,6 +2,7 @@ package workercore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -73,7 +74,7 @@ func (s *ShellServer) StreamLogs(stream api.WorkerCoreShellService_StreamLogsSer
 
 	for {
 		msg, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.Empty{})
 		}
 
@@ -148,7 +149,7 @@ func validateShellLogChunk(session TaskSession, chunk *api.LogChunk) error {
 func (s *ShellServer) PublishArtifact(stream api.WorkerCoreShellService_PublishArtifactServer) error {
 	first, err := stream.Recv()
 	if err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return status.Error(codes.InvalidArgument, "worker core artifact metadata is required")
 		}
 
@@ -240,7 +241,7 @@ func receiveArtifactData(ctx context.Context, stream api.WorkerCoreShellService_
 
 	for {
 		msg, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return closeWith(nil)
 		}
 

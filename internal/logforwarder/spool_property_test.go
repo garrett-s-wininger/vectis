@@ -1,6 +1,7 @@
 package logforwarder
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -86,8 +87,8 @@ func checkSpoolRoundTrip(chunks []*api.LogChunk) error {
 		}
 	}
 
-	if got, err := reader.ReadBatch(); err != io.EOF {
-		return fmt.Errorf("second read got (%#v, %v), want EOF", got, err)
+	if got, err := reader.ReadBatch(); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("second read got (%#v, %w), want EOF", got, err)
 	}
 
 	return nil

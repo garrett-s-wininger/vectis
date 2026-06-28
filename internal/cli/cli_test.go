@@ -86,7 +86,7 @@ func TestServeHTTP_PropagatesNonServerError(t *testing.T) {
 		return expectedErr
 	}, time.Second, "test", nil)
 
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected %v, got %v", expectedErr, err)
 	}
 }

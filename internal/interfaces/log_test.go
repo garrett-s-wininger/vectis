@@ -32,7 +32,7 @@ func TestMockLogClient_StreamLogsError(t *testing.T) {
 	client.SetStreamError(expectedErr)
 
 	_, err := client.StreamLogs(context.Background())
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 
@@ -115,7 +115,7 @@ func TestMockLogClient_SendError(t *testing.T) {
 	}
 
 	err := stream.Send(chunk)
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 
@@ -157,7 +157,7 @@ func TestMockLogClient_CloseSendError(t *testing.T) {
 	mockStream.SetCloseSendError(expectedErr)
 
 	err := stream.CloseSend()
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 }
@@ -205,7 +205,7 @@ func TestMockLogClient_CloseError(t *testing.T) {
 	client.SetCloseError(expectedErr)
 
 	err := client.Close()
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("expected error %v, got %v", expectedErr, err)
 	}
 

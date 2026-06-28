@@ -148,7 +148,7 @@ func normalizeResolveSPIFFEIDField(label string, value *string, required bool) e
 
 	normalized, err := normalizePeerSPIFFEID(raw)
 	if err != nil {
-		return fmt.Errorf("%w: %s is invalid: %v", ErrInvalidResolveIdentity, label, err)
+		return fmt.Errorf("%w: %s is invalid: %w", ErrInvalidResolveIdentity, label, err)
 	}
 
 	*value = normalized

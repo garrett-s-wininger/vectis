@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -95,7 +96,7 @@ func (r *RoutedReader) WriteBlob(ctx context.Context, key string, w io.Writer) (
 	var desc BlobDescriptor
 	for {
 		resp, err := stream.Recv()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 

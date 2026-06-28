@@ -2,6 +2,7 @@ package workercore
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func TestUnixCoreTransportExecutesTask(t *testing.T) {
 	defer server.Stop()
 
 	go func() {
-		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			t.Errorf("worker core server: %v", err)
 		}
 	}()

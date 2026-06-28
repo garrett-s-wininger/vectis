@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -2702,7 +2703,7 @@ func decodeYAMLDocuments(t *testing.T, manifest []byte) []map[string]any {
 	for {
 		var doc map[string]any
 		err := dec.Decode(&doc)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 
