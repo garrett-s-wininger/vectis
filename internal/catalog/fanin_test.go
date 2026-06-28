@@ -76,6 +76,55 @@ func TestFanInProcessorCopiesPendingEventsToTarget(t *testing.T) {
 	}
 }
 
+func TestFanInProcessorRejectsSpoofedSourceCell(t *testing.T) {
+	ctx := context.Background()
+	sourceDB := dbtest.NewTestDB(t)
+	targetDB := dbtest.NewTestDB(t)
+	sourceRepos := dal.NewSQLRepositories(sourceDB)
+	targetRepos := dal.NewSQLRepositories(targetDB)
+
+	if _, _, err := sourceRepos.CatalogEvents().Record(
+		ctx,
+		"pdx-b",
+		"execution:execution-1:accepted",
+		cell.CatalogEventTypeExecutionStatus,
+		[]byte(`{"execution_id":"execution-1","status":"accepted"}`),
+	); err != nil {
+		t.Fatalf("record source event: %v", err)
+	}
+
+	processor := NewFanInProcessor(targetRepos.CatalogEvents(), []FanInSource{
+		{CellID: "iad-a", Events: sourceRepos.CatalogEvents()},
+	})
+
+	result, err := processor.IngestPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("IngestPending: %v", err)
+	}
+
+	if result.Read != 1 || result.Copied != 0 {
+		t.Fatalf("unexpected fan-in result: %+v", result)
+	}
+
+	targetPending, err := targetRepos.CatalogEvents().ListPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("list target pending: %v", err)
+	}
+
+	if len(targetPending) != 0 {
+		t.Fatalf("spoofed event should not be copied to target: %+v", targetPending)
+	}
+
+	sourceSummary, err := sourceRepos.CatalogEvents().Summary(ctx)
+	if err != nil {
+		t.Fatalf("source summary: %v", err)
+	}
+
+	if sourceSummary.Failed != 1 || sourceSummary.Pending != 0 || sourceSummary.Applied != 0 {
+		t.Fatalf("spoofed event should be marked failed in source: %+v", sourceSummary)
+	}
+}
+
 func TestFanInProcessorRecordsSourceMetrics(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := dbtest.NewTestDB(t)

@@ -256,7 +256,7 @@ func TestCatalogEventPublisher_RecordStatusEvents(t *testing.T) {
 
 func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	repos := dal.NewSQLRepositories(db)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
 	_, err := repos.Namespaces().Create(ctx, "team-catalog-inbox", nil)
@@ -373,6 +373,55 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 	}
 }
 
+func TestCatalogInboxProcessor_RejectsCrossCellRunStatusEvent(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
+	ctx := context.Background()
+
+	jobID := "job-catalog-cross-cell"
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-cross-cell","root":{"uses":"builtins/shell"}}`); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, jobID, nil, 1)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	rec, _, err := repos.CatalogEvents().Record(
+		ctx,
+		"pdx-b",
+		"event-run-spoofed",
+		CatalogEventTypeRunStatus,
+		fmt.Appendf(nil, `{"run_id":%q,"status":%q}`, runID, dal.RunStatusRunning),
+	)
+
+	if err != nil {
+		t.Fatalf("record spoofed run event: %v", err)
+	}
+
+	processor := NewCatalogInboxProcessor(repos.CatalogEvents(), repos.Runs())
+	result, err := processor.ProcessPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ProcessPending: %v", err)
+	}
+
+	if result.Read != 1 || result.Applied != 0 || result.Failed != 1 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+
+	assertCatalogEventFailed(t, db, rec.ID, "cannot update run")
+
+	var runStatus string
+	if err := db.QueryRowContext(ctx, "SELECT status FROM job_runs WHERE run_id = ?", runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query run status: %v", err)
+	}
+
+	if runStatus != dal.RunStatusQueued {
+		t.Fatalf("run status after spoofed event: got %q, want %q", runStatus, dal.RunStatusQueued)
+	}
+}
+
 func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
@@ -437,7 +486,7 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T)
 
 func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.T) {
 	db := dbtest.NewTestDB(t)
-	repos := dal.NewSQLRepositoriesWithCellID(db, "global-a")
+	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	ctx := context.Background()
 
 	_, err := repos.Namespaces().Create(ctx, "team-catalog-terminal-snapshot", nil)

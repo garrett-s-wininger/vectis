@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"vectis/internal/dal"
 )
@@ -69,6 +70,11 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 			break
 		}
 
+		sourceCellID := strings.TrimSpace(source.CellID)
+		if sourceCellID == "" {
+			return result, errors.New("catalog fan-in source cell_id is required")
+		}
+
 		sourceResult := FanInSourceResult{CellID: source.CellID}
 		if source.Backfill != nil {
 			backfillResult, err := source.Backfill.RepairMissing(ctx, remaining)
@@ -93,6 +99,19 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 		result.Read += len(records)
 		sourceResult.Read += len(records)
 		for _, rec := range records {
+			if err := validateSourceCatalogEventForFanIn(sourceCellID, rec); err != nil {
+				if markErr := source.Events.MarkFailed(ctx, rec.ID, err.Error()); markErr != nil {
+					return result, fmt.Errorf("mark spoofed source catalog event %d from cell %q failed: %w", rec.ID, source.CellID, markErr)
+				}
+
+				remaining--
+				if remaining <= 0 {
+					break
+				}
+
+				continue
+			}
+
 			target, created, err := p.target.Record(ctx, rec.SourceCell, rec.EventKey, rec.EventType, rec.Payload)
 			if err != nil {
 				return result, fmt.Errorf("copy catalog event %q from cell %q: %w", rec.EventKey, source.CellID, err)
@@ -121,6 +140,20 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 	}
 
 	return result, nil
+}
+
+func validateSourceCatalogEventForFanIn(sourceCellID string, rec dal.CatalogEventRecord) error {
+	sourceCellID = strings.TrimSpace(sourceCellID)
+	eventSourceCell := strings.TrimSpace(rec.SourceCell)
+	if eventSourceCell == "" {
+		return errors.New("catalog event source_cell is required")
+	}
+
+	if eventSourceCell != sourceCellID {
+		return fmt.Errorf("catalog event source_cell %q does not match configured source %q", eventSourceCell, sourceCellID)
+	}
+
+	return nil
 }
 
 func validateTargetCatalogEventForSourceAck(rec dal.CatalogEventRecord) error {

@@ -119,7 +119,7 @@ vectis-catalog \
   --cell-database-dsn pdx-b=/var/lib/vectis/cells/pdx-b/db.sqlite3
 ```
 
-The catalog service reads pending cell events, copies them into the global catalog inbox, and applies them idempotently. Before copying each source, it also backfills missing run and execution status events from observed cell DB state. That covers the narrow failure where a worker committed a state transition but missed the matching catalog event write.
+The catalog service reads pending cell events, copies them into the global catalog inbox, and applies them idempotently. Fan-in rejects source rows whose `source_cell` does not match the configured source cell, and inbox application only lets a source cell mutate runs, executions, artifacts, terminal snapshots, and security events owned by that cell. Before copying each source, it also backfills missing run and execution status events from observed cell DB state. That covers the narrow failure where a worker committed a state transition but missed the matching catalog event write.
 
 ## Dispatch Repair
 

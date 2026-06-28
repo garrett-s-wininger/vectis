@@ -42,6 +42,11 @@ type terminalSnapshotCatalogUpdater interface {
 	ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error
 }
 
+type catalogSourceOwnershipVerifier interface {
+	VerifyCatalogRunSourceCell(ctx context.Context, runID, sourceCell string) error
+	VerifyCatalogExecutionSourceCell(ctx context.Context, executionID, sourceCell string) error
+}
+
 type CatalogEventPublisher struct {
 	sourceCellID string
 	events       dal.CatalogEventsRepository
@@ -325,6 +330,10 @@ func (c CatalogEventConsumer) Apply(ctx context.Context, event CatalogEvent) err
 		return err
 	}
 
+	if err := c.verifySourceOwnership(ctx, event); err != nil {
+		return err
+	}
+
 	if event.RunStatus != nil {
 		return c.updater.ApplyRunStatusUpdate(ctx, *event.RunStatus)
 	}
@@ -356,6 +365,52 @@ func (c CatalogEventConsumer) Apply(ctx context.Context, event CatalogEvent) err
 	}
 
 	return c.securityEvents.RecordExecutionSecurityEvent(ctx, *event.ExecutionSecurity)
+}
+
+func (c CatalogEventConsumer) verifySourceOwnership(ctx context.Context, event CatalogEvent) error {
+	verifier, ok := c.updater.(catalogSourceOwnershipVerifier)
+	if !ok {
+		return nil
+	}
+
+	sourceCellID, err := event.normalizedSourceCellID()
+	if err != nil {
+		return err
+	}
+
+	if event.RunStatus != nil {
+		return verifier.VerifyCatalogRunSourceCell(ctx, event.RunStatus.RunID, sourceCellID)
+	}
+
+	if event.ExecutionStatus != nil {
+		return verifier.VerifyCatalogExecutionSourceCell(ctx, event.ExecutionStatus.ExecutionID, sourceCellID)
+	}
+
+	if event.TerminalSnapshot != nil {
+		return verifier.VerifyCatalogRunSourceCell(ctx, event.TerminalSnapshot.RunID, sourceCellID)
+	}
+
+	if event.Artifact != nil {
+		if artifactCellID := strings.TrimSpace(event.Artifact.CellID); artifactCellID != "" && artifactCellID != sourceCellID {
+			return fmt.Errorf("%w: catalog source_cell %s cannot record artifact from cell %s", dal.ErrConflict, sourceCellID, artifactCellID)
+		}
+
+		if executionID := strings.TrimSpace(event.Artifact.ExecutionID); executionID != "" {
+			return verifier.VerifyCatalogExecutionSourceCell(ctx, executionID, sourceCellID)
+		}
+
+		return verifier.VerifyCatalogRunSourceCell(ctx, event.Artifact.RunID, sourceCellID)
+	}
+
+	if event.ExecutionSecurity != nil {
+		if executionID := strings.TrimSpace(event.ExecutionSecurity.ExecutionID); executionID != "" {
+			return verifier.VerifyCatalogExecutionSourceCell(ctx, executionID, sourceCellID)
+		}
+
+		return verifier.VerifyCatalogRunSourceCell(ctx, event.ExecutionSecurity.RunID, sourceCellID)
+	}
+
+	return nil
 }
 
 func (e CatalogEvent) Validate() error {

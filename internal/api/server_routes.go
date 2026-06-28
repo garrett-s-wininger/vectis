@@ -3,10 +3,14 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
+	"vectis/internal/cache"
 	"vectis/internal/config"
+	"vectis/internal/dal"
 	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
@@ -725,7 +729,17 @@ func (s *APIServer) registerRoute(mux *http.ServeMux, spec routeSpec) {
 
 func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		key := s.rateLimitKey(r, spec)
+		key, err := s.rateLimitKeyForRequest(r, spec)
+		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Rate-limit key error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
+
 		allowed, retryAfter, err := rl.Allow(r.Context(), key, spec.RateLimit)
 		if err != nil {
 			if s.handleDBUnavailableError(w, err) {
@@ -748,23 +762,86 @@ func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec
 }
 
 func (s *APIServer) rateLimitKey(r *http.Request, spec routeSpec) string {
-	rule := spec.RateLimit
-	var baseKey string
-
-	if rateLimitCanUseBearer(spec.Auth) {
-		token, ok := bearerToken(r.Header.Get("Authorization"))
-
-		if ok {
-			baseKey = hashAPIToken(token)
-		}
+	key, err := s.rateLimitKeyForRequest(r, spec)
+	if err != nil {
+		return s.rateLimitFallbackKey(r, spec)
 	}
 
-	if baseKey == "" {
-		baseKey = config.HTTPClientIP(r)
+	return key
+}
+
+func (s *APIServer) rateLimitKeyForRequest(r *http.Request, spec routeSpec) (string, error) {
+	rule := spec.RateLimit
+	baseKey, err := s.rateLimitBaseKey(r, spec)
+	if err != nil {
+		return "", err
 	}
 
 	// Include route pattern and rule parameters so different endpoints have isolated buckets.
-	return fmt.Sprintf("%s:%s:%d:%d", baseKey, r.Pattern, rule.RefillRate, rule.BurstSize)
+	return fmt.Sprintf("%s:%s:%d:%d", baseKey, r.Pattern, rule.RefillRate, rule.BurstSize), nil
+}
+
+func (s *APIServer) rateLimitBaseKey(r *http.Request, spec routeSpec) (string, error) {
+	if rateLimitCanUseBearer(spec.Auth) {
+		token, ok := bearerToken(r.Header.Get("Authorization"))
+		if ok {
+			tokenKey, err := s.validBearerRateLimitKey(r, token)
+			if err != nil {
+				return "", err
+			}
+
+			if tokenKey != "" {
+				return tokenKey, nil
+			}
+
+			return "invalid-bearer:" + config.HTTPClientIP(r), nil
+		}
+	}
+
+	return config.HTTPClientIP(r), nil
+}
+
+func (s *APIServer) validBearerRateLimitKey(r *http.Request, token string) (string, error) {
+	token = strings.TrimSpace(token)
+	if token == "" || len(token) > maxBearerTokenBytes {
+		return "", nil
+	}
+
+	tokenKey := hashAPIToken(token)
+	s.mu.RLock()
+	cacheService := s.cacheService
+	authRepo := s.authRepo
+	s.mu.RUnlock()
+
+	if cacheService != nil {
+		_, err := cacheService.ResolveSession(r.Context(), tokenKey, time.Now().UTC(), config.APISessionIdleTTL())
+		if err == nil {
+			return tokenKey, nil
+		}
+
+		if !cache.IsNotFound(err) {
+			return "", err
+		}
+	}
+
+	if authRepo == nil {
+		return "", nil
+	}
+
+	if _, _, _, err := authRepo.ResolveAPIToken(r.Context(), tokenKey); err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	return tokenKey, nil
+}
+
+func (s *APIServer) rateLimitFallbackKey(r *http.Request, spec routeSpec) string {
+	rule := spec.RateLimit
+	return fmt.Sprintf("%s:%s:%d:%d", config.HTTPClientIP(r), r.Pattern, rule.RefillRate, rule.BurstSize)
 }
 
 func rateLimitCanUseBearer(policy routeAuthPolicy) bool {

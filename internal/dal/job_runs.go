@@ -51,6 +51,66 @@ func (r *SQLRunsRepository) ApplyRunStatusUpdate(ctx context.Context, update Run
 	}
 }
 
+func (r *SQLRunsRepository) VerifyCatalogRunSourceCell(ctx context.Context, runID, sourceCell string) error {
+	runID = strings.TrimSpace(runID)
+	sourceCell = normalizeCellID(sourceCell)
+	if runID == "" {
+		return fmt.Errorf("%w: run_id is required", ErrNotFound)
+	}
+	if sourceCell == "" {
+		return fmt.Errorf("%w: source_cell is required", ErrConflict)
+	}
+
+	var owningCell string
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT owning_cell FROM job_runs WHERE run_id = ?"),
+		runID,
+	).Scan(&owningCell); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: run %s", ErrNotFound, runID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if normalizeCellID(owningCell) != sourceCell {
+		return fmt.Errorf("%w: catalog source_cell %s cannot update run %s owned by %s", ErrConflict, sourceCell, runID, normalizeCellID(owningCell))
+	}
+
+	return nil
+}
+
+func (r *SQLRunsRepository) VerifyCatalogExecutionSourceCell(ctx context.Context, executionID, sourceCell string) error {
+	executionID = strings.TrimSpace(executionID)
+	sourceCell = normalizeCellID(sourceCell)
+	if executionID == "" {
+		return fmt.Errorf("%w: execution_id is required", ErrNotFound)
+	}
+	if sourceCell == "" {
+		return fmt.Errorf("%w: source_cell is required", ErrConflict)
+	}
+
+	var cellID string
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT COALESCE(NULLIF(se.cell_id, ''), jr.owning_cell)
+		FROM segment_executions se
+		JOIN job_runs jr ON jr.run_id = se.run_id
+		WHERE se.execution_id = ?
+	`), executionID).Scan(&cellID); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+		}
+
+		return normalizeSQLError(err)
+	}
+
+	if normalizeCellID(cellID) != sourceCell {
+		return fmt.Errorf("%w: catalog source_cell %s cannot update execution %s owned by %s", ErrConflict, sourceCell, executionID, normalizeCellID(cellID))
+	}
+
+	return nil
+}
+
 func (r *SQLRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, update ExecutionStatusUpdate) error {
 	executionID := strings.TrimSpace(update.ExecutionID)
 	if executionID == "" {

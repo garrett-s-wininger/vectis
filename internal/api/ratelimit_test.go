@@ -107,6 +107,32 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("rotating_invalid_bearer_tokens_share_bucket", func(t *testing.T) {
+		for i := range 20 {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+			req.Header.Set("Authorization", "Bearer invalid-token-"+string(rune('a'+i)))
+			h.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusTooManyRequests {
+				t.Fatalf("invalid bearer request %d should not be rate limited yet, got 429", i+1)
+			}
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("invalid bearer request %d got status %d, want 401", i+1, rec.Code)
+			}
+		}
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+		req.Header.Set("Authorization", "Bearer invalid-token-overflow")
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("expected rotating invalid bearer tokens to hit shared 429 bucket, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
 	t.Run("auth_endpoint_rate_limited", func(t *testing.T) {
 		// Auth endpoints have burst=5 and each route has its own bucket.
 		// Exhaust the bucket for /api/v1/setup/status with 5 requests.
@@ -199,6 +225,54 @@ func TestRateLimitKey_ignoresSessionCookie(t *testing.T) {
 
 	if protectedBearerKey == protectedIPKey {
 		t.Fatal("bearer token should still scope rate-limit key")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req.Header.Set("Authorization", "Bearer another-invalid-token")
+	anotherInvalidBearerKey := s.rateLimitKey(req, protectedSpec)
+
+	if anotherInvalidBearerKey != protectedBearerKey {
+		t.Fatalf("unknown bearer tokens should share an invalid-bearer bucket: got %q want %q", anotherInvalidBearerKey, protectedBearerKey)
+	}
+}
+
+func TestRateLimitKey_usesKnownBearerTokenBucket(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+	ctx := t.Context()
+
+	uid, err := s.authRepo.CompleteInitialSetup(ctx, "admin", "hash", "setup-token-hash", "setup")
+	if err != nil {
+		t.Fatalf("complete setup: %v", err)
+	}
+
+	plain := "known-rate-limit-token"
+	if _, err := s.authRepo.CreateAPIToken(ctx, uid, hashAPIToken(plain), "known", nil); err != nil {
+		t.Fatalf("create api token: %v", err)
+	}
+
+	spec := routeSpec{
+		Pattern:   "GET /api/v1/tokens",
+		Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+		RateLimit: ratelimit.Rule{RefillRate: time.Second, BurstSize: 1},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req.Header.Set("Authorization", "Bearer "+plain)
+	knownKey := s.rateLimitKey(req, spec)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req.Header.Set("Authorization", "Bearer invalid-token")
+	invalidKey := s.rateLimitKey(req, spec)
+
+	if knownKey == invalidKey {
+		t.Fatal("known bearer token should not share invalid-bearer bucket")
 	}
 }
 
