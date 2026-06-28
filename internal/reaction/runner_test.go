@@ -18,7 +18,7 @@ func TestRunnerRunOnceExecutesLocalNotification(t *testing.T) {
 
 	event, err := store.RecordEvent(ctx, dal.ReactionEventCreate{
 		Source:      dal.ReactionEventSourceManual,
-		EventType:   "manual.notice",
+		EventType:   dal.ReactionEventTypeManualNotice,
 		Actor:       "operator",
 		PayloadJSON: []byte(`{"message":"runner path"}`),
 	})
@@ -90,7 +90,7 @@ func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 	ctx := context.Background()
 
 	event, err := store.RecordEvent(ctx, dal.ReactionEventCreate{
-		EventType:   "run.completed",
+		EventType:   dal.ReactionEventTypeRunCompleted,
 		PayloadJSON: []byte(`{"run_id":"run-1","status":"succeeded"}`),
 	})
 
@@ -98,11 +98,10 @@ func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 		t.Fatalf("record event: %v", err)
 	}
 
-	const triggerJobAction = "builtins/trigger-job"
 	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
 		Name:       "trigger-job-target",
-		Kind:       "job",
-		Uses:       triggerJobAction,
+		Kind:       dal.ReactionTargetKindJob,
+		Uses:       dal.ReactionActionTriggerJob,
 		ConfigJSON: []byte(`{"job_id":"downstream"}`),
 	})
 
@@ -114,7 +113,7 @@ func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 		EventID:              event.EventID,
 		TargetID:             target.TargetID,
 		ActionUses:           target.Uses,
-		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/trigger-job"}`),
+		ActionDescriptorJSON: []byte(`{"canonical_name":"` + dal.ReactionActionTriggerJob + `"}`),
 		TargetConfigJSON:     target.ConfigJSON,
 		MaxAttempts:          1,
 		NextAttemptAt:        time.Now().UnixNano(),
@@ -143,7 +142,7 @@ func TestRunnerRunOnceMarksUnsupportedActionFailed(t *testing.T) {
 		t.Fatalf("status: got %q want %q", updated.Status, dal.ReactionInvocationStatusFailed)
 	}
 
-	if updated.LastError == nil || !strings.Contains(*updated.LastError, triggerJobAction) {
+	if updated.LastError == nil || !strings.Contains(*updated.LastError, dal.ReactionActionTriggerJob) {
 		t.Fatalf("last error: %v", updated.LastError)
 	}
 }

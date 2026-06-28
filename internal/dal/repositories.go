@@ -121,6 +121,10 @@ const (
 	CatalogEventStatusApplied = "applied"
 	CatalogEventStatusFailed  = "failed"
 
+	ReactionEventTypeManualNotice               = "manual.notice"
+	ReactionEventTypeRunCompleted               = "run.completed"
+	ReactionEventTypeDefinitionValidationFailed = "definition.validation_failed"
+
 	ReactionEventSourceLifecycle = "lifecycle"
 	ReactionEventSourceManual    = "manual"
 
@@ -129,8 +133,11 @@ const (
 	ReactionInvocationStatusSucceeded = "succeeded"
 	ReactionInvocationStatusFailed    = "failed"
 
-	ReactionTargetKindLocal   = "local"
+	ReactionTargetKindLocal = "local"
+	ReactionTargetKindJob   = "job"
+
 	ReactionActionNotifyLocal = "builtins/notify-local"
+	ReactionActionTriggerJob  = "builtins/trigger-job"
 )
 
 const FailureCodeInvalidEnvelope = "invalid_execution_envelope"
@@ -635,6 +642,40 @@ type ReactionTargetRecord struct {
 	UpdatedAt      int64
 }
 
+type ReactionSubscriptionCreate struct {
+	SubscriptionID string
+	NamespaceID    int64
+	TargetID       string
+	Name           string
+	EventType      string
+	JobID          string
+	RunStatus      string
+	TriggerType    string
+	OwningCell     string
+	CreatedAt      int64
+}
+
+type ReactionSubscriptionRecord struct {
+	ID             int64
+	SubscriptionID string
+	NamespaceID    *int64
+	TargetID       string
+	Name           string
+	EventType      string
+	JobID          string
+	RunStatus      string
+	TriggerType    string
+	OwningCell     string
+	Enabled        bool
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
+type ReactionSubscriptionMatch struct {
+	Subscription ReactionSubscriptionRecord
+	Target       ReactionTargetRecord
+}
+
 type ReactionInvocationCreate struct {
 	InvocationID         string
 	EventID              string
@@ -744,6 +785,8 @@ type ReactionsRepository interface {
 	RecordEvent(ctx context.Context, create ReactionEventCreate) (ReactionEventRecord, error)
 	GetEvent(ctx context.Context, eventID string) (ReactionEventRecord, error)
 	CreateTarget(ctx context.Context, create ReactionTargetCreate) (ReactionTargetRecord, error)
+	CreateSubscription(ctx context.Context, create ReactionSubscriptionCreate) (ReactionSubscriptionRecord, error)
+	ListMatchingSubscriptions(ctx context.Context, event ReactionEventRecord) ([]ReactionSubscriptionMatch, error)
 	CreateInvocation(ctx context.Context, create ReactionInvocationCreate) (ReactionInvocationRecord, error)
 	GetInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error)
 	ListReadyInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error)

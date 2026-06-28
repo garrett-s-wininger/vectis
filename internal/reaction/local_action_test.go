@@ -16,7 +16,7 @@ func TestLocalNotifyActionExecuteRecordsDurableMessage(t *testing.T) {
 
 	event, err := store.RecordEvent(ctx, dal.ReactionEventCreate{
 		Source:      dal.ReactionEventSourceManual,
-		EventType:   "manual.notice",
+		EventType:   dal.ReactionEventTypeManualNotice,
 		Actor:       "operator",
 		PayloadJSON: []byte(`{"message":"manual heads up"}`),
 	})

@@ -16,7 +16,7 @@ func TestReactionsRepository_DurableLocalInvocationFlow(t *testing.T) {
 
 	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
 		Source:      dal.ReactionEventSourceManual,
-		EventType:   "manual.notice",
+		EventType:   dal.ReactionEventTypeManualNotice,
 		Actor:       "operator",
 		PayloadJSON: []byte(`{"message":"build queue degraded"}`),
 	})
@@ -115,13 +115,92 @@ func TestReactionsRepository_DurableLocalInvocationFlow(t *testing.T) {
 	}
 }
 
+func TestReactionsRepository_ListMatchingSubscriptionsFiltersEventMetadata(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositoriesWithCellID(db, "iad-a").Reactions()
+	ctx := context.Background()
+
+	matchingTarget, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "matching-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"matches"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create matching target: %v", err)
+	}
+
+	ignoredTarget, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "ignored-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"ignored"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create ignored target: %v", err)
+	}
+
+	matchingSubscription, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:    matchingTarget.TargetID,
+		Name:        "succeeded-manual-run",
+		EventType:   dal.ReactionEventTypeRunCompleted,
+		JobID:       "job-a",
+		RunStatus:   dal.RunStatusSucceeded,
+		TriggerType: dal.TriggerTypeManual,
+		OwningCell:  "iad-a",
+	})
+
+	if err != nil {
+		t.Fatalf("create matching subscription: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:  ignoredTarget.TargetID,
+		Name:      "failed-run",
+		EventType: dal.ReactionEventTypeRunCompleted,
+		JobID:     "job-a",
+		RunStatus: dal.RunStatusFailed,
+	}); err != nil {
+		t.Fatalf("create ignored subscription: %v", err)
+	}
+
+	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeRunCompleted,
+		JobID:       "job-a",
+		PayloadJSON: []byte(`{"status":"succeeded","trigger_type":"manual"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	matches, err := repo.ListMatchingSubscriptions(ctx, event)
+	if err != nil {
+		t.Fatalf("list matching subscriptions: %v", err)
+	}
+
+	if len(matches) != 1 {
+		t.Fatalf("matches: %+v", matches)
+	}
+
+	if matches[0].Subscription.SubscriptionID != matchingSubscription.SubscriptionID {
+		t.Fatalf("subscription: got %+v want %+v", matches[0].Subscription, matchingSubscription)
+	}
+
+	if matches[0].Target.TargetID != matchingTarget.TargetID || string(matches[0].Target.ConfigJSON) != string(matchingTarget.ConfigJSON) {
+		t.Fatalf("target: got %+v want %+v", matches[0].Target, matchingTarget)
+	}
+}
+
 func TestReactionsRepository_ListReadyInvocationsIncludesExpiredClaims(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repo := dal.NewSQLRepositories(db).Reactions()
 	ctx := context.Background()
 
 	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
-		EventType:   "run.completed",
+		EventType:   dal.ReactionEventTypeRunCompleted,
 		PayloadJSON: []byte(`{"run_id":"run-1","status":"succeeded"}`),
 	})
 
@@ -197,7 +276,7 @@ func TestReactionsRepository_RejectsInvalidJSON(t *testing.T) {
 	repo := dal.NewSQLRepositories(db).Reactions()
 
 	_, err := repo.RecordEvent(context.Background(), dal.ReactionEventCreate{
-		EventType:   "manual.notice",
+		EventType:   dal.ReactionEventTypeManualNotice,
 		PayloadJSON: []byte(`not-json`),
 	})
 

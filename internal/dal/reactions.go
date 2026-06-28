@@ -135,6 +135,109 @@ func (r *SQLReactionsRepository) CreateTarget(ctx context.Context, create Reacti
 	return r.getTarget(ctx, targetID)
 }
 
+func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create ReactionSubscriptionCreate) (ReactionSubscriptionRecord, error) {
+	subscriptionID := strings.TrimSpace(create.SubscriptionID)
+	if subscriptionID == "" {
+		subscriptionID = newGlobalID()
+	}
+
+	targetID := strings.TrimSpace(create.TargetID)
+	if targetID == "" {
+		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: target_id is required", ErrConflict)
+	}
+
+	name := strings.TrimSpace(create.Name)
+	if name == "" {
+		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: subscription name is required", ErrConflict)
+	}
+
+	now := create.CreatedAt
+	if now <= 0 {
+		now = time.Now().UnixNano()
+	}
+
+	_, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+		INSERT INTO reaction_subscriptions
+			(subscription_id, namespace_id, target_id, name, event_type, job_id, run_status, trigger_type, owning_cell, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`),
+		subscriptionID,
+		nullableInt64(create.NamespaceID),
+		targetID,
+		name,
+		strings.TrimSpace(create.EventType),
+		strings.TrimSpace(create.JobID),
+		strings.TrimSpace(create.RunStatus),
+		strings.TrimSpace(create.TriggerType),
+		strings.TrimSpace(create.OwningCell),
+		true,
+		now,
+		now,
+	)
+
+	if err != nil {
+		return ReactionSubscriptionRecord{}, normalizeSQLError(err)
+	}
+
+	return r.getSubscription(ctx, subscriptionID)
+}
+
+func (r *SQLReactionsRepository) ListMatchingSubscriptions(ctx context.Context, event ReactionEventRecord) ([]ReactionSubscriptionMatch, error) {
+	eventType := strings.TrimSpace(event.EventType)
+	if eventType == "" {
+		return nil, fmt.Errorf("%w: event_type is required", ErrConflict)
+	}
+
+	namespaceID := int64(0)
+	if event.NamespaceID != nil {
+		namespaceID = *event.NamespaceID
+	}
+
+	runStatus := reactionEventPayloadString(event.PayloadJSON, "status")
+	triggerType := reactionEventPayloadString(event.PayloadJSON, "trigger_type")
+	sourceCell := strings.TrimSpace(event.SourceCell)
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+		    s.id, s.subscription_id, s.namespace_id, s.target_id, s.name, s.event_type, s.job_id, s.run_status,
+		    s.trigger_type, s.owning_cell, s.enabled, s.created_at, s.updated_at,
+		    t.id, t.target_id, t.namespace_id, t.name, t.kind, t.uses, t.config_json, t.secret_refs_json,
+		    t.enabled, t.created_at, t.updated_at
+		FROM reaction_subscriptions s
+		JOIN reaction_targets t ON t.target_id = s.target_id
+		WHERE s.enabled = ?
+		  AND t.enabled = ?
+		  AND (s.namespace_id IS NULL OR s.namespace_id = ?)
+		  AND (s.event_type = '' OR s.event_type = ?)
+		  AND (s.job_id = '' OR s.job_id = ?)
+		  AND (s.run_status = '' OR s.run_status = ?)
+		  AND (s.trigger_type = '' OR s.trigger_type = ?)
+		  AND (s.owning_cell = '' OR s.owning_cell = ?)
+		ORDER BY s.id ASC
+	`), true, true, namespaceID, eventType, strings.TrimSpace(event.JobID), runStatus, triggerType, sourceCell)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []ReactionSubscriptionMatch
+	for rows.Next() {
+		match, err := scanReactionSubscriptionMatch(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, match)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create ReactionInvocationCreate) (ReactionInvocationRecord, error) {
 	invocationID := strings.TrimSpace(create.InvocationID)
 	if invocationID == "" {
@@ -455,6 +558,17 @@ func (r *SQLReactionsRepository) getTarget(ctx context.Context, targetID string)
 	return scanReactionTarget(row)
 }
 
+func (r *SQLReactionsRepository) getSubscription(ctx context.Context, subscriptionID string) (ReactionSubscriptionRecord, error) {
+	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT id, subscription_id, namespace_id, target_id, name, event_type, job_id, run_status, trigger_type, owning_cell,
+		       enabled, created_at, updated_at
+		FROM reaction_subscriptions
+		WHERE subscription_id = ?
+	`), subscriptionID)
+
+	return scanReactionSubscription(row)
+}
+
 func (r *SQLReactionsRepository) getInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, invocation_id, event_id, target_id, status, action_uses, action_descriptor_json, action_digest,
@@ -539,6 +653,82 @@ func scanReactionTarget(scanner reactionScanner) (ReactionTargetRecord, error) {
 	return rec, nil
 }
 
+func scanReactionSubscription(scanner reactionScanner) (ReactionSubscriptionRecord, error) {
+	var rec ReactionSubscriptionRecord
+	var namespaceID sql.NullInt64
+	if err := scanner.Scan(
+		&rec.ID,
+		&rec.SubscriptionID,
+		&namespaceID,
+		&rec.TargetID,
+		&rec.Name,
+		&rec.EventType,
+		&rec.JobID,
+		&rec.RunStatus,
+		&rec.TriggerType,
+		&rec.OwningCell,
+		&rec.Enabled,
+		&rec.CreatedAt,
+		&rec.UpdatedAt,
+	); err != nil {
+		return ReactionSubscriptionRecord{}, normalizeSQLError(err)
+	}
+
+	if namespaceID.Valid {
+		rec.NamespaceID = &namespaceID.Int64
+	}
+
+	return rec, nil
+}
+
+func scanReactionSubscriptionMatch(scanner reactionScanner) (ReactionSubscriptionMatch, error) {
+	var match ReactionSubscriptionMatch
+	var subscriptionNamespaceID sql.NullInt64
+	var targetNamespaceID sql.NullInt64
+	var targetConfig string
+	var targetSecretRefs string
+	if err := scanner.Scan(
+		&match.Subscription.ID,
+		&match.Subscription.SubscriptionID,
+		&subscriptionNamespaceID,
+		&match.Subscription.TargetID,
+		&match.Subscription.Name,
+		&match.Subscription.EventType,
+		&match.Subscription.JobID,
+		&match.Subscription.RunStatus,
+		&match.Subscription.TriggerType,
+		&match.Subscription.OwningCell,
+		&match.Subscription.Enabled,
+		&match.Subscription.CreatedAt,
+		&match.Subscription.UpdatedAt,
+		&match.Target.ID,
+		&match.Target.TargetID,
+		&targetNamespaceID,
+		&match.Target.Name,
+		&match.Target.Kind,
+		&match.Target.Uses,
+		&targetConfig,
+		&targetSecretRefs,
+		&match.Target.Enabled,
+		&match.Target.CreatedAt,
+		&match.Target.UpdatedAt,
+	); err != nil {
+		return ReactionSubscriptionMatch{}, normalizeSQLError(err)
+	}
+
+	if subscriptionNamespaceID.Valid {
+		match.Subscription.NamespaceID = &subscriptionNamespaceID.Int64
+	}
+
+	if targetNamespaceID.Valid {
+		match.Target.NamespaceID = &targetNamespaceID.Int64
+	}
+
+	match.Target.ConfigJSON = []byte(targetConfig)
+	match.Target.SecretRefsJSON = []byte(targetSecretRefs)
+	return match, nil
+}
+
 func scanReactionInvocation(scanner reactionScanner) (ReactionInvocationRecord, error) {
 	var rec ReactionInvocationRecord
 	var descriptor string
@@ -603,6 +793,25 @@ func scanReactionLocalMessage(scanner reactionScanner) (ReactionLocalMessageReco
 
 	rec.PayloadJSON = []byte(payload)
 	return rec, nil
+}
+
+func reactionEventPayloadString(payload []byte, field string) string {
+	payload = bytes.TrimSpace(payload)
+	if len(payload) == 0 {
+		return ""
+	}
+
+	var object map[string]any
+	if err := json.Unmarshal(payload, &object); err != nil {
+		return ""
+	}
+
+	value, ok := object[field].(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(value)
 }
 
 func normalizeJSONObject(raw []byte, field, fallback string) ([]byte, error) {
