@@ -223,11 +223,6 @@ package_rpm_arch = $(if $(filter amd64,$(1)),x86_64,$(if $(filter arm64,$(1)),aa
 package_service_bins = $(addprefix $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-,$(PACKAGE_SERVICE_APPS))
 package_local_bin_dir = $(PACKAGE_BUILD_DIR)/linux-$(1)-local/bin
 package_local_bins = $(addprefix $(call package_local_bin_dir,$(1))/vectis-,$(PACKAGE_LOCAL_APPS))
-package_common_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS)
-package_service_inputs = --input linux-artifacts=$(PACKAGE_LINUX_ARTIFACTS) --input vectis-$(2)=$(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-$(2)
-package_local_inputs = --input vectis-local-wrapper=$(PACKAGE_LOCAL_WRAPPER) --input vectis-local-binaries=$(call package_local_bin_dir,$(1))
-package_local_dispatch_env = --env 'PACKAGE_OUT=$(PACKAGE_OUT)' --env 'PACKAGE_BUILD_DIR=$(PACKAGE_BUILD_DIR)' --env 'PACKAGE_VERSION=$(PACKAGE_VERSION)' --env 'PACKAGE_RELEASE=$(PACKAGE_RELEASE)' --env 'PACKAGE_ARCH=$(2)' --env 'PACKAGE_LOCAL_ARCHES=$(2)' --env 'PACKAGE_LOCAL_APPS=$(PACKAGE_LOCAL_APPS)'
-package_local_dispatch = PACKER_VM_PREP_VERSION='$(PACKER_VM_PREP_VERSION)' $(GO) run ./deploy/package/cmd/build-local --format $(1) --arch $(2) --workdir '$(CURDIR)' --make '$(PACKAGE_LOCAL_MAKE)' --provider '$(PACKAGE_LOCAL_VM_PROVIDER)' --provider-path '$(PACKAGE_LOCAL_VM_PROVIDER_PATH)' --instance '$(PACKAGE_LOCAL_VM_INSTANCE)' --timeout '$(PACKAGE_LOCAL_VM_TIMEOUT)' --allow-cross-cgo=$(PACKAGE_LOCAL_ALLOW_CROSS_CGO) --keep-vm=$(PACKAGE_LOCAL_VM_KEEP) --vm-workspace-root '$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)' --vm-cache-root '$(PACKAGE_LOCAL_VM_CACHE_ROOT)' --vm-preserve-env=$(PACKAGE_LOCAL_VM_PRESERVE_ENV) --vm-go '$(PACKAGE_LOCAL_VM_GO)' $(call package_local_dispatch_env,$(1),$(2))
 VM_MAGE_ENV = GO="$(GO)" PACKER="$(PACKER)" PACKER_VM_PREP_VERSION="$(PACKER_VM_PREP_VERSION)" \
 	VM_PROVIDER="$(VM_PROVIDER)" VM_DOCTOR_TIMEOUT="$(VM_DOCTOR_TIMEOUT)" \
 	PACKER_DEPLOY_SMOKE_DIR="$(PACKER_DEPLOY_SMOKE_DIR)" \
@@ -261,6 +256,27 @@ VM_MAGE_ENV = GO="$(GO)" PACKER="$(PACKER)" PACKER_VM_PREP_VERSION="$(PACKER_VM_
 	PACKER_PACKAGE_RPM_SMOKE_INSTANCE="$(PACKER_PACKAGE_RPM_SMOKE_INSTANCE)" \
 	PACKER_PACKAGE_RPM_SMOKE_TEMPLATE="$(PACKER_PACKAGE_RPM_SMOKE_TEMPLATE)" \
 	PACKAGE_LOCAL_VM_PROVIDER_PATH="$(PACKAGE_LOCAL_VM_PROVIDER_PATH)"
+PACKAGE_MAGE_ENV = GO="$(GO)" PACKER_VM_PREP_VERSION="$(PACKER_VM_PREP_VERSION)" \
+	PACKAGE_OUT="$(PACKAGE_OUT)" PACKAGE_BUILD_DIR="$(PACKAGE_BUILD_DIR)" \
+	PACKAGE_ARCH="$(PACKAGE_ARCH)" PACKAGE_ARCHES="$(PACKAGE_ARCHES)" \
+	PACKAGE_SERVICE_APPS="$(PACKAGE_SERVICE_APPS)" \
+	PACKAGE_LOCAL_ARCHES="$(PACKAGE_LOCAL_ARCHES)" \
+	PACKAGE_LOCAL_APPS="$(PACKAGE_LOCAL_APPS)" \
+	PACKAGE_LOCAL_ALLOW_CROSS_CGO="$(PACKAGE_LOCAL_ALLOW_CROSS_CGO)" \
+	PACKAGE_LOCAL_MAKE="$(PACKAGE_LOCAL_MAKE)" \
+	PACKAGE_VERSION="$(PACKAGE_VERSION)" PACKAGE_RELEASE="$(PACKAGE_RELEASE)" \
+	PACKAGE_LOCAL_VM_PROVIDER="$(PACKAGE_LOCAL_VM_PROVIDER)" \
+	PACKAGE_LOCAL_VM_PROVIDER_PATH="$(PACKAGE_LOCAL_VM_PROVIDER_PATH)" \
+	PACKAGE_LOCAL_VM_INSTANCE="$(PACKAGE_LOCAL_VM_INSTANCE)" \
+	PACKAGE_LOCAL_VM_TIMEOUT="$(PACKAGE_LOCAL_VM_TIMEOUT)" \
+	PACKAGE_LOCAL_VM_WORKSPACE_ROOT="$(PACKAGE_LOCAL_VM_WORKSPACE_ROOT)" \
+	PACKAGE_LOCAL_VM_CACHE_ROOT="$(PACKAGE_LOCAL_VM_CACHE_ROOT)" \
+	PACKAGE_LOCAL_VM_KEEP="$(PACKAGE_LOCAL_VM_KEEP)" \
+	PACKAGE_LOCAL_VM_PRESERVE_ENV="$(PACKAGE_LOCAL_VM_PRESERVE_ENV)" \
+	PACKAGE_LOCAL_VM_GO="$(PACKAGE_LOCAL_VM_GO)" \
+	PACKER_PACKAGE_BUILDER_INSTANCE="$(PACKER_PACKAGE_BUILDER_INSTANCE)" \
+	PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT="$(PACKER_PACKAGE_BUILDER_WORKSPACE_ROOT)" \
+	PACKER_PACKAGE_BUILDER_CACHE_ROOT="$(PACKER_PACKAGE_BUILDER_CACHE_ROOT)"
 package_common_deb_path = $(PACKAGE_OUT)/vectis-common_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
 package_common_rpm_path = $(PACKAGE_OUT)/vectis-common-$(subst -,_,$(PACKAGE_VERSION))-$(subst -,_,$(PACKAGE_RELEASE)).$(call package_rpm_arch,$(1)).rpm
 package_service_deb_path = $(PACKAGE_OUT)/vectis-$(2)_$(PACKAGE_VERSION)-$(PACKAGE_RELEASE)_$(call package_deb_arch,$(1)).deb
@@ -385,192 +401,195 @@ vm-package-smoke-check:
 	$(VM_MAGE_ENV) $(MAGE) vmPackageSmokeCheck
 
 $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli: cmd/cli/main.go $(API) $(INTERNAL)
-	mkdir -p $(dir ${@})
-	GOOS=linux GOARCH=${*} CGO_ENABLED=0 $(GO) build -tags=nosqlite -ldflags '${LDFLAGS}' -o ${@} ./cmd/cli
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCLIBinary ${*}
 
 $(PACKAGE_LINUX_ARTIFACTS_STAMP): deploy/linux/services.toml deploy/linux/artifacts.go deploy/linux/cmd/render/main.go
-	rm -rf $(PACKAGE_LINUX_ARTIFACTS)
-	mkdir -p $(PACKAGE_LINUX_ARTIFACTS)
-	go run ./deploy/linux/cmd/render -out $(PACKAGE_LINUX_ARTIFACTS)
-	touch ${@}
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLinuxArtifacts
 
 define package_service_binary_rules
 $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-%: cmd/%/main.go $(API) $(INTERNAL)
-	mkdir -p $$(dir $$@)
-	GOOS=linux GOARCH=$(1) CGO_ENABLED=0 $$(GO) build -tags=nosqlite -ldflags '$$(LDFLAGS)' -o $$@ ./cmd/$$*
+	$$(PACKAGE_MAGE_ENV) $$(MAGE) packageServiceBinary $(1) $$*
 endef
 
 $(foreach arch,$(PACKAGE_SERVICE_ALL_ARCHES),$(eval $(call package_service_binary_rules,$(arch))))
 
 .PHONY: $(addprefix package-local-cgo-check-,$(PACKAGE_LOCAL_ALL_ARCHES))
 $(addprefix package-local-cgo-check-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-cgo-check-%:
-	@if [ "$$($(GO) env GOOS)" != "linux" ] && [ "$(PACKAGE_LOCAL_ALLOW_CROSS_CGO)" != "1" ]; then \
-		echo "vectis-local Linux packages require a CGO Linux build. Run this target on Linux or set PACKAGE_LOCAL_ALLOW_CROSS_CGO=1 with a working Linux C toolchain."; \
-		exit 1; \
-	fi
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalCGOCheck ${*}
 
 $(PACKAGE_LOCAL_WRAPPER):
-	mkdir -p $(dir ${@})
-	printf '%s\n' '#!/bin/sh' 'exec /usr/lib/vectis-local/bin/vectis-local "$$@"' > ${@}
-	chmod 0755 ${@}
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalWrapper
 
 define package_local_binary_rules
 $(call package_local_bin_dir,$(1))/vectis-%: package-local-cgo-check-$(1) cmd/%/main.go $(API) $(INTERNAL)
-	mkdir -p $$(dir $$@)
-	GOOS=linux GOARCH=$(1) CGO_ENABLED=1 $$(GO) build -ldflags '$$(LDFLAGS)' -o $$@ ./cmd/$$*
+	$$(PACKAGE_MAGE_ENV) $$(MAGE) packageLocalBinary $(1) $$*
 endef
 
 $(foreach arch,$(PACKAGE_LOCAL_ALL_ARCHES),$(eval $(call package_local_binary_rules,$(arch))))
 
 .PHONY: $(PACKAGE_CLI_ALL_DEB_TARGETS)
-$(PACKAGE_CLI_ALL_DEB_TARGETS): package-cli-deb-%: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli
-	go run ./deploy/package/cmd/build --package vectis-cli --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} --input vectis-cli=${<}
+$(PACKAGE_CLI_ALL_DEB_TARGETS): package-cli-deb-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCLIDebArch ${*}
 
 .PHONY: $(PACKAGE_CLI_ALL_RPM_TARGETS)
-$(PACKAGE_CLI_ALL_RPM_TARGETS): package-cli-rpm-%: $(PACKAGE_BUILD_DIR)/linux-%/vectis-cli
-	go run ./deploy/package/cmd/build --package vectis-cli --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} --input vectis-cli=${<}
+$(PACKAGE_CLI_ALL_RPM_TARGETS): package-cli-rpm-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCLIRPMArch ${*}
 
 .PHONY: package-cli-deb
-package-cli-deb: $(PACKAGE_CLI_DEB_TARGETS)
+package-cli-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCLIDeb
 
 .PHONY: package-cli-rpm
-package-cli-rpm: $(PACKAGE_CLI_RPM_TARGETS)
+package-cli-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCLIRPM
 
 .PHONY: package-cli
-package-cli: package-cli-deb package-cli-rpm
+package-cli:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCLI
 
 .PHONY: $(addprefix package-local-deb-,$(PACKAGE_LOCAL_ALL_ARCHES))
 $(addprefix package-local-deb-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-deb-%:
-	$(call package_local_dispatch,deb,${*})
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalDebArch ${*}
 
 .PHONY: $(addprefix package-local-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES))
 $(addprefix package-local-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-rpm-%:
-	$(call package_local_dispatch,rpm,${*})
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalRPMArch ${*}
 
 .PHONY: $(addprefix package-local-native-deb-,$(PACKAGE_LOCAL_ALL_ARCHES))
-$(addprefix package-local-native-deb-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-native-deb-%: $(PACKAGE_LOCAL_WRAPPER) $(call package_local_bins,%)
-	go run ./deploy/package/cmd/build --package vectis-local --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(call package_local_inputs,${*})
+$(addprefix package-local-native-deb-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-native-deb-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalNativeDebArch ${*}
 
 .PHONY: $(addprefix package-local-native-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES))
-$(addprefix package-local-native-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-native-rpm-%: $(PACKAGE_LOCAL_WRAPPER) $(call package_local_bins,%)
-	go run ./deploy/package/cmd/build --package vectis-local --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(call package_local_inputs,${*})
+$(addprefix package-local-native-rpm-,$(PACKAGE_LOCAL_ALL_ARCHES)): package-local-native-rpm-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalNativeRPMArch ${*}
 
 .PHONY: $(addprefix package-common-deb-,$(PACKAGE_SERVICE_ALL_ARCHES))
-$(addprefix package-common-deb-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-common-deb-%: $(PACKAGE_LINUX_ARTIFACTS_STAMP)
-	go run ./deploy/package/cmd/build --package vectis-common --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(package_common_inputs)
+$(addprefix package-common-deb-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-common-deb-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCommonDebArch ${*}
 
 .PHONY: $(addprefix package-common-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES))
-$(addprefix package-common-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-common-rpm-%: $(PACKAGE_LINUX_ARTIFACTS_STAMP)
-	go run ./deploy/package/cmd/build --package vectis-common --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*} $(package_common_inputs)
+$(addprefix package-common-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-common-rpm-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCommonRPMArch ${*}
 
 define package_service_package_rules
 .PHONY: package-service-deb-$(1)-$(2)
-package-service-deb-$(1)-$(2): $(PACKAGE_LINUX_ARTIFACTS_STAMP) $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-$(2)
-	go run ./deploy/package/cmd/build --package vectis-$(2) --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch $(1) $$(call package_service_inputs,$(1),$(2))
+package-service-deb-$(1)-$(2):
+	$$(PACKAGE_MAGE_ENV) $$(MAGE) packageServiceDebArch $(1) $(2)
 
 .PHONY: package-service-rpm-$(1)-$(2)
-package-service-rpm-$(1)-$(2): $(PACKAGE_LINUX_ARTIFACTS_STAMP) $(PACKAGE_BUILD_DIR)/linux-$(1)/vectis-$(2)
-	go run ./deploy/package/cmd/build --package vectis-$(2) --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch $(1) $$(call package_service_inputs,$(1),$(2))
+package-service-rpm-$(1)-$(2):
+	$$(PACKAGE_MAGE_ENV) $$(MAGE) packageServiceRPMArch $(1) $(2)
 endef
 
 $(foreach arch,$(PACKAGE_SERVICE_ALL_ARCHES),$(foreach app,$(PACKAGE_SERVICE_APPS),$(eval $(call package_service_package_rules,$(arch),$(app)))))
 
 .PHONY: $(addprefix package-services-deb-,$(PACKAGE_SERVICE_ALL_ARCHES))
-$(addprefix package-services-deb-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-services-deb-%: package-common-deb-% $(foreach app,$(PACKAGE_SERVICE_APPS),package-service-deb-%-$(app))
-	go run ./deploy/package/cmd/build --package vectis-services --format deb --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*}
+$(addprefix package-services-deb-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-services-deb-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageServicesDebArch ${*}
 
 .PHONY: $(addprefix package-services-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES))
-$(addprefix package-services-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-services-rpm-%: package-common-rpm-% $(foreach app,$(PACKAGE_SERVICE_APPS),package-service-rpm-%-$(app))
-	go run ./deploy/package/cmd/build --package vectis-services --format rpm --out $(PACKAGE_OUT) --version $(PACKAGE_VERSION) --release $(PACKAGE_RELEASE) --arch ${*}
+$(addprefix package-services-rpm-,$(PACKAGE_SERVICE_ALL_ARCHES)): package-services-rpm-%:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageServicesRPMArch ${*}
 
 .PHONY: package-common-deb
-package-common-deb: $(PACKAGE_COMMON_DEB_TARGETS)
+package-common-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCommonDeb
 
 .PHONY: package-common-rpm
-package-common-rpm: $(PACKAGE_COMMON_RPM_TARGETS)
+package-common-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCommonRPM
 
 .PHONY: package-common
-package-common: package-common-deb package-common-rpm
+package-common:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageCommon
 
 .PHONY: package-local-deb
-package-local-deb: $(PACKAGE_LOCAL_DEB_TARGETS)
+package-local-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalDeb
 
 .PHONY: package-local-rpm
-package-local-rpm: $(PACKAGE_LOCAL_RPM_TARGETS)
+package-local-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalRPM
 
 .PHONY: package-local
-package-local: package-local-deb package-local-rpm
+package-local:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocal
 
 .PHONY: package-local-native-deb
-package-local-native-deb: $(PACKAGE_LOCAL_NATIVE_DEB_TARGETS)
+package-local-native-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalNativeDeb
 
 .PHONY: package-local-native-rpm
-package-local-native-rpm: $(PACKAGE_LOCAL_NATIVE_RPM_TARGETS)
+package-local-native-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalNativeRPM
 
 .PHONY: package-local-native
-package-local-native: package-local-native-deb package-local-native-rpm
+package-local-native:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLocalNative
 
 .PHONY: package-service-deb
-package-service-deb: $(PACKAGE_SERVICE_DEB_TARGETS)
+package-service-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageServiceDeb
 
 .PHONY: package-service-rpm
-package-service-rpm: $(PACKAGE_SERVICE_RPM_TARGETS)
+package-service-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageServiceRPM
 
 .PHONY: package-service
-package-service: package-service-deb package-service-rpm
+package-service:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageService
 
 .PHONY: package-services-deb
-package-services-deb: $(PACKAGE_SERVICES_DEB_TARGETS)
+package-services-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageServicesDeb
 
 .PHONY: package-services-rpm
-package-services-rpm: $(PACKAGE_SERVICES_RPM_TARGETS)
+package-services-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageServicesRPM
 
 .PHONY: package-services
-package-services: package-services-deb package-services-rpm
+package-services:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageServices
 
 .PHONY: package-linux
-package-linux: package-cli package-services
+package-linux:
+	$(PACKAGE_MAGE_ENV) $(MAGE) packageLinux
 
 .PHONY: test-package
 test-package:
 	GO="$(GO)" $(MAGE) testPackage
 
 .PHONY: test-e2e-package-cli-deb
-test-e2e-package-cli-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET)
-	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIDeb -count=1 -v
+test-e2e-package-cli-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) testE2EPackageCLIDeb
 
 .PHONY: test-e2e-package-cli-rpm
-test-e2e-package-cli-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET)
-	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageCLIRPM -count=1 -v
+test-e2e-package-cli-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) testE2EPackageCLIRPM
 
 .PHONY: test-e2e-package-services-deb
-test-e2e-package-services-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET) package-services-deb-$(PACKAGE_ARCH)
-	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) VECTIS_E2E_PACKAGE_SERVICES_DEB="$(abspath $(PACKAGE_COMMON_DEB) $(PACKAGE_SERVICE_DEB_PATHS) $(PACKAGE_SERVICES_DEB))" go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesDeb -count=1 -v
+test-e2e-package-services-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) testE2EPackageServicesDeb
 
 .PHONY: test-e2e-package-services-rpm
-test-e2e-package-services-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET) package-services-rpm-$(PACKAGE_ARCH)
-	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_SERVICES_RPM="$(abspath $(PACKAGE_COMMON_RPM) $(PACKAGE_SERVICE_RPM_PATHS) $(PACKAGE_SERVICES_RPM))" go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageServicesRPM -count=1 -v
+test-e2e-package-services-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) testE2EPackageServicesRPM
 
 .PHONY: test-e2e-package-local-deb
-test-e2e-package-local-deb: $(PACKAGE_CLI_DEB_ARCH_TARGET) package-local-deb-$(PACKAGE_ARCH)
-	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_DEB=$(abspath $(PACKAGE_CLI_DEB)) VECTIS_E2E_PACKAGE_LOCAL_DEB=$(abspath $(PACKAGE_LOCAL_DEB)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageLocalDeb -count=1 -v
+test-e2e-package-local-deb:
+	$(PACKAGE_MAGE_ENV) $(MAGE) testE2EPackageLocalDeb
 
 .PHONY: test-e2e-package-local-rpm
-test-e2e-package-local-rpm: $(PACKAGE_CLI_RPM_ARCH_TARGET) package-local-rpm-$(PACKAGE_ARCH)
-	PACKER_VM_PREP_VERSION=$(PACKER_VM_PREP_VERSION) VECTIS_E2E_PACKAGE_CLI_RPM=$(abspath $(PACKAGE_CLI_RPM)) VECTIS_E2E_PACKAGE_LOCAL_RPM=$(abspath $(PACKAGE_LOCAL_RPM)) go test -tags=e2e ./tests/e2e/package/linux -run TestE2EPackageLocalRPM -count=1 -v
+test-e2e-package-local-rpm:
+	$(PACKAGE_MAGE_ENV) $(MAGE) testE2EPackageLocalRPM
 
 .PHONY: test-e2e-package-local
-test-e2e-package-local: test-e2e-package-local-deb test-e2e-package-local-rpm
+test-e2e-package-local:
+	$(PACKAGE_MAGE_ENV) $(MAGE) testE2EPackageLocal
 
 .PHONY: test-e2e-vm
 test-e2e-vm:
-	$(MAKE) vm-check
-	$(MAKE) test-e2e-deploy-linux
-	$(MAKE) test-e2e-package-cli-deb
-	$(MAKE) test-e2e-package-cli-rpm
-	$(MAKE) test-e2e-package-services-deb
-	$(MAKE) test-e2e-package-services-rpm
-	$(MAKE) test-e2e-package-local
+	$(VM_MAGE_ENV) $(PACKAGE_MAGE_ENV) $(MAGE) testE2EVM
 
 .PHONY: website-a11y
 website-a11y:
