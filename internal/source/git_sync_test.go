@@ -53,6 +53,110 @@ func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
 	}
 }
 
+func TestSyncManagedGitCheckoutDisablesAutomaticMaintenanceAndBroadTags(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "first\n", "first")
+	branch := gitOutput(t, remote, "branch", "--show-current")
+	git(t, remote, "tag", "ignored/v1")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   branch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("sync clone failed: %+v", status)
+	}
+
+	for key, want := range map[string]string{
+		"gc.auto":                "0",
+		"maintenance.auto":       "false",
+		"fetch.writeCommitGraph": "false",
+		"remote.origin.tagOpt":   "--no-tags",
+	} {
+		if got := gitOutput(t, checkoutPath, "config", "--get", key); got != want {
+			t.Fatalf("managed checkout config %s: got %q, want %q", key, got, want)
+		}
+	}
+
+	if got := strings.TrimSpace(gitOutput(t, checkoutPath, "tag", "--list")); got != "" {
+		t.Fatalf("managed checkout should not fetch broad tags, got %q", got)
+	}
+
+	writeAndCommit(t, remote, "README.md", "second\n", "second")
+	git(t, remote, "tag", "ignored/v2")
+
+	status = SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   branch,
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("sync fetch failed: %+v", status)
+	}
+
+	if got := strings.TrimSpace(gitOutput(t, checkoutPath, "tag", "--list")); got != "" {
+		t.Fatalf("managed checkout fetch should not fetch broad tags, got %q", got)
+	}
+}
+
+func TestSyncManagedGitCheckoutFetchesPlainDefaultTagOnDemand(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "release\n", "release")
+	releaseCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "tag", "release/v1")
+	git(t, remote, "tag", "ignored/v1")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   "release/v1",
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("sync clone with plain default tag failed: %+v", status)
+	}
+
+	if !status.DefaultRefResolved || status.ResolvedCommit != releaseCommit {
+		t.Fatalf("plain default tag status mismatch: %+v", status)
+	}
+
+	if got := strings.TrimSpace(gitOutput(t, checkoutPath, "tag", "--list")); got != "release/v1" {
+		t.Fatalf("managed checkout should fetch only requested default tag, got %q", got)
+	}
+}
+
+func TestSyncManagedGitCheckoutFetchesExplicitDefaultTagOnDemand(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "release\n", "release")
+	releaseCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "tag", "release/v1")
+	git(t, remote, "tag", "ignored/v1")
+
+	checkoutPath := filepath.Join(t.TempDir(), "managed")
+	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
+		CheckoutPath: checkoutPath,
+		RemoteURL:    remote,
+		DefaultRef:   "refs/tags/release/v1",
+	})
+
+	if status.ErrorCode != "" {
+		t.Fatalf("sync clone with explicit default tag failed: %+v", status)
+	}
+
+	if !status.DefaultRefResolved || status.ResolvedCommit != releaseCommit {
+		t.Fatalf("explicit default tag status mismatch: %+v", status)
+	}
+
+	if got := strings.TrimSpace(gitOutput(t, checkoutPath, "tag", "--list")); got != "release/v1" {
+		t.Fatalf("managed checkout should fetch only requested explicit default tag, got %q", got)
+	}
+}
+
 func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
@@ -64,6 +168,7 @@ func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) 
 		RemoteURL:    remote,
 		DefaultRef:   defaultBranch,
 	})
+
 	if status.ErrorCode != "" {
 		t.Fatalf("initial sync failed: %+v", status)
 	}
@@ -78,6 +183,7 @@ func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) 
 		RemoteURL:    remote,
 		DefaultRef:   defaultBranch,
 	})
+
 	if status.ErrorCode != "" {
 		t.Fatalf("fetch feature branch failed: %+v", status)
 	}
@@ -91,6 +197,7 @@ func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) 
 	if err != nil {
 		t.Fatalf("managed ResolveRevision plain branch: %v", err)
 	}
+
 	if rev.Commit != featureCommit {
 		t.Fatalf("managed plain branch commit: got %q, want %q", rev.Commit, featureCommit)
 	}
@@ -112,6 +219,7 @@ func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) 
 		branches[0].Remote != "origin" {
 		t.Fatalf("managed branch list mismatch: %+v", branches)
 	}
+
 	if listing.Truncated {
 		t.Fatalf("managed branch list should not be truncated: %+v", listing)
 	}
@@ -125,6 +233,7 @@ func TestManagedGitCheckoutResolvesFetchedRemoteBranchByPlainName(t *testing.T) 
 	if err != nil {
 		t.Fatalf("managed ReadFile feature branch: %v", err)
 	}
+
 	if got, want := string(file.Content), "feature\n"; got != want {
 		t.Fatalf("feature branch content: got %q, want %q", got, want)
 	}

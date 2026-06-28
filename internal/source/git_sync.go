@@ -61,10 +61,18 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 				checkoutStatus.setError("git_clone_failed", err.Error())
 				return checkoutStatus
 			}
-		} else if err := fetchManagedGitCheckout(ctx, checkoutPath, credentialEnv); err != nil {
-			checkoutStatus.DefaultRef = defaultRef
-			checkoutStatus.setError("git_fetch_failed", err.Error())
-			return checkoutStatus
+		} else {
+			if err := configureManagedGitCheckout(ctx, checkoutPath); err != nil {
+				checkoutStatus.DefaultRef = defaultRef
+				checkoutStatus.setError("git_config_failed", err.Error())
+				return checkoutStatus
+			}
+
+			if err := fetchManagedGitCheckout(ctx, checkoutPath, credentialEnv); err != nil {
+				checkoutStatus.DefaultRef = defaultRef
+				checkoutStatus.setError("git_fetch_failed", err.Error())
+				return checkoutStatus
+			}
 		}
 	case os.IsNotExist(err):
 		if err := cloneManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv); err != nil {
@@ -83,7 +91,12 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 		return status
 	}
 
-	return NewManagedGitCheckout(checkoutPath).Status(ctx, defaultRef)
+	finalStatus := NewManagedGitCheckout(checkoutPath).Status(ctx, defaultRef)
+	if finalStatus.ErrorCode == "default_ref_not_found" && fetchManagedGitMissingDefaultRef(ctx, checkoutPath, defaultRef, credentialEnv) == nil {
+		finalStatus = NewManagedGitCheckout(checkoutPath).Status(ctx, defaultRef)
+	}
+
+	return finalStatus
 }
 
 func NewManagedGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitCheckout {
@@ -108,7 +121,11 @@ func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string
 		return fmt.Errorf("create checkout parent: %w", err)
 	}
 
-	if _, err := runGitCommandWithEnv(ctx, env, "clone", "--filter=blob:none", "--no-checkout", "--", remoteURL, checkoutPath); err != nil {
+	if _, err := runGitCommandWithEnv(ctx, env, managedGitCommandArgs("clone", "--filter=blob:none", "--no-checkout", "--no-tags", "--", remoteURL, checkoutPath)...); err != nil {
+		return err
+	}
+
+	if err := configureManagedGitCheckout(ctx, checkoutPath); err != nil {
 		return err
 	}
 
@@ -116,8 +133,108 @@ func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string
 }
 
 func fetchManagedGitCheckout(ctx context.Context, checkoutPath string, env []string) error {
-	_, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, "fetch", "--filter=blob:none", "--prune", "--tags", "origin")
+	_, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--prune", "--no-tags", "--no-auto-gc", "origin")...)
 	return err
+}
+
+func fetchManagedGitMissingDefaultRef(ctx context.Context, checkoutPath, defaultRef string, env []string) error {
+	ref := strings.TrimSpace(defaultRef)
+	if ref == "" || ref == "HEAD" || strings.HasPrefix(ref, "origin/") || looksLikeFullObjectID(ref) {
+		return fmt.Errorf("%w: default ref is not a targeted fetch candidate", ErrInvalidReference)
+	}
+
+	normalized, err := normalizeRef(ref)
+	if err != nil {
+		return err
+	}
+
+	if strings.HasPrefix(normalized, "refs/tags/") {
+		return fetchManagedGitRef(ctx, checkoutPath, env, normalized)
+	}
+
+	if strings.HasPrefix(normalized, "refs/") {
+		return fmt.Errorf("%w: default ref %q is not supported for targeted fallback", ErrInvalidReference, normalized)
+	}
+
+	tagRef, err := normalizeRef("refs/tags/" + normalized)
+	if err != nil {
+		return err
+	}
+
+	return fetchManagedGitRef(ctx, checkoutPath, env, tagRef)
+}
+
+func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, ref string) error {
+	ref, err := normalizeRef(ref)
+	if err != nil {
+		return err
+	}
+
+	sourceRef, destRef, ok := managedGitFetchRefspec(ref)
+	if !ok {
+		return fmt.Errorf("%w: managed fetch ref %q is not supported", ErrInvalidReference, ref)
+	}
+
+	refspec := "+" + sourceRef + ":" + destRef
+	_, err = (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", "origin", refspec)...)
+	return err
+}
+
+func managedGitFetchRefspec(ref string) (string, string, bool) {
+	ref = strings.TrimSpace(ref)
+	switch {
+	case ref == "" || ref == "HEAD" || looksLikeFullObjectID(ref):
+		return "", "", false
+	case strings.HasPrefix(ref, "refs/heads/"):
+		branch := strings.TrimPrefix(ref, "refs/heads/")
+		if branch == "" {
+			return "", "", false
+		}
+
+		return ref, "refs/remotes/origin/" + branch, true
+	case strings.HasPrefix(ref, "refs/tags/"):
+		tag := strings.TrimPrefix(ref, "refs/tags/")
+		if tag == "" {
+			return "", "", false
+		}
+
+		return ref, ref, true
+	default:
+		branch, ok := managedLocalBranchName(ref)
+		if !ok || branch == "" {
+			return "", "", false
+		}
+
+		return "refs/heads/" + branch, "refs/remotes/origin/" + branch, true
+	}
+}
+
+func configureManagedGitCheckout(ctx context.Context, checkoutPath string) error {
+	settings := [][2]string{
+		{"gc.auto", "0"},
+		{"maintenance.auto", "false"},
+		{"fetch.writeCommitGraph", "false"},
+		{"remote.origin.tagOpt", "--no-tags"},
+	}
+
+	for _, setting := range settings {
+		if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "config", "--local", setting[0], setting[1]); err != nil {
+			return fmt.Errorf("set git config %s: %w", setting[0], err)
+		}
+	}
+
+	return nil
+}
+
+func managedGitCommandArgs(args ...string) []string {
+	out := []string{
+		"-c", "gc.auto=0",
+		"-c", "maintenance.auto=false",
+		"-c", "fetch.writeCommitGraph=false",
+	}
+
+	out = append(out, args...)
+	return out
 }
 
 func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef string) error {
