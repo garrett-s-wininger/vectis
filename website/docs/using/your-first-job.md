@@ -279,7 +279,7 @@ These are the built-ins available today:
 | `builtins/script` | `script` | Writes the script to a temporary workspace file and runs it with the selected runner. Optional `outputs` reads a workspace-relative JSON output file after success. |
 | `builtins/test` | `command`; optional `runner` | Runs a predicate command and returns a boolean `result` output. |
 | `builtins/checkout` | `url` | Checks out a Git repository into the run workspace. Optional `ref` fetches a ref from `origin` and checks out `FETCH_HEAD`; optional `fetch_refspecs` fetches additional refspecs. |
-| `builtins/gerrit-review` | `url`, `change`, `message`, `username`, `password_file` | Posts a Gerrit review message and optional label vote using a workspace-relative password file. |
+| `gerrit/review@v1` | `url`, `change`, `message`, `username`, `password_file` | Extension action that posts a Gerrit review message and optional label vote using a workspace-relative password file. |
 | `builtins/sequence` | none | Runs child `steps` in order. |
 | `builtins/parallel` | none | Runs child `branches` concurrently or fans them out across workers. |
 | `builtins/if` | none | Runs a `condition` node, then runs either the `then` or `else` port. |

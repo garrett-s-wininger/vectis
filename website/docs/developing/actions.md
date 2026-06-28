@@ -26,6 +26,10 @@ Actions that need to execute commands should use the worker-provided execution p
 
 Custom user actions should not be added as new builtins unless they are meant to ship with Vectis itself. The extension point for user-owned actions is the action registry: it resolves friendly names such as `examples/greet@v1` to versioned descriptors with immutable digests before worker execution. Standard provider integrations that ship with this repository but are not Vectis core belong under `extensions/actions/` once their runtime/package shape is reusable. See [ADR 0010: Versioned action registry](./architecture-decisions/0010-versioned-action-registry.md) for the architectural contract.
 
+Gerrit follows this split: provider-neutral SCM discovery lives in `sdk/scm`,
+Gerrit REST behavior lives under `extensions/actions/gerrit`, and jobs use the
+`gerrit/review@v1` descriptor from the standard action-extension root.
+
 ## Local Descriptor Registry
 
 The reusable action boundary is descriptor-first. Go packages that need to

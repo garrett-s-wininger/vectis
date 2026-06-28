@@ -222,7 +222,7 @@ Jobs are trees of nodes. Each node has:
 - `steps`, child nodes
 - `isolation`, an optional `host` or `vm` execution request
 
-Built-in actions include process actions such as `builtins/script`, `builtins/test`, `builtins/checkout`, `builtins/gerrit-review`, and `builtins/upload-artifact`; control-flow actions such as `builtins/sequence`, `builtins/parallel`, `builtins/if`, `builtins/retry`, `builtins/timeout`, `builtins/finally`, and `builtins/fallback`; and the `builtins/result` summary action. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
+Built-in actions include process actions such as `builtins/script`, `builtins/test`, `builtins/checkout`, and `builtins/upload-artifact`; control-flow actions such as `builtins/sequence`, `builtins/parallel`, `builtins/if`, `builtins/retry`, `builtins/timeout`, `builtins/finally`, and `builtins/fallback`; and the `builtins/result` summary action. Standard integrations such as `gerrit/review@v1` are action extensions resolved through configured action registry roots. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
 
 ## Worker Execution Environment
 

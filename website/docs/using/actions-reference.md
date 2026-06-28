@@ -36,7 +36,6 @@ Short built-in names such as `script` can resolve internally, but job files shou
 | `builtins/script` | `script` | `runner`, `outputs` | None | No | Writes `script` to a temporary workspace file and runs it with the selected runner. `runner: "auto"` or an omitted runner defaults to PowerShell on Windows and `sh` elsewhere. |
 | `builtins/test` | `command` | `runner` | None | No | Runs a predicate command with the selected runner. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
 | `builtins/checkout` | `url` | `fetch_refspecs`, `ref` | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected. When worker persistent cache handles the URL, `origin` stays on the declared remote and `vectis-cache` exposes the local mirror; `fetch_refspecs` demand-hydrates source refs into the cache when needed, then fetches whitespace-separated refspecs locally on cache hits or from `origin` after direct clones. `ref` fetches a single ref from the active remote and checks out `FETCH_HEAD` detached. |
-| `builtins/gerrit-review` | `url`, `change`, `message`, `username`, `password_file` | `revision`, `label`, `value`, `tag` | None | No | Posts a Gerrit review message and optional label vote to `/a/changes/{change}/revisions/{revision}/review` using HTTP basic auth from a workspace-relative password file. |
 | `builtins/upload-artifact` | `name`, `path` | `content_type`, `metadata_json`, `max_bytes` | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object. |
 | `builtins/sequence` | None | `execution` | `steps` | No | Runs child nodes in order and stops on first failure. |
 | `builtins/parallel` | None | `execution` | `branches` | No | Runs branches concurrently when local, or fans out distributed child task executions by default. |
@@ -50,6 +49,14 @@ Short built-in names such as `script` can resolve internally, but job files shou
 `execution` is reserved for Vectis execution policy. When omitted, `builtins/parallel` defaults to distributed execution and other built-ins default to local execution.
 
 `builtins/script` and `builtins/test` support `runner` values `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. `builtins/script` writes the script below `.vectis/scripts/` in the workspace, rejects symlinked script directories, runs the file through the worker process executor, and removes the temporary file after execution. `outputs` must point to a workspace-relative JSON object file.
+
+## Extension Actions
+
+Extension actions live outside the worker core and must be made available through the configured action registry.
+
+| Action | Required `with` fields | Optional `with` fields | Ports | Local-only | Behavior |
+| --- | --- | --- | --- | --- | --- |
+| `gerrit/review@v1` | `url`, `change`, `message`, `username`, `password_file` | `revision`, `label`, `value`, `tag` | None | No | Posts a Gerrit review message and optional label vote to `/a/changes/{change}/revisions/{revision}/review` using HTTP basic auth from a workspace-relative password file. |
 
 ### Timeout Composition
 
@@ -122,9 +129,14 @@ Current built-in descriptors report capabilities for process-oriented actions:
 | `builtins/script` | `process_launch`, `workspace_read`, `workspace_write` |
 | `builtins/test` | `process_launch`, `workspace_read`, `workspace_write` |
 | `builtins/checkout` | `network`, `process_launch`, `workspace_write` |
-| `builtins/gerrit-review` | `network`, `workspace_read` |
 
 Other built-ins currently report no explicit capabilities.
+
+Current extension descriptors report capabilities for integration-oriented actions:
+
+| Extension | Capabilities |
+| --- | --- |
+| `gerrit/review@v1` | `network`, `workspace_read` |
 
 ## Lifecycle Status
 

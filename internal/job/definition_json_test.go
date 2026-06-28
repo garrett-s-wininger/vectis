@@ -108,7 +108,12 @@ func exampleValidationResolver(t *testing.T) action.Resolver {
 		t.Fatalf("NewLocalManifestSource: %v", err)
 	}
 
-	resolver, err := job.NewActionResolver(actionregistry.NewCompositeResolver(builtins.NewRegistry(), source), nil)
+	extensionSource, err := actionregistry.NewLocalManifestSource(filepath.Clean("../../extensions/actions"))
+	if err != nil {
+		t.Fatalf("NewLocalManifestSource extensions: %v", err)
+	}
+
+	resolver, err := job.NewActionResolver(actionregistry.NewCompositeResolver(builtins.NewRegistry(), source, extensionSource), nil)
 	if err != nil {
 		t.Fatalf("NewActionResolver: %v", err)
 	}

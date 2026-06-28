@@ -30,9 +30,10 @@ func TestProcessActionExecutesDescriptorCommand(t *testing.T) {
 		},
 	}, executor)
 
+	workspace := t.TempDir()
 	state := &action.ExecutionState{
-		Workspace:  "/work/run-1",
-		ProcessEnv: action.SanitizedProcessEnv("/work/run-1", []string{"PATH=/bin"}),
+		Workspace:  workspace,
+		ProcessEnv: action.SanitizedProcessEnv(workspace, []string{"PATH=/bin"}),
 		Logger:     mocks.NewMockLogger(),
 	}
 
@@ -63,7 +64,7 @@ func TestProcessActionExecutesDescriptorCommand(t *testing.T) {
 		"VECTIS_ACTION_NAME=acme/deploy",
 		"VECTIS_ACTION_VERSION=v1",
 		"VECTIS_ACTION_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"VECTIS_WORKSPACE=/work/run-1",
+		"VECTIS_WORKSPACE=" + workspace,
 		"VECTIS_INPUT_ENVIRONMENT=staging",
 		"VECTIS_INPUT_DRY_RUN=true",
 	} {
@@ -84,6 +85,39 @@ func TestProcessActionRejectsMissingCommand(t *testing.T) {
 	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
 	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "runtime_config.command") {
 		t.Fatalf("Execute result = %+v, want missing command failure", result)
+	}
+}
+
+func TestProcessActionCreatesWorkspaceTempDir(t *testing.T) {
+	executor := mocks.NewMockExecExecutor()
+	process := mocks.NewMockProcess()
+	executor.SetProcess(process)
+
+	workspace := t.TempDir()
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "true"},
+	}, executor)
+
+	result := act.Execute(context.Background(), &action.ExecutionState{
+		Workspace: workspace,
+		Logger:    mocks.NewMockLogger(),
+	}, nil, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("Execute status = %s err=%v, want success", result.Status, result.Error)
+	}
+
+	info, err := os.Stat(filepath.Join(workspace, ".tmp"))
+	if err != nil {
+		t.Fatalf("stat .tmp: %v", err)
+	}
+
+	if !info.IsDir() {
+		t.Fatal(".tmp is not a directory")
 	}
 }
 
@@ -130,7 +164,7 @@ func TestProcessActionRejectsAbsoluteWorkingDirectory(t *testing.T) {
 	}, mocks.NewMockExecExecutor())
 
 	state := &action.ExecutionState{
-		Workspace: "/work/run-1",
+		Workspace: t.TempDir(),
 		Logger:    mocks.NewMockLogger(),
 	}
 
@@ -153,7 +187,7 @@ func TestProcessActionRejectsEscapingWorkingDirectory(t *testing.T) {
 	}, mocks.NewMockExecExecutor())
 
 	state := &action.ExecutionState{
-		Workspace: "/work/run-1",
+		Workspace: t.TempDir(),
 		Logger:    mocks.NewMockLogger(),
 	}
 
@@ -217,7 +251,7 @@ func TestProcessActionExecutesConfiguredRunner(t *testing.T) {
 	}, executor)
 
 	state := &action.ExecutionState{
-		Workspace: "/work/run-1",
+		Workspace: t.TempDir(),
 		Logger:    mocks.NewMockLogger(),
 	}
 

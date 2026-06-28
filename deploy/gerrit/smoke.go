@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,11 +14,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	api "vectis/api/gen/go"
+	gerritaction "vectis/extensions/actions/gerrit"
 	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
+	"vectis/internal/action/custom"
 	"vectis/internal/interfaces"
+	sdkscm "vectis/sdk/scm"
 )
 
 const (
@@ -55,6 +60,7 @@ type SmokeResult struct {
 	Change              string `json:"change"`
 	Revision            string `json:"revision"`
 	FetchRef            string `json:"fetch_ref"`
+	PollDiscovered      bool   `json:"poll_discovered"`
 	CheckoutVerified    bool   `json:"checkout_verified"`
 	ReviewPosted        bool   `json:"review_posted"`
 	WrongPasswordDenied bool   `json:"wrong_password_denied"`
@@ -241,15 +247,45 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		return SmokeResult{}, err
 	}
 
-	change := fmt.Sprintf("%s~master~%s", r.opts.Project, changeID)
-	info, err := r.changeInfo(ctx, password, change)
+	client := gerritaction.Client{
+		BaseURL:    r.opts.URL,
+		Username:   r.opts.Username,
+		Password:   password,
+		HTTPClient: r.client,
+	}
+
+	discovered, err := sdkscm.PollChange(ctx, client, sdkscm.PollOptions{
+		Query: sdkscm.Query{
+			Project:  r.opts.Project,
+			Branch:   "master",
+			Status:   "open",
+			ChangeID: changeID,
+		},
+		ChangeID: changeID,
+	})
+
 	if err != nil {
 		return SmokeResult{}, err
 	}
 
-	revision, fetchRef, err := info.currentRevision()
+	discoveredRevision, discoveredFetchRef, err := discovered.CurrentRevisionRef()
 	if err != nil {
 		return SmokeResult{}, err
+	}
+
+	change := fmt.Sprintf("%s~master~%s", r.opts.Project, changeID)
+	info, err := client.ChangeDetail(ctx, change)
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	revision, fetchRef, err := info.CurrentRevisionRef()
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	if discoveredRevision != revision || discoveredFetchRef != fetchRef {
+		return SmokeResult{}, fmt.Errorf("gerrit poll discovered revision/ref %s/%s, detail returned %s/%s", discoveredRevision, discoveredFetchRef, revision, fetchRef)
 	}
 
 	workspace := filepath.Join(workspaceRoot, "checkout")
@@ -289,6 +325,7 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		Change:              change,
 		Revision:            revision,
 		FetchRef:            fetchRef,
+		PollDiscovered:      true,
 		CheckoutVerified:    true,
 		ReviewPosted:        true,
 		WrongPasswordDenied: true,
@@ -338,7 +375,7 @@ func (r smokeRunner) generateHTTPPassword(ctx context.Context, accessToken strin
 	defer resp.Body.Close()
 
 	var password string
-	if err := decodeGerritJSON(resp, &password); err != nil {
+	if err := gerritaction.DecodeJSON(resp, &password); err != nil {
 		return "", fmt.Errorf("generate gerrit http password: %w", err)
 	}
 
@@ -370,7 +407,7 @@ func (r smokeRunner) createProject(ctx context.Context, password string) error {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("create gerrit project failed: status=%d body=%s", resp.StatusCode, readGerritBody(resp.Body))
+		return fmt.Errorf("create gerrit project failed: status=%d body=%s", resp.StatusCode, gerritaction.ReadErrorBody(resp.Body))
 	}
 
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -416,28 +453,6 @@ func (r smokeRunner) pushChange(ctx context.Context, workspaceRoot, password, ch
 	return r.runGit(ctx, repoDir, []string{"-c", "http.extraHeader=" + header}, []string{"push", "origin", "HEAD:refs/for/master"}, "git push")
 }
 
-func (r smokeRunner) changeInfo(ctx context.Context, password, change string) (gerritChangeInfo, error) {
-	endpoint := r.opts.URL + "/a/changes/" + url.PathEscape(change) + "/detail?o=CURRENT_REVISION"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return gerritChangeInfo{}, err
-	}
-	req.SetBasicAuth(r.opts.Username, password)
-
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return gerritChangeInfo{}, fmt.Errorf("get gerrit change detail: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var info gerritChangeInfo
-	if err := decodeGerritJSON(resp, &info); err != nil {
-		return gerritChangeInfo{}, fmt.Errorf("get gerrit change detail: %w", err)
-	}
-
-	return info, nil
-}
-
 func (r smokeRunner) checkoutChange(ctx context.Context, workspace, fetchRef string) error {
 	state := &action.ExecutionState{
 		Workspace: workspace,
@@ -470,9 +485,11 @@ func (r smokeRunner) checkoutChange(ctx context.Context, workspace, fetchRef str
 }
 
 func (r smokeRunner) postReview(ctx context.Context, workspace, change, revision, passwordFile string, wantSuccess bool) error {
+	logs := &captureLogStream{}
 	state := &action.ExecutionState{
 		Workspace: workspace,
 		Logger:    interfaces.NewLogger("gerrit-smoke-review"),
+		LogStream: logs,
 	}
 
 	inputs := map[string]any{
@@ -486,14 +503,19 @@ func (r smokeRunner) postReview(ctx context.Context, workspace, change, revision
 		"password_file": passwordFile,
 	}
 
-	result := builtins.NewGerritReviewAction(nil).Execute(ctx, state, inputs, nil)
+	descriptor, err := gerritReviewDescriptor()
+	if err != nil {
+		return err
+	}
+
+	result := custom.NewProcessAction(descriptor, nil).Execute(ctx, state, inputs, nil)
 	if wantSuccess {
 		if result.Status != action.StatusSuccess {
 			if result.Error != nil {
-				return result.Error
+				return fmt.Errorf("%w: logs=%s", result.Error, logs.String())
 			}
 
-			return fmt.Errorf("gerrit review action failed")
+			return fmt.Errorf("gerrit review action failed: logs=%s", logs.String())
 		}
 
 		return nil
@@ -503,11 +525,72 @@ func (r smokeRunner) postReview(ctx context.Context, workspace, change, revision
 		return fmt.Errorf("gerrit review with wrong password unexpectedly succeeded")
 	}
 
-	if result.Error == nil || !strings.Contains(result.Error.Error(), "401") {
-		return fmt.Errorf("gerrit review wrong password error = %v, want 401", result.Error)
+	if !strings.Contains(logs.String(), "401") {
+		return fmt.Errorf("gerrit review wrong password logs = %q error=%v, want 401", logs.String(), result.Error)
 	}
 
 	return nil
+}
+
+func gerritReviewDescriptor() (actionregistry.Descriptor, error) {
+	root, err := findRepoRoot()
+	if err != nil {
+		return actionregistry.Descriptor{}, err
+	}
+
+	source, err := actionregistry.NewLocalManifestSource(filepath.Join(root, "extensions", "actions"))
+	if err != nil {
+		return actionregistry.Descriptor{}, err
+	}
+
+	return source.ResolveDescriptor("gerrit/review@v1")
+}
+
+func findRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, "extensions", "actions", "gerrit", "review", "action.json")); err == nil {
+				return dir, nil
+			}
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("could not find repository root from %s", dir)
+		}
+
+		dir = parent
+	}
+}
+
+type captureLogStream struct {
+	mu     sync.Mutex
+	chunks []string
+}
+
+func (s *captureLogStream) Send(chunk *api.LogChunk) error {
+	if chunk == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.chunks = append(s.chunks, string(chunk.GetData()))
+	return nil
+}
+
+func (s *captureLogStream) CloseSend() error { return nil }
+
+func (s *captureLogStream) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return strings.Join(s.chunks, "")
 }
 
 func (r smokeRunner) runGit(ctx context.Context, dir string, gitOpts, args []string, operation string) error {
@@ -526,60 +609,6 @@ func (r smokeRunner) runGit(ctx context.Context, dir string, gitOpts, args []str
 	}
 
 	return nil
-}
-
-type gerritChangeInfo struct {
-	CurrentRevision string                    `json:"current_revision"`
-	Revisions       map[string]gerritRevision `json:"revisions"`
-}
-
-type gerritRevision struct {
-	Ref string `json:"ref"`
-}
-
-func (i gerritChangeInfo) currentRevision() (string, string, error) {
-	revision := strings.TrimSpace(i.CurrentRevision)
-	if revision == "" {
-		return "", "", fmt.Errorf("gerrit change detail missing current_revision")
-	}
-
-	info, ok := i.Revisions[revision]
-	if !ok || strings.TrimSpace(info.Ref) == "" {
-		return "", "", fmt.Errorf("gerrit change detail missing fetch ref for revision %s", revision)
-	}
-
-	return revision, strings.TrimSpace(info.Ref), nil
-}
-
-func decodeGerritJSON(resp *http.Response, out any) error {
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("status=%d body=%s", resp.StatusCode, readGerritBody(resp.Body))
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	data = stripXSSIPrefix(data)
-	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("decode Gerrit JSON: %w", err)
-	}
-
-	return nil
-}
-
-func readGerritBody(body io.Reader) string {
-	data, err := io.ReadAll(io.LimitReader(body, 4096))
-	if err != nil {
-		return ""
-	}
-
-	return strings.TrimSpace(string(stripXSSIPrefix(data)))
-}
-
-func stripXSSIPrefix(data []byte) []byte {
-	return bytes.TrimPrefix(data, []byte(")]}'\n"))
 }
 
 func randomChangeID() (string, error) {

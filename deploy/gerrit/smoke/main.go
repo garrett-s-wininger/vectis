@@ -54,7 +54,7 @@ func main() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "Gerrit smoke succeeded: project=%s change=%s revision=%s fetch_ref=%s checkout=%t review=%t wrong_password_denied=%t\n", result.Project, result.Change, result.Revision, result.FetchRef, result.CheckoutVerified, result.ReviewPosted, result.WrongPasswordDenied)
+	fmt.Fprintf(os.Stdout, "Gerrit smoke succeeded: project=%s change=%s revision=%s fetch_ref=%s poll_discovered=%t checkout=%t review=%t wrong_password_denied=%t\n", result.Project, result.Change, result.Revision, result.FetchRef, result.PollDiscovered, result.CheckoutVerified, result.ReviewPosted, result.WrongPasswordDenied)
 }
 
 func envDefault(key, fallback string) string {

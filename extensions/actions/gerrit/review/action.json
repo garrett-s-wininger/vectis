@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "name": "gerrit/review",
+  "display_name": "Gerrit Review",
+  "version": "v1",
+  "runtime": "process",
+  "runtime_config": {
+    "command": "go run ."
+  },
+  "input_schema": {
+    "fields": [
+      {"name": "url", "type": "url", "required": true},
+      {"name": "change", "type": "string", "required": true},
+      {"name": "revision", "type": "string"},
+      {"name": "message", "type": "string", "required": true},
+      {"name": "label", "type": "string"},
+      {"name": "value", "type": "string"},
+      {"name": "tag", "type": "string"},
+      {"name": "username", "type": "string", "required": true},
+      {"name": "password_file", "type": "string", "required": true}
+    ]
+  },
+  "capabilities": [
+    "network",
+    "workspace_read"
+  ]
+}

@@ -41,7 +41,6 @@ func NewRegistry(options ...RegistryOption) *Registry {
 	r.Register(NewScriptAction(nil))
 	r.Register(NewTestAction(nil))
 	r.Register(NewCheckoutAction(nil, opts.checkoutCache))
-	r.Register(NewGerritReviewAction(nil))
 	r.Register(&UploadArtifactAction{})
 	r.Register(&SequenceNode{})
 	r.Register(&ParallelNode{})

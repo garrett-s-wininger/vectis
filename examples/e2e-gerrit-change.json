@@ -32,7 +32,7 @@
       },
       {
         "id": "report",
-        "uses": "builtins/gerrit-review",
+        "uses": "gerrit/review@v1",
         "with": {
           "url": "http://localhost:18088",
           "change": "1",

@@ -18,3 +18,7 @@ and worker-supported runtimes until that interface is deliberate.
 `builtins/` remains the place for small core actions that Vectis itself needs to
 run jobs. Provider-specific integrations should graduate here instead of growing
 the builtin registry indefinitely.
+
+| Extension | Package | Notes |
+| --- | --- | --- |
+| Gerrit review and change discovery | `extensions/actions/gerrit` | Gerrit REST query translation, revision/ref resolution, and review posting over the generic `sdk/scm` discovery contract. Jobs use the `gerrit/review@v1` descriptor. |

@@ -117,7 +117,7 @@ JSON output when `VECTIS_LOG_FORMAT=json` (see `defaults.toml`). The `internal/c
 
 ## `internal/action/` — Built-in actions
 
-Builtins live in `internal/action/builtins/`. Currently registered action types are `builtins/script`, `builtins/test`, `builtins/checkout`, `builtins/gerrit-review`, `builtins/upload-artifact`, `builtins/sequence`, `builtins/parallel`, `builtins/if`, `builtins/retry`, `builtins/timeout`, `builtins/finally`, `builtins/fallback`, and `builtins/result`; `registry.go` is the builtin resolver, not a user-facing action. Each action implements the interface from `internal/action/action.go` and registers its `uses` name so the worker can dispatch to it.
+Builtins live in `internal/action/builtins/`. Currently registered action types are `builtins/script`, `builtins/test`, `builtins/checkout`, `builtins/upload-artifact`, `builtins/sequence`, `builtins/parallel`, `builtins/if`, `builtins/retry`, `builtins/timeout`, `builtins/finally`, `builtins/fallback`, and `builtins/result`; `registry.go` is the builtin resolver, not a user-facing action. Provider-specific actions such as `gerrit/review@v1` live under `extensions/actions/`. Each builtin implements the interface from `internal/action/action.go` and registers its `uses` name so the worker can dispatch to it.
 
 **To add a new builtin:**
 1. Create `internal/action/builtins/<name>.go` implementing the action interface.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -79,6 +80,10 @@ func (a *ProcessAction) Execute(ctx context.Context, state *action.ExecutionStat
 	}
 
 	env := processEnv(a.descriptor, state, inputs)
+	if err := ensureProcessTempDir(state); err != nil {
+		return action.NewFailureResult(err)
+	}
+
 	logLine(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", command))
 	runner, err := scriptrunner.Resolve(a.descriptor.RuntimeConfig["runner"], "sh")
 	if err != nil {
@@ -114,6 +119,18 @@ func (a *ProcessAction) Execute(ctx context.Context, state *action.ExecutionStat
 
 	logLine(state, api.Stream_STREAM_STDOUT, "Custom action completed successfully")
 	return action.NewSuccessResult(nil)
+}
+
+func ensureProcessTempDir(state *action.ExecutionState) error {
+	if state == nil || strings.TrimSpace(state.Workspace) == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Join(strings.TrimSpace(state.Workspace), ".tmp"), 0o700); err != nil {
+		return fmt.Errorf("create process action temp directory: %w", err)
+	}
+
+	return nil
 }
 
 func processCommand(config map[string]string) string {

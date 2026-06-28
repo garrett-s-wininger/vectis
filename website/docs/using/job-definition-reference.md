@@ -179,7 +179,6 @@ Workers materialize file-delivered secrets below the configured secrets director
 | `builtins/script` | Required `script`; optional `runner`, `outputs` | `script`, `runner`, `outputs` | None | No | Writes the script to a temporary workspace file and runs it with the selected runner. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. |
 | `builtins/test` | Required `command`; optional `runner` | `command`, `runner` | None | No | Runs a predicate command with the selected runner. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
 | `builtins/checkout` | Required `url`; optional `fetch_refspecs`, `ref` | `url`, `fetch_refspecs`, `ref` | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected; SCP-style Git URLs are accepted. When worker persistent cache handles the URL, `origin` stays on the declared remote and `vectis-cache` exposes the local mirror; `fetch_refspecs` demand-hydrates source refs into the cache when needed, then fetches whitespace-separated refspecs locally on cache hits or from `origin` after direct clones. `ref` fetches a single ref from the active remote and checks out `FETCH_HEAD` detached. |
-| `builtins/gerrit-review` | Required `url`, `change`, `message`, `username`, `password_file`; optional `revision`, `label`, `value`, `tag` | `url`, `change`, `revision`, `message`, `label`, `value`, `tag`, `username`, `password_file` | None | No | Posts a Gerrit review message and optional label vote using HTTP basic auth from a workspace-relative password file. `revision` defaults to `current`; `value` is required when `label` is set. |
 | `builtins/upload-artifact` | Required `name`, `path`; optional `content_type`, `metadata_json`, `max_bytes` | None | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object with blob and size metadata. See [Artifacts](./artifacts.md). |
 | `builtins/sequence` | Optional `execution` | None | Primary `steps` | No | Runs child nodes in order and stops on the first failure. Returns the last child outputs on success. |
 | `builtins/parallel` | Optional `execution` | None | Primary `branches` | No | Runs branches concurrently when local, or fans them out as distributed task executions by default. |
@@ -189,6 +188,12 @@ Workers materialize file-delivered secrets below the configured secrets director
 | `builtins/finally` | Optional `execution` | None | Required `body`, required `always` | Yes | Runs `always` after `body`. Body failure remains the final failure unless cleanup is the only failure. |
 | `builtins/fallback` | Optional `execution` | None | Required `choices` | Yes | Runs choices in order and returns the first success. If all fail, the final failure is returned. |
 | `builtins/result` | Required `success` | None | None | No | Returns success when `success` parses as `true` and failure when it parses as `false`. |
+
+## Extension Actions
+
+| Action | Static `with` fields | Bound `inputs` | Ports | Local-only | Outputs and behavior |
+| --- | --- | --- | --- | --- | --- |
+| `gerrit/review@v1` | Required `url`, `change`, `message`, `username`, `password_file`; optional `revision`, `label`, `value`, `tag` | `url`, `change`, `revision`, `message`, `label`, `value`, `tag`, `username`, `password_file` | None | No | Posts a Gerrit review message and optional label vote using HTTP basic auth from a workspace-relative password file. `revision` defaults to `current`; `value` is required when `label` is set. |
 
 ## Limits
 
