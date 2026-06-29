@@ -191,6 +191,7 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.queue.continuation_inline_job_max_bytes` | `65536` | Max continuation job payload size kept inline before spillover behavior. |
 | `worker.execution.backend` | `host` | Worker-core execution backend. |
 | `worker.execution.workspace_root` | `""` | Workspace root used by execution backend. |
+| `worker.execution.checkout_cache_root` | `""` | Worker-core checkout cache root; `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` enables persistent mirrors for source repositories with `worker_cache_mode=persistent`. |
 | `worker.execution.lima.path` | `limactl` | Lima CLI path for VM-backed execution. |
 | `worker.execution.lima.instance` | `""` | Lima instance name. |
 | `worker.execution.lima.guest_workspace_root` | `""` | Guest-visible workspace root for Lima execution. |

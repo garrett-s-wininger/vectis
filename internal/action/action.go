@@ -45,6 +45,7 @@ type ExecutionState struct {
 	JobID                   string
 	RunID                   string
 	Workspace               string
+	CheckoutCache           CheckoutCache
 	ProcessEnv              []string
 	Logger                  interfaces.Logger
 	LogClient               interfaces.LogClient
@@ -60,6 +61,10 @@ type ExecutionState struct {
 	outputsMu               sync.RWMutex
 	outputsByNode           map[string]map[string]any
 	nextSequence            int64
+}
+
+type CheckoutCache interface {
+	Checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger) (bool, error)
 }
 
 func (s *ExecutionState) NextSequence() int64 {

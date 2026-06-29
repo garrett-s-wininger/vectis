@@ -142,7 +142,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-secrets` | `VECTIS_SECRETS` | `--port`, `--metrics-host`, `--metrics-port`, `--encryptedfs-root`, `--encryptedfs-key-file`, `--allow-secret` |
 | `vectis-spiffe` | `VECTIS_SPIFFE` | `--trust-domain`, `--data-dir`, `--runtime-dir`, `--workload-socket`, `--registration-socket`, `--bundle-file`, `--selector`, `--x509-svid-ttl`, `--init-only` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--queue-continuation-inline-job-max-bytes`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
-| `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--lima-instance`, `--lima-start` |
+| `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--checkout-cache-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--redispatch-limit`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
@@ -474,6 +474,8 @@ For failure behavior with and without registry, see [Failure Domains](../concept
 
 `vectis-worker` owns queue claims, leases, cancellation, finalization, logs, artifacts, and policy gates. It delegates action execution to `vectis-worker-core` over a Unix domain socket. With the `host` execution backend, built-in actions execute as child processes on the worker-core host inside the per-run workspace. This is compatible with existing deployments, but it is not a security sandbox.
 
+Set `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` or `--checkout-cache-root` to enable worker-local persistent checkout mirrors for `builtins/checkout`. Worker-core caches only source repository declarations whose `worker_cache_mode` is `persistent`; provide those declarations through `source.repositories`, `VECTIS_SOURCE_REPOSITORIES`, `VECTIS_WORKER_SOURCE_REPOSITORIES`, or `VECTIS_WORKER_CORE_SOURCE_REPOSITORIES`. Repositories left at the default `ephemeral` mode keep using direct per-workspace clones.
+
 Jobs can declare `default_isolation: "host"` or `default_isolation: "vm"` as the default for their action tree. Individual nodes can declare `isolation: "host"` or `isolation: "vm"` to override that default. Nodes that omit `isolation` inherit the nearest parent `builtins/sequence` isolation, then the job default, then the worker backend default. A worker must have a matching provider for the effective isolation level; Vectis does not silently fall back from `vm` to `host`.
 
 The first VM-oriented backend is `lima`, intended for macOS worker isolation experiments with a prepared [Lima](https://lima-vm.io/) instance:
@@ -491,6 +493,7 @@ Equivalent environment variables:
 | Variable / key | Purpose |
 | --- | --- |
 | `VECTIS_WORKER_CORE_EXECUTION_BACKEND` | `host` or `lima` to run action commands through `limactl shell`. |
+| `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` | Host-side root for persistent checkout mirrors used by `builtins/checkout`. |
 | `VECTIS_WORKER_CORE_WORKSPACE_ROOT` | Parent directory for automatically-created run workspaces. For Lima, set this to a path that exists and is writable inside the guest. Empty uses the host OS temp directory. |
 | `VECTIS_WORKER_CORE_LIMA_INSTANCE` | Required Lima instance name for the `lima` backend. |
 | `VECTIS_WORKER_CORE_LIMA_PATH` | Path to `limactl`. |

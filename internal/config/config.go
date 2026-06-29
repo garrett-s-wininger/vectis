@@ -291,9 +291,10 @@ type WorkerControlDefaults struct {
 }
 
 type WorkerExecutionDefaults struct {
-	Backend       string                      `toml:"backend"`
-	WorkspaceRoot string                      `toml:"workspace_root"`
-	Lima          WorkerExecutionLimaDefaults `toml:"lima"`
+	Backend           string                      `toml:"backend"`
+	WorkspaceRoot     string                      `toml:"workspace_root"`
+	CheckoutCacheRoot string                      `toml:"checkout_cache_root"`
+	Lima              WorkerExecutionLimaDefaults `toml:"lima"`
 }
 
 type WorkerExecutionLimaDefaults struct {
@@ -435,6 +436,7 @@ func init() {
 	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
 	_ = viper.BindEnv("worker.queue.continuation_inline_job_max_bytes", "VECTIS_WORKER_QUEUE_CONTINUATION_INLINE_JOB_MAX_BYTES")
+	_ = viper.BindEnv("worker.execution.checkout_cache_root", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_ROOT", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT")
 }
 
 func MustDefaults() Defaults {
@@ -1165,6 +1167,13 @@ func WorkerExecutionWorkspaceRoot() string {
 		return strings.TrimSpace(viper.GetString("worker.execution.workspace_root"))
 	}
 	return MustDefaults().Worker.Execution.WorkspaceRoot
+}
+
+func WorkerExecutionCheckoutCacheRoot() string {
+	if viper.IsSet("worker.execution.checkout_cache_root") {
+		return strings.TrimSpace(viper.GetString("worker.execution.checkout_cache_root"))
+	}
+	return MustDefaults().Worker.Execution.CheckoutCacheRoot
 }
 
 func WorkerExecutionLimaPath() string {

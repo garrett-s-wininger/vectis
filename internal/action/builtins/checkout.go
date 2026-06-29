@@ -13,11 +13,18 @@ import (
 
 type CheckoutAction struct {
 	executor interfaces.ExecExecutor
+	cache    action.CheckoutCache
 }
 
-func NewCheckoutAction(executor interfaces.ExecExecutor) *CheckoutAction {
+func NewCheckoutAction(executor interfaces.ExecExecutor, caches ...action.CheckoutCache) *CheckoutAction {
+	var cache action.CheckoutCache
+	if len(caches) > 0 {
+		cache = caches[0]
+	}
+
 	return &CheckoutAction{
 		executor: executor,
+		cache:    cache,
 	}
 }
 
@@ -56,6 +63,22 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	}
 
 	displayURL := redactCloneURL(url)
+
+	if cache := c.checkoutCache(state); cache != nil && state != nil {
+		handled, err := cache.Checkout(ctx, url, state.Workspace, state.Logger)
+		if err != nil {
+			state.Logger.Error("Cached checkout failed for %s: %v", displayURL, err)
+			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Cached checkout failed: %v", err))
+			return action.NewFailureResult(fmt.Errorf("cached checkout failed: %w", err))
+		}
+
+		if handled {
+			state.Logger.Info("Checkout completed successfully from worker cache")
+			sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully from worker cache")
+			return action.NewSuccessResult(nil)
+		}
+	}
+
 	state.Logger.Info("Cloning repository: %s", displayURL)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Cloning %s...", displayURL))
 
@@ -102,6 +125,18 @@ func (c *CheckoutAction) processExecutor(state *action.ExecutionState) interface
 	}
 
 	return interfaces.NewDirectExecutor()
+}
+
+func (c *CheckoutAction) checkoutCache(state *action.ExecutionState) action.CheckoutCache {
+	if c.cache != nil {
+		return c.cache
+	}
+
+	if state != nil {
+		return state.CheckoutCache
+	}
+
+	return nil
 }
 
 func hasCredentialedCloneURL(raw string) bool {

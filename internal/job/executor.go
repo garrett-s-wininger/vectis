@@ -37,6 +37,7 @@ type Executor struct {
 	registry              *builtins.Registry
 	hostProcessExecutor   interfaces.ExecExecutor
 	vmProcessExecutor     interfaces.ExecExecutor
+	checkoutCache         action.CheckoutCache
 	defaultIsolation      string
 	workspaceRoot         string
 	asyncWorkspaceCleanup bool
@@ -80,6 +81,14 @@ func WithVMProcessExecutor(processExecutor interfaces.ExecExecutor) ExecutorOpti
 	}
 }
 
+// WithCheckoutCache sets the worker-local checkout cache used by builtins/checkout.
+// Nil preserves the direct clone path.
+func WithCheckoutCache(cache action.CheckoutCache) ExecutorOption {
+	return func(e *Executor) {
+		e.checkoutCache = cache
+	}
+}
+
 // WithDefaultIsolation sets the isolation level inherited by nodes that do not
 // declare one explicitly. Empty preserves the existing default.
 func WithDefaultIsolation(isolation string) ExecutorOption {
@@ -109,7 +118,6 @@ func WithAsyncWorkspaceCleanup(enabled bool) ExecutorOption {
 
 func NewExecutor(options ...ExecutorOption) *Executor {
 	e := &Executor{
-		registry:            builtins.NewRegistry(),
 		hostProcessExecutor: interfaces.NewDirectExecutor(),
 		defaultIsolation:    action.IsolationHost,
 	}
@@ -119,6 +127,8 @@ func NewExecutor(options ...ExecutorOption) *Executor {
 			option(e)
 		}
 	}
+
+	e.registry = builtins.NewRegistry(builtins.WithCheckoutCache(e.checkoutCache))
 
 	return e
 }
@@ -341,6 +351,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		JobID:                   job.GetId(),
 		RunID:                   job.GetRunId(),
 		Workspace:               workspace,
+		CheckoutCache:           e.checkoutCache,
 		Artifacts:               opts.ArtifactPublisher,
 		ProcessEnv:              processEnv,
 		Logger:                  logger,

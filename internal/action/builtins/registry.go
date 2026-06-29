@@ -11,17 +11,36 @@ type Registry struct {
 	nodes map[string]action.Node
 }
 
+type RegistryOption func(*registryOptions)
+
+type registryOptions struct {
+	checkoutCache action.CheckoutCache
+}
+
 var _ actionregistry.Resolver = (*Registry)(nil)
 var _ actionregistry.DescriptorLister = (*Registry)(nil)
 
-func NewRegistry() *Registry {
+func WithCheckoutCache(cache action.CheckoutCache) RegistryOption {
+	return func(opts *registryOptions) {
+		opts.checkoutCache = cache
+	}
+}
+
+func NewRegistry(options ...RegistryOption) *Registry {
+	var opts registryOptions
+	for _, option := range options {
+		if option != nil {
+			option(&opts)
+		}
+	}
+
 	r := &Registry{
 		nodes: make(map[string]action.Node),
 	}
 
 	r.Register(NewScriptAction(nil))
 	r.Register(NewTestAction(nil))
-	r.Register(NewCheckoutAction(nil))
+	r.Register(NewCheckoutAction(nil, opts.checkoutCache))
 	r.Register(&UploadArtifactAction{})
 	r.Register(&SequenceNode{})
 	r.Register(&ParallelNode{})

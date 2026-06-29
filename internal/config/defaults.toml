@@ -222,6 +222,7 @@ queue.continuation_inline_job_max_bytes = 65536
 [worker.execution]
 backend = "host"
 workspace_root = ""
+checkout_cache_root = ""
 
 [worker.execution.lima]
 path = "limactl"

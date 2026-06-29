@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
+
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/dal"
@@ -23,6 +25,45 @@ import (
 
 	"google.golang.org/grpc"
 )
+
+func TestWorkerCorePersistentCheckoutCacheRemoteURLs(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_CORE_SOURCE_REPOSITORIES", `[
+		{
+			"repository_id":"large",
+			"checkout_mode":"managed",
+			"worker_cache_mode":"persistent",
+			"canonical_url":"https://mirror.invalid/large.git",
+			"fallback_remote_urls":["https://origin.invalid/large.git"]
+		},
+		{
+			"repository_id":"small",
+			"checkout_mode":"managed",
+			"worker_cache_mode":"ephemeral",
+			"canonical_url":"https://mirror.invalid/small.git"
+		}
+	]`)
+
+	remotes, err := workerCorePersistentCheckoutCacheRemoteURLs()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"https://mirror.invalid/large.git", "https://origin.invalid/large.git"}
+	if len(remotes) != len(want) {
+		t.Fatalf("remotes = %v, want %v", remotes, want)
+	}
+
+	for i := range want {
+		if remotes[i] != want[i] {
+			t.Fatalf("remotes = %v, want %v", remotes, want)
+		}
+	}
+}
 
 const workerCoreProcessHelperEnv = "VECTIS_WORKER_CORE_PROCESS_HELPER"
 

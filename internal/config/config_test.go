@@ -679,6 +679,8 @@ func TestSourceRepositoryDeclarations_EnvJSON(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	t.Setenv(envAPIServerSourceRepositories, "")
+	t.Setenv(envWorkerSourceRepositories, "")
+	t.Setenv(envWorkerCoreSourceRepositories, "")
 	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"managed","canonical_url":"https://example.invalid/vectis.git","fallback_remote_urls":["https://tier1.invalid/vectis.git"],"enabled":true}]`)
 
 	repos, err := SourceRepositoryDeclarations()
@@ -694,6 +696,27 @@ func TestSourceRepositoryDeclarations_EnvJSON(t *testing.T) {
 		repos[0].FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
 		repos[0].Enabled == nil ||
 		!*repos[0].Enabled {
+		t.Fatalf("repository declarations mismatch: %+v", repos)
+	}
+}
+
+func TestSourceRepositoryDeclarations_WorkerCoreEnvJSON(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(envSourceRepositories, "")
+	t.Setenv(envAPIServerSourceRepositories, "")
+	t.Setenv(envWorkerSourceRepositories, "")
+	t.Setenv(envWorkerCoreSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"managed","worker_cache_mode":"persistent","canonical_url":"https://example.invalid/vectis.git"}]`)
+
+	repos, err := SourceRepositoryDeclarations()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(repos) != 1 ||
+		repos[0].RepositoryID != "vectis" ||
+		repos[0].WorkerCacheMode != "persistent" ||
+		repos[0].CanonicalURL != "https://example.invalid/vectis.git" {
 		t.Fatalf("repository declarations mismatch: %+v", repos)
 	}
 }
@@ -1105,6 +1128,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	if got := WorkerExecutionWorkspaceRoot(); got != "" {
 		t.Fatalf("default workspace root = %q, want empty", got)
 	}
+	if got := WorkerExecutionCheckoutCacheRoot(); got != "" {
+		t.Fatalf("default checkout cache root = %q, want empty", got)
+	}
 	if got := WorkerExecutionLimaInstance(); got != "" {
 		t.Fatalf("default lima instance = %q, want empty", got)
 	}
@@ -1120,6 +1146,7 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 
 	viper.Set("worker.execution.backend", " LIMA ")
 	viper.Set("worker.execution.workspace_root", "/Users/me/vectis-work")
+	viper.Set("worker.execution.checkout_cache_root", "/Users/me/vectis-cache")
 	viper.Set("worker.execution.lima.path", "/opt/homebrew/bin/limactl")
 	viper.Set("worker.execution.lima.instance", "vectis-worker")
 	viper.Set("worker.execution.lima.guest_workspace_root", "/tmp/vectis-workspaces")
@@ -1131,6 +1158,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	}
 	if got := WorkerExecutionWorkspaceRoot(); got != "/Users/me/vectis-work" {
 		t.Fatalf("override workspace root = %q", got)
+	}
+	if got := WorkerExecutionCheckoutCacheRoot(); got != "/Users/me/vectis-cache" {
+		t.Fatalf("override checkout cache root = %q", got)
 	}
 	if got := WorkerExecutionLimaPath(); got != "/opt/homebrew/bin/limactl" {
 		t.Fatalf("override lima path = %q", got)

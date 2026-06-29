@@ -28,6 +28,8 @@ const (
 	envAPIServerSourceSyncRunningTimeout                       = "VECTIS_API_SERVER_SOURCE_SYNC_RUNNING_TIMEOUT"
 	envSourceRepositories                                      = "VECTIS_SOURCE_REPOSITORIES"
 	envAPIServerSourceRepositories                             = "VECTIS_API_SERVER_SOURCE_REPOSITORIES"
+	envWorkerSourceRepositories                                = "VECTIS_WORKER_SOURCE_REPOSITORIES"
+	envWorkerCoreSourceRepositories                            = "VECTIS_WORKER_CORE_SOURCE_REPOSITORIES"
 	envSourceSchedules                                         = "VECTIS_SOURCE_SCHEDULES"
 	envAPIServerSourceSchedules                                = "VECTIS_API_SERVER_SOURCE_SCHEDULES"
 	defaultSourceSyncConfiguredRepositoriesMaxConcurrency      = 1
@@ -201,7 +203,7 @@ func SourceSyncRunningTimeout() time.Duration {
 }
 
 func SourceRepositoryDeclarations() ([]SourceRepositoryDeclaration, error) {
-	for _, envName := range []string{envSourceRepositories, envAPIServerSourceRepositories} {
+	for _, envName := range []string{envSourceRepositories, envAPIServerSourceRepositories, envWorkerSourceRepositories, envWorkerCoreSourceRepositories} {
 		raw := strings.TrimSpace(os.Getenv(envName))
 		if raw == "" {
 			continue

@@ -3,6 +3,7 @@ package builtins
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,6 +12,21 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 )
+
+type fakeCheckoutCache struct {
+	handled   bool
+	err       error
+	calls     int
+	remoteURL string
+	workspace string
+}
+
+func (c *fakeCheckoutCache) Checkout(_ context.Context, remoteURL, workspace string, _ interfaces.Logger) (bool, error) {
+	c.calls++
+	c.remoteURL = remoteURL
+	c.workspace = workspace
+	return c.handled, c.err
+}
 
 func TestCheckoutAction_Type(t *testing.T) {
 	checkoutAction := NewCheckoutAction(nil)
@@ -56,6 +72,49 @@ func TestCheckoutAction_Execute_UsesStateProcessExecutor(t *testing.T) {
 
 	if len(workDirs) != 1 || workDirs[0] != "/tmp/vectis-state-checkout" {
 		t.Fatalf("expected workspace from state, got workDirs=%v", workDirs)
+	}
+}
+
+func TestCheckoutAction_Execute_UsesCheckoutCache(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	cache := &fakeCheckoutCache{handled: true}
+	checkoutAction := NewCheckoutAction(mockExecutor, cache)
+	mockStream := &mockLogStream{}
+	state := createTestState(mockStream)
+	state.Workspace = "/tmp/vectis-cache-checkout"
+
+	url := "https://github.com/example/repo.git"
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{"url": url}, nil)
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	if cache.calls != 1 || cache.remoteURL != url || cache.workspace != state.Workspace {
+		t.Fatalf("cache call mismatch: %+v", cache)
+	}
+
+	if len(mockExecutor.GetPaths()) != 0 {
+		t.Fatalf("expected checkout cache to bypass process executor, got %v", mockExecutor.GetPaths())
+	}
+}
+
+func TestCheckoutAction_Execute_ReportsCheckoutCacheFailure(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	cache := &fakeCheckoutCache{handled: true, err: fmt.Errorf("cache unavailable")}
+	checkoutAction := NewCheckoutAction(mockExecutor, cache)
+	state := createTestState(nil)
+
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{"url": "https://github.com/example/repo.git"}, nil)
+	if result.Status != action.StatusFailure {
+		t.Fatalf("expected failure, got %v", result.Status)
+	}
+
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "cached checkout failed") {
+		t.Fatalf("expected cached checkout error, got %v", result.Error)
+	}
+
+	if len(mockExecutor.GetPaths()) != 0 {
+		t.Fatalf("expected checkout cache failure to avoid direct clone fallback, got %v", mockExecutor.GetPaths())
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/job"
 	"vectis/internal/platform"
+	"vectis/internal/source"
 )
 
 const (
@@ -16,9 +17,11 @@ const (
 )
 
 type ExecutorConfig struct {
-	Backend       string
-	WorkspaceRoot string
-	Lima          platform.VirtualMachineConfig
+	Backend                 string
+	WorkspaceRoot           string
+	CheckoutCacheRoot       string
+	CheckoutCacheRemoteURLs []string
+	Lima                    platform.VirtualMachineConfig
 }
 
 func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
@@ -30,6 +33,15 @@ func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
 	options := []job.ExecutorOption{}
 	if workspaceRoot := strings.TrimSpace(cfg.WorkspaceRoot); workspaceRoot != "" {
 		options = append(options, job.WithWorkspaceRoot(workspaceRoot))
+	}
+
+	if checkoutCacheRoot := strings.TrimSpace(cfg.CheckoutCacheRoot); checkoutCacheRoot != "" && len(cfg.CheckoutCacheRemoteURLs) > 0 {
+		checkoutCache, err := source.NewWorkerCheckoutCache(checkoutCacheRoot, cfg.CheckoutCacheRemoteURLs)
+		if err != nil {
+			return nil, "", err
+		}
+
+		options = append(options, job.WithCheckoutCache(checkoutCache))
 	}
 
 	if processExecutor != nil {
