@@ -146,6 +146,30 @@ func TestExecutorCoreValidatesShellBoundaryInputs(t *testing.T) {
 	}
 }
 
+func TestExecutorCoreBuildsSessionCheckoutCache(t *testing.T) {
+	core := NewExecutorCore(nil, WithExecutorCheckoutCacheRoot(t.TempDir()))
+	cache, err := core.checkoutCacheForSession(NewTaskSession(TaskSessionOptions{
+		CheckoutCacheRemoteURLs: []string{"https://mirror.invalid/vectis.git"},
+	}))
+
+	if err != nil {
+		t.Fatalf("checkoutCacheForSession: %v", err)
+	}
+
+	if cache == nil {
+		t.Fatal("checkoutCacheForSession returned nil cache")
+	}
+
+	withoutURLs, err := core.checkoutCacheForSession(NewTaskSession(TaskSessionOptions{}))
+	if err != nil {
+		t.Fatalf("checkoutCacheForSession without URLs: %v", err)
+	}
+
+	if withoutURLs != nil {
+		t.Fatal("checkoutCacheForSession without URLs returned a cache")
+	}
+}
+
 func TestTaskSessionClonesActionLocks(t *testing.T) {
 	locks := []actionregistry.ActionLock{
 		{
@@ -169,5 +193,19 @@ func TestTaskSessionClonesActionLocks(t *testing.T) {
 	again := session.ActionLocks()
 	if again[0].Descriptor.RuntimeConfig["entrypoint"] != "first" {
 		t.Fatalf("session action locks were not cloned defensively: %#v", again[0].Descriptor.RuntimeConfig)
+	}
+}
+
+func TestTaskSessionClonesCheckoutCacheRemoteURLs(t *testing.T) {
+	remoteURLs := []string{"https://mirror.invalid/one.git"}
+	session := NewTaskSession(TaskSessionOptions{CheckoutCacheRemoteURLs: remoteURLs})
+	remoteURLs[0] = "https://mirror.invalid/mutated.git"
+
+	got := session.CheckoutCacheRemoteURLs()
+	got[0] = "https://mirror.invalid/changed-again.git"
+
+	again := session.CheckoutCacheRemoteURLs()
+	if len(again) != 1 || again[0] != "https://mirror.invalid/one.git" {
+		t.Fatalf("session checkout cache remote URLs were not cloned defensively: %+v", again)
 	}
 }

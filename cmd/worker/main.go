@@ -298,6 +298,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		coreShellEndpoint:             coreShellEndpoint,
 		actionResolver:                actionResolver,
 		store:                         runsRepo,
+		sourceRepositories:            repos.Sources(),
 		artifactManifests:             repos.Artifacts(),
 		artifactMaxBytes:              config.WorkerArtifactMaxBytes(),
 		artifactMaxRunBytes:           config.WorkerArtifactMaxRunBytes(),
@@ -520,6 +521,7 @@ type worker struct {
 	coreShellEndpoint             string
 	actionResolver                actionregistry.Resolver
 	store                         dal.RunsRepository
+	sourceRepositories            dal.SourcesRepository
 	artifactManifests             dal.ArtifactsRepository
 	artifactMaxBytes              int64
 	artifactMaxRunBytes           int64
@@ -631,6 +633,48 @@ func (w *worker) executionChoreographer() executionChoreographer {
 	}
 
 	return missingExecutionChoreographer{}
+}
+
+func (w *worker) checkoutCacheRemoteURLs(ctx context.Context) []string {
+	if w == nil || w.sourceRepositories == nil {
+		return nil
+	}
+
+	repositories, err := w.sourceRepositories.ListRepositoriesByWorkerCacheMode(ctx, dal.SourceWorkerCacheModePersistent)
+	if err != nil {
+		if w.logger != nil {
+			w.logger.Warn("Failed to load persistent checkout cache repositories: %v", err)
+		}
+		return nil
+	}
+
+	return sourceRepositoryRemoteURLs(repositories)
+}
+
+func sourceRepositoryRemoteURLs(repositories []dal.SourceRepositoryRecord) []string {
+	seen := make(map[string]struct{}, len(repositories))
+	out := make([]string, 0, len(repositories))
+	for _, repository := range repositories {
+		if !repository.Enabled || strings.TrimSpace(repository.WorkerCacheMode) != dal.SourceWorkerCacheModePersistent {
+			continue
+		}
+
+		for _, remoteURL := range append([]string{repository.CanonicalURL}, repository.FallbackRemoteURLs...) {
+			remoteURL = strings.TrimSpace(remoteURL)
+			if remoteURL == "" {
+				continue
+			}
+
+			if _, ok := seen[remoteURL]; ok {
+				continue
+			}
+
+			seen[remoteURL] = struct{}{}
+			out = append(out, remoteURL)
+		}
+	}
+
+	return out
 }
 
 func (w *worker) executionUsesHotStateOnly(env *cell.ExecutionEnvelope) bool {
@@ -3474,15 +3518,16 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 		}
 
 		execSessionOpts := workercore.TaskSessionOptions{
-			SessionID:        env.ExecutionID,
-			RunID:            env.RunID,
-			ShellEndpoint:    w.coreShellEndpoint,
-			LogClient:        w.logClient,
-			Logger:           w.logger,
-			WorkloadIdentity: workloadIdentity,
-			ActionResolver:   w.actionResolver,
-			ActionLocks:      env.ActionLocks,
-			SecretFiles:      secretFiles,
+			SessionID:               env.ExecutionID,
+			RunID:                   env.RunID,
+			ShellEndpoint:           w.coreShellEndpoint,
+			LogClient:               w.logClient,
+			Logger:                  w.logger,
+			WorkloadIdentity:        workloadIdentity,
+			ActionResolver:          w.actionResolver,
+			ActionLocks:             env.ActionLocks,
+			SecretFiles:             secretFiles,
+			CheckoutCacheRemoteURLs: w.checkoutCacheRemoteURLs(execCtx),
 		}
 		if artifactPublisher != nil {
 			execSessionOpts.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)

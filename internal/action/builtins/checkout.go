@@ -128,15 +128,13 @@ func (c *CheckoutAction) processExecutor(state *action.ExecutionState) interface
 }
 
 func (c *CheckoutAction) checkoutCache(state *action.ExecutionState) action.CheckoutCache {
-	if c.cache != nil {
-		return c.cache
-	}
-
 	if state != nil {
-		return state.CheckoutCache
+		if state.CheckoutCache != nil {
+			return state.CheckoutCache
+		}
 	}
 
-	return nil
+	return c.cache
 }
 
 func hasCredentialedCloneURL(raw string) bool {

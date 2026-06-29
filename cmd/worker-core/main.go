@@ -52,7 +52,10 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	}
 
 	backend, defaultIsolation, supportedIsolation := workercore.ExecutionCapabilitiesForBackend(backend)
-	service := workercore.NewService(workercore.NewExecutorCore(executor), workercore.ServiceOptions{
+	service := workercore.NewService(workercore.NewExecutorCore(
+		executor,
+		workercore.WithExecutorCheckoutCacheRoot(executorConfig.CheckoutCacheRoot),
+	), workercore.ServiceOptions{
 		Logger:         logger,
 		ActionResolver: actionResolver,
 		Description: workercore.CoreDescription{

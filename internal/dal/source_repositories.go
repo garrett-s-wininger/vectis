@@ -342,6 +342,62 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 	return out, nil
 }
 
+func (r *SQLSourcesRepository) ListRepositoriesByWorkerCacheMode(ctx context.Context, mode string) ([]SourceRepositoryRecord, error) {
+	mode = strings.TrimSpace(mode)
+	if !validSourceWorkerCacheMode(mode) {
+		return nil, fmt.Errorf("%w: unsupported worker_cache_mode %q", ErrConflict, mode)
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			id,
+			COALESCE(global_id, ''),
+			repository_id,
+			namespace_id,
+			source_kind,
+			checkout_path,
+			COALESCE(checkout_mode, ''),
+			COALESCE(authoring_mode, ''),
+			COALESCE(worker_cache_mode, ''),
+			canonical_url,
+			COALESCE(fallback_remote_urls, ''),
+			default_ref,
+			credential_ref,
+			enabled,
+			COALESCE(sync_status, ''),
+			last_sync_started_at_unix,
+			last_sync_finished_at_unix,
+			last_sync_ref,
+			last_sync_commit,
+			last_sync_error
+		FROM source_repositories
+		WHERE worker_cache_mode = ?
+			AND enabled = ?
+		ORDER BY repository_id
+	`), mode, true)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []SourceRepositoryRecord
+	for rows.Next() {
+		rec, err := r.scanRepositoryRows(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
 func (r *SQLSourcesRepository) CountRepositories(ctx context.Context, declaredRepositoryIDs []string) (SourceRepositoryCountSummary, error) {
 	declaredCTE, args := sourceCountDeclaredIDsCTE(declaredRepositoryIDs)
 	args = append(args,

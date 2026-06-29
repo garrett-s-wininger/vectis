@@ -55,6 +55,7 @@ type ExecuteOptions struct {
 	ActionResolver    actionregistry.Resolver
 	ProcessExecutor   interfaces.ExecExecutor
 	SecretFiles       []secrets.FileMaterial
+	CheckoutCache     action.CheckoutCache
 }
 
 // ExecutorOption configures a job executor.
@@ -347,11 +348,16 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		return fmt.Errorf("initialize action resolver: %w", err)
 	}
 
+	checkoutCache := opts.CheckoutCache
+	if checkoutCache == nil {
+		checkoutCache = e.checkoutCache
+	}
+
 	state := &action.ExecutionState{
 		JobID:                   job.GetId(),
 		RunID:                   job.GetRunId(),
 		Workspace:               workspace,
-		CheckoutCache:           e.checkoutCache,
+		CheckoutCache:           checkoutCache,
 		Artifacts:               opts.ArtifactPublisher,
 		ProcessEnv:              processEnv,
 		Logger:                  logger,

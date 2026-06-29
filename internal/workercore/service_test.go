@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +63,10 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	defer unregister()
 
 	core := fakeCoreFunc(func(ctx context.Context, req ExecuteTaskRequest) error {
+		if got, want := req.Session.CheckoutCacheRemoteURLs(), []string{"https://mirror.invalid/vectis.git"}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("checkout cache remote urls = %+v, want %+v", got, want)
+		}
+
 		stream, err := req.Session.LogClient().StreamLogs(ctx)
 		if err != nil {
 			return err
@@ -102,10 +107,11 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 		Job:     &api.Job{RunId: proto.String("run-1")},
 		TaskKey: proto.String(dal.RootTaskKey),
 		Session: &api.WorkerCoreTaskSession{
-			SessionId:        proto.String("session-1"),
-			ShellEndpoint:    proto.String(UnixEndpoint(socketPath)),
-			LogsEnabled:      proto.Bool(true),
-			ArtifactsEnabled: proto.Bool(true),
+			SessionId:               proto.String("session-1"),
+			ShellEndpoint:           proto.String(UnixEndpoint(socketPath)),
+			LogsEnabled:             proto.Bool(true),
+			ArtifactsEnabled:        proto.Bool(true),
+			CheckoutCacheRemoteUrls: []string{"https://mirror.invalid/vectis.git"},
 		},
 	})
 

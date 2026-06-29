@@ -374,16 +374,17 @@ func (x *CancelWorkerCoreTaskRequest) GetReason() string {
 }
 
 type WorkerCoreTaskSession struct {
-	state            protoimpl.MessageState      `protogen:"open.v1"`
-	SessionId        *string                     `protobuf:"bytes,1,opt,name=session_id,json=sessionId" json:"session_id,omitempty"`
-	ShellEndpoint    *string                     `protobuf:"bytes,2,opt,name=shell_endpoint,json=shellEndpoint" json:"shell_endpoint,omitempty"`
-	WorkloadIdentity *WorkerCoreWorkloadIdentity `protobuf:"bytes,3,opt,name=workload_identity,json=workloadIdentity" json:"workload_identity,omitempty"`
-	ActionLocks      []*WorkerCoreActionLock     `protobuf:"bytes,4,rep,name=action_locks,json=actionLocks" json:"action_locks,omitempty"`
-	LogsEnabled      *bool                       `protobuf:"varint,5,opt,name=logs_enabled,json=logsEnabled" json:"logs_enabled,omitempty"`
-	ArtifactsEnabled *bool                       `protobuf:"varint,6,opt,name=artifacts_enabled,json=artifactsEnabled" json:"artifacts_enabled,omitempty"`
-	SecretFiles      []*SecretFileMaterial       `protobuf:"bytes,7,rep,name=secret_files,json=secretFiles" json:"secret_files,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                   protoimpl.MessageState      `protogen:"open.v1"`
+	SessionId               *string                     `protobuf:"bytes,1,opt,name=session_id,json=sessionId" json:"session_id,omitempty"`
+	ShellEndpoint           *string                     `protobuf:"bytes,2,opt,name=shell_endpoint,json=shellEndpoint" json:"shell_endpoint,omitempty"`
+	WorkloadIdentity        *WorkerCoreWorkloadIdentity `protobuf:"bytes,3,opt,name=workload_identity,json=workloadIdentity" json:"workload_identity,omitempty"`
+	ActionLocks             []*WorkerCoreActionLock     `protobuf:"bytes,4,rep,name=action_locks,json=actionLocks" json:"action_locks,omitempty"`
+	LogsEnabled             *bool                       `protobuf:"varint,5,opt,name=logs_enabled,json=logsEnabled" json:"logs_enabled,omitempty"`
+	ArtifactsEnabled        *bool                       `protobuf:"varint,6,opt,name=artifacts_enabled,json=artifactsEnabled" json:"artifacts_enabled,omitempty"`
+	SecretFiles             []*SecretFileMaterial       `protobuf:"bytes,7,rep,name=secret_files,json=secretFiles" json:"secret_files,omitempty"`
+	CheckoutCacheRemoteUrls []string                    `protobuf:"bytes,8,rep,name=checkout_cache_remote_urls,json=checkoutCacheRemoteUrls" json:"checkout_cache_remote_urls,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *WorkerCoreTaskSession) Reset() {
@@ -461,6 +462,13 @@ func (x *WorkerCoreTaskSession) GetArtifactsEnabled() bool {
 func (x *WorkerCoreTaskSession) GetSecretFiles() []*SecretFileMaterial {
 	if x != nil {
 		return x.SecretFiles
+	}
+	return nil
+}
+
+func (x *WorkerCoreTaskSession) GetCheckoutCacheRemoteUrls() []string {
+	if x != nil {
+		return x.CheckoutCacheRemoteUrls
 	}
 	return nil
 }
@@ -1308,7 +1316,7 @@ const file_worker_core_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x19\n" +
 	"\btask_key\x18\x03 \x01(\tR\ataskKey\x12\x16\n" +
-	"\x06reason\x18\x04 \x01(\tR\x06reason\"\xf1\x02\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"\xae\x03\n" +
 	"\x15WorkerCoreTaskSession\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12%\n" +
@@ -1317,7 +1325,8 @@ const file_worker_core_proto_rawDesc = "" +
 	"\faction_locks\x18\x04 \x03(\v2\x15.WorkerCoreActionLockR\vactionLocks\x12!\n" +
 	"\flogs_enabled\x18\x05 \x01(\bR\vlogsEnabled\x12+\n" +
 	"\x11artifacts_enabled\x18\x06 \x01(\bR\x10artifactsEnabled\x12>\n" +
-	"\fsecret_files\x18\a \x03(\v2\x1b.secrets.SecretFileMaterialR\vsecretFiles\"\x9c\x02\n" +
+	"\fsecret_files\x18\a \x03(\v2\x1b.secrets.SecretFileMaterialR\vsecretFiles\x12;\n" +
+	"\x1acheckout_cache_remote_urls\x18\b \x03(\tR\x17checkoutCacheRemoteUrls\"\x9c\x02\n" +
 	"\x1aWorkerCoreWorkloadIdentity\x12\x1b\n" +
 	"\tspiffe_id\x18\x01 \x01(\tR\bspiffeId\x12!\n" +
 	"\ftrust_domain\x18\x02 \x01(\tR\vtrustDomain\x12%\n" +

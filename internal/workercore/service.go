@@ -149,16 +149,17 @@ func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorker
 	}
 
 	taskSession := NewTaskSession(TaskSessionOptions{
-		SessionID:         sessionID,
-		RunID:             req.GetJob().GetRunId(),
-		ShellEndpoint:     shellEndpoint,
-		Logger:            s.logger,
-		LogClient:         logClient,
-		ArtifactPublisher: artifactPublisherForSession(session),
-		WorkloadIdentity:  workloadIdentity,
-		ActionLocks:       actionLocks,
-		ActionResolver:    actionResolver,
-		SecretFiles:       secretFilesFromProto(session.GetSecretFiles()),
+		SessionID:               sessionID,
+		RunID:                   req.GetJob().GetRunId(),
+		ShellEndpoint:           shellEndpoint,
+		Logger:                  s.logger,
+		LogClient:               logClient,
+		ArtifactPublisher:       artifactPublisherForSession(session),
+		WorkloadIdentity:        workloadIdentity,
+		ActionLocks:             actionLocks,
+		ActionResolver:          actionResolver,
+		SecretFiles:             secretFilesFromProto(session.GetSecretFiles()),
+		CheckoutCacheRemoteURLs: session.GetCheckoutCacheRemoteUrls(),
 	})
 
 	return ExecuteTaskRequest{

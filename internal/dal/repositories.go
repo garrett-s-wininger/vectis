@@ -1062,6 +1062,7 @@ type SourcesRepository interface {
 	UpdateRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, error)
 	GetRepository(ctx context.Context, repositoryID string) (SourceRepositoryRecord, error)
 	ListRepositories(ctx context.Context, namespaceID int64) ([]SourceRepositoryRecord, error)
+	ListRepositoriesByWorkerCacheMode(ctx context.Context, mode string) ([]SourceRepositoryRecord, error)
 	CountRepositories(ctx context.Context, declaredRepositoryIDs []string) (SourceRepositoryCountSummary, error)
 	RecordDefinitionSource(ctx context.Context, rec JobDefinitionSourceRecord) error
 	GetDefinitionSource(ctx context.Context, jobID string, version int) (JobDefinitionSourceRecord, error)

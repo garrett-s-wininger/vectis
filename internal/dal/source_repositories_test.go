@@ -71,6 +71,61 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 	}
 }
 
+func TestSourcesRepository_ListRepositoriesByWorkerCacheMode(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{
+			RepositoryID:    "ephemeral-enabled",
+			NamespaceID:     1,
+			SourceKind:      dal.SourceKindLocalCheckout,
+			CheckoutPath:    "/work/ephemeral-enabled",
+			WorkerCacheMode: dal.SourceWorkerCacheModeEphemeral,
+			CanonicalURL:    "https://mirror.invalid/ephemeral.git",
+			Enabled:         true,
+		},
+		{
+			RepositoryID:       "persistent-enabled",
+			NamespaceID:        1,
+			SourceKind:         dal.SourceKindLocalCheckout,
+			CheckoutPath:       "/work/persistent-enabled",
+			WorkerCacheMode:    dal.SourceWorkerCacheModePersistent,
+			CanonicalURL:       "https://mirror.invalid/persistent.git",
+			FallbackRemoteURLs: []string{"https://tier1.invalid/persistent.git"},
+			Enabled:            true,
+		},
+		{
+			RepositoryID:    "persistent-disabled",
+			NamespaceID:     1,
+			SourceKind:      dal.SourceKindLocalCheckout,
+			CheckoutPath:    "/work/persistent-disabled",
+			WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+			CanonicalURL:    "https://mirror.invalid/disabled.git",
+			Enabled:         false,
+		},
+	} {
+		if _, err := sources.CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("create repository %s: %v", rec.RepositoryID, err)
+		}
+	}
+
+	listed, err := sources.ListRepositoriesByWorkerCacheMode(ctx, dal.SourceWorkerCacheModePersistent)
+	if err != nil {
+		t.Fatalf("ListRepositoriesByWorkerCacheMode: %v", err)
+	}
+
+	if len(listed) != 1 || listed[0].RepositoryID != "persistent-enabled" {
+		t.Fatalf("persistent repositories = %+v, want persistent-enabled only", listed)
+	}
+
+	if listed[0].CanonicalURL != "https://mirror.invalid/persistent.git" ||
+		!reflect.DeepEqual(listed[0].FallbackRemoteURLs, []string{"https://tier1.invalid/persistent.git"}) {
+		t.Fatalf("persistent repository URLs = %+v", listed[0])
+	}
+}
+
 func TestSourcesRepository_CountRepositories(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	sources := dal.NewSQLRepositories(db).Sources()

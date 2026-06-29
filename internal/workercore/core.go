@@ -110,19 +110,21 @@ type TaskSession interface {
 	ActionLocks() []actionregistry.ActionLock
 	ActionResolver() actionregistry.Resolver
 	SecretFiles() []secrets.FileMaterial
+	CheckoutCacheRemoteURLs() []string
 }
 
 type TaskSessionOptions struct {
-	SessionID         string
-	RunID             string
-	ShellEndpoint     string
-	Logger            interfaces.Logger
-	LogClient         interfaces.LogClient
-	ArtifactPublisher action.ArtifactPublisher
-	WorkloadIdentity  *workloadidentity.Identity
-	ActionLocks       []actionregistry.ActionLock
-	ActionResolver    actionregistry.Resolver
-	SecretFiles       []secrets.FileMaterial
+	SessionID               string
+	RunID                   string
+	ShellEndpoint           string
+	Logger                  interfaces.Logger
+	LogClient               interfaces.LogClient
+	ArtifactPublisher       action.ArtifactPublisher
+	WorkloadIdentity        *workloadidentity.Identity
+	ActionLocks             []actionregistry.ActionLock
+	ActionResolver          actionregistry.Resolver
+	SecretFiles             []secrets.FileMaterial
+	CheckoutCacheRemoteURLs []string
 }
 
 func NewTaskSession(opts TaskSessionOptions) TaskSession {
@@ -132,30 +134,32 @@ func NewTaskSession(opts TaskSessionOptions) TaskSession {
 	}
 
 	return taskSession{
-		sessionID:         opts.SessionID,
-		runID:             runID,
-		shellEndpoint:     opts.ShellEndpoint,
-		logger:            opts.Logger,
-		logClient:         opts.LogClient,
-		artifactPublisher: opts.ArtifactPublisher,
-		workloadIdentity:  opts.WorkloadIdentity,
-		actionLocks:       actionregistry.CloneActionLocks(opts.ActionLocks),
-		actionResolver:    opts.ActionResolver,
-		secretFiles:       cloneSecretFiles(opts.SecretFiles),
+		sessionID:               opts.SessionID,
+		runID:                   runID,
+		shellEndpoint:           opts.ShellEndpoint,
+		logger:                  opts.Logger,
+		logClient:               opts.LogClient,
+		artifactPublisher:       opts.ArtifactPublisher,
+		workloadIdentity:        opts.WorkloadIdentity,
+		actionLocks:             actionregistry.CloneActionLocks(opts.ActionLocks),
+		actionResolver:          opts.ActionResolver,
+		secretFiles:             cloneSecretFiles(opts.SecretFiles),
+		checkoutCacheRemoteURLs: cloneStringSlice(opts.CheckoutCacheRemoteURLs),
 	}
 }
 
 type taskSession struct {
-	sessionID         string
-	runID             string
-	shellEndpoint     string
-	logger            interfaces.Logger
-	logClient         interfaces.LogClient
-	artifactPublisher action.ArtifactPublisher
-	workloadIdentity  *workloadidentity.Identity
-	actionLocks       []actionregistry.ActionLock
-	actionResolver    actionregistry.Resolver
-	secretFiles       []secrets.FileMaterial
+	sessionID               string
+	runID                   string
+	shellEndpoint           string
+	logger                  interfaces.Logger
+	logClient               interfaces.LogClient
+	artifactPublisher       action.ArtifactPublisher
+	workloadIdentity        *workloadidentity.Identity
+	actionLocks             []actionregistry.ActionLock
+	actionResolver          actionregistry.Resolver
+	secretFiles             []secrets.FileMaterial
+	checkoutCacheRemoteURLs []string
 }
 
 func (s taskSession) SessionID() string {
@@ -198,6 +202,10 @@ func (s taskSession) SecretFiles() []secrets.FileMaterial {
 	return cloneSecretFiles(s.secretFiles)
 }
 
+func (s taskSession) CheckoutCacheRemoteURLs() []string {
+	return cloneStringSlice(s.checkoutCacheRemoteURLs)
+}
+
 func cloneSecretFiles(files []secrets.FileMaterial) []secrets.FileMaterial {
 	if len(files) == 0 {
 		return nil
@@ -210,4 +218,12 @@ func cloneSecretFiles(files []secrets.FileMaterial) []secrets.FileMaterial {
 	}
 
 	return out
+}
+
+func cloneStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	return append([]string(nil), in...)
 }

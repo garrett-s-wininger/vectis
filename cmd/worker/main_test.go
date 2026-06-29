@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -98,6 +99,61 @@ func attachPendingExecutionEnvelopeForTest(t *testing.T, runs dal.RunsRepository
 
 func testWorkerCore(executor *job.Executor) workercore.Core {
 	return workercore.NewExecutorCore(executor)
+}
+
+func TestWorkerCheckoutCacheRemoteURLsUsesPersistentSources(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{
+			RepositoryID:       "persistent",
+			NamespaceID:        1,
+			SourceKind:         dal.SourceKindLocalCheckout,
+			CheckoutPath:       "/work/persistent",
+			WorkerCacheMode:    dal.SourceWorkerCacheModePersistent,
+			CanonicalURL:       "https://mirror.invalid/persistent.git",
+			FallbackRemoteURLs: []string{"https://tier1.invalid/persistent.git", "https://mirror.invalid/persistent.git"},
+			Enabled:            true,
+		},
+		{
+			RepositoryID:    "ephemeral",
+			NamespaceID:     1,
+			SourceKind:      dal.SourceKindLocalCheckout,
+			CheckoutPath:    "/work/ephemeral",
+			WorkerCacheMode: dal.SourceWorkerCacheModeEphemeral,
+			CanonicalURL:    "https://mirror.invalid/ephemeral.git",
+			Enabled:         true,
+		},
+		{
+			RepositoryID:    "disabled-persistent",
+			NamespaceID:     1,
+			SourceKind:      dal.SourceKindLocalCheckout,
+			CheckoutPath:    "/work/disabled-persistent",
+			WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+			CanonicalURL:    "https://mirror.invalid/disabled.git",
+			Enabled:         false,
+		},
+	} {
+		if _, err := sources.CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("create source repository %s: %v", rec.RepositoryID, err)
+		}
+	}
+
+	w := &worker{
+		sourceRepositories: sources,
+		logger:             mocks.NewMockLogger(),
+	}
+
+	got := w.checkoutCacheRemoteURLs(ctx)
+	want := []string{
+		"https://mirror.invalid/persistent.git",
+		"https://tier1.invalid/persistent.git",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("checkout cache remotes = %+v, want %+v", got, want)
+	}
 }
 
 func TestWorkerMarkExecutionStarted_DefersDurableStartForOrchestratorRuns(t *testing.T) {

@@ -58,6 +58,7 @@ message WorkerCoreTaskSession {
     bool logs_enabled = 5;
     bool artifacts_enabled = 6;
     repeated secrets.SecretFileMaterial secret_files = 7;
+    repeated string checkout_cache_remote_urls = 8;
 }
 
 message WorkerCoreWorkloadIdentity {

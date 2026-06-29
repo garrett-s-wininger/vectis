@@ -196,13 +196,14 @@ func TaskSessionProto(session TaskSession) (*api.WorkerCoreTaskSession, error) {
 	}
 
 	return &api.WorkerCoreTaskSession{
-		SessionId:        proto.String(session.SessionID()),
-		ShellEndpoint:    proto.String(session.ShellEndpoint()),
-		WorkloadIdentity: workloadIdentityProto(session.WorkloadIdentity()),
-		ActionLocks:      actionLocksProto(session.ActionLocks()),
-		LogsEnabled:      proto.Bool(session.LogClient() != nil),
-		ArtifactsEnabled: proto.Bool(session.ArtifactPublisher() != nil),
-		SecretFiles:      secretFilesProto(session.SecretFiles()),
+		SessionId:               proto.String(session.SessionID()),
+		ShellEndpoint:           proto.String(session.ShellEndpoint()),
+		WorkloadIdentity:        workloadIdentityProto(session.WorkloadIdentity()),
+		ActionLocks:             actionLocksProto(session.ActionLocks()),
+		LogsEnabled:             proto.Bool(session.LogClient() != nil),
+		ArtifactsEnabled:        proto.Bool(session.ArtifactPublisher() != nil),
+		SecretFiles:             secretFilesProto(session.SecretFiles()),
+		CheckoutCacheRemoteUrls: cloneStringSlice(session.CheckoutCacheRemoteURLs()),
 	}, nil
 }
 

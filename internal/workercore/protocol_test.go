@@ -3,6 +3,7 @@ package workercore
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -90,6 +91,10 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 					},
 				},
 			},
+			CheckoutCacheRemoteURLs: []string{
+				"https://mirror.invalid/vectis.git",
+				"https://tier1.invalid/vectis.git",
+			},
 		}),
 	})
 
@@ -124,6 +129,10 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 
 	if !session.GetArtifactsEnabled() {
 		t.Fatal("artifacts_enabled = false, want true")
+	}
+
+	if got, want := session.GetCheckoutCacheRemoteUrls(), []string{"https://mirror.invalid/vectis.git", "https://tier1.invalid/vectis.git"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("checkout cache remote urls = %+v, want %+v", got, want)
 	}
 
 	identity := session.GetWorkloadIdentity()

@@ -98,6 +98,34 @@ func TestCheckoutAction_Execute_UsesCheckoutCache(t *testing.T) {
 	}
 }
 
+func TestCheckoutAction_Execute_PrefersStateCheckoutCache(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	actionCache := &fakeCheckoutCache{handled: true}
+	stateCache := &fakeCheckoutCache{handled: true}
+	checkoutAction := NewCheckoutAction(mockExecutor, actionCache)
+	state := createTestState(nil)
+	state.Workspace = "/tmp/vectis-state-cache-checkout"
+	state.CheckoutCache = stateCache
+
+	url := "https://github.com/example/repo.git"
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{"url": url}, nil)
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	if stateCache.calls != 1 || stateCache.remoteURL != url {
+		t.Fatalf("state cache call mismatch: %+v", stateCache)
+	}
+
+	if actionCache.calls != 0 {
+		t.Fatalf("expected state cache to override action cache, action cache calls=%d", actionCache.calls)
+	}
+
+	if len(mockExecutor.GetPaths()) != 0 {
+		t.Fatalf("expected checkout cache to bypass process executor, got %v", mockExecutor.GetPaths())
+	}
+}
+
 func TestCheckoutAction_Execute_ReportsCheckoutCacheFailure(t *testing.T) {
 	mockExecutor := mocks.NewMockExecExecutor()
 	cache := &fakeCheckoutCache{handled: true, err: fmt.Errorf("cache unavailable")}
