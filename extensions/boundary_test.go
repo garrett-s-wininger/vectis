@@ -214,6 +214,10 @@ func allowedSCMProviderImportFile(path string) bool {
 		return true
 	}
 
+	if strings.HasPrefix(path, "../deploy/gerrit/") {
+		return true
+	}
+
 	switch path {
 	case "../cmd/scm-poller/main.go":
 		return true

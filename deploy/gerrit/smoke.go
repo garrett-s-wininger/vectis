@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 
 	api "vectis/api/gen/go"
 	gerritaction "vectis/extensions/actions/gerrit"
+	scmgerrit "vectis/extensions/scm/gerrit"
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
@@ -61,6 +63,8 @@ type SmokeResult struct {
 	Revision            string `json:"revision"`
 	FetchRef            string `json:"fetch_ref"`
 	PollDiscovered      bool   `json:"poll_discovered"`
+	SCMProviderPolled   bool   `json:"scm_provider_polled"`
+	SCMEventEmitted     bool   `json:"scm_event_emitted"`
 	CheckoutVerified    bool   `json:"checkout_verified"`
 	ReviewPosted        bool   `json:"review_posted"`
 	WrongPasswordDenied bool   `json:"wrong_password_denied"`
@@ -288,6 +292,27 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		return SmokeResult{}, fmt.Errorf("gerrit poll discovered revision/ref %s/%s, detail returned %s/%s", discoveredRevision, discoveredFetchRef, revision, fetchRef)
 	}
 
+	scmSmoke, err := scmgerrit.RunSmoke(ctx, scmgerrit.SmokeOptions{
+		BaseURL:      r.opts.URL,
+		Project:      r.opts.Project,
+		Branch:       "master",
+		Query:        "status:open",
+		Username:     r.opts.Username,
+		Password:     password,
+		EmitExisting: true,
+		MinEvents:    1,
+		Timeout:      r.opts.Timeout,
+		Stdout:       r.opts.Stdout,
+	})
+
+	if err != nil {
+		return SmokeResult{}, err
+	}
+
+	if err := validateSCMSmokeEvent(scmSmoke, revision, fetchRef); err != nil {
+		return SmokeResult{}, err
+	}
+
 	workspace := filepath.Join(workspaceRoot, "checkout")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return SmokeResult{}, fmt.Errorf("create checkout workspace: %w", err)
@@ -326,10 +351,30 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		Revision:            revision,
 		FetchRef:            fetchRef,
 		PollDiscovered:      true,
+		SCMProviderPolled:   true,
+		SCMEventEmitted:     true,
 		CheckoutVerified:    true,
 		ReviewPosted:        true,
 		WrongPasswordDenied: true,
 	}, nil
+}
+
+func validateSCMSmokeEvent(result scmgerrit.SmokeResult, revision, fetchRef string) error {
+	for _, event := range result.Events {
+		var payload struct {
+			CurrentRevision string `json:"current_revision"`
+			Ref             string `json:"ref"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return fmt.Errorf("decode gerrit scm smoke payload for %s: %w", event.Key, err)
+		}
+
+		if payload.CurrentRevision == revision && payload.Ref == fetchRef {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("gerrit scm smoke did not emit revision/ref %s/%s", revision, fetchRef)
 }
 
 func (r smokeRunner) loginDevelopmentAccount(ctx context.Context) (string, error) {

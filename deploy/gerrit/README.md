@@ -45,10 +45,11 @@ make gerrit-smoke
 
 The smoke logs into Gerrit's development admin account, generates an HTTP token,
 creates a project, pushes a real review change, polls Gerrit's REST query API
-until the open change is discoverable, checks out the discovered Gerrit change
-ref with `builtins/checkout`, posts a `gerrit/review@v1` message and label
-vote through the action-extension process runtime, and verifies that a wrong
-password is rejected.
+until the open change is discoverable, verifies that `extensions/scm/gerrit`
+emits an SCM event for the change's current revision, checks out the discovered
+Gerrit change ref with `builtins/checkout`, posts a `gerrit/review@v1` message
+and label vote through the action-extension process runtime, and verifies that a
+wrong password is rejected.
 
 Useful knobs:
 
@@ -132,14 +133,16 @@ Expected proof:
 
 | Check | Expected result |
 | --- | --- |
-| Discovery | `sdk/scm` polling over the Gerrit provider returns the open change and current revision ref. |
+| Discovery | The shared SCM polling contract returns the open change and current revision ref from Gerrit's REST query path. |
+| SCM provider event | `extensions/scm/gerrit` emits the live change revision as a stable trigger event. |
 | Checkout | `builtins/checkout` clones `http://localhost:18088/vectis-smoke`, fetches the Gerrit change ref, and checks out `FETCH_HEAD`. |
 | Job step | The shell step sees `README.md` and prints `gerrit-change-smoke-ok`. |
 | Review | `gerrit/review@v1` posts a message and `Code-Review +1` to the current revision using Gerrit's authenticated REST path. |
 
-Generic SCM change discovery lives in `sdk/scm`. Gerrit-specific REST behavior
-lives under `extensions/actions/gerrit`; the review action is resolved from the
-standard action-extension root instead of the builtin registry.
+Generic SCM contracts live in `sdk/scm`. Gerrit-specific source-control REST
+behavior lives under `extensions/scm/gerrit`; review action behavior lives under
+`extensions/actions/gerrit`; and the review action is resolved from the standard
+action-extension root instead of the builtin registry.
 
 ## Action Contract
 
