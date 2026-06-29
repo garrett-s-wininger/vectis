@@ -308,8 +308,8 @@ func TestAPIServer_CreateAndUpdateJob_SCMPollTriggers(t *testing.T) {
 		},
 		"triggers": []map[string]any{
 			{
-				"id":     "manual",
-				"name":   "Manual trigger",
+				"id":     "on_demand",
+				"name":   "On demand",
 				"manual": map[string]any{},
 			},
 			{
@@ -351,7 +351,7 @@ func TestAPIServer_CreateAndUpdateJob_SCMPollTriggers(t *testing.T) {
 	}})
 
 	assertAPIJobTriggers(t, db, "job-scm-api", []apiJobTrigger{
-		{Type: dal.TriggerTypeManual, Key: "manual", Name: "Manual trigger"},
+		{Type: dal.TriggerTypeManual, Key: "on_demand", Name: "On demand"},
 		{Type: dal.TriggerTypeCron, Key: "nightly", Name: "Nightly"},
 		{Type: dal.TriggerTypeSCMPoll, Key: "main"},
 	})
@@ -402,6 +402,35 @@ func TestAPIServer_CreateAndUpdateJob_SCMPollTriggers(t *testing.T) {
 
 	assertAPICronSpecs(t, db, "job-scm-api", nil)
 
+	emptyTriggersDef := map[string]any{
+		"id": "job-scm-api",
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo empty triggers"},
+		},
+		"triggers": []map[string]any{},
+	}
+
+	body, _ = json.Marshal(emptyTriggersDef)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/jobs/job-scm-api", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", "job-scm-api")
+	rec = httptest.NewRecorder()
+
+	server.UpdateJobDefinition(rec, req)
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
+
+	assertAPISCMPollSpecs(t, db, "job-scm-api", []apiSCMPollSpec{{
+		Provider:        "git",
+		Project:         "file:///tmp/repo.git",
+		Query:           "refs/tags/v*",
+		IntervalSeconds: 30,
+	}})
+	assertAPIJobTriggers(t, db, "job-scm-api", []apiJobTrigger{
+		{Type: dal.TriggerTypeSCMPoll, Key: "release_tags"},
+	})
+
 	deleteTriggersDef := map[string]any{
 		"id": "job-scm-api",
 		"root": map[string]any{
@@ -423,8 +452,41 @@ func TestAPIServer_CreateAndUpdateJob_SCMPollTriggers(t *testing.T) {
 	}
 
 	assertAPISCMPollSpecs(t, db, "job-scm-api", nil)
-	assertAPIJobTriggers(t, db, "job-scm-api", nil)
+	assertAPIJobTriggers(t, db, "job-scm-api", []apiJobTrigger{
+		{Type: dal.TriggerTypeManual, Key: dal.DefaultManualTriggerKey, Name: "On demand"},
+	})
 	assertAPICronSpecs(t, db, "job-scm-api", nil)
+}
+
+func TestAPIServer_CreateJob_RejectsEmptyTriggers(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"id": "job-empty-triggers",
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo empty"},
+		},
+		"triggers": []map[string]any{},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.CreateJob(rec, req)
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
+
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM stored_jobs WHERE job_id = ?", "job-empty-triggers").Scan(&count); err != nil {
+		t.Fatalf("failed to query db: %v", err)
+	}
+
+	if count != 0 {
+		t.Fatalf("expected no stored job for empty triggers, got %d", count)
+	}
 }
 
 type apiJobTrigger struct {
@@ -1788,21 +1850,20 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	}
 }
 
-func TestAPIServer_TriggerJob_ManualTriggerKey(t *testing.T) {
+func TestAPIServer_TriggerJob_DefaultsToOnDemandManualTrigger(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	ctx := context.Background()
-	jobID := "job-manual-key"
-	jobDef := `{"id":"job-manual-key","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo manual"}},"triggers":[{"id":"on_demand","name":"On demand","manual":{}}]}`
+	jobID := "job-manual-default-key"
+	jobDef := `{"id":"job-manual-default-key","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo manual"}},"triggers":[{"id":"on_demand","name":"On demand","manual":{}}]}`
 	if err := dal.NewSQLRepositories(db).Jobs().CreateWithTriggers(ctx, jobID, jobDef, 1, []dal.JobTriggerConfig{{
-		ID:     "on_demand",
+		ID:     dal.DefaultManualTriggerKey,
 		Name:   "On demand",
 		Manual: &dal.JobManualTriggerConfig{},
 	}}); err != nil {
 		t.Fatalf("create job with manual trigger: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"trigger_key":"on_demand"}`))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, nil)
 	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
 
@@ -1814,13 +1875,26 @@ func TestAPIServer_TriggerJob_ManualTriggerKey(t *testing.T) {
 	var resp struct {
 		RunID string `json:"run_id"`
 	}
-
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode trigger response: %v", err)
 	}
-
 	if resp.RunID == "" {
 		t.Fatal("expected run_id in trigger response")
+	}
+
+	var defaultTriggerKey string
+	if err := db.QueryRowContext(ctx, `
+		SELECT jt.trigger_key
+		FROM job_runs jr
+		JOIN trigger_invocations ti ON ti.invocation_id = jr.trigger_invocation_id
+		JOIN job_triggers jt ON jt.id = ti.trigger_id
+		WHERE jr.run_id = ?
+	`, resp.RunID).Scan(&defaultTriggerKey); err != nil {
+		t.Fatalf("query default trigger identity: %v", err)
+	}
+
+	if defaultTriggerKey != dal.DefaultManualTriggerKey {
+		t.Fatalf("trigger_key = %q, want %s", defaultTriggerKey, dal.DefaultManualTriggerKey)
 	}
 
 	var invocationID string
@@ -1838,7 +1912,7 @@ func TestAPIServer_TriggerJob_ManualTriggerKey(t *testing.T) {
 		t.Fatalf("query trigger invocation identity: %v", err)
 	}
 
-	if triggerType != dal.TriggerTypeManual || triggerKey != "on_demand" || triggerName != "On demand" {
+	if triggerType != dal.TriggerTypeManual || triggerKey != dal.DefaultManualTriggerKey || triggerName != "On demand" {
 		t.Fatalf("unexpected trigger identity: type=%q key=%q name=%q", triggerType, triggerKey, triggerName)
 	}
 
@@ -1859,8 +1933,8 @@ func TestAPIServer_TriggerJob_ManualTriggerKey(t *testing.T) {
 		t.Fatalf("decode run response: %v", err)
 	}
 
-	if runResp.TriggerKey == nil || *runResp.TriggerKey != "on_demand" {
-		t.Fatalf("run trigger key: got %+v want on_demand", runResp.TriggerKey)
+	if runResp.TriggerKey == nil || *runResp.TriggerKey != dal.DefaultManualTriggerKey {
+		t.Fatalf("run trigger key: got %+v want %s", runResp.TriggerKey, dal.DefaultManualTriggerKey)
 	}
 
 	if runResp.TriggerName == nil || *runResp.TriggerName != "On demand" {
@@ -1868,19 +1942,19 @@ func TestAPIServer_TriggerJob_ManualTriggerKey(t *testing.T) {
 	}
 }
 
-func TestAPIServer_TriggerJob_UnknownManualTriggerKey(t *testing.T) {
+func TestAPIServer_TriggerJob_RejectsManualTriggerKeyOption(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	ctx := context.Background()
 	jobID := "job-manual-key-missing"
 	jobDef := `{"id":"job-manual-key-missing","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo manual"}},"triggers":[{"id":"on_demand","manual":{}}]}`
 	if err := dal.NewSQLRepositories(db).Jobs().CreateWithTriggers(ctx, jobID, jobDef, 1, []dal.JobTriggerConfig{{
-		ID:     "on_demand",
+		ID:     dal.DefaultManualTriggerKey,
 		Manual: &dal.JobManualTriggerConfig{},
 	}}); err != nil {
 		t.Fatalf("create job with manual trigger: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"trigger_key":"missing"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"trigger_key":"on_demand"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", jobID)
 	rec := httptest.NewRecorder()
@@ -1889,7 +1963,7 @@ func TestAPIServer_TriggerJob_UnknownManualTriggerKey(t *testing.T) {
 	assertAPIError(t, rec, http.StatusBadRequest, "invalid_trigger_options")
 
 	if len(queueService.GetJobs()) != 0 {
-		t.Fatal("expected no job to be enqueued for an unknown manual trigger key")
+		t.Fatal("expected no job to be enqueued when trigger_key is supplied")
 	}
 
 	var runCount int
@@ -1898,7 +1972,7 @@ func TestAPIServer_TriggerJob_UnknownManualTriggerKey(t *testing.T) {
 	}
 
 	if runCount != 0 {
-		t.Fatalf("expected no runs for unknown manual trigger key, got %d", runCount)
+		t.Fatalf("expected no runs when trigger_key is supplied, got %d", runCount)
 	}
 }
 
@@ -3610,6 +3684,32 @@ func TestAPIServer_RunJob_RejectsSCMPollTriggers(t *testing.T) {
 
 	if len(queueService.GetJobs()) != 0 {
 		t.Error("expected no job enqueued when one-off run includes stored-job triggers")
+	}
+}
+
+func TestAPIServer_RunJob_RejectsEmptyStoredJobTriggers(t *testing.T) {
+	server, _, queueService, _ := setupTestServer(t)
+
+	jobDef := map[string]any{
+		"root": map[string]any{
+			"id":   "root",
+			"uses": "builtins/shell",
+			"with": map[string]string{"command": "echo"},
+		},
+		"triggers": []map[string]any{},
+	}
+
+	body, _ := json.Marshal(jobDef)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/run", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.RunJob(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_job_definition")
+
+	if len(queueService.GetJobs()) != 0 {
+		t.Error("expected no job enqueued when one-off run includes an empty stored-job triggers field")
 	}
 }
 

@@ -525,6 +525,10 @@ func (v *validator) validateTriggers(triggers []*api.JobTrigger) {
 			if spec.Manual == nil {
 				v.add(path+".manual", "is required")
 			}
+
+			if id != "" && id != dal.DefaultManualTriggerKey {
+				v.add(path+".id", fmt.Sprintf("manual trigger id must be %q", dal.DefaultManualTriggerKey))
+			}
 		case *api.JobTrigger_Cron:
 			v.validateCronTrigger(path+".cron", spec.Cron)
 		case *api.JobTrigger_ScmPoll:

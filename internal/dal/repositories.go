@@ -131,6 +131,8 @@ const (
 	SourceSyncStatusSucceeded = "succeeded"
 	SourceSyncStatusFailed    = "failed"
 
+	DefaultManualTriggerKey = "on_demand"
+
 	CatalogEventStatusPending = "pending"
 	CatalogEventStatusApplied = "applied"
 	CatalogEventStatusFailed  = "failed"

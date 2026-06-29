@@ -42,6 +42,8 @@ type RunAuditFields struct {
 	ReplayOfRunID         *string  `json:"replay_of_run_id,omitempty"`
 	TriggerInvocationID   *string  `json:"trigger_invocation_id,omitempty"`
 	TriggerID             *int64   `json:"trigger_id,omitempty"`
+	TriggerKey            *string  `json:"trigger_key,omitempty"`
+	TriggerName           *string  `json:"trigger_name,omitempty"`
 	TriggerType           *string  `json:"trigger_type,omitempty"`
 	TriggerSourceInstance *string  `json:"trigger_source_instance,omitempty"`
 	TriggerPayloadHash    *string  `json:"trigger_payload_hash,omitempty"`
@@ -482,6 +484,14 @@ func writeRunAuditFields(w io.Writer, audit RunAuditFields) {
 
 	if audit.TriggerID != nil {
 		fmt.Fprintf(w, "trigger_id=%d\n", *audit.TriggerID)
+	}
+
+	if audit.TriggerKey != nil {
+		fmt.Fprintf(w, "trigger_key=%s\n", *audit.TriggerKey)
+	}
+
+	if audit.TriggerName != nil {
+		fmt.Fprintf(w, "trigger_name=%s\n", *audit.TriggerName)
 	}
 
 	if audit.TriggerType != nil {

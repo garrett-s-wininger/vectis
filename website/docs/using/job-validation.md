@@ -198,14 +198,15 @@ Do not set the same action field in both `with` and `inputs`. For example, `with
 
 ## Stored-Job Triggers
 
-Stored jobs can declare top-level `triggers`. Each trigger needs a stable `id`
-that starts with a letter or underscore and contains only letters, numbers,
-underscores, dots, or dashes. `name` is optional display text. The trigger kind
-is one of:
+Stored jobs can declare top-level `triggers`. When present, the list must be
+non-empty; omit `triggers` to use the default `on_demand` manual trigger. Each
+trigger needs a stable `id` that starts with a letter or underscore and contains
+only letters, numbers, underscores, dots, or dashes. `name` is optional display
+text. The trigger kind is one of:
 
 | Kind | Required fields |
 | --- | --- |
-| `manual` | none |
+| `manual` | none; `id` must be `on_demand` |
 | `cron` | `spec`, using a five-field cron expression such as `0 2 * * *` |
 | `scm_poll` | `provider`, plus `project` or `base_url`; `interval_seconds` must be non-negative |
 

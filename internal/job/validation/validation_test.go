@@ -148,8 +148,8 @@ func TestValidateJob_ValidManualAndCronTriggers(t *testing.T) {
 	job := validJob()
 	job.Triggers = []*api.JobTrigger{
 		{
-			Id:   strp("manual"),
-			Name: strp("Manual trigger"),
+			Id:   strp("on_demand"),
+			Name: strp("On demand"),
 			Kind: &api.JobTrigger_Manual{
 				Manual: &api.ManualTrigger{},
 			},
@@ -247,6 +247,7 @@ func TestValidateJob_TriggerIDAndCronValidation(t *testing.T) {
 	msg := err.Error()
 	for _, want := range []string{
 		`triggers[0].id: must start with a letter or underscore`,
+		`triggers[0].id: manual trigger id must be "on_demand"`,
 		`triggers[1].cron.spec: is invalid`,
 		`triggers[2].id: duplicates trigger id "dup" first used at triggers[1].id`,
 		`triggers[2].cron.spec: is required`,

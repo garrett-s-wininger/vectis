@@ -88,17 +88,8 @@ curl -sS \
   'http://localhost:8080/api/v1/jobs/build?repository_id=vectis-local&branch=main&message=Delete%20build%20job'
 ```
 
-If the stored job defines manual triggers, pass `trigger_key` to record which
-manual trigger fired:
-
-```sh
-curl -sS \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"trigger_key":"manual"}' \
-  http://localhost:8080/api/v1/jobs/trigger/sequenced-job
-```
+Stored jobs use the canonical `on_demand` manual trigger for API/CLI-initiated
+runs. Vectis records that trigger automatically when you trigger the job.
 
 Stored job definitions may include trigger definitions. Each trigger has a stable
 `id` and optional `name`; the trigger kind is one of `manual`, `cron`, or
@@ -109,7 +100,7 @@ Stored job definitions may include trigger definitions. Each trigger has a stabl
   "id": "sequenced-job",
   "root": {"id": "root", "uses": "builtins/script", "with": {"script": "mage test"}},
   "triggers": [
-    {"id": "manual", "name": "Manual trigger", "manual": {}},
+    {"id": "on_demand", "name": "On demand", "manual": {}},
     {"id": "nightly", "name": "Nightly", "cron": {"spec": "0 2 * * *"}},
     {
       "id": "main",
@@ -127,10 +118,12 @@ Stored job definitions may include trigger definitions. Each trigger has a stabl
 ```
 
 Updating a stored job replaces the job's persisted trigger specs with the
-`triggers` block in the new definition. Omitting `triggers` clears persisted
-triggers for that job. Cron and SCM trigger processes claim their persisted
-specs and record the internal trigger row plus `trigger_key` / `trigger_name`
-on resulting run responses when present. One-off `POST /api/v1/jobs/run`
+non-empty `triggers` block in the new definition. Omitting `triggers` installs
+the default `on_demand` manual trigger. `triggers: []` is rejected so an edit
+cannot accidentally disable every trigger on a job. Cron and SCM trigger
+processes claim their persisted specs and record the internal trigger row plus
+`trigger_key` / `trigger_name` on resulting run responses when present. Manual
+triggers must use the `on_demand` key. One-off `POST /api/v1/jobs/run`
 definitions reject `triggers` because there is no stored job for trigger
 processes to update.
 

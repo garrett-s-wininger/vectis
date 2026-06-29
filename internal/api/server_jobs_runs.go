@@ -53,7 +53,6 @@ type runTargetOptions struct {
 	TargetCellID  string   `json:"target_cell_id"`
 	CellIDs       []string `json:"cell_ids"`
 	TargetCellIDs []string `json:"target_cell_ids"`
-	TriggerKey    string   `json:"trigger_key"`
 }
 
 func (o runTargetOptions) targetCellID() string {
@@ -103,13 +102,53 @@ func parseRunTargetOptions(body []byte) (runTargetOptions, error) {
 		return runTargetOptions{}, nil
 	}
 
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return runTargetOptions{}, err
+	}
+	if _, ok := raw["trigger_key"]; ok {
+		return runTargetOptions{}, fmt.Errorf("trigger_key is not a supported trigger option")
+	}
+
 	var opts runTargetOptions
 	if err := json.Unmarshal(body, &opts); err != nil {
 		return runTargetOptions{}, err
 	}
-
-	opts.TriggerKey = strings.TrimSpace(opts.TriggerKey)
 	return opts, nil
+}
+
+func jobDefinitionTriggersField(data []byte) (present, empty bool) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return false, false
+	}
+
+	raw, ok := doc["triggers"]
+	if !ok {
+		return false, false
+	}
+
+	raw = bytes.TrimSpace(raw)
+	if bytes.Equal(raw, []byte("null")) {
+		return true, true
+	}
+
+	var triggers []json.RawMessage
+	if err := json.Unmarshal(raw, &triggers); err != nil {
+		return true, false
+	}
+
+	return true, len(triggers) == 0
+}
+
+func requireNonEmptyStoredJobTriggers(w http.ResponseWriter, definitionJSON []byte) bool {
+	present, empty := jobDefinitionTriggersField(definitionJSON)
+	if !present || !empty {
+		return true
+	}
+
+	writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "stored-job triggers must not be empty; omit triggers to use on_demand", map[string]any{"field": "triggers"})
+	return false
 }
 
 type triggerJobRunResponse struct {
@@ -762,6 +801,10 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		req.Job = body
 	}
 
+	if !requireNonEmptyStoredJobTriggers(w, req.Job) {
+		return
+	}
+
 	var job api.Job
 	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
@@ -986,7 +1029,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	targetCellIDs := triggerOpts.targetCellIDs()
 
-	manualTriggerID, ok := s.resolveManualTriggerID(ctx, w, jobID, triggerOpts.TriggerKey)
+	manualTriggerID, manualTriggerKey, ok := s.resolveManualTriggerID(ctx, w, jobID)
 	if !ok {
 		return
 	}
@@ -1083,8 +1126,8 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 			"invocation":  invocationID,
 		}
 
-		if triggerOpts.TriggerKey != "" {
-			auditFields["trigger_key"] = triggerOpts.TriggerKey
+		if manualTriggerKey != "" {
+			auditFields["trigger_key"] = manualTriggerKey
 		}
 
 		s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, auditFields)
@@ -1521,6 +1564,10 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if !requireNonEmptyStoredJobTriggers(w, body) {
+		return
+	}
+
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
@@ -1607,8 +1654,12 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 }
 
 func jobTriggerConfigs(job *api.Job) []dal.JobTriggerConfig {
-	if job == nil || len(job.GetTriggers()) == 0 {
+	if job == nil {
 		return nil
+	}
+
+	if len(job.GetTriggers()) == 0 {
+		return []dal.JobTriggerConfig{defaultManualTriggerConfig()}
 	}
 
 	triggers := make([]dal.JobTriggerConfig, 0, len(job.GetTriggers()))
@@ -1656,6 +1707,14 @@ func jobTriggerConfigs(job *api.Job) []dal.JobTriggerConfig {
 	return triggers
 }
 
+func defaultManualTriggerConfig() dal.JobTriggerConfig {
+	return dal.JobTriggerConfig{
+		ID:     dal.DefaultManualTriggerKey,
+		Name:   "On demand",
+		Manual: &dal.JobManualTriggerConfig{},
+	}
+}
+
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
 // The API always assigns a fresh job id server-side; any id in the request body is ignored (idempotency hashes the raw body).
 func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
@@ -1691,7 +1750,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(job.GetTriggers()) > 0 {
+	if hasTriggers, _ := jobDefinitionTriggersField(req.Job); hasTriggers {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "stored-job triggers are not supported for one-off runs", nil)
 		return
 	}
@@ -1976,30 +2035,26 @@ func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jo
 	s.logger.Info("Enqueued %s job: %s (run %s)", runKind, jobID, runID)
 }
 
-func (s *APIServer) resolveManualTriggerID(ctx context.Context, w http.ResponseWriter, jobID, triggerKey string) (*int64, bool) {
-	triggerKey = strings.TrimSpace(triggerKey)
-	if triggerKey == "" {
-		return nil, true
-	}
-
+func (s *APIServer) resolveManualTriggerID(ctx context.Context, w http.ResponseWriter, jobID string) (*int64, string, bool) {
+	triggerKey := dal.DefaultManualTriggerKey
 	triggerID, err := s.jobs.GetEnabledTriggerID(ctx, jobID, dal.TriggerTypeManual, triggerKey)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "manual trigger not found", map[string]any{"trigger_key": triggerKey})
-			return nil, false
+			return nil, "", false
 		}
 
 		if s.handleDBUnavailableError(w, err) {
-			return nil, false
+			return nil, "", false
 		}
 
 		s.logger.Error("Database error resolving manual trigger %s for job %s: %v", triggerKey, jobID, err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return nil, false
+		return nil, "", false
 	}
 	s.markDBRecovered()
 
-	return &triggerID, true
+	return &triggerID, triggerKey, true
 }
 
 func (s *APIServer) recordTriggerInvocation(ctx context.Context, jobID, triggerType string, triggerID *int64, triggerPayload string, targetCellIDs []string) (string, error) {
