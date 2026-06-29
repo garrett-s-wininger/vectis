@@ -37,6 +37,22 @@ const (
 	WorkerSPIFFESVIDReasonSourceTimeout     = "source_timeout"
 	WorkerSPIFFESVIDReasonCanceled          = "canceled"
 	WorkerSPIFFESVIDReasonUnknown           = "unknown"
+
+	WorkerCheckoutCacheWarmOutcomeSuccess = "success"
+	WorkerCheckoutCacheWarmOutcomePartial = "partial"
+	WorkerCheckoutCacheWarmOutcomeFailed  = "failed"
+	WorkerCheckoutCacheWarmOutcomeSkipped = "skipped"
+
+	WorkerCheckoutCacheWarmRemoteOutcomeWarmed = "warmed"
+	WorkerCheckoutCacheWarmRemoteOutcomeFailed = "failed"
+
+	WorkerCheckoutCacheWarmReasonOK              = "ok"
+	WorkerCheckoutCacheWarmReasonNoRemotes       = "no_remotes"
+	WorkerCheckoutCacheWarmReasonRemoteFailures  = "remote_failures"
+	WorkerCheckoutCacheWarmReasonCoreError       = "core_error"
+	WorkerCheckoutCacheWarmReasonContextCanceled = "context_canceled"
+	WorkerCheckoutCacheWarmReasonTimeout         = "timeout"
+	WorkerCheckoutCacheWarmReasonUnknown         = "unknown"
 )
 
 var workerPhases = []string{
@@ -53,6 +69,9 @@ type WorkerMetrics struct {
 	orchestratorRecovered metric.Int64Counter
 	duration              metric.Float64Histogram
 	spiffeSVIDChecks      metric.Int64Counter
+	checkoutCacheWarm     metric.Int64Counter
+	checkoutCacheWarmTime metric.Float64Histogram
+	checkoutCacheRemotes  metric.Int64Counter
 	phaseGauge            metric.Int64ObservableGauge
 	drainingGauge         metric.Int64ObservableGauge
 	dbGauge               metric.Int64ObservableGauge
@@ -98,6 +117,31 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		return nil, fmt.Errorf("vectis_worker_spiffe_svid_checks_total: %w", err)
 	}
 
+	checkoutCacheWarm, err := m.Int64Counter("vectis_worker_checkout_cache_warm_passes_total",
+		metric.WithDescription("Worker-driven persistent checkout cache warm passes by outcome and reason"),
+		metric.WithUnit("{pass}"))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_passes_total: %w", err)
+	}
+
+	checkoutCacheWarmTime, err := m.Float64Histogram("vectis_worker_checkout_cache_warm_duration_seconds",
+		metric.WithDescription("Wall time spent in worker-driven persistent checkout cache warm passes"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_duration_seconds: %w", err)
+	}
+
+	checkoutCacheRemotes, err := m.Int64Counter("vectis_worker_checkout_cache_warm_remotes_total",
+		metric.WithDescription("Persistent checkout cache remote warm results"),
+		metric.WithUnit("{remote}"))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_remotes_total: %w", err)
+	}
+
 	phaseGauge, err := m.Int64ObservableGauge("vectis_worker_lifecycle_state",
 		metric.WithDescription("Current worker lifecycle phase. One labelled state is 1 and the remaining states are 0."))
 
@@ -124,6 +168,9 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		orchestratorRecovered: orchestratorRecovered,
 		duration:              duration,
 		spiffeSVIDChecks:      spiffeSVIDChecks,
+		checkoutCacheWarm:     checkoutCacheWarm,
+		checkoutCacheWarmTime: checkoutCacheWarmTime,
+		checkoutCacheRemotes:  checkoutCacheRemotes,
 		phaseGauge:            phaseGauge,
 		drainingGauge:         drainingGauge,
 		dbGauge:               dbGauge,
@@ -188,6 +235,35 @@ func (wm *WorkerMetrics) RecordSPIFFESVIDCheck(ctx context.Context, outcome, rea
 		attribute.String("outcome", outcome),
 		attribute.String("reason", reason),
 	))
+}
+
+func (wm *WorkerMetrics) RecordCheckoutCacheWarm(ctx context.Context, outcome, reason string, warmed, failed int, d time.Duration) {
+	if wm == nil {
+		return
+	}
+
+	if outcome == "" {
+		outcome = WorkerCheckoutCacheWarmOutcomeFailed
+	}
+
+	if reason == "" {
+		reason = WorkerCheckoutCacheWarmReasonUnknown
+	}
+
+	attrs := metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	)
+	wm.checkoutCacheWarm.Add(ctx, 1, attrs)
+	wm.checkoutCacheWarmTime.Record(ctx, max(d.Seconds(), 0), attrs)
+
+	if warmed > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(warmed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeWarmed)))
+	}
+
+	if failed > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(failed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeFailed)))
+	}
 }
 
 func (wm *WorkerMetrics) RecordOrchestratorRecovery(ctx context.Context, stage string) {

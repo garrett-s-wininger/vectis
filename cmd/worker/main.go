@@ -697,6 +697,13 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		return
 	}
 
+	started := time.Now()
+	record := func(outcome, reason string, warmed, failed int) {
+		if w.metrics != nil {
+			w.metrics.RecordCheckoutCacheWarm(ctx, outcome, reason, warmed, failed, time.Since(started))
+		}
+	}
+
 	if timeout := config.WorkerExecutionCheckoutCacheWarmTimeout(); timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -704,17 +711,38 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 	}
 
 	remoteURLs := w.checkoutCacheRemoteURLs(ctx)
+	if err := ctx.Err(); err != nil {
+		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0)
+		return
+	}
+
 	if len(remoteURLs) == 0 {
+		record(observability.WorkerCheckoutCacheWarmOutcomeSkipped, observability.WorkerCheckoutCacheWarmReasonNoRemotes, 0, 0)
 		return
 	}
 
 	result, err := warmer.WarmCheckoutCache(ctx, workercore.WarmCheckoutCacheRequest{RemoteURLs: remoteURLs})
 	if err != nil {
+		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0)
 		if w.logger != nil {
 			w.logger.Warn("Worker checkout cache warm failed: %v", err)
 		}
 		return
 	}
+
+	failed := len(result.Failures)
+	outcome := observability.WorkerCheckoutCacheWarmOutcomeSuccess
+	reason := observability.WorkerCheckoutCacheWarmReasonOK
+	if failed > 0 {
+		reason = observability.WorkerCheckoutCacheWarmReasonRemoteFailures
+		if result.Warmed > 0 {
+			outcome = observability.WorkerCheckoutCacheWarmOutcomePartial
+		} else {
+			outcome = observability.WorkerCheckoutCacheWarmOutcomeFailed
+		}
+	}
+
+	record(outcome, reason, result.Warmed, failed)
 
 	if w.logger == nil {
 		return
@@ -734,6 +762,19 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 			break
 		}
 		w.logger.Warn("Worker checkout cache warm failed for %s: %s", failure.RemoteURL, failure.Message)
+	}
+}
+
+func checkoutCacheWarmFailureReason(err error) string {
+	switch {
+	case err == nil:
+		return observability.WorkerCheckoutCacheWarmReasonOK
+	case errors.Is(err, context.Canceled):
+		return observability.WorkerCheckoutCacheWarmReasonContextCanceled
+	case errors.Is(err, context.DeadlineExceeded):
+		return observability.WorkerCheckoutCacheWarmReasonTimeout
+	default:
+		return observability.WorkerCheckoutCacheWarmReasonCoreError
 	}
 }
 

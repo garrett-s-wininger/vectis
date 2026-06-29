@@ -12,7 +12,7 @@ Scrape only from trusted monitoring networks. Metrics expose operational shape a
 | --- | --- | --- |
 | `vectis-api` | API listener `GET /metrics` when metrics are enabled | API enqueue, dispatch events, API security rejections, audit durability, source repository sync, SQL pool, retention storage, retry, log routing |
 | `vectis-queue` | Dedicated metrics listener | Queue counters and gauges |
-| `vectis-worker` | Dedicated metrics listener | Worker execution, lifecycle, DB state, SPIFFE SVID checks, SQL pool, retry, log routing, task reduce/finalize |
+| `vectis-worker` | Dedicated metrics listener | Worker execution, lifecycle, DB state, SPIFFE SVID checks, checkout cache warming, SQL pool, retry, log routing, task reduce/finalize |
 | `vectis-log` | Dedicated metrics listener | Log ingest, durable append failures, in-memory drops, subscriber drops |
 | `vectis-log-forwarder` | Dedicated metrics listener | Forwarder chunk/batch outcomes, durable spool gauges, retry, log routing |
 | `vectis-artifact` | Dedicated metrics listener | Local artifact CAS storage gauges |
@@ -86,6 +86,9 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `vectis_worker_db_unavailable` | Gauge | none | `1` after the worker observes DB unavailability on DB-backed transitions. | Database outage visibility from the worker side. |
 | `vectis_worker_orchestrator_recoveries_total` | Counter | `stage` | Worker recovered task claims after missing orchestrator hot state. | Growth after orchestrator restart can be normal; sustained growth means unstable or inconsistent orchestrator state. |
 | `vectis_worker_spiffe_svid_checks_total` | Counter | `outcome`, `reason` | Worker execution X.509-SVID gate results. Outcomes are `success` or `failed`; reasons include `matched`, `missing_identity`, `missing_source`, `invalid_expected_id`, `mismatch`, `source_error`, `source_timeout`, `canceled`, and `unknown`. | Alert on failures other than expected cancellations when SPIFFE is enabled. |
+| `vectis_worker_checkout_cache_warm_passes_total` | Counter | `outcome`, `reason` | Worker-driven persistent checkout cache warm passes. Outcomes are `success`, `partial`, `failed`, or `skipped`; reasons include `ok`, `no_remotes`, `remote_failures`, `core_error`, `context_canceled`, `timeout`, and `unknown`. | Alert on sustained `failed` or `partial` outcomes for repositories expected to stay warm. |
+| `vectis_worker_checkout_cache_warm_duration_seconds` | Histogram | `outcome`, `reason` | Wall time spent in worker-driven persistent checkout cache warm passes. | Track warm latency against the configured timeout and repository churn. |
+| `vectis_worker_checkout_cache_warm_remotes_total` | Counter | `outcome` | Remote-level warm results. `outcome` is `warmed` or `failed`. | Compare failed versus warmed remotes to spot mirror or upstream access problems. |
 | `vectis_task_reduce_decisions_total` | Counter | `outcome` | Task reducer decisions. Outcomes are `waiting`, `succeeded`, `failed`, or `error`. | Errors indicate reducer/DB trouble; failed outcomes explain run finalization. |
 | `vectis_task_finalize_decisions_total` | Counter | `outcome`, `reduce_outcome` | Task finalizer decisions. Outcomes include `continue`, `reduce_succeeded`, `reduce_failed`, `incomplete`, `execution_failed`, and `execution_aborted`; `reduce_outcome` is reducer output or `none`. | Debug task graph continuation and terminal run decisions. |
 
