@@ -189,6 +189,75 @@ func (g *GitCheckout) ReadFile(ctx context.Context, revision Revision, filePath 
 	})
 }
 
+func (g *GitCheckout) ListCommits(ctx context.Context, opts ListCommitsOptions) (CommitListing, error) {
+	if err := g.validateCheckout(); err != nil {
+		return CommitListing{}, err
+	}
+
+	requestedRef, revision, err := g.resolveReadRevision(ctx, opts.Ref, opts.Revision)
+	if err != nil {
+		return CommitListing{}, err
+	}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = DefaultCommitListLimit
+	}
+
+	if limit > MaxCommitListLimit {
+		limit = MaxCommitListLimit
+	}
+
+	commits, truncated, err := g.listCommitEntries(ctx, revision.Commit, limit)
+	if err != nil {
+		return CommitListing{}, err
+	}
+
+	return CommitListing{
+		RequestedRef: requestedRef,
+		Revision:     revision,
+		Truncated:    truncated,
+		Commits:      commits,
+	}, nil
+}
+
+func (g *GitCheckout) ReadNote(ctx context.Context, opts ReadNoteOptions) (GitNote, error) {
+	if err := g.validateCheckout(); err != nil {
+		return GitNote{}, err
+	}
+
+	requestedRef, revision, err := g.resolveReadRevision(ctx, opts.Ref, opts.Revision)
+	if err != nil {
+		return GitNote{}, err
+	}
+
+	notesRef, err := normalizeGitNotesRef(opts.NotesRef)
+	if err != nil {
+		return GitNote{}, err
+	}
+
+	content, err := g.run(ctx, "notes", "--ref="+strings.TrimPrefix(notesRef, "refs/notes/"), "show", revision.Commit)
+	if err != nil {
+		return GitNote{}, fmt.Errorf("%w: note %s for %s", ErrNotFound, notesRef, revision.Commit)
+	}
+
+	maxBytes := opts.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = g.maxFileBytes
+	}
+
+	if maxBytes > 0 && int64(len(content)) > maxBytes {
+		return GitNote{}, fmt.Errorf("%w: note %s for %s has %d bytes (limit %d)", ErrTooLarge, notesRef, revision.Commit, len(content), maxBytes)
+	}
+
+	return GitNote{
+		RequestedRef: requestedRef,
+		Revision:     revision,
+		NotesRef:     notesRef,
+		Content:      content,
+	}, nil
+}
+
 func (g *GitCheckout) readDefinitionFile(ctx context.Context, req DefinitionFileRequest) (File, error) {
 	return g.readFileRequest(ctx, req)
 }
@@ -860,6 +929,113 @@ func (g *GitCheckout) lookupFileBlob(ctx context.Context, commit, filePath strin
 	}
 
 	return "", 0, fmt.Errorf("%w: %s at %s", ErrNotFound, filePath, commit)
+}
+
+func (g *GitCheckout) resolveReadRevision(ctx context.Context, ref string, revision Revision) (string, Revision, error) {
+	if revision.Valid() {
+		commit, err := normalizeCommit(revision.Commit)
+		if err != nil {
+			return "", Revision{}, err
+		}
+
+		return "", Revision{Commit: commit}, nil
+	}
+
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	normalized, err := normalizeRef(ref)
+	if err != nil {
+		return "", Revision{}, err
+	}
+
+	commit, err := g.resolveCommit(ctx, normalized)
+	if err != nil {
+		return "", Revision{}, fmt.Errorf("%w: revision %q", ErrNotFound, normalized)
+	}
+
+	if commit == "" {
+		return "", Revision{}, fmt.Errorf("%w: revision %q resolved to an empty commit", ErrInvalidReference, normalized)
+	}
+
+	return normalized, Revision{Commit: commit}, nil
+}
+
+func (g *GitCheckout) listCommitEntries(ctx context.Context, commit string, limit int) ([]CommitInfo, bool, error) {
+	if limit <= 0 {
+		return nil, false, nil
+	}
+
+	out, err := g.run(ctx,
+		"log",
+		"-z",
+		"--format=%H%x00%P%x00%s",
+		"--max-count="+strconv.Itoa(limit+1),
+		commit,
+		"--",
+	)
+
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: list commits for %s: %v", ErrInvalidReference, commit, err)
+	}
+
+	commits := parseCommitLogRecords(out)
+	truncated := len(commits) > limit
+	if truncated {
+		commits = commits[:limit]
+	}
+
+	return commits, truncated, nil
+}
+
+func parseCommitLogRecords(out []byte) []CommitInfo {
+	out = bytes.TrimSuffix(out, []byte{0})
+	if len(bytes.TrimSpace(out)) == 0 {
+		return nil
+	}
+
+	fields := bytes.Split(out, []byte{0})
+	commits := make([]CommitInfo, 0, len(fields)/3)
+	for i := 0; i+2 < len(fields); i += 3 {
+		commit := strings.TrimSpace(string(fields[i]))
+		if commit == "" {
+			continue
+		}
+
+		parentsText := strings.TrimSpace(string(fields[i+1]))
+		var parents []string
+		if parentsText != "" {
+			parents = strings.Fields(parentsText)
+		}
+
+		commits = append(commits, CommitInfo{
+			Commit:  commit,
+			Parents: parents,
+			Subject: strings.TrimSpace(string(fields[i+2])),
+		})
+	}
+
+	return commits
+}
+
+func normalizeGitNotesRef(notesRef string) (string, error) {
+	notesRef = strings.TrimSpace(notesRef)
+	if notesRef == "" {
+		notesRef = "refs/notes/commits"
+	}
+
+	normalized, err := normalizeRef(notesRef)
+	if err != nil {
+		return "", err
+	}
+
+	if !managedGitAuxiliaryRef(normalized) {
+		return "", fmt.Errorf("%w: notes ref %q is not supported", ErrInvalidReference, normalized)
+	}
+
+	return normalized, nil
 }
 
 func (g *GitCheckout) resolveCommit(ctx context.Context, ref string) (string, error) {

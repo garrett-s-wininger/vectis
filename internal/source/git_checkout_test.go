@@ -106,6 +106,81 @@ func TestGitCheckoutReadFileHonorsMaxFileBytes(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutListCommits(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "first\n", "first")
+	firstCommit := gitOutput(t, repo, "rev-parse", "HEAD")
+	writeAndCommit(t, repo, "README.md", "second\n", "second")
+	secondCommit := gitOutput(t, repo, "rev-parse", "HEAD")
+	writeAndCommit(t, repo, "README.md", "third\n", "third")
+	thirdCommit := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	checkout := NewGitCheckout(repo)
+	listing, err := checkout.ListCommits(context.Background(), ListCommitsOptions{
+		Ref:   "HEAD",
+		Limit: 2,
+	})
+
+	if err != nil {
+		t.Fatalf("ListCommits: %v", err)
+	}
+
+	if listing.RequestedRef != "HEAD" || listing.Revision.Commit != thirdCommit || !listing.Truncated {
+		t.Fatalf("commit listing metadata mismatch: %+v", listing)
+	}
+
+	if len(listing.Commits) != 2 {
+		t.Fatalf("commits len=%d, want 2: %+v", len(listing.Commits), listing.Commits)
+	}
+
+	if listing.Commits[0].Commit != thirdCommit ||
+		len(listing.Commits[0].Parents) != 1 ||
+		listing.Commits[0].Parents[0] != secondCommit ||
+		listing.Commits[0].Subject != "third" {
+		t.Fatalf("latest commit mismatch: %+v", listing.Commits[0])
+	}
+
+	if listing.Commits[1].Commit != secondCommit ||
+		len(listing.Commits[1].Parents) != 1 ||
+		listing.Commits[1].Parents[0] != firstCommit ||
+		listing.Commits[1].Subject != "second" {
+		t.Fatalf("second commit mismatch: %+v", listing.Commits[1])
+	}
+}
+
+func TestGitCheckoutReadNote(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "readme")
+	commit := gitOutput(t, repo, "rev-parse", "HEAD")
+	git(t, repo, "notes", "--ref=commits", "add", "-m", "hello note", commit)
+
+	checkout := NewGitCheckout(repo)
+	note, err := checkout.ReadNote(context.Background(), ReadNoteOptions{
+		Ref:      "HEAD",
+		NotesRef: "refs/notes/commits",
+	})
+
+	if err != nil {
+		t.Fatalf("ReadNote: %v", err)
+	}
+
+	if note.RequestedRef != "HEAD" || note.Revision.Commit != commit || note.NotesRef != "refs/notes/commits" {
+		t.Fatalf("note metadata mismatch: %+v", note)
+	}
+
+	if got, want := string(note.Content), "hello note\n"; got != want {
+		t.Fatalf("note content: got %q, want %q", got, want)
+	}
+
+	if _, err := checkout.ReadNote(context.Background(), ReadNoteOptions{Ref: "HEAD", NotesRef: "refs/heads/main"}); !errors.Is(err, ErrInvalidReference) {
+		t.Fatalf("expected invalid notes ref, got %v", err)
+	}
+
+	if _, err := checkout.ReadNote(context.Background(), ReadNoteOptions{Ref: "HEAD", NotesRef: "refs/notes/missing"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing note, got %v", err)
+	}
+}
+
 func TestGitCommandEnvDisablesOptionalLocks(t *testing.T) {
 	t.Setenv("GIT_OPTIONAL_LOCKS", "1")
 

@@ -463,8 +463,31 @@ func TestHydrateManagedGitContextFetchesAuxiliaryNotesRef(t *testing.T) {
 		t.Fatalf("hydrated auxiliary refs mismatch: %+v", status.AuxiliaryRefs)
 	}
 
-	if got := gitOutput(t, checkoutPath, "notes", "--ref=commits", "show", reviewCommit); got != "review note" {
-		t.Fatalf("hydrated note: got %q, want review note", got)
+	managed := NewManagedGitCheckout(checkoutPath)
+	commits, err := managed.ListCommits(context.Background(), ListCommitsOptions{
+		Ref:   "refs/pull/789/head",
+		Limit: 1,
+	})
+
+	if err != nil {
+		t.Fatalf("ListCommits hydrated provider ref: %v", err)
+	}
+
+	if len(commits.Commits) != 1 || commits.Commits[0].Commit != reviewCommit || commits.Commits[0].Subject != "review" {
+		t.Fatalf("hydrated provider commit listing mismatch: %+v", commits)
+	}
+
+	note, err := managed.ReadNote(context.Background(), ReadNoteOptions{
+		Ref:      "refs/pull/789/head",
+		NotesRef: "refs/notes/commits",
+	})
+
+	if err != nil {
+		t.Fatalf("ReadNote hydrated provider ref: %v", err)
+	}
+
+	if got, want := string(note.Content), "review note\n"; got != want {
+		t.Fatalf("hydrated note: got %q, want %q", got, want)
 	}
 }
 

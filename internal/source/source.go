@@ -23,6 +23,8 @@ const DefaultMaxFileBytes int64 = 1024 * 1024
 
 const (
 	DefaultBranchListLimit = 50
+	DefaultCommitListLimit = 50
+	MaxCommitListLimit     = 500
 	DefaultTreeListLimit   = 100
 	DefaultDefinitionPath  = refspec.DefaultDefinitionPath
 )
@@ -125,6 +127,39 @@ type File struct {
 	Revision Revision
 	BlobSHA  string
 	Content  []byte
+}
+
+type ListCommitsOptions struct {
+	Ref      string
+	Revision Revision
+	Limit    int
+}
+
+type CommitListing struct {
+	RequestedRef string
+	Revision     Revision
+	Truncated    bool
+	Commits      []CommitInfo
+}
+
+type CommitInfo struct {
+	Commit  string
+	Parents []string
+	Subject string
+}
+
+type ReadNoteOptions struct {
+	Ref      string
+	Revision Revision
+	NotesRef string
+	MaxBytes int64
+}
+
+type GitNote struct {
+	RequestedRef string
+	Revision     Revision
+	NotesRef     string
+	Content      []byte
 }
 
 type CommitFileOptions struct {
