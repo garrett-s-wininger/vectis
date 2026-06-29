@@ -104,6 +104,37 @@ func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID str
 	return def, nil
 }
 
+func (m *MockJobsRepository) GetLatestDefinition(ctx context.Context, jobID string) (string, int, error) {
+	if m.GetErr != nil {
+		return "", 0, m.GetErr
+	}
+
+	byVer, ok := m.Versions[jobID]
+	if ok {
+		latestVersion := 0
+		for version := range byVer {
+			if version > latestVersion {
+				latestVersion = version
+			}
+		}
+
+		if latestVersion > 0 {
+			return byVer[latestVersion], latestVersion, nil
+		}
+	}
+
+	version := m.DefinitionVersions[jobID]
+	if version <= 0 {
+		version = 1
+	}
+
+	if def, ok := m.Definitions[jobID]; ok {
+		return def, version, nil
+	}
+
+	return "", 0, fmt.Errorf("%w: job %s", dal.ErrNotFound, jobID)
+}
+
 var _ dal.JobsRepository = (*MockJobsRepository)(nil)
 
 type MockRunsRepository struct {
@@ -988,6 +1019,35 @@ func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoffLimit(ctx context.Con
 	}
 
 	return out, nil
+}
+
+func (m *MockRunsRepository) GetQueuedRunForDispatch(ctx context.Context, runID string) (dal.QueuedRun, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, touched := range m.TouchedRunIDs {
+		if touched == runID {
+			return dal.QueuedRun{}, false, nil
+		}
+	}
+
+	for _, rec := range m.QueuedRuns {
+		if rec.RunID == runID {
+			return rec, true, nil
+		}
+	}
+
+	if rec, ok := m.RunRecords[runID]; ok && rec.Status == dal.RunStatusQueued {
+		return dal.QueuedRun{
+			RunID:             rec.RunID,
+			JobID:             m.LastCreateJobID,
+			DefinitionVersion: rec.DefinitionVersion,
+			DefinitionHash:    rec.DefinitionHash,
+			OwningCell:        rec.OwningCell,
+		}, true, nil
+	}
+
+	return dal.QueuedRun{}, false, nil
 }
 
 func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID string) (dal.ExecutionDispatchRecord, error) {

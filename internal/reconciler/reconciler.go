@@ -449,6 +449,27 @@ func (s *Service) noteDBRecovered() {
 	}
 }
 
+func (s *Service) DispatchTriggeredRun(ctx context.Context, run dal.CreatedRun) error {
+	return s.DispatchRunNow(ctx, run.RunID)
+}
+
+func (s *Service) DispatchRunNow(ctx context.Context, runID string) error {
+	if s == nil || s.runs == nil {
+		return fmt.Errorf("reconciler: runs repository is not set")
+	}
+
+	qr, found, err := s.runs.GetQueuedRunForDispatch(ctx, runID)
+	if err != nil {
+		return err
+	}
+
+	if !found {
+		return nil
+	}
+
+	return s.dispatchOne(ctx, qr)
+}
+
 func (s *Service) dispatchOne(ctx context.Context, qr dal.QueuedRun) error {
 	runID, jobID := qr.RunID, qr.JobID
 	ctx, span := observability.Tracer("vectis/reconciler").Start(ctx, "reconciler.run.reenqueue", trace.WithSpanKind(trace.SpanKindInternal))

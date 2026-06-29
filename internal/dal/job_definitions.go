@@ -40,6 +40,23 @@ func (r *SQLJobsRepository) CreateDefinitionSnapshot(ctx context.Context, jobID,
 	return tx.Commit()
 }
 
+func (r *SQLJobsRepository) GetLatestDefinition(ctx context.Context, jobID string) (string, int, error) {
+	var definitionJSON string
+	var version int
+	if err := r.db.QueryRowContext(ctx,
+		rebindQueryForPgx("SELECT definition_json, version FROM job_definitions WHERE job_id = ? ORDER BY version DESC LIMIT 1"),
+		jobID,
+	).Scan(&definitionJSON, &version); err != nil {
+		if err == sql.ErrNoRows {
+			return "", 0, fmt.Errorf("%w: job %s", ErrNotFound, jobID)
+		}
+
+		return "", 0, normalizeSQLError(err)
+	}
+
+	return definitionJSON, version, nil
+}
+
 func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error) {
 	var definitionJSON string
 	if err := r.db.QueryRowContext(ctx,

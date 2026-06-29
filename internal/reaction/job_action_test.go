@@ -2,6 +2,7 @@ package reaction_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -53,7 +54,8 @@ func TestTriggerJobActionExecuteCreatesAuditedRunsAndReusesOnRetry(t *testing.T)
 		t.Fatalf("create invocation: %v", err)
 	}
 
-	action := &reaction.TriggerJobAction{Store: newJobTriggerStore(repos)}
+	dispatcher := &recordingTriggerDispatcher{}
+	action := &reaction.TriggerJobAction{Store: newJobTriggerStore(repos), Dispatcher: dispatcher}
 	first, err := action.Execute(ctx, reaction.TriggerJobActionRequest{
 		Event:      event,
 		Invocation: invocation,
@@ -77,6 +79,10 @@ func TestTriggerJobActionExecuteCreatesAuditedRunsAndReusesOnRetry(t *testing.T)
 
 	if len(first.Runs) != 2 || first.Runs[0].TargetCellID != "iad-a" || first.Runs[1].TargetCellID != "pdx-b" {
 		t.Fatalf("created runs: %+v", first.Runs)
+	}
+
+	if first.Dispatched != 2 || len(dispatcher.runs) != 2 {
+		t.Fatalf("first dispatch count=%d recorded=%+v", first.Dispatched, dispatcher.runs)
 	}
 
 	run, err := repos.Runs().GetRun(ctx, first.Runs[0].RunID)
@@ -105,6 +111,10 @@ func TestTriggerJobActionExecuteCreatesAuditedRunsAndReusesOnRetry(t *testing.T)
 		t.Fatal("retry should reuse existing runs")
 	}
 
+	if second.Dispatched != 2 || len(dispatcher.runs) != 4 {
+		t.Fatalf("retry dispatch count=%d recorded=%+v", second.Dispatched, dispatcher.runs)
+	}
+
 	if len(second.Runs) != len(first.Runs) || second.Runs[0].RunID != first.Runs[0].RunID || second.Runs[1].RunID != first.Runs[1].RunID {
 		t.Fatalf("retry runs: got %+v want %+v", second.Runs, first.Runs)
 	}
@@ -116,6 +126,93 @@ func TestTriggerJobActionExecuteCreatesAuditedRunsAndReusesOnRetry(t *testing.T)
 
 	if len(existing) != 2 {
 		t.Fatalf("retry should not create duplicate runs, got %+v", existing)
+	}
+}
+
+func TestTriggerJobActionReturnsDispatchErrorAfterDurableRunCreate(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	reactions := repos.Reactions()
+	ctx := context.Background()
+
+	createStoredJob(t, ctx, repos.Jobs(), "dispatch-source-job")
+	createStoredJob(t, ctx, repos.Jobs(), "dispatch-downstream-job")
+
+	event, err := reactions.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeRunCompleted,
+		JobID:       "dispatch-source-job",
+		RunID:       "dispatch-source-run",
+		PayloadJSON: []byte(`{"job_id":"dispatch-source-job","run_id":"dispatch-source-run","status":"succeeded"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := reactions.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "dispatch-downstream-trigger",
+		Kind:       dal.ReactionTargetKindJob,
+		Uses:       dal.ReactionActionTriggerJob,
+		ConfigJSON: []byte(`{"job_id":"dispatch-downstream-job","target_cell_id":"iad-a"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	invocation, err := reactions.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/trigger-job"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+	})
+
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	dispatchErr := errors.New("queue unavailable")
+	dispatcher := &recordingTriggerDispatcher{err: dispatchErr}
+	action := &reaction.TriggerJobAction{Store: newJobTriggerStore(repos), Dispatcher: dispatcher}
+	if _, err := action.Execute(ctx, reaction.TriggerJobActionRequest{Event: event, Invocation: invocation}); !errors.Is(err, dispatchErr) {
+		t.Fatalf("expected dispatch error %v, got %v", dispatchErr, err)
+	}
+
+	existing, err := repos.Runs().ListRunsByTriggerInvocation(ctx, invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("list runs after failed dispatch: %v", err)
+	}
+
+	if len(existing) != 1 || existing[0].TargetCellID != "iad-a" {
+		t.Fatalf("expected one durable triggered run after dispatch failure, got %+v", existing)
+	}
+
+	dispatcher.err = nil
+	retry, err := action.Execute(ctx, reaction.TriggerJobActionRequest{Event: event, Invocation: invocation})
+	if err != nil {
+		t.Fatalf("retry dispatch: %v", err)
+	}
+
+	if !retry.Reused {
+		t.Fatal("retry should reuse the run created before the dispatch failure")
+	}
+
+	if retry.Dispatched != 1 || len(dispatcher.runs) != 1 {
+		t.Fatalf("retry dispatch count=%d recorded=%+v", retry.Dispatched, dispatcher.runs)
+	}
+
+	if len(retry.Runs) != 1 || retry.Runs[0].RunID != existing[0].RunID {
+		t.Fatalf("retry runs: got %+v want %+v", retry.Runs, existing)
+	}
+
+	afterRetry, err := repos.Runs().ListRunsByTriggerInvocation(ctx, invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("list runs after retry: %v", err)
+	}
+
+	if len(afterRetry) != 1 || afterRetry[0].RunID != existing[0].RunID {
+		t.Fatalf("retry created duplicate runs: %+v", afterRetry)
 	}
 }
 
@@ -163,8 +260,9 @@ func TestRunnerRunOnceExecutesTriggerJobActionWhenStoreSupportsIt(t *testing.T) 
 		t.Fatalf("create invocation: %v", err)
 	}
 
+	store := newRunnerJobTriggerStore(repos)
 	summary, err := (&reaction.Runner{
-		Store: newRunnerJobTriggerStore(repos),
+		Store: store,
 		Owner: "trigger-job-runner",
 	}).RunOnce(ctx, 10)
 
@@ -192,6 +290,10 @@ func TestRunnerRunOnceExecutesTriggerJobActionWhenStoreSupportsIt(t *testing.T) 
 
 	if len(runs) != 1 {
 		t.Fatalf("triggered runs: %+v", runs)
+	}
+
+	if len(store.dispatcher.runs) != 1 || store.dispatcher.runs[0].RunID != runs[0].RunID {
+		t.Fatalf("triggered dispatches: %+v want run %+v", store.dispatcher.runs, runs)
 	}
 }
 
@@ -379,7 +481,7 @@ func TestTriggerJobActionAllowsWildcardCompletionForDifferentTriggerType(t *test
 
 func createStoredJob(t *testing.T, ctx context.Context, jobs dal.JobsRepository, jobID string) {
 	t.Helper()
-	if err := jobs.Create(ctx, jobID, `{"id":"`+jobID+`"}`, 1); err != nil {
+	if err := jobs.CreateDefinitionSnapshot(ctx, jobID, `{"id":"`+jobID+`"}`); err != nil {
 		t.Fatalf("create stored job %s: %v", jobID, err)
 	}
 }
@@ -424,15 +526,35 @@ func newJobTriggerStore(repos *dal.SQLRepositories) *reaction.DALJobTriggerStore
 type runnerJobTriggerStore struct {
 	dal.ReactionsRepository
 	*reaction.DALJobTriggerStore
+	dispatcher *recordingTriggerDispatcher
 }
 
 func (s *runnerJobTriggerStore) ListJobTriggerEdges(ctx context.Context) ([]dal.ReactionJobTriggerEdge, error) {
 	return s.DALJobTriggerStore.ListJobTriggerEdges(ctx)
 }
 
+func (s *runnerJobTriggerStore) DispatchTriggeredRun(ctx context.Context, run dal.CreatedRun) error {
+	return s.dispatcher.DispatchTriggeredRun(ctx, run)
+}
+
 func newRunnerJobTriggerStore(repos *dal.SQLRepositories) *runnerJobTriggerStore {
 	return &runnerJobTriggerStore{
 		ReactionsRepository: repos.Reactions(),
 		DALJobTriggerStore:  newJobTriggerStore(repos),
+		dispatcher:          &recordingTriggerDispatcher{},
 	}
+}
+
+type recordingTriggerDispatcher struct {
+	runs []dal.CreatedRun
+	err  error
+}
+
+func (d *recordingTriggerDispatcher) DispatchTriggeredRun(ctx context.Context, run dal.CreatedRun) error {
+	if d.err != nil {
+		return d.err
+	}
+
+	d.runs = append(d.runs, run)
+	return nil
 }

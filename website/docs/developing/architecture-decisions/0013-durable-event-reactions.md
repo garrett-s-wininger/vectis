@@ -120,7 +120,9 @@ payload, uses the same invocation/retry/audit path, records a `reaction` trigger
 invocation keyed by the reaction invocation ID, and creates audited queued runs
 without making the downstream job part of the completed job's DAG. If a retry
 finds queued runs already tied to that trigger invocation, it reuses them rather
-than creating duplicates.
+than creating duplicates. When the reaction runner is wired to a dispatcher,
+the action immediately submits those queued runs through the reconciler dispatch
+path; dispatch failures keep the reaction invocation retryable.
 
 `builtins/trigger-job` performs static cycle checks before creating runs. Direct
 self-triggers are rejected, configured completion-trigger paths are checked for
@@ -209,9 +211,10 @@ validated against known values before durable rows are written.
   task execution retries.
 - Frozen reaction action descriptors make invocation retries explainable even
   when target configuration or action registry state changes later.
-- Job-trigger reactions create durable queued runs; immediate enqueue can be
-  wired through the normal dispatch path, and the reconciler remains the repair
-  path for queued runs that were not dispatched promptly.
+- Job-trigger reactions create durable queued runs and attempt immediate
+  dispatch through the normal reconciler handoff path; the periodic reconciler
+  scan remains the repair path for queued runs that were not dispatched
+  promptly.
 - The database gains another append/retry workload; retention and capacity
   policies must include reaction events and invocations.
 - Operators need visibility into stuck invocations, retry pressure, target
@@ -233,8 +236,6 @@ validated against known values before durable rows are written.
   key?
 - Which external notification action should follow `builtins/notify-local`:
   webhook, SMTP, or chat?
-- Should `builtins/trigger-job` perform immediate dispatch from the reaction
-  runner, or should it leave dispatch entirely to the reconciler repair loop?
 - What retention defaults should apply to events, successful invocations, failed
   invocations, and local messages?
 

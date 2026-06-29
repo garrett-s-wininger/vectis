@@ -1898,6 +1898,32 @@ func (r *SQLRunsRepository) ListRunsByTriggerInvocation(ctx context.Context, tri
 	return r.ListCreatedByTriggerInvocation(ctx, triggerInvocationID)
 }
 
+func (r *SQLRunsRepository) GetQueuedRunForDispatch(ctx context.Context, runID string) (QueuedRun, bool, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return QueuedRun{}, false, fmt.Errorf("%w: run_id is required", ErrConflict)
+	}
+
+	var rec QueuedRun
+	err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT run_id, job_id, definition_version, definition_hash, owning_cell
+		FROM job_runs
+		WHERE run_id = ?
+		  AND status = ?
+		  AND last_dispatched_at IS NULL
+	`), runID, RunStatusQueued).Scan(&rec.RunID, &rec.JobID, &rec.DefinitionVersion, &rec.DefinitionHash, &rec.OwningCell)
+
+	if err == nil {
+		return rec, true, nil
+	}
+
+	if err == sql.ErrNoRows {
+		return QueuedRun{}, false, nil
+	}
+
+	return QueuedRun{}, false, normalizeSQLError(err)
+}
+
 func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
 	if scheduleID <= 0 {
 		return "", 0, 0, false, fmt.Errorf("schedule id is required")

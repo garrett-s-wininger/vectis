@@ -993,6 +993,7 @@ type RunsRepository interface {
 	CountOrphanedTaskFinalizationCandidatesByCell(ctx context.Context) ([]RunCountByCell, error)
 	CountPendingTaskContinuations(ctx context.Context) (int64, error)
 	CountPendingTaskContinuationsByCell(ctx context.Context) ([]RunCountByCell, error)
+	GetQueuedRunForDispatch(ctx context.Context, runID string) (QueuedRun, bool, error)
 	ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]QueuedRun, error)
 	ListQueuedBeforeDispatchCutoffLimit(ctx context.Context, cutoffUnix int64, limit int) ([]QueuedRun, error)
 	GetPendingExecution(ctx context.Context, runID string) (ExecutionDispatchRecord, error)
@@ -1043,6 +1044,7 @@ type ServiceLeasesRepository interface {
 
 type JobsRepository interface {
 	CreateDefinitionSnapshot(ctx context.Context, jobID, definitionJSON string) error
+	GetLatestDefinition(ctx context.Context, jobID string) (definitionJSON string, version int, err error)
 	GetDefinitionVersion(ctx context.Context, jobID string, version int) (string, error)
 }
 

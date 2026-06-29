@@ -21,6 +21,10 @@ type JobTriggerStore interface {
 	ListJobTriggerEdges(ctx context.Context) ([]dal.ReactionJobTriggerEdge, error)
 }
 
+type TriggerJobDispatcher interface {
+	DispatchTriggeredRun(ctx context.Context, run dal.CreatedRun) error
+}
+
 type DALJobTriggerStore struct {
 	Jobs      dal.JobsRepository
 	Runs      dal.RunsRepository
@@ -35,7 +39,7 @@ func (s *DALJobTriggerStore) GetDefinition(ctx context.Context, jobID string) (s
 		return "", 0, fmt.Errorf("trigger job reaction action requires jobs repository")
 	}
 
-	return s.Jobs.GetDefinition(ctx, jobID)
+	return s.Jobs.GetLatestDefinition(ctx, jobID)
 }
 
 func (s *DALJobTriggerStore) Record(ctx context.Context, invocation dal.TriggerInvocation) (dal.TriggerInvocationRecord, error) {
@@ -71,7 +75,8 @@ func (s *DALJobTriggerStore) ListJobTriggerEdges(ctx context.Context) ([]dal.Rea
 }
 
 type TriggerJobAction struct {
-	Store JobTriggerStore
+	Store      JobTriggerStore
+	Dispatcher TriggerJobDispatcher
 }
 
 type TriggerJobActionRequest struct {
@@ -84,6 +89,7 @@ type TriggerJobResult struct {
 	TriggerInvocation dal.TriggerInvocationRecord
 	Runs              []dal.CreatedRun
 	Reused            bool
+	Dispatched        int
 }
 
 type triggerJobConfig struct {
@@ -199,7 +205,12 @@ func (a *TriggerJobAction) Execute(ctx context.Context, req TriggerJobActionRequ
 			return TriggerJobResult{}, fmt.Errorf("%w: trigger invocation %s already created runs for different target cells", dal.ErrConflict, trigger.InvocationID)
 		}
 
-		return TriggerJobResult{TriggerInvocation: trigger, Runs: existing, Reused: true}, nil
+		dispatched, err := a.dispatchRuns(ctx, existing)
+		if err != nil {
+			return TriggerJobResult{}, err
+		}
+
+		return TriggerJobResult{TriggerInvocation: trigger, Runs: existing, Reused: true, Dispatched: dispatched}, nil
 	}
 
 	created, err := a.Store.CreateRunsInCellsWithAudit(ctx, targetJobID, nil, version, targetCellIDs, dal.RunAuditMetadata{
@@ -210,7 +221,29 @@ func (a *TriggerJobAction) Execute(ctx context.Context, req TriggerJobActionRequ
 		return TriggerJobResult{}, err
 	}
 
-	return TriggerJobResult{TriggerInvocation: trigger, Runs: created}, nil
+	dispatched, err := a.dispatchRuns(ctx, created)
+	if err != nil {
+		return TriggerJobResult{}, err
+	}
+
+	return TriggerJobResult{TriggerInvocation: trigger, Runs: created, Dispatched: dispatched}, nil
+}
+
+func (a *TriggerJobAction) dispatchRuns(ctx context.Context, runs []dal.CreatedRun) (int, error) {
+	if a.Dispatcher == nil {
+		return 0, nil
+	}
+
+	dispatched := 0
+	for _, run := range runs {
+		if err := a.Dispatcher.DispatchTriggeredRun(ctx, run); err != nil {
+			return dispatched, fmt.Errorf("dispatch triggered run %s: %w", run.RunID, err)
+		}
+
+		dispatched++
+	}
+
+	return dispatched, nil
 }
 
 func parseTriggerJobConfig(configJSON []byte) (triggerJobConfig, error) {

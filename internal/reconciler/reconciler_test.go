@@ -79,6 +79,45 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	}
 }
 
+func TestService_DispatchTriggeredRun_EnqueuesQueuedRunOnce(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+
+	jobDef := `{"id":"triggered-job","root":{"uses":"builtins/shell","with":{"command":"echo triggered"}}}`
+	repos := dal.NewSQLRepositories(db)
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "triggered-job", jobDef); err != nil {
+		t.Fatalf("insert definition snapshot: %v", err)
+	}
+
+	runID, _, err := repos.Runs().CreateRun(ctx, "triggered-job", nil, 1)
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	q := mocks.NewMockQueueService()
+	svc := NewService(interfaces.NewLogger("test"), db, q, interfaces.SystemClock{})
+	if err := svc.DispatchTriggeredRun(ctx, dal.CreatedRun{RunID: runID}); err != nil {
+		t.Fatalf("DispatchTriggeredRun: %v", err)
+	}
+
+	jobs := q.GetJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("want 1 enqueued job, got %d", len(jobs))
+	}
+
+	if jobs[0].GetId() != "triggered-job" || jobs[0].GetRunId() != runID {
+		t.Fatalf("job id/run mismatch: id=%q run=%q", jobs[0].GetId(), jobs[0].GetRunId())
+	}
+
+	if err := svc.DispatchTriggeredRun(ctx, dal.CreatedRun{RunID: runID}); err != nil {
+		t.Fatalf("second DispatchTriggeredRun: %v", err)
+	}
+
+	if got := len(q.GetJobs()); got != 1 {
+		t.Fatalf("second direct dispatch should skip touched run, got %d jobs", got)
+	}
+}
+
 func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

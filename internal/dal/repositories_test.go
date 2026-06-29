@@ -4544,6 +4544,14 @@ func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 		t.Fatalf("expected owning_cell %q, got %q", dal.DefaultCellID, queued[0].OwningCell)
 	}
 
+	dispatchable, found, err := runs.GetQueuedRunForDispatch(ctx, runID)
+	if err != nil {
+		t.Fatalf("get queued run for dispatch: %v", err)
+	}
+	if !found || dispatchable.RunID != runID {
+		t.Fatalf("expected queued run %s for direct dispatch, found=%v record=%+v", runID, found, dispatchable)
+	}
+
 	beforeClaim, err := runs.GetRun(ctx, runID)
 	if err != nil {
 		t.Fatalf("get run before claim: %v", err)
@@ -4603,6 +4611,15 @@ func TestRunsRepository_ExecutionClaimRenewAndDispatchQueries(t *testing.T) {
 
 	if len(queued) != 0 {
 		t.Fatalf("expected no queued rows after claim, got %+v", queued)
+	}
+
+	dispatchable, found, err = runs.GetQueuedRunForDispatch(ctx, runID)
+	if err != nil {
+		t.Fatalf("get queued run for dispatch after touch: %v", err)
+	}
+
+	if found {
+		t.Fatalf("expected touched run to be ineligible for direct dispatch, got %+v", dispatchable)
 	}
 
 	if _, err := db.ExecContext(ctx, `UPDATE job_runs SET status = 'orphaned' WHERE run_id = ?`, runID); err != nil {
