@@ -97,17 +97,43 @@ log-forwarder spool CRCs, and worker pending log-spool frames. Text output is
 Any corrupt file, digest mismatch, malformed record, or quarantined spool exits
 non-zero.
 
+For machine-readable backup evidence, save JSON reports and attach them to
+`backup verify`:
+
+```sh
+vectis-cli storage verify queue --dir "$VECTIS_QUEUE_PERSISTENCE_DIR" --format json > queue.storage-report.json
+vectis-cli storage verify logs --dir "$VECTIS_LOG_STORAGE_DIR" --format json > logs.storage-report.json
+vectis-cli storage verify artifact --dir "$VECTIS_ARTIFACT_STORAGE_DIR" --format json > artifact.storage-report.json
+
+vectis-cli backup verify backup-manifest.json \
+  --storage-report queue.storage-report.json \
+  --storage-report logs.storage-report.json \
+  --storage-report artifact.storage-report.json \
+  --storage-max-age 24h
+```
+
+When any `--storage-report` is supplied, `backup verify` requires every
+storage-backed `local_state` path in the manifest to have a matching `ok`
+report for the expected surface and path. Use additional reports for
+`log-forwarder-spool` and `worker-log-spool` when those paths are present in
+the manifest.
+
 Retention cleanup can use the same manifest as a destructive-operation gate:
 
 ```sh
 vectis-cli retention cleanup --yes \
   --backup-manifest backup-manifest.json \
   --backup-expect expected-topology.json \
-  --backup-max-age 24h
+  --backup-max-age 24h \
+  --backup-storage-report queue.storage-report.json \
+  --backup-storage-report logs.storage-report.json \
+  --backup-storage-report artifact.storage-report.json \
+  --backup-storage-max-age 24h
 ```
 
 The retention command verifies the manifest before deleting SQL rows or local
-files, and rejects stale evidence when `--backup-max-age` is set.
+files, and rejects stale evidence when `--backup-max-age` or
+`--backup-storage-max-age` is set.
 
 Expected topology files are JSON. `inventory_sources` and each
 `inventory_source` matcher must use the same source strings passed to
@@ -169,12 +195,12 @@ Recommended drill flow:
 
 1. Run `vectis-cli backup inventory --format json` from each relevant host and record the expected restore point.
 2. Build a backup manifest from those inventories and run `vectis-cli backup verify`, preferably with `--expect` for the intended topology.
-3. Run `vectis-cli storage verify` for each restored or backed-up queue, log, artifact, log-forwarder spool, and worker pending log-spool path that belongs to the drill scope.
+3. Run `vectis-cli storage verify --format json` for each restored or backed-up queue, log, artifact, log-forwarder spool, and worker pending log-spool path that belongs to the drill scope, then rerun `backup verify` with each report passed as `--storage-report`.
 4. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
 5. Restore config, secrets, TLS material, and manifests before starting services.
 6. Restore PostgreSQL through the database platform's documented process.
 7. Restore queue persistence, log storage, artifact storage, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
-8. Run `vectis-cli storage verify` against the restored file stores before starting services.
+8. Run `vectis-cli storage verify --format json` against the restored file stores before starting services, then rerun `backup verify` with the restored storage reports attached.
 9. Run migrations against every restored database.
 10. Start services in dependency order.
 11. Run `vectis-cli health check --strict`.

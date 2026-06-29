@@ -176,6 +176,11 @@ var (
 	sourceTriggerIdemKey        string
 )
 
+var (
+	retentionBackupStorageReports []string
+	retentionBackupStorageMaxAge  time.Duration
+)
+
 var rootCmd = &cobra.Command{
 	Use:   "vectis-cli",
 	Short: "Command line interface for Vectis",
@@ -322,6 +327,8 @@ func init() {
 	backupExpectLinuxCmd.Flags().StringVar(&backupExpectLinuxManifestPath, "manifest", backupExpectLinuxManifestPath, "Path to the Linux deploy services TOML manifest")
 	backupExpectCmd.AddCommand(backupExpectPodmanCmd, backupExpectLinuxCmd)
 	backupVerifyCmd.Flags().StringVar(&backupVerifyExpectPath, "expect", "", "Expected backup topology JSON file")
+	backupVerifyCmd.Flags().StringArrayVar(&backupVerifyStorageReportPaths, "storage-report", nil, "Storage verification report JSON from vectis-cli storage verify --format json (repeatable)")
+	backupVerifyCmd.Flags().DurationVar(&backupVerifyStorageMaxAge, "storage-max-age", 0, "Maximum accepted storage verification report age (0 disables)")
 	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupExpectCmd, backupVerifyCmd)
 	rootCmd.AddCommand(backupCmd)
 
@@ -370,6 +377,8 @@ func init() {
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupManifest, "backup-manifest", "", "Optional backup manifest JSON to verify before cleanup")
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupExpect, "backup-expect", "", "Optional expected topology JSON for backup manifest verification")
 	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", 0, "Maximum accepted backup manifest age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().StringArrayVar(&retentionBackupStorageReports, "backup-storage-report", nil, "Optional storage verification report JSON to verify before cleanup (repeatable)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", 0, "Maximum accepted storage verification report age before cleanup (0 disables)")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldReason, "reason", "", "Compliance or incident reason for the hold")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldOwner, "owner", "", "Accountable owner for the hold")

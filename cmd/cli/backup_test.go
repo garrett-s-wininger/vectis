@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"vectis/internal/database"
+	"vectis/internal/storageverify"
 )
 
 func TestBackupInventoryJSONIncludesRedactedLocalEvidence(t *testing.T) {
@@ -281,7 +282,7 @@ func TestBackupManifestVerificationReportsMissingRequiredPath(t *testing.T) {
 	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
 	var buf bytes.Buffer
 	when := time.Date(2026, 6, 28, 14, 0, 0, 0, time.UTC)
-	err := writeBackupManifestVerification(&buf, manifestPath, "", when)
+	err := writeBackupManifestVerification(&buf, manifestPath, "", nil, 0, when)
 	if err == nil {
 		t.Fatalf("verify backup manifest succeeded unexpectedly")
 	}
@@ -347,7 +348,7 @@ func TestBackupManifestVerificationReportsMissingExpectedTopology(t *testing.T) 
 	expectPath := writeBackupJSONFile(t, root, "expected.json", expected)
 	var buf bytes.Buffer
 	when := time.Date(2026, 6, 28, 15, 0, 0, 0, time.UTC)
-	err := writeBackupManifestVerification(&buf, manifestPath, expectPath, when)
+	err := writeBackupManifestVerification(&buf, manifestPath, expectPath, nil, 0, when)
 	if err == nil {
 		t.Fatalf("verify backup manifest succeeded unexpectedly")
 	}
@@ -364,6 +365,77 @@ func TestBackupManifestVerificationReportsMissingExpectedTopology(t *testing.T) 
 		if !backupFindingsContain(result.Errors, id) {
 			t.Fatalf("verification errors = %+v, want %s", result.Errors, id)
 		}
+	}
+}
+
+func TestBackupManifestVerificationAcceptsMatchingStorageReports(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	now := time.Date(2026, 6, 28, 16, 0, 0, 0, time.UTC)
+	manifest := retentionBackupManifestForTest(now.Add(-30 * time.Minute).Format(time.RFC3339))
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
+	reportPaths := []string{
+		writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(t, root, "logs.report.json", backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(t, root, "artifact.report.json", backupStorageReportForTest(storageverify.SurfaceArtifact, "/var/lib/vectis/artifact", now.Add(-5*time.Minute))),
+	}
+
+	var buf bytes.Buffer
+	if err := writeBackupManifestVerification(&buf, manifestPath, "", reportPaths, time.Hour, now); err != nil {
+		t.Fatalf("verify backup manifest with storage reports: %v\n%s", err, buf.String())
+	}
+
+	var result backupManifestVerification
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("verification JSON: %v\n%s", err, buf.String())
+	}
+
+	if result.Status != backupManifestStatusOK {
+		t.Fatalf("verification result = %+v", result)
+	}
+
+	if result.Summary.StorageReports != 3 || result.Summary.StorageReportsVerified != 3 || result.Summary.StoragePathsRequired != 3 {
+		t.Fatalf("storage summary = %+v", result.Summary)
+	}
+
+	if result.StorageReportMaxAge != "1h0m0s" || len(result.StorageReports) != 3 {
+		t.Fatalf("storage evidence = max_age %q reports %+v", result.StorageReportMaxAge, result.StorageReports)
+	}
+}
+
+func TestBackupManifestVerificationRequiresStorageReportsForAllStoragePaths(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	now := time.Date(2026, 6, 28, 16, 0, 0, 0, time.UTC)
+	manifest := retentionBackupManifestForTest(now.Add(-30 * time.Minute).Format(time.RFC3339))
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
+	reportPath := writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute)))
+
+	var buf bytes.Buffer
+	err := writeBackupManifestVerification(&buf, manifestPath, "", []string{reportPath}, time.Hour, now)
+	if err == nil {
+		t.Fatalf("verify backup manifest succeeded unexpectedly")
+	}
+
+	var result backupManifestVerification
+	if decodeErr := json.Unmarshal(buf.Bytes(), &result); decodeErr != nil {
+		t.Fatalf("verification JSON: %v\n%s", decodeErr, buf.String())
+	}
+
+	if result.Status != backupManifestStatusFailed {
+		t.Fatalf("verification status = %q", result.Status)
+	}
+
+	if !backupFindingsContain(result.Errors, "storage_report.missing") {
+		t.Fatalf("verification errors = %+v, want storage_report.missing", result.Errors)
+	}
+
+	if result.Summary.StorageReportsVerified != 1 || result.Summary.StoragePathsRequired != 3 {
+		t.Fatalf("storage summary = %+v", result.Summary)
 	}
 }
 
@@ -593,6 +665,18 @@ func backupFindingsContain(findings []backupManifestFinding, id string) bool {
 	}
 
 	return false
+}
+
+func backupStorageReportForTest(surface, path string, checkedAt time.Time) storageverify.Report {
+	return storageverify.Report{
+		Surface:      surface,
+		Path:         path,
+		Status:       storageverify.StatusOK,
+		CheckedFiles: 1,
+		CheckedBytes: 2,
+		Records:      3,
+		CheckedAt:    checkedAt,
+	}
 }
 
 func writeBackupJSONFile(t *testing.T, dir, name string, v any) string {

@@ -8,10 +8,21 @@ import (
 	"time"
 
 	"vectis/internal/retention"
+	"vectis/internal/storageverify"
 )
 
 func TestRetentionCleanupRequiresBackupManifestForBackupExpect(t *testing.T) {
 	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{ExpectPath: "expected-topology.json"})
+	if err == nil {
+		t.Fatalf("retention cleanup succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "--backup-manifest") {
+		t.Fatalf("retention cleanup error = %v, want --backup-manifest", err)
+	}
+}
+
+func TestRetentionCleanupRequiresBackupManifestForBackupStorageReport(t *testing.T) {
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{StorageReportPaths: []string{"queue.report.json"}})
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -91,6 +102,57 @@ func TestCheckRetentionBackupManifestAcceptsFreshExpectedTopology(t *testing.T) 
 	}
 	if evidence.Age != "30m0s" || evidence.MaxAge != "24h0m0s" {
 		t.Fatalf("freshness evidence = age %q max %q", evidence.Age, evidence.MaxAge)
+	}
+}
+
+func TestCheckRetentionBackupManifestAcceptsFreshStorageReports(t *testing.T) {
+	now := time.Date(2026, 6, 28, 16, 0, 0, 0, time.UTC)
+	manifest := retentionBackupManifestForTest(now.Add(-30 * time.Minute).Format(time.RFC3339))
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "backup-manifest.json", manifest)
+	reportPaths := []string{
+		writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(t, root, "logs.report.json", backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(t, root, "artifact.report.json", backupStorageReportForTest(storageverify.SurfaceArtifact, "/var/lib/vectis/artifact", now.Add(-5*time.Minute))),
+	}
+
+	evidence, err := checkRetentionBackupManifest(retentionBackupCheckOptions{ManifestPath: manifestPath, StorageReportPaths: reportPaths, StorageReportMaxAge: time.Hour}, now)
+	if err != nil {
+		t.Fatalf("backup manifest check with storage reports: %v", err)
+	}
+	if evidence == nil || !evidence.Verified {
+		t.Fatalf("backup manifest evidence = %+v, want verified evidence", evidence)
+	}
+	if evidence.StorageReports != 3 || evidence.StorageReportsVerified != 3 || evidence.StoragePathsRequired != 3 {
+		t.Fatalf("storage evidence = %+v", evidence)
+	}
+	if evidence.StorageReportMaxAge != "1h0m0s" {
+		t.Fatalf("storage max age = %q, want 1h0m0s", evidence.StorageReportMaxAge)
+	}
+}
+
+func TestCheckRetentionBackupManifestRejectsStaleStorageReport(t *testing.T) {
+	now := time.Date(2026, 6, 28, 16, 0, 0, 0, time.UTC)
+	manifest := retentionBackupManifestForTest(now.Add(-30 * time.Minute).Format(time.RFC3339))
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "backup-manifest.json", manifest)
+	reportPaths := []string{
+		writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-2*time.Hour))),
+		writeBackupJSONFile(t, root, "logs.report.json", backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(t, root, "artifact.report.json", backupStorageReportForTest(storageverify.SurfaceArtifact, "/var/lib/vectis/artifact", now.Add(-5*time.Minute))),
+	}
+
+	evidence, err := checkRetentionBackupManifest(retentionBackupCheckOptions{ManifestPath: manifestPath, StorageReportPaths: reportPaths, StorageReportMaxAge: time.Hour}, now)
+	if err == nil {
+		t.Fatalf("backup manifest check succeeded unexpectedly")
+	}
+	if evidence == nil || evidence.Verified {
+		t.Fatalf("backup manifest evidence = %+v, want unverified evidence", evidence)
+	}
+	if !strings.Contains(err.Error(), "verification failed") {
+		t.Fatalf("backup manifest check error = %v, want verification failure", err)
 	}
 }
 

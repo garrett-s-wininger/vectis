@@ -20,6 +20,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/logserver"
+	"vectis/internal/storageverify"
 	"vectis/internal/utils"
 	"vectis/internal/version"
 )
@@ -156,7 +157,9 @@ type backupManifestVerification struct {
 	CheckedAt           string                            `json:"checked_at"`
 	ManifestGeneratedAt string                            `json:"manifest_generated_at,omitempty"`
 	ExpectationSource   string                            `json:"expectation_source,omitempty"`
+	StorageReportMaxAge string                            `json:"storage_report_max_age,omitempty"`
 	Summary             backupManifestVerificationSummary `json:"summary"`
+	StorageReports      []backupStorageReportEvidence     `json:"storage_reports,omitempty"`
 	Errors              []backupManifestFinding           `json:"errors,omitempty"`
 	Warnings            []backupManifestFinding           `json:"warnings,omitempty"`
 }
@@ -171,6 +174,9 @@ type backupManifestVerificationSummary struct {
 	ExpectedInstances          int `json:"expected_instances,omitempty"`
 	ExpectedPaths              int `json:"expected_paths,omitempty"`
 	ExpectedRequiredCategories int `json:"expected_required_categories,omitempty"`
+	StorageReports             int `json:"storage_reports,omitempty"`
+	StorageReportsVerified     int `json:"storage_reports_verified,omitempty"`
+	StoragePathsRequired       int `json:"storage_paths_required,omitempty"`
 }
 
 type backupManifestFinding struct {
@@ -181,6 +187,27 @@ type backupManifestFinding struct {
 	Category        string `json:"category,omitempty"`
 	PathID          string `json:"path_id,omitempty"`
 	Path            string `json:"path,omitempty"`
+}
+
+type backupStorageReportInput struct {
+	Source string
+	Report storageverify.Report
+}
+
+type backupStorageReportEvidence struct {
+	Source         string   `json:"source"`
+	Surface        string   `json:"surface"`
+	Path           string   `json:"path"`
+	Status         string   `json:"status"`
+	CheckedAt      string   `json:"checked_at"`
+	Age            string   `json:"age,omitempty"`
+	CheckedFiles   int64    `json:"checked_files"`
+	CheckedBytes   int64    `json:"checked_bytes"`
+	Records        int64    `json:"records"`
+	Batches        int64    `json:"batches,omitempty"`
+	Warnings       int      `json:"warnings"`
+	Errors         int      `json:"errors"`
+	MatchedPathIDs []string `json:"matched_path_ids,omitempty"`
 }
 
 type backupExpectedTopologyInput struct {
@@ -219,6 +246,8 @@ type backupExpectedPath struct {
 }
 
 var backupVerifyExpectPath string
+var backupVerifyStorageReportPaths []string
+var backupVerifyStorageMaxAge time.Duration
 var backupExpectPodmanProfile = podmanProfileSimple
 var backupExpectLinuxManifestPath = linuxdeploy.DefaultManifestPath
 
@@ -307,10 +336,13 @@ The verifier checks for core database, queue, log, and artifact evidence,
 missing or unreadable paths, dirty schema markers, and optional evidence gaps
 such as secret store, TLS, or config paths. Pass --expect with an expected
 topology JSON file to fail when a required host, service instance, database
-role, path, or path category is absent from the submitted manifest.`,
+role, path, or path category is absent from the submitted manifest. Pass
+--storage-report with JSON output from vectis-cli storage verify to require
+byte-level integrity proof for each storage-backed local state path in the
+manifest.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		runCLIError(writeBackupManifestVerification(os.Stdout, args[0], backupVerifyExpectPath, time.Now().UTC()))
+		runCLIError(writeBackupManifestVerification(os.Stdout, args[0], backupVerifyExpectPath, backupVerifyStorageReportPaths, backupVerifyStorageMaxAge, time.Now().UTC()))
 	},
 }
 
@@ -337,9 +369,15 @@ func writeBackupManifest(w io.Writer, inventoryPaths []string, generatedAt time.
 	return writeBackupManifestText(w, manifest)
 }
 
-func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath string, checkedAt time.Time) error {
-	if manifestPath == "-" && expectPath == "-" {
-		return fmt.Errorf("manifest and expected topology cannot both be read from stdin")
+func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath string, storageReportPaths []string, storageMaxAge time.Duration, checkedAt time.Time) error {
+	if manifestPath == "-" && (expectPath == "-" || backupStorageReportPathsContainStdin(storageReportPaths)) {
+		return fmt.Errorf("manifest, expected topology, and storage reports cannot share stdin")
+	}
+	if expectPath == "-" && backupStorageReportPathsContainStdin(storageReportPaths) {
+		return fmt.Errorf("expected topology and storage reports cannot both be read from stdin")
+	}
+	if storageMaxAge > 0 && len(storageReportPaths) == 0 {
+		return fmt.Errorf("--storage-max-age requires --storage-report")
 	}
 
 	manifest, err := readBackupManifestFile(manifestPath)
@@ -357,7 +395,12 @@ func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath strin
 		expected = &input
 	}
 
-	result := verifyBackupManifest(manifest, expected, checkedAt)
+	storageReports, err := readBackupStorageReportInputs(storageReportPaths)
+	if err != nil {
+		return err
+	}
+
+	result := verifyBackupManifestWithStorage(manifest, expected, storageReports, storageMaxAge, checkedAt)
 	if outputIsJSON() {
 		if err := writeJSON(w, result); err != nil {
 			return err
@@ -543,6 +586,64 @@ func readBackupExpectedTopologyFile(path string) (backupExpectedTopologyInput, e
 	}
 
 	return backupExpectedTopologyInput{Source: path, Expectations: expectations}, nil
+}
+
+func readBackupStorageReportInputs(paths []string) ([]backupStorageReportInput, error) {
+	inputs := make([]backupStorageReportInput, 0, len(paths))
+	stdinUsed := false
+	for _, path := range paths {
+		source := strings.TrimSpace(path)
+		if source == "" {
+			return nil, fmt.Errorf("storage report path cannot be empty")
+		}
+		if source == "-" {
+			if stdinUsed {
+				return nil, fmt.Errorf("stdin storage report can only be read once")
+			}
+			stdinUsed = true
+		}
+
+		report, err := readBackupStorageReportFile(source)
+		if err != nil {
+			return nil, err
+		}
+
+		inputs = append(inputs, backupStorageReportInput{Source: source, Report: report})
+	}
+
+	return inputs, nil
+}
+
+func readBackupStorageReportFile(path string) (storageverify.Report, error) {
+	var r io.Reader
+	if path == "-" {
+		r = os.Stdin
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return storageverify.Report{}, fmt.Errorf("open storage verification report %s: %w", path, err)
+		}
+		defer f.Close()
+
+		r = f
+	}
+
+	var report storageverify.Report
+	if err := json.NewDecoder(r).Decode(&report); err != nil {
+		return storageverify.Report{}, fmt.Errorf("decode storage verification report %s: %w", path, err)
+	}
+
+	return report, nil
+}
+
+func backupStorageReportPathsContainStdin(paths []string) bool {
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "-" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func buildBackupManifest(inputs []backupInventoryInput, generatedAt time.Time) backupManifest {
@@ -859,6 +960,10 @@ func appendBackupManifestPaths(out []backupManifestPath, inventorySource, catego
 }
 
 func verifyBackupManifest(manifest backupManifest, expected *backupExpectedTopologyInput, checkedAt time.Time) backupManifestVerification {
+	return verifyBackupManifestWithStorage(manifest, expected, nil, 0, checkedAt)
+}
+
+func verifyBackupManifestWithStorage(manifest backupManifest, expected *backupExpectedTopologyInput, storageReports []backupStorageReportInput, storageMaxAge time.Duration, checkedAt time.Time) backupManifestVerification {
 	result := backupManifestVerification{
 		Status:              backupManifestStatusOK,
 		CheckedAt:           checkedAt.Format(time.RFC3339),
@@ -878,6 +983,12 @@ func verifyBackupManifest(manifest backupManifest, expected *backupExpectedTopol
 		result.Summary.ExpectedInstances = len(expected.Expectations.Instances)
 		result.Summary.ExpectedPaths = len(expected.Expectations.Paths)
 		result.Summary.ExpectedRequiredCategories = len(expected.Expectations.RequireCategories)
+	}
+	if len(storageReports) > 0 {
+		result.Summary.StorageReports = len(storageReports)
+		if storageMaxAge > 0 {
+			result.StorageReportMaxAge = storageMaxAge.String()
+		}
 	}
 
 	addError := func(id, message string) {
@@ -1010,11 +1121,215 @@ func verifyBackupManifest(manifest backupManifest, expected *backupExpectedTopol
 		verifyBackupExpectedTopology(manifest, expected.Source, expected.Expectations, &result)
 	}
 
+	if len(storageReports) > 0 {
+		verifyBackupStorageReports(manifest, storageReports, storageMaxAge, checkedAt, &result)
+	}
+
 	if len(result.Errors) > 0 {
 		result.Status = backupManifestStatusFailed
 	}
 
 	return result
+}
+
+func verifyBackupStorageReports(manifest backupManifest, inputs []backupStorageReportInput, maxAge time.Duration, checkedAt time.Time, result *backupManifestVerification) {
+	required := backupStorageRequiredPaths(manifest)
+	result.Summary.StoragePathsRequired = len(required)
+
+	requiredByKey := map[string][]backupManifestPath{}
+	for _, path := range required {
+		key := backupStorageReportKey(backupStorageSurfaceForPathID(path.ID), path.Path)
+		requiredByKey[key] = append(requiredByKey[key], path)
+	}
+
+	matched := map[string]bool{}
+	for _, input := range inputs {
+		report := input.Report
+		reportOK := true
+		evidence := backupStorageReportEvidence{
+			Source:       input.Source,
+			Surface:      report.Surface,
+			Path:         report.Path,
+			Status:       report.Status,
+			CheckedFiles: report.CheckedFiles,
+			CheckedBytes: report.CheckedBytes,
+			Records:      report.Records,
+			Batches:      report.Batches,
+			Warnings:     len(report.Warnings),
+			Errors:       len(report.Errors),
+		}
+		if !report.CheckedAt.IsZero() {
+			evidence.CheckedAt = report.CheckedAt.UTC().Format(time.RFC3339)
+			age := checkedAt.Sub(report.CheckedAt.UTC())
+			evidence.Age = age.String()
+			if age < 0 {
+				reportOK = false
+				result.Errors = append(result.Errors, backupManifestFinding{
+					Severity: backupFindingSeverityError,
+					ID:       "storage_report.checked_at_future",
+					Message:  fmt.Sprintf("storage report %s checked_at %s is after verification time %s", input.Source, evidence.CheckedAt, checkedAt.Format(time.RFC3339)),
+					Path:     report.Path,
+				})
+			} else if maxAge > 0 && age > maxAge {
+				reportOK = false
+				result.Errors = append(result.Errors, backupManifestFinding{
+					Severity: backupFindingSeverityError,
+					ID:       "storage_report.stale",
+					Message:  fmt.Sprintf("storage report %s is stale: checked_at=%s age=%s max_age=%s", input.Source, evidence.CheckedAt, age, maxAge),
+					Path:     report.Path,
+				})
+			}
+		} else {
+			reportOK = false
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "storage_report.checked_at_missing",
+				Message:  fmt.Sprintf("storage report %s is missing checked_at", input.Source),
+				Path:     report.Path,
+			})
+		}
+
+		if !backupStorageKnownSurface(report.Surface) {
+			reportOK = false
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "storage_report.surface_unknown",
+				Message:  fmt.Sprintf("storage report %s has unknown surface %q", input.Source, report.Surface),
+				Path:     report.Path,
+			})
+		}
+
+		if strings.TrimSpace(report.Path) == "" {
+			reportOK = false
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "storage_report.path_missing",
+				Message:  fmt.Sprintf("storage report %s is missing path", input.Source),
+			})
+		}
+
+		if report.Status != storageverify.StatusOK {
+			reportOK = false
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "storage_report.failed",
+				Message:  fmt.Sprintf("storage report %s status is %s with %d error(s)", input.Source, backupDash(report.Status), len(report.Errors)),
+				Path:     report.Path,
+			})
+		}
+
+		if len(report.Warnings) > 0 {
+			result.Warnings = append(result.Warnings, backupManifestFinding{
+				Severity: backupFindingSeverityWarning,
+				ID:       "storage_report.warnings",
+				Message:  fmt.Sprintf("storage report %s has %d warning(s)", input.Source, len(report.Warnings)),
+				Path:     report.Path,
+			})
+		}
+
+		key := backupStorageReportKey(report.Surface, report.Path)
+		if paths := requiredByKey[key]; len(paths) > 0 {
+			for _, path := range paths {
+				evidence.MatchedPathIDs = append(evidence.MatchedPathIDs, path.ID)
+				if reportOK {
+					matched[backupStorageManifestPathKey(path)] = true
+				}
+			}
+			if reportOK {
+				result.Summary.StorageReportsVerified++
+			}
+		} else {
+			reportOK = false
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity: backupFindingSeverityError,
+				ID:       "storage_report.unmatched",
+				Message:  fmt.Sprintf("storage report %s does not match any storage-backed local_state path in the manifest", input.Source),
+				Path:     report.Path,
+			})
+		}
+
+		result.StorageReports = append(result.StorageReports, evidence)
+	}
+
+	for _, path := range required {
+		if !matched[backupStorageManifestPathKey(path)] {
+			result.Errors = append(result.Errors, backupManifestFinding{
+				Severity:        backupFindingSeverityError,
+				ID:              "storage_report.missing",
+				Message:         fmt.Sprintf("required storage path %s has no matching ok storage report", path.ID),
+				InventorySource: path.InventorySource,
+				Category:        path.Category,
+				PathID:          path.ID,
+				Path:            path.Path,
+			})
+		}
+	}
+}
+
+func backupStorageRequiredPaths(manifest backupManifest) []backupManifestPath {
+	out := make([]backupManifestPath, 0)
+	for _, path := range manifest.RequiredPaths {
+		if !path.Enabled || path.Category != "local_state" {
+			continue
+		}
+		if backupStorageSurfaceForPathID(path.ID) == "" {
+			continue
+		}
+		if strings.TrimSpace(path.Path) == "" {
+			continue
+		}
+
+		out = append(out, path)
+	}
+
+	return out
+}
+
+func backupStorageSurfaceForPathID(id string) string {
+	switch id {
+	case "queue.persistence":
+		return storageverify.SurfaceQueue
+	case "log.storage":
+		return storageverify.SurfaceLogs
+	case "artifact.storage":
+		return storageverify.SurfaceArtifact
+	case "log_forwarder.spool":
+		return storageverify.SurfaceLogForwarderSpool
+	case "worker.pending_log_spool":
+		return storageverify.SurfaceWorkerLogSpool
+	default:
+		return ""
+	}
+}
+
+func backupStorageKnownSurface(surface string) bool {
+	switch surface {
+	case storageverify.SurfaceQueue,
+		storageverify.SurfaceLogs,
+		storageverify.SurfaceArtifact,
+		storageverify.SurfaceLogForwarderSpool,
+		storageverify.SurfaceWorkerLogSpool:
+		return true
+	default:
+		return false
+	}
+}
+
+func backupStorageReportKey(surface, path string) string {
+	return strings.TrimSpace(surface) + "\x00" + backupCleanStoragePath(path)
+}
+
+func backupStorageManifestPathKey(path backupManifestPath) string {
+	return path.InventorySource + "\x00" + path.Category + "\x00" + path.ID + "\x00" + backupCleanStoragePath(path.Path)
+}
+
+func backupCleanStoragePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	return filepath.Clean(path)
 }
 
 func verifyBackupExpectedTopology(manifest backupManifest, source string, expected backupExpectedTopology, result *backupManifestVerification) {
@@ -1736,6 +2051,25 @@ func writeBackupManifestVerificationText(w io.Writer, result backupManifestVerif
 
 	if _, err := fmt.Fprintf(w, "Summary: inventories=%d database_roles=%d instances=%d required_paths=%d\n", result.Summary.Inventories, result.Summary.DatabaseRoles, result.Summary.Instances, result.Summary.RequiredPaths); err != nil {
 		return err
+	}
+
+	if len(result.StorageReports) > 0 {
+		if _, err := fmt.Fprintf(w, "Storage reports: reports=%d verified=%d required_paths=%d", result.Summary.StorageReports, result.Summary.StorageReportsVerified, result.Summary.StoragePathsRequired); err != nil {
+			return err
+		}
+		if result.StorageReportMaxAge != "" {
+			if _, err := fmt.Fprintf(w, " max_age=%s", result.StorageReportMaxAge); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+		for _, report := range result.StorageReports {
+			if _, err := fmt.Fprintf(w, "  %s: %s path=%s checked_at=%s warnings=%d errors=%d\n", report.Surface, report.Status, backupDash(report.Path), backupDash(report.CheckedAt), report.Warnings, report.Errors); err != nil {
+				return err
+			}
+		}
 	}
 
 	if result.ExpectationSource != "" {

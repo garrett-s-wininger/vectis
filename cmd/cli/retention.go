@@ -16,21 +16,27 @@ import (
 )
 
 type retentionBackupCheckOptions struct {
-	ManifestPath string
-	ExpectPath   string
-	MaxAge       time.Duration
+	ManifestPath        string
+	ExpectPath          string
+	MaxAge              time.Duration
+	StorageReportPaths  []string
+	StorageReportMaxAge time.Duration
 }
 
 type retentionBackupEvidence struct {
-	ManifestPath        string `json:"manifest_path"`
-	ExpectPath          string `json:"expect_path,omitempty"`
-	Verified            bool   `json:"verified"`
-	CheckedAt           string `json:"checked_at"`
-	ManifestGeneratedAt string `json:"manifest_generated_at,omitempty"`
-	ExpectationSource   string `json:"expectation_source,omitempty"`
-	MaxAge              string `json:"max_age,omitempty"`
-	Age                 string `json:"age,omitempty"`
-	Warnings            int    `json:"warnings"`
+	ManifestPath           string `json:"manifest_path"`
+	ExpectPath             string `json:"expect_path,omitempty"`
+	Verified               bool   `json:"verified"`
+	CheckedAt              string `json:"checked_at"`
+	ManifestGeneratedAt    string `json:"manifest_generated_at,omitempty"`
+	ExpectationSource      string `json:"expectation_source,omitempty"`
+	MaxAge                 string `json:"max_age,omitempty"`
+	Age                    string `json:"age,omitempty"`
+	Warnings               int    `json:"warnings"`
+	StorageReports         int    `json:"storage_reports,omitempty"`
+	StorageReportsVerified int    `json:"storage_reports_verified,omitempty"`
+	StoragePathsRequired   int    `json:"storage_paths_required,omitempty"`
+	StorageReportMaxAge    string `json:"storage_report_max_age,omitempty"`
 }
 
 func runRetentionCleanup(cmd *cobra.Command, args []string) {
@@ -43,9 +49,11 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 	}
 
 	backupOptions := retentionBackupCheckOptions{
-		ManifestPath: retentionBackupManifest,
-		ExpectPath:   retentionBackupExpect,
-		MaxAge:       retentionBackupMaxAge,
+		ManifestPath:        retentionBackupManifest,
+		ExpectPath:          retentionBackupExpect,
+		MaxAge:              retentionBackupMaxAge,
+		StorageReportPaths:  retentionBackupStorageReports,
+		StorageReportMaxAge: retentionBackupStorageMaxAge,
 	}
 
 	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions))
@@ -215,15 +223,23 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 	options.ManifestPath = strings.TrimSpace(options.ManifestPath)
 	options.ExpectPath = strings.TrimSpace(options.ExpectPath)
 	if options.ManifestPath == "" {
-		if options.ExpectPath != "" || options.MaxAge > 0 {
-			return nil, fmt.Errorf("--backup-expect and --backup-max-age require --backup-manifest")
+		if options.ExpectPath != "" || options.MaxAge > 0 || len(options.StorageReportPaths) > 0 || options.StorageReportMaxAge > 0 {
+			return nil, fmt.Errorf("--backup-expect, --backup-max-age, --backup-storage-report, and --backup-storage-max-age require --backup-manifest")
 		}
 
 		return nil, nil
 	}
 
-	if options.ManifestPath == "-" && options.ExpectPath == "-" {
-		return nil, fmt.Errorf("manifest and expected topology cannot both be read from stdin")
+	if options.StorageReportMaxAge > 0 && len(options.StorageReportPaths) == 0 {
+		return nil, fmt.Errorf("--backup-storage-max-age requires --backup-storage-report")
+	}
+
+	if options.ManifestPath == "-" && (options.ExpectPath == "-" || backupStorageReportPathsContainStdin(options.StorageReportPaths)) {
+		return nil, fmt.Errorf("manifest, expected topology, and storage reports cannot share stdin")
+	}
+
+	if options.ExpectPath == "-" && backupStorageReportPathsContainStdin(options.StorageReportPaths) {
+		return nil, fmt.Errorf("expected topology and storage reports cannot both be read from stdin")
 	}
 
 	manifest, err := readBackupManifestFile(options.ManifestPath)
@@ -241,15 +257,24 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 		expected = &input
 	}
 
-	result := verifyBackupManifest(manifest, expected, checkedAt)
+	storageReports, err := readBackupStorageReportInputs(options.StorageReportPaths)
+	if err != nil {
+		return nil, err
+	}
+
+	result := verifyBackupManifestWithStorage(manifest, expected, storageReports, options.StorageReportMaxAge, checkedAt)
 	evidence := &retentionBackupEvidence{
-		ManifestPath:        options.ManifestPath,
-		ExpectPath:          options.ExpectPath,
-		Verified:            result.Status == backupManifestStatusOK,
-		CheckedAt:           result.CheckedAt,
-		ManifestGeneratedAt: result.ManifestGeneratedAt,
-		ExpectationSource:   result.ExpectationSource,
-		Warnings:            len(result.Warnings),
+		ManifestPath:           options.ManifestPath,
+		ExpectPath:             options.ExpectPath,
+		Verified:               result.Status == backupManifestStatusOK,
+		CheckedAt:              result.CheckedAt,
+		ManifestGeneratedAt:    result.ManifestGeneratedAt,
+		ExpectationSource:      result.ExpectationSource,
+		Warnings:               len(result.Warnings),
+		StorageReports:         result.Summary.StorageReports,
+		StorageReportsVerified: result.Summary.StorageReportsVerified,
+		StoragePathsRequired:   result.Summary.StoragePathsRequired,
+		StorageReportMaxAge:    result.StorageReportMaxAge,
 	}
 
 	if options.MaxAge > 0 {
@@ -302,6 +327,14 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 		}
 
 		fmt.Fprintf(w, "backup_manifest_warnings=%d\n", backupEvidence.Warnings)
+		if backupEvidence.StorageReports > 0 {
+			fmt.Fprintf(w, "backup_storage_reports=%d\n", backupEvidence.StorageReports)
+			fmt.Fprintf(w, "backup_storage_reports_verified=%d\n", backupEvidence.StorageReportsVerified)
+			fmt.Fprintf(w, "backup_storage_paths_required=%d\n", backupEvidence.StoragePathsRequired)
+			if backupEvidence.StorageReportMaxAge != "" {
+				fmt.Fprintf(w, "backup_storage_report_max_age=%s\n", backupEvidence.StorageReportMaxAge)
+			}
+		}
 	}
 
 	fmt.Fprintf(w, "cutoff.terminal_runs=%s\n", retentionCutoff(report.Cutoffs.TerminalRuns))
@@ -537,7 +570,8 @@ local durable run log files and unreferenced artifact blobs.
 The command is destructive. Use --dry-run first, then pass --yes to apply.
 Pass --backup-manifest to require backup manifest verification before cleanup.
 Use --backup-expect to enforce a topology file and --backup-max-age to require
-fresh manifest evidence.`,
+fresh manifest evidence. Use --backup-storage-report to also require byte-level
+storage verifier evidence for the manifest's file-backed state.`,
 	Args: cobra.NoArgs,
 	Run:  runRetentionCleanup,
 }
