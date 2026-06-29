@@ -99,7 +99,10 @@ export function UserDetailPage({
           </div>
         </section>
 
-        <section className={`${styles.detailPanel} polished-panel polished-panel--accent-top`} aria-labelledby="user-access-title">
+        <section
+          className={`${styles.detailPanel} polished-panel polished-panel--accent-top polished-panel--overlay-safe`}
+          aria-labelledby="user-access-title"
+        >
           <div className={styles.detailCopy}>
             <p className="eyebrow">Access</p>
             <h2 id="user-access-title">Role Bindings</h2>

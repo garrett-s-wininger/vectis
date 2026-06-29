@@ -70,6 +70,19 @@
   position: relative;
 }
 
+.polished-panel--overlay-safe {
+  overflow: visible;
+  z-index: 5;
+}
+
+.polished-panel--overlay-safe.polished-panel--accent-top::before {
+  border-radius: var(--panel-radius) var(--panel-radius) 0 0;
+}
+
+.polished-panel--overlay-safe.polished-panel--accent-left::before {
+  border-radius: var(--panel-radius) 0 0 var(--panel-radius);
+}
+
 .polished-panel--accent-top::before,
 .polished-panel--accent-left::before {
   background: linear-gradient(90deg, var(--color-primary), var(--auth-accent));

@@ -44,3 +44,17 @@ export const InPanel: Story = {
     </SectionPanel>
   )
 };
+
+export const OverlayBoundary: Story = {
+  render: () => (
+    <div style={{ display: "grid", gap: "var(--space-lg)", width: "min(var(--layout-panel-max), 100%)" }}>
+      <FilterBar actions={<Button>Refresh</Button>} filters={filters} />
+      <section className="polished-panel" style={{ minHeight: 112, padding: "var(--space-xl)" }}>
+        <strong>Following panel</strong>
+        <p style={{ color: "var(--text-subtle)", margin: "var(--space-xs) 0 0" }}>
+          Open the status menu above to confirm it renders over this panel rather than clipping at the filter bar edge.
+        </p>
+      </section>
+    </div>
+  )
+};

@@ -173,7 +173,10 @@ export function NamespacesPage({
       />
       <div className={styles.workspace}>
         {isCreating ? (
-          <section className={`${styles.createPanel} polished-panel polished-panel--accent-top`} aria-labelledby="create-namespace-title">
+          <section
+            className={`${styles.createPanel} polished-panel polished-panel--accent-top polished-panel--overlay-safe`}
+            aria-labelledby="create-namespace-title"
+          >
             <div className={styles.createCopy}>
               <p className="eyebrow">Create</p>
               <h2 id="create-namespace-title">New Namespace</h2>
@@ -462,7 +465,10 @@ function NamespaceDetail({
           </div>
         </section>
 
-        <section className={`${styles.detailPanel} polished-panel`} aria-labelledby="namespace-access-title">
+        <section
+          className={`${styles.detailPanel} polished-panel polished-panel--overlay-safe`}
+          aria-labelledby="namespace-access-title"
+        >
           <div className={styles.detailHeader}>
             <div>
               <h2 id="namespace-access-title">Access</h2>

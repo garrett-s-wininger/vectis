@@ -111,7 +111,10 @@ export function JobEditor({
   }
 
   return (
-    <section className={`${styles.editorPanel} polished-panel polished-panel--accent-top`} aria-labelledby="job-editor-title">
+    <section
+      className={`${styles.editorPanel} polished-panel polished-panel--accent-top polished-panel--overlay-safe`}
+      aria-labelledby="job-editor-title"
+    >
       <div className={styles.editorHeader}>
         <ResourceTitle
           className={styles.editorTitle}

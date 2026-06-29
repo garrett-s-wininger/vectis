@@ -188,7 +188,10 @@ export function UsersPage({
       />
       <div className={styles.workspace}>
         {isCreating ? (
-          <section className={`${styles.createPanel} polished-panel polished-panel--accent-top`} aria-labelledby="create-user-title">
+          <section
+            className={`${styles.createPanel} polished-panel polished-panel--accent-top polished-panel--overlay-safe`}
+            aria-labelledby="create-user-title"
+          >
             <div className={styles.createCopy}>
               <p className="eyebrow">Create</p>
               <h2 id="create-user-title">New User</h2>
