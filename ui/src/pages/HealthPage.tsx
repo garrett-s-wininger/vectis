@@ -16,13 +16,7 @@ export function HealthPage({ cells, onSelectCell }: HealthPageProps) {
       <PageHeader
         description="Execution cells and their status."
         navigation={
-          <BreadcrumbTrail
-            items={[
-              { label: "Cluster" },
-              { current: true, label: "Health" }
-            ]}
-            label="Health location"
-          />
+          <BreadcrumbTrail items={[{ label: "Cluster" }, { current: true, label: "Health" }]} label="Health location" />
         }
         title="Health"
       />

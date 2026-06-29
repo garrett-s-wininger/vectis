@@ -8,12 +8,12 @@ describe("AppState", () => {
       <AppState
         actions={<Button>Retry</Button>}
         description="The request did not complete."
-        title="Unable to load runs"
+        title="Unable to Load Runs"
         tone="error"
       />
     );
 
-    expect(screen.getByRole("region", { name: "Unable to load runs" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Unable to Load Runs" })).toBeInTheDocument();
 
     expect(screen.getByText("The request did not complete.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();

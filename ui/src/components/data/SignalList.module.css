@@ -1,7 +1,6 @@
 .root {
   background:
-    linear-gradient(90deg, rgb(30 116 139 / 7%), transparent 44%),
-    linear-gradient(180deg, #f1f6f8 0%, #dfe9ee 100%);
+    linear-gradient(90deg, rgb(30 116 139 / 7%), transparent 44%), linear-gradient(180deg, #f1f6f8 0%, #dfe9ee 100%);
   border: 1px solid rgb(133 151 161 / 50%);
   border-radius: var(--panel-radius);
   box-sizing: border-box;

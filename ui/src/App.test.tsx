@@ -461,7 +461,7 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Runs" });
 
     fireEvent.click(screen.getByRole("button", { name: "Run Once" }));
-    fireEvent.change(screen.getByLabelText("Job definition JSON"), {
+    fireEvent.change(screen.getByLabelText("Definition JSON"), {
       target: {
         value: JSON.stringify({
           id: "database-backfill",

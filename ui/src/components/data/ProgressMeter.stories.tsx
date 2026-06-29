@@ -42,9 +42,21 @@ export const InPanel: Story = {
   render: () => (
     <SectionPanel description="Capacity indicators for log storage." title="Logs">
       <div className="progress-meter-stack">
-        <ProgressMeter detail="219 GB free of 684 GB" label="Filesystem usage" tone="warning" value={68} variant="card" />
+        <ProgressMeter
+          detail="219 GB free of 684 GB"
+          label="Filesystem usage"
+          tone="warning"
+          value={68}
+          variant="card"
+        />
         <ProgressMeter detail="retention target is 14 days" label="Retention budget" value={42} variant="card" />
-        <ProgressMeter detail="operator attention required" label="Archive pressure" tone="critical" value={91} variant="card" />
+        <ProgressMeter
+          detail="operator attention required"
+          label="Archive pressure"
+          tone="critical"
+          value={91}
+          variant="card"
+        />
       </div>
     </SectionPanel>
   )

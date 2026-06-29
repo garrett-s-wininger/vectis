@@ -6,7 +6,7 @@ const meta = {
   title: "Components/Feedback/AppState",
   component: AppState,
   args: {
-    title: "No runs to show",
+    title: "No Runs Found",
     description: "Runs will appear here after a job is triggered.",
     tone: "empty"
   }
@@ -22,7 +22,7 @@ export const Error: Story = {
   args: {
     actions: <Button>Retry</Button>,
     description: "The request did not complete.",
-    title: "Unable to load runs",
+    title: "Unable to Load Runs",
     tone: "error"
   }
 };

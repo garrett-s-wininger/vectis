@@ -1,7 +1,6 @@
 .root {
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 56%), rgb(255 255 255 / 14%)),
-    linear-gradient(180deg, #f6f8f9, #e8eef1);
+    linear-gradient(180deg, rgb(255 255 255 / 56%), rgb(255 255 255 / 14%)), linear-gradient(180deg, #f6f8f9, #e8eef1);
   border: 1px dashed rgb(154 169 177 / 72%);
   border-radius: var(--control-radius);
   box-sizing: border-box;

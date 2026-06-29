@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { Namespace } from "../../domain/console";
 import { NamespacePicker } from "./NamespacePicker";
 
@@ -39,7 +39,7 @@ describe("NamespacePicker", () => {
     render(<NamespacePicker namespaces={namespaces} onChange={onChange} value="/" />);
 
     fireEvent.click(screen.getByLabelText("Namespace: / root"));
-    fireEvent.click(screen.getByRole("button", { name: "/team-a" }));
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "/team-a" }));
 
     expect(onChange).toHaveBeenCalledWith("/team-a");
   });

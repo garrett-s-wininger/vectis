@@ -111,14 +111,21 @@ export function RunsPage({
         title="Runs"
       />
       {showRunOnce ? (
-        <section className={`${styles.runOncePanel} polished-panel polished-panel--accent-top`} aria-labelledby="run-once-title">
+        <section
+          className={`${styles.runOncePanel} polished-panel polished-panel--accent-top`}
+          aria-labelledby="run-once-title"
+        >
           <div className={styles.runOnceHeader}>
-            <ResourceTitle id="run-once-title" subtitle={`Namespace ${namespacePath}`} title="Run once" />
+            <ResourceTitle
+              id="run-once-title"
+              subtitle="Submit an inline definition without saving a job."
+              title="Run Once"
+            />
           </div>
           <form className={styles.runOnceForm} onSubmit={submitRunOnce}>
             <TextAreaField
               error={definitionError}
-              label="Job definition JSON"
+              label="Definition JSON"
               name="definition"
               onChange={(event) => {
                 setDefinitionError("");

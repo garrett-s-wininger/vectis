@@ -176,13 +176,7 @@ export function UsersPage({
         }
         description="Local accounts that can sign in to the console."
         navigation={
-          <BreadcrumbTrail
-            items={[
-              { label: "Admin" },
-              { current: true, label: "Users" }
-            ]}
-            label="Users location"
-          />
+          <BreadcrumbTrail items={[{ label: "Admin" }, { current: true, label: "Users" }]} label="Users location" />
         }
         title="Users"
       />

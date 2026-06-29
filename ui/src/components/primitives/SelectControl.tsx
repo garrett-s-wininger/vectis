@@ -1,5 +1,5 @@
-import type { ChangeEvent, MouseEvent, SelectHTMLAttributes } from "react";
-import { useState } from "react";
+import type { ChangeEvent, KeyboardEvent, MouseEvent, SelectHTMLAttributes } from "react";
+import { useRef, useState } from "react";
 import {
   closeOtherDropdowns,
   closeOtherDropdownsFromTrigger,
@@ -33,7 +33,11 @@ export function SelectControl({
   value,
   ...nativeProps
 }: SelectControlProps) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const isControlled = value !== undefined;
+  const [isOpen, setIsOpen] = useState(false);
   const [internalValue, setInternalValue] = useState(() =>
     normalizeValue(defaultValue ?? options.find((option) => !option.disabled)?.value ?? options[0]?.value ?? "")
   );
@@ -64,7 +68,142 @@ export function SelectControl({
     }
 
     onChange?.(selectChangeEvent(option.value, nativeProps.name));
+    closeDropdown();
     closeParentDropdown(event.currentTarget);
+  }
+
+  function handleSummaryKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (disabled) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      openDropdown(focusableOptionIndex(selectedValue, "next"));
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      openDropdown(focusableOptionIndex(selectedValue, "previous"));
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+
+      if (isOpen) {
+        closeDropdown();
+      } else {
+        openDropdown(focusableOptionIndex(selectedValue, "current"));
+      }
+    }
+  }
+
+  function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDropdown({ focusSummary: true });
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusOption(focusableOptionIndex("", "first"));
+      return;
+    }
+
+    if (event.key === "End") {
+      event.preventDefault();
+      focusOption(focusableOptionIndex("", "last"));
+      return;
+    }
+
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+
+    event.preventDefault();
+
+    const activeElement = event.currentTarget.ownerDocument.activeElement;
+    const activeIndex = optionRefs.current.findIndex((option) => option === activeElement);
+    const nextIndex = focusableOptionIndex(
+      options[activeIndex]?.value ?? selectedValue,
+      event.key === "ArrowDown" ? "next" : "previous"
+    );
+
+    focusOption(nextIndex);
+  }
+
+  function openDropdown(optionIndex: number) {
+    if (!detailsRef.current || disabled) {
+      return;
+    }
+
+    closeOtherDropdownsFromTrigger(detailsRef.current);
+    detailsRef.current.open = true;
+    setIsOpen(true);
+    focusOption(optionIndex);
+  }
+
+  function closeDropdown({ focusSummary = false } = {}) {
+    if (detailsRef.current) {
+      detailsRef.current.open = false;
+    }
+
+    setIsOpen(false);
+
+    if (focusSummary) {
+      summaryRef.current?.focus();
+    }
+  }
+
+  function toggleDropdown() {
+    if (isOpen) {
+      closeDropdown();
+      return;
+    }
+
+    openDropdown(-1);
+  }
+
+  function focusOption(index: number) {
+    if (index < 0) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => optionRefs.current[index]?.focus());
+  }
+
+  function focusableOptionIndex(anchorValue: string, direction: "current" | "first" | "last" | "next" | "previous") {
+    const enabledIndexes = options.flatMap((option, index) => (option.disabled ? [] : [index]));
+
+    if (enabledIndexes.length === 0) {
+      return -1;
+    }
+
+    if (direction === "first") {
+      return enabledIndexes[0];
+    }
+
+    if (direction === "last") {
+      return enabledIndexes[enabledIndexes.length - 1];
+    }
+
+    const selectedIndex = options.findIndex((option) => option.value === anchorValue && !option.disabled);
+
+    if (direction === "current") {
+      return selectedIndex >= 0 ? selectedIndex : enabledIndexes[0];
+    }
+
+    const currentEnabledPosition = enabledIndexes.findIndex((index) => index === selectedIndex);
+
+    if (currentEnabledPosition < 0) {
+      return direction === "next" ? enabledIndexes[0] : enabledIndexes[enabledIndexes.length - 1];
+    }
+
+    const offset = direction === "next" ? 1 : -1;
+    const nextPosition = (currentEnabledPosition + offset + enabledIndexes.length) % enabledIndexes.length;
+
+    return enabledIndexes[nextPosition];
   }
 
   return (
@@ -90,31 +229,46 @@ export function SelectControl({
         className={styles.root}
         data-disabled={disabled ? "true" : undefined}
         data-invalid={invalid ? "true" : undefined}
-        onToggle={(event) => closeOtherDropdowns(event.currentTarget)}
+        onToggle={(event) => {
+          setIsOpen(event.currentTarget.open);
+          closeOtherDropdowns(event.currentTarget);
+        }}
+        ref={detailsRef}
       >
         <summary
+          aria-describedby={ariaDescribedBy}
           aria-disabled={disabled ? true : undefined}
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
           aria-label={`${summaryLabel}: ${selectedLabel}`}
           className={styles.summary}
           onClick={(event) => {
+            event.preventDefault();
+
             if (disabled) {
-              event.preventDefault();
               return;
             }
 
-            closeOtherDropdownsFromTrigger(event.currentTarget);
+            toggleDropdown();
           }}
+          onKeyDown={handleSummaryKeyDown}
+          ref={summaryRef}
         >
           <span className={styles.value}>{selectedLabel}</span>
         </summary>
-        <div className={styles.menu}>
-          {options.map((option) => (
+        <div className={styles.menu} hidden={!isOpen} onKeyDown={handleMenuKeyDown} role="listbox">
+          {options.map((option, index) => (
             <button
               aria-current={option.value === selectedValue ? "true" : undefined}
+              aria-selected={option.value === selectedValue}
               className={styles.menuItem}
               disabled={option.disabled}
               key={option.value}
               onClick={(event) => handleOptionClick(option, event)}
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
+              role="option"
               type="button"
             >
               {option.label}

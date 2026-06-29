@@ -6,7 +6,6 @@ import { completeSetup, loadUIContext, login, logout } from "./api/auth";
 import { Button } from "./components";
 import { AppShell } from "./components";
 import { AppState } from "./components";
-import { ErrorAlert } from "./components";
 import { FormError } from "./components";
 import { FormField } from "./components";
 import { VectisAPIError } from "./api/client";
@@ -22,7 +21,7 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { RunsPage } from "./pages/RunsPage";
 import { UsersPage } from "./pages/UsersPage";
-import { PageMissingState } from "./pages/shared";
+import { ActionAlertRail, PageMissingState, PageStateRail } from "./pages/shared";
 import {
   adminNavItems,
   navigateTo,
@@ -718,7 +717,10 @@ function RouteContent({
   route: AppRoute;
 }) {
   const withActionAlert = (children: ReactNode) => (
-    <PageWithActionAlert actionError={actionError}>{children}</PageWithActionAlert>
+    <>
+      <ActionAlertRail message={actionError} />
+      {children}
+    </>
   );
 
   if (route.kind === "health") {
@@ -726,9 +728,9 @@ function RouteContent({
 
     if (loadingHealthCells && cells.length === 0) {
       return (
-        <CenteredAppState>
-          <AppState title="Loading cell status" tone="loading" />
-        </CenteredAppState>
+        <PageStateRail>
+          <AppState title="Loading Cell Status" tone="loading" />
+        </PageStateRail>
       );
     }
 
@@ -764,17 +766,17 @@ function RouteContent({
 
   if (consoleError && !consoleData) {
     return (
-      <CenteredAppState>
-        <AppState description={consoleError} title="Unable to load console" tone="error" />
-      </CenteredAppState>
+      <PageStateRail>
+        <AppState description={consoleError} title="Unable to Load Console" tone="error" />
+      </PageStateRail>
     );
   }
 
   if (!consoleData) {
     return (
-      <CenteredAppState>
-        <AppState title="Loading console" tone="loading" />
-      </CenteredAppState>
+      <PageStateRail>
+        <AppState title="Loading Console" tone="loading" />
+      </PageStateRail>
     );
   }
 
@@ -786,9 +788,9 @@ function RouteContent({
         const run = consoleData.runs.find((candidate) => candidate.id === route.runID);
         if (!run && missingRunID !== route.runID) {
           return (
-            <CenteredAppState>
-              <AppState title="Loading run" tone="loading" />
-            </CenteredAppState>
+            <PageStateRail>
+              <AppState title="Loading Run" tone="loading" />
+            </PageStateRail>
           );
         }
 
@@ -877,34 +879,17 @@ function RouteContent({
       );
     case "profile":
       return withActionAlert(
-        <CenteredAppState>
+        <PageStateRail>
           <AppState description="Account preferences and session details will live here." title="Profile" />
-        </CenteredAppState>
+        </PageStateRail>
       );
     default:
       return (
-        <CenteredAppState>
+        <PageStateRail>
           <NotFoundPage />
-        </CenteredAppState>
+        </PageStateRail>
       );
   }
-}
-
-function CenteredAppState({ children }: { children: ReactNode }) {
-  return <div className="app-state-rail">{children}</div>;
-}
-
-function PageWithActionAlert({ actionError, children }: { actionError: string; children: ReactNode }) {
-  return (
-    <>
-      {actionError ? (
-        <div className="app-alert-rail">
-          <ErrorAlert message={actionError} title="Action Failed" />
-        </div>
-      ) : null}
-      {children}
-    </>
-  );
 }
 
 function navigateAfterAuth() {

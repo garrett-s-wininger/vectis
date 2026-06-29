@@ -16,11 +16,7 @@ function clampPercent(value: number) {
 
 export function ProgressMeter({ label, value, detail, tone = "neutral", variant = "default" }: ProgressMeterProps) {
   const percent = clampPercent(value);
-  const className = [
-    styles.root,
-    tone === "neutral" ? "" : styles[tone],
-    variant === "card" ? styles.card : ""
-  ]
+  const className = [styles.root, tone === "neutral" ? "" : styles[tone], variant === "card" ? styles.card : ""]
     .filter(Boolean)
     .join(" ");
 

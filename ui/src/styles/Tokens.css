@@ -143,47 +143,32 @@
   --control-focus-ring: var(--focus-ring);
   --control-focus-offset: var(--focus-ring-offset);
   --dropdown-control-bg:
-    linear-gradient(180deg, rgb(255 255 255 / 52%), rgb(255 255 255 / 10%)),
-    linear-gradient(180deg, #f3f6f8, #e8eef1);
+    linear-gradient(180deg, rgb(255 255 255 / 52%), rgb(255 255 255 / 10%)), linear-gradient(180deg, #f3f6f8, #e8eef1);
   --dropdown-control-border: rgb(151 168 177 / 52%);
   --dropdown-control-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 70%),
-    inset 0 -1px 0 rgb(32 36 39 / 4%),
-    0 1px 0 rgb(255 255 255 / 58%);
+    inset 0 1px 0 rgb(255 255 255 / 70%), inset 0 -1px 0 rgb(32 36 39 / 4%), 0 1px 0 rgb(255 255 255 / 58%);
   --dropdown-control-hover-bg:
-    linear-gradient(180deg, rgb(255 255 255 / 70%), rgb(255 255 255 / 12%)),
-    linear-gradient(180deg, #eef6f8, #dce9ee);
+    linear-gradient(180deg, rgb(255 255 255 / 70%), rgb(255 255 255 / 12%)), linear-gradient(180deg, #eef6f8, #dce9ee);
   --dropdown-control-hover-shadow:
-    inset 0 0 0 1px rgb(116 152 166 / 42%),
-    inset 0 1px 0 rgb(255 255 255 / 76%),
-    0 1px 0 rgb(255 255 255 / 68%),
+    inset 0 0 0 1px rgb(116 152 166 / 42%), inset 0 1px 0 rgb(255 255 255 / 76%), 0 1px 0 rgb(255 255 255 / 68%),
     0 5px 9px rgb(24 31 36 / 8%);
   --dropdown-control-active-bg:
-    linear-gradient(180deg, rgb(255 255 255 / 70%), rgb(255 255 255 / 14%)),
-    linear-gradient(180deg, #e7f3f6, #cfdee5);
+    linear-gradient(180deg, rgb(255 255 255 / 70%), rgb(255 255 255 / 14%)), linear-gradient(180deg, #e7f3f6, #cfdee5);
   --dropdown-control-active-border: rgb(98 139 155 / 66%);
   --dropdown-control-active-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 50%),
-    inset 0 1px 0 rgb(255 255 255 / 78%),
-    inset 0 -1px 0 rgb(31 95 120 / 12%),
-    0 1px 0 rgb(31 95 120 / 22%),
-    0 5px 10px rgb(24 31 36 / 10%);
+    inset 0 0 0 1px rgb(255 255 255 / 50%), inset 0 1px 0 rgb(255 255 255 / 78%), inset 0 -1px 0 rgb(31 95 120 / 12%),
+    0 1px 0 rgb(31 95 120 / 22%), 0 5px 10px rgb(24 31 36 / 10%);
   --dropdown-menu-bg:
     linear-gradient(180deg, rgb(255 255 255 / 86%), rgb(255 255 255 / 18%)),
     linear-gradient(180deg, #f6f8f9 0%, #e6eef2 100%);
   --dropdown-menu-border: rgb(133 151 161 / 72%);
   --dropdown-menu-border-top: rgb(80 104 116 / 44%);
   --dropdown-menu-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 86%),
-    inset 0 -1px 0 rgb(32 36 39 / 6%),
-    0 2px 0 rgb(255 255 255 / 62%),
+    inset 0 1px 0 rgb(255 255 255 / 86%), inset 0 -1px 0 rgb(32 36 39 / 6%), 0 2px 0 rgb(255 255 255 / 62%),
     0 18px 34px rgb(24 31 36 / 18%);
   --dropdown-menu-item-bg:
-    linear-gradient(180deg, rgb(255 255 255 / 68%), rgb(255 255 255 / 10%)),
-    linear-gradient(180deg, #edf6f9, #d8e8ee);
-  --dropdown-menu-item-shadow:
-    inset 0 0 0 1px rgb(116 152 166 / 42%),
-    inset 0 1px 0 rgb(255 255 255 / 74%);
+    linear-gradient(180deg, rgb(255 255 255 / 68%), rgb(255 255 255 / 10%)), linear-gradient(180deg, #edf6f9, #d8e8ee);
+  --dropdown-menu-item-shadow: inset 0 0 0 1px rgb(116 152 166 / 42%), inset 0 1px 0 rgb(255 255 255 / 74%);
   --interactive-hover-bg: var(--surface-subtle);
   --interactive-selected-bg: var(--surface-selected);
   --interactive-selected-text: var(--color-primary);

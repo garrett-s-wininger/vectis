@@ -1,9 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AppState, Button, EmptyStatePanel } from "../../components";
 import { PageStoryFrame } from "../../mocks/pageHarnesses";
+import { ActionAlertRail } from "./ActionAlertRail";
 import { EmptyStateRail } from "./EmptyStateRail";
 import { InlineEmptyState } from "./InlineEmptyState";
 import { PageMissingState } from "./PageMissingState";
+import { PageStateRail } from "./PageStateRail";
 
 const meta = {
   title: "Pages/Shared/Page States",
@@ -37,11 +39,7 @@ export const MissingResource: Story = {
   render: () => (
     <PageMissingState
       actionLabel="View Jobs"
-      breadcrumbs={[
-        { label: "Root" },
-        { label: "Jobs" },
-        { current: true, label: "Missing" }
-      ]}
+      breadcrumbs={[{ label: "Root" }, { label: "Jobs" }, { current: true, label: "Missing" }]}
       description="This job is no longer available, or the route points to a definition that does not exist."
       label="Job location"
       onAction={() => undefined}
@@ -58,9 +56,21 @@ export const InlineEmpty: Story = {
 };
 
 export const Loading: Story = {
-  render: () => <AppState title="Loading console" tone="loading" />
+  render: () => (
+    <PageStateRail>
+      <AppState title="Loading Console" tone="loading" />
+    </PageStateRail>
+  )
 };
 
 export const Error: Story = {
-  render: () => <AppState description="The API did not return console data." title="Unable to load console" tone="error" />
+  render: () => (
+    <PageStateRail>
+      <AppState description="The API did not return console data." title="Unable to Load Console" tone="error" />
+    </PageStateRail>
+  )
+};
+
+export const ActionError: Story = {
+  render: () => <ActionAlertRail message="Unable to submit run. The saved definition could not be enqueued." />
 };

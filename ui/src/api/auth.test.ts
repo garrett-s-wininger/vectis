@@ -71,10 +71,7 @@ describe("auth API client", () => {
       principal: { kind: "auth_disabled", username: "Anonymous" }
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/ui/api/context",
-      expect.objectContaining({ credentials: "same-origin" })
-    );
+    expect(fetchMock).toHaveBeenCalledWith("/ui/api/context", expect.objectContaining({ credentials: "same-origin" }));
   });
 
   it("raises API errors", async () => {

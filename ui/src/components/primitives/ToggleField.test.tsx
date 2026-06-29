@@ -5,9 +5,7 @@ describe("ToggleField", () => {
   it("renders the active value and reports changes", () => {
     const onChange = vi.fn();
 
-    render(
-      <ToggleField checked label="Manual" name="manual" offText="Off" onChange={onChange} onText="Allowed" />
-    );
+    render(<ToggleField checked label="Manual" name="manual" offText="Off" onChange={onChange} onText="Allowed" />);
 
     expect(screen.getByLabelText("Manual")).toBeChecked();
     expect(screen.getByText("Allowed")).toBeInTheDocument();

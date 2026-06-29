@@ -303,7 +303,6 @@ h1 {
   width: min(var(--layout-card-max), 100%);
 }
 
-
 .code-block {
   background: var(--text-primary);
   border-radius: var(--panel-radius);

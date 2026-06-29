@@ -4,8 +4,8 @@ import { PageStoryFrame } from "../../mocks/pageHarnesses";
 import { JobEditor } from "./JobEditor";
 import { emptyJobForm, type JobEditorMode, type JobFormValues } from "./JobEditorModel";
 
-function JobEditorStory({ mode }: { mode: JobEditorMode }) {
-  const [error, setError] = useState("");
+function JobEditorStory({ error: initialError = "", mode }: { error?: string; mode: JobEditorMode }) {
+  const [error, setError] = useState(initialError);
   const [values, setValues] = useState<JobFormValues>(() => ({
     ...emptyJobForm,
     cronSpec: "0 2 * * *",
@@ -48,4 +48,10 @@ export const Create: Story = {
 
 export const Configure: Story = {
   render: () => <JobEditorStory mode={{ kind: "edit", jobID: "worker-image" }} />
+};
+
+export const SaveError: Story = {
+  render: () => (
+    <JobEditorStory error="Unable to save job. The API rejected the definition." mode={{ kind: "create" }} />
+  )
 };

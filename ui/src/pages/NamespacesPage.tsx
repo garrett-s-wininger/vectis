@@ -162,10 +162,7 @@ export function NamespacesPage({
         }
         navigation={
           <BreadcrumbTrail
-            items={[
-              { label: "Admin" },
-              { current: true, label: "Namespaces" }
-            ]}
+            items={[{ label: "Admin" }, { current: true, label: "Namespaces" }]}
             label="Namespaces location"
           />
         }
@@ -219,7 +216,10 @@ export function NamespacesPage({
           </section>
         ) : null}
 
-        <section className={`${styles.summary} polished-panel polished-panel--accent-top`} aria-label="Namespace summary">
+        <section
+          className={`${styles.summary} polished-panel polished-panel--accent-top`}
+          aria-label="Namespace summary"
+        >
           <div className={styles.summaryCopy}>
             <h2>Hierarchy</h2>
             <p>Boundaries and inheritance at a glance.</p>
@@ -350,7 +350,10 @@ function NamespaceDetail({
   );
 
   const selectedBinding = namespaceBindings.find((binding) => binding.userID === bindingValues.userID);
-  const roleOptions = selectedBinding ? [{ label: selectedBinding.role, value: selectedBinding.role }] : roleBindingRoleOptions;
+  const roleOptions = selectedBinding
+    ? [{ label: selectedBinding.role, value: selectedBinding.role }]
+    : roleBindingRoleOptions;
+
   const selectedRole = roleOptions.some((option) => option.value === bindingValues.role)
     ? bindingValues.role
     : (roleOptions[0]?.value ?? "Viewer");
@@ -392,7 +395,9 @@ function NamespaceDetail({
     {
       align: "end",
       header: "State",
-      cell: (job) => <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>,
+      cell: (job) => (
+        <ResourceStatus tone={job.status}>{job.status === "enabled" ? "Enabled" : "Paused"}</ResourceStatus>
+      ),
       width: "120px"
     }
   ];
@@ -580,7 +585,10 @@ function NamespaceEditor({
       />
 
       <div className={styles.workspace}>
-        <section className={`${styles.editorPanel} polished-panel polished-panel--accent-top`} aria-labelledby="namespace-config-title">
+        <section
+          className={`${styles.editorPanel} polished-panel polished-panel--accent-top`}
+          aria-labelledby="namespace-config-title"
+        >
           <div className={styles.createCopy}>
             <p className="eyebrow">Namespace</p>
             <h2 id="namespace-config-title">Metadata</h2>
@@ -588,8 +596,20 @@ function NamespaceEditor({
           </div>
           <form className={styles.configForm} onSubmit={handleSubmit}>
             <FormField disabled label="Name" name="namespaceName" value={namespace.name} wide />
-            <FormField disabled label="Path" name="namespacePath" value={namespace.path === "/" ? "Root" : namespace.path} wide />
-            <FormField disabled label="Parent" name="namespaceParent" value={parentPathFor(namespaces, namespace)} wide />
+            <FormField
+              disabled
+              label="Path"
+              name="namespacePath"
+              value={namespace.path === "/" ? "Root" : namespace.path}
+              wide
+            />
+            <FormField
+              disabled
+              label="Parent"
+              name="namespaceParent"
+              value={parentPathFor(namespaces, namespace)}
+              wide
+            />
             <FormField
               label="Description"
               name="namespaceDescription"

@@ -37,7 +37,9 @@ export function UserModals({
             <div className={styles.modalCopy}>
               <p className="eyebrow">One-Time Credential</p>
               <h2 id="new-user-credential-title">Initial Password</h2>
-              <p>Share this password with {credential.username}. It will not be shown again after you leave this page.</p>
+              <p>
+                Share this password with {credential.username}. It will not be shown again after you leave this page.
+              </p>
             </div>
             <div className={styles.credentialField}>
               <div className={styles.credentialValue} aria-label={`Initial password for ${credential.username}`}>
