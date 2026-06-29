@@ -120,7 +120,9 @@ Stored job definitions may include trigger definitions. Each trigger has a stabl
 For `scm_poll`, `provider: "git"` polls remote refs and `provider: "gerrit"`
 polls Gerrit changes by current revision. Gerrit triggers require `base_url`;
 `project`, `branch`, and `query` are combined into the Gerrit query, with
-`status:open` added when `query` is omitted.
+`status:open` added when `query` is omitted. Configure Gerrit HTTP credentials
+on `vectis-scm-poller` with `--gerrit-username` plus `--gerrit-password-file`
+or `--gerrit-password`; omit both for anonymous Gerrit queries.
 
 Updating a stored job replaces the job's persisted trigger specs with the
 non-empty `triggers` block in the new definition. Omitting `triggers` installs

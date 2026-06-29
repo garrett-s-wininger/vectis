@@ -45,7 +45,12 @@ func runSCMPoller(cmd *cobra.Command, args []string) {
 	defer service.CloseQueueDial()
 
 	service.RegisterProvider("git", scmgit.NewProvider())
-	service.RegisterProvider("gerrit", scmgerrit.NewProvider())
+	gerritProvider, err := scmgerrit.ConfigFromViper(viper.GetViper()).NewProvider()
+	if err != nil {
+		logger.Fatal("Invalid Gerrit SCM provider config: %v", err)
+	}
+
+	service.RegisterProvider("gerrit", gerritProvider)
 	service.SetInstanceID(viper.GetString("instance_id"))
 	service.SetClaimTTL(config.SCMPollerClaimTTL())
 	actionResolver, err := actionconfig.DescriptorResolver()
@@ -87,9 +92,14 @@ func init() {
 	rootCmd.PersistentFlags().String("instance-id", "", "Stable SCM poller instance identifier used in trigger claim tokens")
 	rootCmd.PersistentFlags().Duration("interval", config.SCMPollerInterval(), "How often to scan for due SCM poll triggers")
 	rootCmd.PersistentFlags().Duration("claim-ttl", config.SCMPollerClaimTTL(), "How long an SCM poller instance owns a trigger claim")
+	scmgerrit.AddConfigFlags(rootCmd.PersistentFlags())
 	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
 	_ = viper.BindPFlag("claim_ttl", rootCmd.PersistentFlags().Lookup("claim-ttl"))
+	if err := scmgerrit.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()); err != nil {
+		panic(err)
+	}
+
 	viper.SetDefault("interval", config.SCMPollerInterval())
 	viper.SetDefault("claim_ttl", config.SCMPollerClaimTTL())
 	viper.SetDefault("instance_id", "")

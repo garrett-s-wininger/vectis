@@ -12,3 +12,11 @@ event dedupe, run creation, and dispatch.
 `base_url` must point at the Gerrit server. `project`, `branch`, and `query`
 are combined into a Gerrit query. When `query` is omitted, the provider adds
 `status:open`.
+
+`vectis-scm-poller` registers this provider with the key `gerrit`. Configure
+HTTP credentials on the poller with `--gerrit-username` plus
+`--gerrit-password-file` or `--gerrit-password`; the matching environment
+variables are `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_USERNAME`,
+`VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD_FILE`, and
+`VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD`. Username and password must be
+configured together; omit both for anonymous Gerrit queries.
