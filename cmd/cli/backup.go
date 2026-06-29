@@ -29,6 +29,7 @@ const backupSchemaInspectTimeout = 2 * time.Second
 const backupDefaultQueuePool = "default"
 const backupManifestSchemaVersion = 1
 const backupExpectedTopologySchemaVersion = 1
+const backupRestoreValidationSchemaVersion = 1
 
 const (
 	backupManifestStatusOK     = "ok"
@@ -210,6 +211,26 @@ type backupStorageReportEvidence struct {
 	MatchedPathIDs []string `json:"matched_path_ids,omitempty"`
 }
 
+type backupRestoreValidation struct {
+	SchemaVersion  int                        `json:"schema_version"`
+	Status         string                     `json:"status"`
+	GeneratedAt    string                     `json:"generated_at"`
+	Deployment     string                     `json:"deployment,omitempty"`
+	Profile        string                     `json:"profile,omitempty"`
+	Manifest       string                     `json:"manifest"`
+	Expect         string                     `json:"expect,omitempty"`
+	StorageReports []string                   `json:"storage_reports,omitempty"`
+	Verification   backupManifestVerification `json:"verification"`
+	SmokeRun       backupRestoreSmokeRun      `json:"smoke_run"`
+}
+
+type backupRestoreSmokeRun struct {
+	RunID    string `json:"run_id"`
+	RunIndex int    `json:"run_index,omitempty"`
+	Status   string `json:"status"`
+	Passed   bool   `json:"passed"`
+}
+
 type backupExpectedTopologyInput struct {
 	Source       string
 	Expectations backupExpectedTopology
@@ -248,6 +269,12 @@ type backupExpectedPath struct {
 var backupVerifyExpectPath string
 var backupVerifyStorageReportPaths []string
 var backupVerifyStorageMaxAge time.Duration
+var backupRestoreValidationExpectPath string
+var backupRestoreValidationStorageReportPaths []string
+var backupRestoreValidationStorageMaxAge time.Duration
+var backupRestoreValidationSmokeRunID string
+var backupRestoreValidationDeployment string
+var backupRestoreValidationProfile string
 var backupExpectPodmanProfile = podmanProfileSimple
 var backupExpectLinuxManifestPath = linuxdeploy.DefaultManifestPath
 
@@ -338,13 +365,50 @@ such as secret store, TLS, or config paths. Pass --expect with an expected
 topology JSON file to fail when a required host, service instance, database
 role, path, or path category is absent from the submitted manifest. Pass
 --storage-report with JSON output from vectis-cli storage verify to require
-byte-level integrity proof for each storage-backed local state path in the
+byte-level integrity evidence for each storage-backed local state path in the
 manifest.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		runCLIError(writeBackupManifestVerification(os.Stdout, args[0], backupVerifyExpectPath, backupVerifyStorageReportPaths, backupVerifyStorageMaxAge, time.Now().UTC()))
 	},
 }
+
+var backupRestoreValidationCmd = &cobra.Command{
+	Use:   "restore-validation [manifest-json]",
+	Short: "Build restore validation evidence from backup checks and a smoke run",
+	Long: `Build a machine-readable restore validation artifact.
+
+The command verifies the supplied backup manifest with the same expected-topology
+and storage-report checks as backup verify, fetches the post-restore smoke run
+from the live API, requires that run to have succeeded, and emits one validation
+artifact operators can retain with release, compliance, or disaster-recovery
+records.`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		opts := backupRestoreValidationOptions{
+			ManifestPath:       args[0],
+			ExpectPath:         backupRestoreValidationExpectPath,
+			StorageReportPaths: backupRestoreValidationStorageReportPaths,
+			StorageMaxAge:      backupRestoreValidationStorageMaxAge,
+			SmokeRunID:         backupRestoreValidationSmokeRunID,
+			Deployment:         backupRestoreValidationDeployment,
+			Profile:            backupRestoreValidationProfile,
+		}
+		runCLIError(writeBackupRestoreValidation(os.Stdout, opts, time.Now().UTC(), fetchRunDetail))
+	},
+}
+
+type backupRestoreValidationOptions struct {
+	ManifestPath       string
+	ExpectPath         string
+	StorageReportPaths []string
+	StorageMaxAge      time.Duration
+	SmokeRunID         string
+	Deployment         string
+	Profile            string
+}
+
+type backupRunDetailFetcher func(runID string) (runDetail, error)
 
 func writeBackupInventory(w io.Writer, generatedAt time.Time) error {
 	inventory := collectBackupInventory(generatedAt)
@@ -370,32 +434,7 @@ func writeBackupManifest(w io.Writer, inventoryPaths []string, generatedAt time.
 }
 
 func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath string, storageReportPaths []string, storageMaxAge time.Duration, checkedAt time.Time) error {
-	if manifestPath == "-" && (expectPath == "-" || backupStorageReportPathsContainStdin(storageReportPaths)) {
-		return fmt.Errorf("manifest, expected topology, and storage reports cannot share stdin")
-	}
-	if expectPath == "-" && backupStorageReportPathsContainStdin(storageReportPaths) {
-		return fmt.Errorf("expected topology and storage reports cannot both be read from stdin")
-	}
-	if storageMaxAge > 0 && len(storageReportPaths) == 0 {
-		return fmt.Errorf("--storage-max-age requires --storage-report")
-	}
-
-	manifest, err := readBackupManifestFile(manifestPath)
-	if err != nil {
-		return err
-	}
-
-	var expected *backupExpectedTopologyInput
-	if strings.TrimSpace(expectPath) != "" {
-		input, err := readBackupExpectedTopologyFile(expectPath)
-		if err != nil {
-			return err
-		}
-
-		expected = &input
-	}
-
-	storageReports, err := readBackupStorageReportInputs(storageReportPaths)
+	manifest, expected, storageReports, err := readBackupVerificationInputs(manifestPath, expectPath, storageReportPaths, storageMaxAge)
 	if err != nil {
 		return err
 	}
@@ -414,6 +453,103 @@ func writeBackupManifestVerification(w io.Writer, manifestPath, expectPath strin
 	}
 
 	return nil
+}
+
+func writeBackupRestoreValidation(w io.Writer, opts backupRestoreValidationOptions, checkedAt time.Time, fetchRun backupRunDetailFetcher) error {
+	if strings.TrimSpace(opts.SmokeRunID) == "" {
+		return fmt.Errorf("--smoke-run is required")
+	}
+	if fetchRun == nil {
+		return fmt.Errorf("restore validation smoke run fetcher is required")
+	}
+
+	manifest, expected, storageReports, err := readBackupVerificationInputs(opts.ManifestPath, opts.ExpectPath, opts.StorageReportPaths, opts.StorageMaxAge)
+	if err != nil {
+		return err
+	}
+
+	verification := verifyBackupManifestWithStorage(manifest, expected, storageReports, opts.StorageMaxAge, checkedAt)
+	run, err := fetchRun(strings.TrimSpace(opts.SmokeRunID))
+	if err != nil {
+		return fmt.Errorf("fetch restore smoke run: %w", err)
+	}
+	if strings.TrimSpace(run.RunID) == "" {
+		run.RunID = strings.TrimSpace(opts.SmokeRunID)
+	}
+
+	smoke := backupRestoreSmokeRun{
+		RunID:    run.RunID,
+		RunIndex: run.RunIndex,
+		Status:   strings.TrimSpace(run.Status),
+		Passed:   backupRunSucceeded(run.Status),
+	}
+
+	validation := backupRestoreValidation{
+		SchemaVersion:  backupRestoreValidationSchemaVersion,
+		Status:         backupManifestStatusOK,
+		GeneratedAt:    checkedAt.Format(time.RFC3339),
+		Deployment:     strings.TrimSpace(opts.Deployment),
+		Profile:        strings.TrimSpace(opts.Profile),
+		Manifest:       opts.ManifestPath,
+		Expect:         strings.TrimSpace(opts.ExpectPath),
+		StorageReports: append([]string(nil), opts.StorageReportPaths...),
+		Verification:   verification,
+		SmokeRun:       smoke,
+	}
+	if verification.Status != backupManifestStatusOK || !smoke.Passed {
+		validation.Status = backupManifestStatusFailed
+	}
+
+	if outputIsJSON() {
+		if err := writeJSON(w, validation); err != nil {
+			return err
+		}
+	} else if err := writeBackupRestoreValidationText(w, validation); err != nil {
+		return err
+	}
+
+	if verification.Status != backupManifestStatusOK {
+		return fmt.Errorf("backup manifest verification failed: %d error(s)", len(verification.Errors))
+	}
+	if !smoke.Passed {
+		return fmt.Errorf("restore smoke run %s finished with status %q", smoke.RunID, smoke.Status)
+	}
+
+	return nil
+}
+
+func readBackupVerificationInputs(manifestPath, expectPath string, storageReportPaths []string, storageMaxAge time.Duration) (backupManifest, *backupExpectedTopologyInput, []backupStorageReportInput, error) {
+	if manifestPath == "-" && (expectPath == "-" || backupStorageReportPathsContainStdin(storageReportPaths)) {
+		return backupManifest{}, nil, nil, fmt.Errorf("manifest, expected topology, and storage reports cannot share stdin")
+	}
+	if expectPath == "-" && backupStorageReportPathsContainStdin(storageReportPaths) {
+		return backupManifest{}, nil, nil, fmt.Errorf("expected topology and storage reports cannot both be read from stdin")
+	}
+	if storageMaxAge > 0 && len(storageReportPaths) == 0 {
+		return backupManifest{}, nil, nil, fmt.Errorf("--storage-max-age requires --storage-report")
+	}
+
+	manifest, err := readBackupManifestFile(manifestPath)
+	if err != nil {
+		return backupManifest{}, nil, nil, err
+	}
+
+	var expected *backupExpectedTopologyInput
+	if strings.TrimSpace(expectPath) != "" {
+		input, err := readBackupExpectedTopologyFile(expectPath)
+		if err != nil {
+			return backupManifest{}, nil, nil, err
+		}
+
+		expected = &input
+	}
+
+	storageReports, err := readBackupStorageReportInputs(storageReportPaths)
+	if err != nil {
+		return backupManifest{}, nil, nil, err
+	}
+
+	return manifest, expected, storageReports, nil
 }
 
 func writeBackupPodmanExpectedTopology(w io.Writer, profile string) error {
@@ -1315,6 +1451,10 @@ func backupStorageKnownSurface(surface string) bool {
 	}
 }
 
+func backupRunSucceeded(status string) bool {
+	return strings.EqualFold(strings.TrimSpace(status), "succeeded")
+}
+
 func backupStorageReportKey(surface, path string) string {
 	return strings.TrimSpace(surface) + "\x00" + backupCleanStoragePath(path)
 }
@@ -2100,6 +2240,46 @@ func writeBackupManifestVerificationText(w io.Writer, result backupManifestVerif
 				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+func writeBackupRestoreValidationText(w io.Writer, validation backupRestoreValidation) error {
+	if _, err := fmt.Fprintf(w, "Restore validation: %s\n", validation.Status); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Generated at: %s\n", validation.GeneratedAt); err != nil {
+		return err
+	}
+	if validation.Deployment != "" {
+		if _, err := fmt.Fprintf(w, "Deployment: %s\n", validation.Deployment); err != nil {
+			return err
+		}
+	}
+	if validation.Profile != "" {
+		if _, err := fmt.Fprintf(w, "Profile: %s\n", validation.Profile); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "Manifest: %s\n", validation.Manifest); err != nil {
+		return err
+	}
+	if validation.Expect != "" {
+		if _, err := fmt.Fprintf(w, "Expected topology: %s\n", validation.Expect); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "Verification: %s storage_reports=%d storage_verified=%d required_storage_paths=%d\n",
+		validation.Verification.Status,
+		validation.Verification.Summary.StorageReports,
+		validation.Verification.Summary.StorageReportsVerified,
+		validation.Verification.Summary.StoragePathsRequired,
+	); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Smoke run: id=%s status=%s passed=%t\n", validation.SmokeRun.RunID, backupDash(validation.SmokeRun.Status), validation.SmokeRun.Passed); err != nil {
+		return err
 	}
 
 	return nil

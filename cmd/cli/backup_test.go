@@ -439,6 +439,123 @@ func TestBackupManifestVerificationRequiresStorageReportsForAllStoragePaths(t *t
 	}
 }
 
+func TestBackupRestoreValidationIncludesVerifiedManifestAndSmokeRun(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	now := time.Date(2026, 6, 28, 17, 0, 0, 0, time.UTC)
+	manifest := retentionBackupManifestForTest(now.Add(-30 * time.Minute).Format(time.RFC3339))
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "manifest.json", manifest)
+	reportPaths := []string{
+		writeBackupJSONFile(t, root, "queue.report.json", backupStorageReportForTest(storageverify.SurfaceQueue, "/var/lib/vectis/queue", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(t, root, "logs.report.json", backupStorageReportForTest(storageverify.SurfaceLogs, "/var/lib/vectis/log", now.Add(-5*time.Minute))),
+		writeBackupJSONFile(t, root, "artifact.report.json", backupStorageReportForTest(storageverify.SurfaceArtifact, "/var/lib/vectis/artifact", now.Add(-5*time.Minute))),
+	}
+
+	opts := backupRestoreValidationOptions{
+		ManifestPath:       manifestPath,
+		StorageReportPaths: reportPaths,
+		StorageMaxAge:      time.Hour,
+		SmokeRunID:         "run-restore",
+		Deployment:         "local",
+		Profile:            "simple",
+	}
+
+	var buf bytes.Buffer
+	if err := writeBackupRestoreValidation(&buf, opts, now, func(runID string) (runDetail, error) {
+		if runID != "run-restore" {
+			t.Fatalf("fetch run id = %q", runID)
+		}
+		return runDetail{RunID: runID, RunIndex: 7, Status: "succeeded"}, nil
+	}); err != nil {
+		t.Fatalf("write restore validation: %v\n%s", err, buf.String())
+	}
+
+	var validation backupRestoreValidation
+	if err := json.Unmarshal(buf.Bytes(), &validation); err != nil {
+		t.Fatalf("restore validation JSON: %v\n%s", err, buf.String())
+	}
+
+	if validation.Status != backupManifestStatusOK || validation.SchemaVersion != backupRestoreValidationSchemaVersion {
+		t.Fatalf("validation header = %+v", validation)
+	}
+
+	if validation.Deployment != "local" || validation.Profile != "simple" || validation.Manifest != manifestPath {
+		t.Fatalf("validation metadata = %+v", validation)
+	}
+
+	if validation.Verification.Status != backupManifestStatusOK || validation.Verification.Summary.StorageReportsVerified != 3 {
+		t.Fatalf("validation verification = %+v", validation.Verification)
+	}
+
+	if validation.SmokeRun.RunID != "run-restore" || validation.SmokeRun.RunIndex != 7 || validation.SmokeRun.Status != "succeeded" || !validation.SmokeRun.Passed {
+		t.Fatalf("validation smoke run = %+v", validation.SmokeRun)
+	}
+}
+
+func TestBackupRestoreValidationRejectsFailedSmokeRun(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	now := time.Date(2026, 6, 28, 17, 30, 0, 0, time.UTC)
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "manifest.json", retentionBackupManifestForTest(now.Add(-30*time.Minute).Format(time.RFC3339)))
+
+	var buf bytes.Buffer
+	err := writeBackupRestoreValidation(&buf, backupRestoreValidationOptions{
+		ManifestPath: manifestPath,
+		SmokeRunID:   "run-failed",
+	}, now, func(runID string) (runDetail, error) {
+		return runDetail{RunID: runID, RunIndex: 8, Status: "failed"}, nil
+	})
+
+	if err == nil {
+		t.Fatalf("restore validation succeeded unexpectedly")
+	}
+
+	var validation backupRestoreValidation
+	if decodeErr := json.Unmarshal(buf.Bytes(), &validation); decodeErr != nil {
+		t.Fatalf("restore validation JSON: %v\n%s", decodeErr, buf.String())
+	}
+
+	if validation.Status != backupManifestStatusFailed {
+		t.Fatalf("validation status = %q", validation.Status)
+	}
+
+	if validation.Verification.Status != backupManifestStatusOK {
+		t.Fatalf("validation verification = %+v", validation.Verification)
+	}
+
+	if validation.SmokeRun.RunID != "run-failed" || validation.SmokeRun.Status != "failed" || validation.SmokeRun.Passed {
+		t.Fatalf("validation smoke run = %+v", validation.SmokeRun)
+	}
+
+	if !strings.Contains(err.Error(), "finished with status") {
+		t.Fatalf("restore validation error = %v", err)
+	}
+}
+
+func TestBackupRestoreValidationRequiresSmokeRun(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "manifest.json", retentionBackupManifestForTest(time.Date(2026, 6, 28, 17, 0, 0, 0, time.UTC).Format(time.RFC3339)))
+
+	var buf bytes.Buffer
+	err := writeBackupRestoreValidation(&buf, backupRestoreValidationOptions{ManifestPath: manifestPath}, time.Now().UTC(), func(runID string) (runDetail, error) {
+		t.Fatalf("fetch run should not be called")
+		return runDetail{}, nil
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "--smoke-run is required") {
+		t.Fatalf("restore validation error = %v", err)
+	}
+
+	if buf.Len() != 0 {
+		t.Fatalf("restore validation wrote output unexpectedly: %s", buf.String())
+	}
+}
+
 func TestBackupPodmanExpectedTopologyHA(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 

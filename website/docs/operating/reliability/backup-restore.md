@@ -118,6 +118,28 @@ report for the expected surface and path. Use additional reports for
 `log-forwarder-spool` and `worker-log-spool` when those paths are present in
 the manifest.
 
+After a restored deployment passes a known-safe smoke run, save one retained
+restore validation artifact that binds the backup manifest, storage reports, and
+smoke run status:
+
+```sh
+vectis-cli backup restore-validation backup-manifest.json \
+  --expect expected-topology.json \
+  --storage-report queue.storage-report.json \
+  --storage-report logs.storage-report.json \
+  --storage-report artifact.storage-report.json \
+  --storage-max-age 24h \
+  --smoke-run "$RESTORE_SMOKE_RUN_ID" \
+  --deployment production \
+  --profile v1 \
+  --format json > restore-validation.json
+```
+
+`backup restore-validation` exits non-zero if manifest verification fails, a
+required storage report is missing or stale, or the referenced smoke run did not
+finish with status `succeeded`. Retain the JSON output with release, audit,
+disaster recovery, or compliance evidence.
+
 Retention cleanup can use the same manifest as a destructive-operation gate:
 
 ```sh
@@ -175,8 +197,8 @@ For SQLite, stop Vectis or use a SQLite-safe backup process before copying the d
 Run this drill before declaring a production v1 deployment ready, before major
 schema upgrades, and on a regular operations cadence.
 
-For the shorter rehearsal checklist that ties restore proof to upgrade and
-rollback proof, see [Production Drills](./production-drills.md).
+For the shorter rehearsal checklist that ties restore validation to upgrade and
+rollback drill evidence, see [Production Drills](./production-drills.md).
 
 | Phase | Evidence to collect |
 | --- | --- |
@@ -206,7 +228,8 @@ Recommended drill flow:
 11. Run `vectis-cli health check --strict`.
 12. Save `vectis-cli health check --json` output as machine-readable evidence.
 13. Run the restore smoke test below.
-14. Record evidence and update the backup, config, or runbook gaps found during the drill.
+14. Build `vectis-cli backup restore-validation --format json` with the restored manifest, storage reports, and post-restore smoke run ID.
+15. Record evidence and update the backup, config, or runbook gaps found during the drill.
 
 Do not run retention cleanup during a restore drill until the restored deployment
 passes the smoke test and the operator has accepted the restore point.

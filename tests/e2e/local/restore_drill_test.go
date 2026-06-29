@@ -127,13 +127,32 @@ func TestE2ELocalRestoreDrill(t *testing.T) {
 
 	assertRunArtifact(t, root, restoredEnv, cli, after.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
 	assertRunArtifact(t, root, restoredEnv, cli, after.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
+
+	evidence.RestoreValidationPath = writeLocalRestoreDrillRestoreValidation(t, root, restoredEnv, cli, evidence, after.RunID)
+	t.Logf("local restore drill validation: %s", evidence.RestoreValidationPath)
 }
 
 type localRestoreDrillEvidence struct {
-	InventoryPath      string
-	ManifestPath       string
-	StorageReportPaths []string
-	VerificationPath   string
+	InventoryPath         string
+	ManifestPath          string
+	StorageReportPaths    []string
+	VerificationPath      string
+	RestoreValidationPath string
+}
+
+type localRestoreDrillRestoreValidation struct {
+	Status       string `json:"status"`
+	Verification struct {
+		Status  string `json:"status"`
+		Summary struct {
+			StorageReportsVerified int `json:"storage_reports_verified"`
+		} `json:"summary"`
+	} `json:"verification"`
+	SmokeRun struct {
+		RunID  string `json:"run_id"`
+		Status string `json:"status"`
+		Passed bool   `json:"passed"`
+	} `json:"smoke_run"`
 }
 
 type localRestoreDrillInventory struct {
@@ -389,6 +408,49 @@ func verifyLocalRestoreDrillBackupEvidence(t *testing.T, root string, env []stri
 		StorageReportPaths: reportPaths,
 		VerificationPath:   verification,
 	}
+}
+
+func writeLocalRestoreDrillRestoreValidation(t *testing.T, root string, env []string, cli string, evidence localRestoreDrillEvidence, smokeRunID string) string {
+	t.Helper()
+
+	args := []string{
+		"--format", "json",
+		"backup", "restore-validation",
+		"--storage-max-age", "24h",
+		"--smoke-run", smokeRunID,
+		"--deployment", "local",
+		"--profile", "restore-drill",
+	}
+
+	for _, report := range evidence.StorageReportPaths {
+		args = append(args, "--storage-report", report)
+	}
+
+	args = append(args, evidence.ManifestPath)
+	validationPath := runLocalRestoreDrillCommandToFile(t, root, env, cli, filepath.Join(filepath.Dir(evidence.ManifestPath), "restored.restore-validation.json"), args...)
+	data, err := os.ReadFile(validationPath)
+	if err != nil {
+		t.Fatalf("read restore validation: %v", err)
+	}
+
+	var validation localRestoreDrillRestoreValidation
+	if err := json.Unmarshal(data, &validation); err != nil {
+		t.Fatalf("parse restore validation: %v\n%s", err, string(data))
+	}
+
+	if validation.Status != "ok" || validation.Verification.Status != "ok" {
+		t.Fatalf("restore validation status = %+v", validation)
+	}
+
+	if validation.Verification.Summary.StorageReportsVerified < len(evidence.StorageReportPaths) {
+		t.Fatalf("restore validation verified %d storage report(s), want at least %d", validation.Verification.Summary.StorageReportsVerified, len(evidence.StorageReportPaths))
+	}
+
+	if validation.SmokeRun.RunID != smokeRunID || validation.SmokeRun.Status != "succeeded" || !validation.SmokeRun.Passed {
+		t.Fatalf("restore validation smoke run = %+v, want run_id=%s succeeded", validation.SmokeRun, smokeRunID)
+	}
+
+	return validationPath
 }
 
 func localRestoreDrillBackupEvidenceEnv(env []string, dataHome string) []string {
