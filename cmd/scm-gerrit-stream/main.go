@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -109,17 +109,12 @@ func runSCMGerritStream(cmd *cobra.Command, args []string) {
 		Limit: viper.GetInt("spec_limit"),
 	}
 
-	reader, closeInput, err := openStreamInput(viper.GetString("input"))
-	if err != nil {
-		logger.Fatal("Failed to open Gerrit stream input: %v", err)
-	}
-	defer func() { _ = closeInput() }()
-
-	logger.Info("Gerrit stream bridge instance ID: %s; reading %s", processor.InstanceID(), streamInputLabel(viper.GetString("input")))
-	err = scmgerrit.ConsumeStream(ctx, reader, scmgerrit.StreamOptions{
+	streamOpts := scmgerrit.StreamOptions{
 		Provider: "gerrit",
 		BaseURL:  baseURL,
-	}, func(ctx context.Context, event scm.Event) error {
+	}
+
+	err = consumeConfiguredStream(ctx, streamOpts, func(ctx context.Context, event scm.Event) error {
 		result, err := routeGerritStreamEvent(ctx, baseURL, router, event)
 		if err != nil {
 			return err
@@ -130,7 +125,7 @@ func runSCMGerritStream(cmd *cobra.Command, args []string) {
 		}
 
 		return nil
-	})
+	}, logger)
 
 	if err != nil {
 		logger.Fatal("Gerrit stream bridge failed: %v", err)
@@ -155,29 +150,6 @@ func routeGerritStreamEvent(ctx context.Context, baseURL string, router gerritSt
 	}, event)
 }
 
-func openStreamInput(path string) (io.Reader, func() error, error) {
-	path = strings.TrimSpace(path)
-	if path == "" || path == "-" {
-		return os.Stdin, func() error { return nil }, nil
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return f, f.Close, nil
-}
-
-func streamInputLabel(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" || path == "-" {
-		return "stdin"
-	}
-
-	return path
-}
-
 func streamInstanceID(id string) string {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -200,18 +172,51 @@ func init() {
 	_ = viper.BindEnv("scm_gerrit_stream.queue.address", "VECTIS_SCM_GERRIT_STREAM_QUEUE_ADDRESS")
 	_ = viper.BindEnv("scm_gerrit_stream.registry.address", "VECTIS_SCM_GERRIT_STREAM_REGISTRY_ADDRESS")
 	rootCmd.PersistentFlags().String("url", "", "Gerrit base URL used to normalize stream events and match trigger specs")
+	rootCmd.PersistentFlags().String("transport", "auto", "Stream transport: auto, input, or ssh")
 	rootCmd.PersistentFlags().String("input", "-", "Path to newline-delimited Gerrit stream JSON, or '-' for stdin")
+	rootCmd.PersistentFlags().String("ssh-host", "", "Gerrit SSH host for managed stream mode")
+	rootCmd.PersistentFlags().Int("ssh-port", defaultGerritSSHPort, "Gerrit SSH port for managed stream mode")
+	rootCmd.PersistentFlags().String("ssh-user", "", "Gerrit SSH username; defaults to the current user when omitted")
+	rootCmd.PersistentFlags().String("ssh-key-file", "", "SSH private key file for managed stream mode")
+	rootCmd.PersistentFlags().Bool("ssh-use-agent", true, "Use SSH_AUTH_SOCK agent identities for managed stream mode")
+	rootCmd.PersistentFlags().String("ssh-known-hosts-file", "", "Known hosts file for Gerrit SSH host-key verification; defaults to ~/.ssh/known_hosts")
+	rootCmd.PersistentFlags().Bool("ssh-insecure-ignore-host-key", false, "Disable SSH host-key verification; intended only for local development")
+	rootCmd.PersistentFlags().String("ssh-command", defaultGerritSSHCommand, "Remote Gerrit SSH stream command")
+	rootCmd.PersistentFlags().Duration("ssh-connect-timeout", 10*time.Second, "Timeout for establishing the Gerrit SSH connection")
+	rootCmd.PersistentFlags().Duration("ssh-reconnect-base-delay", time.Second, "Initial delay before reconnecting a dropped Gerrit SSH stream")
+	rootCmd.PersistentFlags().Duration("ssh-reconnect-max-delay", 30*time.Second, "Maximum delay before reconnecting a dropped Gerrit SSH stream")
+	rootCmd.PersistentFlags().Int("ssh-reconnect-max-attempts", 0, "Maximum managed SSH reconnect attempts; 0 retries forever until shutdown")
 	rootCmd.PersistentFlags().String("instance-id", "", "Stable Gerrit stream bridge instance identifier recorded on trigger invocations and dispatch events")
 	rootCmd.PersistentFlags().Int("spec-limit", scmstream.DefaultSpecLimit, "Maximum enabled Gerrit trigger specs to evaluate per stream event")
 	rootCmd.PersistentFlags().String("queue-address", config.SCMGerritStreamQueueAddress(), "Pinned queue gRPC address")
 	rootCmd.PersistentFlags().String("registry-address", config.SCMGerritStreamRegistryAddress(), "Registry gRPC address for queue discovery")
 	_ = viper.BindPFlag("url", rootCmd.PersistentFlags().Lookup("url"))
+	_ = viper.BindPFlag("transport", rootCmd.PersistentFlags().Lookup("transport"))
 	_ = viper.BindPFlag("input", rootCmd.PersistentFlags().Lookup("input"))
+	_ = viper.BindPFlag("ssh_host", rootCmd.PersistentFlags().Lookup("ssh-host"))
+	_ = viper.BindPFlag("ssh_port", rootCmd.PersistentFlags().Lookup("ssh-port"))
+	_ = viper.BindPFlag("ssh_user", rootCmd.PersistentFlags().Lookup("ssh-user"))
+	_ = viper.BindPFlag("ssh_key_file", rootCmd.PersistentFlags().Lookup("ssh-key-file"))
+	_ = viper.BindPFlag("ssh_use_agent", rootCmd.PersistentFlags().Lookup("ssh-use-agent"))
+	_ = viper.BindPFlag("ssh_known_hosts_file", rootCmd.PersistentFlags().Lookup("ssh-known-hosts-file"))
+	_ = viper.BindPFlag("ssh_insecure_ignore_host_key", rootCmd.PersistentFlags().Lookup("ssh-insecure-ignore-host-key"))
+	_ = viper.BindPFlag("ssh_command", rootCmd.PersistentFlags().Lookup("ssh-command"))
+	_ = viper.BindPFlag("ssh_connect_timeout", rootCmd.PersistentFlags().Lookup("ssh-connect-timeout"))
+	_ = viper.BindPFlag("ssh_reconnect_base_delay", rootCmd.PersistentFlags().Lookup("ssh-reconnect-base-delay"))
+	_ = viper.BindPFlag("ssh_reconnect_max_delay", rootCmd.PersistentFlags().Lookup("ssh-reconnect-max-delay"))
+	_ = viper.BindPFlag("ssh_reconnect_max_attempts", rootCmd.PersistentFlags().Lookup("ssh-reconnect-max-attempts"))
 	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))
 	_ = viper.BindPFlag("spec_limit", rootCmd.PersistentFlags().Lookup("spec-limit"))
 	_ = viper.BindPFlag("scm_gerrit_stream.queue.address", rootCmd.PersistentFlags().Lookup("queue-address"))
 	_ = viper.BindPFlag("scm_gerrit_stream.registry.address", rootCmd.PersistentFlags().Lookup("registry-address"))
+	viper.SetDefault("transport", "auto")
 	viper.SetDefault("input", "-")
+	viper.SetDefault("ssh_port", defaultGerritSSHPort)
+	viper.SetDefault("ssh_use_agent", true)
+	viper.SetDefault("ssh_command", defaultGerritSSHCommand)
+	viper.SetDefault("ssh_connect_timeout", 10*time.Second)
+	viper.SetDefault("ssh_reconnect_base_delay", time.Second)
+	viper.SetDefault("ssh_reconnect_max_delay", 30*time.Second)
 	viper.SetDefault("instance_id", "")
 	viper.SetDefault("spec_limit", scmstream.DefaultSpecLimit)
 	viper.SetEnvPrefix("VECTIS_SCM_GERRIT_STREAM")

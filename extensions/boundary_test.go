@@ -221,6 +221,8 @@ func allowedSCMProviderImportFile(path string) bool {
 	switch path {
 	case "../cmd/scm-gerrit-stream/main.go",
 		"../cmd/scm-gerrit-stream/main_test.go",
+		"../cmd/scm-gerrit-stream/ssh_transport.go",
+		"../cmd/scm-gerrit-stream/transport.go",
 		"../cmd/scm-poller/main.go":
 		return true
 	default:

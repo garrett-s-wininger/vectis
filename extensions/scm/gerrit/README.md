@@ -33,9 +33,23 @@ routing conservative for query shapes the event payload can prove. That lets a
 future stream or webhook producer share dedupe with the poller instead of
 triggering duplicate runs for the same patch set.
 
-`vectis-scm-gerrit-stream` is the first producer for that path. Pipe Gerrit's
-SSH stream into it and point `--url` at the same Gerrit base URL used in job
-trigger specs:
+`vectis-scm-gerrit-stream` is the first producer for that path. In managed SSH
+mode, point `--url` at the same Gerrit base URL used in job trigger specs and
+set `--ssh-host` for the SSH event stream:
+
+```sh
+vectis-scm-gerrit-stream \
+  --url https://gerrit.example.com \
+  --ssh-host gerrit.example.com \
+  --ssh-user ci-bot \
+  --ssh-key-file /etc/vectis/gerrit/id_ed25519 \
+  --ssh-known-hosts-file /etc/vectis/gerrit/known_hosts
+```
+
+The bridge verifies SSH host keys through `known_hosts`, uses a key file and/or
+`SSH_AUTH_SOCK` agent identities, runs `gerrit stream-events`, and reconnects
+with exponential backoff when the stream drops. For tests or externally
+supervised transports, keep using stdin or a file:
 
 ```sh
 ssh -p 29418 gerrit.example.com gerrit stream-events \
@@ -47,7 +61,10 @@ project, and branch, then uses the shared SCM trigger dispatcher for event
 dedupe, run creation, queue handoff, trigger invocation records, and dispatch
 audit rows. Stream routing currently supports omitted queries, `status:open`,
 and `is:open`; more complex Gerrit queries stay with `vectis-scm-poller` until
-the stream payload can prove those predicates.
+the stream payload can prove those predicates. Keep `vectis-scm-poller` enabled
+as the correctness backstop for any Gerrit stream downtime; both producers emit
+the same stable event keys, so duplicate observations collapse in the shared
+event ledger.
 
 ## Smoke
 
