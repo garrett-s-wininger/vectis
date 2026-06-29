@@ -4268,7 +4268,7 @@ func TestWorkerCancelCoreTaskSendsExecutionIdentity(t *testing.T) {
 		core:   core,
 	}
 
-	w.cancelCoreTask("run-1", &cell.ExecutionEnvelope{
+	w.cancelCoreTask(context.Background(), "run-1", &cell.ExecutionEnvelope{
 		ExecutionID: "execution-1",
 		TaskKey:     "root",
 	}, "remote request")

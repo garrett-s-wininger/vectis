@@ -3,6 +3,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
@@ -47,7 +48,7 @@ func TestSchemaMigrationsReadyRejectsDirtyVersion(t *testing.T) {
 		t.Fatalf("insert dirty migration row: %v", err)
 	}
 
-	err = schemaMigrationsReady(db)
+	err = schemaMigrationsReady(context.Background(), db)
 	if err == nil || !strings.Contains(err.Error(), "dirty") {
 		t.Fatalf("schemaMigrationsReady dirty err = %v, want dirty error", err)
 	}
@@ -56,7 +57,7 @@ func TestSchemaMigrationsReadyRejectsDirtyVersion(t *testing.T) {
 		t.Fatalf("clear dirty migration row: %v", err)
 	}
 
-	if err := schemaMigrationsReady(db); err != nil {
+	if err := schemaMigrationsReady(context.Background(), db); err != nil {
 		t.Fatalf("schemaMigrationsReady clean row: %v", err)
 	}
 }

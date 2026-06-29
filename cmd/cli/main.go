@@ -14,7 +14,11 @@ import (
 )
 
 func newAPIRequest(method, path string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(context.Background(), method, config.PublicAPIBaseURL()+path, body)
+	return newAPIRequestWithContext(context.Background(), method, path, body)
+}
+
+func newAPIRequestWithContext(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, config.PublicAPIBaseURL()+path, body)
 	if err != nil {
 		return nil, err
 	}

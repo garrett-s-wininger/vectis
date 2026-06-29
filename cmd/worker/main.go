@@ -426,7 +426,7 @@ func startWorkerCoreShell(ctx context.Context, logger interfaces.Logger) (*worke
 	}
 
 	shell := workercore.NewShellServer()
-	grpcServer, listener, err := workercore.NewUnixShellServer(socketPath, shell)
+	grpcServer, listener, err := workercore.NewUnixShellServerContext(ctx, socketPath, shell)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -708,7 +708,7 @@ func (w *worker) upsertRunHotStateOwner(ctx context.Context, env *cell.Execution
 		ownerEpoch = "unknown"
 	}
 
-	if err := w.store.UpsertRunHotStateOwner(w.runCtx, dal.RunHotStateOwnerUpdate{
+	if err := w.store.UpsertRunHotStateOwner(context.WithoutCancel(ctx), dal.RunHotStateOwnerUpdate{
 		RunID:      env.RunID,
 		CellID:     cellID,
 		OwnerID:    ownerID,
@@ -935,7 +935,7 @@ func (w *worker) recordExecutionCatalogEvent(ctx context.Context, env *cell.Exec
 		return
 	}
 
-	if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: status}); err != nil {
+	if err := w.catalog.RecordExecutionStatus(context.WithoutCancel(ctx), dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: status}); err != nil {
 		w.noteDBError(err)
 		w.logger.Warn("Record catalog execution event %s status %s failed: %v", env.ExecutionID, status, err)
 		trace.SpanFromContext(ctx).RecordError(err)
@@ -1077,7 +1077,7 @@ func (w *worker) hydrateJobRequest(ctx context.Context, req *api.JobRequest) (*a
 		return req, fmt.Errorf("execution payload hash %s present but runs repository is not configured", payloadHash)
 	}
 
-	payload, err := w.store.GetExecutionPayloadByHash(w.runCtx, payloadHash)
+	payload, err := w.store.GetExecutionPayloadByHash(context.WithoutCancel(ctx), payloadHash)
 	if err != nil {
 		w.noteDBError(err)
 		return req, fmt.Errorf("load execution payload %s: %w", payloadHash, err)
@@ -1471,7 +1471,7 @@ func (w *worker) expireExecutionIfPastStartDeadline(ctx context.Context, env *ce
 		return false, nil
 	}
 
-	expired, err := w.store.MarkExpiredQueuedExecutionsFailed(w.runCtx, nowUnixNano, 1000)
+	expired, err := w.store.MarkExpiredQueuedExecutionsFailed(context.WithoutCancel(ctx), nowUnixNano, 1000)
 	if err != nil {
 		w.noteDBError(err)
 		trace.SpanFromContext(ctx).RecordError(err)
@@ -1512,14 +1512,14 @@ func (w *worker) prepareRunForExecution(ctx context.Context, j *api.Job, env *ce
 			}
 		}
 
-		if _, err := job.EnsurePlannedTaskExecutions(w.runCtx, w.store, env.RunID, plan, env.CellID); err != nil {
+		if _, err := job.EnsurePlannedTaskExecutions(context.WithoutCancel(ctx), w.store, env.RunID, plan, env.CellID); err != nil {
 			w.noteDBError(err)
 			return fmt.Errorf("materialize planned task executions: %w", err)
 		}
 		w.noteDBRecovered()
 	}
 
-	if err := w.executionChoreographer().LoadRun(w.runCtx, j, env, nil); err != nil {
+	if err := w.executionChoreographer().LoadRun(context.WithoutCancel(ctx), j, env, nil); err != nil {
 		return fmt.Errorf("load orchestrator run: %w", err)
 	}
 
@@ -1820,7 +1820,7 @@ func (w *worker) dispatchOrchestratorContinuation(ctx context.Context, j *api.Jo
 			return enqueued > 0, fmt.Errorf("attach child execution envelope %s: %w", child.ExecutionID, err)
 		}
 
-		if err := w.queue.Enqueue(w.runCtx, req); err != nil {
+		if err := w.queue.Enqueue(context.WithoutCancel(ctx), req); err != nil {
 			failed++
 			w.logger.Warn("Task continuation enqueue failed for run %s execution %s: %v", source.RunID, child.ExecutionID, err)
 			trace.SpanFromContext(ctx).RecordError(err)
@@ -1867,7 +1867,7 @@ func (w *worker) persistTaskContinuation(ctx context.Context, j *api.Job, source
 	}
 
 	if source.ExecutionID != "" {
-		if err := w.store.ApplyExecutionStatusUpdate(w.runCtx, dal.ExecutionStatusUpdate{
+		if err := w.store.ApplyExecutionStatusUpdate(context.WithoutCancel(ctx), dal.ExecutionStatusUpdate{
 			ExecutionID: source.ExecutionID,
 			Status:      dal.ExecutionStatusSucceeded,
 		}); err != nil {
@@ -1897,7 +1897,7 @@ func (w *worker) persistTaskContinuation(ctx context.Context, j *api.Job, source
 		return false, nil
 	}
 
-	if err := w.store.MarkRunQueuedForContinuation(w.runCtx, runID); err != nil {
+	if err := w.store.MarkRunQueuedForContinuation(context.WithoutCancel(ctx), runID); err != nil {
 		w.noteDBError(err)
 		return false, fmt.Errorf("mark run %s queued for continuation: %w", runID, err)
 	}
@@ -1915,7 +1915,7 @@ func (w *worker) executionPayloadHashForContinuation(ctx context.Context, runID 
 		return ""
 	}
 
-	payloadHash, err := w.store.GetExecutionPayloadHashForRun(w.runCtx, runID)
+	payloadHash, err := w.store.GetExecutionPayloadHashForRun(context.WithoutCancel(ctx), runID)
 	if err != nil {
 		if !errors.Is(err, dal.ErrNotFound) {
 			w.noteDBError(err)
@@ -1929,7 +1929,7 @@ func (w *worker) executionPayloadHashForContinuation(ctx context.Context, runID 
 }
 
 func (w *worker) activateOrEnsureContinuationTask(ctx context.Context, j *api.Job, source *cell.ExecutionEnvelope, child dal.TaskExecutionRecord) (dal.TaskExecutionRecord, bool, error) {
-	activated, didActivate, err := w.store.ActivatePlannedTaskExecution(w.runCtx, child.TaskID)
+	activated, didActivate, err := w.store.ActivatePlannedTaskExecution(context.WithoutCancel(ctx), child.TaskID)
 	if err == nil {
 		w.noteDBRecovered()
 		return activated, didActivate, nil
@@ -2056,7 +2056,7 @@ func (w *worker) prepareContinuationDispatch(ctx context.Context, j *api.Job, so
 	dispatch := executionDispatchRecordFromTaskExecution(j, source, child)
 	deadline := dispatchmeta.DeadlineUnixNano(w.deadlineBaseNow(), config.DispatchStartTTL())
 	if w.store != nil && dispatch.ExecutionID != "" {
-		stored, err := w.store.EnsureExecutionStartDeadline(w.runCtx, dispatch.ExecutionID, deadline)
+		stored, err := w.store.EnsureExecutionStartDeadline(context.WithoutCancel(ctx), dispatch.ExecutionID, deadline)
 		if err != nil {
 			w.noteDBError(err)
 			trace.SpanFromContext(ctx).RecordError(err)
@@ -2263,8 +2263,9 @@ func (w *worker) ensureExecutionSPIFFERegistration(ctx context.Context, identity
 	}
 
 	if ctx == nil {
-		ctx = context.Background()
+		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIFFE registration requires context")
 	}
+	ctx = context.WithoutCancel(ctx)
 
 	if identity == nil {
 		return spire.RegistrationHandle{}, false, fmt.Errorf("worker SPIFFE registration requires execution identity")
@@ -2315,7 +2316,7 @@ func (w *worker) ensureExecutionSPIFFERegistration(ctx context.Context, identity
 	return handle, true, nil
 }
 
-func (w *worker) releaseExecutionSPIFFERegistration(registration *executionSPIFFERegistration) {
+func (w *worker) releaseExecutionSPIFFERegistration(ctx context.Context, registration *executionSPIFFERegistration) {
 	if w == nil || w.spiffeRegistrar == nil || registration == nil {
 		return
 	}
@@ -2325,10 +2326,7 @@ func (w *worker) releaseExecutionSPIFFERegistration(registration *executionSPIFF
 		return
 	}
 
-	ctx := w.runCtx
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = context.WithoutCancel(ctx)
 
 	if err := w.spiffeRegistrar.ReleaseRegistration(ctx, handle); err != nil && w.logger != nil {
 		executionID := ""
@@ -2444,10 +2442,6 @@ func (w *worker) recordExecutionSecurityEvent(ctx context.Context, env *cell.Exe
 		return
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	event.RunID = env.RunID
 	event.TaskID = env.TaskID
 	event.TaskAttemptID = env.TaskAttemptID
@@ -2485,7 +2479,7 @@ func (w *worker) markExecutionStarted(ctx context.Context, env *cell.ExecutionEn
 		return
 	}
 
-	if err := w.store.MarkExecutionStarted(w.runCtx, env.ExecutionID); err != nil {
+	if err := w.store.MarkExecutionStarted(context.WithoutCancel(ctx), env.ExecutionID); err != nil {
 		w.noteDBError(err)
 		w.logger.Warn("MarkExecutionStarted execution %s failed: %v", env.ExecutionID, err)
 		trace.SpanFromContext(ctx).RecordError(err)
@@ -2510,7 +2504,7 @@ func (w *worker) completeExecutionAndFinalizeRunByClaim(ctx context.Context, j *
 		return dal.ExecutionFinalizationResult{}, true
 	}
 
-	completionCtx := trace.ContextWithSpan(w.runCtx, trace.SpanFromContext(ctx))
+	completionCtx := trace.ContextWithSpan(context.WithoutCancel(ctx), trace.SpanFromContext(ctx))
 	result, err := w.completeExecutionEnvelopeWithRetry(completionCtx, j, env, executionClaim, status, failureCode, reason)
 	if err != nil {
 		w.logger.Warn("CompleteExecutionAndFinalizeRunByClaim execution %s status %s failed: %v", env.ExecutionID, status, err)
@@ -2577,7 +2571,7 @@ func (w *worker) persistTerminalExecutionSnapshot(ctx context.Context, result da
 			w.logger.Warn("Persist terminal execution snapshot for run %s failed (attempt %d/%d): %v; retrying in %v",
 				result.RunID, attempt, finalizeMaxAttempts, err, delay)
 
-			if sleepErr := clock.Sleep(w.runCtx, delay); sleepErr != nil {
+			if sleepErr := clock.Sleep(context.WithoutCancel(ctx), delay); sleepErr != nil {
 				return sleepErr
 			}
 
@@ -2596,7 +2590,7 @@ func (w *worker) persistTerminalExecutionSnapshot(ctx context.Context, result da
 }
 
 func (w *worker) persistTerminalExecutionSnapshotOnce(ctx context.Context, result dal.ExecutionFinalizationResult, failureCode, reason string) error {
-	return w.store.ApplyTerminalExecutionSnapshot(w.runCtx, dal.TerminalExecutionSnapshotUpdate{
+	return w.store.ApplyTerminalExecutionSnapshot(context.WithoutCancel(ctx), dal.TerminalExecutionSnapshotUpdate{
 		RunID:       result.RunID,
 		Outcome:     result.Outcome,
 		FailureCode: failureCode,
@@ -2672,7 +2666,7 @@ func (w *worker) completeHotExecutionEnvelopeWithRetry(ctx context.Context, j *a
 		w.logger.Warn("CompleteExecutionAndFinalizeRunByClaim execution %s status %s failed (attempt %d/%d): %v; retrying in %v",
 			env.ExecutionID, status, attempt, finalizeMaxAttempts, err, delay)
 
-		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
+		if sleepErr := w.clock.Sleep(context.WithoutCancel(ctx), delay); sleepErr != nil {
 			return dal.ExecutionFinalizationResult{}, sleepErr
 		}
 		attempt++
@@ -2684,7 +2678,7 @@ func (w *worker) completeHotExecutionEnvelopeWithRetry(ctx context.Context, j *a
 func (w *worker) mirrorExecutionFinalizationWithRetry(ctx context.Context, env *cell.ExecutionEnvelope, executionClaim *executionClaimState, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		result, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.get(), status, failureCode, reason)
+		result, err := w.store.CompleteExecutionAndFinalizeRunByClaim(context.WithoutCancel(ctx), env.ExecutionID, w.workerID, executionClaim.get(), status, failureCode, reason)
 		if err == nil {
 			w.noteDBRecovered()
 			return result, nil
@@ -2701,7 +2695,7 @@ func (w *worker) mirrorExecutionFinalizationWithRetry(ctx context.Context, env *
 		w.logger.Warn("Mirror durable execution finalization %s status %s failed (attempt %d/%d): %v; retrying in %v",
 			env.ExecutionID, status, attempt, finalizeMaxAttempts, err, delay)
 
-		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
+		if sleepErr := w.clock.Sleep(context.WithoutCancel(ctx), delay); sleepErr != nil {
 			return dal.ExecutionFinalizationResult{}, sleepErr
 		}
 	}
@@ -2748,7 +2742,7 @@ func (w *worker) recordTerminalExecutionSnapshotCatalogEvent(ctx context.Context
 		Reason:      reason,
 		Executions:  result.Executions,
 	}
-	if err := w.catalog.RecordTerminalExecutionSnapshot(w.runCtx, update); err != nil {
+	if err := w.catalog.RecordTerminalExecutionSnapshot(context.WithoutCancel(ctx), update); err != nil {
 		w.noteDBError(err)
 		w.logger.Warn("Record catalog terminal snapshot event for run %s failed: %v", result.RunID, err)
 		trace.SpanFromContext(ctx).RecordError(err)
@@ -2809,7 +2803,7 @@ func (w *worker) ackDeliveryWithRetry(ctx context.Context, deliveryID string) *a
 		w.logger.Warn("Ack delivery %s transient failure (attempt %d/%d): %v; retrying in %v",
 			deliveryID, attempt, ackMaxAttempts, err, delay)
 
-		if sleepErr := w.clock.Sleep(w.runCtx, delay); sleepErr != nil {
+		if sleepErr := w.clock.Sleep(context.WithoutCancel(ctx), delay); sleepErr != nil {
 			decision := runpolicy.Decide(runpolicy.Input{
 				Trigger:     runpolicy.TriggerAckResult,
 				Attempt:     attempt,
@@ -2952,7 +2946,7 @@ func (w *worker) tryClaimExecution(ctx context.Context, job *api.Job, executionE
 
 	span := trace.SpanFromContext(ctx)
 	span.AddEvent("execution.claim.attempt", trace.WithAttributes(executionEnvelopeAttrs(executionEnvelope)...))
-	claim, err := w.executionChoreographer().ClaimAndStartExecution(w.runCtx, executionEnvelope, w.workerID, leaseUntil)
+	claim, err := w.executionChoreographer().ClaimAndStartExecution(context.WithoutCancel(ctx), executionEnvelope, w.workerID, leaseUntil)
 	if err != nil {
 		w.logger.Warn("ClaimAndStartExecution %s failed; stopping before task execution: %v", executionEnvelope.ExecutionID, err)
 		span.RecordError(err)
@@ -2992,11 +2986,11 @@ func (w *worker) recoverOrchestratorExecutionClaim(ctx context.Context, j *api.J
 		return false, err
 	}
 
-	if err := w.executionChoreographer().LoadRun(w.runCtx, j, env, snapshots); err != nil {
+	if err := w.executionChoreographer().LoadRun(context.WithoutCancel(ctx), j, env, snapshots); err != nil {
 		return false, fmt.Errorf("load orchestrator run: %w", err)
 	}
 
-	claim, err := w.executionChoreographer().ClaimAndStartExecution(w.runCtx, env, w.workerID, leaseUntil)
+	claim, err := w.executionChoreographer().ClaimAndStartExecution(context.WithoutCancel(ctx), env, w.workerID, leaseUntil)
 	if err != nil {
 		return false, fmt.Errorf("claim execution: %w", err)
 	}
@@ -3038,7 +3032,7 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, job *api.Job, env *ce
 
 	var lastErr error
 	for attempt := 1; attempt <= finalizeMaxAttempts; attempt++ {
-		err := w.store.MirrorExecutionClaim(w.runCtx, env.ExecutionID, w.workerID, claimToken, leaseUntil)
+		err := w.store.MirrorExecutionClaim(context.WithoutCancel(ctx), env.ExecutionID, w.workerID, claimToken, leaseUntil)
 		if err == nil {
 			w.noteDBRecovered()
 			return nil
@@ -3060,7 +3054,7 @@ func (w *worker) mirrorExecutionClaim(ctx context.Context, job *api.Job, env *ce
 		w.logger.Warn("MirrorExecutionClaim %s failed (attempt %d/%d): %v; retrying in %v",
 			env.ExecutionID, attempt, finalizeMaxAttempts, err, delay)
 
-		if sleepErr := clock.Sleep(w.runCtx, delay); sleepErr != nil {
+		if sleepErr := clock.Sleep(context.WithoutCancel(ctx), delay); sleepErr != nil {
 			return sleepErr
 		}
 	}
@@ -3081,7 +3075,7 @@ func (w *worker) renewMirroredExecutionClaim(ctx context.Context, job *api.Job, 
 		return nil
 	}
 
-	if err := w.store.RenewExecutionLease(w.runCtx, env.ExecutionID, w.workerID, claimToken, leaseUntil); err != nil {
+	if err := w.store.RenewExecutionLease(context.WithoutCancel(ctx), env.ExecutionID, w.workerID, claimToken, leaseUntil); err != nil {
 		w.noteDBError(err)
 		trace.SpanFromContext(ctx).RecordError(err)
 		return err
@@ -3152,7 +3146,7 @@ func (w *worker) orchestratorSnapshotsFromStore(ctx context.Context, runID strin
 	cursor := int64(0)
 	snapshots := make([]orchestrator.TaskExecutionSnapshot, 0)
 	for {
-		tasks, nextCursor, err := w.store.ListRunTasks(w.runCtx, runID, cursor, pageLimit)
+		tasks, nextCursor, err := w.store.ListRunTasks(context.WithoutCancel(ctx), runID, cursor, pageLimit)
 		if err != nil {
 			w.noteDBError(err)
 			trace.SpanFromContext(ctx).RecordError(err)
@@ -3387,7 +3381,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 		cancelOnce.Do(func() {
 			w.logger.Info("Cancelling run %s via %s", runID, source)
 			close(cancelled)
-			go w.cancelCoreTask(runID, env, source)
+			go w.cancelCoreTask(execCtx, runID, env, source)
 			execCancel()
 		})
 	}
@@ -3432,7 +3426,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 				env:      env,
 				handle:   handle,
 			}
-			defer w.releaseExecutionSPIFFERegistration(spiffeRegistration)
+			defer w.releaseExecutionSPIFFERegistration(execCtx, spiffeRegistration)
 		}
 	}
 
@@ -3720,13 +3714,13 @@ func (w *worker) cancelRequestLoop(
 	}
 }
 
-func (w *worker) cancelCoreTask(runID string, env *cell.ExecutionEnvelope, reason string) {
+func (w *worker) cancelCoreTask(ctx context.Context, runID string, env *cell.ExecutionEnvelope, reason string) {
 	cancellable, ok := w.core.(workercore.CancellableCore)
 	if !ok || cancellable == nil || env == nil || strings.TrimSpace(env.ExecutionID) == "" {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(w.runCtx, coreCancelTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), coreCancelTimeout)
 	defer cancel()
 
 	if err := cancellable.CancelTask(ctx, workercore.CancelTaskRequest{
@@ -3770,7 +3764,7 @@ func (w *worker) leaseRenewalLoop(
 			next := w.leaseDeadline()
 			claimToken := executionClaim.get()
 			if executionEnvelope != nil && claimToken != "" {
-				if err := w.executionChoreographer().RenewExecutionLease(w.runCtx, executionEnvelope, w.workerID, claimToken, next); err != nil {
+				if err := w.executionChoreographer().RenewExecutionLease(context.WithoutCancel(execCtx), executionEnvelope, w.workerID, claimToken, next); err != nil {
 					renewFailed = true
 					if isOrchestratorNotFound(err) {
 						recovered, recoverErr := w.recoverOrchestratorExecutionClaim(execCtx, j, executionEnvelope, executionClaim, next, "renew")
@@ -3800,7 +3794,7 @@ func (w *worker) leaseRenewalLoop(
 			}
 
 			if spiffeRegistration != nil {
-				handle, registered, err := w.ensureExecutionSPIFFERegistration(w.runCtx, spiffeRegistration.identity, spiffeRegistration.env, next)
+				handle, registered, err := w.ensureExecutionSPIFFERegistration(execCtx, spiffeRegistration.identity, spiffeRegistration.env, next)
 				if err != nil {
 					w.logger.Warn("Execution %s: SPIFFE registration renew failed (will retry): %v", executionEnvelope.ExecutionID, err)
 				} else if registered {

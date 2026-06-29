@@ -107,7 +107,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -198,7 +198,7 @@ func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID 
 	if !sawCompletion {
 		// NOTE(garrett): Use a fresh context for the one-shot fallback — the handler's DB context
 		// may have expired if the SSE stream has been alive longer than the timeout.
-		fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		fallbackCtx, fallbackCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 		defer fallbackCancel()
 		status, found, err := s.runs.GetRunStatus(fallbackCtx, runID)
 		if err != nil {

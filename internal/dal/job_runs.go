@@ -900,6 +900,7 @@ func applyTerminalRunStatusUpdateTx(ctx context.Context, tx *sql.Tx, update RunS
 		return clearExecutionClaimsForTerminalRunTx(ctx, tx, runID)
 	case statusTransitionConflict:
 		return fmt.Errorf("%w: terminal snapshot run status %s cannot replace current status %s for run %s", ErrConflict, targetStatus, currentStatus, runID)
+	case statusTransitionApply:
 	}
 
 	var res sql.Result

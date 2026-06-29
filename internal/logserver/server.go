@@ -255,7 +255,7 @@ func (jb *JobBuffer) LastActivity() time.Time {
 	return jb.lastActivity
 }
 
-func (jb *JobBuffer) Broadcast(_ string, entry LogEntry) {
+func (jb *JobBuffer) Broadcast(ctx context.Context, _ string, entry LogEntry) {
 	jb.subMu.RLock()
 	defer jb.subMu.RUnlock()
 	if len(jb.subscribers) == 0 {
@@ -263,11 +263,11 @@ func (jb *JobBuffer) Broadcast(_ string, entry LogEntry) {
 	}
 
 	for ch := range jb.subscribers {
-		jb.sendToSubscriber(ch, entry)
+		jb.sendToSubscriber(ctx, ch, entry)
 	}
 }
 
-func (jb *JobBuffer) BroadcastBatch(_ string, entries []LogEntry) {
+func (jb *JobBuffer) BroadcastBatch(ctx context.Context, _ string, entries []LogEntry) {
 	if len(entries) == 0 {
 		return
 	}
@@ -280,17 +280,18 @@ func (jb *JobBuffer) BroadcastBatch(_ string, entries []LogEntry) {
 
 	for _, entry := range entries {
 		for ch := range jb.subscribers {
-			jb.sendToSubscriber(ch, entry)
+			jb.sendToSubscriber(ctx, ch, entry)
 		}
 	}
 }
 
-func (jb *JobBuffer) sendToSubscriber(ch chan LogEntry, entry LogEntry) {
+func (jb *JobBuffer) sendToSubscriber(ctx context.Context, ch chan LogEntry, entry LogEntry) {
 	select {
 	case ch <- entry:
+	case <-ctx.Done():
 	default:
 		if jb.metrics != nil {
-			jb.metrics.RecordChannelDrop(context.Background())
+			jb.metrics.RecordChannelDrop(ctx)
 		}
 	}
 }
@@ -653,7 +654,7 @@ func (s *Server) publishLogEntryGroups(ctx context.Context, groups []runLogEntry
 			s.logger.Warn("Log buffer full for run %s, dropping %d log lines from flush (seq %d-%d)", group.runID, dropped, firstDropped, lastDropped)
 		}
 
-		buffer.BroadcastBatch(group.runID, group.entries)
+		buffer.BroadcastBatch(ctx, group.runID, group.entries)
 
 		if buffer.IsTerminal() {
 			terminalSeen = true
@@ -729,7 +730,7 @@ func (s *Server) publishLogEntry(ctx context.Context, runID string, entry LogEnt
 		s.logger.Warn("Log buffer full for run %s, dropping log line (seq %d)", runID, entry.Sequence)
 	}
 
-	buffer.Broadcast(runID, entry)
+	buffer.Broadcast(ctx, runID, entry)
 
 	if buffer.IsTerminal() {
 		s.evictTerminalBuffers()
@@ -1044,7 +1045,7 @@ func (s *Server) RunGRPC(ctx context.Context, port string) error {
 		return err
 	}
 
-	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog)
+	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
 	if err != nil {
 		return err
 	}

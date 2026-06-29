@@ -286,7 +286,7 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 
 	logger.Info("Created workspace: %s", workspace)
 
-	logStream, err := newDurableLogStream(logClient, logger, job.GetRunId())
+	logStream, err := newDurableLogStream(ctx, logClient, logger, job.GetRunId())
 	if err != nil {
 		return fmt.Errorf("failed to initialize durable log stream: %w", err)
 	}

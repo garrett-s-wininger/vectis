@@ -185,7 +185,7 @@ func (p *logPool) refreshLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			refreshCtx := context.Background()
+			refreshCtx := context.WithoutCancel(ctx)
 			if timeout := config.RegistryResolverPollTimeout(); timeout > 0 {
 				var cancel context.CancelFunc
 				refreshCtx, cancel = context.WithTimeout(refreshCtx, timeout)

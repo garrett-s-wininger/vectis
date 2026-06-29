@@ -75,7 +75,7 @@ func (s *APIServer) PostCellCatalogEvent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	rec, created, err := s.catalogEvents.Record(ctx, sourceCell, eventKey, eventType, payload)

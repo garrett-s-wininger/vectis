@@ -251,10 +251,6 @@ func (a *AsyncAuditor) flush(events []Event) {
 }
 
 func (a *AsyncAuditor) insertSync(ctx context.Context, events []Event) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

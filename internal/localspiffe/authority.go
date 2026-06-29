@@ -65,9 +65,6 @@ type Authority struct {
 }
 
 func Start(ctx context.Context, cfg Config) (*Authority, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}

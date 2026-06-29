@@ -60,7 +60,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	if !s.requireAuthRepo(w) {
@@ -251,7 +251,7 @@ func (s *APIServer) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	if err := cacheService.DeleteSession(ctx, hashAPIToken(raw)); err != nil {

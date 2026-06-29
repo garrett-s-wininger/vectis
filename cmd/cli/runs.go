@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
@@ -366,7 +367,11 @@ func writeDispatchSummary(w io.Writer, summary []dispatchSummary) {
 }
 
 func fetchRunDetail(runID string) (runDetail, error) {
-	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s", runID), nil)
+	return fetchRunDetailWithContext(context.Background(), runID)
+}
+
+func fetchRunDetailWithContext(ctx context.Context, runID string) (runDetail, error) {
+	req, err := newAPIRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("/api/v1/runs/%s", runID), nil)
 	if err != nil {
 		return runDetail{}, err
 	}

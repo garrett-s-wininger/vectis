@@ -50,10 +50,6 @@ type Result struct {
 }
 
 func (r *Runner) RunOne(ctx context.Context) (Result, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	if err := r.validate(); err != nil {
 		return Result{}, err
 	}
@@ -89,7 +85,7 @@ func (r *Runner) RunOne(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	defer r.releaseRegistration(handle)
+	defer r.releaseRegistration(ctx, handle)
 
 	secretFiles, err := r.resolveSecrets(ctx, req.GetJob(), env, claim.ClaimToken, workload)
 	if err != nil {
@@ -229,11 +225,11 @@ func (r *Runner) ensureRegistration(ctx context.Context, workload *workloadident
 	return result.Handle, nil
 }
 
-func (r *Runner) releaseRegistration(handle spire.RegistrationHandle) {
+func (r *Runner) releaseRegistration(ctx context.Context, handle spire.RegistrationHandle) {
 	if r == nil || r.Registrar == nil || !handle.Managed {
 		return
 	}
-	_ = r.Registrar.ReleaseRegistration(context.Background(), handle)
+	_ = r.Registrar.ReleaseRegistration(context.WithoutCancel(ctx), handle)
 }
 
 func (r *Runner) resolveSecrets(ctx context.Context, runJob *api.Job, env *cell.ExecutionEnvelope, claimToken string, workload *workloadidentity.Identity) ([]secrets.FileMaterial, error) {

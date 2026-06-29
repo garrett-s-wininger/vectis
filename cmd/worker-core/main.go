@@ -60,7 +60,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 		},
 	})
 
-	grpcServer, listener, err := workercore.NewUnixCoreServer(socketPath, service)
+	grpcServer, listener, err := workercore.NewUnixCoreServerContext(ctx, socketPath, service)
 	if err != nil {
 		logger.Fatal("Failed to create worker core server: %v", err)
 	}

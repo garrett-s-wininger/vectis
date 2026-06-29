@@ -116,7 +116,7 @@ func sanitizeRunIDForSpool(id string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "-"), string(filepath.Separator), "-")
 }
 
-func newDurableLogStream(logClient interfaces.LogClient, logger interfaces.Logger, runID string) (*durableLogStream, error) {
+func newDurableLogStream(ctx context.Context, logClient interfaces.LogClient, logger interfaces.Logger, runID string) (*durableLogStream, error) {
 	if logClient == nil {
 		return nil, fmt.Errorf("log client is required")
 	}
@@ -147,11 +147,11 @@ func newDurableLogStream(logClient interfaces.LogClient, logger interfaces.Logge
 		done:         make(chan struct{}),
 	}
 
-	d.streamCtx, d.streamCancel = context.WithCancel(context.Background())
+	d.streamCtx, d.streamCancel = context.WithCancel(context.WithoutCancel(ctx))
 	d.cond = sync.NewCond(&d.mu)
 
 	go d.senderLoop()
-	d.probeInitialConnectivity()
+	d.probeInitialConnectivity(ctx)
 	return d, nil
 }
 
@@ -412,13 +412,13 @@ func (d *durableLogStream) ensureStream() (interfaces.LogStream, error) {
 	return d.stream, nil
 }
 
-func (d *durableLogStream) probeInitialConnectivity() {
+func (d *durableLogStream) probeInitialConnectivity(ctx context.Context) {
 	probeTimeout := LogInitialProbeForTest()
 	if probeTimeout <= 0 {
 		return
 	}
 
-	probeCtx, cancel := context.WithTimeout(d.streamCtx, probeTimeout)
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), probeTimeout)
 	defer cancel()
 
 	stream, err := d.openLogStream(probeCtx)

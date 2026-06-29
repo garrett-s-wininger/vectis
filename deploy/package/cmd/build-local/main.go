@@ -283,7 +283,7 @@ func runMageInVM(ctx context.Context, opts options, target string, targetArgs []
 		return buildErr
 	}
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
 
 	if err := manager.Stop(stopCtx, opts.Instance); err != nil && buildErr == nil {

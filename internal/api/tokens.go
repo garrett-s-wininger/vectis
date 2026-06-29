@@ -74,7 +74,7 @@ func apiTokenRecordToResponse(rec *dal.APITokenRecord) tokenResponse {
 }
 
 func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -171,7 +171,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -352,7 +352,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)

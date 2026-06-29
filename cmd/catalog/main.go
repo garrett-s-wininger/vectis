@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -62,7 +63,7 @@ func runCatalog(cmd *cobra.Command, args []string) {
 		cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 	))
 
-	fanInSources, closeFanIn, err := openCatalogFanInSources(logger, globalDBPath)
+	fanInSources, closeFanIn, err := openCatalogFanInSources(ctx, logger, globalDBPath)
 	if err != nil {
 		logger.Fatal("Failed to initialize catalog fan-in: %v", err)
 	}
@@ -93,7 +94,7 @@ func runCatalog(cmd *cobra.Command, args []string) {
 	}
 }
 
-func openCatalogFanInSources(logger interfaces.Logger, globalDBPath string) ([]catalog.FanInSource, func(), error) {
+func openCatalogFanInSources(ctx context.Context, logger interfaces.Logger, globalDBPath string) ([]catalog.FanInSource, func(), error) {
 	cellDBs, err := config.CatalogCellDatabaseDSNs()
 	if err != nil {
 		return nil, func() {}, err
@@ -131,7 +132,7 @@ func openCatalogFanInSources(logger interfaces.Logger, globalDBPath string) ([]c
 		}
 
 		dbs = append(dbs, db)
-		if err := database.WaitForMigrations(db, logger); err != nil {
+		if err := database.WaitForMigrationsContext(ctx, db, logger); err != nil {
 			closeAll()
 			return nil, func() {}, fmt.Errorf("wait for cell database %q schema: %w", cellID, err)
 		}

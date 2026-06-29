@@ -32,9 +32,6 @@ func defaultTrustCommandExists(name string) bool {
 // InstallCertificateAuthority installs caFile into the operating system trust
 // store using the implementation compiled for the current GOOS.
 func InstallCertificateAuthority(ctx context.Context, caFile string) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if caFile == "" {
 		return errors.New("platform: CA file is required")
 	}

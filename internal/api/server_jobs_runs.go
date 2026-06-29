@@ -298,7 +298,7 @@ func (s *APIServer) repairMarkRun(w http.ResponseWriter, r *http.Request, mark r
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -430,7 +430,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -530,7 +530,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -623,7 +623,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -914,7 +914,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1168,7 +1168,7 @@ func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
 
-	bgCtx := detachedTraceContextFromRequest(r)
+	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
 	jobForRun := cloneJobForRun(&job, createdRun.RunID)
 	go s.finishTriggerEnqueue(bgCtx, jobID, createdRun, jobForRun, definitionHash)
 }
@@ -1239,7 +1239,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 
 	definitionHash := dal.DefinitionHash(string(definitionJSON))
 	runIndexOne := 1
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1399,7 +1399,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
 
-	bgCtx := detachedTraceContextFromRequest(r)
+	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
 
 	go s.finishRunJobEnqueue(bgCtx, ephemeralJobID, runID, &job, definitionHash)
 }
@@ -1618,19 +1618,19 @@ func (s *APIServer) attachCreatedRunExecutionEnvelope(ctx context.Context, req *
 	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionDescriptorResolver)
 }
 
-func detachedTraceContextFromRequest(r *http.Request) context.Context {
-	if r == nil {
-		return context.Background()
+func detachedTraceContextFromContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	sc := trace.SpanFromContext(r.Context()).SpanContext()
+	sc := trace.SpanFromContext(ctx).SpanContext()
 	if !sc.IsValid() {
-		return context.Background()
+		return ctx
 	}
 
 	// Preserve trace linkage for post-202 enqueue work without inheriting the
 	// HTTP request cancellation/deadline; the reconciler is the durable backstop.
-	return trace.ContextWithSpanContext(context.Background(), sc)
+	return trace.ContextWithSpanContext(ctx, sc)
 }
 
 func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
@@ -1818,7 +1818,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -2077,7 +2077,7 @@ func (s *APIServer) GetRunDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -2523,7 +2523,7 @@ func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
 
 	params := parsePageParams(r)
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -2598,7 +2598,7 @@ func (s *APIServer) GetRunExecutionPayload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)

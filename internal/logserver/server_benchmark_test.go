@@ -306,7 +306,7 @@ func BenchmarkJobBuffer_BroadcastOneSubscriber(b *testing.B) {
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
 				entry.Sequence = int64(i + 1)
-				buffer.Broadcast("bench-run", entry)
+				buffer.Broadcast(context.Background(), "bench-run", entry)
 			}
 
 			elapsed := time.Since(start)
@@ -339,7 +339,7 @@ func BenchmarkJobBuffer_BroadcastFullControlSubscriber(b *testing.B) {
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
 				entry.Sequence = int64(i + 1)
-				buffer.Broadcast("bench-run", entry)
+				buffer.Broadcast(context.Background(), "bench-run", entry)
 			}
 
 			elapsed := time.Since(start)

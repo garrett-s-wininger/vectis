@@ -74,7 +74,7 @@ func TestLogSpoolForwarderFault_StaleRunSpoolQuarantined(t *testing.T) {
 		interfaces.NewLogger("test"),
 		time.Second,
 	)
-	if err := forwarder.scanAndForward(); err != nil {
+	if err := forwarder.scanAndForward(context.Background()); err != nil {
 		t.Fatalf("scan pending spools: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestLogSpoolForwarderFault_MissingRunIDSpoolQuarantined(t *testing.T) {
 		interfaces.NewLogger("test"),
 		time.Second,
 	)
-	if err := forwarder.scanAndForward(); err != nil {
+	if err := forwarder.scanAndForward(context.Background()); err != nil {
 		t.Fatalf("scan pending spools: %v", err)
 	}
 
@@ -124,7 +124,7 @@ func TestLogSpoolForwarderFault_TransientSpoolFailureRetained(t *testing.T) {
 		interfaces.NewLogger("test"),
 		time.Second,
 	)
-	if err := forwarder.scanAndForward(); err != nil {
+	if err := forwarder.scanAndForward(context.Background()); err != nil {
 		t.Fatalf("scan pending spools: %v", err)
 	}
 

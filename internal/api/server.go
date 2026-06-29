@@ -404,8 +404,8 @@ func queueRPCReady(q interfaces.QueueService) bool {
 	return wc.GRPCConnectivityState() == connectivity.Ready
 }
 
-func (s *APIServer) handlerDBCtx(r *http.Request) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(r.Context(), defaultHandlerDBTimeout)
+func (s *APIServer) handlerDBCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, defaultHandlerDBTimeout)
 }
 
 func (s *APIServer) requireNamespaces(w http.ResponseWriter) bool {
@@ -821,7 +821,7 @@ func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve f
 	select {
 	case <-ctx.Done():
 		s.draining.Store(true)
-		shutCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultShutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(shutCtx); err != nil && s.logger != nil {
 			s.logger.Warn("API server shutdown: %v", err)

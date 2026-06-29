@@ -35,7 +35,7 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 	}
 	defer closeIgnoringError(db)
 
-	if err := database.WaitForMigrations(db, nil); err != nil {
+	if err := database.WaitForMigrationsContext(ctx, db, nil); err != nil {
 		return err
 	}
 

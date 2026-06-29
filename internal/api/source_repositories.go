@@ -415,7 +415,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -506,7 +506,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -569,7 +569,7 @@ func (s *APIServer) ListSourceRepositories(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -595,7 +595,7 @@ func (s *APIServer) GetSourceRepository(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) ListSourceSchedules(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -669,7 +669,7 @@ func (s *APIServer) ListSourceSchedules(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -736,7 +736,7 @@ func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -787,7 +787,7 @@ func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *APIServer) DeleteSourceSchedule(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -892,7 +892,7 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 		req.Path = filePath
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -945,7 +945,7 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 }
 
 func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -990,7 +990,7 @@ func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.
 }
 
 func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1053,7 +1053,7 @@ func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1079,7 +1079,7 @@ func (s *APIServer) GetSourceRepositoryStatus(w http.ResponseWriter, r *http.Req
 }
 
 func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1128,7 +1128,7 @@ func (s *APIServer) ListSourceRepositoryBranches(w http.ResponseWriter, r *http.
 }
 
 func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1198,7 +1198,7 @@ func (s *APIServer) ListSourceRepositoryTree(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1264,7 +1264,7 @@ func (s *APIServer) ListSourceRepositoryDefinitions(w http.ResponseWriter, r *ht
 }
 
 func (s *APIServer) ListSourceRepositoryJobs(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1373,7 +1373,7 @@ func (s *APIServer) GetSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1485,7 +1485,7 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 		}
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1571,7 +1571,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1760,7 +1760,7 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	_, _ = w.Write(buf.Bytes())
 	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
 
-	bgCtx := detachedTraceContextFromRequest(r)
+	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
 	go s.finishRunJobEnqueueWithKind(bgCtx, observability.APIEnqueueRunKindSource, jobID, runID, loaded.Job, definitionHash)
 }
 
@@ -1776,7 +1776,7 @@ func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1832,7 +1832,7 @@ func (s *APIServer) GetSourceRepositoryJobRunLogs(w http.ResponseWriter, r *http
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1902,7 +1902,7 @@ func (s *APIServer) HandleSSESourceRepositoryJobRuns(w http.ResponseWriter, r *h
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1940,7 +1940,7 @@ func (s *APIServer) broadcastSourceRepositoryRunEvent(ctx context.Context, jobID
 }
 
 func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -2083,7 +2083,7 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -2248,7 +2248,7 @@ func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Reque
 
 	req.Ref = strings.TrimSpace(req.Ref)
 	req.Path = strings.TrimSpace(req.Path)
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)

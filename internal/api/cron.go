@@ -19,7 +19,7 @@ func (s *APIServer) GetCronStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	summary, err := s.schedules.CronScheduleSummary(ctx, time.Now().UTC())

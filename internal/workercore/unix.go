@@ -112,6 +112,10 @@ func dialUnixGRPC(ctx context.Context, socketPath, targetName string) (*grpc.Cli
 }
 
 func NewUnixCoreServer(socketPath string, core api.WorkerCoreServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
+	return NewUnixCoreServerContext(context.Background(), socketPath, core, opts...)
+}
+
+func NewUnixCoreServerContext(ctx context.Context, socketPath string, core api.WorkerCoreServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
 	socketPath = strings.TrimSpace(socketPath)
 	if socketPath == "" {
 		return nil, nil, fmt.Errorf("worker core socket path is required")
@@ -130,7 +134,7 @@ func NewUnixCoreServer(socketPath string, core api.WorkerCoreServiceServer, opts
 	}
 
 	var listenConfig net.ListenConfig
-	ln, err := listenConfig.Listen(context.Background(), "unix", socketPath)
+	ln, err := listenConfig.Listen(ctx, "unix", socketPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen worker core socket: %w", err)
 	}
@@ -148,6 +152,10 @@ func NewUnixCoreServer(socketPath string, core api.WorkerCoreServiceServer, opts
 }
 
 func NewUnixShellServer(socketPath string, shell api.WorkerCoreShellServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
+	return NewUnixShellServerContext(context.Background(), socketPath, shell, opts...)
+}
+
+func NewUnixShellServerContext(ctx context.Context, socketPath string, shell api.WorkerCoreShellServiceServer, opts ...grpc.ServerOption) (*grpc.Server, net.Listener, error) {
 	socketPath = strings.TrimSpace(socketPath)
 	if socketPath == "" {
 		return nil, nil, fmt.Errorf("worker core shell socket path is required")
@@ -166,7 +174,7 @@ func NewUnixShellServer(socketPath string, shell api.WorkerCoreShellServiceServe
 	}
 
 	var listenConfig net.ListenConfig
-	ln, err := listenConfig.Listen(context.Background(), "unix", socketPath)
+	ln, err := listenConfig.Listen(ctx, "unix", socketPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen worker core shell socket: %w", err)
 	}

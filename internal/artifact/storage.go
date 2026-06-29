@@ -151,10 +151,6 @@ func (s *LocalStore) Close() error {
 }
 
 func (s *LocalStore) Put(ctx context.Context, r io.Reader, opts PutOptions) (BlobDescriptor, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	if r == nil {
 		return BlobDescriptor{}, fmt.Errorf("artifact blob reader is required")
 	}
@@ -269,10 +265,6 @@ func validateExistingBlob(desc BlobDescriptor, opts PutOptions) error {
 }
 
 func (s *LocalStore) Stat(ctx context.Context, key string) (BlobDescriptor, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	if err := ctx.Err(); err != nil {
 		return BlobDescriptor{}, err
 	}
@@ -323,10 +315,6 @@ func (s *LocalStore) NewBlobWritable() bool {
 func (s *LocalStore) StorageStats(ctx context.Context) (StorageStats, error) {
 	if s == nil {
 		return StorageStats{}, fmt.Errorf("artifact local store is nil")
-	}
-
-	if ctx == nil {
-		ctx = context.Background()
 	}
 
 	var out StorageStats

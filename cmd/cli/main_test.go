@@ -2369,7 +2369,7 @@ func runPodmanSecretsSmokeTestStep(ctx context.Context, jobBody []byte, timeout 
 		return podmanSmokeTestResult{}, fmt.Errorf("seed podman smoke secret: %w", err)
 	}
 
-	submitted, err := submitJobDefinitionBody(jobBody, "", "")
+	submitted, err := submitJobDefinitionBodyWithContext(ctx, jobBody, "", "")
 	if err != nil {
 		return podmanSmokeTestResult{}, fmt.Errorf("submit podman secrets smoke job: %w", err)
 	}
@@ -2420,7 +2420,7 @@ func testSeedPodmanExampleSecret(ctx context.Context, runner testCommandRunner) 
 
 func waitForTestRunTerminal(ctx context.Context, runID string, interval time.Duration) (runDetail, error) {
 	for {
-		run, err := fetchRunDetail(runID)
+		run, err := fetchRunDetailWithContext(ctx, runID)
 		if err != nil {
 			return runDetail{}, fmt.Errorf("fetch smoke run status: %w", err)
 		}

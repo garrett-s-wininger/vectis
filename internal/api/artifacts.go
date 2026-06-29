@@ -46,7 +46,7 @@ func (s *APIServer) ListRunArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := parsePageParams(r)
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	if !s.authorizeRunArtifactRead(ctx, w, r, runID) {
@@ -99,7 +99,7 @@ func (s *APIServer) GetRunArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	if !s.authorizeRunArtifactRead(ctx, w, r, runID) {
@@ -131,7 +131,7 @@ func (s *APIServer) DownloadRunArtifact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	if !s.authorizeRunArtifactRead(ctx, w, r, runID) {
 		cancel()
 		return

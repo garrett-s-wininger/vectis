@@ -192,11 +192,11 @@ func (s *queueServer) Enqueue(ctx context.Context, req *api.JobRequest) (*api.Em
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC()
-	if err := s.requeueExpiredLocked(now); err != nil {
+	if err := s.requeueExpiredLocked(ctx, now); err != nil {
 		return nil, err
 	}
 
-	if err := s.dropExpiredPendingLocked(now); err != nil {
+	if err := s.dropExpiredPendingLocked(ctx, now); err != nil {
 		return nil, err
 	}
 
@@ -259,11 +259,11 @@ func (s *queueServer) dequeueWithRequest(ctx context.Context, req *api.DequeueRe
 
 	for {
 		now := time.Now().UTC()
-		if err := s.requeueExpiredLocked(now); err != nil {
+		if err := s.requeueExpiredLocked(ctx, now); err != nil {
 			return nil, err
 		}
 
-		if err := s.dropExpiredPendingLocked(now); err != nil {
+		if err := s.dropExpiredPendingLocked(ctx, now); err != nil {
 			return nil, err
 		}
 
@@ -324,7 +324,7 @@ func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int
 	s.removePendingOffsetLocked(offset)
 	s.inflight[deliveryID] = inflightDelivery{JobRequest: jobReq, LeaseUntil: leaseUntil, AttemptCount: attemptCount}
 
-	s.annotateDequeueHandoff(jobReq, job.GetId(), job.GetRunId(), deliveryID, attemptCount, s.size, s.deliveryTTL)
+	s.annotateDequeueHandoff(ctx, jobReq, job.GetId(), job.GetRunId(), deliveryID, attemptCount, s.size, s.deliveryTTL)
 	if persistOp == "trydequeue" {
 		s.log.Info("TryDequeue returned job: %s (delivery %s)", job.GetId(), deliveryID)
 	} else {
@@ -340,7 +340,7 @@ func (s *queueServer) deliverPendingOffsetLocked(ctx context.Context, offset int
 func (s *queueServer) Ack(ctx context.Context, req *api.AckRequest) (*api.Empty, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.requeueExpiredLocked(time.Now().UTC()); err != nil {
+	if err := s.requeueExpiredLocked(ctx, time.Now().UTC()); err != nil {
 		return nil, err
 	}
 
@@ -387,7 +387,7 @@ func (s *queueServer) newDeliveryID() string {
 	return queueid.Encode(s.instanceID, s.deliveryPrefix+"-"+strconv.FormatUint(s.deliverySeq, 10))
 }
 
-func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
+func (s *queueServer) dropExpiredPendingLocked(ctx context.Context, now time.Time) error {
 	for offset := 0; offset < s.size; {
 		jobReq := s.jobs[(s.head+offset)%len(s.jobs)]
 		if !dispatchmeta.IsExpired(jobReq, now) {
@@ -397,7 +397,7 @@ func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
 
 		jobID := jobReq.GetJob().GetId()
 		if s.persistence != nil {
-			if err := s.beforeFault(context.Background(), FaultPointPendingExpiredDrop); err != nil {
+			if err := s.beforeFault(ctx, FaultPointPendingExpiredDrop); err != nil {
 				return err
 			}
 			if err := s.persistence.appendDropExpired("", jobReq, s.snapshotAfterPendingOffsetDropLocked(offset, jobReq)); err != nil {
@@ -410,7 +410,7 @@ func (s *queueServer) dropExpiredPendingLocked(now time.Time) error {
 
 		s.log.Warn("Pending job %s expired after dispatch start deadline; dropped", jobID)
 		if s.metrics != nil {
-			s.metrics.RecordExpiredDropped(context.Background())
+			s.metrics.RecordExpiredDropped(ctx)
 		}
 	}
 
@@ -666,6 +666,7 @@ func isolationRequirementMask(isolation string) uint64 {
 }
 
 func (s *queueServer) annotateDequeueHandoff(
+	ctx context.Context,
 	jobReq *api.JobRequest,
 	jobID, runID, deliveryID string,
 	attemptCount int,
@@ -677,7 +678,7 @@ func (s *queueServer) annotateDequeueHandoff(
 	}
 
 	dequeueAt := time.Now()
-	ctx := observability.ExtractJobTraceContext(context.Background(), jobReq)
+	ctx = observability.ExtractJobTraceContext(ctx, jobReq)
 	startTime := dequeueAt
 	if raw := jobReq.GetMetadata()[observability.JobEnqueueAcceptedUnixNanoKey]; raw != "" {
 		if ns, err := strconv.ParseInt(raw, 10, 64); err == nil && ns > 0 {
@@ -786,7 +787,7 @@ func (s *queueServer) snapshotAfterDLQRequeueLocked(deliveryID string, item dead
 	return snapshotState{pending: pending, inflight: s.copyInflightLocked(), deadLetter: deadLetter, jobAttempts: jobAttempts}
 }
 
-func (s *queueServer) requeueExpiredLocked(now time.Time) error {
+func (s *queueServer) requeueExpiredLocked(ctx context.Context, now time.Time) error {
 	for deliveryID, item := range s.inflight {
 		if item.LeaseUntil.After(now) {
 			continue
@@ -795,7 +796,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 		jobID := item.JobRequest.GetJob().GetId()
 		if dispatchmeta.IsExpired(item.JobRequest, now) {
 			if s.persistence != nil {
-				if err := s.beforeFault(context.Background(), FaultPointExpiredDrop); err != nil {
+				if err := s.beforeFault(ctx, FaultPointExpiredDrop); err != nil {
 					return err
 				}
 
@@ -809,7 +810,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 
 			s.log.Warn("Delivery %s for job %s expired after dispatch start deadline; dropped", deliveryID, jobID)
 			if s.metrics != nil {
-				s.metrics.RecordExpiredDropped(context.Background())
+				s.metrics.RecordExpiredDropped(ctx)
 			}
 
 			continue
@@ -819,7 +820,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 
 		if attemptCount > s.maxRequeueAttempts {
 			if s.persistence != nil {
-				if err := s.beforeFault(context.Background(), FaultPointDeadLetter); err != nil {
+				if err := s.beforeFault(ctx, FaultPointDeadLetter); err != nil {
 					return err
 				}
 
@@ -840,14 +841,14 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 				deliveryID, jobID, s.maxRequeueAttempts)
 
 			if s.metrics != nil {
-				s.metrics.RecordDLQMoved(context.Background())
+				s.metrics.RecordDLQMoved(ctx)
 			}
 
 			continue
 		}
 
 		if s.persistence != nil {
-			if err := s.beforeFault(context.Background(), FaultPointExpiredRequeue); err != nil {
+			if err := s.beforeFault(ctx, FaultPointExpiredRequeue); err != nil {
 				return err
 			}
 
@@ -862,7 +863,7 @@ func (s *queueServer) requeueExpiredLocked(now time.Time) error {
 
 		s.log.Warn("Re-queued expired delivery %s for job %s (attempt %d)", deliveryID, jobID, attemptCount)
 		if s.metrics != nil {
-			s.metrics.RecordExpiredRequeued(context.Background())
+			s.metrics.RecordExpiredRequeued(ctx)
 		}
 
 		s.notifyEligibleWaiterLocked(requirementMask)

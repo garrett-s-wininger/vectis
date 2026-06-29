@@ -1,6 +1,7 @@
 package dbtest
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -20,7 +21,7 @@ func NewTestDB(t *testing.T) *sql.DB {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+	if _, err := db.ExecContext(context.Background(), "PRAGMA foreign_keys = ON"); err != nil {
 		_ = db.Close()
 		t.Fatalf("failed to enable sqlite foreign keys: %v", err)
 	}

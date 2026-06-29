@@ -211,8 +211,8 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Inject request into context for audit logging
-		ctx := context.WithValue(r.Context(), httpRequestKey{}, r)
-		r = r.WithContext(ctx)
+		requestCtx := context.WithValue(r.Context(), httpRequestKey{}, r)
+		r = r.WithContext(requestCtx)
 
 		if policy.isPublic() || !config.APIAuthEnabled() {
 			next.ServeHTTP(w, r)
@@ -224,10 +224,10 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
-		ctx, cancel := s.handlerDBCtx(r)
+		dbCtx, cancel := s.handlerDBCtx(requestCtx)
 		defer cancel()
 
-		complete, err := s.authRepo.IsSetupComplete(ctx)
+		complete, err := s.authRepo.IsSetupComplete(dbCtx)
 		if err != nil {
 			if s.handleDBUnavailableError(w, err) {
 				return
@@ -241,7 +241,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		action := policy.Action
 
 		if !complete {
-			if z.Allow(ctx, nil, action, authz.Resource{}) {
+			if z.Allow(dbCtx, nil, action, authz.Resource{}) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -251,7 +251,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 		}
 
 		if action == authz.ActionSetupStatus || action == authz.ActionSetupComplete {
-			if !z.Allow(ctx, nil, action, authz.Resource{}) {
+			if !z.Allow(dbCtx, nil, action, authz.Resource{}) {
 				writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 				return
 			}
@@ -290,7 +290,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 
 		if cacheService != nil {
 			now := time.Now().UTC()
-			session, err := cacheService.ResolveSession(ctx, tokenKey, now, config.APISessionIdleTTL())
+			session, err := cacheService.ResolveSession(dbCtx, tokenKey, now, config.APISessionIdleTTL())
 			if err == nil {
 				if source == credentialSourceCookie && csrfRequired(r.Method) {
 					if !validCSRFToken(r.Header.Get(csrfHeaderName), session.CSRFTokenHash) {
@@ -306,13 +306,13 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					}
 				}
 
-				s.auditLog(r.Context(), audit.EventAuthSuccess, session.LocalUserID, 0, map[string]any{
+				s.auditLog(requestCtx, audit.EventAuthSuccess, session.LocalUserID, 0, map[string]any{
 					"credential_type":   "session",
 					"credential_source": string(source),
 				})
 
 				// Best-effort; ignore errors so a metrics/update failure does not block the request.
-				_ = cacheService.TouchSession(ctx, tokenKey, now)
+				_ = cacheService.TouchSession(dbCtx, tokenKey, now)
 
 				p := &authn.Principal{
 					LocalUserID: session.LocalUserID,
@@ -320,12 +320,12 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 					Kind:        authn.KindLocalUser,
 				}
 
-				if !z.Allow(ctx, p, action, authz.Resource{}) {
+				if !z.Allow(dbCtx, p, action, authz.Resource{}) {
 					writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 					return
 				}
 
-				nextCtx := authn.WithPrincipal(r.Context(), p)
+				nextCtx := authn.WithPrincipal(requestCtx, p)
 				if source == credentialSourceBearer {
 					nextCtx = withRateLimitBearerKey(nextCtx, tokenKey)
 				}
@@ -345,7 +345,7 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			}
 
 			if source == credentialSourceCookie {
-				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+				s.auditLog(requestCtx, audit.EventAuthFailure, 0, 0, map[string]any{
 					"reason":            "invalid_session",
 					"credential_source": string(source),
 				})
@@ -360,10 +360,10 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
-		uid, uname, tokenID, err := s.authRepo.ResolveAPIToken(ctx, tokenKey)
+		uid, uname, tokenID, err := s.authRepo.ResolveAPIToken(dbCtx, tokenKey)
 		if err != nil {
 			if dal.IsNotFound(err) {
-				s.auditLog(r.Context(), audit.EventAuthFailure, 0, 0, map[string]any{
+				s.auditLog(requestCtx, audit.EventAuthFailure, 0, 0, map[string]any{
 					"reason": "invalid_token",
 				})
 
@@ -379,13 +379,13 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			return
 		}
 
-		s.auditLog(r.Context(), audit.EventAuthSuccess, uid, 0, map[string]any{
+		s.auditLog(requestCtx, audit.EventAuthSuccess, uid, 0, map[string]any{
 			"credential_type": "api_token",
 			"token_id":        tokenID,
 		})
 
 		// Best-effort; ignore errors so a metrics/update failure does not block the request.
-		_ = s.authRepo.TouchAPITokenUsed(ctx, tokenKey)
+		_ = s.authRepo.TouchAPITokenUsed(dbCtx, tokenKey)
 
 		p := &authn.Principal{
 			LocalUserID: uid,
@@ -396,13 +396,13 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 
 		// Load token scopes if any exist
 		if tokenID > 0 {
-			scopes, err := s.authRepo.GetTokenScopes(ctx, tokenID)
+			scopes, err := s.authRepo.GetTokenScopes(dbCtx, tokenID)
 			if err != nil {
 				if s.handleDBUnavailableError(w, err) {
 					return
 				}
 
-				s.auditLog(r.Context(), audit.EventAuthFailure, uid, 0, map[string]any{
+				s.auditLog(requestCtx, audit.EventAuthFailure, uid, 0, map[string]any{
 					"reason":   "token_scope_load_error",
 					"token_id": tokenID,
 				})
@@ -424,12 +424,12 @@ func (s *APIServer) accessControlledHandler(policy routeAuthPolicy, next http.Ha
 			}
 		}
 
-		if !z.Allow(ctx, p, action, authz.Resource{}) {
+		if !z.Allow(dbCtx, p, action, authz.Resource{}) {
 			writeAPIErrorCode(w, http.StatusForbidden, apiErrAuthorizationDenied)
 			return
 		}
 
-		nextCtx := authn.WithPrincipal(r.Context(), p)
+		nextCtx := authn.WithPrincipal(requestCtx, p)
 		if source == credentialSourceBearer {
 			nextCtx = withRateLimitBearerKey(nextCtx, tokenKey)
 		}

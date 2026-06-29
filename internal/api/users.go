@@ -123,7 +123,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -181,7 +181,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) ListUsers(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	_, ok := s.requirePrincipal(w, r)
@@ -225,7 +225,7 @@ func (s *APIServer) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	_, ok := s.requirePrincipal(w, r)
@@ -286,7 +286,7 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -396,7 +396,7 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -515,7 +515,7 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)

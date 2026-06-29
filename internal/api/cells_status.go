@@ -69,7 +69,7 @@ func (s *APIServer) GetCellsStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.runs != nil || s.catalogEvents != nil {
-		ctx, cancel := s.handlerDBCtx(r)
+		ctx, cancel := s.handlerDBCtx(r.Context())
 		defer cancel()
 
 		if s.runs != nil {

@@ -28,7 +28,7 @@ type pendingCellCountResponse struct {
 }
 
 func (s *APIServer) GetStuckRuns(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	now := time.Now().UTC()

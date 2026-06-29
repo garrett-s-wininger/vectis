@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -31,7 +32,7 @@ func TestOpenCatalogFanInSourcesOpensConfiguredCellDBs(t *testing.T) {
 		"iad-a=" + cellADB,
 	})
 
-	sources, closeSources, err := openCatalogFanInSources(nil, globalDB)
+	sources, closeSources, err := openCatalogFanInSources(context.Background(), nil, globalDB)
 	if err != nil {
 		t.Fatalf("openCatalogFanInSources: %v", err)
 	}

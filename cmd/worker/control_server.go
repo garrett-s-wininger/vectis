@@ -51,7 +51,7 @@ func (s *workerControlServer) CancelRun(ctx context.Context, req *api.CancelRunR
 }
 
 func startWorkerControlServer(ctx context.Context, listener net.Listener, server *workerControlServer, logger interfaces.Logger) error {
-	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl)
+	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
 	if err != nil {
 		return fmt.Errorf("worker control grpc tls: %w", err)
 	}

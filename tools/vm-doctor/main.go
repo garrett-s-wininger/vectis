@@ -437,7 +437,7 @@ func inspectLaneDoctor(ctx context.Context, l lane) laneReport {
 	}
 
 	if wasStopped {
-		stopCtx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultTimeout)
 		defer cancel()
 
 		if err := manager.Stop(stopCtx, l.instance); err != nil {

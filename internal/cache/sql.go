@@ -115,7 +115,7 @@ func (s *SQLService) takeRateLimitTokenSQLite(ctx context.Context, key string, r
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
 		}
 	}()
 

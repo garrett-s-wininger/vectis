@@ -20,8 +20,8 @@ func StatFileSystem(path string) (FileSystemStats, error) {
 	}
 
 	return FileSystemStats{
-		FreeBytes:       uint64(st.Bavail) * uint64(st.Bsize),
-		TotalBytes:      uint64(st.Blocks) * uint64(st.Bsize),
+		FreeBytes:       st.Bavail * uint64(st.Bsize),
+		TotalBytes:      st.Blocks * uint64(st.Bsize),
 		FreeInodes:      st.Ffree,
 		FreeInodesKnown: true,
 	}, nil

@@ -50,7 +50,7 @@ func (f *LogSpoolForwarder) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := f.scanAndForward(); err != nil {
+			if err := f.scanAndForward(ctx); err != nil {
 				if f.logger != nil {
 					f.logger.Debug("Log spool forwarder scan error: %v", err)
 				}
@@ -99,7 +99,7 @@ func (f *LogSpoolForwarder) moveOrphanedSpoolsToPending() error {
 	return nil
 }
 
-func (f *LogSpoolForwarder) scanAndForward() error {
+func (f *LogSpoolForwarder) scanAndForward(ctx context.Context) error {
 	dir := pendingSpoolDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -120,7 +120,7 @@ func (f *LogSpoolForwarder) scanAndForward() error {
 		}
 
 		path := filepath.Join(dir, name)
-		if err := f.forwardFile(path); err != nil {
+		if err := f.forwardFile(ctx, path); err != nil {
 			if f.logger != nil {
 				f.logger.Warn("Failed to forward pending spool %s: %v", name, err)
 			}
@@ -145,14 +145,14 @@ func (f *LogSpoolForwarder) scanAndForward() error {
 	return nil
 }
 
-func (f *LogSpoolForwarder) forwardFile(path string) error {
+func (f *LogSpoolForwarder) forwardFile(ctx context.Context, path string) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open spool: %w", err)
 	}
 	defer func(closer interface{ Close() error }) { _ = closer.Close() }(file)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	var stream interfaces.LogStream
@@ -227,6 +227,12 @@ func closeLogStream(stream interfaces.LogStream) error {
 // ForwardSpoolFile sends a single spool file to the log service.
 // It is used by both the forwarder and direct recovery paths.
 func ForwardSpoolFile(path string, logClient interfaces.LogClient, logger interfaces.Logger) error {
+	return ForwardSpoolFileContext(context.Background(), path, logClient, logger)
+}
+
+// ForwardSpoolFileContext sends a single spool file to the log service.
+// It is used by both the forwarder and direct recovery paths.
+func ForwardSpoolFileContext(ctx context.Context, path string, logClient interfaces.LogClient, logger interfaces.Logger) error {
 	f := &LogSpoolForwarder{logClient: logClient, logger: logger}
-	return f.forwardFile(path)
+	return f.forwardFile(ctx, path)
 }

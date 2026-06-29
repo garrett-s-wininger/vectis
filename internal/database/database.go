@@ -418,12 +418,18 @@ func migrateWithLock(ctx context.Context, db *sql.DB, advisoryLockKey int64, dri
 	if _, err := db.ExecContext(ctx, "SELECT pg_advisory_lock($1)", advisoryLockKey); err != nil {
 		return err
 	}
-	defer func() { _, _ = db.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", advisoryLockKey) }()
+	defer func() {
+		_, _ = db.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", advisoryLockKey)
+	}()
 
 	return migrations.Run(db, driver)
 }
 
 func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
+	return WaitForMigrationsContext(context.Background(), db, log)
+}
+
+func WaitForMigrationsContext(ctx context.Context, db *sql.DB, log interfaces.Logger) error {
 	driver := EffectiveDBDriver()
 	switch driver {
 	case "pgx", "sqlite3":
@@ -436,7 +442,7 @@ func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 	var hadFailure bool
 
 	for time.Now().Before(deadline) {
-		err := schemaMigrationsReady(db)
+		err := schemaMigrationsReady(ctx, db)
 		if err == nil {
 			if hadFailure && log != nil {
 				log.Info("Database schema is ready")
@@ -461,15 +467,19 @@ func WaitForMigrations(db *sql.DB, log interfaces.Logger) error {
 			}
 		}
 
-		time.Sleep(schemaWaitPollInterval)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(schemaWaitPollInterval):
+		}
 	}
 
 	return fmt.Errorf("timed out waiting for database readiness; check connectivity and apply migrations with vectis-cli database migrate (same VECTIS_DATABASE_DRIVER / VECTIS_DATABASE_DSN)")
 }
 
-func schemaMigrationsReady(db *sql.DB) error {
+func schemaMigrationsReady(ctx context.Context, db *sql.DB) error {
 	var dirty bool
-	if err := db.QueryRowContext(context.Background(), "SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&dirty); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&dirty); err != nil {
 		return err
 	}
 

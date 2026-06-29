@@ -343,7 +343,7 @@ func TestJobBufferBroadcastControlDoesNotBlockWhenSubscriberFull(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		buffer.Broadcast("run-a", completedLogEntry(time.Now(), 2))
+		buffer.Broadcast(context.Background(), "run-a", completedLogEntry(time.Now(), 2))
 		close(done)
 	}()
 

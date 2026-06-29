@@ -116,7 +116,7 @@ func (m *ManagingQueueService) watchConn(ctx context.Context) {
 
 			// Reconnect belongs to the managed queue client lifecycle, not to the
 			// short readiness/watch context that noticed the shutdown state.
-			if err := m.swapConn(context.Background()); err != nil {
+			if err := m.swapConn(context.WithoutCancel(ctx)); err != nil {
 				m.logger.Warn("queue reconnect after shutdown failed: %v", err)
 			}
 
@@ -136,7 +136,7 @@ func (m *ManagingQueueService) watchConn(ctx context.Context) {
 
 		// Reconnect belongs to the managed queue client lifecycle, not to the
 		// short readiness/watch context that noticed the shutdown state.
-		if err := m.swapConn(context.Background()); err != nil {
+		if err := m.swapConn(context.WithoutCancel(ctx)); err != nil {
 			m.logger.Warn("queue reconnect after shutdown failed: %v", err)
 		}
 	}

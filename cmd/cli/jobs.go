@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -242,6 +243,10 @@ func submitJobDefinitionSource(source, cellID, idempotencyKey string, stdin io.R
 }
 
 func submitJobDefinitionBody(body []byte, cellID, idempotencyKey string) (jobRunResult, error) {
+	return submitJobDefinitionBodyWithContext(context.Background(), body, cellID, idempotencyKey)
+}
+
+func submitJobDefinitionBodyWithContext(ctx context.Context, body []byte, cellID, idempotencyKey string) (jobRunResult, error) {
 	if err := validateRunnableJobDefinition(body); err != nil {
 		return jobRunResult{}, err
 	}
@@ -251,7 +256,7 @@ func submitJobDefinitionBody(body []byte, cellID, idempotencyKey string) (jobRun
 		return jobRunResult{}, err
 	}
 
-	req, err := newAPIRequest(http.MethodPost, "/api/v1/jobs/run", requestBody)
+	req, err := newAPIRequestWithContext(ctx, http.MethodPost, "/api/v1/jobs/run", requestBody)
 	if err != nil {
 		return jobRunResult{}, err
 	}

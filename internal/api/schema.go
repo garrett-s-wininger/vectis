@@ -16,7 +16,7 @@ func (s *APIServer) GetSchemaStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	var version sql.NullInt64

@@ -15,7 +15,7 @@ type queueBacklogCellResponse struct {
 }
 
 func (s *APIServer) GetQueueBacklog(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	n, err := s.runs.CountByStatus(ctx, "queued")

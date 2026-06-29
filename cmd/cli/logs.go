@@ -43,14 +43,14 @@ func runSourceLogStream(repositoryID, jobID, runID string, filterStdout, filterS
 }
 
 func runLogStreamPath(path, runID string, filterStdout, filterStderr bool) error {
-	req, err := newAPIRequest(http.MethodGet, path, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := newAPIRequestWithContext(ctx, http.MethodGet, path, nil)
 	if err != nil {
+		cancel()
 		return fmt.Errorf("failed to create log stream request: %w", err)
 	}
 
 	req.Header.Set("Accept", "text/event-stream")
-	ctx, cancel := context.WithCancel(context.Background())
-	req = req.WithContext(ctx)
 
 	resp, err := doAPIStreamRequest(req)
 	if err != nil {
@@ -284,12 +284,11 @@ outer:
 		runChan := make(chan jobRunEvent, 32)
 		go func() {
 			defer close(runChan)
-			req, err := newAPIRequest(http.MethodGet, ssePath, nil)
+			req, err := newAPIRequestWithContext(attemptCtx, http.MethodGet, ssePath, nil)
 			if err != nil {
 				return
 			}
 
-			req = req.WithContext(attemptCtx)
 			req.Header.Set("Accept", "text/event-stream")
 
 			resp, err := doAPIStreamRequest(req)

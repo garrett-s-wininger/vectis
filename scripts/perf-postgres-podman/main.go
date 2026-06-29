@@ -342,7 +342,7 @@ func startPostgresWaitSampler(ctx context.Context, dsn string) (*postgresWaitSam
 
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	configurePostgresWaitSampler(db)
+	configurePostgresWaitSampler(ctx, db)
 
 	sampleCtx, cancel := context.WithCancel(ctx)
 	sampler := &postgresWaitSampler{
@@ -388,8 +388,8 @@ func startPostgresWaitSampler(ctx context.Context, dsn string) (*postgresWaitSam
 	return sampler, nil
 }
 
-func configurePostgresWaitSampler(db *sql.DB) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func configurePostgresWaitSampler(ctx context.Context, db *sql.DB) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	_, _ = db.ExecContext(ctx, "SET application_name = 'vectis-perf-wait-sampler'")
