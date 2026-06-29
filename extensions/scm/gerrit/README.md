@@ -21,6 +21,15 @@ variables are `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_USERNAME`,
 `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD`. Username and password must be
 configured together; omit both for anonymous Gerrit queries.
 
+## Event Stream Normalization
+
+Gerrit's SSH event stream emits newline-delimited JSON. `ConsumeStream` and
+`NormalizeStreamEvent` convert change events such as `patchset-created` and
+`comment-added` into the same stable `sdk/scm.Event` key shape used by polling:
+one key per Gerrit server, change identity, and current revision. That lets a
+future stream or webhook producer share dedupe with the poller instead of
+triggering duplicate runs for the same patch set.
+
 ## Smoke
 
 Run the provider smoke against an already reachable Gerrit:

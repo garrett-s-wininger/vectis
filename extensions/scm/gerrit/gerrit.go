@@ -326,6 +326,7 @@ func changeIdentity(change scm.Change) string {
 
 type eventPayload struct {
 	Provider         string `json:"provider"`
+	EventType        string `json:"event_type,omitempty"`
 	ServerHash       string `json:"server_hash"`
 	Project          string `json:"project,omitempty"`
 	Branch           string `json:"branch,omitempty"`
