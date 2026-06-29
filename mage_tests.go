@@ -2,6 +2,14 @@
 
 package main
 
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
 // Test runs the full Go test suite.
 func Test() error {
 	return run("", nil, goCommand(), "test", "./...")
@@ -227,6 +235,84 @@ func TestQuick() error {
 	}
 
 	return run("", nil, goCommand(), args...)
+}
+
+// TestWindowsCompile runs a Windows nosqlite compile-only check for all packages.
+func TestWindowsCompile() error {
+	return testWindowsCompile("0", "nosqlite", false)
+}
+
+// TestWindowsSQLiteCompile runs a Windows CGO/SQLite compile-only check for all packages.
+func TestWindowsSQLiteCompile() error {
+	return testWindowsCompile("1", "", true)
+}
+
+func testWindowsCompile(cgo, defaultTags string, configureCGO bool) error {
+	args := []string{
+		"test",
+		"-exec=true",
+	}
+
+	if tags := os.Getenv("WINDOWS_TEST_TAGS"); tags != "" {
+		args = append(args, "-tags="+tags)
+	} else if defaultTags != "" {
+		args = append(args, "-tags="+defaultTags)
+	}
+
+	packages := strings.Fields(os.Getenv("WINDOWS_TEST_PACKAGES"))
+	if len(packages) == 0 {
+		packages = []string{"./..."}
+	}
+
+	args = append(args, packages...)
+	env := windowsTargetEnv(cgo)
+	if configureCGO {
+		configureWindowsCGOEnv(env)
+	}
+
+	return run("", env, goCommand(), args...)
+}
+
+func configureWindowsCGOEnv(env map[string]string) {
+	if value := os.Getenv("WINDOWS_CC"); value != "" {
+		env["CC"] = value
+	}
+
+	if value := os.Getenv("WINDOWS_CXX"); value != "" {
+		env["CXX"] = value
+	}
+
+	if runtime.GOOS == "windows" || env["CC"] != "" || os.Getenv("CC") != "" {
+		return
+	}
+
+	zig, err := exec.LookPath("zig")
+	if err != nil {
+		return
+	}
+
+	target := envDefault("WINDOWS_ZIG_TARGET", defaultWindowsZigTarget())
+	env["CC"] = zig + " cc -target " + target
+	env["CXX"] = zig + " c++ -target " + target
+	setDefaultEnv(env, "ZIG_LOCAL_CACHE_DIR", filepath.Join(os.TempDir(), "vectis-zig-cache"))
+	setDefaultEnv(env, "ZIG_GLOBAL_CACHE_DIR", filepath.Join(os.TempDir(), "vectis-zig-global-cache"))
+}
+
+func defaultWindowsZigTarget() string {
+	switch windowsTargetArch() {
+	case "386":
+		return "x86-windows-gnu"
+	case "arm64":
+		return "aarch64-windows-gnu"
+	default:
+		return "x86_64-windows-gnu"
+	}
+}
+
+func setDefaultEnv(env map[string]string, key, value string) {
+	if os.Getenv(key) == "" {
+		env[key] = value
+	}
 }
 
 // TestRace runs the Go race detector suite.

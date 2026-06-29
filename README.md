@@ -80,6 +80,8 @@ Run `scripts/dev-doctor.sh` on POSIX shells or `.\scripts\dev-doctor.ps1` on Win
 
 Portable build targets live in Mage. Use `mage -l` to list the targets after running the doctor install and loading the repo-local toolchain environment.
 
+For the current Windows baseline, run `mage testWindowsCompile` or `mage buildWindows`. These use the `nosqlite` build tag and default to `windows/amd64`; override `WINDOWS_GOARCH` or `WINDOWS_OUT_DIR` when needed. Use `mage testWindowsSQLiteCompile` to compile-check the native SQLite/CGO lane; on Windows this uses the native C toolchain, and on Unix it can use Zig as a Windows cross-compiler when `zig` is on `PATH`.
+
 To verify the Unix bootstrap from a clean base image, run `scripts/dev-doctor-container.sh`. It copies the repo into a container, runs the installer, and then runs the default smoke target chain; override with `VECTIS_SMOKE_TARGETS='scripts/dev-doctor.sh && mage proto' scripts/dev-doctor-container.sh` when you want a narrower check.
 
 ## Learn The Basics

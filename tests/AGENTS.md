@@ -13,6 +13,8 @@
 | `vmDoctor` | Prepared VM health check | Starts stopped prepared guests long enough to verify markers and tooling, then stops any VM it started |
 | `vmCheck` | Prepared VM health check | Umbrella target for `vmDoctor`; individual VM check targets select one lane |
 | `testPostgresIntegration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |
+| `testWindowsCompile` | All packages | Cross-compiles the `nosqlite` Windows package graph with `-exec=true` |
+| `testWindowsSQLiteCompile` | All packages | Cross-compiles the Windows CGO/SQLite package graph with `-exec=true`; needs native Windows CGO or a cross C compiler such as Zig |
 | `testRace` | All packages | `-race` flag |
 | `fuzzAPIAuth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
 

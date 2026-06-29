@@ -36,6 +36,8 @@ var appNames = []string{
 type buildConfig struct {
 	args      []string
 	cgo       string
+	env       map[string]string
+	outDir    string
 	strip     bool
 	outputExt string
 }
@@ -114,6 +116,27 @@ func BuildContainer() error {
 	})
 }
 
+// BuildWindows cross-builds Windows binaries with the nosqlite build tag.
+func BuildWindows() error {
+	arch := windowsTargetArch()
+	outDir := os.Getenv("WINDOWS_OUT_DIR")
+	if outDir == "" {
+		outDir = os.Getenv("OUT_DIR")
+	}
+
+	if outDir == "" {
+		outDir = filepath.Join("bin", "windows-"+arch)
+	}
+
+	return buildBinaries(buildConfig{
+		args:      strings.Fields(envDefault("WINDOWS_BUILD_OPTS", "-tags=nosqlite")),
+		cgo:       "0",
+		env:       windowsTargetEnv("0"),
+		outDir:    outDir,
+		outputExt: ".exe",
+	})
+}
+
 // Clean removes generated local build, test, and docs artifacts.
 func Clean() error {
 	paths := []string{
@@ -179,7 +202,11 @@ func buildBinaries(cfg buildConfig) error {
 		apps = append(apps, "docs")
 	}
 
-	outDir := envDefault("OUT_DIR", "bin")
+	outDir := cfg.outDir
+	if outDir == "" {
+		outDir = envDefault("OUT_DIR", "bin")
+	}
+
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
@@ -191,7 +218,7 @@ func buildBinaries(cfg buildConfig) error {
 		args := append([]string{"build"}, cfg.args...)
 		args = append(args, "-ldflags", ldflags, "-o", out, pkg)
 
-		if err := run("", buildTargetEnv(cfg.cgo), goCommand(), args...); err != nil {
+		if err := run("", buildTargetEnv(cfg), goCommand(), args...); err != nil {
 			return err
 		}
 	}
@@ -199,8 +226,12 @@ func buildBinaries(cfg buildConfig) error {
 	return nil
 }
 
-func buildTargetEnv(cgo string) map[string]string {
-	env := map[string]string{"CGO_ENABLED": cgo}
+func buildTargetEnv(cfg buildConfig) map[string]string {
+	env := map[string]string{"CGO_ENABLED": cfg.cgo}
+	for key, value := range cfg.env {
+		env[key] = value
+	}
+
 	for _, key := range []string{
 		"GOOS",
 		"GOARCH",
@@ -213,12 +244,49 @@ func buildTargetEnv(cgo string) map[string]string {
 		"GORISCV64",
 		"GOWASM",
 	} {
+		if _, exists := env[key]; exists {
+			continue
+		}
+
 		if value := os.Getenv("TARGET_" + key); value != "" {
 			env[key] = value
 		}
 	}
 
 	return env
+}
+
+func windowsTargetEnv(cgo string) map[string]string {
+	env := map[string]string{
+		"CGO_ENABLED": cgo,
+		"GOOS":        "windows",
+		"GOARCH":      windowsTargetArch(),
+	}
+
+	for _, key := range []string{"GOAMD64", "GOARM", "GOARM64"} {
+		if value := os.Getenv("WINDOWS_" + key); value != "" {
+			env[key] = value
+			continue
+		}
+
+		if value := os.Getenv("TARGET_" + key); value != "" {
+			env[key] = value
+		}
+	}
+
+	return env
+}
+
+func windowsTargetArch() string {
+	if value := os.Getenv("WINDOWS_GOARCH"); value != "" {
+		return value
+	}
+
+	if value := os.Getenv("TARGET_GOARCH"); value != "" {
+		return value
+	}
+
+	return "amd64"
 }
 
 func buildDocsAssets() error {
