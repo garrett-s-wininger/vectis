@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	scmgerrit "vectis/extensions/scm/gerrit"
 	scmgit "vectis/extensions/scm/git"
 	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
@@ -44,6 +45,7 @@ func runSCMPoller(cmd *cobra.Command, args []string) {
 	defer service.CloseQueueDial()
 
 	service.RegisterProvider("git", scmgit.NewProvider())
+	service.RegisterProvider("gerrit", scmgerrit.NewProvider())
 	service.SetInstanceID(viper.GetString("instance_id"))
 	service.SetClaimTTL(config.SCMPollerClaimTTL())
 	actionResolver, err := actionconfig.DescriptorResolver()
