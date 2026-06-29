@@ -98,7 +98,11 @@ func TestReactionsRepository_DurableLocalInvocationFlow(t *testing.T) {
 		t.Fatalf("unexpected local message: %+v", message)
 	}
 
-	if err := repo.MarkInvocationSucceeded(ctx, invocation.InvocationID, now+2); err != nil {
+	if err := repo.MarkInvocationSucceeded(ctx, invocation.InvocationID, "notifier-2", now+1); !dal.IsNotFound(err) {
+		t.Fatalf("expected wrong owner to miss running invocation, got %v", err)
+	}
+
+	if err := repo.MarkInvocationSucceeded(ctx, invocation.InvocationID, "notifier-1", now+2); err != nil {
 		t.Fatalf("mark succeeded: %v", err)
 	}
 
@@ -113,6 +117,192 @@ func TestReactionsRepository_DurableLocalInvocationFlow(t *testing.T) {
 
 	if string(messages[0].PayloadJSON) != string(event.PayloadJSON) {
 		t.Fatalf("message payload: got %s want %s", messages[0].PayloadJSON, event.PayloadJSON)
+	}
+}
+
+func TestReactionsRepository_ValidatesTargetActionPairs(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	if _, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "job-trigger-target",
+		Kind:       dal.ReactionTargetKindJob,
+		Uses:       dal.ReactionActionTriggerJob,
+		ConfigJSON: []byte(`{"job_id":"downstream"}`),
+	}); err != nil {
+		t.Fatalf("create job target: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		kind string
+		uses string
+	}{
+		{
+			name: "unsupported-kind",
+			kind: "webhook",
+			uses: dal.ReactionActionNotifyLocal,
+		},
+		{
+			name: "local-trigger-job",
+			kind: dal.ReactionTargetKindLocal,
+			uses: dal.ReactionActionTriggerJob,
+		},
+		{
+			name: "job-notify-local",
+			kind: dal.ReactionTargetKindJob,
+			uses: dal.ReactionActionNotifyLocal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+				Name:       tt.name,
+				Kind:       tt.kind,
+				Uses:       tt.uses,
+				ConfigJSON: []byte(`{}`),
+			})
+
+			if !dal.IsConflict(err) {
+				t.Fatalf("expected conflict, got %v", err)
+			}
+		})
+	}
+}
+
+func TestReactionsRepository_CreateInvocationRejectsTargetActionMismatch(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"mismatched invocation"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "mismatch-local-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"mismatch"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	_, err = repo.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           dal.ReactionActionTriggerJob,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/trigger-job"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+}
+
+func TestReactionsRepository_CreateInvocationRequiresMatchingTargetConfig(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"target config mismatch"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "config-mismatch-local-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"expected"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	_, err = repo.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     []byte(`{"mailbox":"different"}`),
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+}
+
+func TestReactionsRepository_RejectsInvalidEventAndSubscriptionMetadata(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	if _, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		Source:      "manualish",
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"invalid source"}`),
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for invalid event source, got %v", err)
+	}
+
+	if _, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   "run.finished",
+		PayloadJSON: []byte(`{"message":"invalid event type"}`),
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for invalid event type, got %v", err)
+	}
+
+	target, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "metadata-validation-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"metadata-validation"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:  target.TargetID,
+		Name:      "invalid-event-type-filter",
+		EventType: "run.finished",
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for invalid subscription event type, got %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:  target.TargetID,
+		Name:      "invalid-run-status-filter",
+		EventType: dal.ReactionEventTypeRunCompleted,
+		RunStatus: "done",
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for invalid run status filter, got %v", err)
+	}
+
+	if _, err := repo.CreateSubscription(ctx, dal.ReactionSubscriptionCreate{
+		TargetID:    target.TargetID,
+		Name:        "invalid-trigger-type-filter",
+		EventType:   dal.ReactionEventTypeRunCompleted,
+		TriggerType: "timer",
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for invalid trigger type filter, got %v", err)
 	}
 }
 
@@ -210,7 +400,7 @@ func TestReactionsRepository_RecordEventIsIdempotentForSameEventID(t *testing.T)
 		Source:      dal.ReactionEventSourceManual,
 		EventType:   dal.ReactionEventTypeManualNotice,
 		Actor:       "operator",
-		PayloadJSON: []byte(`{"message":"same event"}`),
+		PayloadJSON: []byte(`{"message":"same event","severity":"info"}`),
 	}
 
 	first, err := repo.RecordEvent(ctx, create)
@@ -218,13 +408,23 @@ func TestReactionsRepository_RecordEventIsIdempotentForSameEventID(t *testing.T)
 		t.Fatalf("record first event: %v", err)
 	}
 
-	duplicate, err := repo.RecordEvent(ctx, create)
+	duplicateCreate := create
+	duplicateCreate.PayloadJSON = []byte(`{
+		"severity": "info",
+		"message": "same event"
+	}`)
+
+	duplicate, err := repo.RecordEvent(ctx, duplicateCreate)
 	if err != nil {
 		t.Fatalf("record duplicate event: %v", err)
 	}
 
 	if duplicate.ID != first.ID || duplicate.EventID != first.EventID {
 		t.Fatalf("duplicate event: got %+v want %+v", duplicate, first)
+	}
+
+	if string(first.PayloadJSON) != `{"message":"same event","severity":"info"}` {
+		t.Fatalf("payload should be canonical JSON, got %s", first.PayloadJSON)
 	}
 
 	create.PayloadJSON = []byte(`{"message":"different event"}`)
@@ -251,7 +451,7 @@ func TestReactionsRepository_CreateInvocationIsIdempotentForSameEventTarget(t *t
 		Name:       "idempotent-target",
 		Kind:       dal.ReactionTargetKindLocal,
 		Uses:       dal.ReactionActionNotifyLocal,
-		ConfigJSON: []byte(`{"mailbox":"idempotent"}`),
+		ConfigJSON: []byte(`{"mailbox":"idempotent","priority":"normal"}`),
 	})
 
 	if err != nil {
@@ -263,8 +463,8 @@ func TestReactionsRepository_CreateInvocationIsIdempotentForSameEventTarget(t *t
 		EventID:              event.EventID,
 		TargetID:             target.TargetID,
 		ActionUses:           target.Uses,
-		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
-		TargetConfigJSON:     target.ConfigJSON,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local","labels":{"team":"ci"}}`),
+		TargetConfigJSON:     []byte(`{"mailbox":"idempotent","priority":"normal"}`),
 		MaxAttempts:          3,
 	}
 
@@ -274,6 +474,16 @@ func TestReactionsRepository_CreateInvocationIsIdempotentForSameEventTarget(t *t
 	}
 
 	create.InvocationID = "invocation-idempotent-retry"
+	create.ActionDescriptorJSON = []byte(`{
+		"labels": {"team": "ci"},
+		"canonical_name": "builtins/notify-local"
+	}`)
+
+	create.TargetConfigJSON = []byte(`{
+		"priority": "normal",
+		"mailbox": "idempotent"
+	}`)
+
 	duplicate, err := repo.CreateInvocation(ctx, create)
 	if err != nil {
 		t.Fatalf("create duplicate invocation: %v", err)
@@ -281,6 +491,13 @@ func TestReactionsRepository_CreateInvocationIsIdempotentForSameEventTarget(t *t
 
 	if duplicate.InvocationID != first.InvocationID || duplicate.ID != first.ID {
 		t.Fatalf("duplicate invocation: got %+v want %+v", duplicate, first)
+	}
+
+	if string(first.ActionDescriptorJSON) != `{"canonical_name":"builtins/notify-local","labels":{"team":"ci"}}` {
+		t.Fatalf("descriptor should be canonical JSON, got %s", first.ActionDescriptorJSON)
+	}
+	if string(first.TargetConfigJSON) != `{"mailbox":"idempotent","priority":"normal"}` {
+		t.Fatalf("target config should be canonical JSON, got %s", first.TargetConfigJSON)
 	}
 
 	create.ActionDescriptorJSON = []byte(`{"canonical_name":"builtins/notify-local","variant":"different"}`)
@@ -331,7 +548,7 @@ func TestReactionsRepository_RecordLocalMessageIsIdempotentForInvocation(t *test
 		EventID:      event.EventID,
 		InvocationID: invocation.InvocationID,
 		Mailbox:      "local-idempotent",
-		PayloadJSON:  event.PayloadJSON,
+		PayloadJSON:  []byte(`{"message":"same local message","severity":"info"}`),
 	}
 
 	first, err := repo.RecordLocalMessage(ctx, create)
@@ -340,6 +557,11 @@ func TestReactionsRepository_RecordLocalMessageIsIdempotentForInvocation(t *test
 	}
 
 	create.MessageID = "local-message-idempotent-retry"
+	create.PayloadJSON = []byte(`{
+		"severity": "info",
+		"message": "same local message"
+	}`)
+
 	duplicate, err := repo.RecordLocalMessage(ctx, create)
 	if err != nil {
 		t.Fatalf("record duplicate local message: %v", err)
@@ -349,9 +571,71 @@ func TestReactionsRepository_RecordLocalMessageIsIdempotentForInvocation(t *test
 		t.Fatalf("duplicate local message: got %+v want %+v", duplicate, first)
 	}
 
+	if string(first.PayloadJSON) != `{"message":"same local message","severity":"info"}` {
+		t.Fatalf("local message payload should be canonical JSON, got %s", first.PayloadJSON)
+	}
+
 	create.PayloadJSON = []byte(`{"message":"different local message"}`)
 	if _, err := repo.RecordLocalMessage(ctx, create); !dal.IsConflict(err) {
 		t.Fatalf("expected conflicting duplicate local message, got %v", err)
+	}
+}
+
+func TestReactionsRepository_RecordLocalMessageRejectsInvocationEventMismatch(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repo := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	eventA, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"event a"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event a: %v", err)
+	}
+
+	eventB, err := repo.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"event b"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event b: %v", err)
+	}
+
+	target, err := repo.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "local-message-mismatch-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"mismatch"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	invocation, err := repo.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              eventA.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+	})
+
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	_, err = repo.RecordLocalMessage(ctx, dal.ReactionLocalMessageCreate{
+		EventID:      eventB.EventID,
+		InvocationID: invocation.InvocationID,
+		Mailbox:      "mismatch",
+		PayloadJSON:  eventB.PayloadJSON,
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected conflict, got %v", err)
 	}
 }
 
@@ -868,7 +1152,7 @@ func TestReactionsRepository_MarkInvocationFailedRetriesThenFinalizesAndCapsErro
 	}
 
 	longError := strings.Repeat("x", dal.ReactionInvocationLastErrorMaxLength+512)
-	if err := repo.MarkInvocationFailed(ctx, invocation.InvocationID, longError, time.Now().Add(-time.Second).UnixNano()); err != nil {
+	if err := repo.MarkInvocationFailed(ctx, invocation.InvocationID, "retry-1", longError, time.Now().Add(-time.Second).UnixNano()); err != nil {
 		t.Fatalf("mark first failed: %v", err)
 	}
 
@@ -894,7 +1178,7 @@ func TestReactionsRepository_MarkInvocationFailedRetriesThenFinalizesAndCapsErro
 		t.Fatal("expected second claim")
 	}
 
-	if err := repo.MarkInvocationFailed(ctx, invocation.InvocationID, "still failing", time.Now().Add(-time.Second).UnixNano()); err != nil {
+	if err := repo.MarkInvocationFailed(ctx, invocation.InvocationID, "retry-2", "still failing", time.Now().Add(-time.Second).UnixNano()); err != nil {
 		t.Fatalf("mark second failed: %v", err)
 	}
 

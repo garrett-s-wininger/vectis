@@ -85,6 +85,69 @@ func TestRunnerRunOnceExecutesLocalNotification(t *testing.T) {
 	}
 }
 
+func TestRunnerRunOncePassesClaimedInvocationToAction(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	store := dal.NewSQLRepositories(db).Reactions()
+	ctx := context.Background()
+
+	event, err := store.RecordEvent(ctx, dal.ReactionEventCreate{
+		EventType:   dal.ReactionEventTypeManualNotice,
+		PayloadJSON: []byte(`{"message":"claimed invocation"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+
+	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
+		Name:       "claimed-invocation-target",
+		Kind:       dal.ReactionTargetKindLocal,
+		Uses:       dal.ReactionActionNotifyLocal,
+		ConfigJSON: []byte(`{"mailbox":"claimed-invocation"}`),
+	})
+
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	invocation, err := store.CreateInvocation(ctx, dal.ReactionInvocationCreate{
+		EventID:              event.EventID,
+		TargetID:             target.TargetID,
+		ActionUses:           target.Uses,
+		ActionDescriptorJSON: []byte(`{"canonical_name":"builtins/notify-local"}`),
+		TargetConfigJSON:     target.ConfigJSON,
+		NextAttemptAt:        time.Now().UnixNano(),
+	})
+
+	if err != nil {
+		t.Fatalf("create invocation: %v", err)
+	}
+
+	action := &claimedInvocationAction{t: t, owner: "claim-refresh-runner"}
+	summary, err := (&reaction.Runner{
+		Store:   store,
+		Owner:   action.owner,
+		Actions: []reaction.Action{action},
+	}).RunOnce(ctx, 10)
+
+	if err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+
+	if summary.Succeeded != 1 || summary.Failed != 0 {
+		t.Fatalf("summary: %+v", summary)
+	}
+
+	updated, err := store.GetInvocation(ctx, invocation.InvocationID)
+	if err != nil {
+		t.Fatalf("get invocation: %v", err)
+	}
+
+	if updated.Status != dal.ReactionInvocationStatusSucceeded {
+		t.Fatalf("updated invocation: %+v", updated)
+	}
+}
+
 func TestRunnerRunOnceRetriesLocalNotificationWithoutDuplicateMessage(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	store := dal.NewSQLRepositories(db).Reactions()
@@ -315,6 +378,32 @@ func (a *countingAction) Type() string {
 
 func (a *countingAction) ExecuteInvocation(context.Context, reaction.ActionRequest) error {
 	a.calls++
+	return nil
+}
+
+type claimedInvocationAction struct {
+	t     *testing.T
+	owner string
+}
+
+func (a *claimedInvocationAction) Type() string {
+	return dal.ReactionActionNotifyLocal
+}
+
+func (a *claimedInvocationAction) ExecuteInvocation(_ context.Context, req reaction.ActionRequest) error {
+	a.t.Helper()
+	if req.Invocation.Status != dal.ReactionInvocationStatusRunning {
+		a.t.Fatalf("invocation status: got %q want %q", req.Invocation.Status, dal.ReactionInvocationStatusRunning)
+	}
+
+	if req.Invocation.ClaimedBy != a.owner {
+		a.t.Fatalf("claimed_by: got %q want %q", req.Invocation.ClaimedBy, a.owner)
+	}
+
+	if req.Invocation.Attempts != 1 || req.Invocation.ClaimUntil == nil {
+		a.t.Fatalf("claimed invocation: %+v", req.Invocation)
+	}
+
 	return nil
 }
 

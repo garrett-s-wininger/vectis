@@ -126,11 +126,18 @@ does not promise exactly once side effects outside its database.
 Expired running claims are reclaimable only while the invocation has attempts
 remaining; once an expired claim has reached `max_attempts`, the runner marks it
 failed instead of executing the reaction again.
+Success and failure writes are guarded by the current claim owner, so a stale
+runner cannot close or retry an invocation after another runner has reclaimed
+the work. Reaction actions receive the post-claim invocation record, including
+attempt count, claim owner, and claim deadline.
 
 Publishers may supply deterministic event IDs for retry-safe lifecycle emission.
 Duplicate event IDs and duplicate event-target invocations are idempotent only
 when the immutable event payload or frozen invocation descriptor matches the
 existing row; conflicting duplicates fail instead of rewriting history.
+Reaction JSON objects and arrays are normalized to compact canonical JSON before
+persistence, so duplicate detection is insensitive to whitespace and object key
+order.
 
 Targets and subscriptions are independently enableable. Disabled subscriptions
 do not match events, disabled targets do not receive subscription or direct
@@ -145,12 +152,17 @@ matching event, but a namespace-scoped target can only receive events from that
 same namespace, including when the target is named explicitly by a manual
 notice. Namespace-scoped subscriptions cannot bind to targets scoped to another
 namespace. Target and subscription names are unique within their scope,
-including the global scope.
+including the global scope. Target kind and action references are validated as
+a pair before the target or invocation can be persisted, so frozen invocation
+state cannot drift away from the target's declared action or configuration.
+Invocation creation preflights the referenced event and target before inserting
+the retry row.
 
 The local notification sink is idempotent per reaction invocation. If the
 reaction runner crashes after recording a local message but before marking the
 invocation succeeded, a retry reuses the existing local message instead of
-creating duplicate assertion data.
+creating duplicate assertion data. Local messages also verify that their event
+ID matches the invocation's event before recording assertion data.
 
 Typed lifecycle emitters validate their event boundary before publishing:
 `run.completed` accepts only terminal run statuses, and
@@ -170,6 +182,8 @@ The minimum durable tables are:
 For v1, filters should stay deliberately small: event type, namespace, job ID,
 trigger type, terminal run status, and owning cell. More expressive filtering
 can come later after the basic invocation and observability contract is proven.
+Event sources, event types, and nonblank run-status/trigger-type filters are
+validated against known values before durable rows are written.
 
 ## Consequences
 

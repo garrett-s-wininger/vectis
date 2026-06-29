@@ -797,8 +797,8 @@ type ReactionsRepository interface {
 	ListReadyInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error)
 	MarkExpiredInvocationsFailed(ctx context.Context, nowUnixNano int64) (int, error)
 	MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error)
-	MarkInvocationSucceeded(ctx context.Context, invocationID string, completedAtUnixNano int64) error
-	MarkInvocationFailed(ctx context.Context, invocationID, message string, nextAttemptAtUnixNano int64) error
+	MarkInvocationSucceeded(ctx context.Context, invocationID, owner string, completedAtUnixNano int64) error
+	MarkInvocationFailed(ctx context.Context, invocationID, owner, message string, nextAttemptAtUnixNano int64) error
 	RecordLocalMessage(ctx context.Context, create ReactionLocalMessageCreate) (ReactionLocalMessageRecord, error)
 	ListLocalMessages(ctx context.Context, mailbox string, cursor int64, limit int) ([]ReactionLocalMessageRecord, int64, error)
 }

@@ -17,11 +17,12 @@ const (
 
 type Store interface {
 	GetEvent(ctx context.Context, eventID string) (dal.ReactionEventRecord, error)
+	GetInvocation(ctx context.Context, invocationID string) (dal.ReactionInvocationRecord, error)
 	ListReadyInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]dal.ReactionInvocationRecord, error)
 	MarkExpiredInvocationsFailed(ctx context.Context, nowUnixNano int64) (int, error)
 	MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error)
-	MarkInvocationSucceeded(ctx context.Context, invocationID string, completedAtUnixNano int64) error
-	MarkInvocationFailed(ctx context.Context, invocationID, message string, nextAttemptAtUnixNano int64) error
+	MarkInvocationSucceeded(ctx context.Context, invocationID, owner string, completedAtUnixNano int64) error
+	MarkInvocationFailed(ctx context.Context, invocationID, owner, message string, nextAttemptAtUnixNano int64) error
 	RecordLocalMessage(ctx context.Context, create dal.ReactionLocalMessageCreate) (dal.ReactionLocalMessageRecord, error)
 }
 
@@ -74,9 +75,10 @@ func (r *Runner) RunOnce(ctx context.Context, limit int) (RunSummary, error) {
 		return RunSummary{}, err
 	}
 
+	owner := r.owner()
 	summary := RunSummary{Scanned: len(ready), Expired: expired}
 	for _, invocation := range ready {
-		claimed, err := r.Store.MarkInvocationRunning(ctx, invocation.InvocationID, r.owner(), now.Add(r.claimTTL()).UnixNano())
+		claimed, err := r.Store.MarkInvocationRunning(ctx, invocation.InvocationID, owner, now.Add(r.claimTTL()).UnixNano())
 		if err != nil {
 			return summary, err
 		}
@@ -87,15 +89,20 @@ func (r *Runner) RunOnce(ctx context.Context, limit int) (RunSummary, error) {
 		}
 
 		summary.Claimed++
-		if err := r.runClaimed(ctx, invocation, actions); err != nil {
+		claimedInvocation, err := r.Store.GetInvocation(ctx, invocation.InvocationID)
+		if err != nil {
+			return summary, err
+		}
+
+		if err := r.runClaimed(ctx, claimedInvocation, actions); err != nil {
 			summary.Failed++
-			if markErr := r.Store.MarkInvocationFailed(ctx, invocation.InvocationID, err.Error(), time.Now().Add(r.retryDelay()).UnixNano()); markErr != nil {
+			if markErr := r.Store.MarkInvocationFailed(ctx, claimedInvocation.InvocationID, owner, err.Error(), time.Now().Add(r.retryDelay()).UnixNano()); markErr != nil {
 				return summary, markErr
 			}
 			continue
 		}
 
-		if err := r.Store.MarkInvocationSucceeded(ctx, invocation.InvocationID, time.Now().UnixNano()); err != nil {
+		if err := r.Store.MarkInvocationSucceeded(ctx, claimedInvocation.InvocationID, owner, time.Now().UnixNano()); err != nil {
 			return summary, err
 		}
 

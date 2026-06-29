@@ -25,10 +25,16 @@ func (r *SQLReactionsRepository) RecordEvent(ctx context.Context, create Reactio
 	if source == "" {
 		source = ReactionEventSourceLifecycle
 	}
+	if err := validateReactionEventSource(source); err != nil {
+		return ReactionEventRecord{}, err
+	}
 
 	eventType := strings.TrimSpace(create.EventType)
 	if eventType == "" {
 		return ReactionEventRecord{}, fmt.Errorf("%w: event_type is required", ErrConflict)
+	}
+	if err := validateReactionEventType(eventType); err != nil {
+		return ReactionEventRecord{}, err
 	}
 
 	payload, err := normalizeJSONObject(create.PayloadJSON, "payload_json", "{}")
@@ -114,6 +120,9 @@ func (r *SQLReactionsRepository) CreateTarget(ctx context.Context, create Reacti
 	uses := strings.TrimSpace(create.Uses)
 	if uses == "" {
 		return ReactionTargetRecord{}, fmt.Errorf("%w: target uses is required", ErrConflict)
+	}
+	if err := validateReactionTargetAction(kind, uses); err != nil {
+		return ReactionTargetRecord{}, err
 	}
 
 	config, err := normalizeJSONObject(create.ConfigJSON, "config_json", "{}")
@@ -212,6 +221,23 @@ func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create 
 		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: reaction subscription namespace does not match target namespace", ErrConflict)
 	}
 
+	eventType := strings.TrimSpace(create.EventType)
+	if eventType != "" {
+		if err := validateReactionEventType(eventType); err != nil {
+			return ReactionSubscriptionRecord{}, err
+		}
+	}
+
+	runStatus := strings.TrimSpace(create.RunStatus)
+	if err := validateReactionRunStatusFilter(runStatus); err != nil {
+		return ReactionSubscriptionRecord{}, err
+	}
+
+	triggerType := strings.TrimSpace(create.TriggerType)
+	if err := validateReactionTriggerTypeFilter(triggerType); err != nil {
+		return ReactionSubscriptionRecord{}, err
+	}
+
 	now := create.CreatedAt
 	if now <= 0 {
 		now = time.Now().UnixNano()
@@ -226,10 +252,10 @@ func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create 
 		nullableInt64(create.NamespaceID),
 		targetID,
 		name,
-		strings.TrimSpace(create.EventType),
+		eventType,
 		strings.TrimSpace(create.JobID),
-		strings.TrimSpace(create.RunStatus),
-		strings.TrimSpace(create.TriggerType),
+		runStatus,
+		triggerType,
 		strings.TrimSpace(create.OwningCell),
 		true,
 		now,
@@ -270,6 +296,9 @@ func (r *SQLReactionsRepository) ListMatchingSubscriptions(ctx context.Context, 
 	eventType := strings.TrimSpace(event.EventType)
 	if eventType == "" {
 		return nil, fmt.Errorf("%w: event_type is required", ErrConflict)
+	}
+	if err := validateReactionEventType(eventType); err != nil {
+		return nil, err
 	}
 
 	namespaceID := int64(0)
@@ -333,6 +362,9 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 	if eventID == "" {
 		return ReactionInvocationRecord{}, fmt.Errorf("%w: event_id is required", ErrConflict)
 	}
+	if _, err := r.getEvent(ctx, eventID); err != nil {
+		return ReactionInvocationRecord{}, err
+	}
 
 	targetID := strings.TrimSpace(create.TargetID)
 	if targetID == "" {
@@ -344,6 +376,17 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 		return ReactionInvocationRecord{}, fmt.Errorf("%w: action_uses is required", ErrConflict)
 	}
 
+	target, err := r.getTarget(ctx, targetID)
+	if err != nil {
+		return ReactionInvocationRecord{}, err
+	}
+	if err := validateReactionTargetAction(target.Kind, target.Uses); err != nil {
+		return ReactionInvocationRecord{}, err
+	}
+	if actionUses != target.Uses {
+		return ReactionInvocationRecord{}, fmt.Errorf("%w: reaction invocation action %q does not match target %s action %q", ErrConflict, actionUses, targetID, target.Uses)
+	}
+
 	descriptor, err := normalizeJSONObject(create.ActionDescriptorJSON, "action_descriptor_json", "{}")
 	if err != nil {
 		return ReactionInvocationRecord{}, err
@@ -352,6 +395,9 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 	targetConfig, err := normalizeJSONObject(create.TargetConfigJSON, "target_config_json", "{}")
 	if err != nil {
 		return ReactionInvocationRecord{}, err
+	}
+	if !sameReactionJSON(targetConfig, target.ConfigJSON) {
+		return ReactionInvocationRecord{}, fmt.Errorf("%w: reaction invocation target_config_json does not match target %s config_json", ErrConflict, targetID)
 	}
 
 	maxAttempts := create.MaxAttempts
@@ -536,10 +582,15 @@ func (r *SQLReactionsRepository) MarkInvocationRunning(ctx context.Context, invo
 	return rows == 1, nil
 }
 
-func (r *SQLReactionsRepository) MarkInvocationSucceeded(ctx context.Context, invocationID string, completedAtUnixNano int64) error {
+func (r *SQLReactionsRepository) MarkInvocationSucceeded(ctx context.Context, invocationID, owner string, completedAtUnixNano int64) error {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
 		return fmt.Errorf("%w: invocation_id is required", ErrConflict)
+	}
+
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return fmt.Errorf("%w: owner is required", ErrConflict)
 	}
 
 	if completedAtUnixNano <= 0 {
@@ -549,8 +600,8 @@ func (r *SQLReactionsRepository) MarkInvocationSucceeded(ctx context.Context, in
 	res, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		UPDATE reaction_invocations
 		SET status = ?, claimed_by = '', claim_until = NULL, last_error = NULL, completed_at = ?, updated_at = ?
-		WHERE invocation_id = ? AND status = ?
-	`), ReactionInvocationStatusSucceeded, completedAtUnixNano, completedAtUnixNano, invocationID, ReactionInvocationStatusRunning)
+		WHERE invocation_id = ? AND status = ? AND claimed_by = ?
+	`), ReactionInvocationStatusSucceeded, completedAtUnixNano, completedAtUnixNano, invocationID, ReactionInvocationStatusRunning, owner)
 
 	if err != nil {
 		return normalizeSQLError(err)
@@ -559,10 +610,15 @@ func (r *SQLReactionsRepository) MarkInvocationSucceeded(ctx context.Context, in
 	return requireOneRowByString(res, "reaction invocation", invocationID)
 }
 
-func (r *SQLReactionsRepository) MarkInvocationFailed(ctx context.Context, invocationID, message string, nextAttemptAtUnixNano int64) error {
+func (r *SQLReactionsRepository) MarkInvocationFailed(ctx context.Context, invocationID, owner, message string, nextAttemptAtUnixNano int64) error {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
 		return fmt.Errorf("%w: invocation_id is required", ErrConflict)
+	}
+
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return fmt.Errorf("%w: owner is required", ErrConflict)
 	}
 
 	if nextAttemptAtUnixNano <= 0 {
@@ -579,8 +635,8 @@ func (r *SQLReactionsRepository) MarkInvocationFailed(ctx context.Context, invoc
 		    last_error = ?,
 		    next_attempt_at = ?,
 		    updated_at = ?
-		WHERE invocation_id = ? AND status = ?
-	`), ReactionInvocationStatusFailed, ReactionInvocationStatusPending, message, nextAttemptAtUnixNano, now, invocationID, ReactionInvocationStatusRunning)
+		WHERE invocation_id = ? AND status = ? AND claimed_by = ?
+	`), ReactionInvocationStatusFailed, ReactionInvocationStatusPending, message, nextAttemptAtUnixNano, now, invocationID, ReactionInvocationStatusRunning, owner)
 
 	if err != nil {
 		return normalizeSQLError(err)
@@ -603,6 +659,13 @@ func (r *SQLReactionsRepository) RecordLocalMessage(ctx context.Context, create 
 	invocationID := strings.TrimSpace(create.InvocationID)
 	if invocationID == "" {
 		return ReactionLocalMessageRecord{}, fmt.Errorf("%w: invocation_id is required", ErrConflict)
+	}
+	invocation, err := r.getInvocation(ctx, invocationID)
+	if err != nil {
+		return ReactionLocalMessageRecord{}, err
+	}
+	if invocation.EventID != eventID {
+		return ReactionLocalMessageRecord{}, fmt.Errorf("%w: reaction local message event %s does not match invocation %s event %s", ErrConflict, eventID, invocationID, invocation.EventID)
 	}
 
 	mailbox := strings.TrimSpace(create.Mailbox)
@@ -980,7 +1043,7 @@ func sameReactionEvent(left, right ReactionEventRecord) bool {
 		left.JobID == right.JobID &&
 		left.RunID == right.RunID &&
 		left.Actor == right.Actor &&
-		bytes.Equal(bytes.TrimSpace(left.PayloadJSON), bytes.TrimSpace(right.PayloadJSON)) &&
+		sameReactionJSON(left.PayloadJSON, right.PayloadJSON) &&
 		left.SourceCell == right.SourceCell
 }
 
@@ -988,9 +1051,9 @@ func sameReactionInvocation(left, right ReactionInvocationRecord) bool {
 	return left.EventID == right.EventID &&
 		left.TargetID == right.TargetID &&
 		left.ActionUses == right.ActionUses &&
-		bytes.Equal(bytes.TrimSpace(left.ActionDescriptorJSON), bytes.TrimSpace(right.ActionDescriptorJSON)) &&
+		sameReactionJSON(left.ActionDescriptorJSON, right.ActionDescriptorJSON) &&
 		left.ActionDigest == right.ActionDigest &&
-		bytes.Equal(bytes.TrimSpace(left.TargetConfigJSON), bytes.TrimSpace(right.TargetConfigJSON)) &&
+		sameReactionJSON(left.TargetConfigJSON, right.TargetConfigJSON) &&
 		left.MaxAttempts == right.MaxAttempts
 }
 
@@ -998,7 +1061,35 @@ func sameReactionLocalMessage(left, right ReactionLocalMessageRecord) bool {
 	return left.EventID == right.EventID &&
 		left.InvocationID == right.InvocationID &&
 		left.Mailbox == right.Mailbox &&
-		bytes.Equal(bytes.TrimSpace(left.PayloadJSON), bytes.TrimSpace(right.PayloadJSON))
+		sameReactionJSON(left.PayloadJSON, right.PayloadJSON)
+}
+
+func sameReactionJSON(left, right []byte) bool {
+	leftNormalized, err := canonicalReactionJSON(left)
+	if err != nil {
+		return false
+	}
+
+	rightNormalized, err := canonicalReactionJSON(right)
+	if err != nil {
+		return false
+	}
+
+	return bytes.Equal(leftNormalized, rightNormalized)
+}
+
+func canonicalReactionJSON(raw []byte) ([]byte, error) {
+	payload := bytes.TrimSpace(raw)
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("empty reaction JSON")
+	}
+
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(value)
 }
 
 func sameNullableInt64(left, right *int64) bool {
@@ -1072,7 +1163,12 @@ func normalizeJSONObject(raw []byte, field, fallback string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %s must be a JSON object", ErrConflict, field)
 	}
 
-	return payload, nil
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s must be valid JSON", ErrConflict, field)
+	}
+
+	return normalized, nil
 }
 
 func normalizeJSONArray(raw []byte, field, fallback string) ([]byte, error) {
@@ -1094,7 +1190,85 @@ func normalizeJSONArray(raw []byte, field, fallback string) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %s must be a JSON array", ErrConflict, field)
 	}
 
-	return payload, nil
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s must be valid JSON", ErrConflict, field)
+	}
+
+	return normalized, nil
+}
+
+func validateReactionTargetAction(kind, uses string) error {
+	switch kind {
+	case ReactionTargetKindLocal:
+		if uses != ReactionActionNotifyLocal {
+			return fmt.Errorf("%w: reaction target kind %q requires uses %q", ErrConflict, kind, ReactionActionNotifyLocal)
+		}
+	case ReactionTargetKindJob:
+		if uses != ReactionActionTriggerJob {
+			return fmt.Errorf("%w: reaction target kind %q requires uses %q", ErrConflict, kind, ReactionActionTriggerJob)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported reaction target kind %q", ErrConflict, kind)
+	}
+
+	return nil
+}
+
+func validateReactionEventSource(source string) error {
+	switch source {
+	case ReactionEventSourceLifecycle, ReactionEventSourceManual:
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported reaction event source %q", ErrConflict, source)
+	}
+}
+
+func validateReactionEventType(eventType string) error {
+	switch eventType {
+	case ReactionEventTypeManualNotice,
+		ReactionEventTypeRunCompleted,
+		ReactionEventTypeDefinitionValidationFailed:
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported reaction event type %q", ErrConflict, eventType)
+	}
+}
+
+func validateReactionRunStatusFilter(status string) error {
+	if status == "" {
+		return nil
+	}
+
+	switch status {
+	case RunStatusQueued,
+		RunStatusRunning,
+		RunStatusSucceeded,
+		RunStatusFailed,
+		RunStatusOrphaned,
+		RunStatusCancelled,
+		RunStatusAbandoned,
+		RunStatusAborted:
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported reaction run status filter %q", ErrConflict, status)
+	}
+}
+
+func validateReactionTriggerTypeFilter(triggerType string) error {
+	if triggerType == "" {
+		return nil
+	}
+
+	switch triggerType {
+	case TriggerTypeManual,
+		TriggerTypeCron,
+		TriggerTypeReplay,
+		TriggerTypeWebhook:
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported reaction trigger type filter %q", ErrConflict, triggerType)
+	}
 }
 
 func requireOneRowByString(res sql.Result, resource, id string) error {
