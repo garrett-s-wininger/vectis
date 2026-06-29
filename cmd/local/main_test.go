@@ -130,6 +130,41 @@ func TestBuildLocalTopology_ExtraCells(t *testing.T) {
 	}
 }
 
+func TestBuildLocalTopology_PortEnvOverrides(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("VECTIS_CELL_ID", "iad-a")
+	t.Setenv("VECTIS_QUEUE_PORT", "18081")
+	t.Setenv("VECTIS_QUEUE_METRICS_PORT", "19081")
+	t.Setenv("VECTIS_SECRETS_PORT", "18090")
+	t.Setenv("VECTIS_SECRETS_METRICS_PORT", "19091")
+	t.Setenv("VECTIS_CELL_INGRESS_PORT", "18085")
+	t.Setenv("VECTIS_CELL_INGRESS_METRICS_PORT", "19087")
+	t.Setenv("VECTIS_WORKER_METRICS_PORT", "19082")
+	viper.Set("cells", []string{"pdx-b"})
+
+	topology, err := buildLocalTopology()
+	if err != nil {
+		t.Fatalf("buildLocalTopology: %v", err)
+	}
+
+	first := topology.Cells[0]
+	if first.QueuePort != 18081 || first.QueueMetricsPort != 19081 ||
+		first.SecretsPort != 18090 || first.SecretsMetricsPort != 19091 ||
+		first.CellIngressPort != 18085 || first.CellIngressMetricsPort != 19087 ||
+		first.WorkerMetricsPort != 19082 {
+		t.Fatalf("default cell ports = %+v", first)
+	}
+
+	second := topology.Cells[1]
+	if second.QueuePort != 18181 || second.QueueMetricsPort != 19181 ||
+		second.SecretsPort != 18190 || second.SecretsMetricsPort != 19191 ||
+		second.CellIngressPort != 18185 || second.CellIngressMetricsPort != 19187 ||
+		second.WorkerMetricsPort != 19182 {
+		t.Fatalf("second cell ports = %+v", second)
+	}
+}
+
 func TestBuildLocalTopology_RejectsDuplicateCells(t *testing.T) {
 	resetLocalTestConfig(t)
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
@@ -795,6 +830,92 @@ func TestLocalServicesPlaintextGRPCSkipsSecrets(t *testing.T) {
 				t.Fatalf("plaintext local services did not include a worker: %v", serviceNames(services))
 			}
 		})
+	}
+}
+
+func TestLocalServices_SimpleProfileHealthPortsUseEnvOverrides(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("VECTIS_REGISTRY_PORT", "18082")
+	t.Setenv("VECTIS_LOG_GRPC_PORT", "18083")
+	t.Setenv("VECTIS_ARTIFACT_GRPC_PORT", "18086")
+	t.Setenv("VECTIS_ORCHESTRATOR_PORT", "18087")
+	viper.Set("docs_enabled", false)
+
+	topology, err := buildLocalTopology()
+	if err != nil {
+		t.Fatalf("buildLocalTopology: %v", err)
+	}
+
+	services := localServices(mocks.NopLogger{}, topology)
+	want := map[string]int{
+		"vectis-registry":     18082,
+		"vectis-log":          18083,
+		"vectis-artifact":     18086,
+		"vectis-orchestrator": 18087,
+	}
+
+	for binary, port := range want {
+		var found bool
+		for _, svc := range services {
+			if svc.binary != binary {
+				continue
+			}
+
+			found = true
+			if svc.portFn == nil {
+				t.Fatalf("%s portFn is nil", binary)
+			}
+
+			if got := svc.portFn(); got != port {
+				t.Fatalf("%s health port = %d, want %d", binary, got, port)
+			}
+		}
+
+		if !found {
+			t.Fatalf("service %s not found in %+v", binary, services)
+		}
+	}
+}
+
+func TestLocalDiscoveryRegistryEnv(t *testing.T) {
+	resetLocalTestConfig(t)
+	if got := localDiscoveryRegistryEnv(localProfileSimple); !reflect.DeepEqual(got, []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:8082"}) {
+		t.Fatalf("default simple discovery env = %v", got)
+	}
+
+	t.Setenv("VECTIS_REGISTRY_PORT", "18082")
+	if got := localDiscoveryRegistryEnv(localProfileSimple); !reflect.DeepEqual(got, []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=localhost:18082"}) {
+		t.Fatalf("overridden simple discovery env = %v", got)
+	}
+}
+
+func TestLocalDiscoveryRegistryEnvPreservesOperatorOverride(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_REGISTRY_PORT", "18082")
+	t.Setenv("VECTIS_DISCOVERY_REGISTRY_ADDRESSES", "reg-a:8082,reg-b:8082")
+
+	if got := localDiscoveryRegistryEnv(localProfileSimple); len(got) != 0 {
+		t.Fatalf("simple discovery env with operator override = %v, want none", got)
+	}
+
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_REGISTRY_PORT", "18082")
+	t.Setenv("VECTIS_DISCOVERY_REGISTRY_ADDRESSES", "")
+	t.Setenv("VECTIS_WORKER_REGISTRY_ADDRESS", "worker-registry:8082")
+
+	if got := localDiscoveryRegistryEnv(localProfileSimple); len(got) != 0 {
+		t.Fatalf("simple discovery env with role override = %v, want none", got)
+	}
+}
+
+func TestLocalDiscoveryRegistryEnvSkipsHAProfile(t *testing.T) {
+	resetLocalTestConfig(t)
+	t.Setenv("VECTIS_REGISTRY_PORT", "18082")
+
+	if got := localDiscoveryRegistryEnv(localProfileHA); len(got) != 0 {
+		t.Fatalf("HA discovery env = %v, want none", got)
 	}
 }
 

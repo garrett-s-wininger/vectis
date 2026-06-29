@@ -16,6 +16,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -294,7 +295,7 @@ func localSimpleProfileServices(logger interfaces.Logger, topology localTopology
 			}
 		}
 
-		services = append(services, svc)
+		services = append(services, localSingletonServiceWithEnvPorts(svc))
 	}
 
 	for _, cell := range topology.Cells {
@@ -587,6 +588,35 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 
 func fixedPort(port int) func() int {
 	return func() int { return port }
+}
+
+func localSingletonServiceWithEnvPorts(svc serviceStage) serviceStage {
+	switch svc.binary {
+	case "vectis-registry":
+		svc.portFn = fixedPort(localEnvInt("VECTIS_REGISTRY_PORT", config.RegistryPort()))
+	case "vectis-log":
+		svc.portFn = fixedPort(localEnvInt("VECTIS_LOG_GRPC_PORT", config.LogGRPCPort()))
+	case "vectis-artifact":
+		svc.portFn = fixedPort(localEnvInt("VECTIS_ARTIFACT_GRPC_PORT", config.ArtifactGRPCPort()))
+	case "vectis-orchestrator":
+		svc.portFn = fixedPort(localEnvInt("VECTIS_ORCHESTRATOR_PORT", config.OrchestratorPort()))
+	}
+
+	return svc
+}
+
+func localEnvInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 || value > 65535 {
+		return fallback
+	}
+
+	return value
 }
 
 func netJoinLocal(port int) string {
@@ -1240,6 +1270,26 @@ func localDatabaseEnv(topology localTopology) []string {
 	}
 }
 
+func localDiscoveryRegistryEnv(profile string) []string {
+	if profile == localProfileHA {
+		return nil
+	}
+
+	for _, key := range []string{
+		"VECTIS_DISCOVERY_REGISTRY_ADDRESS",
+		"VECTIS_DISCOVERY_REGISTRY_ADDRESSES",
+		"VECTIS_ORCHESTRATOR_REGISTRY_ADDRESS",
+		"VECTIS_WORKER_REGISTRY_ADDRESS",
+		"VECTIS_CELL_INGRESS_REGISTRY_ADDRESS",
+	} {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return nil
+		}
+	}
+
+	return []string{"VECTIS_DISCOVERY_REGISTRY_ADDRESSES=" + netJoinLocal(localEnvInt("VECTIS_REGISTRY_PORT", config.RegistryPort()))}
+}
+
 func localDatabaseDSNs() (globalDSN, cellDSN string) {
 	if localUsesManagedSQLiteDatabases() {
 		return localManagedGlobalDB(), localManagedCellDB(config.CellID())
@@ -1345,14 +1395,14 @@ func newLocalCell(cellID string, index int, cellDB string) localCell {
 	return localCell{
 		ID:                     cellID,
 		Index:                  index,
-		QueuePort:              config.QueuePort() + offset,
-		QueueMetricsPort:       config.QueueMetricsPort() + offset,
-		SecretsPort:            config.SecretsPort() + offset,
-		SecretsMetricsPort:     config.SecretsMetricsPort() + offset,
-		CellIngressPort:        config.CellIngressPort() + offset,
-		CellIngressMetricsPort: config.CellIngressMetricsPort() + offset,
-		WorkerMetricsPort:      config.WorkerMetricsPort() + offset,
-		WorkerCoreMetricsPort:  config.WorkerCoreMetricsPort() + offset,
+		QueuePort:              localEnvInt("VECTIS_QUEUE_PORT", config.QueuePort()) + offset,
+		QueueMetricsPort:       localEnvInt("VECTIS_QUEUE_METRICS_PORT", config.QueueMetricsPort()) + offset,
+		SecretsPort:            localEnvInt("VECTIS_SECRETS_PORT", config.SecretsPort()) + offset,
+		SecretsMetricsPort:     localEnvInt("VECTIS_SECRETS_METRICS_PORT", config.SecretsMetricsPort()) + offset,
+		CellIngressPort:        localEnvInt("VECTIS_CELL_INGRESS_PORT", config.CellIngressPort()) + offset,
+		CellIngressMetricsPort: localEnvInt("VECTIS_CELL_INGRESS_METRICS_PORT", config.CellIngressMetricsPort()) + offset,
+		WorkerMetricsPort:      localEnvInt("VECTIS_WORKER_METRICS_PORT", config.WorkerMetricsPort()) + offset,
+		WorkerCoreMetricsPort:  localEnvInt("VECTIS_WORKER_CORE_METRICS_PORT", config.WorkerCoreMetricsPort()) + offset,
 		CellDB:                 cellDB,
 		QueueDir:               localManagedQueueDir(cellID),
 		SecretsDir:             localManagedSecretsDir(cellID),
@@ -1678,6 +1728,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 	}
 
 	tlsEnv = append(tlsEnv, localDatabaseEnv(topology)...)
+	tlsEnv = append(tlsEnv, localDiscoveryRegistryEnv(profile)...)
 	tlsEnv = append(tlsEnv, localAPIEnv...)
 	tlsEnv = append(tlsEnv, localAuthEnv(logger)...)
 	tlsEnv = append(tlsEnv, localCellIngressEndpointEnv(topology.Cells)...)
