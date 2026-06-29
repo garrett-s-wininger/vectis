@@ -11,6 +11,7 @@ import (
 func TestSanitizedProcessEnvAllowsOnlyStableExecutionVariables(t *testing.T) {
 	got := SanitizedProcessEnv("/work/run-1", []string{
 		"PATH=/custom/bin",
+		"VECTIS_ACTION_LAUNCHER_TOKEN=secret",
 		"VECTIS_DATABASE_DSN=postgres://secret",
 		"VECTIS_API_AUTH_BOOTSTRAP_TOKEN=secret",
 		"SPIFFE_ENDPOINT_SOCKET=unix:///tmp/spire.sock",
@@ -33,6 +34,7 @@ func TestSanitizedProcessEnvAllowsOnlyStableExecutionVariables(t *testing.T) {
 	assertEnvValue(t, got, "VECTIS", "true")
 
 	for _, key := range []string{
+		"VECTIS_ACTION_LAUNCHER_TOKEN",
 		"VECTIS_DATABASE_DSN",
 		"VECTIS_API_AUTH_BOOTSTRAP_TOKEN",
 		"SPIFFE_ENDPOINT_SOCKET",

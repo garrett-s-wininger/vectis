@@ -233,7 +233,7 @@ func (s *LocalManifestSource) loadManifest(path string, ref Reference) (Descript
 		return Descriptor{}, err
 	}
 
-	payload, err := os.ReadFile(manifestPath)
+	payload, err := readStableRegularFile(manifestPath)
 	if err != nil {
 		return Descriptor{}, err
 	}
@@ -284,6 +284,38 @@ func (s *LocalManifestSource) containedManifestPath(path string) (string, error)
 	}
 
 	return realPath, nil
+}
+
+func readStableRegularFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("local action manifest must not be a symlink")
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("local action manifest is not a regular file: %s", path)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	if !os.SameFile(info, openedInfo) {
+		return nil, fmt.Errorf("local action manifest changed while opening: %s", path)
+	}
+
+	return io.ReadAll(file)
 }
 
 func (s *LocalManifestSource) containedDirectoryPath(path string) (string, error) {

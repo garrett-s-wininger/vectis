@@ -149,7 +149,7 @@ func TestLogSpoolForwarderSecuresPendingDirectory(t *testing.T) {
 	}
 
 	forwarder := NewLogSpoolForwarder(&pendingOpenErrLogClient{err: errors.New("unused")}, interfaces.NewLogger("test"), time.Second)
-	if err := forwarder.scanAndForward(); err != nil {
+	if err := forwarder.scanAndForward(context.Background()); err != nil {
 		t.Fatalf("scan pending spools: %v", err)
 	}
 
@@ -203,7 +203,7 @@ func TestLogSpoolForwarderRejectsSymlinkSpoolFile(t *testing.T) {
 	}
 
 	forwarder := NewLogSpoolForwarder(&pendingOpenErrLogClient{err: errors.New("unused")}, interfaces.NewLogger("test"), time.Second)
-	err := forwarder.forwardFile(link)
+	err := forwarder.forwardFile(context.Background(), link)
 	if err == nil || !strings.Contains(err.Error(), "spool must not be a symlink") {
 		t.Fatalf("forwardFile error = %v, want symlink spool rejection", err)
 	}

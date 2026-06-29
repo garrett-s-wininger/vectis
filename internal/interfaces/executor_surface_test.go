@@ -99,6 +99,61 @@ func TestProviderProcessEscapeHatchesAreExplicitlyAllowed(t *testing.T) {
 	}
 }
 
+func TestWorkerExecutionDestructiveFilesystemCallsAreExplicitlyAllowed(t *testing.T) {
+	root := findRepoRoot(t)
+	checkDirs := []string{
+		"cmd/worker",
+		"cmd/worker-core",
+		"internal/action",
+		"internal/job",
+		"internal/secrets",
+		"internal/workercore",
+	}
+	allowed := map[string]map[string]struct{}{
+		"internal/job/executor.go": {
+			"RemoveAll": {},
+		},
+		"internal/job/workspace_cleanup.go": {
+			"RemoveAll": {},
+		},
+		"internal/secrets/materializer.go": {
+			"RemoveAll": {},
+		},
+	}
+
+	var violations []string
+	for _, dir := range checkDirs {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if entry.IsDir() {
+				if entry.Name() == "mocks" {
+					return filepath.SkipDir
+				}
+
+				return nil
+			}
+
+			if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+
+			violations = append(violations, destructiveFilesystemCalls(t, root, path, allowed)...)
+			return nil
+		})
+
+		if err != nil {
+			t.Fatalf("scan %s: %v", dir, err)
+		}
+	}
+
+	if len(violations) > 0 {
+		t.Fatalf("destructive worker filesystem calls must be explicitly allowlisted:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
 var allowedWorkerExecSelectors = map[string]map[string]struct{}{
 	"internal/action/builtins/test.go": {
 		"ExitError": {},
@@ -170,6 +225,87 @@ func rawExecCalls(t *testing.T, root, path string) []string {
 
 		pos := fset.Position(selector.Pos())
 		violations = append(violations, rel+":"+strconv.Itoa(pos.Line)+": os/exec."+selector.Sel.Name)
+		return true
+	})
+
+	return violations
+}
+
+func destructiveFilesystemCalls(t *testing.T, root, path string, allowed map[string]map[string]struct{}) []string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		rel = path
+	}
+
+	osNames := map[string]struct{}{}
+	var violations []string
+	for _, imp := range file.Imports {
+		importPath, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			t.Fatalf("unquote import path in %s: %v", path, err)
+		}
+
+		if importPath != "os" {
+			continue
+		}
+
+		name := "os"
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+
+		switch name {
+		case "_", ".":
+			pos := fset.Position(imp.Pos())
+			violations = append(violations, rel+":"+strconv.Itoa(pos.Line)+": unsupported os import form")
+		default:
+			osNames[name] = struct{}{}
+		}
+	}
+
+	if len(osNames) == 0 {
+		return violations
+	}
+
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		ident, ok := selector.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		if _, ok := osNames[ident.Name]; !ok {
+			return true
+		}
+
+		name := selector.Sel.Name
+		if name != "RemoveAll" {
+			return true
+		}
+
+		if isAllowedProcessEscape(rel, name, allowed) {
+			return true
+		}
+
+		pos := fset.Position(call.Pos())
+		violations = append(violations, rel+":"+strconv.Itoa(pos.Line)+": os."+name)
 		return true
 	})
 
