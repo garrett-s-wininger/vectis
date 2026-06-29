@@ -45,6 +45,8 @@ const (
 	sourceAuthoringModeReadOnly                                = "read_only"
 	sourceAuthoringModeLocalCommit                             = "local_commit"
 	sourceAuthoringModeExternalChangeRequest                   = "external_change_request"
+	sourceWorkerCacheModeEphemeral                             = "ephemeral"
+	sourceWorkerCacheModePersistent                            = "persistent"
 )
 
 type SourceRepositoryDeclaration struct {
@@ -54,6 +56,7 @@ type SourceRepositoryDeclaration struct {
 	CheckoutPath       string   `json:"checkout_path" mapstructure:"checkout_path" toml:"checkout_path"`
 	CheckoutMode       string   `json:"checkout_mode" mapstructure:"checkout_mode" toml:"checkout_mode"`
 	AuthoringMode      string   `json:"authoring_mode" mapstructure:"authoring_mode" toml:"authoring_mode"`
+	WorkerCacheMode    string   `json:"worker_cache_mode" mapstructure:"worker_cache_mode" toml:"worker_cache_mode"`
 	CanonicalURL       string   `json:"canonical_url" mapstructure:"canonical_url" toml:"canonical_url"`
 	FallbackRemoteURLs []string `json:"fallback_remote_urls" mapstructure:"fallback_remote_urls" toml:"fallback_remote_urls"`
 	DefaultRef         string   `json:"default_ref" mapstructure:"default_ref" toml:"default_ref"`
@@ -269,6 +272,7 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 		repo.CheckoutPath = strings.TrimSpace(repo.CheckoutPath)
 		repo.CheckoutMode = strings.TrimSpace(repo.CheckoutMode)
 		repo.AuthoringMode = strings.TrimSpace(repo.AuthoringMode)
+		repo.WorkerCacheMode = strings.TrimSpace(repo.WorkerCacheMode)
 		repo.CanonicalURL = strings.TrimSpace(repo.CanonicalURL)
 		fallbackRemoteURLs, err := normalizeSourceRepositoryFallbackRemoteURLs(repo.FallbackRemoteURLs)
 		if err != nil {
@@ -304,6 +308,14 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 
 		if !validSourceRepositoryAuthoringMode(repo.AuthoringMode) {
 			return nil, fmt.Errorf("source.repositories[%d].authoring_mode %q is not supported", i, repo.AuthoringMode)
+		}
+
+		if repo.WorkerCacheMode == "" {
+			repo.WorkerCacheMode = sourceWorkerCacheModeEphemeral
+		}
+
+		if !validSourceRepositoryWorkerCacheMode(repo.WorkerCacheMode) {
+			return nil, fmt.Errorf("source.repositories[%d].worker_cache_mode %q is not supported", i, repo.WorkerCacheMode)
 		}
 
 		if repo.AuthoringMode == sourceAuthoringModeLocalCommit && repo.CheckoutMode != sourceCheckoutModeManaged {
@@ -384,6 +396,15 @@ func validSourceRepositoryCheckoutMode(mode string) bool {
 func validSourceRepositoryAuthoringMode(mode string) bool {
 	switch mode {
 	case sourceAuthoringModeReadOnly, sourceAuthoringModeLocalCommit, sourceAuthoringModeExternalChangeRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSourceRepositoryWorkerCacheMode(mode string) bool {
+	switch mode {
+	case sourceWorkerCacheModeEphemeral, sourceWorkerCacheModePersistent:
 		return true
 	default:
 		return false

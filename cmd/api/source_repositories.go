@@ -501,6 +501,11 @@ func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLReposit
 		authoringMode = dal.SourceAuthoringModeReadOnly
 	}
 
+	workerCacheMode := strings.TrimSpace(decl.WorkerCacheMode)
+	if workerCacheMode == "" {
+		workerCacheMode = dal.SourceWorkerCacheModeEphemeral
+	}
+
 	checkoutPath := strings.TrimSpace(decl.CheckoutPath)
 	if checkoutPath == "" && checkoutMode == dal.SourceCheckoutModeManaged {
 		store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(utils.DataHome()))
@@ -526,6 +531,7 @@ func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLReposit
 		CheckoutPath:       checkoutPath,
 		CheckoutMode:       checkoutMode,
 		AuthoringMode:      authoringMode,
+		WorkerCacheMode:    workerCacheMode,
 		CanonicalURL:       strings.TrimSpace(decl.CanonicalURL),
 		FallbackRemoteURLs: normalizeConfiguredSourceRepositoryFallbackRemoteURLs(decl.FallbackRemoteURLs),
 		DefaultRef:         strings.TrimSpace(decl.DefaultRef),
@@ -539,6 +545,7 @@ func configuredSourceRepositoryEqual(existing, desired dal.SourceRepositoryRecor
 		existing.CheckoutPath == desired.CheckoutPath &&
 		existing.CheckoutMode == desired.CheckoutMode &&
 		existing.AuthoringMode == desired.AuthoringMode &&
+		existing.WorkerCacheMode == desired.WorkerCacheMode &&
 		existing.CanonicalURL == desired.CanonicalURL &&
 		sameConfiguredSourceRepositoryFallbackRemoteURLs(existing.FallbackRemoteURLs, desired.FallbackRemoteURLs) &&
 		existing.DefaultRef == desired.DefaultRef &&
@@ -599,11 +606,12 @@ func logConfiguredSourceRepository(logger interfaces.Logger, action string, rec 
 		namespacePath = "-"
 	}
 
-	logger.Info("Configured source repository %s: repository_id=%s namespace=%s checkout_mode=%s enabled=%t",
+	logger.Info("Configured source repository %s: repository_id=%s namespace=%s checkout_mode=%s worker_cache_mode=%s enabled=%t",
 		action,
 		rec.RepositoryID,
 		namespacePath,
 		rec.CheckoutMode,
+		rec.WorkerCacheMode,
 		rec.Enabled,
 	)
 }

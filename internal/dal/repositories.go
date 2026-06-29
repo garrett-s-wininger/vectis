@@ -109,6 +109,9 @@ const (
 	SourceCheckoutModeExternal = "external"
 	SourceCheckoutModeManaged  = "managed"
 
+	SourceWorkerCacheModeEphemeral  = "ephemeral"
+	SourceWorkerCacheModePersistent = "persistent"
+
 	SourceAuthoringModeReadOnly              = "read_only"
 	SourceAuthoringModeLocalCommit           = "local_commit"
 	SourceAuthoringModeExternalChangeRequest = "external_change_request"
@@ -164,6 +167,7 @@ type SourceRepositoryRecord struct {
 	CheckoutPath           string
 	CheckoutMode           string
 	AuthoringMode          string
+	WorkerCacheMode        string
 	CanonicalURL           string
 	FallbackRemoteURLs     []string
 	DefaultRef             string

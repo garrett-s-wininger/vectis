@@ -54,6 +54,7 @@ type sourceRepositoryRequest struct {
 	CheckoutPath       string   `json:"checkout_path"`
 	CheckoutMode       string   `json:"checkout_mode"`
 	AuthoringMode      string   `json:"authoring_mode"`
+	WorkerCacheMode    string   `json:"worker_cache_mode"`
 	CanonicalURL       string   `json:"canonical_url"`
 	FallbackRemoteURLs []string `json:"fallback_remote_urls,omitempty"`
 	DefaultRef         string   `json:"default_ref"`
@@ -66,6 +67,7 @@ type sourceRepositoryUpdateRequest struct {
 	CheckoutPath       *string   `json:"checkout_path"`
 	CheckoutMode       *string   `json:"checkout_mode"`
 	AuthoringMode      *string   `json:"authoring_mode"`
+	WorkerCacheMode    *string   `json:"worker_cache_mode"`
 	CanonicalURL       *string   `json:"canonical_url"`
 	FallbackRemoteURLs *[]string `json:"fallback_remote_urls"`
 	DefaultRef         *string   `json:"default_ref"`
@@ -80,6 +82,7 @@ type sourceRepositoryResponse struct {
 	CheckoutPath       string                       `json:"checkout_path,omitempty"`
 	CheckoutMode       string                       `json:"checkout_mode"`
 	AuthoringMode      string                       `json:"authoring_mode"`
+	WorkerCacheMode    string                       `json:"worker_cache_mode"`
 	Authoring          sourceRepositoryAuthoring    `json:"authoring"`
 	CanonicalURL       string                       `json:"canonical_url,omitempty"`
 	FallbackRemoteURLs []string                     `json:"fallback_remote_urls,omitempty"`
@@ -108,6 +111,7 @@ type sourceRepositoryStatusResponse struct {
 	Status             string                       `json:"status"`
 	CheckoutMode       string                       `json:"checkout_mode"`
 	AuthoringMode      string                       `json:"authoring_mode"`
+	WorkerCacheMode    string                       `json:"worker_cache_mode"`
 	Authoring          sourceRepositoryAuthoring    `json:"authoring"`
 	CredentialRef      string                       `json:"credential_ref,omitempty"`
 	CheckoutPath       string                       `json:"checkout_path,omitempty"`
@@ -393,6 +397,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	req.CheckoutPath = strings.TrimSpace(req.CheckoutPath)
 	req.CheckoutMode = strings.TrimSpace(req.CheckoutMode)
 	req.AuthoringMode = strings.TrimSpace(req.AuthoringMode)
+	req.WorkerCacheMode = strings.TrimSpace(req.WorkerCacheMode)
 	req.CanonicalURL = strings.TrimSpace(req.CanonicalURL)
 	fallbackRemoteURLs, err := normalizeSourceRepositoryFallbackRemoteURLs(req.FallbackRemoteURLs)
 	if err != nil {
@@ -416,6 +421,10 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		req.AuthoringMode = dal.SourceAuthoringModeReadOnly
 	}
 
+	if req.WorkerCacheMode == "" {
+		req.WorkerCacheMode = dal.SourceWorkerCacheModeEphemeral
+	}
+
 	if req.RepositoryID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required", nil)
 		return
@@ -433,6 +442,11 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if !validSourceAuthoringMode(req.AuthoringMode) {
 		writeAPIError(w, http.StatusBadRequest, "unsupported_authoring_mode", "authoring_mode is not supported", nil)
+		return
+	}
+
+	if !validSourceWorkerCacheMode(req.WorkerCacheMode) {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_worker_cache_mode", "worker_cache_mode is not supported", nil)
 		return
 	}
 
@@ -524,6 +538,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		CheckoutPath:       req.CheckoutPath,
 		CheckoutMode:       req.CheckoutMode,
 		AuthoringMode:      req.AuthoringMode,
+		WorkerCacheMode:    req.WorkerCacheMode,
 		CanonicalURL:       req.CanonicalURL,
 		FallbackRemoteURLs: req.FallbackRemoteURLs,
 		DefaultRef:         req.DefaultRef,
@@ -2162,6 +2177,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	if req.WorkerCacheMode != nil {
+		updated.WorkerCacheMode = strings.TrimSpace(*req.WorkerCacheMode)
+		if updated.WorkerCacheMode == "" {
+			updated.WorkerCacheMode = dal.SourceWorkerCacheModeEphemeral
+		}
+	}
+
 	if req.CanonicalURL != nil {
 		updated.CanonicalURL = strings.TrimSpace(*req.CanonicalURL)
 	}
@@ -2195,6 +2217,11 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if !validSourceAuthoringMode(updated.AuthoringMode) {
 		writeAPIError(w, http.StatusBadRequest, "unsupported_authoring_mode", "authoring_mode is not supported", nil)
+		return
+	}
+
+	if !validSourceWorkerCacheMode(updated.WorkerCacheMode) {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_worker_cache_mode", "worker_cache_mode is not supported", nil)
 		return
 	}
 
@@ -2482,6 +2509,7 @@ func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRec
 		CheckoutPath:       rec.CheckoutPath,
 		CheckoutMode:       rec.CheckoutMode,
 		AuthoringMode:      rec.AuthoringMode,
+		WorkerCacheMode:    rec.WorkerCacheMode,
 		Authoring:          s.sourceRepositoryAuthoringFromRecord(rec),
 		CanonicalURL:       rec.CanonicalURL,
 		FallbackRemoteURLs: rec.FallbackRemoteURLs,
@@ -2638,17 +2666,18 @@ func sourceCronScheduleHasOverride(rec dal.CronScheduleRecord) bool {
 
 func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string, declared map[string]struct{}) sourceRepositoryStatusResponse {
 	resp := sourceRepositoryStatusResponse{
-		RepositoryID:  rec.RepositoryID,
-		Namespace:     namespacePath,
-		SourceKind:    rec.SourceKind,
-		Declared:      sourceRepositoryIsDeclared(rec.RepositoryID, declared),
-		Enabled:       rec.Enabled,
-		Status:        "ok",
-		CheckoutMode:  rec.CheckoutMode,
-		AuthoringMode: rec.AuthoringMode,
-		Authoring:     s.sourceRepositoryAuthoringFromRecord(rec),
-		CredentialRef: rec.CredentialRef,
-		Sync:          sourceRepositorySyncRecordToResponse(rec),
+		RepositoryID:    rec.RepositoryID,
+		Namespace:       namespacePath,
+		SourceKind:      rec.SourceKind,
+		Declared:        sourceRepositoryIsDeclared(rec.RepositoryID, declared),
+		Enabled:         rec.Enabled,
+		Status:          "ok",
+		CheckoutMode:    rec.CheckoutMode,
+		AuthoringMode:   rec.AuthoringMode,
+		WorkerCacheMode: rec.WorkerCacheMode,
+		Authoring:       s.sourceRepositoryAuthoringFromRecord(rec),
+		CredentialRef:   rec.CredentialRef,
+		Sync:            sourceRepositorySyncRecordToResponse(rec),
 	}
 
 	if !rec.Enabled {
@@ -3663,6 +3692,15 @@ func validSourceCheckoutMode(mode string) bool {
 func validSourceAuthoringMode(mode string) bool {
 	switch strings.TrimSpace(mode) {
 	case dal.SourceAuthoringModeReadOnly, dal.SourceAuthoringModeLocalCommit, dal.SourceAuthoringModeExternalChangeRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+func validSourceWorkerCacheMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case dal.SourceWorkerCacheModeEphemeral, dal.SourceWorkerCacheModePersistent:
 		return true
 	default:
 		return false

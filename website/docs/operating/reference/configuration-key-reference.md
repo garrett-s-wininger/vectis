@@ -169,7 +169,7 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `source.sync_configured_repositories_max_concurrency` | `1` | Maximum concurrent configured-repository syncs. |
 | `source.sync_configured_repositories_failure_backoff` | `5m` | Delay before retrying repositories with recent failed syncs. |
 | `source.sync_running_timeout` | `15m` | Timeout for a single source repository sync reservation. |
-| `source.repositories` | `[]` | Static source repository declarations. |
+| `source.repositories` | `[]` | Static source repository declarations; set `worker_cache_mode=persistent` for repositories workers should keep warm. |
 | `source.schedules` | `[]` | Static source-backed schedule declarations. |
 
 ## Worker

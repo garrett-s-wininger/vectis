@@ -85,13 +85,14 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 	}
 
 	var repoResp struct {
-		RepositoryID  string `json:"repository_id"`
-		Namespace     string `json:"namespace"`
-		SourceKind    string `json:"source_kind"`
-		CheckoutPath  string `json:"checkout_path"`
-		CheckoutMode  string `json:"checkout_mode"`
-		AuthoringMode string `json:"authoring_mode"`
-		Authoring     struct {
+		RepositoryID    string `json:"repository_id"`
+		Namespace       string `json:"namespace"`
+		SourceKind      string `json:"source_kind"`
+		CheckoutPath    string `json:"checkout_path"`
+		CheckoutMode    string `json:"checkout_mode"`
+		AuthoringMode   string `json:"authoring_mode"`
+		WorkerCacheMode string `json:"worker_cache_mode"`
+		Authoring       struct {
 			Mode             string `json:"mode"`
 			WriteDefinitions bool   `json:"write_definitions"`
 			LocalCommits     bool   `json:"local_commits"`
@@ -114,6 +115,7 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		repoResp.CheckoutPath != repoPath ||
 		repoResp.CheckoutMode != dal.SourceCheckoutModeExternal ||
 		repoResp.AuthoringMode != dal.SourceAuthoringModeReadOnly ||
+		repoResp.WorkerCacheMode != dal.SourceWorkerCacheModeEphemeral ||
 		repoResp.Authoring.Mode != dal.SourceAuthoringModeReadOnly ||
 		repoResp.Authoring.WriteDefinitions ||
 		repoResp.Authoring.LocalCommits ||
@@ -3200,6 +3202,7 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	updateBody := map[string]any{
 		"checkout_mode":        dal.SourceCheckoutModeManaged,
 		"authoring_mode":       dal.SourceAuthoringModeExternalChangeRequest,
+		"worker_cache_mode":    dal.SourceWorkerCacheModePersistent,
 		"default_ref":          commit,
 		"canonical_url":        "https://example.invalid/vectis.git",
 		"fallback_remote_urls": []string{"https://tier3.invalid/vectis.git"},
@@ -3213,11 +3216,12 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	}
 
 	var updateResp struct {
-		RepositoryID  string `json:"repository_id"`
-		CheckoutPath  string `json:"checkout_path"`
-		CheckoutMode  string `json:"checkout_mode"`
-		AuthoringMode string `json:"authoring_mode"`
-		Authoring     struct {
+		RepositoryID    string `json:"repository_id"`
+		CheckoutPath    string `json:"checkout_path"`
+		CheckoutMode    string `json:"checkout_mode"`
+		AuthoringMode   string `json:"authoring_mode"`
+		WorkerCacheMode string `json:"worker_cache_mode"`
+		Authoring       struct {
 			Mode                   string `json:"mode"`
 			WriteDefinitions       bool   `json:"write_definitions"`
 			LocalCommits           bool   `json:"local_commits"`
@@ -3242,6 +3246,7 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 		updateResp.CheckoutPath != repoPath ||
 		updateResp.CheckoutMode != dal.SourceCheckoutModeManaged ||
 		updateResp.AuthoringMode != dal.SourceAuthoringModeExternalChangeRequest ||
+		updateResp.WorkerCacheMode != dal.SourceWorkerCacheModePersistent ||
 		updateResp.Authoring.Mode != dal.SourceAuthoringModeExternalChangeRequest ||
 		updateResp.Authoring.WriteDefinitions ||
 		updateResp.Authoring.LocalCommits ||
@@ -3320,6 +3325,12 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 	})
 
 	assertAPIError(t, invalidAuthoringModeRec, http.StatusBadRequest, "unsupported_authoring_mode")
+
+	invalidWorkerCacheModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
+		"worker_cache_mode": "magic",
+	})
+
+	assertAPIError(t, invalidWorkerCacheModeRec, http.StatusBadRequest, "unsupported_worker_cache_mode")
 
 	incompatibleAuthoringModeRec := doJSONRequest(t, handler, http.MethodPut, "/api/v1/source-repositories/vectis-local", map[string]any{
 		"checkout_mode":  dal.SourceCheckoutModeExternal,
@@ -3521,13 +3532,14 @@ func decodeSourceJobTriggerResponse(t *testing.T, rec *httptest.ResponseRecorder
 }
 
 func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
-	RepositoryID  string `json:"repository_id"`
-	Namespace     string `json:"namespace"`
-	SourceKind    string `json:"source_kind"`
-	CheckoutPath  string `json:"checkout_path"`
-	CheckoutMode  string `json:"checkout_mode"`
-	AuthoringMode string `json:"authoring_mode"`
-	Authoring     struct {
+	RepositoryID    string `json:"repository_id"`
+	Namespace       string `json:"namespace"`
+	SourceKind      string `json:"source_kind"`
+	CheckoutPath    string `json:"checkout_path"`
+	CheckoutMode    string `json:"checkout_mode"`
+	AuthoringMode   string `json:"authoring_mode"`
+	WorkerCacheMode string `json:"worker_cache_mode"`
+	Authoring       struct {
 		Mode                   string `json:"mode"`
 		WriteDefinitions       bool   `json:"write_definitions"`
 		LocalCommits           bool   `json:"local_commits"`
@@ -3551,13 +3563,14 @@ func decodeSourceRepositoryResponse(t *testing.T, rec *httptest.ResponseRecorder
 	t.Helper()
 
 	var out struct {
-		RepositoryID  string `json:"repository_id"`
-		Namespace     string `json:"namespace"`
-		SourceKind    string `json:"source_kind"`
-		CheckoutPath  string `json:"checkout_path"`
-		CheckoutMode  string `json:"checkout_mode"`
-		AuthoringMode string `json:"authoring_mode"`
-		Authoring     struct {
+		RepositoryID    string `json:"repository_id"`
+		Namespace       string `json:"namespace"`
+		SourceKind      string `json:"source_kind"`
+		CheckoutPath    string `json:"checkout_path"`
+		CheckoutMode    string `json:"checkout_mode"`
+		AuthoringMode   string `json:"authoring_mode"`
+		WorkerCacheMode string `json:"worker_cache_mode"`
+		Authoring       struct {
 			Mode                   string `json:"mode"`
 			WriteDefinitions       bool   `json:"write_definitions"`
 			LocalCommits           bool   `json:"local_commits"`
@@ -3737,15 +3750,16 @@ func decodeSourceRepositoryJobDeleteResponse(t *testing.T, rec *httptest.Respons
 }
 
 func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRecorder) struct {
-	RepositoryID  string `json:"repository_id"`
-	Namespace     string `json:"namespace"`
-	SourceKind    string `json:"source_kind"`
-	Enabled       bool   `json:"enabled"`
-	Status        string `json:"status"`
-	CheckoutPath  string `json:"checkout_path"`
-	CheckoutMode  string `json:"checkout_mode"`
-	AuthoringMode string `json:"authoring_mode"`
-	Authoring     struct {
+	RepositoryID    string `json:"repository_id"`
+	Namespace       string `json:"namespace"`
+	SourceKind      string `json:"source_kind"`
+	Enabled         bool   `json:"enabled"`
+	Status          string `json:"status"`
+	CheckoutPath    string `json:"checkout_path"`
+	CheckoutMode    string `json:"checkout_mode"`
+	AuthoringMode   string `json:"authoring_mode"`
+	WorkerCacheMode string `json:"worker_cache_mode"`
+	Authoring       struct {
 		Mode                   string `json:"mode"`
 		WriteDefinitions       bool   `json:"write_definitions"`
 		LocalCommits           bool   `json:"local_commits"`
@@ -3796,15 +3810,16 @@ func decodeSourceRepositoryStatusResponse(t *testing.T, rec *httptest.ResponseRe
 	t.Helper()
 
 	var out struct {
-		RepositoryID  string `json:"repository_id"`
-		Namespace     string `json:"namespace"`
-		SourceKind    string `json:"source_kind"`
-		Enabled       bool   `json:"enabled"`
-		Status        string `json:"status"`
-		CheckoutPath  string `json:"checkout_path"`
-		CheckoutMode  string `json:"checkout_mode"`
-		AuthoringMode string `json:"authoring_mode"`
-		Authoring     struct {
+		RepositoryID    string `json:"repository_id"`
+		Namespace       string `json:"namespace"`
+		SourceKind      string `json:"source_kind"`
+		Enabled         bool   `json:"enabled"`
+		Status          string `json:"status"`
+		CheckoutPath    string `json:"checkout_path"`
+		CheckoutMode    string `json:"checkout_mode"`
+		AuthoringMode   string `json:"authoring_mode"`
+		WorkerCacheMode string `json:"worker_cache_mode"`
+		Authoring       struct {
 			Mode                   string `json:"mode"`
 			WriteDefinitions       bool   `json:"write_definitions"`
 			LocalCommits           bool   `json:"local_commits"`

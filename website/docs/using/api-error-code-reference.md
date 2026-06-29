@@ -209,6 +209,7 @@ Most API failures use this JSON envelope:
 | `source_schedule_override_active` | `409` | Source schedule override must be cleared before deletion. |
 | `unsupported_authoring_mode` | `400` | Source repository authoring mode is unsupported. |
 | `unsupported_checkout_mode` | `400` | Source repository checkout mode is unsupported. |
+| `unsupported_worker_cache_mode` | `400` | Source repository worker cache mode is unsupported. |
 | `unsupported_source_kind` | `400` | Source repository kind is unsupported. |
 
 ## Catalog, Cells, And Infrastructure

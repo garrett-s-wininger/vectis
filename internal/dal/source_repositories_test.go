@@ -43,6 +43,7 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 		created.CanonicalURL != "https://mirror.invalid/vectis.git" ||
 		created.CheckoutMode != dal.SourceCheckoutModeExternal ||
 		created.AuthoringMode != dal.SourceAuthoringModeReadOnly ||
+		created.WorkerCacheMode != dal.SourceWorkerCacheModeEphemeral ||
 		created.SyncStatus != dal.SourceSyncStatusNever ||
 		!created.Enabled {
 		t.Fatalf("created repository mismatch: %+v", created)
@@ -291,12 +292,13 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 	}
 
 	updated, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
-		RepositoryID:  "vectis-local",
-		SourceKind:    dal.SourceKindLocalCheckout,
-		CheckoutPath:  "/work/vectis-next",
-		CheckoutMode:  dal.SourceCheckoutModeManaged,
-		AuthoringMode: dal.SourceAuthoringModeLocalCommit,
-		CanonicalURL:  "https://example.invalid/vectis.git",
+		RepositoryID:    "vectis-local",
+		SourceKind:      dal.SourceKindLocalCheckout,
+		CheckoutPath:    "/work/vectis-next",
+		CheckoutMode:    dal.SourceCheckoutModeManaged,
+		AuthoringMode:   dal.SourceAuthoringModeLocalCommit,
+		WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+		CanonicalURL:    "https://example.invalid/vectis.git",
 		FallbackRemoteURLs: []string{
 			"https://tier1.invalid/vectis.git",
 			"https://tier2.invalid/vectis.git",
@@ -313,6 +315,7 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 	if updated.CheckoutPath != "/work/vectis-next" ||
 		updated.CheckoutMode != dal.SourceCheckoutModeManaged ||
 		updated.AuthoringMode != dal.SourceAuthoringModeLocalCommit ||
+		updated.WorkerCacheMode != dal.SourceWorkerCacheModePersistent ||
 		updated.CanonicalURL != "https://example.invalid/vectis.git" ||
 		!reflect.DeepEqual(updated.FallbackRemoteURLs, []string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"}) ||
 		updated.DefaultRef != "release" ||
@@ -329,6 +332,7 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 	if got.CheckoutPath != updated.CheckoutPath ||
 		got.CheckoutMode != updated.CheckoutMode ||
 		got.AuthoringMode != updated.AuthoringMode ||
+		got.WorkerCacheMode != updated.WorkerCacheMode ||
 		!reflect.DeepEqual(got.FallbackRemoteURLs, updated.FallbackRemoteURLs) ||
 		got.DefaultRef != updated.DefaultRef ||
 		got.Enabled != updated.Enabled {
@@ -406,6 +410,16 @@ func TestSourcesRepository_UpdateRepositoryConflicts(t *testing.T) {
 		Enabled:       true,
 	}); !dal.IsConflict(err) {
 		t.Fatalf("expected unsupported authoring mode conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:    "other",
+		SourceKind:      dal.SourceKindLocalCheckout,
+		CheckoutPath:    "/work/other",
+		WorkerCacheMode: "magic",
+		Enabled:         true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported worker cache mode conflict, got %v", err)
 	}
 
 	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{

@@ -22,6 +22,7 @@ type sourceRepositorySummary struct {
 	CheckoutPath       string                   `json:"checkout_path,omitempty"`
 	CheckoutMode       string                   `json:"checkout_mode"`
 	AuthoringMode      string                   `json:"authoring_mode"`
+	WorkerCacheMode    string                   `json:"worker_cache_mode"`
 	Authoring          sourceAuthoringSummary   `json:"authoring"`
 	CanonicalURL       string                   `json:"canonical_url,omitempty"`
 	FallbackRemoteURLs []string                 `json:"fallback_remote_urls,omitempty"`
@@ -90,6 +91,7 @@ type sourceRepositoryStatusResult struct {
 	Status             string                     `json:"status"`
 	CheckoutMode       string                     `json:"checkout_mode"`
 	AuthoringMode      string                     `json:"authoring_mode"`
+	WorkerCacheMode    string                     `json:"worker_cache_mode"`
 	Authoring          sourceAuthoringSummary     `json:"authoring"`
 	CredentialRef      string                     `json:"credential_ref,omitempty"`
 	CheckoutPath       string                     `json:"checkout_path,omitempty"`
@@ -457,6 +459,9 @@ func registerSourceWithOutput(out io.Writer, args []string) error {
 	if v := strings.TrimSpace(sourceRegisterAuthoringMode); v != "" {
 		payload["authoring_mode"] = v
 	}
+	if v := strings.TrimSpace(sourceRegisterCacheMode); v != "" {
+		payload["worker_cache_mode"] = v
+	}
 	if v := strings.TrimSpace(sourceRegisterCanonicalURL); v != "" {
 		payload["canonical_url"] = v
 	}
@@ -559,6 +564,9 @@ func updateSourceWithOutput(cmd *cobra.Command, out io.Writer, repositoryID stri
 	}
 	if flags.Changed("authoring-mode") {
 		payload["authoring_mode"] = strings.TrimSpace(sourceUpdateAuthoringMode)
+	}
+	if flags.Changed("worker-cache-mode") {
+		payload["worker_cache_mode"] = strings.TrimSpace(sourceUpdateCacheMode)
 	}
 	if flags.Changed("canonical-url") {
 		payload["canonical_url"] = strings.TrimSpace(sourceUpdateCanonicalURL)
@@ -671,6 +679,7 @@ func writeSourceRepositoryDetailResult(out io.Writer, repo sourceRepositorySumma
 	fmt.Fprintf(out, "source_kind=%s\n", emptyAsDash(repo.SourceKind))
 	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(repo.CheckoutMode))
 	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(repo.AuthoringMode))
+	fmt.Fprintf(out, "worker_cache_mode=%s\n", emptyAsDash(repo.WorkerCacheMode))
 	fmt.Fprintf(out, "declared=%t\n", repo.Declared)
 	fmt.Fprintf(out, "write_definitions=%t\n", repo.Authoring.WriteDefinitions)
 	fmt.Fprintf(out, "local_commits=%t\n", repo.Authoring.LocalCommits)
@@ -786,6 +795,7 @@ func writeSourceStatusResult(out io.Writer, result sourceRepositoryStatusResult)
 	fmt.Fprintf(out, "enabled=%t\n", result.Enabled)
 	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(result.CheckoutMode))
 	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(result.AuthoringMode))
+	fmt.Fprintf(out, "worker_cache_mode=%s\n", emptyAsDash(result.WorkerCacheMode))
 	fmt.Fprintf(out, "write_definitions=%t\n", result.Authoring.WriteDefinitions)
 
 	if strings.TrimSpace(result.Authoring.Reason) != "" {
@@ -2250,6 +2260,7 @@ func configureSourcesRegisterFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceRegisterNamespace, "namespace", "", "Namespace to register the repository in (default: /)")
 	cmd.Flags().StringVar(&sourceRegisterCheckoutMode, "checkout-mode", "", "Checkout mode: external or managed")
 	cmd.Flags().StringVar(&sourceRegisterAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
+	cmd.Flags().StringVar(&sourceRegisterCacheMode, "worker-cache-mode", "", "Worker cache mode: ephemeral or persistent")
 	cmd.Flags().StringVar(&sourceRegisterCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
 	cmd.Flags().StringSliceVar(&sourceRegisterFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
 	cmd.Flags().StringVar(&sourceRegisterDefaultRef, "default-ref", "", "Default git ref for source operations")
@@ -2262,6 +2273,7 @@ func configureSourcesUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceUpdateCheckoutPath, "checkout-path", "", "Checkout path for external repositories")
 	cmd.Flags().StringVar(&sourceUpdateCheckoutMode, "checkout-mode", "", "Checkout mode: external or managed")
 	cmd.Flags().StringVar(&sourceUpdateAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
+	cmd.Flags().StringVar(&sourceUpdateCacheMode, "worker-cache-mode", "", "Worker cache mode: ephemeral or persistent")
 	cmd.Flags().StringVar(&sourceUpdateCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
 	cmd.Flags().StringSliceVar(&sourceUpdateFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
 	cmd.Flags().StringVar(&sourceUpdateDefaultRef, "default-ref", "", "Default git ref for source operations")

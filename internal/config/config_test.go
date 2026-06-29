@@ -640,6 +640,7 @@ func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
 			"checkout_path":        " /work/vectis ",
 			"checkout_mode":        "external",
 			"authoring_mode":       "read_only",
+			"worker_cache_mode":    " persistent ",
 			"canonical_url":        " https://mirror.invalid/vectis.git ",
 			"fallback_remote_urls": []string{" https://tier1.invalid/vectis.git ", "https://tier2.invalid/vectis.git"},
 			"default_ref":          "main",
@@ -661,6 +662,7 @@ func TestSourceRepositoryDeclarations_Viper(t *testing.T) {
 		repos[0].CheckoutPath != "/work/vectis" ||
 		repos[0].CheckoutMode != "external" ||
 		repos[0].AuthoringMode != "read_only" ||
+		repos[0].WorkerCacheMode != "persistent" ||
 		repos[0].Namespace != "/team-a" ||
 		repos[0].CanonicalURL != "https://mirror.invalid/vectis.git" ||
 		len(repos[0].FallbackRemoteURLs) != 2 ||
@@ -687,6 +689,7 @@ func TestSourceRepositoryDeclarations_EnvJSON(t *testing.T) {
 	if len(repos) != 1 ||
 		repos[0].RepositoryID != "vectis" ||
 		repos[0].CheckoutMode != "managed" ||
+		repos[0].WorkerCacheMode != "ephemeral" ||
 		len(repos[0].FallbackRemoteURLs) != 1 ||
 		repos[0].FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
 		repos[0].Enabled == nil ||
@@ -733,6 +736,11 @@ func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","authoring_mode":"magic","checkout_path":"/work/vectis"}]`)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected unsupported authoring_mode error")
+	}
+
+	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","worker_cache_mode":"magic","checkout_path":"/work/vectis"}]`)
+	if _, err := SourceRepositoryDeclarations(); err == nil {
+		t.Fatal("expected unsupported worker_cache_mode error")
 	}
 
 	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"external","authoring_mode":"local_commit","checkout_path":"/work/vectis"}]`)

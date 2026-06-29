@@ -177,6 +177,7 @@ func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 			"source_kind":          dal.SourceKindLocalCheckout,
 			"checkout_path":        "/work/vectis",
 			"checkout_mode":        dal.SourceCheckoutModeExternal,
+			"worker_cache_mode":    dal.SourceWorkerCacheModePersistent,
 			"canonical_url":        "https://mirror.invalid/vectis.git",
 			"fallback_remote_urls": []string{" https://tier1.invalid/vectis.git ", "https://tier1.invalid/vectis.git"},
 			"default_ref":          "main",
@@ -195,6 +196,7 @@ func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 
 	if got.CheckoutPath != "/work/vectis" ||
 		got.CanonicalURL != "https://mirror.invalid/vectis.git" ||
+		got.WorkerCacheMode != dal.SourceWorkerCacheModePersistent ||
 		len(got.FallbackRemoteURLs) != 1 ||
 		got.FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
 		got.DefaultRef != "main" ||
@@ -209,6 +211,7 @@ func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 			"checkout_path":        "/work/vectis-next",
 			"checkout_mode":        dal.SourceCheckoutModeExternal,
 			"authoring_mode":       dal.SourceAuthoringModeReadOnly,
+			"worker_cache_mode":    dal.SourceWorkerCacheModeEphemeral,
 			"fallback_remote_urls": []string{"https://tier2.invalid/vectis.git"},
 			"default_ref":          "release",
 			"credential_ref":       "repo-token",
@@ -227,6 +230,7 @@ func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
 
 	if got.CheckoutPath != "/work/vectis-next" ||
 		got.DefaultRef != "release" ||
+		got.WorkerCacheMode != dal.SourceWorkerCacheModeEphemeral ||
 		len(got.FallbackRemoteURLs) != 1 ||
 		got.FallbackRemoteURLs[0] != "https://tier2.invalid/vectis.git" ||
 		got.CredentialRef != "repo-token" ||

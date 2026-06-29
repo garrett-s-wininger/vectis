@@ -105,6 +105,7 @@ var (
 	sourceRegisterNamespace     string
 	sourceRegisterCheckoutMode  string
 	sourceRegisterAuthoringMode string
+	sourceRegisterCacheMode     string
 	sourceRegisterCanonicalURL  string
 	sourceRegisterFallbackURLs  []string
 	sourceRegisterDefaultRef    string
@@ -114,6 +115,7 @@ var (
 	sourceUpdateCheckoutPath    string
 	sourceUpdateCheckoutMode    string
 	sourceUpdateAuthoringMode   string
+	sourceUpdateCacheMode       string
 	sourceUpdateCanonicalURL    string
 	sourceUpdateFallbackURLs    []string
 	sourceUpdateDefaultRef      string
