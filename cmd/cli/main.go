@@ -188,6 +188,7 @@ Commands are grouped around the thing you want to work with:
   runs       show run status, list tasks/artifacts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
   logs       stream run logs or follow future runs for a job
+  storage    verify durable file storage integrity
   secrets    manage job secret stores
   auth       log in, log out, and manage API tokens`,
 	Example: `  vectis-cli jobs create build.json --repository vectis --branch main
@@ -323,6 +324,15 @@ func init() {
 	backupVerifyCmd.Flags().StringVar(&backupVerifyExpectPath, "expect", "", "Expected backup topology JSON file")
 	backupCmd.AddCommand(backupInventoryCmd, backupManifestCmd, backupExpectCmd, backupVerifyCmd)
 	rootCmd.AddCommand(backupCmd)
+
+	configureStorageVerifyDirFlag(storageVerifyArtifactCmd, "Artifact storage directory to verify")
+	configureStorageVerifyDirFlag(storageVerifyLogsCmd, "Durable run log storage directory to verify")
+	configureStorageVerifyDirFlag(storageVerifyQueueCmd, "Queue persistence directory to verify")
+	configureStorageVerifyDirFlag(storageVerifyLogForwarderSpoolCmd, "Log-forwarder spool directory to verify")
+	configureStorageVerifyDirFlag(storageVerifyWorkerLogSpoolCmd, "Worker pending log spool directory to verify")
+	storageVerifyCmd.AddCommand(storageVerifyArtifactCmd, storageVerifyLogsCmd, storageVerifyQueueCmd, storageVerifyLogForwarderSpoolCmd, storageVerifyWorkerLogSpoolCmd)
+	storageCmd.AddCommand(storageVerifyCmd)
+	rootCmd.AddCommand(storageCmd)
 
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanProfile, "profile", podmanProfileSimple, "Deployment profile: simple or ha")

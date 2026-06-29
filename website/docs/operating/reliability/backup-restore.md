@@ -76,6 +76,27 @@ augment the generated file for production-specific topology. When collecting
 inventory for Linux service hosts, run with the service environment loaded so
 `XDG_CONFIG_HOME=/etc` records `/etc/vectis` as config evidence.
 
+## Storage Integrity Verification
+
+Use `vectis-cli storage verify` against the local paths named by `backup
+inventory` before accepting a backup set or after restoring files into an
+isolated environment.
+
+```sh
+vectis-cli storage verify queue --dir "$VECTIS_QUEUE_PERSISTENCE_DIR"
+vectis-cli storage verify logs --dir "$VECTIS_LOG_STORAGE_DIR"
+vectis-cli storage verify artifact --dir "$VECTIS_ARTIFACT_STORAGE_DIR"
+vectis-cli storage verify log-forwarder-spool --dir "$VECTIS_LOG_FORWARDER_SPOOL_DIR"
+vectis-cli storage verify worker-log-spool --dir /var/lib/vectis/worker-log-spool/pending
+```
+
+The verifier is read-only. It checks queue snapshot/WAL JSON and protobuf
+payloads, durable run-log record framing, artifact blob SHA-256 path digests,
+log-forwarder spool CRCs, and worker pending log-spool frames. Text output is
+`key=value`; `--format json` emits the same report model for release evidence.
+Any corrupt file, digest mismatch, malformed record, or quarantined spool exits
+non-zero.
+
 Retention cleanup can use the same manifest as a destructive-operation gate:
 
 ```sh
@@ -134,7 +155,7 @@ rollback proof, see [Production Drills](./production-drills.md).
 | Phase | Evidence to collect |
 | --- | --- |
 | Scope | Deployment name, Vectis version, topology, service instance IDs, queue/log/artifact shard IDs, database DSNs without secrets, and durable storage paths. |
-| Backup | Backup timestamp, database backup identifier, queue/log/artifact/secrets/TLS/config backup identifiers, and whether the backup set is same-window or intentionally partial. |
+| Backup | Backup timestamp, database backup identifier, queue/log/artifact/secrets/TLS/config backup identifiers, storage verifier reports, and whether the backup set is same-window or intentionally partial. |
 | Restore target | Isolated restore environment or maintenance window, restored DNS/endpoint plan, and operator who approved traffic isolation. |
 | Migration | `vectis-cli database migrate` output for every restored database and resulting schema status. |
 | Service recovery | Service start order, health check output, and any services intentionally skipped. |
@@ -148,16 +169,18 @@ Recommended drill flow:
 
 1. Run `vectis-cli backup inventory --format json` from each relevant host and record the expected restore point.
 2. Build a backup manifest from those inventories and run `vectis-cli backup verify`, preferably with `--expect` for the intended topology.
-3. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
-4. Restore config, secrets, TLS material, and manifests before starting services.
-5. Restore PostgreSQL through the database platform's documented process.
-6. Restore queue persistence, log storage, artifact storage, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
-7. Run migrations against every restored database.
-8. Start services in dependency order.
-9. Run `vectis-cli health check --strict`.
-10. Save `vectis-cli health check --json` output as machine-readable evidence.
-11. Run the restore smoke test below.
-12. Record evidence and update the backup, config, or runbook gaps found during the drill.
+3. Run `vectis-cli storage verify` for each restored or backed-up queue, log, artifact, log-forwarder spool, and worker pending log-spool path that belongs to the drill scope.
+4. Restore into an isolated environment when possible. If the drill uses the production environment, schedule a maintenance window and stop producers first.
+5. Restore config, secrets, TLS material, and manifests before starting services.
+6. Restore PostgreSQL through the database platform's documented process.
+7. Restore queue persistence, log storage, artifact storage, secret envelopes, SPIFFE CA material, and log-forwarder spools that belong to the same backup window.
+8. Run `vectis-cli storage verify` against the restored file stores before starting services.
+9. Run migrations against every restored database.
+10. Start services in dependency order.
+11. Run `vectis-cli health check --strict`.
+12. Save `vectis-cli health check --json` output as machine-readable evidence.
+13. Run the restore smoke test below.
+14. Record evidence and update the backup, config, or runbook gaps found during the drill.
 
 Do not run retention cleanup during a restore drill until the restored deployment
 passes the smoke test and the operator has accepted the restore point.
