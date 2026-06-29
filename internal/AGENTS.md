@@ -135,4 +135,4 @@ Builtins live in `internal/action/builtins/`. Currently registered action types 
 | TLS | `internal/tlsconfig/` (reload) |
 | Platform operations | `internal/platform/` (GOOS-specific host operations such as system trust-store changes; keep privileged OS actions here behind small APIs) |
 | DB bootstrap | `internal/database/` (`OpenDB`, `WaitForMigrations`), `internal/migrations/` (embedded SQL, SQLite + Postgres), `internal/dbdrivers/` (`_` import) |
-| Schedules / trigger polling / recovery | `internal/cron/`, `internal/scmpoller/`, `internal/trigger/`, `internal/reconciler/` · formal model [`../formal/tla/`](../formal/tla/) |
+| Schedules / trigger polling / recovery | `internal/cron/`, `internal/scmpoller/`, `internal/scmtrigger/`, `internal/trigger/`, `internal/reconciler/` · formal model [`../formal/tla/`](../formal/tla/) |

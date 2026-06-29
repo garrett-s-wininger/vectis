@@ -3,25 +3,21 @@ package scmpoller
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	api "vectis/api/gen/go"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/backoff"
 	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
-	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
-	jobdef "vectis/internal/job"
 	"vectis/internal/queueclient"
-	"vectis/internal/trigger"
+	"vectis/internal/scmtrigger"
+	triggerrunner "vectis/internal/trigger"
 	"vectis/sdk/scm"
 )
 
@@ -286,147 +282,21 @@ func (s *Service) processSpec(ctx context.Context, spec dal.SCMPollTriggerSpec, 
 }
 
 func (s *Service) handleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event Event) error {
-	rec, _, err := s.recordEvent(ctx, spec.TriggerID, event)
-	if err != nil {
-		return err
-	}
-
-	if s.jobs == nil || s.runs == nil {
-		return nil
-	}
-
-	if rec.RunID != nil && strings.TrimSpace(*rec.RunID) != "" {
-		s.logger.Debug("scm-poller: scm event %s already has run %s", rec.EventKey, *rec.RunID)
-		return nil
-	}
-
-	return s.dispatchEventRun(ctx, spec, event)
+	return s.eventProcessor().HandleEvent(ctx, spec, event)
 }
 
-func (s *Service) recordEvent(ctx context.Context, triggerID int64, event Event) (dal.SCMTriggerEventRecord, bool, error) {
-	key := strings.TrimSpace(event.Key)
-	if key == "" {
-		return dal.SCMTriggerEventRecord{}, false, fmt.Errorf("scm provider returned event without key")
-	}
-
-	rec, created, err := s.polls.RecordEvent(ctx, dal.SCMTriggerEvent{
-		TriggerID:   triggerID,
-		EventKey:    key,
-		PayloadJSON: event.PayloadJSON,
-	})
-
-	if err != nil {
-		return dal.SCMTriggerEventRecord{}, false, fmt.Errorf("record scm trigger event %q: %w", key, err)
-	}
-
-	if created {
-		s.logger.Info("scm-poller: recorded new scm event %s", key)
-	} else {
-		s.logger.Debug("scm-poller: scm event %s was already recorded", key)
-	}
-
-	return rec, created, nil
-}
-
-func (s *Service) dispatchEventRun(ctx context.Context, spec dal.SCMPollTriggerSpec, event Event) error {
-	job, definitionVersion, definitionHash, err := s.getJobDefinitionWithVersion(ctx, spec.JobID)
-	if err != nil {
-		return err
-	}
-
-	job.Id = &spec.JobID
-	invocationID, err := s.recordTriggerInvocation(ctx, spec, event)
-	if err != nil {
-		return err
-	}
-
-	audit := dal.RunAuditMetadata{
-		TriggerInvocationID:   invocationID,
-		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(s.clock.Now(), config.DispatchStartTTL()),
-	}
-
-	runID, _, created, err := s.runs.CreateSCMEventRun(ctx, spec.TriggerID, strings.TrimSpace(event.Key), spec.JobID, definitionVersion, audit)
-	if err != nil {
-		return fmt.Errorf("create scm event run: %w", err)
-	}
-
-	if !created {
-		s.logger.Info("scm-poller: reusing existing run %s for scm event %s", runID, strings.TrimSpace(event.Key))
-	}
-
-	return s.dispatcher().DispatchRun(ctx, job, runID, definitionHash)
-}
-
-func (s *Service) getJobDefinitionWithVersion(ctx context.Context, jobID string) (*api.Job, int, string, error) {
-	definitionJSON, version, err := s.jobs.GetLatestDefinition(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			return nil, 0, "", fmt.Errorf("job not found: %s", jobID)
-		}
-
-		return nil, 0, "", fmt.Errorf("database error: %w", err)
-	}
-
-	var job api.Job
-	if err := jobdef.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
-		return nil, 0, "", fmt.Errorf("failed to parse job definition: %w", err)
-	}
-
-	return &job, version, dal.DefinitionHash(definitionJSON), nil
-}
-
-func (s *Service) recordTriggerInvocation(ctx context.Context, spec dal.SCMPollTriggerSpec, event Event) (string, error) {
-	if s.triggers == nil {
-		return "", nil
-	}
-
-	triggerID := spec.TriggerID
-	payload := map[string]string{
-		"job_id":     spec.JobID,
-		"trigger_id": strconv.FormatInt(spec.TriggerID, 10),
-		"provider":   spec.Provider,
-		"base_url":   spec.BaseURL,
-		"project":    spec.Project,
-		"branch":     spec.Branch,
-		"query":      spec.Query,
-		"event_key":  strings.TrimSpace(event.Key),
-		"triggered":  s.clock.Now().UTC().Format(time.RFC3339Nano),
-	}
-
-	if strings.TrimSpace(event.PayloadJSON) != "" {
-		payload["event_payload_hash"] = dal.PayloadHash(event.PayloadJSON)
-	}
-
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal scm trigger payload: %w", err)
-	}
-
-	rec, err := s.triggers.Record(ctx, dal.TriggerInvocation{
-		TriggerID:          &triggerID,
-		JobID:              spec.JobID,
-		TriggerType:        dal.TriggerTypeSCMPoll,
-		SourceInstance:     s.InstanceID(),
-		TriggerPayloadHash: dal.PayloadHash(string(payloadJSON)),
-		RequestedCells:     []string{config.CellID()},
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("record scm trigger invocation: %w", err)
-	}
-
-	return rec.InvocationID, nil
-}
-
-func (s *Service) dispatcher() trigger.Dispatcher {
+func (s *Service) eventProcessor() scmtrigger.Processor {
 	s.mu.Lock()
 	qc := s.queueClient
 	ingress := s.ingress
 	s.mu.Unlock()
 
-	return trigger.Dispatcher{
+	return scmtrigger.Processor{
+		Events:         s.polls,
+		Jobs:           s.jobs,
 		Runs:           s.runs,
 		Dispatch:       s.dispatch,
+		Invocations:    s.triggers,
 		QueueClient:    qc,
 		Ingress:        ingress,
 		Logger:         s.logger,
@@ -442,7 +312,7 @@ func (s *Service) Run(ctx context.Context, interval time.Duration) error {
 		interval = DefaultInterval
 	}
 
-	return trigger.Runner{
+	return triggerrunner.Runner{
 		Name:      "scm-poller",
 		Logger:    s.logger,
 		Clock:     s.clock,
@@ -455,9 +325,11 @@ func (s *Service) effectiveClaimTTL() time.Duration {
 	if s.claimTTL > 0 {
 		return s.claimTTL
 	}
+
 	if ttl := config.SCMPollerClaimTTL(); ttl > 0 {
 		return ttl
 	}
+
 	return DefaultClaimTTL
 }
 

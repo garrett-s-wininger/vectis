@@ -119,7 +119,7 @@ flowchart TB
 | `vectis-artifact` | Internal content-addressed blob service. It stores blobs by digest while the API exposes run-scoped artifact listing, metadata, and downloads. |
 | `vectis-registry` | Internal service discovery for queue, orchestrator, log, artifact, and worker-control addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
-| `vectis-scm-poller` | Claims due SCM poll triggers, records deduplicated provider events, creates one run per event, and dispatches it through cell ingress. |
+| `vectis-scm-poller` | Claims due SCM poll triggers, calls registered providers, and hands provider events to the shared SCM trigger event dispatcher. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
 | `vectis-ui` | Serves the embedded browser UI, manages browser sessions as a backend-for-frontend, and proxies browser API calls to `vectis-api`. |
@@ -137,7 +137,7 @@ Five components can produce work today:
 - `vectis-reconciler`, when a recorded run still needs queue handoff
 - `vectis-worker`, when task fan-out produces a continuation execution
 
-`vectis-scm-poller` is part of the trigger family. It records provider events into the database, links each new stable event key to one durable run, and dispatches that run through the shared trigger dispatch path.
+`vectis-scm-poller` is part of the trigger family. Shared SCM trigger event handling records provider events into the database, links each new stable event key to one durable run, and dispatches that run through the shared trigger dispatch path.
 
 Workers are the execution side. Each `vectis-worker` process handles one task delivery at a time. Task execution claims and leases live in `vectis-orchestrator`, so the orchestrator fences duplicate queue deliveries while the database remains the durable catalog and repair surface.
 
