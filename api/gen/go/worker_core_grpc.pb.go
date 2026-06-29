@@ -19,9 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	WorkerCoreService_DescribeCore_FullMethodName = "/WorkerCoreService/DescribeCore"
-	WorkerCoreService_ExecuteTask_FullMethodName  = "/WorkerCoreService/ExecuteTask"
-	WorkerCoreService_CancelTask_FullMethodName   = "/WorkerCoreService/CancelTask"
+	WorkerCoreService_DescribeCore_FullMethodName      = "/WorkerCoreService/DescribeCore"
+	WorkerCoreService_ExecuteTask_FullMethodName       = "/WorkerCoreService/ExecuteTask"
+	WorkerCoreService_CancelTask_FullMethodName        = "/WorkerCoreService/CancelTask"
+	WorkerCoreService_WarmCheckoutCache_FullMethodName = "/WorkerCoreService/WarmCheckoutCache"
 )
 
 // WorkerCoreServiceClient is the client API for WorkerCoreService service.
@@ -31,6 +32,7 @@ type WorkerCoreServiceClient interface {
 	DescribeCore(ctx context.Context, in *DescribeWorkerCoreRequest, opts ...grpc.CallOption) (*DescribeWorkerCoreResponse, error)
 	ExecuteTask(ctx context.Context, in *ExecuteWorkerCoreTaskRequest, opts ...grpc.CallOption) (*ExecuteWorkerCoreTaskResponse, error)
 	CancelTask(ctx context.Context, in *CancelWorkerCoreTaskRequest, opts ...grpc.CallOption) (*Empty, error)
+	WarmCheckoutCache(ctx context.Context, in *WarmWorkerCoreCheckoutCacheRequest, opts ...grpc.CallOption) (*WarmWorkerCoreCheckoutCacheResponse, error)
 }
 
 type workerCoreServiceClient struct {
@@ -71,6 +73,16 @@ func (c *workerCoreServiceClient) CancelTask(ctx context.Context, in *CancelWork
 	return out, nil
 }
 
+func (c *workerCoreServiceClient) WarmCheckoutCache(ctx context.Context, in *WarmWorkerCoreCheckoutCacheRequest, opts ...grpc.CallOption) (*WarmWorkerCoreCheckoutCacheResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WarmWorkerCoreCheckoutCacheResponse)
+	err := c.cc.Invoke(ctx, WorkerCoreService_WarmCheckoutCache_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WorkerCoreServiceServer is the server API for WorkerCoreService service.
 // All implementations must embed UnimplementedWorkerCoreServiceServer
 // for forward compatibility.
@@ -78,6 +90,7 @@ type WorkerCoreServiceServer interface {
 	DescribeCore(context.Context, *DescribeWorkerCoreRequest) (*DescribeWorkerCoreResponse, error)
 	ExecuteTask(context.Context, *ExecuteWorkerCoreTaskRequest) (*ExecuteWorkerCoreTaskResponse, error)
 	CancelTask(context.Context, *CancelWorkerCoreTaskRequest) (*Empty, error)
+	WarmCheckoutCache(context.Context, *WarmWorkerCoreCheckoutCacheRequest) (*WarmWorkerCoreCheckoutCacheResponse, error)
 	mustEmbedUnimplementedWorkerCoreServiceServer()
 }
 
@@ -96,6 +109,9 @@ func (UnimplementedWorkerCoreServiceServer) ExecuteTask(context.Context, *Execut
 }
 func (UnimplementedWorkerCoreServiceServer) CancelTask(context.Context, *CancelWorkerCoreTaskRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelTask not implemented")
+}
+func (UnimplementedWorkerCoreServiceServer) WarmCheckoutCache(context.Context, *WarmWorkerCoreCheckoutCacheRequest) (*WarmWorkerCoreCheckoutCacheResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method WarmCheckoutCache not implemented")
 }
 func (UnimplementedWorkerCoreServiceServer) mustEmbedUnimplementedWorkerCoreServiceServer() {}
 func (UnimplementedWorkerCoreServiceServer) testEmbeddedByValue()                           {}
@@ -172,6 +188,24 @@ func _WorkerCoreService_CancelTask_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WorkerCoreService_WarmCheckoutCache_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WarmWorkerCoreCheckoutCacheRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkerCoreServiceServer).WarmCheckoutCache(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkerCoreService_WarmCheckoutCache_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkerCoreServiceServer).WarmCheckoutCache(ctx, req.(*WarmWorkerCoreCheckoutCacheRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WorkerCoreService_ServiceDesc is the grpc.ServiceDesc for WorkerCoreService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -190,6 +224,10 @@ var WorkerCoreService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelTask",
 			Handler:    _WorkerCoreService_CancelTask_Handler,
+		},
+		{
+			MethodName: "WarmCheckoutCache",
+			Handler:    _WorkerCoreService_WarmCheckoutCache_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

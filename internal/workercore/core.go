@@ -25,6 +25,10 @@ type CancellableCore interface {
 	CancelTask(ctx context.Context, req CancelTaskRequest) error
 }
 
+type CheckoutCacheWarmer interface {
+	WarmCheckoutCache(ctx context.Context, req WarmCheckoutCacheRequest) (WarmCheckoutCacheResult, error)
+}
+
 type ExecuteTaskRequest struct {
 	Job     *api.Job
 	TaskKey string
@@ -36,6 +40,20 @@ type CancelTaskRequest struct {
 	RunID     string
 	TaskKey   string
 	Reason    string
+}
+
+type WarmCheckoutCacheRequest struct {
+	RemoteURLs []string
+}
+
+type WarmCheckoutCacheResult struct {
+	Warmed   int
+	Failures []CheckoutCacheWarmFailure
+}
+
+type CheckoutCacheWarmFailure struct {
+	RemoteURL string
+	Message   string
 }
 
 type TaskResultError struct {

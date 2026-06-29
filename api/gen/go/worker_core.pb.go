@@ -373,6 +373,154 @@ func (x *CancelWorkerCoreTaskRequest) GetReason() string {
 	return ""
 }
 
+type WarmWorkerCoreCheckoutCacheRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RemoteUrls    []string               `protobuf:"bytes,1,rep,name=remote_urls,json=remoteUrls" json:"remote_urls,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WarmWorkerCoreCheckoutCacheRequest) Reset() {
+	*x = WarmWorkerCoreCheckoutCacheRequest{}
+	mi := &file_worker_core_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WarmWorkerCoreCheckoutCacheRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WarmWorkerCoreCheckoutCacheRequest) ProtoMessage() {}
+
+func (x *WarmWorkerCoreCheckoutCacheRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_core_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WarmWorkerCoreCheckoutCacheRequest.ProtoReflect.Descriptor instead.
+func (*WarmWorkerCoreCheckoutCacheRequest) Descriptor() ([]byte, []int) {
+	return file_worker_core_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *WarmWorkerCoreCheckoutCacheRequest) GetRemoteUrls() []string {
+	if x != nil {
+		return x.RemoteUrls
+	}
+	return nil
+}
+
+type WarmWorkerCoreCheckoutCacheResponse struct {
+	state         protoimpl.MessageState                `protogen:"open.v1"`
+	Warmed        *int32                                `protobuf:"varint,1,opt,name=warmed" json:"warmed,omitempty"`
+	Failures      []*WorkerCoreCheckoutCacheWarmFailure `protobuf:"bytes,2,rep,name=failures" json:"failures,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WarmWorkerCoreCheckoutCacheResponse) Reset() {
+	*x = WarmWorkerCoreCheckoutCacheResponse{}
+	mi := &file_worker_core_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WarmWorkerCoreCheckoutCacheResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WarmWorkerCoreCheckoutCacheResponse) ProtoMessage() {}
+
+func (x *WarmWorkerCoreCheckoutCacheResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_core_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WarmWorkerCoreCheckoutCacheResponse.ProtoReflect.Descriptor instead.
+func (*WarmWorkerCoreCheckoutCacheResponse) Descriptor() ([]byte, []int) {
+	return file_worker_core_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WarmWorkerCoreCheckoutCacheResponse) GetWarmed() int32 {
+	if x != nil && x.Warmed != nil {
+		return *x.Warmed
+	}
+	return 0
+}
+
+func (x *WarmWorkerCoreCheckoutCacheResponse) GetFailures() []*WorkerCoreCheckoutCacheWarmFailure {
+	if x != nil {
+		return x.Failures
+	}
+	return nil
+}
+
+type WorkerCoreCheckoutCacheWarmFailure struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RemoteUrl     *string                `protobuf:"bytes,1,opt,name=remote_url,json=remoteUrl" json:"remote_url,omitempty"`
+	Message       *string                `protobuf:"bytes,2,opt,name=message" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkerCoreCheckoutCacheWarmFailure) Reset() {
+	*x = WorkerCoreCheckoutCacheWarmFailure{}
+	mi := &file_worker_core_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkerCoreCheckoutCacheWarmFailure) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkerCoreCheckoutCacheWarmFailure) ProtoMessage() {}
+
+func (x *WorkerCoreCheckoutCacheWarmFailure) ProtoReflect() protoreflect.Message {
+	mi := &file_worker_core_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkerCoreCheckoutCacheWarmFailure.ProtoReflect.Descriptor instead.
+func (*WorkerCoreCheckoutCacheWarmFailure) Descriptor() ([]byte, []int) {
+	return file_worker_core_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *WorkerCoreCheckoutCacheWarmFailure) GetRemoteUrl() string {
+	if x != nil && x.RemoteUrl != nil {
+		return *x.RemoteUrl
+	}
+	return ""
+}
+
+func (x *WorkerCoreCheckoutCacheWarmFailure) GetMessage() string {
+	if x != nil && x.Message != nil {
+		return *x.Message
+	}
+	return ""
+}
+
 type WorkerCoreTaskSession struct {
 	state                   protoimpl.MessageState      `protogen:"open.v1"`
 	SessionId               *string                     `protobuf:"bytes,1,opt,name=session_id,json=sessionId" json:"session_id,omitempty"`
@@ -389,7 +537,7 @@ type WorkerCoreTaskSession struct {
 
 func (x *WorkerCoreTaskSession) Reset() {
 	*x = WorkerCoreTaskSession{}
-	mi := &file_worker_core_proto_msgTypes[6]
+	mi := &file_worker_core_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -401,7 +549,7 @@ func (x *WorkerCoreTaskSession) String() string {
 func (*WorkerCoreTaskSession) ProtoMessage() {}
 
 func (x *WorkerCoreTaskSession) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[6]
+	mi := &file_worker_core_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +562,7 @@ func (x *WorkerCoreTaskSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreTaskSession.ProtoReflect.Descriptor instead.
 func (*WorkerCoreTaskSession) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{6}
+	return file_worker_core_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *WorkerCoreTaskSession) GetSessionId() string {
@@ -489,7 +637,7 @@ type WorkerCoreWorkloadIdentity struct {
 
 func (x *WorkerCoreWorkloadIdentity) Reset() {
 	*x = WorkerCoreWorkloadIdentity{}
-	mi := &file_worker_core_proto_msgTypes[7]
+	mi := &file_worker_core_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -501,7 +649,7 @@ func (x *WorkerCoreWorkloadIdentity) String() string {
 func (*WorkerCoreWorkloadIdentity) ProtoMessage() {}
 
 func (x *WorkerCoreWorkloadIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[7]
+	mi := &file_worker_core_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -514,7 +662,7 @@ func (x *WorkerCoreWorkloadIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreWorkloadIdentity.ProtoReflect.Descriptor instead.
 func (*WorkerCoreWorkloadIdentity) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{7}
+	return file_worker_core_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *WorkerCoreWorkloadIdentity) GetSpiffeId() string {
@@ -585,7 +733,7 @@ type WorkerCoreActionLock struct {
 
 func (x *WorkerCoreActionLock) Reset() {
 	*x = WorkerCoreActionLock{}
-	mi := &file_worker_core_proto_msgTypes[8]
+	mi := &file_worker_core_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -597,7 +745,7 @@ func (x *WorkerCoreActionLock) String() string {
 func (*WorkerCoreActionLock) ProtoMessage() {}
 
 func (x *WorkerCoreActionLock) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[8]
+	mi := &file_worker_core_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -610,7 +758,7 @@ func (x *WorkerCoreActionLock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreActionLock.ProtoReflect.Descriptor instead.
 func (*WorkerCoreActionLock) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{8}
+	return file_worker_core_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WorkerCoreActionLock) GetNodeId() string {
@@ -662,7 +810,7 @@ type WorkerCoreActionDescriptor struct {
 
 func (x *WorkerCoreActionDescriptor) Reset() {
 	*x = WorkerCoreActionDescriptor{}
-	mi := &file_worker_core_proto_msgTypes[9]
+	mi := &file_worker_core_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -674,7 +822,7 @@ func (x *WorkerCoreActionDescriptor) String() string {
 func (*WorkerCoreActionDescriptor) ProtoMessage() {}
 
 func (x *WorkerCoreActionDescriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[9]
+	mi := &file_worker_core_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -687,7 +835,7 @@ func (x *WorkerCoreActionDescriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreActionDescriptor.ProtoReflect.Descriptor instead.
 func (*WorkerCoreActionDescriptor) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{9}
+	return file_worker_core_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *WorkerCoreActionDescriptor) GetCanonicalName() string {
@@ -791,7 +939,7 @@ type WorkerCoreInputSchema struct {
 
 func (x *WorkerCoreInputSchema) Reset() {
 	*x = WorkerCoreInputSchema{}
-	mi := &file_worker_core_proto_msgTypes[10]
+	mi := &file_worker_core_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -803,7 +951,7 @@ func (x *WorkerCoreInputSchema) String() string {
 func (*WorkerCoreInputSchema) ProtoMessage() {}
 
 func (x *WorkerCoreInputSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[10]
+	mi := &file_worker_core_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -816,7 +964,7 @@ func (x *WorkerCoreInputSchema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreInputSchema.ProtoReflect.Descriptor instead.
 func (*WorkerCoreInputSchema) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{10}
+	return file_worker_core_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *WorkerCoreInputSchema) GetFields() []*WorkerCoreInputField {
@@ -844,7 +992,7 @@ type WorkerCoreInputField struct {
 
 func (x *WorkerCoreInputField) Reset() {
 	*x = WorkerCoreInputField{}
-	mi := &file_worker_core_proto_msgTypes[11]
+	mi := &file_worker_core_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +1004,7 @@ func (x *WorkerCoreInputField) String() string {
 func (*WorkerCoreInputField) ProtoMessage() {}
 
 func (x *WorkerCoreInputField) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[11]
+	mi := &file_worker_core_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +1017,7 @@ func (x *WorkerCoreInputField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreInputField.ProtoReflect.Descriptor instead.
 func (*WorkerCoreInputField) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{11}
+	return file_worker_core_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *WorkerCoreInputField) GetName() string {
@@ -907,7 +1055,7 @@ type WorkerCorePortSpec struct {
 
 func (x *WorkerCorePortSpec) Reset() {
 	*x = WorkerCorePortSpec{}
-	mi := &file_worker_core_proto_msgTypes[12]
+	mi := &file_worker_core_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -919,7 +1067,7 @@ func (x *WorkerCorePortSpec) String() string {
 func (*WorkerCorePortSpec) ProtoMessage() {}
 
 func (x *WorkerCorePortSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[12]
+	mi := &file_worker_core_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -932,7 +1080,7 @@ func (x *WorkerCorePortSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCorePortSpec.ProtoReflect.Descriptor instead.
 func (*WorkerCorePortSpec) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{12}
+	return file_worker_core_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *WorkerCorePortSpec) GetName() string {
@@ -993,7 +1141,7 @@ type WorkerCoreArtifactMetadata struct {
 
 func (x *WorkerCoreArtifactMetadata) Reset() {
 	*x = WorkerCoreArtifactMetadata{}
-	mi := &file_worker_core_proto_msgTypes[13]
+	mi := &file_worker_core_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1005,7 +1153,7 @@ func (x *WorkerCoreArtifactMetadata) String() string {
 func (*WorkerCoreArtifactMetadata) ProtoMessage() {}
 
 func (x *WorkerCoreArtifactMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[13]
+	mi := &file_worker_core_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1018,7 +1166,7 @@ func (x *WorkerCoreArtifactMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreArtifactMetadata.ProtoReflect.Descriptor instead.
 func (*WorkerCoreArtifactMetadata) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{13}
+	return file_worker_core_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *WorkerCoreArtifactMetadata) GetSessionId() string {
@@ -1087,7 +1235,7 @@ type WorkerCoreLogChunk struct {
 
 func (x *WorkerCoreLogChunk) Reset() {
 	*x = WorkerCoreLogChunk{}
-	mi := &file_worker_core_proto_msgTypes[14]
+	mi := &file_worker_core_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1099,7 +1247,7 @@ func (x *WorkerCoreLogChunk) String() string {
 func (*WorkerCoreLogChunk) ProtoMessage() {}
 
 func (x *WorkerCoreLogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[14]
+	mi := &file_worker_core_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1112,7 +1260,7 @@ func (x *WorkerCoreLogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreLogChunk.ProtoReflect.Descriptor instead.
 func (*WorkerCoreLogChunk) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{14}
+	return file_worker_core_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WorkerCoreLogChunk) GetSessionId() string {
@@ -1139,7 +1287,7 @@ type WorkerCoreArtifactChunk struct {
 
 func (x *WorkerCoreArtifactChunk) Reset() {
 	*x = WorkerCoreArtifactChunk{}
-	mi := &file_worker_core_proto_msgTypes[15]
+	mi := &file_worker_core_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1151,7 +1299,7 @@ func (x *WorkerCoreArtifactChunk) String() string {
 func (*WorkerCoreArtifactChunk) ProtoMessage() {}
 
 func (x *WorkerCoreArtifactChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[15]
+	mi := &file_worker_core_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1164,7 +1312,7 @@ func (x *WorkerCoreArtifactChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreArtifactChunk.ProtoReflect.Descriptor instead.
 func (*WorkerCoreArtifactChunk) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{15}
+	return file_worker_core_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *WorkerCoreArtifactChunk) GetMetadata() *WorkerCoreArtifactMetadata {
@@ -1197,7 +1345,7 @@ type WorkerCoreArtifact struct {
 
 func (x *WorkerCoreArtifact) Reset() {
 	*x = WorkerCoreArtifact{}
-	mi := &file_worker_core_proto_msgTypes[16]
+	mi := &file_worker_core_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1209,7 +1357,7 @@ func (x *WorkerCoreArtifact) String() string {
 func (*WorkerCoreArtifact) ProtoMessage() {}
 
 func (x *WorkerCoreArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_worker_core_proto_msgTypes[16]
+	mi := &file_worker_core_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1222,7 +1370,7 @@ func (x *WorkerCoreArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkerCoreArtifact.ProtoReflect.Descriptor instead.
 func (*WorkerCoreArtifact) Descriptor() ([]byte, []int) {
-	return file_worker_core_proto_rawDescGZIP(), []int{16}
+	return file_worker_core_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *WorkerCoreArtifact) GetName() string {
@@ -1316,7 +1464,17 @@ const file_worker_core_proto_rawDesc = "" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x19\n" +
 	"\btask_key\x18\x03 \x01(\tR\ataskKey\x12\x16\n" +
-	"\x06reason\x18\x04 \x01(\tR\x06reason\"\xae\x03\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"E\n" +
+	"\"WarmWorkerCoreCheckoutCacheRequest\x12\x1f\n" +
+	"\vremote_urls\x18\x01 \x03(\tR\n" +
+	"remoteUrls\"~\n" +
+	"#WarmWorkerCoreCheckoutCacheResponse\x12\x16\n" +
+	"\x06warmed\x18\x01 \x01(\x05R\x06warmed\x12?\n" +
+	"\bfailures\x18\x02 \x03(\v2#.WorkerCoreCheckoutCacheWarmFailureR\bfailures\"]\n" +
+	"\"WorkerCoreCheckoutCacheWarmFailure\x12\x1d\n" +
+	"\n" +
+	"remote_url\x18\x01 \x01(\tR\tremoteUrl\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xae\x03\n" +
 	"\x15WorkerCoreTaskSession\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12%\n" +
@@ -1404,12 +1562,13 @@ const file_worker_core_proto_rawDesc = "" +
 	"blobDigest\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\a \x01(\x03R\tsizeBytes\x12*\n" +
-	"\x11artifact_shard_id\x18\b \x01(\tR\x0fartifactShardId2\xe5\x01\n" +
+	"\x11artifact_shard_id\x18\b \x01(\tR\x0fartifactShardId2\xc5\x02\n" +
 	"\x11WorkerCoreService\x12G\n" +
 	"\fDescribeCore\x12\x1a.DescribeWorkerCoreRequest\x1a\x1b.DescribeWorkerCoreResponse\x12L\n" +
 	"\vExecuteTask\x12\x1d.ExecuteWorkerCoreTaskRequest\x1a\x1e.ExecuteWorkerCoreTaskResponse\x129\n" +
 	"\n" +
-	"CancelTask\x12\x1c.CancelWorkerCoreTaskRequest\x1a\r.common.Empty2\x90\x01\n" +
+	"CancelTask\x12\x1c.CancelWorkerCoreTaskRequest\x1a\r.common.Empty\x12^\n" +
+	"\x11WarmCheckoutCache\x12#.WarmWorkerCoreCheckoutCacheRequest\x1a$.WarmWorkerCoreCheckoutCacheResponse2\x90\x01\n" +
 	"\x16WorkerCoreShellService\x122\n" +
 	"\n" +
 	"StreamLogs\x12\x13.WorkerCoreLogChunk\x1a\r.common.Empty(\x01\x12B\n" +
@@ -1427,66 +1586,72 @@ func file_worker_core_proto_rawDescGZIP() []byte {
 	return file_worker_core_proto_rawDescData
 }
 
-var file_worker_core_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_worker_core_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_worker_core_proto_goTypes = []any{
-	(*DescribeWorkerCoreRequest)(nil),     // 0: DescribeWorkerCoreRequest
-	(*DescribeWorkerCoreResponse)(nil),    // 1: DescribeWorkerCoreResponse
-	(*WorkerCoreCapability)(nil),          // 2: WorkerCoreCapability
-	(*ExecuteWorkerCoreTaskRequest)(nil),  // 3: ExecuteWorkerCoreTaskRequest
-	(*ExecuteWorkerCoreTaskResponse)(nil), // 4: ExecuteWorkerCoreTaskResponse
-	(*CancelWorkerCoreTaskRequest)(nil),   // 5: CancelWorkerCoreTaskRequest
-	(*WorkerCoreTaskSession)(nil),         // 6: WorkerCoreTaskSession
-	(*WorkerCoreWorkloadIdentity)(nil),    // 7: WorkerCoreWorkloadIdentity
-	(*WorkerCoreActionLock)(nil),          // 8: WorkerCoreActionLock
-	(*WorkerCoreActionDescriptor)(nil),    // 9: WorkerCoreActionDescriptor
-	(*WorkerCoreInputSchema)(nil),         // 10: WorkerCoreInputSchema
-	(*WorkerCoreInputField)(nil),          // 11: WorkerCoreInputField
-	(*WorkerCorePortSpec)(nil),            // 12: WorkerCorePortSpec
-	(*WorkerCoreArtifactMetadata)(nil),    // 13: WorkerCoreArtifactMetadata
-	(*WorkerCoreLogChunk)(nil),            // 14: WorkerCoreLogChunk
-	(*WorkerCoreArtifactChunk)(nil),       // 15: WorkerCoreArtifactChunk
-	(*WorkerCoreArtifact)(nil),            // 16: WorkerCoreArtifact
-	nil,                                   // 17: DescribeWorkerCoreResponse.MetadataEntry
-	nil,                                   // 18: WorkerCoreCapability.MetadataEntry
-	nil,                                   // 19: WorkerCoreActionDescriptor.RuntimeConfigEntry
-	(*Job)(nil),                           // 20: common.Job
-	(RunOutcome)(0),                       // 21: common.RunOutcome
-	(*SecretFileMaterial)(nil),            // 22: secrets.SecretFileMaterial
-	(*LogChunk)(nil),                      // 23: common.LogChunk
-	(*Empty)(nil),                         // 24: common.Empty
+	(*DescribeWorkerCoreRequest)(nil),           // 0: DescribeWorkerCoreRequest
+	(*DescribeWorkerCoreResponse)(nil),          // 1: DescribeWorkerCoreResponse
+	(*WorkerCoreCapability)(nil),                // 2: WorkerCoreCapability
+	(*ExecuteWorkerCoreTaskRequest)(nil),        // 3: ExecuteWorkerCoreTaskRequest
+	(*ExecuteWorkerCoreTaskResponse)(nil),       // 4: ExecuteWorkerCoreTaskResponse
+	(*CancelWorkerCoreTaskRequest)(nil),         // 5: CancelWorkerCoreTaskRequest
+	(*WarmWorkerCoreCheckoutCacheRequest)(nil),  // 6: WarmWorkerCoreCheckoutCacheRequest
+	(*WarmWorkerCoreCheckoutCacheResponse)(nil), // 7: WarmWorkerCoreCheckoutCacheResponse
+	(*WorkerCoreCheckoutCacheWarmFailure)(nil),  // 8: WorkerCoreCheckoutCacheWarmFailure
+	(*WorkerCoreTaskSession)(nil),               // 9: WorkerCoreTaskSession
+	(*WorkerCoreWorkloadIdentity)(nil),          // 10: WorkerCoreWorkloadIdentity
+	(*WorkerCoreActionLock)(nil),                // 11: WorkerCoreActionLock
+	(*WorkerCoreActionDescriptor)(nil),          // 12: WorkerCoreActionDescriptor
+	(*WorkerCoreInputSchema)(nil),               // 13: WorkerCoreInputSchema
+	(*WorkerCoreInputField)(nil),                // 14: WorkerCoreInputField
+	(*WorkerCorePortSpec)(nil),                  // 15: WorkerCorePortSpec
+	(*WorkerCoreArtifactMetadata)(nil),          // 16: WorkerCoreArtifactMetadata
+	(*WorkerCoreLogChunk)(nil),                  // 17: WorkerCoreLogChunk
+	(*WorkerCoreArtifactChunk)(nil),             // 18: WorkerCoreArtifactChunk
+	(*WorkerCoreArtifact)(nil),                  // 19: WorkerCoreArtifact
+	nil,                                         // 20: DescribeWorkerCoreResponse.MetadataEntry
+	nil,                                         // 21: WorkerCoreCapability.MetadataEntry
+	nil,                                         // 22: WorkerCoreActionDescriptor.RuntimeConfigEntry
+	(*Job)(nil),                                 // 23: common.Job
+	(RunOutcome)(0),                             // 24: common.RunOutcome
+	(*SecretFileMaterial)(nil),                  // 25: secrets.SecretFileMaterial
+	(*LogChunk)(nil),                            // 26: common.LogChunk
+	(*Empty)(nil),                               // 27: common.Empty
 }
 var file_worker_core_proto_depIdxs = []int32{
 	2,  // 0: DescribeWorkerCoreResponse.capabilities:type_name -> WorkerCoreCapability
-	17, // 1: DescribeWorkerCoreResponse.metadata:type_name -> DescribeWorkerCoreResponse.MetadataEntry
-	18, // 2: WorkerCoreCapability.metadata:type_name -> WorkerCoreCapability.MetadataEntry
-	20, // 3: ExecuteWorkerCoreTaskRequest.job:type_name -> common.Job
-	6,  // 4: ExecuteWorkerCoreTaskRequest.session:type_name -> WorkerCoreTaskSession
-	21, // 5: ExecuteWorkerCoreTaskResponse.outcome:type_name -> common.RunOutcome
-	7,  // 6: WorkerCoreTaskSession.workload_identity:type_name -> WorkerCoreWorkloadIdentity
-	8,  // 7: WorkerCoreTaskSession.action_locks:type_name -> WorkerCoreActionLock
-	22, // 8: WorkerCoreTaskSession.secret_files:type_name -> secrets.SecretFileMaterial
-	9,  // 9: WorkerCoreActionLock.descriptor:type_name -> WorkerCoreActionDescriptor
-	19, // 10: WorkerCoreActionDescriptor.runtime_config:type_name -> WorkerCoreActionDescriptor.RuntimeConfigEntry
-	10, // 11: WorkerCoreActionDescriptor.input_schema:type_name -> WorkerCoreInputSchema
-	12, // 12: WorkerCoreActionDescriptor.port_schema:type_name -> WorkerCorePortSpec
-	11, // 13: WorkerCoreInputSchema.fields:type_name -> WorkerCoreInputField
-	23, // 14: WorkerCoreLogChunk.chunk:type_name -> common.LogChunk
-	13, // 15: WorkerCoreArtifactChunk.metadata:type_name -> WorkerCoreArtifactMetadata
-	0,  // 16: WorkerCoreService.DescribeCore:input_type -> DescribeWorkerCoreRequest
-	3,  // 17: WorkerCoreService.ExecuteTask:input_type -> ExecuteWorkerCoreTaskRequest
-	5,  // 18: WorkerCoreService.CancelTask:input_type -> CancelWorkerCoreTaskRequest
-	14, // 19: WorkerCoreShellService.StreamLogs:input_type -> WorkerCoreLogChunk
-	15, // 20: WorkerCoreShellService.PublishArtifact:input_type -> WorkerCoreArtifactChunk
-	1,  // 21: WorkerCoreService.DescribeCore:output_type -> DescribeWorkerCoreResponse
-	4,  // 22: WorkerCoreService.ExecuteTask:output_type -> ExecuteWorkerCoreTaskResponse
-	24, // 23: WorkerCoreService.CancelTask:output_type -> common.Empty
-	24, // 24: WorkerCoreShellService.StreamLogs:output_type -> common.Empty
-	16, // 25: WorkerCoreShellService.PublishArtifact:output_type -> WorkerCoreArtifact
-	21, // [21:26] is the sub-list for method output_type
-	16, // [16:21] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	20, // 1: DescribeWorkerCoreResponse.metadata:type_name -> DescribeWorkerCoreResponse.MetadataEntry
+	21, // 2: WorkerCoreCapability.metadata:type_name -> WorkerCoreCapability.MetadataEntry
+	23, // 3: ExecuteWorkerCoreTaskRequest.job:type_name -> common.Job
+	9,  // 4: ExecuteWorkerCoreTaskRequest.session:type_name -> WorkerCoreTaskSession
+	24, // 5: ExecuteWorkerCoreTaskResponse.outcome:type_name -> common.RunOutcome
+	8,  // 6: WarmWorkerCoreCheckoutCacheResponse.failures:type_name -> WorkerCoreCheckoutCacheWarmFailure
+	10, // 7: WorkerCoreTaskSession.workload_identity:type_name -> WorkerCoreWorkloadIdentity
+	11, // 8: WorkerCoreTaskSession.action_locks:type_name -> WorkerCoreActionLock
+	25, // 9: WorkerCoreTaskSession.secret_files:type_name -> secrets.SecretFileMaterial
+	12, // 10: WorkerCoreActionLock.descriptor:type_name -> WorkerCoreActionDescriptor
+	22, // 11: WorkerCoreActionDescriptor.runtime_config:type_name -> WorkerCoreActionDescriptor.RuntimeConfigEntry
+	13, // 12: WorkerCoreActionDescriptor.input_schema:type_name -> WorkerCoreInputSchema
+	15, // 13: WorkerCoreActionDescriptor.port_schema:type_name -> WorkerCorePortSpec
+	14, // 14: WorkerCoreInputSchema.fields:type_name -> WorkerCoreInputField
+	26, // 15: WorkerCoreLogChunk.chunk:type_name -> common.LogChunk
+	16, // 16: WorkerCoreArtifactChunk.metadata:type_name -> WorkerCoreArtifactMetadata
+	0,  // 17: WorkerCoreService.DescribeCore:input_type -> DescribeWorkerCoreRequest
+	3,  // 18: WorkerCoreService.ExecuteTask:input_type -> ExecuteWorkerCoreTaskRequest
+	5,  // 19: WorkerCoreService.CancelTask:input_type -> CancelWorkerCoreTaskRequest
+	6,  // 20: WorkerCoreService.WarmCheckoutCache:input_type -> WarmWorkerCoreCheckoutCacheRequest
+	17, // 21: WorkerCoreShellService.StreamLogs:input_type -> WorkerCoreLogChunk
+	18, // 22: WorkerCoreShellService.PublishArtifact:input_type -> WorkerCoreArtifactChunk
+	1,  // 23: WorkerCoreService.DescribeCore:output_type -> DescribeWorkerCoreResponse
+	4,  // 24: WorkerCoreService.ExecuteTask:output_type -> ExecuteWorkerCoreTaskResponse
+	27, // 25: WorkerCoreService.CancelTask:output_type -> common.Empty
+	7,  // 26: WorkerCoreService.WarmCheckoutCache:output_type -> WarmWorkerCoreCheckoutCacheResponse
+	27, // 27: WorkerCoreShellService.StreamLogs:output_type -> common.Empty
+	19, // 28: WorkerCoreShellService.PublishArtifact:output_type -> WorkerCoreArtifact
+	23, // [23:29] is the sub-list for method output_type
+	17, // [17:23] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_worker_core_proto_init() }
@@ -1502,7 +1667,7 @@ func file_worker_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_worker_core_proto_rawDesc), len(file_worker_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

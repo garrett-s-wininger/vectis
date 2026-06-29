@@ -22,6 +22,7 @@ import (
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/socktest"
 	"vectis/internal/workercore"
+	workersdk "vectis/sdk/workercore"
 
 	"google.golang.org/grpc"
 )
@@ -62,6 +63,18 @@ func TestWorkerCorePersistentCheckoutCacheRemoteURLs(t *testing.T) {
 		if remotes[i] != want[i] {
 			t.Fatalf("remotes = %v, want %v", remotes, want)
 		}
+	}
+}
+
+func TestWorkerCoreCapabilitiesAdvertiseCheckoutCacheWarmWithRoot(t *testing.T) {
+	withoutRoot := workercore.CoreDescription{Capabilities: workerCoreCapabilities("")}
+	if workercore.HasCoreCapability(withoutRoot, workersdk.CapabilityCheckoutCacheWarm) {
+		t.Fatal("checkout cache warm capability advertised without cache root")
+	}
+
+	withRoot := workercore.CoreDescription{Capabilities: workerCoreCapabilities(t.TempDir())}
+	if !workercore.HasCoreCapability(withRoot, workersdk.CapabilityCheckoutCacheWarm) {
+		t.Fatal("checkout cache warm capability missing with cache root")
 	}
 }
 

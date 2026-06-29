@@ -162,8 +162,22 @@ func (c *RemoteCore) CancelTask(ctx context.Context, req CancelTaskRequest) erro
 	return nil
 }
 
+func (c *RemoteCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCacheRequest) (WarmCheckoutCacheResult, error) {
+	if c == nil || c.client == nil {
+		return WarmCheckoutCacheResult{}, fmt.Errorf("remote worker core is not configured")
+	}
+
+	resp, err := c.client.WarmCheckoutCache(ctx, WarmCheckoutCacheRequestProto(req))
+	if err != nil {
+		return WarmCheckoutCacheResult{}, fmt.Errorf("remote worker core warm checkout cache: %w", err)
+	}
+
+	return WarmCheckoutCacheResultFromProto(resp), nil
+}
+
 var _ Core = (*RemoteCore)(nil)
 var _ CancellableCore = (*RemoteCore)(nil)
+var _ CheckoutCacheWarmer = (*RemoteCore)(nil)
 
 func ExecuteTaskRequestProto(req ExecuteTaskRequest) (*api.ExecuteWorkerCoreTaskRequest, error) {
 	if req.Job == nil {
@@ -218,6 +232,30 @@ func CoreDescriptionProto(desc CoreDescription) *api.DescribeWorkerCoreResponse 
 		Capabilities:       coreCapabilitiesProto(desc.Capabilities),
 		SupportedIsolation: append([]string(nil), desc.SupportedIsolation...),
 		Metadata:           cloneStringMap(desc.Metadata),
+	}
+}
+
+func WarmCheckoutCacheRequestProto(req WarmCheckoutCacheRequest) *api.WarmWorkerCoreCheckoutCacheRequest {
+	return &api.WarmWorkerCoreCheckoutCacheRequest{
+		RemoteUrls: cloneStringSlice(req.RemoteURLs),
+	}
+}
+
+func WarmCheckoutCacheResultProto(result WarmCheckoutCacheResult) *api.WarmWorkerCoreCheckoutCacheResponse {
+	return &api.WarmWorkerCoreCheckoutCacheResponse{
+		Warmed:   proto.Int32(int32(result.Warmed)),
+		Failures: checkoutCacheWarmFailuresProto(result.Failures),
+	}
+}
+
+func WarmCheckoutCacheResultFromProto(in *api.WarmWorkerCoreCheckoutCacheResponse) WarmCheckoutCacheResult {
+	if in == nil {
+		return WarmCheckoutCacheResult{}
+	}
+
+	return WarmCheckoutCacheResult{
+		Warmed:   int(in.GetWarmed()),
+		Failures: checkoutCacheWarmFailuresFromProto(in.GetFailures()),
 	}
 }
 
@@ -490,6 +528,42 @@ func actionLocksProto(locks []actionregistry.ActionLock) []*api.WorkerCoreAction
 			NodePath:    proto.String(lock.NodePath),
 			Uses:        proto.String(lock.Uses),
 			Descriptor_: descriptorProto(lock.Descriptor),
+		})
+	}
+
+	return out
+}
+
+func checkoutCacheWarmFailuresProto(in []CheckoutCacheWarmFailure) []*api.WorkerCoreCheckoutCacheWarmFailure {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]*api.WorkerCoreCheckoutCacheWarmFailure, 0, len(in))
+	for _, failure := range in {
+		out = append(out, &api.WorkerCoreCheckoutCacheWarmFailure{
+			RemoteUrl: proto.String(failure.RemoteURL),
+			Message:   proto.String(failure.Message),
+		})
+	}
+
+	return out
+}
+
+func checkoutCacheWarmFailuresFromProto(in []*api.WorkerCoreCheckoutCacheWarmFailure) []CheckoutCacheWarmFailure {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]CheckoutCacheWarmFailure, 0, len(in))
+	for _, failure := range in {
+		if failure == nil {
+			continue
+		}
+
+		out = append(out, CheckoutCacheWarmFailure{
+			RemoteURL: failure.GetRemoteUrl(),
+			Message:   failure.GetMessage(),
 		})
 	}
 

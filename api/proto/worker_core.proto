@@ -9,6 +9,7 @@ service WorkerCoreService {
     rpc DescribeCore(DescribeWorkerCoreRequest) returns (DescribeWorkerCoreResponse);
     rpc ExecuteTask(ExecuteWorkerCoreTaskRequest) returns (ExecuteWorkerCoreTaskResponse);
     rpc CancelTask(CancelWorkerCoreTaskRequest) returns (common.Empty);
+    rpc WarmCheckoutCache(WarmWorkerCoreCheckoutCacheRequest) returns (WarmWorkerCoreCheckoutCacheResponse);
 }
 
 service WorkerCoreShellService {
@@ -48,6 +49,20 @@ message CancelWorkerCoreTaskRequest {
     string run_id = 2;
     string task_key = 3;
     string reason = 4;
+}
+
+message WarmWorkerCoreCheckoutCacheRequest {
+    repeated string remote_urls = 1;
+}
+
+message WarmWorkerCoreCheckoutCacheResponse {
+    int32 warmed = 1;
+    repeated WorkerCoreCheckoutCacheWarmFailure failures = 2;
+}
+
+message WorkerCoreCheckoutCacheWarmFailure {
+    string remote_url = 1;
+    string message = 2;
 }
 
 message WorkerCoreTaskSession {

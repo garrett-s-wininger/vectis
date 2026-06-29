@@ -51,13 +51,9 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 		return false, nil
 	}
 
-	remoteURL, err := NormalizeGitRemoteURL(remoteURL)
-	if err != nil {
-		return false, nil
-	}
-
-	if _, ok := c.persistentRemoteURL[remoteURL]; !ok {
-		return false, nil
+	handled, normalizedRemoteURL, err := c.WarmRemote(ctx, remoteURL, logger)
+	if err != nil || !handled {
+		return handled, err
 	}
 
 	workspace = strings.TrimSpace(workspace)
@@ -65,30 +61,48 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 		return true, fmt.Errorf("%w: workspace is required", ErrInvalidReference)
 	}
 
-	mirrorPath := c.mirrorPath(remoteURL)
-	lock, err := acquireManagedGitWriterLock(ctx, mirrorPath)
-	if err != nil {
-		return true, err
-	}
-	defer lock.Close()
-
-	if err := c.ensureMirror(ctx, remoteURL, mirrorPath, logger); err != nil {
-		return true, err
-	}
-
+	mirrorPath := c.mirrorPath(normalizedRemoteURL)
 	if logger != nil {
-		logger.Info("Cloning repository from worker checkout cache: %s", remoteURL)
+		logger.Info("Cloning repository from worker checkout cache: %s", normalizedRemoteURL)
 	}
 
 	if err := runWorkerCacheGit(ctx, workspace, "clone", "--shared", "--local", "--", mirrorPath, "."); err != nil {
 		return true, fmt.Errorf("clone from worker checkout cache: %w", err)
 	}
 
-	if err := runWorkerCacheGit(ctx, workspace, "remote", "set-url", "origin", remoteURL); err != nil {
+	if err := runWorkerCacheGit(ctx, workspace, "remote", "set-url", "origin", normalizedRemoteURL); err != nil {
 		return true, fmt.Errorf("restore checkout origin URL: %w", err)
 	}
 
 	return true, nil
+}
+
+func (c *WorkerCheckoutCache) WarmRemote(ctx context.Context, remoteURL string, logger interfaces.Logger) (bool, string, error) {
+	if c == nil {
+		return false, "", nil
+	}
+
+	remoteURL, err := NormalizeGitRemoteURL(remoteURL)
+	if err != nil {
+		return false, "", nil
+	}
+
+	if _, ok := c.persistentRemoteURL[remoteURL]; !ok {
+		return false, "", nil
+	}
+
+	mirrorPath := c.mirrorPath(remoteURL)
+	lock, err := acquireManagedGitWriterLock(ctx, mirrorPath)
+	if err != nil {
+		return true, remoteURL, err
+	}
+	defer lock.Close()
+
+	if err := c.ensureMirror(ctx, remoteURL, mirrorPath, logger); err != nil {
+		return true, remoteURL, err
+	}
+
+	return true, remoteURL, nil
 }
 
 func (c *WorkerCheckoutCache) ensureMirror(ctx context.Context, remoteURL, mirrorPath string, logger interfaces.Logger) error {

@@ -302,10 +302,55 @@ func TestServiceExecuteTaskMapsCoreFailureReasonCode(t *testing.T) {
 	}
 }
 
+func TestServiceWarmCheckoutCache(t *testing.T) {
+	core := &recordingWarmCore{
+		result: WarmCheckoutCacheResult{
+			Warmed: 1,
+			Failures: []CheckoutCacheWarmFailure{
+				{RemoteURL: "https://mirror.invalid/fail.git", Message: "fetch failed"},
+			},
+		},
+	}
+
+	service := NewService(core, ServiceOptions{Logger: mocks.NewMockLogger()})
+	resp, err := service.WarmCheckoutCache(context.Background(), &api.WarmWorkerCoreCheckoutCacheRequest{
+		RemoteUrls: []string{"https://mirror.invalid/warm.git"},
+	})
+
+	if err != nil {
+		t.Fatalf("WarmCheckoutCache: %v", err)
+	}
+
+	if !reflect.DeepEqual(core.req.RemoteURLs, []string{"https://mirror.invalid/warm.git"}) {
+		t.Fatalf("warm request = %+v", core.req)
+	}
+
+	if resp.GetWarmed() != 1 ||
+		len(resp.GetFailures()) != 1 ||
+		resp.GetFailures()[0].GetRemoteUrl() != "https://mirror.invalid/fail.git" ||
+		resp.GetFailures()[0].GetMessage() != "fetch failed" {
+		t.Fatalf("warm response = %+v", resp)
+	}
+}
+
 type fakeCoreFunc func(context.Context, ExecuteTaskRequest) error
 
 func (f fakeCoreFunc) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) error {
 	return f(ctx, req)
+}
+
+type recordingWarmCore struct {
+	req    WarmCheckoutCacheRequest
+	result WarmCheckoutCacheResult
+}
+
+func (c *recordingWarmCore) ExecuteTask(context.Context, ExecuteTaskRequest) error {
+	return nil
+}
+
+func (c *recordingWarmCore) WarmCheckoutCache(_ context.Context, req WarmCheckoutCacheRequest) (WarmCheckoutCacheResult, error) {
+	c.req = req
+	return c.result, nil
 }
 
 type recordingCancellableCore struct {

@@ -102,6 +102,24 @@ func (s *Service) CancelTask(ctx context.Context, req *api.CancelWorkerCoreTaskR
 	return &api.Empty{}, nil
 }
 
+func (s *Service) WarmCheckoutCache(ctx context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
+	if s == nil || s.core == nil {
+		return nil, status.Error(codes.FailedPrecondition, "worker core is not configured")
+	}
+
+	warmer, ok := s.core.(CheckoutCacheWarmer)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "worker core does not support checkout cache warming")
+	}
+
+	result, err := warmer.WarmCheckoutCache(ctx, WarmCheckoutCacheRequest{RemoteURLs: req.GetRemoteUrls()})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "warm worker core checkout cache: %v", err)
+	}
+
+	return WarmCheckoutCacheResultProto(result), nil
+}
+
 func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorkerCoreTaskRequest) (ExecuteTaskRequest, func(), error) {
 	if req == nil {
 		return ExecuteTaskRequest{}, func() {}, fmt.Errorf("execute task request is required")

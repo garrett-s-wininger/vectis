@@ -58,18 +58,19 @@ import (
 )
 
 const (
-	maxFailureReasonLen = 4096
-	dequeueBackoffBase  = 500 * time.Millisecond
-	dequeueBackoffMax   = 30 * time.Second
-	longPollTimeout     = 30 * time.Second
-	ackMaxAttempts      = 4
-	ackBackoffBase      = 150 * time.Millisecond
-	ackBackoffMax       = 2 * time.Second
-	finalizeMaxAttempts = 4
-	finalizeBackoffBase = 150 * time.Millisecond
-	finalizeBackoffMax  = 2 * time.Second
-	cancelPollInterval  = 5 * time.Second
-	coreCancelTimeout   = 5 * time.Second
+	maxFailureReasonLen       = 4096
+	dequeueBackoffBase        = 500 * time.Millisecond
+	dequeueBackoffMax         = 30 * time.Second
+	longPollTimeout           = 30 * time.Second
+	ackMaxAttempts            = 4
+	ackBackoffBase            = 150 * time.Millisecond
+	ackBackoffMax             = 2 * time.Second
+	finalizeMaxAttempts       = 4
+	finalizeBackoffBase       = 150 * time.Millisecond
+	finalizeBackoffMax        = 2 * time.Second
+	cancelPollInterval        = 5 * time.Second
+	coreCancelTimeout         = 5 * time.Second
+	checkoutCacheWarmInterval = 5 * time.Minute
 )
 
 var errRunCancelled = errors.New("run cancelled")
@@ -320,6 +321,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		spiffeRegistrationMaxTTL:      config.WorkerSPIFFERegistrationMaxTTL(),
 		cancelCh:                      make(chan string, 1),
 	}
+	w.startCheckoutCacheWarmLoop(coreDescription)
 
 	// Start worker control server for remote cancellation.
 	controlListener, controlAddr, err := startControlListener()
@@ -649,6 +651,84 @@ func (w *worker) checkoutCacheRemoteURLs(ctx context.Context) []string {
 	}
 
 	return sourceRepositoryRemoteURLs(repositories)
+}
+
+func (w *worker) startCheckoutCacheWarmLoop(desc workercore.CoreDescription) {
+	if w == nil || w.core == nil || w.ctx == nil {
+		return
+	}
+
+	if !workercore.HasCoreCapability(desc, workersdk.CapabilityCheckoutCacheWarm) {
+		return
+	}
+
+	warmer, ok := w.core.(workercore.CheckoutCacheWarmer)
+	if !ok {
+		if w.logger != nil {
+			w.logger.Warn("Worker core advertises checkout cache warming but client does not implement it")
+		}
+		return
+	}
+
+	go w.checkoutCacheWarmLoop(w.ctx, warmer)
+}
+
+func (w *worker) checkoutCacheWarmLoop(ctx context.Context, warmer workercore.CheckoutCacheWarmer) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	w.warmCheckoutCache(ctx, warmer)
+
+	ticker := time.NewTicker(checkoutCacheWarmInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			w.warmCheckoutCache(ctx, warmer)
+		}
+	}
+}
+
+func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.CheckoutCacheWarmer) {
+	if w == nil || warmer == nil {
+		return
+	}
+
+	remoteURLs := w.checkoutCacheRemoteURLs(ctx)
+	if len(remoteURLs) == 0 {
+		return
+	}
+
+	result, err := warmer.WarmCheckoutCache(ctx, workercore.WarmCheckoutCacheRequest{RemoteURLs: remoteURLs})
+	if err != nil {
+		if w.logger != nil {
+			w.logger.Warn("Worker checkout cache warm failed: %v", err)
+		}
+		return
+	}
+
+	if w.logger == nil {
+		return
+	}
+
+	if len(result.Failures) == 0 {
+		if result.Warmed > 0 {
+			w.logger.Debug("Worker checkout cache warm completed for %d remotes", result.Warmed)
+		}
+		return
+	}
+
+	w.logger.Warn("Worker checkout cache warm completed with %d failures and %d warmed remotes", len(result.Failures), result.Warmed)
+	for i, failure := range result.Failures {
+		if i >= 3 {
+			w.logger.Warn("Worker checkout cache warm omitted %d additional failures", len(result.Failures)-i)
+			break
+		}
+		w.logger.Warn("Worker checkout cache warm failed for %s: %s", failure.RemoteURL, failure.Message)
+	}
 }
 
 func sourceRepositoryRemoteURLs(repositories []dal.SourceRepositoryRecord) []string {

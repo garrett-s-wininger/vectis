@@ -170,6 +170,26 @@ func TestExecutorCoreBuildsSessionCheckoutCache(t *testing.T) {
 	}
 }
 
+func TestExecutorCoreWarmCheckoutCacheReportsFailures(t *testing.T) {
+	core := NewExecutorCore(nil, WithExecutorCheckoutCacheRoot(t.TempDir()))
+
+	result, err := core.WarmCheckoutCache(context.Background(), WarmCheckoutCacheRequest{
+		RemoteURLs: []string{"\n", "://bad", "://bad"},
+	})
+
+	if err != nil {
+		t.Fatalf("WarmCheckoutCache: %v", err)
+	}
+
+	if result.Warmed != 0 {
+		t.Fatalf("warmed = %d, want 0", result.Warmed)
+	}
+
+	if len(result.Failures) != 1 || result.Failures[0].Message == "" {
+		t.Fatalf("failures = %+v, want one remote failure", result.Failures)
+	}
+}
+
 func TestTaskSessionClonesActionLocks(t *testing.T) {
 	locks := []actionregistry.ActionLock{
 		{

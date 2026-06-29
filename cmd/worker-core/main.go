@@ -60,7 +60,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 		ActionResolver: actionResolver,
 		Description: workercore.CoreDescription{
 			ProtocolVersion:    workercore.ProtocolVersion,
-			Capabilities:       workerCoreCapabilities(),
+			Capabilities:       workerCoreCapabilities(executorConfig.CheckoutCacheRoot),
 			SupportedIsolation: supportedIsolation,
 			Metadata: map[string]string{
 				registry.MetadataWorkerExecutionBackend: backend,
@@ -92,13 +92,19 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	}
 }
 
-func workerCoreCapabilities() []workercore.CoreCapability {
-	return []workercore.CoreCapability{
+func workerCoreCapabilities(checkoutCacheRoot string) []workercore.CoreCapability {
+	capabilities := []workercore.CoreCapability{
 		{Name: workersdk.CapabilityExecute, Version: "v1"},
 		{Name: workersdk.CapabilityCancelTask, Version: "v1"},
 		{Name: workersdk.CapabilityShellLogCallback, Version: "v1"},
 		{Name: workersdk.CapabilityShellArtifactPush, Version: "v1"},
 	}
+
+	if strings.TrimSpace(checkoutCacheRoot) != "" {
+		capabilities = append(capabilities, workercore.CoreCapability{Name: workersdk.CapabilityCheckoutCacheWarm, Version: "v1"})
+	}
+
+	return capabilities
 }
 
 func workerCoreExecutorConfig() (workercore.ExecutorConfig, error) {

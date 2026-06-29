@@ -39,6 +39,47 @@ func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "warmed\n", "warmed")
+
+	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	cache, err := NewWorkerCheckoutCache(cacheRoot, []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	handled, normalizedRemote, err := cache.WarmRemote(context.Background(), remote, nil)
+	if err != nil {
+		t.Fatalf("WarmRemote: %v", err)
+	}
+
+	if !handled {
+		t.Fatal("expected persistent remote to be warmed")
+	}
+
+	if normalizedRemote != remote {
+		t.Fatalf("normalized remote = %q, want %q", normalizedRemote, remote)
+	}
+
+	mirrorParent := filepath.Join(cacheRoot, "mirrors")
+	entries, err := os.ReadDir(mirrorParent)
+	if err != nil {
+		t.Fatalf("read mirror parent: %v", err)
+	}
+
+	mirrors := 0
+	for _, entry := range entries {
+		if entry.IsDir() && filepath.Ext(entry.Name()) == ".git" {
+			mirrors++
+		}
+	}
+
+	if mirrors != 1 {
+		t.Fatalf("expected one warmed mirror under %s, got %+v", mirrorParent, entries)
+	}
+}
+
 func TestWorkerCheckoutCacheIgnoresUnconfiguredRemote(t *testing.T) {
 	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{"https://example.invalid/persistent.git"})
 	if err != nil {

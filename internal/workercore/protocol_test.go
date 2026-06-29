@@ -373,6 +373,43 @@ func TestRemoteCoreExecuteTaskWrapsClientError(t *testing.T) {
 	}
 }
 
+func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
+	var captured *api.WarmWorkerCoreCheckoutCacheRequest
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		warm: func(_ context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
+			captured = req
+			return &api.WarmWorkerCoreCheckoutCacheResponse{
+				Warmed: proto.Int32(1),
+				Failures: []*api.WorkerCoreCheckoutCacheWarmFailure{
+					{
+						RemoteUrl: proto.String("https://mirror.invalid/fail.git"),
+						Message:   proto.String("fetch failed"),
+					},
+				},
+			}, nil
+		},
+	})
+
+	result, err := core.WarmCheckoutCache(context.Background(), WarmCheckoutCacheRequest{
+		RemoteURLs: []string{"https://mirror.invalid/warm.git"},
+	})
+
+	if err != nil {
+		t.Fatalf("WarmCheckoutCache: %v", err)
+	}
+
+	if captured == nil || !reflect.DeepEqual(captured.GetRemoteUrls(), []string{"https://mirror.invalid/warm.git"}) {
+		t.Fatalf("captured warm request = %+v", captured)
+	}
+
+	if result.Warmed != 1 ||
+		len(result.Failures) != 1 ||
+		result.Failures[0].RemoteURL != "https://mirror.invalid/fail.git" ||
+		result.Failures[0].Message != "fetch failed" {
+		t.Fatalf("warm result = %+v", result)
+	}
+}
+
 func TestRemoteCoreCancelTask(t *testing.T) {
 	var captured *api.CancelWorkerCoreTaskRequest
 	core := NewRemoteCore(fakeWorkerCoreClient{
@@ -435,6 +472,7 @@ type fakeWorkerCoreClient struct {
 	describe func(context.Context, *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error)
 	execute  func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error)
 	cancel   func(context.Context, *api.CancelWorkerCoreTaskRequest) (*api.Empty, error)
+	warm     func(context.Context, *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error)
 }
 
 func (f fakeWorkerCoreClient) DescribeCore(ctx context.Context, req *api.DescribeWorkerCoreRequest, _ ...grpc.CallOption) (*api.DescribeWorkerCoreResponse, error) {
@@ -459,6 +497,14 @@ func (f fakeWorkerCoreClient) CancelTask(ctx context.Context, req *api.CancelWor
 	}
 
 	return &api.Empty{}, nil
+}
+
+func (f fakeWorkerCoreClient) WarmCheckoutCache(ctx context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest, _ ...grpc.CallOption) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
+	if f.warm != nil {
+		return f.warm(ctx, req)
+	}
+
+	return &api.WarmWorkerCoreCheckoutCacheResponse{}, nil
 }
 
 type fakeArtifactPublisher struct {

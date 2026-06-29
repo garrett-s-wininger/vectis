@@ -17,6 +17,7 @@ const (
 	CapabilityCancelTask        = "worker-core.cancel_task"
 	CapabilityShellLogCallback  = "worker-core.shell.logs"
 	CapabilityShellArtifactPush = "worker-core.shell.artifacts"
+	CapabilityCheckoutCacheWarm = "worker-core.checkout_cache.warm"
 )
 
 const (

@@ -156,6 +156,52 @@ func TestWorkerCheckoutCacheRemoteURLsUsesPersistentSources(t *testing.T) {
 	}
 }
 
+func TestWorkerWarmCheckoutCacheUsesPersistentSources(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:       "persistent",
+		NamespaceID:        1,
+		SourceKind:         dal.SourceKindLocalCheckout,
+		CheckoutPath:       "/work/persistent",
+		WorkerCacheMode:    dal.SourceWorkerCacheModePersistent,
+		CanonicalURL:       "https://mirror.invalid/persistent.git",
+		FallbackRemoteURLs: []string{"https://tier1.invalid/persistent.git"},
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create persistent source repository: %v", err)
+	}
+
+	warmer := &recordingCheckoutCacheWarmer{}
+	w := &worker{
+		sourceRepositories: sources,
+		logger:             mocks.NewMockLogger(),
+	}
+
+	w.warmCheckoutCache(ctx, warmer)
+
+	want := []string{
+		"https://mirror.invalid/persistent.git",
+		"https://tier1.invalid/persistent.git",
+	}
+	if len(warmer.requests) != 1 || !reflect.DeepEqual(warmer.requests[0].RemoteURLs, want) {
+		t.Fatalf("warm requests = %+v, want one request with %+v", warmer.requests, want)
+	}
+}
+
+type recordingCheckoutCacheWarmer struct {
+	requests []workercore.WarmCheckoutCacheRequest
+	result   workercore.WarmCheckoutCacheResult
+	err      error
+}
+
+func (w *recordingCheckoutCacheWarmer) WarmCheckoutCache(_ context.Context, req workercore.WarmCheckoutCacheRequest) (workercore.WarmCheckoutCacheResult, error) {
+	w.requests = append(w.requests, req)
+	return w.result, w.err
+}
+
 func TestWorkerMarkExecutionStarted_DefersDurableStartForOrchestratorRuns(t *testing.T) {
 	ctx := context.Background()
 	env := &cell.ExecutionEnvelope{
