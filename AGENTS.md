@@ -79,7 +79,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `internal/config/`, `internal/database/`, `internal/dbdrivers/` | Defaults, open DB, `_` driver import |
 | `internal/queue/`, `internal/queueclient/`, `internal/orchestrator/`, `internal/registry/`, `internal/resolver/`, `internal/tlsconfig/` | Queue, hot run orchestration, discovery, dial, TLS reload |
 | `internal/logserver/`, `internal/logforwarder/`, `internal/job/`, `internal/action/` | Execution + logging |
-| `internal/cron/`, `internal/scmpoller/`, `internal/scmtrigger/`, `internal/catalog/`, `internal/cellingress/`, `internal/reconciler/` | Schedules, SCM polling, shared SCM trigger event dispatch, catalog application, cell ingress, recovery |
+| `internal/cron/`, `internal/scmpoller/`, `internal/scmstream/`, `internal/scmtrigger/`, `internal/catalog/`, `internal/cellingress/`, `internal/reconciler/` | Schedules, SCM polling/stream routing, shared SCM trigger event dispatch, catalog application, cell ingress, recovery |
 | `internal/interfaces/`, `internal/observability/`, `internal/cli/`, `internal/testutil/` | Logger, metrics/tracing, signals, tests |
 | `tests/integration/` | Build tag `integration` — [`tests/AGENTS.md`](tests/AGENTS.md) |
 | `deploy/`, `website/docs/`, `formal/tla/` | Kube/Grafana, docs site, TLA+ reconciliation |

@@ -271,6 +271,10 @@ func (r *fakePollRepository) GetReady(_ context.Context, _ time.Time, _ int) ([]
 	return r.ready, nil
 }
 
+func (r *fakePollRepository) ListEnabledByProvider(_ context.Context, _ string, _ int) ([]dal.SCMPollTriggerSpec, error) {
+	return r.ready, nil
+}
+
 func (r *fakePollRepository) ClaimDue(_ context.Context, specID int64, observedNextPoll time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
 	r.claims = append(r.claims, claimCall{
 		specID:           specID,

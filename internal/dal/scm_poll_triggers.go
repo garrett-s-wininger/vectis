@@ -83,6 +83,93 @@ func (r *SQLSCMPollTriggersRepository) GetReady(ctx context.Context, at time.Tim
 	return out, nil
 }
 
+func (r *SQLSCMPollTriggersRepository) ListEnabledByProvider(ctx context.Context, provider string, limit int) ([]SCMPollTriggerSpec, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return nil, fmt.Errorf("%w: scm provider is required", ErrConflict)
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT
+			spts.id,
+			spts.trigger_id,
+			jt.job_id,
+			spts.provider,
+			spts.base_url,
+			spts.project,
+			spts.branch,
+			spts.query,
+			spts.interval_seconds,
+			spts.next_poll_at,
+			spts.cursor
+		FROM scm_poll_trigger_specs spts
+		JOIN job_triggers jt ON jt.id = spts.trigger_id
+		WHERE LOWER(spts.provider) = ?
+		  AND jt.enabled
+		ORDER BY spts.id ASC
+		LIMIT ?
+	`), provider, limit)
+
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []SCMPollTriggerSpec
+	for rows.Next() {
+		spec, err := scanSCMPollTriggerSpec(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, spec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
+type scmPollTriggerSpecScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSCMPollTriggerSpec(scanner scmPollTriggerSpecScanner) (SCMPollTriggerSpec, error) {
+	var spec SCMPollTriggerSpec
+	var intervalSeconds int64
+	var nextPollAt string
+	if err := scanner.Scan(
+		&spec.ID,
+		&spec.TriggerID,
+		&spec.JobID,
+		&spec.Provider,
+		&spec.BaseURL,
+		&spec.Project,
+		&spec.Branch,
+		&spec.Query,
+		&intervalSeconds,
+		&nextPollAt,
+		&spec.Cursor,
+	); err != nil {
+		return SCMPollTriggerSpec{}, normalizeSQLError(err)
+	}
+
+	parsed, err := time.Parse(time.RFC3339, nextPollAt)
+	if err != nil {
+		return SCMPollTriggerSpec{}, fmt.Errorf("parse scm next_poll_at %q: %w", nextPollAt, err)
+	}
+
+	spec.NextPollAt = parsed
+	spec.Interval = time.Duration(intervalSeconds) * time.Second
+	return spec, nil
+}
+
 func (r *SQLSCMPollTriggersRepository) ClaimDue(ctx context.Context, specID int64, observedNextPoll time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
 	result, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`

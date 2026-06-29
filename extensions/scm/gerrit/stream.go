@@ -25,6 +25,19 @@ type StreamOptions struct {
 
 type StreamHandler func(context.Context, scm.Event) error
 
+type StreamEventInfo struct {
+	Provider        string
+	EventType       string
+	Project         string
+	Branch          string
+	ChangeID        string
+	ID              string
+	Number          int
+	Status          string
+	CurrentRevision string
+	Ref             string
+}
+
 func ConsumeStream(ctx context.Context, r io.Reader, opts StreamOptions, handle StreamHandler) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -142,9 +155,58 @@ func NormalizeStreamEvent(raw []byte, opts StreamOptions) (scm.Event, bool, erro
 	}, true, nil
 }
 
+func StreamEventMatchesQuery(event scm.Event, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		query = "status:open"
+	}
+
+	switch query {
+	case "status:open", "is:open":
+	default:
+		return false
+	}
+
+	info, err := StreamEventInfoFromEvent(event)
+	if err != nil {
+		return false
+	}
+
+	return isOpenStatus(info.Status)
+}
+
+func StreamEventInfoFromEvent(event scm.Event) (StreamEventInfo, error) {
+	var payload eventPayload
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
+		return StreamEventInfo{}, fmt.Errorf("decode gerrit stream event payload: %w", err)
+	}
+
+	return StreamEventInfo{
+		Provider:        payload.Provider,
+		EventType:       payload.EventType,
+		Project:         payload.Project,
+		Branch:          payload.Branch,
+		ChangeID:        payload.ChangeID,
+		ID:              payload.ID,
+		Number:          payload.Number,
+		Status:          payload.Status,
+		CurrentRevision: payload.CurrentRevision,
+		Ref:             payload.Ref,
+	}, nil
+}
+
 func matchesStreamFilter(value, filter string) bool {
 	filter = strings.TrimSpace(filter)
 	return filter == "" || strings.TrimSpace(value) == filter
+}
+
+func isOpenStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "NEW", "OPEN":
+		return true
+	default:
+		return false
+	}
 }
 
 func streamChangeIdentity(project, branch, changeID string, number int) string {

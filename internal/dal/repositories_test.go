@@ -6621,6 +6621,44 @@ func TestSCMPollTriggersRepository_GetReadyClaimCompleteAndRecordEvent(t *testin
 	}
 }
 
+func TestSCMPollTriggersRepository_ListEnabledByProvider(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	jobs := repos.Jobs()
+	polls := repos.SCMPollTriggers()
+	ctx := context.Background()
+
+	if err := jobs.Create(ctx, "scm-list-job", `{"id":"scm-list-job"}`, 1); err != nil {
+		t.Fatalf("create stored job: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	gerritSpecID := insertSCMPollTriggerSpec(t, ctx, db, "scm-list-job", "Gerrit", "project", "master", now)
+	disabledSpecID := insertSCMPollTriggerSpec(t, ctx, db, "scm-list-job", "gerrit", "project", "stable", now)
+	insertSCMPollTriggerSpec(t, ctx, db, "scm-list-job", "git", "project", "master", now)
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE job_triggers
+		SET enabled = false
+		WHERE id = (SELECT trigger_id FROM scm_poll_trigger_specs WHERE id = ?)
+	`, disabledSpecID); err != nil {
+		t.Fatalf("disable scm trigger: %v", err)
+	}
+
+	specs, err := polls.ListEnabledByProvider(ctx, "gerrit", 10)
+	if err != nil {
+		t.Fatalf("ListEnabledByProvider: %v", err)
+	}
+
+	if len(specs) != 1 {
+		t.Fatalf("expected one enabled Gerrit spec, got %+v", specs)
+	}
+
+	if specs[0].ID != gerritSpecID || specs[0].Provider != "Gerrit" || specs[0].Project != "project" || specs[0].Branch != "master" {
+		t.Fatalf("unexpected spec: %+v", specs[0])
+	}
+}
+
 func TestSchedulesRepository_ClaimDueCompleteAndRelease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)

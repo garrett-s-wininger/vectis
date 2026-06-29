@@ -144,3 +144,58 @@ func TestConsumeStreamEmitsNormalizedEvents(t *testing.T) {
 		t.Fatalf("events should dedupe to the same revision key, got %+v", events)
 	}
 }
+
+func TestStreamEventMatchesQueryConservatively(t *testing.T) {
+	event, ok, err := NormalizeStreamEvent([]byte(`{
+		"type":"patchset-created",
+		"change":{"project":"project","branch":"master","id":"Iabc","number":17,"status":"NEW"},
+		"patchSet":{"revision":"rev2","ref":"refs/changes/17/17/2"}
+	}`), StreamOptions{BaseURL: "http://gerrit.example.com"})
+
+	if err != nil {
+		t.Fatalf("NormalizeStreamEvent: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected stream event")
+	}
+
+	for _, query := range []string{"", "status:open", "is:open"} {
+		if !StreamEventMatchesQuery(event, query) {
+			t.Fatalf("StreamEventMatchesQuery(%q) = false, want true", query)
+		}
+	}
+
+	for _, query := range []string{"label:Verified=0", "status:merged"} {
+		if StreamEventMatchesQuery(event, query) {
+			t.Fatalf("StreamEventMatchesQuery(%q) = true, want false", query)
+		}
+	}
+}
+
+func TestStreamEventInfoFromEvent(t *testing.T) {
+	event, ok, err := NormalizeStreamEvent([]byte(`{
+		"type":"patchset-created",
+		"change":{"project":"project","branch":"master","id":"Iabc","number":17,"status":"NEW"},
+		"patchSet":{"revision":"rev2","ref":"refs/changes/17/17/2"}
+	}`), StreamOptions{BaseURL: "http://gerrit.example.com"})
+
+	if err != nil {
+		t.Fatalf("NormalizeStreamEvent: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected stream event")
+	}
+
+	info, err := StreamEventInfoFromEvent(event)
+	if err != nil {
+		t.Fatalf("StreamEventInfoFromEvent: %v", err)
+	}
+
+	if info.Provider != "gerrit" || info.EventType != "patchset-created" || info.Project != "project" ||
+		info.Branch != "master" || info.ChangeID != "Iabc" || info.ID != "project~master~Iabc" ||
+		info.Number != 17 || info.Status != "NEW" || info.CurrentRevision != "rev2" || info.Ref != "refs/changes/17/17/2" {
+		t.Fatalf("info = %+v", info)
+	}
+}

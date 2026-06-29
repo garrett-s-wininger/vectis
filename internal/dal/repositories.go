@@ -1117,6 +1117,7 @@ type SchedulesRepository interface {
 
 type SCMPollTriggersRepository interface {
 	GetReady(ctx context.Context, at time.Time, limit int) ([]SCMPollTriggerSpec, error)
+	ListEnabledByProvider(ctx context.Context, provider string, limit int) ([]SCMPollTriggerSpec, error)
 	ClaimDue(ctx context.Context, specID int64, observedNextPoll time.Time, claimToken string, claimedUntil, now time.Time) (bool, error)
 	CompleteClaim(ctx context.Context, specID int64, claimToken string, nextPoll time.Time, cursor string) (bool, error)
 	ReleaseClaim(ctx context.Context, specID int64, claimToken string) error
