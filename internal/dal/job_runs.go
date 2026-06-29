@@ -1894,6 +1894,10 @@ func (r *SQLRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobI
 	return createdRuns, nil
 }
 
+func (r *SQLRunsRepository) ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]CreatedRun, error) {
+	return r.ListCreatedByTriggerInvocation(ctx, triggerInvocationID)
+}
+
 func (r *SQLRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error) {
 	if scheduleID <= 0 {
 		return "", 0, 0, false, fmt.Errorf("schedule id is required")

@@ -282,6 +282,39 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 	}
 }
 
+func TestTriggerInvocations_RecordIsIdempotentForSameInvocationID(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	create := dal.TriggerInvocation{
+		InvocationID:       "trigger-idempotent",
+		JobID:              "job-idempotent",
+		TriggerType:        dal.TriggerTypeReaction,
+		TriggerPayloadHash: dal.PayloadHash(`{"reaction_invocation_id":"trigger-idempotent"}`),
+		RequestedCells:     []string{"iad-a", "pdx-b"},
+	}
+
+	first, err := repos.TriggerInvocations().Record(ctx, create)
+	if err != nil {
+		t.Fatalf("record first trigger invocation: %v", err)
+	}
+
+	duplicate, err := repos.TriggerInvocations().Record(ctx, create)
+	if err != nil {
+		t.Fatalf("record duplicate trigger invocation: %v", err)
+	}
+
+	if duplicate.ID != first.ID || duplicate.InvocationID != first.InvocationID {
+		t.Fatalf("duplicate trigger invocation: got %+v want %+v", duplicate, first)
+	}
+
+	create.TriggerPayloadHash = dal.PayloadHash(`{"reaction_invocation_id":"different"}`)
+	if _, err := repos.TriggerInvocations().Record(ctx, create); !dal.IsConflict(err) {
+		t.Fatalf("expected conflicting trigger invocation, got %v", err)
+	}
+}
+
 func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")

@@ -554,7 +554,27 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 }
 
 func (m *MockRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]dal.CreatedRun, error) {
-	return nil, nil
+	return m.ListRunsByTriggerInvocation(ctx, invocationID)
+}
+
+func (m *MockRunsRepository) ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]dal.CreatedRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var out []dal.CreatedRun
+	for _, rec := range m.RunRecords {
+		if rec.TriggerInvocationID == nil || *rec.TriggerInvocationID != triggerInvocationID {
+			continue
+		}
+
+		out = append(out, dal.CreatedRun{
+			RunID:        rec.RunID,
+			RunIndex:     rec.RunIndex,
+			TargetCellID: rec.OwningCell,
+		})
+	}
+
+	return out, nil
 }
 
 func mockRootDispatchRecord(runID, jobID string, runIndex int, targetCellID string, definitionVersion int, definitionHash string, namespacePath string, startDeadlineUnixNano int64) dal.ExecutionDispatchRecord {

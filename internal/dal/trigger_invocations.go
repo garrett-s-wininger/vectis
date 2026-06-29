@@ -23,16 +23,11 @@ func (r *SQLTriggerInvocationsRepository) Record(ctx context.Context, invocation
 		triggerID = *normalized.TriggerID
 	}
 
-	var recordTriggerID *int64
-	if normalized.TriggerID != nil {
-		v := *normalized.TriggerID
-		recordTriggerID = &v
-	}
-
 	if _, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
 		INSERT INTO trigger_invocations
 			(invocation_id, trigger_id, job_id, trigger_type, trigger_payload_hash, requested_cells)
 		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(invocation_id) DO NOTHING
 	`),
 		normalized.InvocationID,
 		triggerID,
@@ -44,14 +39,59 @@ func (r *SQLTriggerInvocationsRepository) Record(ctx context.Context, invocation
 		return TriggerInvocationRecord{}, normalizeSQLError(err)
 	}
 
-	return TriggerInvocationRecord{
-		InvocationID:       normalized.InvocationID,
-		TriggerID:          recordTriggerID,
-		JobID:              normalized.JobID,
-		TriggerType:        normalized.TriggerType,
-		TriggerPayloadHash: normalized.TriggerPayloadHash,
-		RequestedCellsJSON: requestedCellsJSON,
-	}, nil
+	rec, err := r.get(ctx, normalized.InvocationID)
+	if err != nil {
+		return TriggerInvocationRecord{}, err
+	}
+
+	if !sameTriggerInvocation(rec, normalized, requestedCellsJSON) {
+		return TriggerInvocationRecord{}, fmt.Errorf("%w: trigger invocation %s already exists with different content", ErrConflict, normalized.InvocationID)
+	}
+
+	return rec, nil
+}
+
+func (r *SQLTriggerInvocationsRepository) get(ctx context.Context, invocationID string) (TriggerInvocationRecord, error) {
+	var rec TriggerInvocationRecord
+	var nullableTriggerID sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
+		SELECT id, invocation_id, trigger_id, job_id, trigger_type, trigger_payload_hash, requested_cells
+		FROM trigger_invocations
+		WHERE invocation_id = ?
+	`), invocationID).Scan(
+		&rec.ID,
+		&rec.InvocationID,
+		&nullableTriggerID,
+		&rec.JobID,
+		&rec.TriggerType,
+		&rec.TriggerPayloadHash,
+		&rec.RequestedCellsJSON,
+	); err != nil {
+		return TriggerInvocationRecord{}, normalizeSQLError(err)
+	}
+
+	if nullableTriggerID.Valid {
+		v := nullableTriggerID.Int64
+		rec.TriggerID = &v
+	}
+
+	return rec, nil
+}
+
+func sameTriggerInvocation(rec TriggerInvocationRecord, normalized TriggerInvocation, requestedCellsJSON string) bool {
+	if rec.InvocationID != normalized.InvocationID ||
+		rec.JobID != normalized.JobID ||
+		rec.TriggerType != normalized.TriggerType ||
+		rec.TriggerPayloadHash != normalized.TriggerPayloadHash ||
+		rec.RequestedCellsJSON != requestedCellsJSON {
+		return false
+	}
+
+	if rec.TriggerID == nil || normalized.TriggerID == nil {
+		return rec.TriggerID == nil && normalized.TriggerID == nil
+	}
+
+	return *rec.TriggerID == *normalized.TriggerID
 }
 
 func normalizeTriggerInvocation(invocation TriggerInvocation) (TriggerInvocation, string, error) {
@@ -68,6 +108,10 @@ func normalizeTriggerInvocation(invocation TriggerInvocation) (TriggerInvocation
 	invocation.TriggerType = strings.TrimSpace(invocation.TriggerType)
 	if invocation.TriggerType == "" {
 		return TriggerInvocation{}, "", fmt.Errorf("%w: trigger_type is required", ErrConflict)
+	}
+
+	if !validTriggerInvocationType(invocation.TriggerType) {
+		return TriggerInvocation{}, "", fmt.Errorf("%w: unsupported trigger_type %q", ErrConflict, invocation.TriggerType)
 	}
 
 	invocation.TriggerPayloadHash = strings.TrimSpace(invocation.TriggerPayloadHash)
@@ -92,6 +136,19 @@ func normalizeTriggerInvocation(invocation TriggerInvocation) (TriggerInvocation
 	}
 
 	return invocation, string(requestedCellsJSON), nil
+}
+
+func validTriggerInvocationType(triggerType string) bool {
+	switch triggerType {
+	case TriggerTypeManual,
+		TriggerTypeCron,
+		TriggerTypeReaction,
+		TriggerTypeReplay,
+		TriggerTypeWebhook:
+		return true
+	default:
+		return false
+	}
 }
 
 var _ TriggerInvocationsRepository = (*SQLTriggerInvocationsRepository)(nil)

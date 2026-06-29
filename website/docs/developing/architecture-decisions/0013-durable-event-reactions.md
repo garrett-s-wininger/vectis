@@ -114,10 +114,19 @@ gives tests and local development an assertable sink:
   messages without depending on external services.
 - Operators can inspect local messages while bringing up the subsystem.
 
-Job chaining is a future reaction target, not part of the first implementation
-slice. A later `builtins/trigger-job` reaction action can consume the same event
-payload, use the same invocation/retry/audit path, and create a new run without
-being part of the completed job's DAG.
+Job chaining uses `builtins/trigger-job`. The target config names a downstream
+stored `job_id` and optional target cell IDs. The action consumes the same event
+payload, uses the same invocation/retry/audit path, records a `reaction` trigger
+invocation keyed by the reaction invocation ID, and creates audited queued runs
+without making the downstream job part of the completed job's DAG. If a retry
+finds queued runs already tied to that trigger invocation, it reuses them rather
+than creating duplicates.
+
+`builtins/trigger-job` performs static cycle checks before creating runs. Direct
+self-triggers are rejected, configured completion-trigger paths are checked for
+a path back to the source job, and wildcard completion subscriptions are treated
+conservatively because they would also match the downstream job's own
+completion.
 
 Reaction invocation uses at-least-once semantics. Reaction actions receive a
 stable event ID and reaction invocation ID so external sinks and downstream run
@@ -194,12 +203,15 @@ validated against known values before durable rows are written.
 - Reaction actions reuse the action registry without becoming job nodes.
 - The local notification action gives a deterministic integration-test surface
   before any external transport is implemented.
-- Manual notices, operator re-sends, automatic lifecycle notices, and future job
+- Manual notices, operator re-sends, automatic lifecycle notices, and job
   chaining exercise the same invocation code path.
 - Reaction invocation has its own retry and repair model instead of borrowing
   task execution retries.
 - Frozen reaction action descriptors make invocation retries explainable even
   when target configuration or action registry state changes later.
+- Job-trigger reactions create durable queued runs; immediate enqueue can be
+  wired through the normal dispatch path, and the reconciler remains the repair
+  path for queued runs that were not dispatched promptly.
 - The database gains another append/retry workload; retention and capacity
   policies must include reaction events and invocations.
 - Operators need visibility into stuck invocations, retry pressure, target
@@ -221,9 +233,8 @@ validated against known values before durable rows are written.
   key?
 - Which external notification action should follow `builtins/notify-local`:
   webhook, SMTP, or chat?
-- What should the reaction action interface look like: a small sibling of
-  `action.Node`, or a constrained profile of existing action descriptors with
-  reaction-specific execution state?
+- Should `builtins/trigger-job` perform immediate dispatch from the reaction
+  runner, or should it leave dispatch entirely to the reconciler repair loop?
 - What retention defaults should apply to events, successful invocations, failed
   invocations, and local messages?
 

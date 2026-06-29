@@ -154,6 +154,11 @@ func TestReactionsRepository_ValidatesTargetActionPairs(t *testing.T) {
 			kind: dal.ReactionTargetKindJob,
 			uses: dal.ReactionActionNotifyLocal,
 		},
+		{
+			name: "job-missing-id",
+			kind: dal.ReactionTargetKindJob,
+			uses: dal.ReactionActionTriggerJob,
+		},
 	}
 
 	for _, tt := range tests {

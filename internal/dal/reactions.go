@@ -129,6 +129,15 @@ func (r *SQLReactionsRepository) CreateTarget(ctx context.Context, create Reacti
 	if err != nil {
 		return ReactionTargetRecord{}, err
 	}
+	if kind == ReactionTargetKindJob {
+		jobID, err := reactionTargetJobID(config)
+		if err != nil {
+			return ReactionTargetRecord{}, err
+		}
+		if jobID == "" {
+			return ReactionTargetRecord{}, fmt.Errorf("%w: job reaction target config_json requires job_id", ErrConflict)
+		}
+	}
 
 	secretRefs, err := normalizeJSONArray(create.SecretRefsJSON, "secret_refs_json", "[]")
 	if err != nil {
@@ -343,6 +352,63 @@ func (r *SQLReactionsRepository) ListMatchingSubscriptions(ctx context.Context, 
 		}
 
 		out = append(out, match)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return out, nil
+}
+
+func (r *SQLReactionsRepository) ListJobTriggerEdges(ctx context.Context) ([]ReactionJobTriggerEdge, error) {
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
+		SELECT s.subscription_id, s.job_id, s.event_type, s.run_status, s.trigger_type,
+		       t.target_id, t.config_json
+		FROM reaction_subscriptions s
+		JOIN reaction_targets t ON t.target_id = s.target_id
+		WHERE s.enabled = ?
+		  AND t.enabled = ?
+		  AND t.kind = ?
+		  AND t.uses = ?
+		ORDER BY s.id ASC, t.id ASC
+	`), true, true, ReactionTargetKindJob, ReactionActionTriggerJob)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var out []ReactionJobTriggerEdge
+	for rows.Next() {
+		var edge ReactionJobTriggerEdge
+		var configJSON string
+		if err := rows.Scan(
+			&edge.SubscriptionID,
+			&edge.SourceJobID,
+			&edge.EventType,
+			&edge.RunStatus,
+			&edge.TriggerType,
+			&edge.TargetID,
+			&configJSON,
+		); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+
+		targetJobID, err := reactionTargetJobID([]byte(configJSON))
+		if err != nil {
+			return nil, err
+		}
+
+		if targetJobID == "" {
+			continue
+		}
+
+		edge.SourceJobID = strings.TrimSpace(edge.SourceJobID)
+		edge.TargetJobID = targetJobID
+		edge.EventType = strings.TrimSpace(edge.EventType)
+		edge.RunStatus = strings.TrimSpace(edge.RunStatus)
+		edge.TriggerType = strings.TrimSpace(edge.TriggerType)
+		out = append(out, edge)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -1144,6 +1210,23 @@ func reactionEventPayloadString(payload []byte, field string) string {
 	return strings.TrimSpace(value)
 }
 
+func reactionTargetJobID(configJSON []byte) (string, error) {
+	configJSON = bytes.TrimSpace(configJSON)
+	if len(configJSON) == 0 {
+		return "", nil
+	}
+
+	var config struct {
+		JobID string `json:"job_id"`
+	}
+
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		return "", fmt.Errorf("%w: trigger job target config_json must be valid JSON", ErrConflict)
+	}
+
+	return strings.TrimSpace(config.JobID), nil
+}
+
 func normalizeJSONObject(raw []byte, field, fallback string) ([]byte, error) {
 	payload := bytes.TrimSpace(raw)
 	if len(payload) == 0 {
@@ -1263,6 +1346,7 @@ func validateReactionTriggerTypeFilter(triggerType string) error {
 	switch triggerType {
 	case TriggerTypeManual,
 		TriggerTypeCron,
+		TriggerTypeReaction,
 		TriggerTypeReplay,
 		TriggerTypeWebhook:
 		return nil

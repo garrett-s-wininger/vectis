@@ -98,10 +98,11 @@ const (
 	DispatchEventSuccess  = "success"
 	DispatchEventFailure  = "failure"
 
-	TriggerTypeManual  = "manual"
-	TriggerTypeCron    = "cron"
-	TriggerTypeReplay  = "replay"
-	TriggerTypeWebhook = "webhook"
+	TriggerTypeManual   = "manual"
+	TriggerTypeCron     = "cron"
+	TriggerTypeReaction = "reaction"
+	TriggerTypeReplay   = "replay"
+	TriggerTypeWebhook  = "webhook"
 
 	SourceKindLocalCheckout = "local_checkout"
 
@@ -731,6 +732,16 @@ type ReactionLocalMessageRecord struct {
 	CreatedAt    int64
 }
 
+type ReactionJobTriggerEdge struct {
+	SubscriptionID string
+	TargetID       string
+	SourceJobID    string
+	TargetJobID    string
+	EventType      string
+	RunStatus      string
+	TriggerType    string
+}
+
 type TriggerInvocation struct {
 	InvocationID       string
 	TriggerID          *int64
@@ -801,6 +812,7 @@ type ReactionsRepository interface {
 	MarkInvocationFailed(ctx context.Context, invocationID, owner, message string, nextAttemptAtUnixNano int64) error
 	RecordLocalMessage(ctx context.Context, create ReactionLocalMessageCreate) (ReactionLocalMessageRecord, error)
 	ListLocalMessages(ctx context.Context, mailbox string, cursor int64, limit int) ([]ReactionLocalMessageRecord, int64, error)
+	ListJobTriggerEdges(ctx context.Context) ([]ReactionJobTriggerEdge, error)
 }
 
 type TriggerInvocationsRepository interface {
@@ -953,6 +965,7 @@ type RunsRepository interface {
 	CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (runID string, runIndexOut int, err error)
 	CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]CreatedRun, error)
 	CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit RunAuditMetadata) ([]CreatedRun, error)
+	ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]CreatedRun, error)
 	CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source JobDefinitionSourceRecord, audit RunAuditMetadata) (runID string, runIndexOut int, definitionVersion int, created bool, err error)
 	CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit RunAuditMetadata) (CreatedRun, error)
 	ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]CreatedRun, error)

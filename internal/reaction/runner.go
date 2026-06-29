@@ -134,6 +134,9 @@ func (r *Runner) actionRegistry() (map[string]Action, error) {
 	actions := r.Actions
 	if len(actions) == 0 {
 		actions = []Action{&LocalNotifyAction{Store: r.Store}}
+		if store, ok := r.Store.(JobTriggerStore); ok {
+			actions = append(actions, &TriggerJobAction{Store: store})
+		}
 	}
 
 	out := make(map[string]Action, len(actions))
