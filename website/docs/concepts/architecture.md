@@ -52,6 +52,7 @@ flowchart TB
     API["vectis-api"]
     CRON["vectis-cron"]
     SCM["vectis-scm-poller"]
+    GERRIT_STREAM["vectis-scm-gerrit-stream"]
     REC["vectis-reconciler"]
     CAT["vectis-catalog"]
   end
@@ -78,6 +79,8 @@ flowchart TB
 
   API --> DB
   CRON --> DB
+  SCM --> DB
+  GERRIT_STREAM --> DB
   REC --> DB
   CAT --> DB
   W --> DB
@@ -86,6 +89,8 @@ flowchart TB
   API -. remote cell dispatch .-> CING
   CING --> Q
   CRON --> Q
+  SCM --> Q
+  GERRIT_STREAM --> Q
   REC --> Q
   Q --> W
   W -- "UDS shell/core contract" --> WC
@@ -98,6 +103,8 @@ flowchart TB
 
   API -. resolves .-> REG
   CRON -. resolves .-> REG
+  SCM -. resolves .-> REG
+  GERRIT_STREAM -. resolves .-> REG
   REC -. resolves .-> REG
   W -. resolves .-> REG
   ORCH -. registers .-> REG
@@ -120,6 +127,7 @@ flowchart TB
 | `vectis-registry` | Internal service discovery for queue, orchestrator, log, artifact, and worker-control addresses when clients do not use pinned addresses. |
 | `vectis-cron` | Reads schedules from the database and enqueues due runs. |
 | `vectis-scm-poller` | Claims due SCM poll triggers, calls registered providers, and hands provider events to the shared SCM trigger event dispatcher. |
+| `vectis-scm-gerrit-stream` | Optional Gerrit stream-events bridge. It consumes normalized Gerrit event JSON and hands matching enabled Gerrit trigger specs to the shared SCM trigger event dispatcher. |
 | `vectis-reconciler` | Finds queued runs that need another queue handoff and enqueues them again. |
 | `vectis-catalog` | Backfills missing status events from observed state, drains global catalog events, optionally fans in pending events from configured cell databases, and applies them to the global run catalog. |
 | `vectis-ui` | Serves the embedded browser UI, manages browser sessions as a backend-for-frontend, and proxies browser API calls to `vectis-api`. |
@@ -129,15 +137,17 @@ flowchart TB
 
 ## Producers And Workers
 
-Five components can produce work today:
+Seven components can produce work today:
 
 - `vectis-api`, when a client submits or triggers a job
 - `vectis-cell-ingress`, when `vectis-api` hands this cell an execution envelope or a durable accepted execution needs local queue repair
 - `vectis-cron`, when a schedule is due
+- `vectis-scm-poller`, when an SCM provider emits a new stable event key
+- `vectis-scm-gerrit-stream`, when Gerrit stream-events emit a matching new stable event key
 - `vectis-reconciler`, when a recorded run still needs queue handoff
 - `vectis-worker`, when task fan-out produces a continuation execution
 
-`vectis-scm-poller` is part of the trigger family. Shared SCM trigger event handling records provider events into the database, links each new stable event key to one durable run, and dispatches that run through the shared trigger dispatch path.
+SCM producers are part of the trigger family. Shared SCM trigger event handling records provider events into the database, links each new stable event key to one durable run, and dispatches that run through the shared trigger dispatch path.
 
 Workers are the execution side. Each `vectis-worker` process handles one task delivery at a time. Task execution claims and leases live in `vectis-orchestrator`, so the orchestrator fences duplicate queue deliveries while the database remains the durable catalog and repair surface.
 

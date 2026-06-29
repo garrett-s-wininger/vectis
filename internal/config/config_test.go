@@ -64,6 +64,26 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 		t.Fatalf("SCMPollerClaimTTL() with flat viper override: got %v", got)
 	}
 
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	if d.SCMGerritStream.RegistryAddress != "" || d.SCMGerritStream.QueueAddress != "" {
+		t.Fatalf("expected empty scm_gerrit_stream addresses, got registry=%q queue=%q", d.SCMGerritStream.RegistryAddress, d.SCMGerritStream.QueueAddress)
+	}
+
+	viper.Set("scm_gerrit_stream.registry.address", "registry.local:8082")
+	viper.Set("scm_gerrit_stream.queue.address", "queue.local:8081")
+	if got := SCMGerritStreamRegistryAddress(); got != "registry.local:8082" {
+		t.Fatalf("SCMGerritStreamRegistryAddress() with namespaced viper override: got %q", got)
+	}
+
+	if got := SCMGerritStreamQueueAddress(); got != "queue.local:8081" {
+		t.Fatalf("SCMGerritStreamQueueAddress() with namespaced viper override: got %q", got)
+	}
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
 	if time.Duration(d.Reconciler.Interval) != 30*time.Second {
 		t.Fatalf("expected reconciler.interval 30s, got %v", time.Duration(d.Reconciler.Interval))
 	}

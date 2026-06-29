@@ -33,6 +33,22 @@ routing conservative for query shapes the event payload can prove. That lets a
 future stream or webhook producer share dedupe with the poller instead of
 triggering duplicate runs for the same patch set.
 
+`vectis-scm-gerrit-stream` is the first producer for that path. Pipe Gerrit's
+SSH stream into it and point `--url` at the same Gerrit base URL used in job
+trigger specs:
+
+```sh
+ssh -p 29418 gerrit.example.com gerrit stream-events \
+  | vectis-scm-gerrit-stream --url https://gerrit.example.com
+```
+
+The bridge evaluates enabled `gerrit` SCM trigger specs for the matching server,
+project, and branch, then uses the shared SCM trigger dispatcher for event
+dedupe, run creation, queue handoff, trigger invocation records, and dispatch
+audit rows. Stream routing currently supports omitted queries, `status:open`,
+and `is:open`; more complex Gerrit queries stay with `vectis-scm-poller` until
+the stream payload can prove those predicates.
+
 ## Smoke
 
 Run the provider smoke against an already reachable Gerrit:

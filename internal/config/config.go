@@ -38,31 +38,32 @@ func (d *tomlDuration) UnmarshalText(text []byte) error {
 }
 
 type Defaults struct {
-	Cell           CellDefaults            `toml:"cell"`
-	API            APIDefaults             `toml:"api"`
-	Queue          QueueDefaults           `toml:"queue"`
-	Orchestrator   OrchestratorDefaults    `toml:"orchestrator"`
-	Registry       RegistryDefaults        `toml:"registry"`
-	Log            LogDefaults             `toml:"log"`
-	Artifact       ArtifactDefaults        `toml:"artifact"`
-	LogForwarder   LogForwarderDefaults    `toml:"log_forwarder"`
-	Secrets        SecretsDefaults         `toml:"secrets"`
-	Discovery      DiscoveryDefaults       `toml:"discovery"`
-	Dispatch       DispatchDefaults        `toml:"dispatch"`
-	Retention      RetentionDefaults       `toml:"retention"`
-	Database       DatabaseDefaults        `toml:"database"`
-	Source         SourceDefaults          `toml:"source"`
-	Worker         WorkerDefaults          `toml:"worker"`
-	WorkerCore     WorkerCoreDefaults      `toml:"worker_core"`
-	Cron           CronDefaults            `toml:"cron"`
-	SCMPoller      SCMPollerDefaults       `toml:"scm_poller"`
-	Reconciler     ReconcilerDefaults      `toml:"reconciler"`
-	Catalog        CatalogDefaults         `toml:"catalog"`
-	CellIngress    CellIngressDefaults     `toml:"cell_ingress"`
-	ServiceID      ServiceIdentityDefaults `toml:"service_identity"`
-	GRPCTLS        GRPCTLSDefaults         `toml:"grpc_tls"`
-	MetricsTLS     MetricsTLSDefaults      `toml:"metrics_tls"`
-	ActionRegistry ActionRegistryDefaults  `toml:"action_registry"`
+	Cell            CellDefaults            `toml:"cell"`
+	API             APIDefaults             `toml:"api"`
+	Queue           QueueDefaults           `toml:"queue"`
+	Orchestrator    OrchestratorDefaults    `toml:"orchestrator"`
+	Registry        RegistryDefaults        `toml:"registry"`
+	Log             LogDefaults             `toml:"log"`
+	Artifact        ArtifactDefaults        `toml:"artifact"`
+	LogForwarder    LogForwarderDefaults    `toml:"log_forwarder"`
+	Secrets         SecretsDefaults         `toml:"secrets"`
+	Discovery       DiscoveryDefaults       `toml:"discovery"`
+	Dispatch        DispatchDefaults        `toml:"dispatch"`
+	Retention       RetentionDefaults       `toml:"retention"`
+	Database        DatabaseDefaults        `toml:"database"`
+	Source          SourceDefaults          `toml:"source"`
+	Worker          WorkerDefaults          `toml:"worker"`
+	WorkerCore      WorkerCoreDefaults      `toml:"worker_core"`
+	Cron            CronDefaults            `toml:"cron"`
+	SCMPoller       SCMPollerDefaults       `toml:"scm_poller"`
+	SCMGerritStream SCMGerritStreamDefaults `toml:"scm_gerrit_stream"`
+	Reconciler      ReconcilerDefaults      `toml:"reconciler"`
+	Catalog         CatalogDefaults         `toml:"catalog"`
+	CellIngress     CellIngressDefaults     `toml:"cell_ingress"`
+	ServiceID       ServiceIdentityDefaults `toml:"service_identity"`
+	GRPCTLS         GRPCTLSDefaults         `toml:"grpc_tls"`
+	MetricsTLS      MetricsTLSDefaults      `toml:"metrics_tls"`
+	ActionRegistry  ActionRegistryDefaults  `toml:"action_registry"`
 }
 
 type CellDefaults struct {
@@ -410,6 +411,11 @@ type SCMPollerDefaults struct {
 	QueueAddress    string       `toml:"queue.address"`
 	Interval        tomlDuration `toml:"interval"`
 	ClaimTTL        tomlDuration `toml:"claim_ttl"`
+}
+
+type SCMGerritStreamDefaults struct {
+	RegistryAddress string `toml:"registry.address"`
+	QueueAddress    string `toml:"queue.address"`
 }
 
 type ReconcilerDefaults struct {
@@ -2390,6 +2396,26 @@ func SCMPollerClaimTTL() time.Duration {
 	return 5 * time.Minute
 }
 
+func SCMGerritStreamRegistryAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("scm_gerrit_stream.registry.address"),
+		d.SCMGerritStream.RegistryAddress,
+		viper.GetString("discovery.registry.address"),
+		d.Discovery.RegistryAddress,
+	)
+}
+
+func SCMGerritStreamQueueAddress() string {
+	d := MustDefaults()
+	return coalesceNonEmpty(
+		viper.GetString("scm_gerrit_stream.queue.address"),
+		d.SCMGerritStream.QueueAddress,
+		viper.GetString("discovery.queue.address"),
+		d.Discovery.QueueAddress,
+	)
+}
+
 func ReconcilerRegistryAddress() string {
 	d := MustDefaults()
 	return coalesceNonEmpty(
@@ -2649,6 +2675,10 @@ func CronRegistryDialAddress() string {
 
 func SCMPollerRegistryDialAddress() string {
 	return registryDialAddress(SCMPollerRegistryAddress)
+}
+
+func SCMGerritStreamRegistryDialAddress() string {
+	return registryDialAddress(SCMGerritStreamRegistryAddress)
 }
 
 func APIRegistryDialAddress() string {

@@ -254,13 +254,15 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker_core.metrics_host` | `localhost` | Worker-core metrics bind host. |
 | `worker_core.metrics_port` | `9092` | Worker-core metrics port. |
 
-## Cron, Reconciler, And Catalog
+## Cron, SCM Triggers, Reconciler, And Catalog
 
 | Key | Default | Operator note |
 | --- | --- | --- |
 | `cron.claim_ttl` | `5m` | Scheduler claim TTL for cron trigger processing. |
 | `scm_poller.interval` | `30s` | SCM poller scan interval for ready polling triggers. |
 | `scm_poller.claim_ttl` | `5m` | SCM poller claim TTL before another poller may retry a claimed trigger. |
+| `scm_gerrit_stream.registry.address` | `""` | Registry address used by the Gerrit event stream trigger producer for queue discovery. |
+| `scm_gerrit_stream.queue.address` | `""` | Pinned queue address for the Gerrit event stream trigger producer; empty uses registry discovery. |
 | `reconciler.interval` | `30s` | Reconciler scan interval. |
 | `reconciler.lease_ttl` | `2m` | Reconciler service lease TTL. |
 | `reconciler.redispatch_limit` | `1000` | Maximum executions the reconciler redispatches in one pass. |

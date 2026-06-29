@@ -97,10 +97,11 @@ const (
 	ExecutionSecurityEventSVIDCheck        = "svid_check"
 	ExecutionSecurityEventSecretResolution = "secret_resolution"
 
-	DispatchSourceAPI        = "api"
-	DispatchSourceCron       = "cron"
-	DispatchSourceSCMPoller  = "scm_poller"
-	DispatchSourceReconciler = "reconciler"
+	DispatchSourceAPI             = "api"
+	DispatchSourceCron            = "cron"
+	DispatchSourceSCMPoller       = "scm_poller"
+	DispatchSourceSCMGerritStream = "scm_gerrit_stream"
+	DispatchSourceReconciler      = "reconciler"
 
 	DispatchEventAccepted = "accepted"
 	DispatchEventAttempt  = "attempt"

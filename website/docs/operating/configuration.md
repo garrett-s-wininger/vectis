@@ -153,8 +153,9 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--queue-continuation-inline-job-max-bytes`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--checkout-cache-warm-interval`, `--checkout-cache-warm-timeout`, `--checkout-cache-warm-jitter-ratio`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--metrics-host`, `--metrics-port`, `--execution-backend`, `--workspace-root`, `--checkout-cache-root`, `--checkout-cache-generations-to-keep`, `--checkout-cache-lease-ttl`, `--checkout-cache-warm-parallelism`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
-| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--redispatch-limit`, `--metrics-host`, `--metrics-port` |
+| `vectis-scm-gerrit-stream` | `VECTIS_SCM_GERRIT_STREAM` | `--url`, `--input`, `--instance-id`, `--spec-limit`, `--queue-address`, `--registry-address` |
 | `vectis-scm-poller` | `VECTIS_SCM_POLLER` | `--instance-id`, `--interval`, `--claim-ttl` |
+| `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--redispatch-limit`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
@@ -335,7 +336,7 @@ SPIFFE registration expectations:
 
 ## Action Registry
 
-Built-in actions are always available. Local custom actions are enabled by pointing the action registry at one or more manifest roots. The same global action registry settings are read by API validation, the CLI, cron, reconciler, and workers.
+Built-in actions are always available. Local custom actions are enabled by pointing the action registry at one or more manifest roots. The same global action registry settings are read by API validation, the CLI, cron, SCM trigger producers, reconciler, and workers.
 
 | Variable / key | Purpose |
 | --- | --- |
@@ -384,7 +385,7 @@ Database driver settings are global. DSNs can be shared for single-node deployme
 | --- | --- |
 | `VECTIS_DATABASE_DRIVER` | `sqlite3` for local/single-node use, or `pgx` for PostgreSQL. |
 | `VECTIS_DATABASE_DSN` | Shared SQLite file path or PostgreSQL URL. If unset, SQLite defaults under the Vectis data directory. |
-| `VECTIS_GLOBAL_DATABASE_DSN` | Overrides the shared DSN for global services: API, cron, SCM poller, reconciler, and catalog. |
+| `VECTIS_GLOBAL_DATABASE_DSN` | Overrides the shared DSN for global services: API, cron, SCM trigger producers, reconciler, and catalog. |
 | `VECTIS_CELL_DATABASE_DSN` | Overrides the shared DSN for cell-local services: cell ingress and workers. |
 | `VECTIS_CATALOG_CELL_DATABASE_DSNS` | Comma-separated `cell_id=dsn` list that lets `vectis-catalog` fan in pending catalog events from cell-local databases. |
 | `VECTIS_DATABASE_PGX_PLAN_CACHE_MODE` | Optional pgx/PostgreSQL `plan_cache_mode` runtime parameter. Empty preserves PostgreSQL defaults; `force_generic_plan` can reduce planning overhead for Vectis write-heavy hot paths after local measurement. An explicit `plan_cache_mode` in the DSN takes precedence. |
@@ -412,7 +413,7 @@ When `VECTIS_DATABASE_DRIVER=pgx`, each DB-using process applies these `database
 | `VECTIS_DATABASE_PGX_CONN_MAX_LIFETIME` | Maximum lifetime of a connection. |
 | `VECTIS_DATABASE_PGX_CONN_MAX_IDLE_TIME` | Maximum idle time before a connection is closed. |
 
-These limits are per process. When you run multiple APIs, workers, cron, SCM poller, reconciler, and catalog instances, add the limits together when sizing Postgres.
+These limits are per process. When you run multiple APIs, workers, cron, SCM trigger producers, reconciler, and catalog instances, add the limits together when sizing Postgres.
 
 `VECTIS_DATABASE_PGX_PLAN_CACHE_MODE` is separate from the pool limits. It maps to PostgreSQL's `plan_cache_mode` connection parameter and is intentionally unset by default because generic plans can hurt parameter-sensitive read queries. For write-heavy Vectis hot paths, benchmark `force_generic_plan` against the default before using it in an initial capacity envelope.
 
@@ -435,7 +436,7 @@ Standalone binaries default to plaintext gRPC. `vectis-local` normally bootstrap
 | Role | Binaries | Required material when TLS is enabled |
 | --- | --- | --- |
 | gRPC listeners | `vectis-registry`, `vectis-queue`, `vectis-log`, `vectis-artifact`, `vectis-orchestrator`, `vectis-secrets`, worker-control listener in `vectis-worker` | Certificate and key. Queue/log/artifact/orchestrator also need a CA when they register with the registry; secrets also needs a client CA to verify execution SVID callers. |
-| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, `vectis-scm-poller`, `vectis-reconciler`, queue/log/artifact/orchestrator registration clients | CA bundle. Client cert/key only when servers require mTLS. |
+| gRPC clients | `vectis-api`, `vectis-cell-ingress`, `vectis-worker`, `vectis-cron`, SCM trigger producers such as `vectis-scm-poller` and `vectis-scm-gerrit-stream`, `vectis-reconciler`, queue/log/artifact/orchestrator registration clients | CA bundle. Client cert/key only when servers require mTLS. |
 
 For trust boundaries and what mTLS does or does not authorize today, see [Internal Service Trust](../concepts/internal-service-trust.md).
 

@@ -22,7 +22,7 @@ Every binary wires Cobra version output through the shared CLI helper. Use `vect
 
 For a release, publish matching artifacts for:
 
-- Binaries: `vectis-api`, `vectis-artifact`, `vectis-catalog`, `vectis-cell-ingress`, `vectis-cli`, `vectis-cron`, `vectis-docs`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-orchestrator`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-scm-poller`, `vectis-secrets`, `vectis-spiffe`, `vectis-ui`, `vectis-worker`, `vectis-worker-core`.
+- Binaries: `vectis-api`, `vectis-artifact`, `vectis-catalog`, `vectis-cell-ingress`, `vectis-cli`, `vectis-cron`, `vectis-docs`, `vectis-local`, `vectis-log`, `vectis-log-forwarder`, `vectis-orchestrator`, `vectis-queue`, `vectis-reconciler`, `vectis-registry`, `vectis-scm-gerrit-stream`, `vectis-scm-poller`, `vectis-secrets`, `vectis-spiffe`, `vectis-ui`, `vectis-worker`, `vectis-worker-core`.
 - Container images for the deployable components.
 - Generated protobuf Go code already committed in `api/gen/go/`.
 - Release notes and upgrade notes.
@@ -268,7 +268,7 @@ Rollback usually means restoring the pre-upgrade backup and previous artifacts u
 2. Read release notes for required downtime, allowed skew, and migration rollback path.
 3. Stop cron, SCM poller, and workers first if the release does not allow mixed execution.
 4. Run `vectis-cli database migrate` against the Postgres DSN.
-5. Roll registry, queue, orchestrator, log, artifact, spiffe, secrets, cell ingress, API, worker-core, workers, cron, SCM poller, reconciler, catalog, log-forwarder, and docs according to the release notes.
+5. Roll registry, queue, orchestrator, log, artifact, spiffe, secrets, cell ingress, API, worker-core, workers, cron, SCM trigger producers, reconciler, catalog, log-forwarder, and docs according to the release notes.
 6. Run the upgrade smoke test.
 7. Watch retry exhaustion, queued-run age workarounds, worker failures, log/artifact failures, DB pool pressure, and API readiness for at least one reconciler interval.
 

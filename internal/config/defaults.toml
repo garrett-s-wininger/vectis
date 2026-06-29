@@ -161,6 +161,10 @@ claim_ttl = "5m"
 interval = "30s"
 claim_ttl = "5m"
 
+[scm_gerrit_stream]
+registry.address = ""
+queue.address = ""
+
 [reconciler]
 interval = "30s"
 lease_ttl = "2m"

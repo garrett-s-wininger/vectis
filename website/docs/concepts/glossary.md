@@ -18,7 +18,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Cron (`vectis-cron`)** — The scheduler process. It reads schedules from the database and enqueues runs when they are due.
 
-**SCM poller (`vectis-scm-poller`)** — The source-control polling process. It claims due SCM poll trigger specs, calls registered `sdk/scm` poll providers such as generic Git, and hands provider events to shared SCM trigger handling, which deduplicates stable event keys and creates one dispatched run for each new event.
+**SCM poller (`vectis-scm-poller`)** — The source-control polling process. It claims due SCM poll trigger specs, calls registered `sdk/scm` poll providers such as generic Git, and hands provider events to shared SCM trigger handling, which deduplicates stable event keys and creates one dispatched run for each new event. Gerrit stream-events can use the same shared trigger handling through `vectis-scm-gerrit-stream`.
 
 ## D
 
@@ -62,7 +62,7 @@ This page defines the words Vectis uses across the docs, API, and CLI. For the s
 
 **Pinned address** — A service address, such as queue, orchestrator, log, artifact, secrets, or registry, set explicitly in configuration. Pinned addresses let a component avoid dynamic lookup or environment-specific defaults for that dependency.
 
-**Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cell-ingress`, `vectis-cron`, `vectis-scm-poller`, `vectis-reconciler`, and `vectis-worker` for task continuations.
+**Producer** — A component that submits work to the queue. Current producers are `vectis-api`, `vectis-cell-ingress`, `vectis-cron`, `vectis-scm-poller`, optional trigger bridges such as `vectis-scm-gerrit-stream`, `vectis-reconciler`, and `vectis-worker` for task continuations.
 
 ## Q
 

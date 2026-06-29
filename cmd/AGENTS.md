@@ -21,6 +21,7 @@
 | `worker/` | `vectis-worker` | daemon (action exec) |
 | `worker-core/` | `vectis-worker-core` | daemon (worker execution core over UDS) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
+| `scm-gerrit-stream/` | `vectis-scm-gerrit-stream` | daemon (Gerrit stream trigger bridge) |
 | `scm-poller/` | `vectis-scm-poller` | daemon (SCM polling triggers) |
 | `catalog/` | `vectis-catalog` | daemon (cell catalog applier) |
 | `docs/` | `vectis-docs` | daemon (static docs HTTP) |
@@ -58,7 +59,7 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-nineteen-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `scm-poller`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `spiffe`, `worker-core`, and `docs` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-twenty-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `scm-gerrit-stream`, `scm-poller`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `spiffe`, `worker-core`, and `docs` do not.
 
 ## Env prefix mapping
 
@@ -79,6 +80,7 @@ Dedicated metrics listeners accept the service bind host plus loopback Host head
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | socket-local execution core; `--socket` serves the WorkerCore gRPC API over UDS; `--metrics-host` defaults to localhost and `--metrics-port` exposes checkout action/cache metrics; `--execution-backend host|lima`; `host` is the default, while `lima` registers a VM provider and makes unspecified action isolation inherit `vm`; use `--workspace-root` for VM-visible host workspaces or `--lima-guest-workspace-root` for guest-owned Lima workspaces; `--checkout-cache-root` enables host-side persistent checkout mirrors and advertises worker-driven warming for source repositories with `worker_cache_mode=persistent`; `--checkout-cache-generations-to-keep` tunes per-remote generation retention; `--checkout-cache-lease-ttl` bounds stale generation leases from crashed checkouts; `--checkout-cache-max-bytes` bounds retained pack bytes per remote; `--checkout-cache-warm-parallelism` bounds concurrent remote warming; encryptedfs source credential config resolves `credential_ref` for static persistent cache declarations |
 | `vectis-spiffe` | `VECTIS_SPIFFE` | development/reference SPIFFE authority; serves Workload API and Entry API over Unix sockets, persists a CA and bundle, defaults to trust domain `vectis.internal`, and supports `--init-only` for deployment init containers that need bundle material before daemons start |
 | `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
+| `vectis-scm-gerrit-stream` | `VECTIS_SCM_GERRIT_STREAM` | `[scm_gerrit_stream]`; `--url` is the Gerrit base URL, `--input` reads Gerrit stream-events JSON from a file or stdin, `--instance-id` labels trigger invocations and dispatch events, and `--queue-address` / `--registry-address` pin queue discovery |
 | `vectis-scm-poller` | `VECTIS_SCM_POLLER` | `[scm_poller]`; `--instance-id` labels SCM trigger claims, `--interval` controls due-trigger scans, `--claim-ttl` bounds claim failover, Gerrit provider credentials use `--gerrit-username` plus `--gerrit-password-file` or `--gerrit-password` / `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_*` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs; metrics host defaults to localhost |
 | `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |

@@ -22,7 +22,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 - **Deployables / docs site** → `deploy/`, `website/docs/`
 - **Reconciler invariants** → `internal/reconciler/`; formal model → `formal/tla/`
 
-## Binaries (nineteen; `cmd/`)
+## Binaries (twenty; `cmd/`)
 
 | Binary | Role | Long-running? | DB? |
 |--------|------|---------------|-----|
@@ -40,6 +40,7 @@ Self-hosted build/CI orchestrator in Go: services talk gRPC; the API exposes RES
 | `vectis-spiffe` | Reference SPIFFE Workload + Entry API authority | yes | no |
 | `vectis-cron` | Schedules → queue | yes | yes |
 | `vectis-scm-poller` | SCM polling triggers → deduped trigger events → run dispatch | yes | yes |
+| `vectis-scm-gerrit-stream` | Gerrit stream-events → deduped SCM trigger events → run dispatch | yes | yes |
 | `vectis-catalog` | Cell catalog events → global catalog | yes | yes |
 | `vectis-ui` | Static browser UI + API proxy | yes | no |
 | `vectis-docs` | Static docs site | yes | no |
