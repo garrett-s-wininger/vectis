@@ -191,6 +191,60 @@ func TestWorkerWarmCheckoutCacheUsesPersistentSources(t *testing.T) {
 	}
 }
 
+func TestWorkerWarmCheckoutCacheAppliesTimeout(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("worker.execution.checkout_cache_warm_timeout", 10*time.Millisecond)
+
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:    "persistent",
+		NamespaceID:     1,
+		SourceKind:      dal.SourceKindLocalCheckout,
+		CheckoutPath:    "/work/persistent",
+		WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+		CanonicalURL:    "https://mirror.invalid/persistent.git",
+		Enabled:         true,
+	}); err != nil {
+		t.Fatalf("create persistent source repository: %v", err)
+	}
+
+	warmer := &blockingCheckoutCacheWarmer{}
+	w := &worker{
+		sourceRepositories: sources,
+		logger:             mocks.NewMockLogger(),
+	}
+
+	w.warmCheckoutCache(ctx, warmer)
+
+	if !errors.Is(warmer.err, context.DeadlineExceeded) {
+		t.Fatalf("warm error = %v, want deadline exceeded", warmer.err)
+	}
+}
+
+func TestCheckoutCacheWarmJitterDelays(t *testing.T) {
+	interval := time.Minute
+	if got := checkoutCacheWarmInitialDelay(interval, 0, "worker-a"); got != 0 {
+		t.Fatalf("initial delay without jitter = %v, want 0", got)
+	}
+
+	initial := checkoutCacheWarmInitialDelay(interval, 0.2, "worker-a")
+	if initial < 0 || initial > 12*time.Second {
+		t.Fatalf("initial delay = %v, want within 20%% of interval", initial)
+	}
+
+	loopDelay := checkoutCacheWarmLoopDelay(interval, 0.2, "worker-a")
+	if loopDelay < interval || loopDelay > interval+12*time.Second {
+		t.Fatalf("loop delay = %v, want interval plus bounded jitter", loopDelay)
+	}
+
+	if again := checkoutCacheWarmLoopDelay(interval, 0.2, "worker-a"); again != loopDelay {
+		t.Fatalf("loop delay is not stable: got %v then %v", loopDelay, again)
+	}
+}
+
 type recordingCheckoutCacheWarmer struct {
 	requests []workercore.WarmCheckoutCacheRequest
 	result   workercore.WarmCheckoutCacheResult
@@ -200,6 +254,16 @@ type recordingCheckoutCacheWarmer struct {
 func (w *recordingCheckoutCacheWarmer) WarmCheckoutCache(_ context.Context, req workercore.WarmCheckoutCacheRequest) (workercore.WarmCheckoutCacheResult, error) {
 	w.requests = append(w.requests, req)
 	return w.result, w.err
+}
+
+type blockingCheckoutCacheWarmer struct {
+	err error
+}
+
+func (w *blockingCheckoutCacheWarmer) WarmCheckoutCache(ctx context.Context, _ workercore.WarmCheckoutCacheRequest) (workercore.WarmCheckoutCacheResult, error) {
+	<-ctx.Done()
+	w.err = ctx.Err()
+	return workercore.WarmCheckoutCacheResult{}, w.err
 }
 
 func TestWorkerMarkExecutionStarted_DefersDurableStartForOrchestratorRuns(t *testing.T) {

@@ -1131,6 +1131,15 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	if got := WorkerExecutionCheckoutCacheRoot(); got != "" {
 		t.Fatalf("default checkout cache root = %q, want empty", got)
 	}
+	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 5*time.Minute {
+		t.Fatalf("default checkout cache warm interval = %v, want 5m", got)
+	}
+	if got := WorkerExecutionCheckoutCacheWarmTimeout(); got != 30*time.Minute {
+		t.Fatalf("default checkout cache warm timeout = %v, want 30m", got)
+	}
+	if got := WorkerExecutionCheckoutCacheWarmJitterRatio(); got != 0.2 {
+		t.Fatalf("default checkout cache warm jitter ratio = %v, want 0.2", got)
+	}
 	if got := WorkerExecutionLimaInstance(); got != "" {
 		t.Fatalf("default lima instance = %q, want empty", got)
 	}
@@ -1147,6 +1156,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	viper.Set("worker.execution.backend", " LIMA ")
 	viper.Set("worker.execution.workspace_root", "/Users/me/vectis-work")
 	viper.Set("worker.execution.checkout_cache_root", "/Users/me/vectis-cache")
+	viper.Set("worker.execution.checkout_cache_warm_interval", 10*time.Minute)
+	viper.Set("worker.execution.checkout_cache_warm_timeout", 45*time.Minute)
+	viper.Set("worker.execution.checkout_cache_warm_jitter_ratio", 0.5)
 	viper.Set("worker.execution.lima.path", "/opt/homebrew/bin/limactl")
 	viper.Set("worker.execution.lima.instance", "vectis-worker")
 	viper.Set("worker.execution.lima.guest_workspace_root", "/tmp/vectis-workspaces")
@@ -1162,6 +1174,15 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	if got := WorkerExecutionCheckoutCacheRoot(); got != "/Users/me/vectis-cache" {
 		t.Fatalf("override checkout cache root = %q", got)
 	}
+	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 10*time.Minute {
+		t.Fatalf("override checkout cache warm interval = %v", got)
+	}
+	if got := WorkerExecutionCheckoutCacheWarmTimeout(); got != 45*time.Minute {
+		t.Fatalf("override checkout cache warm timeout = %v", got)
+	}
+	if got := WorkerExecutionCheckoutCacheWarmJitterRatio(); got != 0.5 {
+		t.Fatalf("override checkout cache warm jitter ratio = %v", got)
+	}
 	if got := WorkerExecutionLimaPath(); got != "/opt/homebrew/bin/limactl" {
 		t.Fatalf("override lima path = %q", got)
 	}
@@ -1176,6 +1197,19 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	}
 	if !WorkerExecutionLimaPreserveEnv() {
 		t.Fatal("override lima preserve env = false, want true")
+	}
+
+	viper.Set("worker.execution.checkout_cache_warm_interval", time.Duration(0))
+	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 5*time.Minute {
+		t.Fatalf("invalid checkout cache warm interval should use default: got %v", got)
+	}
+	viper.Set("worker.execution.checkout_cache_warm_timeout", time.Duration(0))
+	if got := WorkerExecutionCheckoutCacheWarmTimeout(); got != 30*time.Minute {
+		t.Fatalf("invalid checkout cache warm timeout should use default: got %v", got)
+	}
+	viper.Set("worker.execution.checkout_cache_warm_jitter_ratio", 2.0)
+	if got := WorkerExecutionCheckoutCacheWarmJitterRatio(); got != 0.2 {
+		t.Fatalf("invalid checkout cache warm jitter ratio should use default: got %v", got)
 	}
 }
 

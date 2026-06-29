@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"net/url"
 	"os"
@@ -58,19 +59,18 @@ import (
 )
 
 const (
-	maxFailureReasonLen       = 4096
-	dequeueBackoffBase        = 500 * time.Millisecond
-	dequeueBackoffMax         = 30 * time.Second
-	longPollTimeout           = 30 * time.Second
-	ackMaxAttempts            = 4
-	ackBackoffBase            = 150 * time.Millisecond
-	ackBackoffMax             = 2 * time.Second
-	finalizeMaxAttempts       = 4
-	finalizeBackoffBase       = 150 * time.Millisecond
-	finalizeBackoffMax        = 2 * time.Second
-	cancelPollInterval        = 5 * time.Second
-	coreCancelTimeout         = 5 * time.Second
-	checkoutCacheWarmInterval = 5 * time.Minute
+	maxFailureReasonLen = 4096
+	dequeueBackoffBase  = 500 * time.Millisecond
+	dequeueBackoffMax   = 30 * time.Second
+	longPollTimeout     = 30 * time.Second
+	ackMaxAttempts      = 4
+	ackBackoffBase      = 150 * time.Millisecond
+	ackBackoffMax       = 2 * time.Second
+	finalizeMaxAttempts = 4
+	finalizeBackoffBase = 150 * time.Millisecond
+	finalizeBackoffMax  = 2 * time.Second
+	cancelPollInterval  = 5 * time.Second
+	coreCancelTimeout   = 5 * time.Second
 )
 
 var errRunCancelled = errors.New("run cancelled")
@@ -678,16 +678,16 @@ func (w *worker) checkoutCacheWarmLoop(ctx context.Context, warmer workercore.Ch
 		ctx = context.Background()
 	}
 
-	w.warmCheckoutCache(ctx, warmer)
+	interval := config.WorkerExecutionCheckoutCacheWarmInterval()
+	jitterRatio := config.WorkerExecutionCheckoutCacheWarmJitterRatio()
+	if !sleepCheckoutCacheWarmDelay(ctx, checkoutCacheWarmInitialDelay(interval, jitterRatio, w.workerID)) {
+		return
+	}
 
-	ticker := time.NewTicker(checkoutCacheWarmInterval)
-	defer ticker.Stop()
 	for {
-		select {
-		case <-ctx.Done():
+		w.warmCheckoutCache(ctx, warmer)
+		if !sleepCheckoutCacheWarmDelay(ctx, checkoutCacheWarmLoopDelay(interval, jitterRatio, w.workerID)) {
 			return
-		case <-ticker.C:
-			w.warmCheckoutCache(ctx, warmer)
 		}
 	}
 }
@@ -695,6 +695,12 @@ func (w *worker) checkoutCacheWarmLoop(ctx context.Context, warmer workercore.Ch
 func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.CheckoutCacheWarmer) {
 	if w == nil || warmer == nil {
 		return
+	}
+
+	if timeout := config.WorkerExecutionCheckoutCacheWarmTimeout(); timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
 	remoteURLs := w.checkoutCacheRemoteURLs(ctx)
@@ -729,6 +735,57 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		}
 		w.logger.Warn("Worker checkout cache warm failed for %s: %s", failure.RemoteURL, failure.Message)
 	}
+}
+
+func sleepCheckoutCacheWarmDelay(ctx context.Context, delay time.Duration) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if delay <= 0 {
+		return ctx.Err() == nil
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func checkoutCacheWarmInitialDelay(interval time.Duration, jitterRatio float64, workerID string) time.Duration {
+	return checkoutCacheWarmStableJitter(interval, jitterRatio, workerID)
+}
+
+func checkoutCacheWarmLoopDelay(interval time.Duration, jitterRatio float64, workerID string) time.Duration {
+	if interval <= 0 {
+		return 0
+	}
+
+	return interval + checkoutCacheWarmStableJitter(interval, jitterRatio, workerID)
+}
+
+func checkoutCacheWarmStableJitter(interval time.Duration, ratio float64, workerID string) time.Duration {
+	if interval <= 0 || ratio <= 0 {
+		return 0
+	}
+
+	if ratio > 1 {
+		ratio = 1
+	}
+
+	maxJitter := time.Duration(float64(interval) * ratio)
+	if maxJitter <= 0 {
+		return 0
+	}
+
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(workerID))
+	return time.Duration(hash.Sum64() % uint64(maxJitter+1))
 }
 
 func sourceRepositoryRemoteURLs(repositories []dal.SourceRepositoryRecord) []string {
@@ -3969,6 +4026,9 @@ func init() {
 	rootCmd.PersistentFlags().String("core-socket", workercore.DefaultCoreSocketPath(), "Unix socket for the remote worker core")
 	rootCmd.PersistentFlags().String("core-shell-socket", workercore.DefaultShellSocketPath(), "Unix socket exposed by the worker shell for core callbacks")
 	rootCmd.PersistentFlags().Duration("core-connect-timeout", 10*time.Second, "Timeout for connecting to the remote worker core")
+	rootCmd.PersistentFlags().Duration("checkout-cache-warm-interval", config.WorkerExecutionCheckoutCacheWarmInterval(), "Cadence for worker-driven persistent checkout cache warming")
+	rootCmd.PersistentFlags().Duration("checkout-cache-warm-timeout", config.WorkerExecutionCheckoutCacheWarmTimeout(), "Timeout for one worker-driven checkout cache warm pass")
+	rootCmd.PersistentFlags().Float64("checkout-cache-warm-jitter-ratio", config.WorkerExecutionCheckoutCacheWarmJitterRatio(), "Stable jitter ratio applied to checkout cache warm scheduling (0 disables, 0.2 adds up to 20%)")
 	rootCmd.PersistentFlags().String("secrets-address", config.WorkerSecretsAddress(), "gRPC address for the cell-local secrets service")
 
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
@@ -3984,6 +4044,9 @@ func init() {
 	_ = viper.BindPFlag("worker.core.socket", rootCmd.PersistentFlags().Lookup("core-socket"))
 	_ = viper.BindPFlag("worker.core.shell_socket", rootCmd.PersistentFlags().Lookup("core-shell-socket"))
 	_ = viper.BindPFlag("worker.core.connect_timeout", rootCmd.PersistentFlags().Lookup("core-connect-timeout"))
+	_ = viper.BindPFlag("worker.execution.checkout_cache_warm_interval", rootCmd.PersistentFlags().Lookup("checkout-cache-warm-interval"))
+	_ = viper.BindPFlag("worker.execution.checkout_cache_warm_timeout", rootCmd.PersistentFlags().Lookup("checkout-cache-warm-timeout"))
+	_ = viper.BindPFlag("worker.execution.checkout_cache_warm_jitter_ratio", rootCmd.PersistentFlags().Lookup("checkout-cache-warm-jitter-ratio"))
 	_ = viper.BindPFlag("worker.secrets.address", rootCmd.PersistentFlags().Lookup("secrets-address"))
 
 	_ = viper.BindEnv("worker.artifact_max_bytes", "VECTIS_WORKER_ARTIFACT_MAX_BYTES")
@@ -4006,6 +4069,9 @@ func init() {
 	_ = viper.BindEnv("worker.core.socket", "VECTIS_WORKER_CORE_SOCKET")
 	_ = viper.BindEnv("worker.core.shell_socket", "VECTIS_WORKER_CORE_SHELL_SOCKET")
 	_ = viper.BindEnv("worker.core.connect_timeout", "VECTIS_WORKER_CORE_CONNECT_TIMEOUT")
+	_ = viper.BindEnv("worker.execution.checkout_cache_warm_interval", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL")
+	_ = viper.BindEnv("worker.execution.checkout_cache_warm_timeout", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT")
+	_ = viper.BindEnv("worker.execution.checkout_cache_warm_jitter_ratio", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO")
 
 	viper.SetEnvPrefix("VECTIS_WORKER")
 	viper.AutomaticEnv()

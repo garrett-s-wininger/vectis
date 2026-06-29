@@ -291,10 +291,13 @@ type WorkerControlDefaults struct {
 }
 
 type WorkerExecutionDefaults struct {
-	Backend           string                      `toml:"backend"`
-	WorkspaceRoot     string                      `toml:"workspace_root"`
-	CheckoutCacheRoot string                      `toml:"checkout_cache_root"`
-	Lima              WorkerExecutionLimaDefaults `toml:"lima"`
+	Backend                      string                      `toml:"backend"`
+	WorkspaceRoot                string                      `toml:"workspace_root"`
+	CheckoutCacheRoot            string                      `toml:"checkout_cache_root"`
+	CheckoutCacheWarmInterval    tomlDuration                `toml:"checkout_cache_warm_interval"`
+	CheckoutCacheWarmTimeout     tomlDuration                `toml:"checkout_cache_warm_timeout"`
+	CheckoutCacheWarmJitterRatio float64                     `toml:"checkout_cache_warm_jitter_ratio"`
+	Lima                         WorkerExecutionLimaDefaults `toml:"lima"`
 }
 
 type WorkerExecutionLimaDefaults struct {
@@ -437,6 +440,9 @@ func init() {
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
 	_ = viper.BindEnv("worker.queue.continuation_inline_job_max_bytes", "VECTIS_WORKER_QUEUE_CONTINUATION_INLINE_JOB_MAX_BYTES")
 	_ = viper.BindEnv("worker.execution.checkout_cache_root", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_ROOT", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT")
+	_ = viper.BindEnv("worker.execution.checkout_cache_warm_interval", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL")
+	_ = viper.BindEnv("worker.execution.checkout_cache_warm_timeout", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT")
+	_ = viper.BindEnv("worker.execution.checkout_cache_warm_jitter_ratio", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO")
 }
 
 func MustDefaults() Defaults {
@@ -655,6 +661,18 @@ func validateDefaults(d Defaults) {
 	}
 	if d.Worker.Queue.ContinuationInlineJobMaxBytes < 0 {
 		panic("config defaults: worker.queue.continuation_inline_job_max_bytes must be >= 0")
+	}
+
+	if d.Worker.Execution.CheckoutCacheWarmInterval <= 0 {
+		panic("config defaults: worker.execution.checkout_cache_warm_interval must be > 0")
+	}
+
+	if d.Worker.Execution.CheckoutCacheWarmTimeout <= 0 {
+		panic("config defaults: worker.execution.checkout_cache_warm_timeout must be > 0")
+	}
+
+	if d.Worker.Execution.CheckoutCacheWarmJitterRatio < 0 || d.Worker.Execution.CheckoutCacheWarmJitterRatio > 1 {
+		panic("config defaults: worker.execution.checkout_cache_warm_jitter_ratio must be between 0 and 1")
 	}
 
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
@@ -1174,6 +1192,36 @@ func WorkerExecutionCheckoutCacheRoot() string {
 		return strings.TrimSpace(viper.GetString("worker.execution.checkout_cache_root"))
 	}
 	return MustDefaults().Worker.Execution.CheckoutCacheRoot
+}
+
+func WorkerExecutionCheckoutCacheWarmInterval() time.Duration {
+	if viper.IsSet("worker.execution.checkout_cache_warm_interval") {
+		if value := viper.GetDuration("worker.execution.checkout_cache_warm_interval"); value > 0 {
+			return value
+		}
+	}
+
+	return time.Duration(MustDefaults().Worker.Execution.CheckoutCacheWarmInterval)
+}
+
+func WorkerExecutionCheckoutCacheWarmTimeout() time.Duration {
+	if viper.IsSet("worker.execution.checkout_cache_warm_timeout") {
+		if value := viper.GetDuration("worker.execution.checkout_cache_warm_timeout"); value > 0 {
+			return value
+		}
+	}
+
+	return time.Duration(MustDefaults().Worker.Execution.CheckoutCacheWarmTimeout)
+}
+
+func WorkerExecutionCheckoutCacheWarmJitterRatio() float64 {
+	if viper.IsSet("worker.execution.checkout_cache_warm_jitter_ratio") {
+		if value := viper.GetFloat64("worker.execution.checkout_cache_warm_jitter_ratio"); value >= 0 && value <= 1 {
+			return value
+		}
+	}
+
+	return MustDefaults().Worker.Execution.CheckoutCacheWarmJitterRatio
 }
 
 func WorkerExecutionLimaPath() string {

@@ -192,6 +192,9 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.execution.backend` | `host` | Worker-core execution backend. |
 | `worker.execution.workspace_root` | `""` | Workspace root used by execution backend. |
 | `worker.execution.checkout_cache_root` | `""` | Worker-core checkout cache root; `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` enables persistent mirrors and worker-driven warming for source repositories with `worker_cache_mode=persistent`. |
+| `worker.execution.checkout_cache_warm_interval` | `5m` | Worker cadence for warming persistent checkout mirrors. |
+| `worker.execution.checkout_cache_warm_timeout` | `30m` | Per-pass timeout for worker-driven checkout cache warming. |
+| `worker.execution.checkout_cache_warm_jitter_ratio` | `0.2` | Stable per-worker jitter ratio applied to checkout cache warm scheduling. |
 | `worker.execution.lima.path` | `limactl` | Lima CLI path for VM-backed execution. |
 | `worker.execution.lima.instance` | `""` | Lima instance name. |
 | `worker.execution.lima.guest_workspace_root` | `""` | Guest-visible workspace root for Lima execution. |
