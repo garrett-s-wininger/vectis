@@ -93,6 +93,17 @@ func TestWorkerCheckoutCacheRejectsInvalidGenerationRetention(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheRejectsInvalidLeaseTTL(t *testing.T) {
+	_, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{"https://example.invalid/repo.git"},
+		WithWorkerCheckoutCacheLeaseTTL(0),
+	)
+	if err == nil {
+		t.Fatal("expected invalid lease TTL to fail")
+	}
+}
+
 func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
@@ -188,7 +199,11 @@ func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 
 func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
 	remote := "https://example.invalid/large.git"
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{remote},
+		WithWorkerCheckoutCacheLeaseTTL(time.Hour),
+	)
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -225,6 +240,69 @@ func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
 
 	if stats.Repositories != 1 || stats.Generations != 2 || stats.PackFiles != 2 || stats.PackBytes != 21 || stats.ActiveLeases != 1 {
 		t.Fatalf("stats = %+v, want repositories=1 generations=2 pack_files=2 pack_bytes=21 active_leases=1", stats)
+	}
+
+	stale := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(filepath.Join(leasePath, "lease"), stale, stale); err != nil {
+		t.Fatalf("age lease: %v", err)
+	}
+	stats, err = cache.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats after stale lease: %v", err)
+	}
+	if stats.ActiveLeases != 0 {
+		t.Fatalf("active leases after stale lease = %d, want 0", stats.ActiveLeases)
+	}
+}
+
+func TestWorkerCheckoutCacheCleanupDropsStaleLeases(t *testing.T) {
+	remote := "https://example.invalid/large.git"
+	cache, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{remote},
+		WithWorkerCheckoutCacheLeaseTTL(time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	repoPath := cache.repositoryPath(remote)
+	generationNames := []string{
+		"generation-00000000000000000001-1.git",
+		"generation-00000000000000000002-1.git",
+		"generation-00000000000000000003-1.git",
+	}
+	for _, name := range generationNames {
+		if err := os.MkdirAll(filepath.Join(repoPath, "generations", name), 0o755); err != nil {
+			t.Fatalf("create generation %s: %v", name, err)
+		}
+	}
+	if err := os.Symlink(filepath.Join("generations", generationNames[2]), filepath.Join(repoPath, "current")); err != nil {
+		t.Fatalf("create current generation link: %v", err)
+	}
+
+	leaseDir := filepath.Join(repoPath, "leases", generationNames[0])
+	if err := os.MkdirAll(leaseDir, 0o755); err != nil {
+		t.Fatalf("create lease dir: %v", err)
+	}
+	leasePath := filepath.Join(leaseDir, "stale")
+	if err := os.WriteFile(leasePath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale lease: %v", err)
+	}
+	stale := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(leasePath, stale, stale); err != nil {
+		t.Fatalf("age stale lease: %v", err)
+	}
+
+	if err := cache.cleanupOldGenerations(context.Background(), repoPath); err != nil {
+		t.Fatalf("cleanupOldGenerations: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(repoPath, "generations", generationNames[0])); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale-leased generation still exists after cleanup: err=%v", err)
+	}
+	if _, err := os.Stat(leasePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale lease still exists after cleanup: err=%v", err)
 	}
 }
 

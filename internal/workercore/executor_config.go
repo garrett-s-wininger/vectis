@@ -3,6 +3,7 @@ package workercore
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"vectis/internal/action"
 	"vectis/internal/interfaces"
@@ -21,6 +22,7 @@ type ExecutorConfig struct {
 	WorkspaceRoot                  string
 	CheckoutCacheRoot              string
 	CheckoutCacheGenerationsToKeep int
+	CheckoutCacheLeaseTTL          time.Duration
 	CheckoutCacheRemoteURLs        []string
 	Lima                           platform.VirtualMachineConfig
 }
@@ -37,7 +39,7 @@ func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
 	}
 
 	if checkoutCacheRoot := strings.TrimSpace(cfg.CheckoutCacheRoot); checkoutCacheRoot != "" && len(cfg.CheckoutCacheRemoteURLs) > 0 {
-		checkoutCache, err := source.NewWorkerCheckoutCache(checkoutCacheRoot, cfg.CheckoutCacheRemoteURLs, workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep)...)
+		checkoutCache, err := source.NewWorkerCheckoutCache(checkoutCacheRoot, cfg.CheckoutCacheRemoteURLs, workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep, cfg.CheckoutCacheLeaseTTL)...)
 		if err != nil {
 			return nil, "", err
 		}

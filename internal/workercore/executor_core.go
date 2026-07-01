@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"vectis/internal/action"
 	"vectis/internal/job"
@@ -14,6 +15,7 @@ type ExecutorCore struct {
 	executor                       *job.Executor
 	checkoutCacheRoot              string
 	checkoutCacheGenerationsToKeep int
+	checkoutCacheLeaseTTL          time.Duration
 }
 
 type ExecutorCoreOption func(*ExecutorCore)
@@ -27,6 +29,12 @@ func WithExecutorCheckoutCacheRoot(root string) ExecutorCoreOption {
 func WithExecutorCheckoutCacheGenerationsToKeep(generationsToKeep int) ExecutorCoreOption {
 	return func(c *ExecutorCore) {
 		c.checkoutCacheGenerationsToKeep = generationsToKeep
+	}
+}
+
+func WithExecutorCheckoutCacheLeaseTTL(ttl time.Duration) ExecutorCoreOption {
+	return func(c *ExecutorCore) {
+		c.checkoutCacheLeaseTTL = ttl
 	}
 }
 
@@ -149,7 +157,7 @@ func (c *ExecutorCore) recordCheckoutCacheRootStats(ctx context.Context) {
 		return
 	}
 
-	cache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, nil, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep)...)
+	cache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, nil, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL)...)
 	if err != nil {
 		return
 	}
@@ -172,7 +180,7 @@ func (c *ExecutorCore) checkoutCacheForRemoteURLs(remoteURLs []string) (*source.
 		return nil, nil
 	}
 
-	checkoutCache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, remoteURLs, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep)...)
+	checkoutCache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, remoteURLs, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL)...)
 	if err != nil {
 		return nil, fmt.Errorf("initialize task checkout cache: %w", err)
 	}
@@ -180,12 +188,16 @@ func (c *ExecutorCore) checkoutCacheForRemoteURLs(remoteURLs []string) (*source.
 	return checkoutCache, nil
 }
 
-func workerCheckoutCacheOptions(generationsToKeep int) []source.WorkerCheckoutCacheOption {
-	if generationsToKeep <= 0 {
-		return nil
+func workerCheckoutCacheOptions(generationsToKeep int, leaseTTL time.Duration) []source.WorkerCheckoutCacheOption {
+	options := []source.WorkerCheckoutCacheOption{}
+	if generationsToKeep > 0 {
+		options = append(options, source.WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep))
+	}
+	if leaseTTL > 0 {
+		options = append(options, source.WithWorkerCheckoutCacheLeaseTTL(leaseTTL))
 	}
 
-	return []source.WorkerCheckoutCacheOption{source.WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep)}
+	return options
 }
 
 func uniqueCheckoutCacheRemoteURLs(remoteURLs []string) []string {

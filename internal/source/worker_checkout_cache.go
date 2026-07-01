@@ -19,6 +19,7 @@ import (
 const (
 	workerCheckoutGenerationPrefix         = "generation-"
 	defaultWorkerCheckoutGenerationsToKeep = 2
+	defaultWorkerCheckoutLeaseTTL          = time.Hour
 )
 
 type WorkerCheckoutCacheOption func(*WorkerCheckoutCache)
@@ -27,6 +28,7 @@ type WorkerCheckoutCache struct {
 	root                string
 	persistentRemoteURL map[string]struct{}
 	generationsToKeep   int
+	leaseTTL            time.Duration
 }
 
 type WorkerCheckoutCacheStats struct {
@@ -47,6 +49,12 @@ func WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep int) WorkerCheck
 	}
 }
 
+func WithWorkerCheckoutCacheLeaseTTL(ttl time.Duration) WorkerCheckoutCacheOption {
+	return func(c *WorkerCheckoutCache) {
+		c.leaseTTL = ttl
+	}
+}
+
 func NewWorkerCheckoutCache(root string, persistentRemoteURLs []string, options ...WorkerCheckoutCacheOption) (*WorkerCheckoutCache, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -62,6 +70,7 @@ func NewWorkerCheckoutCache(root string, persistentRemoteURLs []string, options 
 		root:                absRoot,
 		persistentRemoteURL: make(map[string]struct{}, len(persistentRemoteURLs)),
 		generationsToKeep:   defaultWorkerCheckoutGenerationsToKeep,
+		leaseTTL:            defaultWorkerCheckoutLeaseTTL,
 	}
 
 	for _, option := range options {
@@ -72,6 +81,9 @@ func NewWorkerCheckoutCache(root string, persistentRemoteURLs []string, options 
 
 	if cache.generationsToKeep <= 0 {
 		return nil, fmt.Errorf("%w: worker checkout cache generations to keep must be > 0", ErrInvalidReference)
+	}
+	if cache.leaseTTL <= 0 {
+		return nil, fmt.Errorf("%w: worker checkout cache lease ttl must be > 0", ErrInvalidReference)
 	}
 
 	for _, raw := range persistentRemoteURLs {
@@ -430,13 +442,18 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 	}
 	defer lock.Close()
 
+	now := time.Now()
+	if err := cleanupStaleWorkerCheckoutLeases(repoPath, c.leaseTTL, now); err != nil {
+		return err
+	}
+
 	generationPaths, err := workerCheckoutGenerationPaths(repoPath)
 	if err != nil {
 		return err
 	}
 
 	if len(generationPaths) <= c.generationsToKeep {
-		return nil
+		return cleanupEmptyWorkerCheckoutLeaseDirs(repoPath)
 	}
 
 	currentPath, err := currentGenerationPath(repoPath)
@@ -457,7 +474,7 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 			continue
 		}
 
-		leased, err := workerCheckoutGenerationHasLeases(repoPath, generationPath)
+		leased, err := workerCheckoutGenerationHasLeases(repoPath, generationPath, c.leaseTTL, now)
 		if err != nil {
 			return err
 		}
@@ -479,14 +496,14 @@ func (c *WorkerCheckoutCache) Stats(ctx context.Context) (WorkerCheckoutCacheSta
 		return WorkerCheckoutCacheStats{}, nil
 	}
 
-	return workerCheckoutCacheStats(ctx, c.root)
+	return workerCheckoutCacheStats(ctx, c.root, c.leaseTTL)
 }
 
 func (c *WorkerCheckoutCache) acquireLeaseLock(ctx context.Context, repoPath string) (*managedGitWriterLock, error) {
 	return acquireManagedGitWriterLock(ctx, filepath.Join(repoPath, "leases"))
 }
 
-func workerCheckoutCacheStats(ctx context.Context, root string) (WorkerCheckoutCacheStats, error) {
+func workerCheckoutCacheStats(ctx context.Context, root string, leaseTTL time.Duration) (WorkerCheckoutCacheStats, error) {
 	var stats WorkerCheckoutCacheStats
 	mirrorsPath := filepath.Join(root, "mirrors")
 	entries, err := os.ReadDir(mirrorsPath)
@@ -515,7 +532,7 @@ func workerCheckoutCacheStats(ctx context.Context, root string) (WorkerCheckoutC
 			continue
 		}
 
-		repoStats, err := workerCheckoutCacheRepositoryStats(ctx, path)
+		repoStats, err := workerCheckoutCacheRepositoryStats(ctx, path, leaseTTL)
 		if err != nil {
 			return stats, err
 		}
@@ -531,7 +548,7 @@ func workerCheckoutCacheStats(ctx context.Context, root string) (WorkerCheckoutC
 	return stats, nil
 }
 
-func workerCheckoutCacheRepositoryStats(ctx context.Context, repoPath string) (WorkerCheckoutCacheStats, error) {
+func workerCheckoutCacheRepositoryStats(ctx context.Context, repoPath string, leaseTTL time.Duration) (WorkerCheckoutCacheStats, error) {
 	var stats WorkerCheckoutCacheStats
 	generationPaths, err := workerCheckoutGenerationPaths(repoPath)
 	if err != nil {
@@ -544,7 +561,7 @@ func workerCheckoutCacheRepositoryStats(ctx context.Context, repoPath string) (W
 		}
 	}
 
-	activeLeases, err := workerCheckoutActiveLeaseCount(ctx, repoPath)
+	activeLeases, err := workerCheckoutActiveLeaseCount(ctx, repoPath, leaseTTL)
 	if err != nil {
 		return stats, err
 	}
@@ -591,7 +608,7 @@ func addWorkerCheckoutCacheGenerationStats(ctx context.Context, generationPath s
 	return nil
 }
 
-func workerCheckoutActiveLeaseCount(ctx context.Context, repoPath string) (int64, error) {
+func workerCheckoutActiveLeaseCount(ctx context.Context, repoPath string, leaseTTL time.Duration) (int64, error) {
 	leaseRoot := filepath.Join(repoPath, "leases")
 	leaseDirs, err := os.ReadDir(leaseRoot)
 	if err != nil {
@@ -603,6 +620,7 @@ func workerCheckoutActiveLeaseCount(ctx context.Context, repoPath string) (int64
 	}
 
 	var leases int64
+	now := time.Now()
 	for _, leaseDir := range leaseDirs {
 		if err := ctx.Err(); err != nil {
 			return leases, err
@@ -611,20 +629,11 @@ func workerCheckoutActiveLeaseCount(ctx context.Context, repoPath string) (int64
 			continue
 		}
 
-		entries, err := os.ReadDir(filepath.Join(leaseRoot, leaseDir.Name()))
+		count, err := workerCheckoutFreshLeaseCount(filepath.Join(leaseRoot, leaseDir.Name()), leaseTTL, now, false)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-
-			return leases, fmt.Errorf("read worker checkout cache generation leases: %w", err)
+			return leases, err
 		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				leases++
-			}
-		}
+		leases += count
 	}
 
 	return leases, nil
@@ -697,17 +706,87 @@ func isWorkerCheckoutGenerationPath(repoPath, generationPath string) bool {
 	return strings.HasPrefix(filepath.Base(generationPath), workerCheckoutGenerationPrefix)
 }
 
-func workerCheckoutGenerationHasLeases(repoPath, generationPath string) (bool, error) {
-	entries, err := os.ReadDir(filepath.Join(repoPath, "leases", filepath.Base(generationPath)))
+func workerCheckoutGenerationHasLeases(repoPath, generationPath string, leaseTTL time.Duration, now time.Time) (bool, error) {
+	leases, err := workerCheckoutFreshLeaseCount(filepath.Join(repoPath, "leases", filepath.Base(generationPath)), leaseTTL, now, true)
+	return leases > 0, err
+}
+
+func cleanupStaleWorkerCheckoutLeases(repoPath string, leaseTTL time.Duration, now time.Time) error {
+	leaseRoot := filepath.Join(repoPath, "leases")
+	entries, err := os.ReadDir(leaseRoot)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+			return nil
 		}
 
-		return false, fmt.Errorf("read worker checkout cache generation leases: %w", err)
+		return fmt.Errorf("read worker checkout cache leases: %w", err)
 	}
 
-	return len(entries) > 0, nil
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		leaseDir := filepath.Join(leaseRoot, entry.Name())
+		if _, err := workerCheckoutFreshLeaseCount(leaseDir, leaseTTL, now, true); err != nil {
+			return err
+		}
+		_ = os.Remove(leaseDir)
+	}
+
+	return nil
+}
+
+func workerCheckoutFreshLeaseCount(leaseDir string, leaseTTL time.Duration, now time.Time, removeStale bool) (int64, error) {
+	entries, err := os.ReadDir(leaseDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+
+		return 0, fmt.Errorf("read worker checkout cache generation leases: %w", err)
+	}
+
+	var leases int64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		path := filepath.Join(leaseDir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+
+			return leases, fmt.Errorf("stat worker checkout cache generation lease: %w", err)
+		}
+
+		if workerCheckoutLeaseIsStale(info.ModTime(), leaseTTL, now) {
+			if !removeStale {
+				continue
+			}
+
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return leases, fmt.Errorf("remove stale worker checkout cache generation lease: %w", err)
+			}
+
+			continue
+		}
+
+		leases++
+	}
+
+	return leases, nil
+}
+
+func workerCheckoutLeaseIsStale(modTime time.Time, leaseTTL time.Duration, now time.Time) bool {
+	if leaseTTL <= 0 || modTime.IsZero() || now.Before(modTime) {
+		return false
+	}
+
+	return now.Sub(modTime) >= leaseTTL
 }
 
 func cleanupEmptyWorkerCheckoutLeaseDirs(repoPath string) error {
