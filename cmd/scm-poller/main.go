@@ -89,13 +89,19 @@ var rootCmd = &cobra.Command{
 func init() {
 	cli.ConfigureVersion(rootCmd)
 	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_SCM_POLLER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+	_ = viper.BindEnv("scm_poller.queue.address", "VECTIS_SCM_POLLER_QUEUE_ADDRESS")
+	_ = viper.BindEnv("scm_poller.registry.address", "VECTIS_SCM_POLLER_REGISTRY_ADDRESS")
 	rootCmd.PersistentFlags().String("instance-id", "", "Stable SCM poller instance identifier used in trigger claim tokens")
 	rootCmd.PersistentFlags().Duration("interval", config.SCMPollerInterval(), "How often to scan for due SCM poll triggers")
 	rootCmd.PersistentFlags().Duration("claim-ttl", config.SCMPollerClaimTTL(), "How long an SCM poller instance owns a trigger claim")
+	rootCmd.PersistentFlags().String("queue-address", config.SCMPollerQueueAddress(), "Pinned queue gRPC address")
+	rootCmd.PersistentFlags().String("registry-address", config.SCMPollerRegistryAddress(), "Registry gRPC address for queue discovery")
 	scmgerrit.AddConfigFlags(rootCmd.PersistentFlags())
 	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
 	_ = viper.BindPFlag("claim_ttl", rootCmd.PersistentFlags().Lookup("claim-ttl"))
+	_ = viper.BindPFlag("scm_poller.queue.address", rootCmd.PersistentFlags().Lookup("queue-address"))
+	_ = viper.BindPFlag("scm_poller.registry.address", rootCmd.PersistentFlags().Lookup("registry-address"))
 	if err := scmgerrit.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()); err != nil {
 		panic(err)
 	}

@@ -25,6 +25,8 @@ Use one common file plus optional service-specific files:
 | `/etc/vectis/secrets.env` | Secret broker listener, encryptedfs root, key file, and policy. |
 | `/etc/vectis/spiffe.env` | SPIFFE trust domain, CA storage, sockets, selector, and bundle path. |
 | `/etc/vectis/cron.env` | Schedule producer identity and lease settings. |
+| `/etc/vectis/scm-poller.env` | SCM poll producer identity, claim settings, and provider credentials. |
+| `/etc/vectis/scm-gerrit-stream.env` | Optional Gerrit stream-events producer settings. |
 | `/etc/vectis/reconciler.env` | Repair loop interval, lease, and metrics settings. |
 | `/etc/vectis/catalog.env` | Catalog fan-in settings when multi-cell is enabled. |
 | `/etc/vectis/docs.env` | Operator docs listener settings if `vectis-docs` is enabled. |
@@ -246,6 +248,29 @@ VECTIS_CRON_CLAIM_TTL=5m
 VECTIS_SCM_POLLER_INSTANCE_ID=scm-poller-1
 VECTIS_SCM_POLLER_INTERVAL=30s
 VECTIS_SCM_POLLER_CLAIM_TTL=5m
+# Optional: pin queue discovery for this producer instead of using the shared registry.
+# VECTIS_SCM_POLLER_QUEUE_ADDRESS=queue.internal:8081
+# VECTIS_SCM_POLLER_REGISTRY_ADDRESS=registry.internal:8082
+
+# Required only for Gerrit instances that do not allow anonymous query access.
+VECTIS_SCM_POLLER_PROVIDERS_GERRIT_USERNAME=ci-bot
+VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD_FILE=/run/secrets/vectis/gerrit-http-password
+```
+
+`/etc/vectis/scm-gerrit-stream.env`:
+
+```sh
+VECTIS_SCM_GERRIT_STREAM_URL=https://gerrit.example.com
+VECTIS_SCM_GERRIT_STREAM_INSTANCE_ID=gerrit-stream-1
+VECTIS_SCM_GERRIT_STREAM_TRANSPORT=ssh
+VECTIS_SCM_GERRIT_STREAM_SSH_HOST=gerrit.example.com
+VECTIS_SCM_GERRIT_STREAM_SSH_PORT=29418
+VECTIS_SCM_GERRIT_STREAM_SSH_USER=ci-bot
+VECTIS_SCM_GERRIT_STREAM_SSH_KEY_FILE=/etc/vectis/ssh/gerrit-stream
+VECTIS_SCM_GERRIT_STREAM_SSH_KNOWN_HOSTS_FILE=/etc/vectis/ssh/known_hosts
+# Optional: pin queue discovery for this producer instead of using the shared registry.
+# VECTIS_SCM_GERRIT_STREAM_QUEUE_ADDRESS=queue.internal:8081
+# VECTIS_SCM_GERRIT_STREAM_REGISTRY_ADDRESS=registry.internal:8082
 ```
 
 `/etc/vectis/reconciler.env`:
@@ -272,8 +297,11 @@ VECTIS_DOCS_PORT=8088
 VECTIS_DOCS_LOG_LEVEL=info
 ```
 
-Enable cron only when schedules should fire. Enable catalog when multi-cell
-fan-in is used. Publish docs only on an operator-controlled network.
+Enable cron only when schedules should fire. Enable `vectis-scm-poller` only
+when stored jobs use SCM polling triggers, and enable `vectis-scm-gerrit-stream`
+only when a Gerrit stream-events subscription is part of the deployment. Enable
+catalog when multi-cell fan-in is used. Publish docs only on an
+operator-controlled network.
 
 ## Host Checklist
 

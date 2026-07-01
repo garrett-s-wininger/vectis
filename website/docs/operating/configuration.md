@@ -70,6 +70,8 @@ Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dis
 | Name a cron replica in claim records | `VECTIS_CRON_INSTANCE_ID=cron-a` or `vectis-cron --instance-id cron-a` |
 | Change SCM poller interval | `VECTIS_SCM_POLLER_INTERVAL=30s` or `vectis-scm-poller --interval 30s` |
 | Name an SCM poller replica in claim records | `VECTIS_SCM_POLLER_INSTANCE_ID=scm-poller-a` or `vectis-scm-poller --instance-id scm-poller-a` |
+| Authenticate Gerrit SCM polling | `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_USERNAME=ci-bot` plus `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD_FILE=/run/secrets/vectis/gerrit-http-password` |
+| Run a managed Gerrit stream bridge | `vectis-scm-gerrit-stream --url https://gerrit.example.com --ssh-host gerrit.example.com --ssh-user ci-bot --ssh-key-file /etc/vectis/ssh/gerrit-stream` |
 | Change catalog event drain interval | `VECTIS_CATALOG_INTERVAL=1s` |
 | Fan in cell-local catalog events | `vectis-catalog --cell-database-dsn pdx-b=/path/to/pdx.db` |
 | Run `vectis-local` with plaintext internal gRPC | `vectis-local --grpc-insecure` or `VECTIS_LOCAL_GRPC_INSECURE=true`; local secrets are disabled in this mode |
@@ -153,8 +155,8 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--queue-continuation-inline-job-max-bytes`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--checkout-cache-warm-interval`, `--checkout-cache-warm-timeout`, `--checkout-cache-warm-jitter-ratio`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
 | `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--metrics-host`, `--metrics-port`, `--execution-backend`, `--workspace-root`, `--checkout-cache-root`, `--checkout-cache-generations-to-keep`, `--checkout-cache-lease-ttl`, `--checkout-cache-warm-parallelism`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
-| `vectis-scm-gerrit-stream` | `VECTIS_SCM_GERRIT_STREAM` | `--url`, `--transport`, `--input`, `--ssh-host`, `--ssh-port`, `--ssh-user`, `--ssh-key-file`, `--ssh-known-hosts-file`, `--ssh-use-agent`, `--ssh-reconnect-base-delay`, `--ssh-reconnect-max-delay`, `--instance-id`, `--spec-limit`, `--queue-address`, `--registry-address` |
-| `vectis-scm-poller` | `VECTIS_SCM_POLLER` | `--instance-id`, `--interval`, `--claim-ttl` |
+| `vectis-scm-gerrit-stream` | `VECTIS_SCM_GERRIT_STREAM` | `--url`, `--transport`, `--input`, `--ssh-host`, `--ssh-port`, `--ssh-user`, `--ssh-key-file`, `--ssh-known-hosts-file`, `--ssh-use-agent`, `--ssh-insecure-ignore-host-key`, `--ssh-reconnect-base-delay`, `--ssh-reconnect-max-delay`, `--instance-id`, `--spec-limit`, `--queue-address`, `--registry-address` |
+| `vectis-scm-poller` | `VECTIS_SCM_POLLER` | `--instance-id`, `--interval`, `--claim-ttl`, `--gerrit-username`, `--gerrit-password-file`, `--gerrit-password`, `--queue-address`, `--registry-address` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--redispatch-limit`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
 | `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `--socket`, `--lockfile`, `--spool-dir`, `--metrics-host`, `--metrics-port` |
