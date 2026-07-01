@@ -66,6 +66,12 @@ as the correctness backstop for any Gerrit stream downtime; both producers emit
 the same stable event keys, so duplicate observations collapse in the shared
 event ledger.
 
+Run the managed stream smoke against the local Gerrit container with:
+
+```sh
+make gerrit-stream-smoke
+```
+
 ## Smoke
 
 Run the provider smoke against an already reachable Gerrit:

@@ -1,14 +1,15 @@
 # Gerrit Local Integration
 
-This directory documents the first narrow Gerrit proof for Vectis:
+This directory documents the Gerrit proof path for Vectis:
 
 1. discover an open Gerrit change through the Gerrit REST query path;
 2. checkout the discovered Gerrit change ref into the run workspace;
 3. run ordinary Vectis job steps against that checkout;
-4. post a Gerrit review message and optional label vote from the run.
+4. post a Gerrit review message and optional label vote from the run;
+5. consume Gerrit's SSH event stream through the managed stream bridge.
 
-It intentionally does not add event streaming, webhook ingestion, or a general
-source-control abstraction yet.
+It intentionally does not add webhook ingestion or a general source-control
+abstraction yet.
 
 ## Start Gerrit
 
@@ -70,6 +71,36 @@ To run only the check against an already running Gerrit:
 ```sh
 make gerrit-smoke-check
 ```
+
+## Managed Stream Smoke
+
+The stream smoke validates the managed SSH path used by
+`vectis-scm-gerrit-stream`:
+
+```sh
+make gerrit-stream-smoke
+```
+
+It logs into the development admin account, creates a project, generates a
+temporary SSH key, uploads the public key to Gerrit, records the live SSH host
+key into a temporary `known_hosts` file, starts `gerrit stream-events` through
+the shared SSH stream transport, pushes a review change, and requires the
+matching stream event to arrive with the same current revision and fetch ref
+reported by Gerrit's REST API.
+
+Useful knobs:
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `GERRIT_STREAM_SMOKE_URL` | `http://127.0.0.1:18088` | Gerrit base URL passed to the smoke. |
+| `GERRIT_STREAM_SMOKE_ACCOUNT_ID` | `1000000` | Development auth admin account id. |
+| `GERRIT_STREAM_SMOKE_USERNAME` | `admin` | Gerrit username used for HTTP and SSH auth. |
+| `GERRIT_STREAM_SMOKE_PROJECT` | empty | Project to use; generated when empty. |
+| `GERRIT_STREAM_SMOKE_PROJECT_PREFIX` | `vectis-stream-smoke` | Prefix for generated project names. |
+| `GERRIT_STREAM_SMOKE_SSH_HOST` | `127.0.0.1` | Hostname used for the managed SSH stream. |
+| `GERRIT_STREAM_SMOKE_SSH_PORT` | `29418` | Host SSH port. |
+| `GERRIT_STREAM_SMOKE_TIMEOUT` | `90s` | Maximum wait for setup, SSH auth, stream readiness, and the event. |
+| `GERRIT_STREAM_SMOKE_GIT` | `git` | Git executable used to push the change. |
 
 ## Seed A Change
 
