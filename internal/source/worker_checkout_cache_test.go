@@ -782,6 +782,44 @@ func TestWorkerCheckoutCacheCheckoutAddsLocalCacheRemoteForAuxiliaryRefs(t *test
 	}
 }
 
+func TestWorkerCheckoutCacheFetchRefspecsRefreshesStaleMirror(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("initial WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	git(t, remote, "notes", "--ref=commits", "add", "-m", "late cached note", mainCommit)
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := cache.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("Checkout: handled=%v err=%v", handled, err)
+	}
+
+	handled, err := cache.FetchRefspecs(context.Background(), remote, workspace, []string{
+		"+refs/notes/*:refs/notes/*",
+	}, nil)
+
+	if err != nil || !handled {
+		t.Fatalf("FetchRefspecs: handled=%v err=%v", handled, err)
+	}
+
+	if got := gitOutput(t, workspace, "notes", "--ref=commits", "show", mainCommit); got != "late cached note" {
+		t.Fatalf("fetched note = %q, want late cached note", got)
+	}
+}
+
 func TestWorkerCheckoutCacheCheckoutUsesCurrentGenerationWhileWarmLocked(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "cached\n", "cached")

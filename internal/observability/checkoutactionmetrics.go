@@ -24,14 +24,16 @@ const (
 	CheckoutActionCacheOutcomeSkipped = "skipped"
 	CheckoutActionCacheOutcomeUnknown = "unknown"
 
-	CheckoutActionReasonOK              = "ok"
-	CheckoutActionReasonMissingURL      = "missing_url"
-	CheckoutActionReasonCredentialedURL = "credentialed_url"
-	CheckoutActionReasonNoCache         = "no_cache"
-	CheckoutActionReasonCacheError      = "cache_error"
-	CheckoutActionReasonStartFailed     = "start_failed"
-	CheckoutActionReasonGitCloneFailed  = "git_clone_failed"
-	CheckoutActionReasonUnknown         = "unknown"
+	CheckoutActionReasonOK                   = "ok"
+	CheckoutActionReasonMissingURL           = "missing_url"
+	CheckoutActionReasonCredentialedURL      = "credentialed_url"
+	CheckoutActionReasonInvalidFetchRefspecs = "invalid_fetch_refspecs"
+	CheckoutActionReasonNoCache              = "no_cache"
+	CheckoutActionReasonCacheError           = "cache_error"
+	CheckoutActionReasonStartFailed          = "start_failed"
+	CheckoutActionReasonGitCloneFailed       = "git_clone_failed"
+	CheckoutActionReasonGitFetchFailed       = "git_fetch_failed"
+	CheckoutActionReasonUnknown              = "unknown"
 )
 
 type CheckoutActionMetrics struct {

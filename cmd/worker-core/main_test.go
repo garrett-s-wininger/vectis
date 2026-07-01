@@ -22,6 +22,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/testutil/socktest"
 	"vectis/internal/workercore"
 	workersdk "vectis/sdk/workercore"
@@ -84,6 +85,71 @@ func TestWorkerCorePersistentCheckoutCacheRemoteURLs(t *testing.T) {
 		len(structured[0].FallbackRemoteURLs) != 1 ||
 		structured[0].FallbackRemoteURLs[0] != wantStructured[0].FallbackRemoteURLs[0] {
 		t.Fatalf("structured remotes = %+v, want %+v", structured, wantStructured)
+	}
+}
+
+func TestWorkerCorePersistentCheckoutCacheRemotesResolveCredentials(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_CORE_SOURCE_REPOSITORIES", `[
+		{
+			"repository_id":"private",
+			"checkout_mode":"managed",
+			"worker_cache_mode":"persistent",
+			"canonical_url":"https://mirror.invalid/private.git",
+			"credential_ref":"secret://git/private"
+		}
+	]`)
+
+	var resolvedRepositoryID string
+	remotes, err := workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(func(_ context.Context, rec dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
+		resolvedRepositoryID = rec.RepositoryID
+		return sourcepkg.GitCredentials{Username: "oauth2", Password: "token"}, nil
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resolvedRepositoryID != "private" {
+		t.Fatalf("resolved repository id = %q, want private", resolvedRepositoryID)
+	}
+
+	if len(remotes) != 1 ||
+		remotes[0].RemoteURL != "https://mirror.invalid/private.git" ||
+		remotes[0].Credentials.Username != "oauth2" ||
+		remotes[0].Credentials.Password != "token" {
+		t.Fatalf("remotes = %+v, want credentialed private remote", remotes)
+	}
+}
+
+func TestWorkerCorePersistentCheckoutCacheRemotesRequireCredentialResolver(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_CORE_SOURCE_REPOSITORIES", `[
+		{
+			"repository_id":"private",
+			"checkout_mode":"managed",
+			"worker_cache_mode":"persistent",
+			"canonical_url":"https://mirror.invalid/private.git",
+			"credential_ref":"secret://git/private"
+		}
+	]`)
+
+	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_ROOT", "")
+	t.Setenv("VECTIS_SECRETS_ENCRYPTEDFS_KEY_FILE", "")
+	t.Setenv("VECTIS_WORKER_CORE_ENCRYPTEDFS_ROOT", "")
+	t.Setenv("VECTIS_WORKER_CORE_ENCRYPTEDFS_KEY_FILE", "")
+
+	_, err := workerCorePersistentCheckoutCacheRemotes()
+	if err == nil || !strings.Contains(err.Error(), "credential_ref") {
+		t.Fatalf("workerCorePersistentCheckoutCacheRemotes error = %v, want missing credential resolver", err)
 	}
 }
 

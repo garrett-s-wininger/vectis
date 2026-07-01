@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/platform"
 	"vectis/internal/registry"
+	"vectis/internal/secrets"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/workercore"
 	workersdk "vectis/sdk/workercore"
 )
@@ -177,6 +180,10 @@ func workerCorePersistentCheckoutCacheRemoteURLs() ([]string, error) {
 }
 
 func workerCorePersistentCheckoutCacheRemotes() ([]workercore.CheckoutCacheRemote, error) {
+	return workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(nil)
+}
+
+func workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(credentialResolver sourcepkg.RepositoryCredentialResolver) ([]workercore.CheckoutCacheRemote, error) {
 	decls, err := config.SourceRepositoryDeclarations()
 	if err != nil {
 		return nil, err
@@ -194,9 +201,25 @@ func workerCorePersistentCheckoutCacheRemotes() ([]workercore.CheckoutCacheRemot
 			continue
 		}
 
+		if strings.TrimSpace(decl.CredentialRef) != "" && credentialResolver == nil {
+			credentialResolver, err = newConfiguredSourceRepositoryCredentialResolver(nil)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		credentials, err := workerCoreSourceRepositoryCredentials(context.Background(), decl, credentialResolver)
+		if err != nil {
+			return nil, err
+		}
+
 		fallbackRemoteURLs := workerCoreUniqueRemoteURLs(decl.FallbackRemoteURLs, remoteURL)
 		if existing, ok := seen[remoteURL]; ok {
 			out[existing].FallbackRemoteURLs = workerCoreUniqueRemoteURLs(append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...), remoteURL)
+			if out[existing].Credentials.IsZero() && !credentials.IsZero() {
+				out[existing].Credentials = credentials
+			}
+
 			continue
 		}
 
@@ -204,10 +227,45 @@ func workerCorePersistentCheckoutCacheRemotes() ([]workercore.CheckoutCacheRemot
 		out = append(out, workercore.CheckoutCacheRemote{
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: fallbackRemoteURLs,
+			Credentials:        credentials,
 		})
 	}
 
 	return out, nil
+}
+
+func workerCoreSourceRepositoryCredentials(ctx context.Context, decl config.SourceRepositoryDeclaration, credentialResolver sourcepkg.RepositoryCredentialResolver) (sourcepkg.GitCredentials, error) {
+	if strings.TrimSpace(decl.CredentialRef) == "" {
+		return sourcepkg.GitCredentials{}, nil
+	}
+
+	return sourcepkg.RepositoryGitCredentials(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:  strings.TrimSpace(decl.RepositoryID),
+		CredentialRef: strings.TrimSpace(decl.CredentialRef),
+	}, credentialResolver)
+}
+
+func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourcepkg.RepositoryCredentialResolver, error) {
+	root := strings.TrimSpace(config.SecretsEncryptedFSRoot())
+	keyFile := strings.TrimSpace(config.SecretsEncryptedFSKeyFile())
+	if root == "" && keyFile == "" {
+		return nil, nil
+	}
+
+	if root == "" || keyFile == "" {
+		return nil, fmt.Errorf("source repository credentials require both secrets.encryptedfs.root and secrets.encryptedfs.key_file")
+	}
+
+	provider, err := secrets.NewEncryptedFSProvider(root, secrets.WithEncryptedFSKeyFile(keyFile))
+	if err != nil {
+		return nil, fmt.Errorf("source repository credential provider: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("Configured encryptedfs source repository credential resolver")
+	}
+
+	return sourcepkg.NewRepositoryCredentialResolverFromSecrets(provider), nil
 }
 
 func workerCoreCheckoutCacheRemoteURLs(remotes []workercore.CheckoutCacheRemote) []string {

@@ -241,6 +241,47 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 	return true, nil
 }
 
+func (c *WorkerCheckoutCache) FetchRefspecs(ctx context.Context, remoteURL, workspace string, refspecs []string, logger interfaces.Logger) (bool, error) {
+	if c == nil {
+		return false, nil
+	}
+
+	handled, persistentRemote, err := c.lookupPersistentRemote(remoteURL)
+	if err != nil || !handled {
+		return handled, err
+	}
+
+	refspecs, err = normalizeWorkerCheckoutCacheFetchRefspecs(refspecs)
+	if err != nil {
+		return true, err
+	}
+	if len(refspecs) == 0 {
+		return true, nil
+	}
+
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return true, fmt.Errorf("%w: workspace is required", ErrInvalidReference)
+	}
+
+	if logger != nil {
+		logger.Info("Refreshing worker checkout cache mirror before fetching auxiliary refs: %s", persistentRemote.RemoteURL)
+	}
+	_, _, warmErr := c.WarmRemote(ctx, persistentRemote.RemoteURL, logger)
+	if warmErr != nil && logger != nil {
+		logger.Warn("Worker checkout cache mirror refresh failed before auxiliary ref fetch for %s: %v", persistentRemote.RemoteURL, warmErr)
+	}
+
+	if err := fetchWorkerCheckoutCacheWorkspaceRefspecs(ctx, workspace, workerCheckoutCacheRemoteName, refspecs); err != nil {
+		if warmErr != nil {
+			return true, fmt.Errorf("refresh worker checkout cache mirror: %v; fetch refspecs: %w", warmErr, err)
+		}
+		return true, err
+	}
+
+	return true, nil
+}
+
 type workerCheckoutCacheGitRunner func(context.Context, string, ...string) error
 type workerCheckoutCacheHardlinkProbe func(mirrorPath, workspace string) bool
 
@@ -593,6 +634,44 @@ func configureWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, origi
 		if err := runWorkerCacheGit(ctx, workspace, "config", "--local", setting[0], setting[1]); err != nil {
 			return fmt.Errorf("set worker checkout cache workspace config %s: %w", setting[0], err)
 		}
+	}
+
+	return nil
+}
+
+func normalizeWorkerCheckoutCacheFetchRefspecs(refspecs []string) ([]string, error) {
+	if len(refspecs) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(refspecs))
+	out := make([]string, 0, len(refspecs))
+	for _, raw := range refspecs {
+		refspec := strings.TrimSpace(raw)
+		if refspec == "" {
+			continue
+		}
+
+		if strings.HasPrefix(refspec, "-") || strings.ContainsAny(refspec, "\x00\n\r\t ") {
+			return nil, fmt.Errorf("%w: worker checkout cache fetch refspec is not safe", ErrInvalidReference)
+		}
+
+		if _, ok := seen[refspec]; ok {
+			continue
+		}
+
+		seen[refspec] = struct{}{}
+		out = append(out, refspec)
+	}
+
+	return out, nil
+}
+
+func fetchWorkerCheckoutCacheWorkspaceRefspecs(ctx context.Context, workspace, remote string, refspecs []string) error {
+	args := []string{"fetch", "--no-auto-gc", "--no-tags", "--", remote}
+	args = append(args, refspecs...)
+	if err := runWorkerCacheGit(ctx, workspace, args...); err != nil {
+		return fmt.Errorf("fetch worker checkout cache refspecs from %s: %w", remote, err)
 	}
 
 	return nil

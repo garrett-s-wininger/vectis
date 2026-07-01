@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -26,6 +27,22 @@ func (c *fakeCheckoutCache) Checkout(_ context.Context, remoteURL, workspace str
 	c.remoteURL = remoteURL
 	c.workspace = workspace
 	return c.handled, c.err
+}
+
+type fakeCheckoutCacheRefFetcher struct {
+	fakeCheckoutCache
+	fetchHandled bool
+	fetchErr     error
+	fetchCalls   int
+	fetchRemote  string
+	fetchRefs    []string
+}
+
+func (c *fakeCheckoutCacheRefFetcher) FetchRefspecs(_ context.Context, remoteURL, _ string, refspecs []string, _ interfaces.Logger) (bool, error) {
+	c.fetchCalls++
+	c.fetchRemote = remoteURL
+	c.fetchRefs = append([]string(nil), refspecs...)
+	return c.fetchHandled, c.fetchErr
 }
 
 func TestCheckoutAction_Type(t *testing.T) {
@@ -98,6 +115,73 @@ func TestCheckoutAction_Execute_UsesCheckoutCache(t *testing.T) {
 	}
 }
 
+func TestCheckoutAction_Execute_UsesCheckoutCacheForFetchRefspecs(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	cache := &fakeCheckoutCache{handled: true}
+	checkoutAction := NewCheckoutAction(mockExecutor, cache)
+	state := createTestState(nil)
+	state.Workspace = "/tmp/vectis-cache-refspec-checkout"
+
+	refspecs := "+refs/notes/*:refs/notes/*\n+refs/changes/*:refs/changes/*"
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{
+		"url":            "https://github.com/example/repo.git",
+		"fetch_refspecs": refspecs,
+	}, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	if cache.calls != 1 {
+		t.Fatalf("cache calls = %d, want 1", cache.calls)
+	}
+
+	paths := mockExecutor.GetPaths()
+	args := mockExecutor.GetArgs()
+	if len(paths) != 1 || paths[0] != "git" {
+		t.Fatalf("expected one git fetch execution, got paths=%v", paths)
+	}
+
+	wantArgs := []string{"fetch", "--no-auto-gc", "--no-tags", "--", "vectis-cache", "+refs/notes/*:refs/notes/*", "+refs/changes/*:refs/changes/*"}
+	if len(args) != 1 || !reflect.DeepEqual(args[0], wantArgs) {
+		t.Fatalf("fetch args = %+v, want %+v", args, wantArgs)
+	}
+}
+
+func TestCheckoutAction_Execute_UsesCheckoutCacheRefFetcher(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	cache := &fakeCheckoutCacheRefFetcher{
+		fakeCheckoutCache: fakeCheckoutCache{handled: true},
+		fetchHandled:      true,
+	}
+
+	checkoutAction := NewCheckoutAction(mockExecutor, cache)
+	state := createTestState(nil)
+	url := "https://github.com/example/repo.git"
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{
+		"url":            url,
+		"fetch_refspecs": "+refs/notes/*:refs/notes/*",
+	}, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	if cache.fetchCalls != 1 || cache.fetchRemote != url || !reflect.DeepEqual(cache.fetchRefs, []string{"+refs/notes/*:refs/notes/*"}) {
+		t.Fatalf("fetcher calls=%d remote=%q refs=%+v", cache.fetchCalls, cache.fetchRemote, cache.fetchRefs)
+	}
+
+	if len(mockExecutor.GetPaths()) != 0 {
+		t.Fatalf("expected cache ref fetcher to bypass process executor, got %v", mockExecutor.GetPaths())
+	}
+}
+
 func TestCheckoutAction_Execute_PrefersStateCheckoutCache(t *testing.T) {
 	mockExecutor := mocks.NewMockExecExecutor()
 	actionCache := &fakeCheckoutCache{handled: true}
@@ -126,6 +210,39 @@ func TestCheckoutAction_Execute_PrefersStateCheckoutCache(t *testing.T) {
 	}
 }
 
+func TestCheckoutAction_Execute_DirectCloneFetchesRefspecsFromOrigin(t *testing.T) {
+	mockExecutor := mocks.NewMockExecExecutor()
+	mockProcess := mocks.NewMockProcess()
+	mockProcess.SetStdout("")
+	mockProcess.SetStderr("")
+	mockProcess.SetWaitError(nil)
+	mockExecutor.SetProcess(mockProcess)
+
+	checkoutAction := NewCheckoutAction(mockExecutor)
+	state := createTestState(nil)
+	state.Workspace = "/tmp/vectis-direct-refspec-checkout"
+
+	url := "https://github.com/example/repo.git"
+	result := checkoutAction.Execute(context.Background(), state, map[string]any{
+		"url":            url,
+		"fetch_refspecs": "+refs/pull/*/head:refs/remotes/origin/pr/*",
+	}, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
+	}
+
+	args := mockExecutor.GetArgs()
+	wantArgs := [][]string{
+		{"clone", url, "."},
+		{"fetch", "--no-auto-gc", "--no-tags", "--", "origin", "+refs/pull/*/head:refs/remotes/origin/pr/*"},
+	}
+
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("git args = %+v, want %+v", args, wantArgs)
+	}
+}
+
 func TestCheckoutAction_Execute_ReportsCheckoutCacheFailure(t *testing.T) {
 	mockExecutor := mocks.NewMockExecExecutor()
 	cache := &fakeCheckoutCache{handled: true, err: fmt.Errorf("cache unavailable")}
@@ -144,6 +261,22 @@ func TestCheckoutAction_Execute_ReportsCheckoutCacheFailure(t *testing.T) {
 	if len(mockExecutor.GetPaths()) != 0 {
 		t.Fatalf("expected checkout cache failure to avoid direct clone fallback, got %v", mockExecutor.GetPaths())
 	}
+}
+
+func TestCheckoutAction_ValidateRejectsFetchRefspecOption(t *testing.T) {
+	checkoutAction := NewCheckoutAction(nil)
+	errs := checkoutAction.ValidateWith(map[string]string{
+		"url":            "https://github.com/example/repo.git",
+		"fetch_refspecs": "--upload-pack=/tmp/helper",
+	})
+
+	for _, err := range errs {
+		if err.Field == "fetch_refspecs" {
+			return
+		}
+	}
+
+	t.Fatalf("expected fetch_refspecs validation error, got %+v", errs)
 }
 
 func TestCheckoutAction_Execute_MissingUrl(t *testing.T) {
