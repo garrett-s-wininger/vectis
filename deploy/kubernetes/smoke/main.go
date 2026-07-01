@@ -52,6 +52,7 @@ func main() {
 	flag.StringVar(&opts.GerritProject, "gerrit-project", "", "Gerrit project name; generated when empty")
 	flag.StringVar(&opts.GerritProjectPrefix, "gerrit-project-prefix", kubernetesdeploy.DefaultSmokeGerritProjectPrefix, "Generated Gerrit project prefix")
 	flag.StringVar(&opts.GerritGitBin, "gerrit-git", kubernetesdeploy.DefaultSmokeGerritGitBin, "git executable used to push the Gerrit smoke change")
+	flag.BoolVar(&opts.GerritKeepFixture, "gerrit-keep-fixture", false, "Keep the Gerrit fixture deployment and service after the Gerrit stream smoke")
 	flag.BoolVar(&seedSecret, "seed-secret", kubernetesdeploy.DefaultSmokeSeedSecret, "Seed the canonical encryptedfs smoke secret before submitting the job")
 	flag.IntVar(&opts.APILocalPort, "api-local-port", kubernetesdeploy.DefaultSmokeAPIPort, "Local port used for the API port-forward")
 	flag.DurationVar(&opts.Wait, "wait", kubernetesdeploy.DefaultSmokeWait, "Maximum time to wait for each smoke phase")

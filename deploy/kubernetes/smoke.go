@@ -104,6 +104,7 @@ type SmokeOptions struct {
 	GerritProject       string
 	GerritProjectPrefix string
 	GerritGitBin        string
+	GerritKeepFixture   bool
 	SeedSecret          *bool
 	APILocalPort        int
 	Wait                time.Duration
@@ -160,6 +161,7 @@ type smokeRunDetail struct {
 	TriggerType           *string              `json:"trigger_type,omitempty"`
 	TriggerSourceInstance *string              `json:"trigger_source_instance,omitempty"`
 	TriggerPayloadHash    *string              `json:"trigger_payload_hash,omitempty"`
+	NextAction            string               `json:"next_action,omitempty"`
 	DispatchEvents        []smokeDispatchEvent `json:"dispatch_events,omitempty"`
 }
 
@@ -167,6 +169,7 @@ type smokeDispatchEvent struct {
 	Source         string `json:"source"`
 	SourceInstance string `json:"source_instance,omitempty"`
 	EventType      string `json:"event_type"`
+	Message        string `json:"message,omitempty"`
 	CreatedAt      int64  `json:"created_at,omitempty"`
 }
 
@@ -1963,13 +1966,19 @@ func waitForSmokeRunStatus(ctx context.Context, client *http.Client, baseURL, to
 		}
 	}
 
+	lastDiagnostics := ""
 	for {
 		detail, err := fetchSmokeRunDetail(client, baseURL, token, runID)
 		if err != nil {
 			return smokeRunDetail{}, err
 		}
 
-		fmt.Fprintf(out, "run_id=%s status=%s\n", detail.RunID, detail.Status)
+		fmt.Fprintln(out, smokeRunProgressLine(detail))
+		diagnostics := smokeRunDispatchDiagnostics(detail)
+		if diagnostics != "" && diagnostics != lastDiagnostics {
+			fmt.Fprintf(out, "run_id=%s dispatch=%s\n", detail.RunID, diagnostics)
+			lastDiagnostics = diagnostics
+		}
 
 		status := strings.ToLower(strings.TrimSpace(detail.Status))
 		if expected[status] {
@@ -1978,15 +1987,84 @@ func waitForSmokeRunStatus(ctx context.Context, client *http.Client, baseURL, to
 
 		switch status {
 		case "succeeded", "failed", "orphaned", "cancelled", "abandoned", "aborted":
-			return detail, fmt.Errorf("run %s reached terminal status %s", runID, detail.Status)
+			return detail, fmt.Errorf("run %s reached terminal status %s%s", runID, detail.Status, smokeRunWaitSuffix(detail))
 		}
 
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			return smokeRunDetail{}, fmt.Errorf("timed out waiting for run %s: %w", runID, ctx.Err())
+			return smokeRunDetail{}, fmt.Errorf("timed out waiting for run %s%s: %w", runID, smokeRunWaitSuffix(detail), ctx.Err())
 		}
 	}
+}
+
+func smokeRunProgressLine(detail smokeRunDetail) string {
+	parts := []string{
+		"run_id=" + strings.TrimSpace(detail.RunID),
+		"status=" + strings.TrimSpace(detail.Status),
+	}
+
+	if nextAction := strings.TrimSpace(detail.NextAction); nextAction != "" {
+		parts = append(parts, "next_action="+nextAction)
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func smokeRunWaitSuffix(detail smokeRunDetail) string {
+	parts := []string{}
+	if status := strings.TrimSpace(detail.Status); status != "" {
+		parts = append(parts, "last_status="+status)
+	}
+
+	if nextAction := strings.TrimSpace(detail.NextAction); nextAction != "" {
+		parts = append(parts, "next_action="+nextAction)
+	}
+
+	if diagnostics := smokeRunDispatchDiagnostics(detail); diagnostics != "" {
+		parts = append(parts, "dispatch="+diagnostics)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return " (" + strings.Join(parts, "; ") + ")"
+}
+
+func smokeRunDispatchDiagnostics(detail smokeRunDetail) string {
+	failures := []string{}
+	for _, event := range detail.DispatchEvents {
+		if !strings.EqualFold(strings.TrimSpace(event.EventType), "failure") {
+			continue
+		}
+
+		source := strings.TrimSpace(event.Source)
+		if instance := strings.TrimSpace(event.SourceInstance); instance != "" {
+			if source == "" {
+				source = instance
+			} else {
+				source += "/" + instance
+			}
+		}
+		if source == "" {
+			source = "unknown"
+		}
+
+		message := strings.TrimSpace(event.Message)
+		if message == "" {
+			message = "no message"
+		}
+
+		failures = append(failures, source+" failure: "+message)
+	}
+
+	const maxDispatchDiagnostics = 3
+	if len(failures) > maxDispatchDiagnostics {
+		failures = failures[len(failures)-maxDispatchDiagnostics:]
+	}
+
+	return strings.Join(failures, "; ")
 }
 
 func waitForSmokeTaskLeaseOwners(ctx context.Context, client *http.Client, baseURL, token, runID string, taskKeys []string, minOwners int, out io.Writer) ([]string, error) {

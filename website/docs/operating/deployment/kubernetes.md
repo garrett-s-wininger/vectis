@@ -130,7 +130,8 @@ claim production security posture yet:
   stored Gerrit `scm_poll` job through the API, temporarily scales the SCM
   poller to zero to isolate the source under test, scales the stream bridge from
   zero to one replica, pushes a real change, and verifies the triggered run and
-  audit metadata;
+  audit metadata. It deletes the Gerrit fixture when the run ends unless
+  `K8S_GERRIT_KEEP_FIXTURE=true` or `--gerrit-keep-fixture=true` is set;
 - `vectis-cell-ingress` is not exposed yet;
 - default Secret values are placeholders and must be overridden before shared use.
 

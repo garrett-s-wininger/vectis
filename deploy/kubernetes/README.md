@@ -97,6 +97,7 @@ The local contract is:
 | `K8S_GERRIT_PROJECT` | unset | Optional Gerrit project; generated from `K8S_GERRIT_PROJECT_PREFIX` when empty. |
 | `K8S_GERRIT_PROJECT_PREFIX` | `vectis-k8s-gerrit-stream` | Prefix for generated Gerrit projects. |
 | `K8S_GERRIT_GIT` | `git` | Git executable used by the smoke harness to push the Gerrit change. |
+| `K8S_GERRIT_KEEP_FIXTURE` | `false` | Keep `deployment/vectis-gerrit` and `service/vectis-gerrit` after the optional stream smoke for local reruns. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -205,7 +206,9 @@ scales `deployment/vectis-scm-gerrit-stream` from zero to one replica, pushes a
 real Gerrit change, and verifies the resulting run succeeds with SCM trigger
 audit metadata sourced from the stream bridge. The harness requires the stream
 bridge Deployment to be scaled to zero before it starts so it does not overwrite
-a running bridge.
+a running bridge. It deletes `deployment/vectis-gerrit` and
+`service/vectis-gerrit` when the run ends unless `K8S_GERRIT_KEEP_FIXTURE=true`
+or `--gerrit-keep-fixture=true` is set.
 
 The smoke harness is a Go entrypoint and can also be run directly:
 

@@ -332,8 +332,45 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatalf("gerrit git executable = %q", opts.GerritGitBin)
 	}
 
+	if opts.GerritKeepFixture {
+		t.Fatal("gerrit keep fixture should be disabled by default")
+	}
+
 	if !smokeSeedSecretEnabled(opts) {
 		t.Fatal("secret seeding should be enabled by default")
+	}
+}
+
+func TestSmokeRunWaitDiagnosticsSummarizeDispatchFailures(t *testing.T) {
+	detail := smokeRunDetail{
+		RunID:      "run-123",
+		Status:     "queued",
+		NextAction: "dispatch_pending",
+		DispatchEvents: []smokeDispatchEvent{
+			{Source: "cron", EventType: "attempt", Message: "ignored"},
+			{Source: "scm_gerrit_stream", SourceInstance: "vectis-scm-gerrit-stream-0", EventType: "failure", Message: "decode execution envelope: missing job"},
+		},
+	}
+
+	line := smokeRunProgressLine(detail)
+	if !strings.Contains(line, "run_id=run-123 status=queued next_action=dispatch_pending") {
+		t.Fatalf("progress line = %q", line)
+	}
+
+	diagnostics := smokeRunDispatchDiagnostics(detail)
+	if !strings.Contains(diagnostics, "scm_gerrit_stream/vectis-scm-gerrit-stream-0 failure: decode execution envelope: missing job") {
+		t.Fatalf("diagnostics = %q", diagnostics)
+	}
+
+	suffix := smokeRunWaitSuffix(detail)
+	for _, want := range []string{
+		"last_status=queued",
+		"next_action=dispatch_pending",
+		"dispatch=scm_gerrit_stream/vectis-scm-gerrit-stream-0 failure: decode execution envelope: missing job",
+	} {
+		if !strings.Contains(suffix, want) {
+			t.Fatalf("suffix %q missing %q", suffix, want)
+		}
 	}
 }
 
@@ -393,6 +430,7 @@ func TestKubernetesValidationEntrypointContract(t *testing.T) {
 		`"gerrit-project"`,
 		`"gerrit-project-prefix"`,
 		`"gerrit-git"`,
+		`"gerrit-keep-fixture"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke entrypoint missing %q", want)

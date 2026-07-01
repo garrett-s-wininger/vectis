@@ -19,6 +19,7 @@ import (
 
 const (
 	smokeGerritDeploymentName          = "deployment/vectis-gerrit"
+	smokeGerritServiceName             = "service/vectis-gerrit"
 	smokeGerritPodSelector             = "app.kubernetes.io/name=vectis,app.kubernetes.io/component=gerrit-smoke"
 	smokeGerritHTTPRemotePort          = 8080
 	smokeGerritSSHRemotePort           = 29418
@@ -87,6 +88,9 @@ func runGerritStreamSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, 
 	}
 
 	setupCancel()
+	if !opts.GerritKeepFixture {
+		defer cleanupSmokeGerritFixture(opts)
+	}
 
 	fmt.Fprintf(out, "Starting Gerrit port-forward on 127.0.0.1:%d and 127.0.0.1:%d\n", opts.GerritHTTPPort, opts.GerritSSHLocalPort)
 	gerritPF, err := startSmokePortForward(ctx, opts, smokeGerritDeploymentName, []smokePortMapping{
@@ -290,6 +294,22 @@ func applySmokeGerritFixture(ctx context.Context, opts SmokeOptions) error {
 	}
 
 	return nil
+}
+
+func cleanupSmokeGerritFixture(opts SmokeOptions) {
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
+	defer cancel()
+
+	fmt.Fprintf(opts.Stdout, "Deleting Gerrit smoke fixture %s and %s\n", smokeGerritDeploymentName, smokeGerritServiceName)
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "delete", smokeGerritDeploymentName, smokeGerritServiceName, "--ignore-not-found")
+	if err != nil {
+		fmt.Fprintf(opts.Stdout, "Warning: cleanup Gerrit smoke fixture failed: %v: %s%s\n", err, stdout, stderr)
+		return
+	}
+
+	if text := strings.TrimSpace(stdout + stderr); text != "" {
+		fmt.Fprintln(opts.Stdout, text)
+	}
 }
 
 func smokeGerritFixtureManifest(image string) string {
