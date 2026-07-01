@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -402,7 +403,7 @@ func TestEmbeddedLocalSPIFFEConfigSkipsPlaintextGRPC(t *testing.T) {
 
 func TestStartEmbeddedLocalSPIFFEStartsAuthority(t *testing.T) {
 	resetLocalTestConfig(t)
-	dir, err := os.MkdirTemp("/tmp", "vectis-spiffe-*") //nolint:usetesting // Keep embedded SPIFFE runtime sockets under a short temp root.
+	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-spiffe-*") //nolint:usetesting // Keep embedded SPIFFE runtime sockets under a short temp root.
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
@@ -437,6 +438,14 @@ func TestStartEmbeddedLocalSPIFFEStartsAuthority(t *testing.T) {
 	if got := viper.GetString("spiffe_registration_server_address"); got != "unix://"+cfg.ServerSocket {
 		t.Fatalf("registration API address = %q", got)
 	}
+}
+
+func shortTempRoot() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+
+	return "/tmp"
 }
 
 func TestLocalSPIFFERejectsPlaintextGRPC(t *testing.T) {

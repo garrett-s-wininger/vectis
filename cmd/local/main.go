@@ -199,9 +199,7 @@ func startUIDevAssets(logger interfaces.Logger) (*exec.Cmd, error) {
 	command.Stdin = nil
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
-	command.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	configureServiceCommand(command)
 	command.Env = os.Environ()
 
 	if err := command.Start(); err != nil {

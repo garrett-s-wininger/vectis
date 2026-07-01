@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -406,7 +407,7 @@ func repoRoot(t *testing.T) string {
 func testSPIFFEConfig(t *testing.T) localspiffe.Config {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-secrets-integration-*")
+	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-secrets-integration-*")
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
@@ -421,6 +422,14 @@ func testSPIFFEConfig(t *testing.T) localspiffe.Config {
 		BundleFile:             filepath.Join(dir, "data", "bundle.pem"),
 		Selectors:              []string{"unix:uid:" + strconv.Itoa(os.Getuid())},
 	}
+}
+
+func shortTempRoot() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+
+	return "/tmp"
 }
 
 func strp(s string) *string {

@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,7 +21,7 @@ import (
 )
 
 func main() {
-	socketPath := flag.String("socket", "/tmp/vectis-worker-core-example.sock", "Unix socket served by the example worker core")
+	socketPath := flag.String("socket", defaultSocketPath(), "Unix socket served by the example worker core")
 	flag.Parse()
 
 	core := newSampleCore()
@@ -41,6 +43,15 @@ func main() {
 	if err := server.Serve(listener); err != nil && ctx.Err() == nil {
 		log.Fatalf("serve worker core: %v", err)
 	}
+}
+
+func defaultSocketPath() string {
+	root := "/tmp"
+	if runtime.GOOS == "windows" {
+		root = os.TempDir()
+	}
+
+	return filepath.Join(root, "vectis-worker-core-example.sock")
 }
 
 type sampleCore struct {

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -510,7 +511,7 @@ func (r staticExecutionScopeResolver) ResolveExecutionScope(context.Context, str
 func testConfig(t *testing.T) Config {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-spiffe-*") //nolint:usetesting // Keep SPIFFE runtime socket paths under a short temp root.
+	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-spiffe-*") //nolint:usetesting // Keep SPIFFE runtime socket paths under a short temp root.
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
@@ -525,4 +526,12 @@ func testConfig(t *testing.T) Config {
 		BundleFile:             filepath.Join(dir, "data", "bundle.pem"),
 		Selectors:              []string{"unix:uid:" + strconv.Itoa(os.Getuid())},
 	}
+}
+
+func shortTempRoot() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+
+	return "/tmp"
 }

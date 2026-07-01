@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -399,11 +400,19 @@ func serveGRPC(t *testing.T, server *grpc.Server, listener net.Listener) {
 func shortSocketPath(t *testing.T, name string) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("/tmp", "vectis-core-conf-") //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
+	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-core-conf-") //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
 	return filepath.Join(dir, name)
+}
+
+func shortTempRoot() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+
+	return "/tmp"
 }
