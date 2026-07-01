@@ -54,7 +54,7 @@ func main() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "Gerrit stream smoke succeeded: project=%s change=%s revision=%s\n", result.Project, result.Change, result.Revision)
+	fmt.Fprintf(os.Stdout, "Gerrit stream smoke succeeded: project=%s change=%s revision=%s stream_poller_dedupe=%t\n", result.Project, result.Change, result.Revision, result.StreamPollerDedupe)
 }
 
 func envDefault(key, fallback string) string {

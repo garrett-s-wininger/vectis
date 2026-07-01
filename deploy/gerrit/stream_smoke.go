@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -20,7 +22,12 @@ import (
 	gerritaction "vectis/extensions/actions/gerrit"
 	scmgerrit "vectis/extensions/scm/gerrit"
 	"vectis/extensions/scm/sshstream"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/migrations"
+	"vectis/internal/scmpoller"
+	"vectis/internal/scmstream"
+	"vectis/internal/scmtrigger"
 	"vectis/sdk/scm"
 
 	"golang.org/x/crypto/ssh"
@@ -56,6 +63,7 @@ type StreamSmokeResult struct {
 	SSHPort            int    `json:"ssh_port"`
 	KnownHostsVerified bool   `json:"known_hosts_verified"`
 	StreamObserved     bool   `json:"stream_observed"`
+	StreamPollerDedupe bool   `json:"stream_poller_dedupe"`
 }
 
 func RunStreamSmoke(ctx context.Context, opts StreamSmokeOptions) (StreamSmokeResult, error) {
@@ -279,6 +287,10 @@ func (r smokeRunner) runStreamSmoke(ctx context.Context, opts StreamSmokeOptions
 		return StreamSmokeResult{}, fmt.Errorf("gerrit stream event revision/ref %s/%s, detail returned %s/%s", streamInfo.CurrentRevision, streamInfo.Ref, revision, fetchRef)
 	}
 
+	if err := r.runStreamPollerDedupe(ctx, workspaceRoot, opts, password, event, change, revision, fetchRef); err != nil {
+		return StreamSmokeResult{}, err
+	}
+
 	return StreamSmokeResult{
 		Status:             "ok",
 		URL:                opts.URL,
@@ -290,7 +302,209 @@ func (r smokeRunner) runStreamSmoke(ctx context.Context, opts StreamSmokeOptions
 		SSHPort:            opts.SSHPort,
 		KnownHostsVerified: true,
 		StreamObserved:     true,
+		StreamPollerDedupe: true,
 	}, nil
+}
+
+func (r smokeRunner) runStreamPollerDedupe(ctx context.Context, workspaceRoot string, opts StreamSmokeOptions, password string, event scm.Event, change, revision, fetchRef string) error {
+	restoreDriver, err := forceSQLiteDatabaseDriver()
+	if err != nil {
+		return err
+	}
+	defer restoreDriver()
+
+	dbPath := filepath.Join(workspaceRoot, "stream-poller-dedupe.sqlite")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("open gerrit stream dedupe db: %w", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	if err := migrations.Run(db, "sqlite3"); err != nil {
+		return fmt.Errorf("migrate gerrit stream dedupe db: %w", err)
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	ns, err := repos.Namespaces().Create(ctx, "gerrit-stream-smoke", nil)
+	if err != nil {
+		return fmt.Errorf("create gerrit stream smoke namespace: %w", err)
+	}
+
+	jobID := "gerrit-stream-poller-dedupe"
+	definition := `{"id":"gerrit-stream-poller-dedupe","root":{"uses":"builtins/shell","with":{"command":"echo gerrit stream poller dedupe"}}}`
+	if err := repos.Jobs().CreateWithTriggers(ctx, jobID, definition, ns.ID, []dal.JobTriggerConfig{{
+		ID:   "gerrit",
+		Name: "Gerrit stream poller dedupe",
+		SCMPoll: &dal.JobSCMPollTriggerConfig{
+			Provider: "gerrit",
+			BaseURL:  opts.URL,
+			Project:  opts.Project,
+			Branch:   "master",
+			Query:    "status:open",
+			Interval: time.Minute,
+		},
+	}}); err != nil {
+		return fmt.Errorf("create gerrit stream smoke job: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE scm_poll_trigger_specs
+		SET cursor = ?, next_poll_at = ?
+	`, gerritEmptyBootstrappedCursor, time.Now().UTC().Add(-time.Second).Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("prime gerrit stream smoke cursor: %w", err)
+	}
+
+	ingress := &pollerSmokeIngress{}
+	processor := scmtrigger.Processor{
+		Events:         repos.SCMPollTriggers(),
+		Jobs:           repos.Jobs(),
+		Runs:           repos.Runs(),
+		Dispatch:       repos.DispatchEvents(),
+		Invocations:    repos.TriggerInvocations(),
+		Ingress:        ingress,
+		Logger:         interfaces.NewLogger("gerrit-stream-smoke-router"),
+		Clock:          interfaces.SystemClock{},
+		Source:         dal.DispatchSourceSCMGerritStream,
+		SourceInstance: "gerrit-stream-smoke-stream",
+	}
+
+	router := scmstream.Router{
+		Specs:     repos.SCMPollTriggers(),
+		Processor: processor,
+		Logger:    interfaces.NewLogger("gerrit-stream-smoke-router"),
+		Matcher: func(spec dal.SCMPollTriggerSpec, event scm.Event) bool {
+			return scmgerrit.StreamEventMatchesQuery(event, spec.Query)
+		},
+	}
+
+	info, err := scmgerrit.StreamEventInfoFromEvent(event)
+	if err != nil {
+		return err
+	}
+
+	routed, err := router.HandleEvent(ctx, scmstream.EventTarget{
+		Provider: "gerrit",
+		BaseURL:  opts.URL,
+		Project:  info.Project,
+		Branch:   info.Branch,
+	}, event)
+
+	if err != nil {
+		return fmt.Errorf("route gerrit stream smoke event: %w", err)
+	}
+
+	if routed.Candidates != 1 || routed.Matched != 1 || routed.Handled != 1 {
+		return fmt.Errorf("gerrit stream smoke route result = %+v, want one handled trigger", routed)
+	}
+
+	submissions := ingress.Submissions()
+	if len(submissions) != 1 {
+		return fmt.Errorf("gerrit stream smoke dispatched %d submissions, want 1", len(submissions))
+	}
+
+	runID := submissions[0].Envelope.RunID
+	if strings.TrimSpace(runID) == "" {
+		return fmt.Errorf("gerrit stream smoke dispatched submission without run id")
+	}
+
+	provider := scmgerrit.NewProvider(
+		scmgerrit.WithHTTPClient(r.client),
+		scmgerrit.WithBasicAuth(opts.Username, password),
+	)
+
+	poller := scmpoller.NewService(interfaces.NewLogger("gerrit-stream-smoke-poller"), db)
+	poller.SetInstanceID("gerrit-stream-smoke-poller")
+	poller.SetExecutionIngress(ingress)
+	poller.RegisterProvider("gerrit", provider)
+
+	if err := poller.Process(ctx); err != nil {
+		return fmt.Errorf("run gerrit stream smoke poller dedupe: %w", err)
+	}
+
+	submissions = ingress.Submissions()
+	if len(submissions) != 1 {
+		return fmt.Errorf("gerrit stream smoke dispatched %d submissions after poller replay, want 1", len(submissions))
+	}
+
+	if err := r.verifyStreamPollerDedupeRows(ctx, db, runID, change, revision, fetchRef); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r smokeRunner) verifyStreamPollerDedupeRows(ctx context.Context, db *sql.DB, runID, change, revision, fetchRef string) error {
+	var eventKey, payloadJSON, eventRunID, firstSource, firstInstance, lastSource, lastInstance string
+	var observationCount int
+	if err := db.QueryRowContext(ctx, `
+		SELECT event_key, payload_json, COALESCE(run_id, ''), first_observed_source, first_observed_source_instance,
+			last_observed_source, last_observed_source_instance, observation_count
+		FROM scm_trigger_events
+		ORDER BY discovered_at ASC
+		LIMIT 1
+	`).Scan(&eventKey, &payloadJSON, &eventRunID, &firstSource, &firstInstance, &lastSource, &lastInstance, &observationCount); err != nil {
+		return fmt.Errorf("read gerrit stream smoke dedupe event: %w", err)
+	}
+
+	if eventRunID != runID {
+		return fmt.Errorf("gerrit stream smoke dedupe event run_id = %q, want %q", eventRunID, runID)
+	}
+
+	if firstSource != dal.DispatchSourceSCMGerritStream || lastSource != dal.DispatchSourceSCMPoller ||
+		firstInstance != "gerrit-stream-smoke-stream" || lastInstance != "gerrit-stream-smoke-poller" || observationCount != 2 {
+		return fmt.Errorf("gerrit stream smoke dedupe observation metadata first=%s/%s last=%s/%s count=%d", firstSource, firstInstance, lastSource, lastInstance, observationCount)
+	}
+
+	if !strings.Contains(eventKey, revision) {
+		return fmt.Errorf("gerrit stream smoke dedupe event key %q did not include revision %s", eventKey, revision)
+	}
+
+	if !strings.Contains(eventKey, change) {
+		return fmt.Errorf("gerrit stream smoke dedupe event key %q did not include change identity %s", eventKey, change)
+	}
+
+	var payload struct {
+		CurrentRevision string `json:"current_revision"`
+		Ref             string `json:"ref"`
+	}
+
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		return fmt.Errorf("decode gerrit stream smoke dedupe payload: %w", err)
+	}
+
+	if payload.CurrentRevision != revision || payload.Ref != fetchRef {
+		return fmt.Errorf("gerrit stream smoke dedupe payload revision/ref %s/%s, want %s/%s", payload.CurrentRevision, payload.Ref, revision, fetchRef)
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("get gerrit stream smoke dedupe run: %w", err)
+	}
+
+	if run.TriggerSourceInstance == nil || *run.TriggerSourceInstance != "gerrit-stream-smoke-stream" {
+		return fmt.Errorf("gerrit stream smoke dedupe run source instance = %+v, want gerrit-stream-smoke-stream", run.TriggerSourceInstance)
+	}
+
+	dispatches, err := repos.DispatchEvents().ListByRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("list gerrit stream smoke dedupe dispatch events: %w", err)
+	}
+
+	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt || dispatches[1].EventType != dal.DispatchEventSuccess {
+		return fmt.Errorf("gerrit stream smoke dedupe dispatch events = %+v, want attempt/success", dispatches)
+	}
+
+	for _, dispatch := range dispatches {
+		if dispatch.Source != dal.DispatchSourceSCMGerritStream || dispatch.SourceInstance != "gerrit-stream-smoke-stream" {
+			return fmt.Errorf("gerrit stream smoke dedupe dispatch source = %+v", dispatch)
+		}
+	}
+
+	return nil
 }
 
 func writeStreamSmokeSSHKey(workspaceRoot string) (string, ssh.Signer, error) {

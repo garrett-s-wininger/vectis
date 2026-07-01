@@ -92,7 +92,10 @@ temporary SSH key, uploads the public key to Gerrit, records the live SSH host
 key into a temporary `known_hosts` file, starts `gerrit stream-events` through
 the shared SSH stream transport, pushes a review change, and requires the
 matching stream event to arrive with the same current revision and fetch ref
-reported by Gerrit's REST API.
+reported by Gerrit's REST API. It then routes that live stream event through
+the shared SCM trigger pipeline, runs the Gerrit poller against the same
+temporary database, and verifies the poller observes the same event without
+dispatching a second run.
 
 Useful knobs:
 
