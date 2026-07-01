@@ -126,7 +126,10 @@ and [Security](../concepts/security.md).
 
 For the backup/restore row, link the completed
 [Production v1 drill](../operating/reliability/backup-restore.md#production-v1-drill)
-or state why a fresh drill was not required for this release.
+or state why a fresh drill was not required for this release. Attach
+`backup restore-validation` JSON when the drill produced it. For the Podman
+reference deployment, also attach generated expected-topology JSON, volume
+archive hashes, and the pre/post restore smoke run IDs.
 
 Store the JSON health output as an artifact, not only pasted text. The JSON
 record preserves check IDs, status, severity, evidence, suggested action, and

@@ -376,7 +376,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 		Profile:                       profile,
 		PrometheusAPITargets:          podmanTargets(8080),
 		PrometheusQueueTargets:        podmanTargets(9081),
-		PrometheusOrchestratorTargets: podmanTargets(9090),
+		PrometheusOrchestratorTargets: podmanTargets(9087),
 		PrometheusWorkerTargets:       podmanTargets(9082),
 		PrometheusWorkerCoreTargets:   podmanTargets(9092),
 		PrometheusLogTargets:          podmanTargets(9083),
@@ -390,16 +390,16 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 			{Name: "cron"},
 		},
 		LogShards: []podmanLogShard{
-			{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs"},
+			{Name: "log", GRPCPort: 8083, MetricsPort: 9083, StorageDir: "/data/vectis/jobs", InstanceID: "log-1", AdvertiseAddress: podmanAddr(8083)},
 		},
 		ArtifactShards: []podmanArtifactShard{
-			{Name: "artifact", GRPCPort: 8086, MetricsPort: 9089, StorageDir: "/data/vectis/artifact"},
+			{Name: "artifact", GRPCPort: 8086, MetricsPort: 9089, StorageDir: "/data/vectis/artifact", InstanceID: "artifact-1", AdvertiseAddress: podmanAddr(8086)},
 		},
 		QueueShards: []podmanQueueShard{
-			{Name: "queue", Port: 8081, MetricsPort: 9081, PersistenceDir: "/data/vectis/queue"},
+			{Name: "queue", Port: 8081, MetricsPort: 9081, InstanceID: "queue-1", AdvertiseAddress: podmanAddr(8081), PersistenceDir: "/data/vectis/queue"},
 		},
 		OrchestratorReplicas: []podmanOrchestratorReplica{
-			{Name: "orchestrator", Port: 8087, MetricsPort: 9090, AdvertiseAddress: podmanAddr(8087)},
+			{Name: "orchestrator", Port: 8087, MetricsPort: 9087, AdvertiseAddress: podmanAddr(8087), SetMetricsPortEnv: true},
 		},
 		ReconcilerReplicas: []podmanReconcilerReplica{
 			{Name: "reconciler", MetricsPort: 9085},
@@ -425,7 +425,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 	data.RegistryAddresses = strings.Join(registryAddrs, ",")
 	data.PrometheusAPITargets = podmanTargets(8080, 8180)
 	data.PrometheusQueueTargets = podmanTargets(9081, 9181)
-	data.PrometheusOrchestratorTargets = podmanTargets(9090)
+	data.PrometheusOrchestratorTargets = podmanTargets(9087)
 	data.PrometheusWorkerTargets = podmanTargets(9082, 9182)
 	data.PrometheusWorkerCoreTargets = podmanTargets(9092)
 	data.PrometheusLogTargets = podmanTargets(9083, 9183)
@@ -458,7 +458,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 	}
 
 	data.OrchestratorReplicas = []podmanOrchestratorReplica{
-		{Name: "orchestrator", Port: 8087, MetricsPort: 9090, AdvertiseAddress: podmanAddr(8087)},
+		{Name: "orchestrator", Port: 8087, MetricsPort: 9087, AdvertiseAddress: podmanAddr(8087), SetMetricsPortEnv: true},
 	}
 
 	data.ReconcilerReplicas = []podmanReconcilerReplica{

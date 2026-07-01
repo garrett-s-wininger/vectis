@@ -657,6 +657,44 @@ func TestBackupPodmanExpectedTopologyHA(t *testing.T) {
 	}
 }
 
+func TestBackupPodmanExpectedTopologySimple(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	var buf bytes.Buffer
+	if err := writeBackupPodmanExpectedTopology(&buf, podmanProfileSimple); err != nil {
+		t.Fatalf("write podman expected topology: %v", err)
+	}
+
+	var expected backupExpectedTopology
+	if err := json.Unmarshal(buf.Bytes(), &expected); err != nil {
+		t.Fatalf("expected topology JSON: %v\n%s", err, buf.String())
+	}
+
+	instanceSet := map[string]bool{}
+	for _, instance := range expected.Instances {
+		instanceSet[instance.Service+"/"+instance.InstanceID] = true
+	}
+
+	for _, key := range []string{"queue/queue-1", "log/log-1", "artifact/artifact-1"} {
+		if !instanceSet[key] {
+			t.Fatalf("expected instances missing %s: %+v", key, expected.Instances)
+		}
+	}
+
+	pathSet := backupExpectedPathSet(expected.Paths)
+	for _, key := range []string{
+		"local_state/queue.persistence//data/vectis/queue",
+		"local_state/log.storage//data/vectis/jobs",
+		"local_state/artifact.storage//data/vectis/artifact",
+		"secret_stores/secrets.encryptedfs.root//data/vectis/secrets/encryptedfs",
+		"secret_stores/secrets.encryptedfs.key_file//run/vectis/secrets/encryptedfs.key",
+	} {
+		if !pathSet[key] {
+			t.Fatalf("expected paths missing %s: %+v", key, expected.Paths)
+		}
+	}
+}
+
 func TestBackupLinuxExpectedTopology(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 

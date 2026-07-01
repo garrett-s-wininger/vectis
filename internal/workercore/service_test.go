@@ -6,13 +6,16 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/dal"
+	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/job"
 	"vectis/internal/testutil/socktest"
 	workersdk "vectis/sdk/workercore"
 
@@ -134,6 +137,113 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 
 	if artifacts.name != "artifact" || artifacts.path != "artifact.txt" {
 		t.Fatalf("artifact request name/path = %q/%q", artifacts.name, artifacts.path)
+	}
+}
+
+func TestServiceExecuteTaskFlushesCallbackLogsBeforeCleanup(t *testing.T) {
+	socketPath := socktest.ShortPath(t, "worker-core-shell.sock")
+	shell := NewShellServer()
+	server, listener, err := NewUnixShellServer(socketPath, shell)
+	if err != nil {
+		t.Fatalf("NewUnixShellServer: %v", err)
+	}
+	defer server.Stop()
+
+	go func() {
+		if err := server.Serve(listener); err != nil && err != grpc.ErrServerStopped {
+			t.Errorf("worker core shell server: %v", err)
+		}
+	}()
+
+	logClient := newCloseRecvLogClient()
+	artifacts := &recordingShellArtifactPublisher{
+		result: action.ArtifactPublishResult{
+			Name:            "restore-report",
+			BlobKey:         "blob-restore",
+			BlobAlgorithm:   "sha256",
+			BlobDigest:      "abc",
+			SizeBytes:       7,
+			ArtifactShardID: "artifact-a",
+		},
+	}
+
+	unregister, err := shell.RegisterSession(NewTaskSession(TaskSessionOptions{
+		SessionID:         "session-flush",
+		RunID:             "run-flush",
+		LogClient:         logClient,
+		Logger:            mocks.NewMockLogger(),
+		ArtifactPublisher: artifacts,
+	}))
+	if err != nil {
+		t.Fatalf("RegisterSession: %v", err)
+	}
+	defer unregister()
+
+	jobID := "job-flush"
+	runID := "run-flush"
+	rootID := "root"
+	writeID := "write"
+	uploadID := "upload"
+	sequenceUses := "builtins/sequence"
+	shellUses := "builtins/shell"
+	uploadUses := "builtins/upload-artifact"
+	service := NewService(NewExecutorCore(job.NewExecutor()), ServiceOptions{Logger: mocks.NewMockLogger()})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := service.ExecuteTask(ctx, &api.ExecuteWorkerCoreTaskRequest{
+		Job: &api.Job{
+			Id:    &jobID,
+			RunId: &runID,
+			Root: &api.Node{
+				Id:   &rootID,
+				Uses: &sequenceUses,
+				Steps: []*api.Node{
+					{
+						Id:   &writeID,
+						Uses: &shellUses,
+						With: map[string]string{"command": "mkdir -p reports && printf payload > reports/restore.txt"},
+					},
+					{
+						Id:   &uploadID,
+						Uses: &uploadUses,
+						With: map[string]string{
+							"name": "restore-report",
+							"path": "reports/restore.txt",
+						},
+					},
+				},
+			},
+		},
+		TaskKey: proto.String(dal.RootTaskKey),
+		Session: &api.WorkerCoreTaskSession{
+			SessionId:        proto.String("session-flush"),
+			ShellEndpoint:    proto.String(UnixEndpoint(socketPath)),
+			LogsEnabled:      proto.Bool(true),
+			ArtifactsEnabled: proto.Bool(true),
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	if resp.GetOutcome() != api.RunOutcome_RUN_OUTCOME_SUCCESS {
+		t.Fatalf("outcome = %s", resp.GetOutcome())
+	}
+
+	chunks := logClient.GetChunks()
+	if !logChunksContain(chunks, "Published artifact: restore-report") {
+		t.Fatalf("forwarded log chunks missing artifact publish line: %#v", chunks)
+	}
+
+	if !logChunksContainCompletion(chunks) {
+		t.Fatalf("forwarded log chunks missing completion event: %#v", chunks)
+	}
+
+	if artifacts.data != "payload" {
+		t.Fatalf("artifact payload = %q, want payload", artifacts.data)
 	}
 }
 
@@ -395,6 +505,67 @@ type recordingShellArtifactPublisher struct {
 	data   string
 }
 
+type closeRecvLogClient struct {
+	mu     sync.Mutex
+	chunks []*api.LogChunk
+}
+
+func newCloseRecvLogClient() *closeRecvLogClient {
+	return &closeRecvLogClient{chunks: []*api.LogChunk{}}
+}
+
+func (c *closeRecvLogClient) StreamLogs(context.Context) (interfaces.LogStream, error) {
+	return &closeRecvLogStream{client: c}, nil
+}
+
+func (c *closeRecvLogClient) Close() error {
+	return nil
+}
+
+func (c *closeRecvLogClient) GetChunks() []*api.LogChunk {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	out := make([]*api.LogChunk, len(c.chunks))
+	copy(out, c.chunks)
+	return out
+}
+
+func (c *closeRecvLogClient) commit(chunks []*api.LogChunk) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.chunks = append(c.chunks, chunks...)
+}
+
+type closeRecvLogStream struct {
+	mu     sync.Mutex
+	client *closeRecvLogClient
+	chunks []*api.LogChunk
+}
+
+func (s *closeRecvLogStream) Send(chunk *api.LogChunk) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.chunks = append(s.chunks, chunk)
+	return nil
+}
+
+func (s *closeRecvLogStream) CloseSend() error {
+	return nil
+}
+
+func (s *closeRecvLogStream) CloseAndRecv() error {
+	s.mu.Lock()
+	chunks := append([]*api.LogChunk(nil), s.chunks...)
+	s.chunks = nil
+	s.mu.Unlock()
+
+	s.client.commit(chunks)
+	return nil
+}
+
 func (p *recordingShellArtifactPublisher) PublishArtifact(_ context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
 	data, err := io.ReadAll(req.Reader)
 	if err != nil {
@@ -406,4 +577,31 @@ func (p *recordingShellArtifactPublisher) PublishArtifact(_ context.Context, req
 	p.data = string(data)
 
 	return p.result, nil
+}
+
+func logChunksContain(chunks []*api.LogChunk, want string) bool {
+	for _, chunk := range chunks {
+		if strings.Contains(string(chunk.GetData()), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func logChunksContainCompletion(chunks []*api.LogChunk) bool {
+	for _, chunk := range chunks {
+		if chunk.GetCompleted() == api.RunOutcome_RUN_OUTCOME_SUCCESS {
+			return true
+		}
+
+		if chunk.GetStream() != api.Stream_STREAM_CONTROL {
+			continue
+		}
+
+		if strings.Contains(string(chunk.GetData()), `"event":"completed"`) {
+			return true
+		}
+	}
+
+	return false
 }

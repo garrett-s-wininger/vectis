@@ -14,11 +14,15 @@ func ShortPath(t testing.TB, name string) string {
 	if err != nil {
 		t.Fatalf("mkdtemp: %v", err)
 	}
+
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, name)
 }
 
 func shortTempRoot() string {
+	if root := os.Getenv("TMPDIR"); root != "" {
+		return root
+	}
 	if runtime.GOOS == "windows" {
 		return ""
 	}

@@ -2691,6 +2691,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	assertEnv(t, findContainer(t, pod, "log-2"), "VECTIS_LOG_STORAGE_DIR", "/data/vectis/jobs/log-2")
 	assertEnv(t, findContainer(t, pod, "artifact-2"), "VECTIS_ARTIFACT_STORAGE_DIR", "/data/vectis/artifact/artifact-2")
 	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
+	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_METRICS_PORT", "9087")
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_METRICS_PORT", "9182")
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_METRICS_PORT", "9092")
@@ -2744,6 +2745,13 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 	}
 
 	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
+	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_METRICS_PORT", "9087")
+	assertEnv(t, findContainer(t, pod, "queue"), "VECTIS_QUEUE_INSTANCE_ID", "queue-1")
+	assertEnv(t, findContainer(t, pod, "queue"), "VECTIS_QUEUE_ADVERTISE_ADDRESS", "127.0.0.1:8081")
+	assertEnv(t, findContainer(t, pod, "log"), "VECTIS_LOG_INSTANCE_ID", "log-1")
+	assertEnv(t, findContainer(t, pod, "log"), "VECTIS_LOG_GRPC_ADVERTISE_ADDRESS", "127.0.0.1:8083")
+	assertEnv(t, findContainer(t, pod, "artifact"), "VECTIS_ARTIFACT_INSTANCE_ID", "artifact-1")
+	assertEnv(t, findContainer(t, pod, "artifact"), "VECTIS_ARTIFACT_GRPC_ADVERTISE_ADDRESS", "127.0.0.1:8086")
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_METRICS_PORT", "9092")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-shell.sock")

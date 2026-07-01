@@ -107,6 +107,7 @@ func (c *ExecutorCore) ExecuteTask(ctx context.Context, req ExecuteTaskRequest) 
 		ActionResolver:    req.Session.ActionResolver(),
 		SecretFiles:       req.Session.SecretFiles(),
 		CheckoutCache:     checkoutCache,
+		WaitForLogFlush:   true,
 	})
 }
 

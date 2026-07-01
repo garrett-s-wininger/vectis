@@ -296,6 +296,26 @@ For a local-only restore where queue persistence was not backed up, start the re
 
 Use this for the reference Podman deployment and any production-like deployment backed by Postgres.
 
+For the Podman reference deployment, treat the generated deploy config
+directory and these named volumes as the restore unit:
+
+- `VECTIS_DEPLOY_CONFIG_DIR/podman`
+- `vectis-postgres-data`
+- `vectis-queue-data`
+- `vectis-log-data`
+- `vectis-artifact-data`
+- `vectis-secrets-data`
+- `vectis-spiffe-data`
+
+The reference e2e restore drill exercises a stopped-stack media restore by
+running a secret/log/artifact smoke job, stopping `deploy podman`, exporting the
+volumes with `podman volume export`, deleting the pod, volumes, and pod secret,
+importing the archives with `podman volume import`, restarting `deploy podman`,
+confirming the pre-restore run/log/artifact, and running a second smoke job.
+Keep `vectis-cli backup expect podman --profile <profile> --format json`
+output next to the volume archives so the captured media is tied to the intended
+reference topology.
+
 1. Stop external trigger sources or block API traffic at the edge.
 2. Stop API, cell ingress, cron, reconciler, catalog, workers, worker-core, orchestrator, queue, log, artifact, secrets, spiffe, and log-forwarder containers/processes.
 3. Restore or recreate deployment config, secrets, and TLS volumes. If secrets are recreated instead of restored, update all DSNs, trust bundles, client credentials, and service identity allowlists consistently.

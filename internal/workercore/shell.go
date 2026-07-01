@@ -66,15 +66,31 @@ func (s *ShellServer) StreamLogs(stream api.WorkerCoreShellService_StreamLogsSer
 		CloseSend() error
 	}
 
-	defer func() {
-		if logStream != nil {
-			_ = logStream.CloseSend()
+	closeLogStream := func() error {
+		if logStream == nil {
+			return nil
 		}
+
+		stream := logStream
+		logStream = nil
+		if closer, ok := stream.(interface{ CloseAndRecv() error }); ok {
+			return closer.CloseAndRecv()
+		}
+
+		return stream.CloseSend()
+	}
+
+	defer func() {
+		_ = closeLogStream()
 	}()
 
 	for {
 		msg, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
+			if err := closeLogStream(); err != nil {
+				return status.Errorf(codes.Unavailable, "close shell log stream: %v", err)
+			}
+
 			return stream.SendAndClose(&api.Empty{})
 		}
 

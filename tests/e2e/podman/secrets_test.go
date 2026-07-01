@@ -28,17 +28,20 @@ const (
 
 var requiredPodmanImages = []string{
 	"vectis-api:latest",
+	"vectis-artifact:latest",
 	"vectis-catalog:latest",
 	"vectis-cli:latest",
 	"vectis-cron:latest",
 	"vectis-docs:latest",
 	"vectis-log:latest",
+	"vectis-orchestrator:latest",
 	"vectis-queue:latest",
 	"vectis-reconciler:latest",
 	"vectis-registry:latest",
 	"vectis-secrets:latest",
 	"vectis-spiffe:latest",
 	"vectis-worker:latest",
+	"vectis-worker-core:latest",
 	"docker.io/library/alpine:3.21",
 	"docker.io/library/postgres:18-alpine",
 	"docker.io/prom/prometheus:v3.11.0-distroless",
@@ -52,6 +55,7 @@ var requiredPodmanImages = []string{
 var podmanResourceNames = []string{
 	"vectis-postgres-data",
 	"vectis-queue-data",
+	"vectis-artifact-data",
 	"vectis-log-data",
 	"vectis-secrets-data",
 	"vectis-spiffe-data",

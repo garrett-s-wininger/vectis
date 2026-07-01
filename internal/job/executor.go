@@ -56,6 +56,10 @@ type ExecuteOptions struct {
 	ProcessExecutor   interfaces.ExecExecutor
 	SecretFiles       []secrets.FileMaterial
 	CheckoutCache     action.CheckoutCache
+	// WaitForLogFlush waits for the durable log sender to finish after the
+	// completion event is enqueued. Use this when the caller owns callback
+	// connection lifetime and would otherwise close it before async flush ends.
+	WaitForLogFlush bool
 }
 
 // ExecutorOption configures a job executor.
@@ -325,6 +329,19 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	defer func() {
 		if closeErr := logStream.CloseSend(); closeErr != nil {
 			logger.Warn("Log stream flush incomplete for run %s: %v", job.GetRunId(), closeErr)
+		}
+		if !opts.WaitForLogFlush {
+			return
+		}
+
+		waitTimeout := LogFlushTimeoutForTest() + LogRetryMaxForTest() + 100*time.Millisecond
+		if err := logStream.WaitForDone(waitTimeout); err != nil {
+			logger.Warn("Log stream flush did not finish for run %s: %v", job.GetRunId(), err)
+			return
+		}
+
+		if senderErr := logStream.SenderErr(); senderErr != nil {
+			logger.Warn("Log stream flush incomplete for run %s: %v", job.GetRunId(), senderErr)
 		}
 	}()
 

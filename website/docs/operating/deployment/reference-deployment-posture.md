@@ -127,6 +127,25 @@ Use the reference deployment as a starting checklist, then replace the demo assu
 9. Wire health probes to API HTTP health and gRPC health where supported.
 10. Install alert rules and runbooks in the production telemetry system.
 
+## Reference Restore Drill
+
+The Podman reference restore drill treats the generated deploy config directory
+and named Podman volumes as the backup unit. It covers `vectis-postgres-data`,
+`vectis-queue-data`, `vectis-log-data`, `vectis-artifact-data`,
+`vectis-secrets-data`, and `vectis-spiffe-data`.
+
+The e2e drill starts the `simple` profile, seeds an encryptedfs smoke secret,
+runs a job that writes logs and uploads an artifact, stops the stack, exports
+those volumes as platform media, removes the pod resources, imports the volume
+archives, restarts the stack, confirms the pre-restore run/log/artifact, and
+runs a second secret/log/artifact smoke job. It also records generated Podman
+expected-topology evidence plus archive hashes and smoke run IDs.
+
+That is reference-deployment evidence, not a production backup strategy. Shared
+or production-like environments should use managed Postgres backups, managed
+secret storage, and the storage platform's snapshot/restore process, then keep
+the same post-restore health and smoke checks.
+
 ## Smoke Test
 
 After `vectis-cli deploy podman up`:

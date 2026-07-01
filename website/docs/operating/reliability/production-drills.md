@@ -79,6 +79,13 @@ If rollback needs a database restore, also run the restore smoke test from
 
 Use this to exercise disaster recovery without waiting for an incident.
 
+For the Podman reference deployment, the automated e2e drill uses
+`podman volume export` / `podman volume import` for the Postgres, queue, log,
+artifact, secrets, and SPIFFE volumes, then verifies restored logs, restored
+artifact download, secret resolution, and a new post-restore run. Production
+deployments should replace that media step with the database and storage
+platform's documented backup/restore mechanism.
+
 1. Pick a backup set and record database, queue, log, artifact, secret, TLS,
    config, and observability backup identifiers.
 2. Restore into an isolated environment when possible.
