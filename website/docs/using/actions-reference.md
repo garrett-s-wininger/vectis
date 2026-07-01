@@ -15,8 +15,8 @@ Action references use this shape:
 Examples:
 
 ```text
-builtins/shell
-builtins/shell@v1
+builtins/script
+builtins/script@v1
 examples/greet@sha256:<64-hex-digest>
 ```
 
@@ -27,13 +27,13 @@ examples/greet@sha256:<64-hex-digest>
 | `selector` | Optional version selector such as `v1`, or digest selector such as `sha256:<64-hex-digest>`. |
 | No selector | Resolves according to the configured action registry. Built-in examples prefer unselected canonical names. |
 
-Short built-in names such as `shell` can resolve internally, but job files should use canonical names such as `builtins/shell` so stored definitions stay clear.
+Short built-in names such as `script` can resolve internally, but job files should use canonical names such as `builtins/script` so stored definitions stay clear.
 
 ## Built-In Actions
 
 | Action | Required `with` fields | Optional `with` fields | Ports | Local-only | Behavior |
 | --- | --- | --- | --- | --- | --- |
-| `builtins/shell` | `command` | `outputs` | None | No | Runs `sh -c` in the workspace. If `outputs` is set, reads that workspace-relative JSON object file after success and returns its keys as node outputs. |
+| `builtins/script` | `script` | `runner`, `outputs` | None | No | Writes `script` to a temporary workspace file and runs it with the selected runner. `runner: "auto"` or an omitted runner defaults to PowerShell on Windows and `sh` elsewhere. |
 | `builtins/test` | `command` | None | None | No | Runs a predicate command. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
 | `builtins/checkout` | `url` | None | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected. |
 | `builtins/upload-artifact` | `name`, `path` | `content_type`, `metadata_json`, `max_bytes` | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object. |
@@ -48,6 +48,8 @@ Short built-in names such as `shell` can resolve internally, but job files shoul
 
 `execution` is reserved for Vectis execution policy. When omitted, `builtins/parallel` defaults to distributed execution and other built-ins default to local execution.
 
+`builtins/script` supports `runner` values `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. The action writes the script below `.vectis/scripts/` in the workspace, rejects symlinked script directories, runs the file through the worker process executor, and removes the temporary file after execution. `outputs` must point to a workspace-relative JSON object file.
+
 ### Timeout Composition
 
 `builtins/timeout` is an explicit local wrapper, not a job-level default. It cancels its `body` when the duration expires; process-launching children receive the normal worker cancellation behavior, including Unix process-group termination on supported hosts.
@@ -58,8 +60,8 @@ Ordering matters when combining timeout and retry:
 
 | Shape | Meaning |
 | --- | --- |
-| `timeout { retry { shell } }` | One total deadline for all retry attempts. |
-| `retry { timeout { shell } }` | Each retry attempt gets its own deadline. |
+| `timeout { retry { script } }` | One total deadline for all retry attempts. |
+| `retry { timeout { script } }` | Each retry attempt gets its own deadline. |
 
 Use the first shape for a total task budget, and the second when each attempt may legitimately take the full duration.
 
@@ -84,7 +86,7 @@ The action registry resolves `uses` into a descriptor. Descriptor JSON includes:
 
 | Field | Meaning |
 | --- | --- |
-| `canonical_name` | Stable action name, such as `builtins/shell` or `examples/greet`. |
+| `canonical_name` | Stable action name, such as `builtins/script` or `examples/greet`. |
 | `display_name` | Optional human-readable name. |
 | `version` | Compatibility selector value, such as `v1`. |
 | `digest` | Immutable descriptor digest, currently `sha256:<64-hex-digest>`. |
@@ -116,7 +118,7 @@ Current built-in descriptors report capabilities for process-oriented actions:
 
 | Built-in | Capabilities |
 | --- | --- |
-| `builtins/shell` | `process_launch`, `workspace_read`, `workspace_write` |
+| `builtins/script` | `process_launch`, `workspace_read`, `workspace_write` |
 | `builtins/test` | `process_launch`, `workspace_read`, `workspace_write` |
 | `builtins/checkout` | `network`, `process_launch`, `workspace_write` |
 
@@ -167,6 +169,7 @@ Manifest rules:
 - local runtime `builtin` is reserved;
 - local `process` actions do not support `port_schema`;
 - local `process` actions run from the manifest directory by default;
+- `runtime_config.runner`, when set for a local `process` action, supports `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`; omitted runners keep the compatibility default of `sh`;
 - `runtime_config.working_directory`, when set for a local `process` action, must be relative to that action base directory and must not contain parent-directory escapes;
 - input field name `execution` is reserved;
 - input field types currently support `string`, `url`, and `number`;

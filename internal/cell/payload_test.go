@@ -90,7 +90,7 @@ func validPayloadJobRequest(t *testing.T, runID, definitionHash, executionID str
 
 	jobID := "job-1"
 	rootID := "root"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	req := &api.JobRequest{
 		Job: &api.Job{
 			Id:    &jobID,

@@ -27,7 +27,7 @@ func benchmarkJob() *api.Job {
 func benchmarkIsolationJob(id, isolation string) *api.Job {
 	job := &api.Job{
 		Id:   queueTestString(id),
-		Root: queueTestNode(id+"-root", "builtins/shell"),
+		Root: queueTestNode(id+"-root", "builtins/script"),
 	}
 	if isolation != "" {
 		job.DefaultIsolation = queueTestString(isolation)
@@ -108,13 +108,13 @@ func BenchmarkQueue_TryDequeue_RoundTrip(b *testing.B) {
 	vmDefault := action.IsolationVM
 	hostJob := &api.Job{
 		Id:   &hostID,
-		Root: queueTestNode("host-root", "builtins/shell"),
+		Root: queueTestNode("host-root", "builtins/script"),
 	}
 
 	vmJob := &api.Job{
 		Id:               &vmID,
 		DefaultIsolation: &vmDefault,
-		Root:             queueTestNode("vm-root", "builtins/shell"),
+		Root:             queueTestNode("vm-root", "builtins/script"),
 	}
 
 	hostOnly := &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost}}
@@ -441,7 +441,7 @@ func benchmarkNestedIsolationTree(nodes int, leafIsolation string) (*api.Node, s
 		current = child
 	}
 
-	current.Uses = queueTestString("builtins/shell")
+	current.Uses = queueTestString("builtins/script")
 	if leafIsolation != "" {
 		current.Isolation = queueTestString(leafIsolation)
 	}

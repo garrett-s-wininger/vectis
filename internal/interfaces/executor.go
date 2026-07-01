@@ -118,7 +118,7 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, launcherCommand.Path, launcherCommand.Args...)
+	cmd := exec.CommandContext(ctx, launcherCommand.Path, launcherCommand.Args...) // #nosec G204 -- path and args were resolved through actionlauncher.Command and sanitized launch policy.
 	cmd.Dir = launcherCommand.WorkDir
 	cmd.Env = launcherCommand.Env
 	return startProcess(cmd)

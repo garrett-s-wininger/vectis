@@ -2104,7 +2104,7 @@ type macroJobSpec struct {
 }
 
 func noopMacroJob() macroJobSpec {
-	return macroJobSpec{id: "macro-noop", uses: "builtins/shell", with: map[string]string{"command": "true"}, command: "true"}
+	return macroJobSpec{id: "macro-noop", uses: "builtins/script", with: map[string]string{"script": "true"}, command: "true"}
 }
 
 func resultMacroJob() macroJobSpec {
@@ -2242,7 +2242,7 @@ func adaptE2ECanonicalForPerf(b *testing.B, def *apipb.Job, localFanout bool) {
 	visitMacroJobNodes(def.GetRoot(), func(node *apipb.Node) {
 		switch node.GetId() {
 		case "setup-control":
-			setMacroNodeWithValue(node, "command", "echo canonical-control-start")
+			setMacroNodeWithValue(node, "script", "echo canonical-control-start")
 		case "fanout-control":
 			if localFanout {
 				setMacroNodeWithValue(node, "execution", "local")
@@ -2250,7 +2250,7 @@ func adaptE2ECanonicalForPerf(b *testing.B, def *apipb.Job, localFanout bool) {
 				setMacroNodeWithValue(node, "execution", "distributed")
 			}
 		case "secret-lane":
-			setMacroNodeWithValue(node, "command", "echo canonical-secret-ok")
+			setMacroNodeWithValue(node, "script", "echo canonical-secret-ok")
 		}
 	})
 }
@@ -2349,8 +2349,8 @@ func logHeavyMacroJob(lines int) macroJobSpec {
 	command := fmt.Sprintf(`i=0; while [ "$i" -lt %d ]; do printf 'line-%%04d\n' "$i"; i=$((i + 1)); done`, lines)
 	return macroJobSpec{
 		id:      "macro-log-heavy",
-		uses:    "builtins/shell",
-		with:    map[string]string{"command": command},
+		uses:    "builtins/script",
+		with:    map[string]string{"script": command},
 		command: command,
 	}
 }
@@ -2847,7 +2847,7 @@ func macroJobRequest(b *testing.B, macroJob macroJobSpec, runID string) *apipb.J
 	rootID := "root"
 	uses := macroJob.uses
 	if uses == "" {
-		uses = "builtins/shell"
+		uses = "builtins/script"
 	}
 
 	with := make(map[string]string, len(macroJob.with))
@@ -2856,7 +2856,7 @@ func macroJobRequest(b *testing.B, macroJob macroJobSpec, runID string) *apipb.J
 	}
 
 	if len(with) == 0 && macroJob.command != "" {
-		with["command"] = macroJob.command
+		with["script"] = macroJob.command
 	}
 
 	return &apipb.JobRequest{
@@ -3458,7 +3458,7 @@ func macroJobDefinitionJSON(macroJob macroJobSpec) (string, error) {
 
 	uses := macroJob.uses
 	if uses == "" {
-		uses = "builtins/shell"
+		uses = "builtins/script"
 	}
 
 	with := make(map[string]string, len(macroJob.with))
@@ -3467,7 +3467,7 @@ func macroJobDefinitionJSON(macroJob macroJobSpec) (string, error) {
 	}
 
 	if len(with) == 0 && macroJob.command != "" {
-		with["command"] = macroJob.command
+		with["script"] = macroJob.command
 	}
 
 	body, err := json.Marshal(map[string]any{

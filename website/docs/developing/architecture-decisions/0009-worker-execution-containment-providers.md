@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Workers currently provide workspace separation, not a security boundary. `internal/job/executor.go` creates a per-run directory, and built-in actions such as `builtins/shell` and `builtins/checkout` start host processes in that directory. That keeps run files from colliding and makes cleanup predictable, but the process still shares the worker user, host kernel, process namespace, network view, and any credentials or mounts available to the worker.
+Workers currently provide workspace separation, not a security boundary. `internal/job/executor.go` creates a per-run directory, and built-in actions such as `builtins/script` and `builtins/checkout` start host processes in that directory. That keeps run files from colliding and makes cleanup predictable, but the process still shares the worker user, host kernel, process namespace, network view, and any credentials or mounts available to the worker.
 
 That posture is useful for trusted local development and trusted CI, but it is not enough for operators who want to test less-trusted repositories, enforce stricter resource limits, or support environments where workload isolation is a procurement or compliance requirement.
 
@@ -33,7 +33,7 @@ The runner boundary should sit under the worker and above action implementation:
 
 - Workers still claim runs, renew leases, open durable log streams, observe cancellation, and finalize status.
 - A runner owns the per-run execution environment, command execution adapter, workspace lifecycle, environment policy, resource policy, and cleanup.
-- Built-in actions keep their stable semantics. `builtins/checkout` still means "clone into the workspace", and `builtins/shell` still means "run this command in the workspace"; the configured runner decides where that command actually runs.
+- Built-in actions keep their stable semantics. `builtins/checkout` still means "clone into the workspace", and `builtins/script` still means "run this script in the workspace"; the configured runner decides where that script actually runs.
 - Jobs and nodes can request portable isolation levels rather than raw runtime-specific flags. `host` remains the compatibility level, while `vm` asks the worker for a configured VM provider. Nodes that omit an isolation level inherit the nearest parent sequence's isolation, then the job default, then the worker default.
 - The current node-level boundary selects where action commands execute while preserving the shared run workspace semantics that make checkout-then-build flows work. Disposable per-step environments, artifact transfer, cache policy, and workspace copy semantics remain follow-up design.
 - Workers should advertise or be assigned the profiles they can satisfy. A job that needs `container` or `vm` containment should not silently fall back to `host`.
@@ -77,5 +77,5 @@ Provider configuration must be operator-controlled. Job authors can select an al
 - [Adding Actions](../actions.md)
 - [ADR 0006: Global coordination and cell-local execution](./0006-global-coordination-cell-local-execution.md)
 - `internal/job/executor.go` - current per-run workspace lifecycle and job execution
-- `internal/action/builtins/shell.go` - current shell action process start
+- `internal/action/builtins/script.go` - current script action process start
 - `internal/action/builtins/checkout.go` - current checkout action process start

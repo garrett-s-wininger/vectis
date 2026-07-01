@@ -56,7 +56,7 @@ func TestExecutionModeDefaultsAndOverrides(t *testing.T) {
 		},
 		{
 			name: "leaf can be distributed",
-			node: graphNode("shell", "builtins/shell", map[string]string{ExecutionField: ExecutionDistributed}),
+			node: graphNode("script", "builtins/script", map[string]string{ExecutionField: ExecutionDistributed}),
 			want: ExecutionDistributed,
 		},
 	}
@@ -76,12 +76,12 @@ func TestLocalChildrenForTaskSequenceStopsAtDistributedBoundary(t *testing.T) {
 	t.Parallel()
 
 	root := graphNode("root-node", "builtins/sequence", nil,
-		graphNode("setup", "builtins/shell", nil),
+		graphNode("setup", "builtins/script", nil),
 		graphNode("checks", "builtins/parallel", nil,
-			graphNode("unit", "builtins/shell", nil),
-			graphNode("lint", "builtins/shell", nil),
+			graphNode("unit", "builtins/script", nil),
+			graphNode("lint", "builtins/script", nil),
 		),
-		graphNode("deploy", "builtins/shell", nil),
+		graphNode("deploy", "builtins/script", nil),
 	)
 
 	if got := nodeIDs(LocalChildrenForTask(root)); !reflect.DeepEqual(got, []string{"setup"}) {
@@ -94,12 +94,12 @@ func TestPlanTaskBoundariesQueuesDistributedSubtreeAndSequenceTail(t *testing.T)
 
 	job := &api.Job{
 		Root: graphNode("root-node", "builtins/sequence", nil,
-			graphNode("setup", "builtins/shell", nil),
+			graphNode("setup", "builtins/script", nil),
 			graphNode("checks", "builtins/parallel", nil,
-				graphNode("unit", "builtins/shell", nil),
-				graphNode("lint", "builtins/shell", nil),
+				graphNode("unit", "builtins/script", nil),
+				graphNode("lint", "builtins/script", nil),
 			),
-			graphNode("deploy", "builtins/shell", nil),
+			graphNode("deploy", "builtins/script", nil),
 		),
 	}
 
@@ -127,14 +127,14 @@ func TestPlanTaskBoundariesSupportsExplicitPorts(t *testing.T) {
 	job := &api.Job{
 		Root: portGraphNode("root-node", "builtins/sequence", map[string][]*api.Node{
 			StepsPort: {
-				graphNode("setup", "builtins/shell", nil),
+				graphNode("setup", "builtins/script", nil),
 				portGraphNode("checks", "builtins/parallel", map[string][]*api.Node{
 					BranchesPort: {
-						graphNode("unit", "builtins/shell", nil),
-						graphNode("lint", "builtins/shell", nil),
+						graphNode("unit", "builtins/script", nil),
+						graphNode("lint", "builtins/script", nil),
 					},
 				}),
-				graphNode("deploy", "builtins/shell", nil),
+				graphNode("deploy", "builtins/script", nil),
 			},
 		}),
 	}

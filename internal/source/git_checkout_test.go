@@ -157,7 +157,7 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	parent := gitOutput(t, repo, "rev-parse", "HEAD")
 
 	checkout := NewGitCheckout(repo)
-	content := `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+	content := `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`
 	commit, err := checkout.CommitFile(context.Background(), CommitFileOptions{
 		Ref:          branch,
 		Path:         ".vectis/jobs/build.json",
@@ -197,7 +197,7 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	_, err = checkout.CommitFile(context.Background(), CommitFileOptions{
 		Ref:          branch,
 		Path:         ".vectis/jobs/build.json",
-		Content:      []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`),
+		Content:      []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`),
 		ExpectedHead: parent,
 	})
 	if !errors.Is(err, ErrConflict) {
@@ -207,7 +207,7 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	_, err = checkout.CommitFile(context.Background(), CommitFileOptions{
 		Ref:        branch,
 		Path:       ".vectis/jobs/build.json",
-		Content:    []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`),
+		Content:    []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`),
 		CreateOnly: true,
 	})
 
@@ -218,7 +218,7 @@ func TestGitCheckoutCommitFileUpdatesBranchWithoutCheckout(t *testing.T) {
 
 func TestGitCheckoutDeleteFileUpdatesBranchWithoutCheckout(t *testing.T) {
 	repo := initGitRepo(t)
-	writeAndCommit(t, repo, ".vectis/jobs/build.json", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, "add build")
+	writeAndCommit(t, repo, ".vectis/jobs/build.json", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, "add build")
 	branch := gitOutput(t, repo, "branch", "--show-current")
 	parent := gitOutput(t, repo, "rev-parse", "HEAD")
 

@@ -11,9 +11,9 @@
         "nodes": [
           {
             "id": "setup",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "echo 'Preparing workspace'"
+              "script": "echo 'Preparing workspace'"
             }
           },
           {
@@ -27,16 +27,16 @@
                 "nodes": [
                   {
                     "id": "unit-tests",
-                    "uses": "builtins/shell",
+                    "uses": "builtins/script",
                     "with": {
-                      "command": "echo 'Running unit tests'"
+                      "script": "echo 'Running unit tests'"
                     }
                   },
                   {
                     "id": "lint",
-                    "uses": "builtins/shell",
+                    "uses": "builtins/script",
                     "with": {
-                      "command": "echo 'Running lint'"
+                      "script": "echo 'Running lint'"
                     }
                   }
                 ]
@@ -45,9 +45,9 @@
           },
           {
             "id": "finish",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "echo 'All checks complete'"
+              "script": "echo 'All checks complete'"
             }
           }
         ]

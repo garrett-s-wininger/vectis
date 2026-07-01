@@ -267,9 +267,9 @@ func TestAPIServer_CreateJob_RequiresRepositoryID(t *testing.T) {
 		"id": "test-job-1",
 		"root": map[string]any{
 			"id":   "node-1",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -316,8 +316,8 @@ func TestAPIServer_CreateJob_RequiresRepositoryIDBeforeStorage(t *testing.T) {
 		"id": "test-job-db-down",
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo hi"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo hi"},
 		},
 	}
 
@@ -623,7 +623,7 @@ func TestAPIServer_GetStuckRunsIncludesTaskFinalizationPending(t *testing.T) {
 	}
 
 	jobID := "job-stuck-task-finalization"
-	def := `{"id":"job-stuck-task-finalization","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-stuck-task-finalization","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -689,7 +689,7 @@ func TestAPIServer_GetStuckRunsIncludesTaskContinuationPending(t *testing.T) {
 	}
 
 	jobID := "job-stuck-task-continuation"
-	def := `{"id":"job-stuck-task-continuation","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-stuck-task-continuation","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
@@ -972,7 +972,7 @@ func TestAPIServer_GetCronStatusIncludesDueAndClaimedSchedules(t *testing.T) {
 	}
 
 	jobID := "job-cron-status"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-cron-status","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-cron-status","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
 
@@ -1060,9 +1060,9 @@ func TestAPIServer_CreateJob_DuplicateJobIDRequiresRepositoryID(t *testing.T) {
 		"id": "duplicate-job",
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -1192,7 +1192,7 @@ func TestAPIServer_TriggerJob_Success(t *testing.T) {
 	server, logger, queueService, db := setupTestServer(t)
 	jobID := "job-to-trigger"
 	repositoryID := "repo-trigger"
-	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	jobDef := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
@@ -1516,8 +1516,8 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-replay"
 	repositoryID := "repo-replay"
-	defV1 := `{"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
-	defV2 := `{"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo new"}}}`
+	defV1 := `{"root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo old"}}}`
+	defV2 := `{"root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo new"}}}`
 	repoPath := insertSourceJobForTest(t, db, repositoryID, jobID, defV1)
 
 	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
@@ -1571,7 +1571,7 @@ func TestAPIServer_ReplayRun_CreatesNewRunFromSourceDefinition(t *testing.T) {
 		t.Fatalf("replayed job run id: got %q want %q", replayedJob.GetRunId(), replayResp.RunID)
 	}
 
-	if got := replayedJob.GetRoot().GetWith()["command"]; got != "echo old" {
+	if got := replayedJob.GetRoot().GetWith()["script"]; got != "echo old" {
 		t.Fatalf("replay should use source definition version, command=%q", got)
 	}
 
@@ -1629,7 +1629,7 @@ func TestAPIServer_ReplayRun_IdempotencyCrashRecoveryReplaysRun(t *testing.T) {
 	jobID := "job-replay-idempotent-crash"
 	repositoryID := "repo-replay-idempotent-crash"
 	key := "replay-key-crash"
-	definitionJSON := `{"id": "job-replay-idempotent-crash", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo replay"}}}`
+	definitionJSON := `{"id": "job-replay-idempotent-crash", "root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo replay"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, definitionJSON)
 	triggerBody := `{"repository_id":"` + repositoryID + `","ref":"HEAD"}`
 
@@ -1717,7 +1717,7 @@ func TestAPIServer_ReplayRun_RejectsActiveSourceRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-replay-active"
 	repositoryID := "repo-replay-active"
-	definition := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo active"}}}`
+	definition := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo active"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, definition)
 
 	triggerReq := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
@@ -1744,7 +1744,7 @@ func TestAPIServer_TriggerJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-idempotent"
 	repositoryID := "repo-idempotent"
-	jobDef := `{"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	jobDef := `{"root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 	triggerBody := `{"repository_id":"` + repositoryID + `","ref":"HEAD"}`
 
@@ -1793,7 +1793,7 @@ func TestAPIServer_TriggerJob_IdempotencyReplaysSourceTriggerResponse(t *testing
 	repositoryID := "repo-idempotent-crash"
 	key := "trigger-key-crash"
 	scope := "source-trigger:" + repositoryID + ":" + jobID + ":anonymous"
-	jobDef := `{"id": "job-idempotent-crash", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	jobDef := `{"id": "job-idempotent-crash", "root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	body := []byte(`{"repository_id":"` + repositoryID + `","ref":"HEAD","cell_id":"iad-a"}`)
@@ -1842,8 +1842,8 @@ func TestAPIServer_TriggerJob_IdempotencyScopeIncludesJob(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	repositoryID := "repo-idempotency-scope"
 	repoPath := initAPIGitRepo(t)
-	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-a.json", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"a"}}}`+"\n", "add job-a")
-	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-b.json", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"b"}}}`+"\n", "add job-b")
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-a.json", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"a"}}}`+"\n", "add job-a")
+	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/job-b.json", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"b"}}}`+"\n", "add job-b")
 	if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
 		RepositoryID: repositoryID,
 		NamespaceID:  1,
@@ -1911,7 +1911,7 @@ func TestAPIServer_TriggerJob_QueueError(t *testing.T) {
 	server, logger, queueService, db := setupTestServer(t)
 	jobID := "job-trigger-fail"
 	repositoryID := "repo-trigger-fail"
-	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo fail"}}}`
+	jobDef := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo fail"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
@@ -1954,7 +1954,7 @@ func TestAPIServer_GetJobRuns_ReturnsStatusAndFailureReasonAfterStatusTransition
 	server, _, queueService, db := setupTestServer(t)
 	jobID := "job-runs-status"
 	repositoryID := "repo-runs-status"
-	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	jobDef := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID, strings.NewReader(`{"repository_id":"`+repositoryID+`","ref":"HEAD"}`))
@@ -2047,16 +2047,16 @@ func TestAPIServer_GetJobRuns_InvalidSince(t *testing.T) {
 
 func TestAPIServer_UpdateJobDefinition_RequiresRepositoryID(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
-	initialDef := `{"id": "job-to-update", "root": {"uses": "builtins/shell", "with": {"command": "echo old"}}}`
+	initialDef := `{"id": "job-to-update", "root": {"uses": "builtins/script", "with":{"script": "echo old"}}}`
 	insertDefinitionSnapshotForTest(t, db, "job-to-update", initialDef)
 
 	newDef := map[string]any{
 		"id": "job-to-update",
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo new",
+				"script": "echo new",
 			},
 		},
 	}
@@ -2113,7 +2113,7 @@ func TestAPIServer_UpdateJobDefinition_IDMismatch(t *testing.T) {
 	newDef := map[string]any{
 		"id": "different-id",
 		"root": map[string]any{
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 		},
 	}
 
@@ -2143,7 +2143,7 @@ func TestAPIServer_UpdateJobDefinition_InvalidJSON(t *testing.T) {
 
 func TestAPIServer_UpdateJobDefinition_ValidationErrorDoesNotPersist(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
-	initialDef := `{"id": "job-validation-update", "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "echo old"}}}`
+	initialDef := `{"id": "job-validation-update", "root": {"id": "root", "uses": "builtins/script", "with":{"script": "echo old"}}}`
 	insertDefinitionSnapshotForTest(t, db, "job-validation-update", initialDef)
 
 	newDef := map[string]any{
@@ -2198,9 +2198,9 @@ func TestAPIServer_RunJob_Success(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "node-1",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -2299,8 +2299,8 @@ func TestAPIServer_RunJob_ExplicitEphemeralNamespace(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo explicit"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo explicit"},
 		},
 	}
 
@@ -2342,8 +2342,8 @@ func TestAPIServer_RunJob_RejectsNonEphemeralNamespace(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo forbidden"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo forbidden"},
 		},
 	}
 
@@ -2370,9 +2370,9 @@ func TestAPIServer_RunJob_TargetCellPersistsExecutionTarget(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "node-1",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo target",
+				"script": "echo target",
 			},
 		},
 	}
@@ -2428,9 +2428,9 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "node-1",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -2544,9 +2544,9 @@ func TestAPIServer_GetRun_ActiveHotStateOwnerReportsRunning(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "node-1",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -2629,7 +2629,7 @@ func TestAPIServer_GetRun_IncludesTaskFinalizationRepairNextAction(t *testing.T)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	ctx := context.Background()
 
-	insertDefinitionSnapshotForTest(t, db, "job-task-finalization-detail", `{"id":"job-task-finalization-detail","root":{"uses":"builtins/shell"}}`)
+	insertDefinitionSnapshotForTest(t, db, "job-task-finalization-detail", `{"id":"job-task-finalization-detail","root":{"uses":"builtins/script"}}`)
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-finalization-detail", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
@@ -2696,7 +2696,7 @@ func TestAPIServer_GetRun_IncludesTaskContinuationNextAction(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	ctx := context.Background()
 
-	insertStoredJobForTest(t, db, "job-task-continuation-detail", `{"id":"job-task-continuation-detail","root":{"uses":"builtins/shell"}}`)
+	insertStoredJobForTest(t, db, "job-task-continuation-detail", `{"id":"job-task-continuation-detail","root":{"uses":"builtins/script"}}`)
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-task-continuation-detail", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
@@ -2773,7 +2773,7 @@ func TestAPIServer_GetRun_IncludesSecurityGateNextAction(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	ctx := context.Background()
 
-	insertStoredJobForTest(t, db, "job-security-gate-detail", `{"id":"job-security-gate-detail","root":{"uses":"builtins/shell"}}`)
+	insertStoredJobForTest(t, db, "job-security-gate-detail", `{"id":"job-security-gate-detail","root":{"uses":"builtins/script"}}`)
 	runID, _, err := repos.Runs().CreateRun(ctx, "job-security-gate-detail", nil, 1)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
@@ -2845,9 +2845,9 @@ func TestAPIServer_ListRuns_IncludesEphemeralRuns(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "node-1",
-			"uses": "builtins/shell",
+			"uses": "builtins/script",
 			"with": map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -2933,8 +2933,8 @@ func TestAPIServer_RunJob_IdempotencyKeyReplaysRun(t *testing.T) {
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo hello"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo hello"},
 		},
 	}
 	body, _ := json.Marshal(jobDef)
@@ -2984,8 +2984,8 @@ func TestAPIServer_RunJob_IdempotencyCrashRecoveryReplaysGeneratedJob(t *testing
 	jobDef := map[string]any{
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo hello"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo hello"},
 		},
 	}
 
@@ -3061,16 +3061,16 @@ func TestAPIServer_RunJob_IdempotencyKeyConflict(t *testing.T) {
 	bodyA, _ := json.Marshal(map[string]any{
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo a"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo a"},
 		},
 	})
 
 	bodyB, _ := json.Marshal(map[string]any{
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo b"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo b"},
 		},
 	})
 
@@ -3098,8 +3098,8 @@ func TestAPIServer_RunJob_OverwritesClientID(t *testing.T) {
 		"id": "client-provided-id",
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]string{"command": "echo test"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "echo test"},
 		},
 	}
 
@@ -3190,7 +3190,7 @@ func TestAPIServer_RunJob_QueueError(t *testing.T) {
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
 	jobDef := map[string]any{
-		"root": map[string]any{"id": "root", "uses": "builtins/shell", "with": map[string]string{"command": "echo"}},
+		"root": map[string]any{"id": "root", "uses": "builtins/script", "with": map[string]any{"script": "echo"}},
 	}
 
 	body, _ := json.Marshal(jobDef)
@@ -3232,7 +3232,7 @@ func TestAPIServer_SSEJobRuns_ReceivesRunOnTrigger(t *testing.T) {
 	server, _, _, db := setupTestServer(t)
 	jobID := "job-sse-test"
 	repositoryID := "repo-sse-test"
-	jobDef := `{"root": {"id":"root", "uses": "builtins/shell", "with": {"command": "echo test"}}}`
+	jobDef := `{"root": {"id":"root", "uses": "builtins/script", "with":{"script": "echo test"}}}`
 	insertSourceJobForTest(t, db, repositoryID, jobID, jobDef)
 
 	httpServer := httptest.NewServer(server.Handler())

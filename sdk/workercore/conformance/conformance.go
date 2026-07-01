@@ -97,14 +97,14 @@ func RunCoreSuite(t *testing.T, factory CoreFactory, opts Options) {
 			t.Fatalf("NewSession: %v", err)
 		}
 
-		uses := "builtins/shell"
+		uses := "builtins/script"
 		job := &api.Job{
 			Id:    proto.String("conformance-job"),
 			RunId: proto.String("conformance-run"),
 			Root: &api.Node{
 				Id:   proto.String("root"),
 				Uses: proto.String(uses),
-				With: map[string]string{"command": "printf conformance"},
+				With: map[string]string{"script": "printf conformance"},
 			},
 		}
 
@@ -287,7 +287,7 @@ func executeRequest(t *testing.T, opts Options) (*api.ExecuteWorkerCoreTaskReque
 		shell = &recordingShell{}
 	}
 
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	return &api.ExecuteWorkerCoreTaskRequest{
 		Job: &api.Job{
 			Id:    proto.String("conformance-job"),
@@ -295,7 +295,7 @@ func executeRequest(t *testing.T, opts Options) (*api.ExecuteWorkerCoreTaskReque
 			Root: &api.Node{
 				Id:   proto.String("root"),
 				Uses: proto.String(uses),
-				With: map[string]string{"command": "printf conformance"},
+				With: map[string]string{"script": "printf conformance"},
 			},
 		},
 		TaskKey: proto.String("root"),

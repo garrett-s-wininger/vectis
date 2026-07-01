@@ -13,7 +13,7 @@ import (
 func TestService_Process_ReenqueuesQueuedRun_Orchestration(t *testing.T) {
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
-	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 
 	runsRepo := mocks.NewMockRunsRepository()
 	runsRepo.OrphanedRunIDs = []string{"run-orphaned"}
@@ -49,7 +49,7 @@ func TestService_Process_ReenqueuesQueuedRun_Orchestration(t *testing.T) {
 func TestService_Process_RespectsRedispatchLimit_Orchestration(t *testing.T) {
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
-	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 
 	runsRepo := mocks.NewMockRunsRepository()
 	runsRepo.QueuedRuns = []dal.QueuedRun{
@@ -121,7 +121,7 @@ func TestService_Process_ReenqueuesViaDefinitionSnapshot_Orchestration(t *testin
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
 	jobsRepo.Versions["ephemeral-id"] = map[int]string{
-		1: `{"id":"ephemeral-id","root":{"uses":"builtins/shell","with":{"command":"echo y"}}}`,
+		1: `{"id":"ephemeral-id","root":{"uses":"builtins/script","with":{"script":"echo y"}}}`,
 	}
 
 	runsRepo := mocks.NewMockRunsRepository()

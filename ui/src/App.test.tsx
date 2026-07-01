@@ -120,7 +120,7 @@ describe("App", () => {
                 namespace: "/",
                 definition: {
                   id: "live-smoke",
-                  root: { id: "root", uses: "builtins/shell" }
+                  root: { id: "root", uses: "builtins/script" }
                 }
               }
             ]
@@ -465,7 +465,7 @@ describe("App", () => {
       target: {
         value: JSON.stringify({
           id: "database-backfill",
-          root: { id: "root", uses: "builtins/shell" }
+          root: { id: "root", uses: "builtins/script" }
         })
       }
     });
@@ -514,7 +514,7 @@ describe("App", () => {
       target: {
         value: JSON.stringify({
           id: "cache-warmup",
-          root: { id: "root", uses: "builtins/shell" }
+          root: { id: "root", uses: "builtins/script" }
         })
       }
     });

@@ -181,7 +181,7 @@ func TestCronService_ProcessSchedules_StaleScheduleDoesNotTrigger(t *testing.T) 
 	clock.SetNow(time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC))
 
 	jobs := mocks.NewMockJobsRepository()
-	jobs.Definitions["job-1"] = `{"id":"job-1","root":{"uses":"builtins/shell"}}`
+	jobs.Definitions["job-1"] = `{"id":"job-1","root":{"uses":"builtins/script"}}`
 
 	runs := mocks.NewMockRunsRepository()
 	runs.CreateRunID = "run-1"

@@ -1656,8 +1656,8 @@ func TestResolveSourceDefinition_sendsBodyAndPrintsDefinition(t *testing.T) {
 			"definition": map[string]any{
 				"root": map[string]any{
 					"id":   "root",
-					"uses": "builtins/shell",
-					"with": map[string]any{"command": "true"},
+					"uses": "builtins/script",
+					"with": map[string]any{"script": "true"},
 				},
 			},
 			"source": map[string]any{
@@ -1678,7 +1678,7 @@ func TestResolveSourceDefinition_sendsBodyAndPrintsDefinition(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{`"root"`, `"builtins/shell"`} {
+	for _, want := range []string{`"root"`, `"builtins/script"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -1715,8 +1715,8 @@ func TestShowSourceJob_sendsQueryAndPrintsDefinition(t *testing.T) {
 			"definition": map[string]any{
 				"root": map[string]any{
 					"id":   "root",
-					"uses": "builtins/shell",
-					"with": map[string]any{"command": "true"},
+					"uses": "builtins/script",
+					"with": map[string]any{"script": "true"},
 				},
 			},
 			"source": map[string]any{
@@ -1737,7 +1737,7 @@ func TestShowSourceJob_sendsQueryAndPrintsDefinition(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{`"root"`, `"builtins/shell"`} {
+	for _, want := range []string{`"root"`, `"builtins/script"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -1767,7 +1767,7 @@ func TestWriteSourceJob_sendsOptionsAndPrintsProvenance(t *testing.T) {
 	})
 
 	definitionPath := filepath.Join(t.TempDir(), "build.json")
-	if err := os.WriteFile(definitionPath, []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(definitionPath, []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`), 0o600); err != nil {
 		t.Fatalf("write definition fixture: %v", err)
 	}
 
@@ -1797,7 +1797,7 @@ func TestWriteSourceJob_sendsOptionsAndPrintsProvenance(t *testing.T) {
 			t.Errorf("write body mismatch: %+v", body)
 		}
 
-		if !strings.Contains(string(body.Definition), `"builtins/shell"`) {
+		if !strings.Contains(string(body.Definition), `"builtins/script"`) {
 			t.Errorf("definition body=%s", string(body.Definition))
 		}
 
@@ -1807,8 +1807,8 @@ func TestWriteSourceJob_sendsOptionsAndPrintsProvenance(t *testing.T) {
 			"definition": map[string]any{
 				"root": map[string]any{
 					"id":   "root",
-					"uses": "builtins/shell",
-					"with": map[string]any{"command": "true"},
+					"uses": "builtins/script",
+					"with": map[string]any{"script": "true"},
 				},
 			},
 			"source": map[string]any{
@@ -2081,7 +2081,7 @@ func TestRunJob_sendsIdempotencyKey(t *testing.T) {
 	t.Cleanup(func() { runCellID = oldCell })
 
 	jobPath := filepath.Join(t.TempDir(), "job.json")
-	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hi"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"echo hi"}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2122,7 +2122,7 @@ func TestRunJob_sendsTargetCell(t *testing.T) {
 	t.Cleanup(func() { runCellID = oldCell })
 
 	jobPath := filepath.Join(t.TempDir(), "job.json")
-	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hi"}}}`), 0o600); err != nil {
+	if err := os.WriteFile(jobPath, []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"echo hi"}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3237,7 +3237,7 @@ func TestShowJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"job_id":          "build",
 			"definition_hash": "sha256:def",
-			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/script"}},
 			"source":          map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/custom.json"},
 		})
 	})
@@ -3262,7 +3262,7 @@ func TestShowJob_sourceRepositoryUsesJobsFacade(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{`"id": "build"`, `"uses": "builtins/shell"`} {
+	for _, want := range []string{`"id": "build"`, `"uses": "builtins/script"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
@@ -3279,7 +3279,7 @@ func TestShowJob_jsonOutputIncludesRepositorySync(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"job_id":          "build",
 			"definition_hash": "sha256:def",
-			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"definition":      map[string]any{"id": "build", "root": map[string]any{"id": "root", "uses": "builtins/script"}},
 			"source":          map[string]any{"repository_id": "vectis", "requested_ref": "main", "resolved_commit": "0123456789abcdef", "path": ".vectis/jobs/build.json"},
 			"repository_sync": map[string]any{"status": "failed", "ref": "main"},
 		})
@@ -3328,14 +3328,14 @@ func TestCreateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 			t.Errorf("source create body mismatch: %+v", body)
 		}
 
-		if !strings.Contains(string(body.Job), `"builtins/shell"`) {
+		if !strings.Contains(string(body.Job), `"builtins/script"`) {
 			t.Errorf("definition body=%s", string(body.Job))
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"job_id":          "build",
 			"definition_hash": "sha256:def",
-			"definition":      map[string]any{"root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"definition":      map[string]any{"root": map[string]any{"id": "root", "uses": "builtins/script"}},
 			"source": map[string]any{
 				"repository_id":   "vectis",
 				"requested_ref":   "feature/source-authoring",
@@ -3361,7 +3361,7 @@ func TestCreateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`)); err != nil {
+	if err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3390,7 +3390,7 @@ func TestCreateSourceJobFromJobsFacade_reportsAlreadyExists(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	var buf bytes.Buffer
-	err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell"}}`))
+	err := createSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script"}}`))
 	if err == nil {
 		t.Fatal("expected already exists error")
 	}
@@ -3425,7 +3425,7 @@ func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"job_id":          "build",
 			"definition_hash": "sha256:def2",
-			"definition":      map[string]any{"root": map[string]any{"id": "root", "uses": "builtins/shell"}},
+			"definition":      map[string]any{"root": map[string]any{"id": "root", "uses": "builtins/script"}},
 			"source": map[string]any{
 				"repository_id":   "vectis",
 				"requested_ref":   "main",
@@ -3447,7 +3447,7 @@ func TestUpdateSourceJobFromJobsFacade_sendsAuthoringPayload(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`)); err != nil {
+	if err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3475,7 +3475,7 @@ func TestUpdateSourceJobFromJobsFacade_reportsStaleHead(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	var buf bytes.Buffer
-	err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/shell"}}`))
+	err := updateSourceJobFromJobsFacadeWithOutput(cmd, &buf, "vectis", "build", []byte(`{"root":{"id":"root","uses":"builtins/script"}}`))
 	if err == nil {
 		t.Fatal("expected source conflict error")
 	}
@@ -4073,8 +4073,8 @@ func TestGetRunDefinition_success(t *testing.T) {
 			"definition": map[string]any{
 				"root": map[string]any{
 					"id":   "root",
-					"uses": "builtins/shell",
-					"with": map[string]any{"command": "true"},
+					"uses": "builtins/script",
+					"with": map[string]any{"script": "true"},
 				},
 			},
 		})
@@ -4089,7 +4089,7 @@ func TestGetRunDefinition_success(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{`"root": {`, `"command": "true"`} {
+	for _, want := range []string{`"root": {`, `"script": "true"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}

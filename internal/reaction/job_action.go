@@ -114,11 +114,7 @@ func (a *TriggerJobAction) Type() string {
 }
 
 func (a *TriggerJobAction) ExecuteInvocation(ctx context.Context, req ActionRequest) error {
-	_, err := a.Execute(ctx, TriggerJobActionRequest{
-		Event:      req.Event,
-		Invocation: req.Invocation,
-		Payload:    req.Payload,
-	})
+	_, err := a.Execute(ctx, TriggerJobActionRequest(req))
 
 	return err
 }

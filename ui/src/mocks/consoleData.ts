@@ -51,8 +51,8 @@ const jobs: Job[] = [
         id: "api-test-suite",
         root: {
           id: "root",
-          uses: "builtins/shell",
-          with: { command: "go test ./internal/api/..." }
+          uses: "builtins/script",
+          with: { script: "go test ./internal/api/..." }
         }
       },
       null,
@@ -81,8 +81,8 @@ const jobs: Job[] = [
         id: "docs-publish",
         root: {
           id: "root",
-          uses: "builtins/shell",
-          with: { command: "npm run docs:publish" }
+          uses: "builtins/script",
+          with: { script: "npm run docs:publish" }
         }
       },
       null,
@@ -111,8 +111,8 @@ const jobs: Job[] = [
         id: "worker-image",
         root: {
           id: "root",
-          uses: "builtins/shell",
-          with: { command: "podman build -f build/Containerfile" }
+          uses: "builtins/script",
+          with: { script: "podman build -f build/Containerfile" }
         }
       },
       null,

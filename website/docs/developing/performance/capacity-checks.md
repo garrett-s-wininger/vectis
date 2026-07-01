@@ -120,7 +120,7 @@ Useful knobs:
 | `VECTIS_PERF_WORKERS` | `4` | Concurrent worker loops used by macro worker and trigger-to-terminal benchmarks. |
 | `VECTIS_PERF_WORKER_COUNTS` | `1,2,4,8,16` | Comma-separated worker counts used by worker-scale macro benchmarks. |
 | `VECTIS_PERF_FANOUT_WIDTHS` | `1,10,100` | Comma-separated fanout widths used by fanout and shallow distributed DAG macro benchmarks. |
-| `VECTIS_PERF_ASYNC_WORKSPACE_CLEANUP` | `false` | Macro benchmark A/B switch for moving automatic workspace removal onto the bounded async executor cleanup queue. Use it to test terminal-latency sensitivity to workspace cleanup; it can improve tiny in-process actions while hurting shell-heavy workloads through background filesystem contention. |
+| `VECTIS_PERF_ASYNC_WORKSPACE_CLEANUP` | `false` | Macro benchmark A/B switch for moving automatic workspace removal onto the bounded async executor cleanup queue. Use it to test terminal-latency sensitivity to workspace cleanup; it can improve tiny in-process actions while hurting script-heavy workloads through background filesystem contention. |
 | `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
 | `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
 | `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
@@ -158,7 +158,7 @@ The executor suite also includes `AsyncWorkspaceCleanup` variants. Use those whe
 
 ## Local Macro Benchmark Check
 
-Use this check when the architectural question crosses component boundaries. The macro suite includes in-process sequential and concurrent no-op API trigger paths through run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, shell execution, and terminal status update. It also includes a log-heavy variant that exercises worker durable log flush plus local log-store replay.
+Use this check when the architectural question crosses component boundaries. The macro suite includes in-process sequential and concurrent no-op API trigger paths through run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, script execution, and terminal status update. It also includes a log-heavy variant that exercises worker durable log flush plus local log-store replay.
 
 ```sh
 VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=macro mage perf
@@ -233,7 +233,7 @@ Use this check when the question involves a real API, database, queue, orchestra
 
 1. Start a reference or staging stack with Postgres and durable log storage.
 2. Run `vectis-cli health check --strict`.
-3. Create one small source-backed shell job that is safe to run many times.
+3. Create one small source-backed script job that is safe to run many times.
 4. Trigger a small warm-up batch and confirm each run reaches a terminal status.
 5. Trigger a measured burst of runs with idempotency keys.
 6. Increase workers in steps and record queued-to-running and running-to-terminal latency at each step.

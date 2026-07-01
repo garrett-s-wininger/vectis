@@ -399,7 +399,7 @@ func TestCronService_ProcessSchedules_TriggersSourceRepositorySchedule(t *testin
 	}
 
 	if jobs[0].GetId() != "build" ||
-		jobs[0].GetRoot().GetWith()["command"] != "source-cron" ||
+		jobs[0].GetRoot().GetWith()["script"] != "source-cron" ||
 		jobs[0].GetRunId() == "" {
 		t.Fatalf("source cron job mismatch: %+v", jobs[0])
 	}
@@ -480,7 +480,7 @@ func TestCronService_ProcessSchedules_UsesDefinitionResolverFactory(t *testing.T
 		t.Fatalf("expected 1 source job enqueued, got %d", len(jobs))
 	}
 
-	if jobs[0].GetId() != "build" || jobs[0].GetRoot().GetWith()["command"] != "factory-cron" {
+	if jobs[0].GetId() != "build" || jobs[0].GetRoot().GetWith()["script"] != "factory-cron" {
 		t.Fatalf("source cron resolver job mismatch: %+v", jobs[0])
 	}
 
@@ -503,7 +503,7 @@ func TestCronService_ProcessSchedules_UsesSourceScheduleOverride(t *testing.T) {
 	writeCronJobDefinitionAndCommit(t, repoPath, "base-cron", "base definition")
 	cronGit(t, repoPath, "checkout", "-b", "hotfix/build")
 	writeCronFileAndCommit(t, repoPath, ".vectis/jobs/build-hotfix.json", `{
-		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "hotfix-cron"}}
+		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "hotfix-cron"}}
 	}`+"\n", "hotfix definition")
 
 	hotfixCommit := cronGitOutput(t, repoPath, "rev-parse", "hotfix/build")
@@ -552,7 +552,7 @@ func TestCronService_ProcessSchedules_UsesSourceScheduleOverride(t *testing.T) {
 		t.Fatalf("expected 1 source job enqueued, got %d", len(jobs))
 	}
 
-	if jobs[0].GetRoot().GetWith()["command"] != "hotfix-cron" {
+	if jobs[0].GetRoot().GetWith()["script"] != "hotfix-cron" {
 		t.Fatalf("expected hotfix source cron command, got %+v", jobs[0])
 	}
 
@@ -1274,7 +1274,7 @@ func writeCronJobDefinitionAndCommit(t *testing.T, repo, command, message string
 	t.Helper()
 
 	writeCronFileAndCommit(t, repo, ".vectis/jobs/build.json", `{
-		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "`+command+`"}}
+		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "`+command+`"}}
 	}`+"\n", message)
 }
 
@@ -1325,7 +1325,7 @@ func (r *recordingCronDefinitionResolver) ResolveDefinition(_ context.Context, r
 		Revision: sourcepkg.Revision{Commit: "0123456789abcdef0123456789abcdef01234567"},
 		BlobSHA:  "abcdef0123456789abcdef0123456789abcdef01",
 		Content: []byte(`{
-			"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "factory-cron"}}
+			"root": {"id": "root", "uses": "builtins/script", "with":{"script": "factory-cron"}}
 		}`),
 	}, req.Ref, req.Validation)
 }

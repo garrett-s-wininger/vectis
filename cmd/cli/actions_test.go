@@ -163,7 +163,7 @@ func TestListActionsText(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"NAME",
-		"builtins/shell",
+		"builtins/script",
 		"examples/greet",
 		"local_filesystem",
 		"sha256:",
@@ -194,8 +194,8 @@ func TestListActionsJSON(t *testing.T) {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 
-	if !actionListContains(result.Actions, "builtins/shell") {
-		t.Fatalf("list missing builtins/shell: %+v", result.Actions)
+	if !actionListContains(result.Actions, "builtins/script") {
+		t.Fatalf("list missing builtins/script: %+v", result.Actions)
 	}
 
 	if !actionListContains(result.Actions, "examples/greet") {
@@ -218,7 +218,7 @@ func TestListActionsPolicyFiltersCustomActions(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "builtins/shell") {
+	if !strings.Contains(out, "builtins/script") {
 		t.Fatalf("policy-filtered list should keep builtins:\n%s", out)
 	}
 

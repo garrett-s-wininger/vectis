@@ -22,7 +22,7 @@ func TestService_Process_ReenqueuesQueuedRun(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 
-	jobDef := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	jobDef := `{"id":"job-a","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 	repos := dal.NewSQLRepositories(db)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-a", jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)
@@ -83,7 +83,7 @@ func TestService_DispatchTriggeredRun_EnqueuesQueuedRunOnce(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 
-	jobDef := `{"id":"triggered-job","root":{"uses":"builtins/shell","with":{"command":"echo triggered"}}}`
+	jobDef := `{"id":"triggered-job","root":{"uses":"builtins/script","with":{"script":"echo triggered"}}}`
 	repos := dal.NewSQLRepositories(db)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "triggered-job", jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)
@@ -123,7 +123,7 @@ func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "job-task-continuation-repair"
-	jobDef := `{"id":"job-task-continuation-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child-a","uses":"builtins/shell","with":{"command":"echo a"}},{"id":"child-b","uses":"builtins/shell","with":{"command":"echo b"}}]}}`
+	jobDef := `{"id":"job-task-continuation-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child-a","uses":"builtins/script","with":{"script":"echo a"}},{"id":"child-b","uses":"builtins/script","with":{"script":"echo b"}}]}}`
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)
@@ -144,7 +144,7 @@ func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 	childAID := "child-a"
 	childBID := "child-b"
 	parallelAction := "builtins/parallel"
-	shellAction := "builtins/shell"
+	shellAction := "builtins/script"
 	job := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -152,8 +152,8 @@ func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 			Id:   &rootID,
 			Uses: &parallelAction,
 			Steps: []*api.Node{
-				{Id: &childAID, Uses: &shellAction, With: map[string]string{"command": "echo a"}},
-				{Id: &childBID, Uses: &shellAction, With: map[string]string{"command": "echo b"}},
+				{Id: &childAID, Uses: &shellAction, With: map[string]string{"script": "echo a"}},
+				{Id: &childBID, Uses: &shellAction, With: map[string]string{"script": "echo b"}},
 			},
 		},
 	}
@@ -240,7 +240,7 @@ func TestService_Process_RepairsOrphanedTaskRunSucceeded(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "job-task-finalize-repair-success"
-	jobDef := `{"id":"job-task-finalize-repair-success","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	jobDef := `{"id":"job-task-finalize-repair-success","root":{"id":"root","uses":"builtins/script","with":{"script":"echo root"}}}`
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)
@@ -298,7 +298,7 @@ func TestService_Process_RepairsOrphanedTaskRunFailedWithIncompleteSibling(t *te
 	ctx := context.Background()
 
 	jobID := "job-task-finalize-repair-failed"
-	jobDef := `{"id":"job-task-finalize-repair-failed","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo root"}}}`
+	jobDef := `{"id":"job-task-finalize-repair-failed","root":{"id":"root","uses":"builtins/script","with":{"script":"echo root"}}}`
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)
@@ -394,7 +394,7 @@ func TestService_Process_ReplaysFrozenPayloadOnRedispatch(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 
-	jobDef := `{"id":"job-frozen","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	jobDef := `{"id":"job-frozen","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 	repos := dal.NewSQLRepositories(db)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-frozen", jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)
@@ -466,8 +466,8 @@ func TestService_Process_ReenqueuesCapturedDefinitionVersion(t *testing.T) {
 	repos := dal.NewSQLRepositories(db)
 
 	jobID := "job-versioned"
-	defV1 := `{"id":"job-versioned","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
-	defV2 := `{"id":"job-versioned","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
+	defV1 := `{"id":"job-versioned","root":{"uses":"builtins/script","with":{"script":"echo old"}}}`
+	defV2 := `{"id":"job-versioned","root":{"uses":"builtins/script","with":{"script":"echo new"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defV1); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestService_Process_ReenqueuesCapturedDefinitionVersion(t *testing.T) {
 		t.Fatalf("run id: want %q, got %q", runID, jobs[0].GetRunId())
 	}
 
-	if got := jobs[0].GetRoot().GetWith()["command"]; got != "echo old" {
+	if got := jobs[0].GetRoot().GetWith()["script"]; got != "echo old" {
 		t.Fatalf("expected reenqueue to use definition version 1, command=%q", got)
 	}
 }
@@ -508,7 +508,7 @@ func TestService_Process_ReenqueuesEphemeralWithJobDefinition(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "ephemeral-uuid"
-	jobDef := `{"id":"ephemeral-uuid","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	jobDef := `{"id":"ephemeral-uuid","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 	repos := dal.NewSQLRepositories(db)
 	runID, _, err := repos.CreateDefinitionAndRun(ctx, jobID, jobDef, nil)
 	if err != nil {
@@ -538,7 +538,7 @@ func TestService_Process_SkipsRecentDispatch(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 
-	jobDef := `{"id":"job-b","root":{"uses":"builtins/shell"}}`
+	jobDef := `{"id":"job-b","root":{"uses":"builtins/script"}}`
 	repos := dal.NewSQLRepositories(db)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-b", jobDef); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -610,7 +610,7 @@ func TestService_Process_DBUnavailable_SkipsUntilRecovered(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()
 
-	jobDef := `{"id":"job-db-down","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	jobDef := `{"id":"job-db-down","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 	repos := dal.NewSQLRepositories(db)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "job-db-down", jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)
@@ -676,7 +676,7 @@ func TestService_Process_ServiceLeaseAllowsStandbyTakeover(t *testing.T) {
 
 	repos := dal.NewSQLRepositories(db)
 	jobID := "job-lease-takeover"
-	jobDef := `{"id":"job-lease-takeover","root":{"uses":"builtins/shell","with":{"command":"echo takeover"}}}`
+	jobDef := `{"id":"job-lease-takeover","root":{"uses":"builtins/script","with":{"script":"echo takeover"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
 		t.Fatalf("create job: %v", err)
 	}

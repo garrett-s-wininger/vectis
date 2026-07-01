@@ -920,7 +920,7 @@ func printNextChecks(suite string) {
 		emit("- Pool pressure: capture connection wait and pg_stat_statements data alongside DAL rows when a change adds transactions or indexes.")
 		emit("- HA and multi-cell: add catalog/reconciler/cell-local workloads before treating single-database DAL numbers as topology capacity.")
 	case "job":
-		emit("- Action mix: add checkout, shell-output, failure, and cancellation rows when executor changes touch non-result actions.")
+		emit("- Action mix: add checkout, script-output, failure, and cancellation rows when executor changes touch non-result actions.")
 		emit("- Log transport: add forwarder/log-service gRPC rows before treating noop or local-store log sinks as production log cost.")
 		emit("- End-to-end context: compare executor rows with macro result-action rows when isolating scheduler and DB overhead.")
 	case "macro":

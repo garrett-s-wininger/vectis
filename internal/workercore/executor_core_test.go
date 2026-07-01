@@ -2,6 +2,7 @@ package workercore
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func TestExecutorCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 	jobID := "job-worker-core"
 	runID := "run-worker-core"
 	nodeID := "root"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	core := NewExecutorCore(executor)
 	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
 		Job: &api.Job{
@@ -36,7 +37,7 @@ func TestExecutorCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 			Root: &api.Node{
 				Id:   &nodeID,
 				Uses: &uses,
-				With: map[string]string{"command": "echo hello"},
+				With: map[string]string{"script": "echo hello"},
 			},
 		},
 		TaskKey: dal.RootTaskKey,
@@ -65,8 +66,8 @@ func TestExecutorCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 	}
 
 	args := processExecutor.GetArgs()
-	if len(args) != 1 || strings.Join(args[0], " ") != "-c echo hello" {
-		t.Fatalf("process args = %v, want [-c echo hello]", args)
+	if len(args) != 1 || len(args[0]) != 1 || filepath.Ext(args[0][0]) != ".sh" {
+		t.Fatalf("process args = %v, want one generated .sh script arg", args)
 	}
 
 	if !process.WaitCalled() {

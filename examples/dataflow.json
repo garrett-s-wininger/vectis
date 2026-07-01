@@ -5,10 +5,10 @@
     "uses": "builtins/sequence",
     "steps": [
       {
-        "id": "shell-command",
-        "uses": "builtins/shell",
+        "id": "script-command",
+        "uses": "builtins/script",
         "with": {
-          "command": "printf '{\"command\":\"true\"}' > outputs.json",
+          "script": "printf '{\"command\":\"true\"}' > outputs.json",
           "outputs": "outputs.json"
         }
       },
@@ -18,7 +18,7 @@
         "inputs": {
           "command": {
             "from": {
-              "node": "shell-command",
+              "node": "script-command",
               "output": "command"
             }
           }

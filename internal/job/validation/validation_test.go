@@ -28,8 +28,8 @@ func validJob() *api.Job {
 			Uses: strp("builtins/sequence"),
 			Steps: []*api.Node{{
 				Id:   strp("shell"),
-				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "echo hi"},
+				Uses: strp("builtins/script"),
+				With: map[string]string{"script": "echo hi"},
 			}},
 		},
 	}
@@ -277,7 +277,7 @@ func TestValidateJob_MaxDepth(t *testing.T) {
 	job.Root.Steps = []*api.Node{{
 		Id:    strp("child"),
 		Uses:  strp("builtins/sequence"),
-		Steps: []*api.Node{{Id: strp("grandchild"), Uses: strp("builtins/shell")}},
+		Steps: []*api.Node{{Id: strp("grandchild"), Uses: strp("builtins/script")}},
 	}}
 
 	err := validation.ValidateJob(job, validation.Options{MaxDepth: 2})
@@ -286,7 +286,7 @@ func TestValidateJob_MaxDepth(t *testing.T) {
 	}
 }
 
-func TestValidateJob_ShellMissingCommand(t *testing.T) {
+func TestValidateJob_ScriptMissingScript(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
@@ -294,40 +294,40 @@ func TestValidateJob_ShellMissingCommand(t *testing.T) {
 
 	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
 	if err == nil {
-		t.Fatal("expected validation error for missing command")
+		t.Fatal("expected validation error for missing script")
 	}
 
 	msg := err.Error()
-	if !strings.Contains(msg, `root.steps[0].with.command: is required`) {
-		t.Fatalf("expected command required error, got %q", msg)
+	if !strings.Contains(msg, `root.steps[0].with.script: is required`) {
+		t.Fatalf("expected script required error, got %q", msg)
 	}
 }
 
-func TestValidateJob_ShellEmptyCommand(t *testing.T) {
+func TestValidateJob_ScriptEmptyScript(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
-	job.Root.Steps[0].With = map[string]string{"command": "   "}
+	job.Root.Steps[0].With = map[string]string{"script": "   "}
 
 	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
 	if err == nil {
-		t.Fatal("expected validation error for empty command")
+		t.Fatal("expected validation error for empty script")
 	}
 
 	msg := err.Error()
-	if !strings.Contains(msg, `root.steps[0].with.command: is required`) {
-		t.Fatalf("expected command required error, got %q", msg)
+	if !strings.Contains(msg, `root.steps[0].with.script: is required`) {
+		t.Fatalf("expected script required error, got %q", msg)
 	}
 }
 
-func TestValidateJob_ShellValidCommand(t *testing.T) {
+func TestValidateJob_ScriptValidScript(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
-	job.Root.Steps[0].With = map[string]string{"command": "go build ./..."}
+	job.Root.Steps[0].With = map[string]string{"script": "go build ./..."}
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
-		t.Fatalf("expected valid shell job: %v", err)
+		t.Fatalf("expected valid script job: %v", err)
 	}
 }
 
@@ -335,8 +335,8 @@ func TestValidateJob_BuiltinVersionSelector(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
-	job.Root.Steps[0].Uses = strp("builtins/shell@v1")
-	job.Root.Steps[0].With = map[string]string{"command": "go test ./..."}
+	job.Root.Steps[0].Uses = strp("builtins/script@v1")
+	job.Root.Steps[0].With = map[string]string{"script": "go test ./..."}
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
 		t.Fatalf("expected version-pinned builtin job: %v", err)
@@ -401,17 +401,17 @@ func TestValidateJob_CustomActionResolverReportsRevokedAction(t *testing.T) {
 	}
 }
 
-func TestValidateJob_ShellOutputsField(t *testing.T) {
+func TestValidateJob_ScriptOutputsField(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
 	job.Root.Steps[0].With = map[string]string{
-		"command": "printf '{\"image\":\"app:dev\"}' > outputs.json",
+		"script":  "printf '{\"image\":\"app:dev\"}' > outputs.json",
 		"outputs": "outputs.json",
 	}
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
-		t.Fatalf("expected shell outputs field to validate: %v", err)
+		t.Fatalf("expected script outputs field to validate: %v", err)
 	}
 }
 
@@ -421,10 +421,10 @@ func TestValidateJob_BoundInputsSatisfyRequiredFields(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("shell-command"),
-			Uses: strp("builtins/shell"),
+			Id:   strp("script-command"),
+			Uses: strp("builtins/script"),
 			With: map[string]string{
-				"command": "printf '{\"command\":\"test -f ready\"}' > outputs.json",
+				"script":  "printf '{\"command\":\"test -f ready\"}' > outputs.json",
 				"outputs": "outputs.json",
 			},
 		},
@@ -432,7 +432,7 @@ func TestValidateJob_BoundInputsSatisfyRequiredFields(t *testing.T) {
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("shell-command", "command"),
+				"command": inputRef("script-command", "command"),
 			},
 		},
 	}
@@ -448,15 +448,15 @@ func TestValidateJob_BoundInputsRejectUnknownField(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("shell-command"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo hi"},
+			Id:   strp("script-command"),
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo hi"},
 		},
 		{
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"commnad": inputRef("shell-command", "command"),
+				"commnad": inputRef("script-command", "command"),
 			},
 		},
 	}
@@ -477,16 +477,16 @@ func TestValidateJob_BoundInputsRejectWithConflict(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("shell-command"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo hi"},
+			Id:   strp("script-command"),
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo hi"},
 		},
 		{
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			With: map[string]string{"command": "test -f ready"},
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("shell-command", "command"),
+				"command": inputRef("script-command", "command"),
 			},
 		},
 	}
@@ -510,13 +510,13 @@ func TestValidateJob_BoundInputsRejectForwardReference(t *testing.T) {
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("shell-command", "command"),
+				"command": inputRef("script-command", "command"),
 			},
 		},
 		{
-			Id:   strp("shell-command"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo hi"},
+			Id:   strp("script-command"),
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo hi"},
 		},
 	}
 
@@ -525,7 +525,7 @@ func TestValidateJob_BoundInputsRejectForwardReference(t *testing.T) {
 		t.Fatal("expected validation error for forward reference")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].inputs.command.from.node: must reference an earlier node id, got "shell-command"`) {
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].inputs.command.from.node: must reference an earlier node id, got "script-command"`) {
 		t.Fatalf("expected forward reference error, got %q", msg)
 	}
 }
@@ -536,10 +536,10 @@ func TestValidateJob_BoundInputsRejectDistributedConsumerScope(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("shell-command"),
-			Uses: strp("builtins/shell"),
+			Id:   strp("script-command"),
+			Uses: strp("builtins/script"),
 			With: map[string]string{
-				"command": "printf '{\"command\":\"true\"}' > outputs.json",
+				"script":  "printf '{\"command\":\"true\"}' > outputs.json",
 				"outputs": "outputs.json",
 			},
 		},
@@ -548,7 +548,7 @@ func TestValidateJob_BoundInputsRejectDistributedConsumerScope(t *testing.T) {
 			Uses: strp("builtins/test"),
 			With: map[string]string{"execution": "distributed"},
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("shell-command", "command"),
+				"command": inputRef("script-command", "command"),
 			},
 		},
 	}
@@ -569,10 +569,10 @@ func TestValidateJob_BoundInputsRejectPostBoundaryScope(t *testing.T) {
 	job := validJob()
 	job.Root.Steps = []*api.Node{
 		{
-			Id:   strp("shell-command"),
-			Uses: strp("builtins/shell"),
+			Id:   strp("script-command"),
+			Uses: strp("builtins/script"),
 			With: map[string]string{
-				"command":   "printf '{\"command\":\"true\"}' > outputs.json",
+				"script":    "printf '{\"command\":\"true\"}' > outputs.json",
 				"outputs":   "outputs.json",
 				"execution": "distributed",
 			},
@@ -581,7 +581,7 @@ func TestValidateJob_BoundInputsRejectPostBoundaryScope(t *testing.T) {
 			Id:   strp("gate"),
 			Uses: strp("builtins/test"),
 			Inputs: map[string]*api.NodeInput{
-				"command": inputRef("shell-command", "command"),
+				"command": inputRef("script-command", "command"),
 			},
 		},
 	}
@@ -621,8 +621,8 @@ func TestValidateJob_AllowsDefaultIsolationFromJSON(t *testing.T) {
 		"default_isolation": "vm",
 		"root": {
 			"id": "root",
-			"uses": "builtins/shell",
-			"with": {"command": "echo hi"}
+			"uses": "builtins/script",
+			"with": {"script": "echo hi"}
 		}
 	}`), &job); err != nil {
 		t.Fatalf("unmarshal job json: %v", err)
@@ -752,8 +752,8 @@ func TestValidateJob_ExplicitPorts(t *testing.T) {
 	job.Root.Ports = map[string]*api.NodePort{
 		taskgraph.StepsPort: nodePort(&api.Node{
 			Id:   strp("shell"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo hi"},
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo hi"},
 		}),
 	}
 
@@ -773,7 +773,7 @@ func TestValidateJob_ExplicitPortsJSON(t *testing.T) {
 			"ports": {
 				"steps": {
 					"nodes": [
-						{"id": "shell", "uses": "builtins/shell", "with": {"command": "echo hi"}}
+						{"id": "script", "uses": "builtins/script", "with": {"script": "echo hi"}}
 					]
 				}
 			}
@@ -799,8 +799,8 @@ func TestValidateJob_ParallelBranchesPort(t *testing.T) {
 	job.Root.Ports = map[string]*api.NodePort{
 		taskgraph.BranchesPort: nodePort(&api.Node{
 			Id:   strp("shell"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo hi"},
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo hi"},
 		}),
 	}
 
@@ -817,8 +817,8 @@ func TestValidateJob_RejectsUnknownPort(t *testing.T) {
 	job.Root.Ports = map[string]*api.NodePort{
 		"condition": nodePort(&api.Node{
 			Id:   strp("shell"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo hi"},
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo hi"},
 		}),
 	}
 
@@ -839,8 +839,8 @@ func TestValidateJob_RejectsStepsAndPrimaryPortTogether(t *testing.T) {
 	job.Root.Ports = map[string]*api.NodePort{
 		taskgraph.StepsPort: nodePort(&api.Node{
 			Id:   strp("second"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo second"},
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo second"},
 		}),
 	}
 
@@ -861,8 +861,8 @@ func TestValidateJob_RejectsLeafChildPorts(t *testing.T) {
 	job.Root.Steps[0].Ports = map[string]*api.NodePort{
 		taskgraph.StepsPort: nodePort(&api.Node{
 			Id:   strp("grandchild"),
-			Uses: strp("builtins/shell"),
-			With: map[string]string{"command": "echo grandchild"},
+			Uses: strp("builtins/script"),
+			With: map[string]string{"script": "echo grandchild"},
 		}),
 	}
 
@@ -871,7 +871,7 @@ func TestValidateJob_RejectsLeafChildPorts(t *testing.T) {
 		t.Fatal("expected validation error for leaf child port")
 	}
 
-	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].ports.steps: unknown port "steps" for action "builtins/shell"`) {
+	if msg := err.Error(); !strings.Contains(msg, `root.steps[0].ports.steps: unknown port "steps" for action "builtins/script"`) {
 		t.Fatalf("expected leaf port error, got %q", msg)
 	}
 }
@@ -891,13 +891,13 @@ func TestValidateJob_IfPorts(t *testing.T) {
 			}),
 			taskgraph.ThenPort: nodePort(&api.Node{
 				Id:   strp("deploy"),
-				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "make deploy"},
+				Uses: strp("builtins/script"),
+				With: map[string]string{"script": "make deploy"},
 			}),
 			taskgraph.ElsePort: nodePort(&api.Node{
 				Id:   strp("skip-note"),
-				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "echo no deploy"},
+				Uses: strp("builtins/script"),
+				With: map[string]string{"script": "echo no deploy"},
 			}),
 		},
 	}
@@ -964,8 +964,8 @@ func TestValidateJob_IfRejectsDistributedDescendants(t *testing.T) {
 				Ports: map[string]*api.NodePort{
 					taskgraph.BranchesPort: nodePort(&api.Node{
 						Id:   strp("unit"),
-						Uses: strp("builtins/shell"),
-						With: map[string]string{"command": "go test ./..."},
+						Uses: strp("builtins/script"),
+						With: map[string]string{"script": "go test ./..."},
 					}),
 				},
 			}),
@@ -1029,8 +1029,8 @@ func TestValidateJob_RetryTimeoutFinallyPorts(t *testing.T) {
 						Ports: map[string]*api.NodePort{
 							taskgraph.BodyPort: nodePort(&api.Node{
 								Id:   strp("build"),
-								Uses: strp("builtins/shell"),
-								With: map[string]string{"command": "mage build"},
+								Uses: strp("builtins/script"),
+								With: map[string]string{"script": "mage build"},
 							}),
 						},
 					}),
@@ -1038,8 +1038,8 @@ func TestValidateJob_RetryTimeoutFinallyPorts(t *testing.T) {
 			}),
 			taskgraph.AlwaysPort: nodePort(&api.Node{
 				Id:   strp("cleanup"),
-				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "mage clean"},
+				Uses: strp("builtins/script"),
+				With: map[string]string{"script": "mage clean"},
 			}),
 		},
 	}
@@ -1060,13 +1060,13 @@ func TestValidateJob_FallbackPorts(t *testing.T) {
 			taskgraph.ChoicesPort: nodePort(
 				&api.Node{
 					Id:   strp("primary-build"),
-					Uses: strp("builtins/shell"),
-					With: map[string]string{"command": "mage build"},
+					Uses: strp("builtins/script"),
+					With: map[string]string{"script": "mage build"},
 				},
 				&api.Node{
 					Id:   strp("backup-build"),
-					Uses: strp("builtins/shell"),
-					With: map[string]string{"command": "mage buildContainer"},
+					Uses: strp("builtins/script"),
+					With: map[string]string{"script": "mage buildContainer"},
 				},
 			),
 		},
@@ -1107,8 +1107,8 @@ func TestValidateJob_RetryRejectsInvalidAttempts(t *testing.T) {
 		Ports: map[string]*api.NodePort{
 			taskgraph.BodyPort: nodePort(&api.Node{
 				Id:   strp("build"),
-				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "mage build"},
+				Uses: strp("builtins/script"),
+				With: map[string]string{"script": "mage build"},
 			}),
 		},
 	}
@@ -1133,8 +1133,8 @@ func TestValidateJob_TimeoutRequiresDuration(t *testing.T) {
 		Ports: map[string]*api.NodePort{
 			taskgraph.BodyPort: nodePort(&api.Node{
 				Id:   strp("build"),
-				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "mage build"},
+				Uses: strp("builtins/script"),
+				With: map[string]string{"script": "mage build"},
 			}),
 		},
 	}
@@ -1164,8 +1164,8 @@ func TestValidateJob_TimeoutRejectsDistributedParallelBody(t *testing.T) {
 				Ports: map[string]*api.NodePort{
 					taskgraph.BranchesPort: nodePort(&api.Node{
 						Id:   strp("unit"),
-						Uses: strp("builtins/shell"),
-						With: map[string]string{"command": "go test ./..."},
+						Uses: strp("builtins/script"),
+						With: map[string]string{"script": "go test ./..."},
 					}),
 				},
 			}),
@@ -1198,8 +1198,8 @@ func TestValidateJob_TimeoutAllowsLocalParallelBody(t *testing.T) {
 				Ports: map[string]*api.NodePort{
 					taskgraph.BranchesPort: nodePort(&api.Node{
 						Id:   strp("unit"),
-						Uses: strp("builtins/shell"),
-						With: map[string]string{"command": "go test ./..."},
+						Uses: strp("builtins/script"),
+						With: map[string]string{"script": "go test ./..."},
 					}),
 				},
 			}),
@@ -1226,8 +1226,8 @@ func TestValidateJob_TimeoutRejectsNestedDistributedBoundary(t *testing.T) {
 				Steps: []*api.Node{
 					{
 						Id:   strp("prepare"),
-						Uses: strp("builtins/shell"),
-						With: map[string]string{"command": "make prepare"},
+						Uses: strp("builtins/script"),
+						With: map[string]string{"script": "make prepare"},
 					},
 					{
 						Id:   strp("checks"),
@@ -1235,8 +1235,8 @@ func TestValidateJob_TimeoutRejectsNestedDistributedBoundary(t *testing.T) {
 						Ports: map[string]*api.NodePort{
 							taskgraph.BranchesPort: nodePort(&api.Node{
 								Id:   strp("unit"),
-								Uses: strp("builtins/shell"),
-								With: map[string]string{"command": "go test ./..."},
+								Uses: strp("builtins/script"),
+								With: map[string]string{"script": "go test ./..."},
 							}),
 						},
 					},
@@ -1265,8 +1265,8 @@ func TestValidateJob_FinallyRequiresAlwaysPort(t *testing.T) {
 		Ports: map[string]*api.NodePort{
 			taskgraph.BodyPort: nodePort(&api.Node{
 				Id:   strp("build"),
-				Uses: strp("builtins/shell"),
-				With: map[string]string{"command": "mage build"},
+				Uses: strp("builtins/script"),
+				With: map[string]string{"script": "mage build"},
 			}),
 		},
 	}
@@ -1302,12 +1302,12 @@ func TestValidateJob_ExecutionModeIsGlobalWithMetadata(t *testing.T) {
 
 	job := validJob()
 	job.Root.Steps[0].With = map[string]string{
-		"command":   "echo hi",
+		"script":    "echo hi",
 		"execution": "distributed",
 	}
 
 	if err := validation.ValidateJob(job, validation.Options{RequireJobID: true}); err != nil {
-		t.Fatalf("expected shell execution metadata to validate: %v", err)
+		t.Fatalf("expected script execution metadata to validate: %v", err)
 	}
 }
 
@@ -1316,7 +1316,7 @@ func TestValidateJob_LeafExecutionModeMustBeKnown(t *testing.T) {
 
 	job := validJob()
 	job.Root.Steps[0].With = map[string]string{
-		"command":   "echo hi",
+		"script":    "echo hi",
 		"execution": "remote",
 	}
 
@@ -1367,11 +1367,11 @@ func TestValidateJob_UnknownActionStillReports(t *testing.T) {
 	}
 }
 
-func TestValidateJob_ShellUnknownKey(t *testing.T) {
+func TestValidateJob_ScriptUnknownKey(t *testing.T) {
 	t.Parallel()
 
 	job := validJob()
-	job.Root.Steps[0].With = map[string]string{"command": "echo hi", "unknown_key": "val"}
+	job.Root.Steps[0].With = map[string]string{"script": "echo hi", "unknown_key": "val"}
 
 	err := validation.ValidateJob(job, validation.Options{RequireJobID: true})
 	if err == nil {

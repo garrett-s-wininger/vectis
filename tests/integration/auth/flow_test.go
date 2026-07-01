@@ -138,8 +138,8 @@ func TestIntegrationAuth_Flow(t *testing.T) {
 			"id": "auth-test-job",
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]string{"command": "echo hello"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "echo hello"},
 			},
 		})
 
@@ -233,8 +233,8 @@ func TestIntegrationAuth_Flow(t *testing.T) {
 		body, _ := json.Marshal(map[string]any{
 			"id": "viewer-job-attempt",
 			"root": map[string]any{
-				"uses": "builtins/shell",
-				"with": map[string]string{"command": "echo nope"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "echo nope"},
 			},
 		})
 

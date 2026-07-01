@@ -171,7 +171,7 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 
 	jobID := "test-job-1"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	runID := "test-run-1"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -180,7 +180,7 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -219,9 +219,9 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 
 	expectedMessages := []string{
 		"Starting job execution: test-job-1",
-		"Executing node: builtins/shell",
-		"echo hello",
-		"Command completed successfully",
+		"Executing node: builtins/script",
+		"hello",
+		"Script completed successfully",
 	}
 
 	for _, expected := range expectedMessages {
@@ -268,7 +268,7 @@ func TestExecutor_ExecuteJob_MaterializesSecretFiles(t *testing.T) {
 
 	jobID := "test-job-secrets"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	runID := "test-run-secrets"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -277,7 +277,7 @@ func TestExecutor_ExecuteJob_MaterializesSecretFiles(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": `test "$(cat "$VECTIS_SECRETS_DIR/npm/token")" = "secret-value"`,
+				"script": `test "$(cat "$VECTIS_SECRETS_DIR/npm/token")" = "secret-value"`,
 			},
 		},
 	}
@@ -322,7 +322,7 @@ func TestExecutor_ExecuteJob_DoesNotInheritWorkerEnvironment(t *testing.T) {
 
 	jobID := "test-job-env"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	runID := "test-run-env"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -331,7 +331,7 @@ func TestExecutor_ExecuteJob_DoesNotInheritWorkerEnvironment(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": `if env | grep -q 'VECTIS_DATABASE_DSN\|SPIFFE_ENDPOINT_SOCKET'; then echo leaked; exit 1; fi; echo clean`,
+				"script": `if env | grep -q 'VECTIS_DATABASE_DSN\|SPIFFE_ENDPOINT_SOCKET'; then echo leaked; exit 1; fi; echo clean`,
 			},
 		},
 	}
@@ -363,13 +363,13 @@ func TestExecutor_ExecuteTask_ExecutesSelectedNodeOnly(t *testing.T) {
 			Steps: []*api.Node{
 				{
 					Id:   executorStrp("first"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo task-first-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo task-first-marker"},
 				},
 				{
 					Id:   executorStrp("second"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo task-second-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo task-second-marker"},
 				},
 			},
 		},
@@ -400,19 +400,19 @@ func TestExecutor_ExecuteTask_VerifiesActionLockWithOriginalNodePath(t *testing.
 			Steps: []*api.Node{
 				{
 					Id:   executorStrp("first"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo task-first-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo task-first-marker"},
 				},
 				{
 					Id:   executorStrp("second"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo task-second-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo task-second-marker"},
 				},
 			},
 		},
 	}
 
-	descriptor, err := builtins.NewRegistry().ResolveDescriptor("builtins/shell")
+	descriptor, err := builtins.NewRegistry().ResolveDescriptor("builtins/script")
 	if err != nil {
 		t.Fatalf("ResolveDescriptor: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestExecutor_ExecuteTask_VerifiesActionLockWithOriginalNodePath(t *testing.
 		ActionLocks: []actionregistry.ActionLock{{
 			NodeID:     "second",
 			NodePath:   "root.steps[1]",
-			Uses:       "builtins/shell",
+			Uses:       "builtins/script",
 			Descriptor: descriptor,
 		}},
 	})
@@ -453,8 +453,8 @@ func TestExecutor_ExecuteTask_ExecutesLocalChildTasks(t *testing.T) {
 					Steps: []*api.Node{
 						{
 							Id:   executorStrp("nested"),
-							Uses: executorStrp("builtins/shell"),
-							With: map[string]string{"command": "echo nested-child-marker"},
+							Uses: executorStrp("builtins/script"),
+							With: map[string]string{"script": "echo nested-child-marker"},
 						},
 					},
 				},
@@ -487,8 +487,8 @@ func TestExecutor_ExecuteTask_RootTaskExecutesLocalChildren(t *testing.T) {
 			Steps: []*api.Node{
 				{
 					Id:   executorStrp("child"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo root-child-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo root-child-marker"},
 				},
 			},
 		},
@@ -519,8 +519,8 @@ func TestExecutor_ExecuteTask_RootTaskExecutesExplicitPorts(t *testing.T) {
 			Ports: map[string]*api.NodePort{
 				taskgraph.StepsPort: executorNodePort(&api.Node{
 					Id:   executorStrp("child"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo explicit-port-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo explicit-port-marker"},
 				}),
 			},
 		},
@@ -550,8 +550,8 @@ func TestExecutor_ExecuteTask_StopsAtDistributedBoundary(t *testing.T) {
 			Steps: []*api.Node{
 				{
 					Id:   executorStrp("setup"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo local-setup-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo local-setup-marker"},
 				},
 				{
 					Id:   executorStrp("fanout"),
@@ -559,15 +559,15 @@ func TestExecutor_ExecuteTask_StopsAtDistributedBoundary(t *testing.T) {
 					Steps: []*api.Node{
 						{
 							Id:   executorStrp("distributed-child"),
-							Uses: executorStrp("builtins/shell"),
-							With: map[string]string{"command": "echo distributed-child-marker"},
+							Uses: executorStrp("builtins/script"),
+							With: map[string]string{"script": "echo distributed-child-marker"},
 						},
 					},
 				},
 				{
 					Id:   executorStrp("after"),
-					Uses: executorStrp("builtins/shell"),
-					With: map[string]string{"command": "echo after-boundary-marker"},
+					Uses: executorStrp("builtins/script"),
+					With: map[string]string{"script": "echo after-boundary-marker"},
 				},
 			},
 		},
@@ -634,14 +634,14 @@ func TestExecutor_ExecuteJob_EmptyID(t *testing.T) {
 
 	emptyID := ""
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id: &emptyID,
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -666,7 +666,7 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 
 	jobID := "test-job-1"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	runID := "test-run-1"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -675,7 +675,7 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -736,7 +736,7 @@ func TestExecutor_ExecuteJob_StreamUnavailableAtStart_ThenRecovers(t *testing.T)
 
 	jobID := "test-job-recover"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	runID := "test-run-recover"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -745,7 +745,7 @@ func TestExecutor_ExecuteJob_StreamUnavailableAtStart_ThenRecovers(t *testing.T)
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "echo hello",
+				"script": "echo hello",
 			},
 		},
 	}
@@ -1019,7 +1019,7 @@ func TestExecutor_ExecuteJob_MissingCommand(t *testing.T) {
 
 	jobID := "test-job-1"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id: &jobID,
 		Root: &api.Node{
@@ -1043,7 +1043,7 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 	jobID := "test-job-fail"
 	runID := "test-job-fail-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -1052,7 +1052,7 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "false", // Always returns exit code 1
+				"script": "false", // Always returns exit code 1
 			},
 		},
 	}
@@ -1062,8 +1062,8 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 		t.Error("expected error when command fails")
 	}
 
-	if !strings.Contains(err.Error(), "command failed") && !strings.Contains(err.Error(), "exit status 1") {
-		t.Errorf("expected error to indicate command failure, got: %v", err)
+	if !strings.Contains(err.Error(), "script failed") && !strings.Contains(err.Error(), "exit status 1") {
+		t.Errorf("expected error to indicate script failure, got: %v", err)
 	}
 
 	chunks := mockLogClient.GetChunks()
@@ -1084,7 +1084,7 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 
 	hasErrorChunk := false
 	for _, str := range chunkStrings {
-		if strings.Contains(str, "Command failed") || strings.Contains(str, "exit status") {
+		if strings.Contains(str, "Script failed") || strings.Contains(str, "exit status") {
 			hasErrorChunk = true
 			break
 		}
@@ -1133,7 +1133,7 @@ func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
 	jobID := "test-job-workspace"
 	runID := "test-job-workspace-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -1141,7 +1141,7 @@ func TestExecutor_ExecuteJob_WorkspaceCreationAndCleanup(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "pwd",
+				"script": "pwd",
 			},
 		},
 	}
@@ -1196,7 +1196,7 @@ func TestExecutor_ExecuteJob_UsesConfiguredWorkspaceRoot(t *testing.T) {
 	jobID := "test-job-workspace-root"
 	runID := "test-job-workspace-root-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -1204,7 +1204,7 @@ func TestExecutor_ExecuteJob_UsesConfiguredWorkspaceRoot(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "pwd",
+				"script": "pwd",
 			},
 		},
 	}
@@ -1249,7 +1249,7 @@ func TestExecutor_ExecuteJob_AutoWorkspaceIsOwnerOnly(t *testing.T) {
 	jobID := "test-job-workspace-mode"
 	runID := "test-job-workspace-mode-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -1257,7 +1257,7 @@ func TestExecutor_ExecuteJob_AutoWorkspaceIsOwnerOnly(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "pwd",
+				"script": "pwd",
 			},
 		},
 	}
@@ -1294,7 +1294,7 @@ func TestExecutor_ExecuteJobInWorkspace_WarnsForBroadWorkspacePermissions(t *tes
 	jobID := "test-job-explicit-workspace-mode"
 	runID := "test-job-explicit-workspace-mode-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -1302,7 +1302,7 @@ func TestExecutor_ExecuteJobInWorkspace_WarnsForBroadWorkspacePermissions(t *tes
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "pwd",
+				"script": "pwd",
 			},
 		},
 	}
@@ -1338,7 +1338,7 @@ func TestExecutor_ExecuteJob_WithAsyncWorkspaceCleanupRemovesWorkspaceEventually
 	jobID := "test-job-async-workspace-cleanup"
 	runID := "test-job-async-workspace-cleanup-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -1346,7 +1346,7 @@ func TestExecutor_ExecuteJob_WithAsyncWorkspaceCleanupRemovesWorkspaceEventually
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "pwd",
+				"script": "pwd",
 			},
 		},
 	}
@@ -1383,7 +1383,7 @@ func TestExecutor_ExecuteJobInWorkspace_DoesNotRemoveWorkspace(t *testing.T) {
 	jobID := "test-job-explicit-workspace"
 	runID := "test-job-explicit-workspace-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -1391,7 +1391,7 @@ func TestExecutor_ExecuteJobInWorkspace_DoesNotRemoveWorkspace(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "pwd",
+				"script": "pwd",
 			},
 		},
 	}
@@ -1444,7 +1444,7 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 	jobID := "test-job-custom-process-executor"
 	runID := "test-job-custom-process-executor-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -1452,7 +1452,7 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"command": "echo custom",
+				"script": "echo custom",
 			},
 		},
 	}
@@ -1465,10 +1465,10 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 	args := mockProcessExecutor.GetArgs()
 	workDirs := mockProcessExecutor.GetWorkDirs()
 	if len(paths) != 1 || paths[0] != "sh" {
-		t.Fatalf("expected one shell execution through configured process executor, got paths=%v", paths)
+		t.Fatalf("expected one script execution through configured process executor, got paths=%v", paths)
 	}
-	if len(args) != 1 || len(args[0]) != 2 || args[0][0] != "-c" || args[0][1] != "echo custom" {
-		t.Fatalf("expected args [-c echo custom], got %v", args)
+	if len(args) != 1 || len(args[0]) != 1 || filepath.Ext(args[0][0]) != ".sh" {
+		t.Fatalf("expected one generated .sh script arg, got %v", args)
 	}
 	if len(workDirs) != 1 || workDirs[0] != workspace {
 		t.Fatalf("expected configured workspace %q, got workDirs=%v", workspace, workDirs)
@@ -1503,7 +1503,7 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
 	inheritStepID := "inherit-step"
-	shellUses := "builtins/shell"
+	shellUses := "builtins/script"
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -1515,18 +1515,18 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 				{
 					Id:   &vmStepID,
 					Uses: &shellUses,
-					With: map[string]string{"command": "echo vm"},
+					With: map[string]string{"script": "echo vm"},
 				},
 				{
 					Id:        &hostStepID,
 					Uses:      &shellUses,
 					Isolation: &hostIsolation,
-					With:      map[string]string{"command": "echo host"},
+					With:      map[string]string{"script": "echo host"},
 				},
 				{
 					Id:   &inheritStepID,
 					Uses: &shellUses,
-					With: map[string]string{"command": "echo inherit"},
+					With: map[string]string{"script": "echo inherit"},
 				},
 			},
 		},
@@ -1537,12 +1537,13 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	if len(hostArgs) != 1 || hostArgs[0][1] != "echo host" {
+	if len(hostArgs) != 1 || len(hostArgs[0]) != 1 || filepath.Ext(hostArgs[0][0]) != ".sh" {
 		t.Fatalf("expected only explicit host action on host executor, got %v", hostArgs)
 	}
 
 	vmArgs := vmProcessExecutor.GetArgs()
-	if len(vmArgs) != 2 || vmArgs[0][1] != "echo vm" || vmArgs[1][1] != "echo inherit" {
+	if len(vmArgs) != 2 || len(vmArgs[0]) != 1 || len(vmArgs[1]) != 1 ||
+		filepath.Ext(vmArgs[0][0]) != ".sh" || filepath.Ext(vmArgs[1][0]) != ".sh" {
 		t.Fatalf("expected inherited VM actions on VM executor, got %v", vmArgs)
 	}
 }
@@ -1573,7 +1574,7 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 	rootUses := "builtins/sequence"
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
-	shellUses := "builtins/shell"
+	shellUses := "builtins/script"
 	vmIsolation := action.IsolationVM
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
@@ -1587,13 +1588,13 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 				{
 					Id:   &vmStepID,
 					Uses: &shellUses,
-					With: map[string]string{"command": "echo vm"},
+					With: map[string]string{"script": "echo vm"},
 				},
 				{
 					Id:        &hostStepID,
 					Uses:      &shellUses,
 					Isolation: &hostIsolation,
-					With:      map[string]string{"command": "echo host"},
+					With:      map[string]string{"script": "echo host"},
 				},
 			},
 		},
@@ -1604,12 +1605,12 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	if len(hostArgs) != 1 || hostArgs[0][1] != "echo host" {
+	if len(hostArgs) != 1 || len(hostArgs[0]) != 1 || filepath.Ext(hostArgs[0][0]) != ".sh" {
 		t.Fatalf("expected explicit host action on host executor, got %v", hostArgs)
 	}
 
 	vmArgs := vmProcessExecutor.GetArgs()
-	if len(vmArgs) != 1 || vmArgs[0][1] != "echo vm" {
+	if len(vmArgs) != 1 || len(vmArgs[0]) != 1 || filepath.Ext(vmArgs[0][0]) != ".sh" {
 		t.Fatalf("expected inherited job-default VM action on VM executor, got %v", vmArgs)
 	}
 }
@@ -1640,7 +1641,7 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 	rootUses := "builtins/sequence"
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
-	shellUses := "builtins/shell"
+	shellUses := "builtins/script"
 	vmIsolation := action.IsolationVM
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
@@ -1654,13 +1655,13 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 				{
 					Id:   &vmStepID,
 					Uses: &shellUses,
-					With: map[string]string{"command": "echo vm task"},
+					With: map[string]string{"script": "echo vm task"},
 				},
 				{
 					Id:        &hostStepID,
 					Uses:      &shellUses,
 					Isolation: &hostIsolation,
-					With:      map[string]string{"command": "echo host task"},
+					With:      map[string]string{"script": "echo host task"},
 				},
 			},
 		},
@@ -1675,12 +1676,12 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	if len(hostArgs) != 1 || hostArgs[0][1] != "echo host task" {
+	if len(hostArgs) != 1 || len(hostArgs[0]) != 1 || filepath.Ext(hostArgs[0][0]) != ".sh" {
 		t.Fatalf("expected explicit host task on host executor, got %v", hostArgs)
 	}
 
 	vmArgs := vmProcessExecutor.GetArgs()
-	if len(vmArgs) != 1 || vmArgs[0][1] != "echo vm task" {
+	if len(vmArgs) != 1 || len(vmArgs[0]) != 1 || filepath.Ext(vmArgs[0][0]) != ".sh" {
 		t.Fatalf("expected job-default VM task on VM executor, got %v", vmArgs)
 	}
 }
@@ -1694,7 +1695,7 @@ func TestExecutor_ExecuteJobInWorkspace_VMIsolationRequiresConfiguredExecutor(t 
 	jobID := "test-job-missing-vm-isolation"
 	runID := "test-job-missing-vm-isolation-run"
 	nodeID := "node-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	isolation := action.IsolationVM
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -1703,7 +1704,7 @@ func TestExecutor_ExecuteJobInWorkspace_VMIsolationRequiresConfiguredExecutor(t 
 			Id:        &nodeID,
 			Uses:      &uses,
 			Isolation: &isolation,
-			With:      map[string]string{"command": "echo vm"},
+			With:      map[string]string{"script": "echo vm"},
 		},
 	}
 

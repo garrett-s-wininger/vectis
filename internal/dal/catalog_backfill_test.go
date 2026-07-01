@@ -14,7 +14,7 @@ func TestCatalogStatusBackfillRepository_ListMissingRunEvents(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 
-	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-run", `{"id":"job-backfill-run","root":{"uses":"builtins/shell"}}`, nil, "iad-a")
+	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-run", `{"id":"job-backfill-run","root":{"uses":"builtins/script"}}`, nil, "iad-a")
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestCatalogStatusBackfillRepository_ListMissingExecutionEvents(t *testing.T
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "pdx-b")
 
-	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-execution", `{"id":"job-backfill-execution","root":{"uses":"builtins/shell"}}`, nil, "pdx-b")
+	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-execution", `{"id":"job-backfill-execution","root":{"uses":"builtins/script"}}`, nil, "pdx-b")
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestCatalogStatusBackfillRepository_ListMissingExecutionSecurityEvents(t *t
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "pdx-b")
 
-	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-security", `{"id":"job-backfill-security","root":{"uses":"builtins/shell"}}`, nil, "pdx-b")
+	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill-security", `{"id":"job-backfill-security","root":{"uses":"builtins/script"}}`, nil, "pdx-b")
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}

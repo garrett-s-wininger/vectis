@@ -142,9 +142,9 @@
   "id": "linux-ci",
   "description": "Pull request validation for Go services",
   "root": {
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "go test ./..."
+      "script": "go test ./..."
     }
   }
 }</code></pre>

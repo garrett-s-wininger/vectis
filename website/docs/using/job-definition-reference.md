@@ -30,9 +30,9 @@ Job documents use the protobuf JSON field names shown here:
     "steps": [
       {
         "id": "hello",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "echo hello"
+          "script": "echo hello"
         }
       }
     ],
@@ -44,7 +44,7 @@ Job documents use the protobuf JSON field names shown here:
     "inputs": {
       "command": {
         "from": {
-          "node": "shell-command",
+          "node": "script-command",
           "output": "command"
         }
       }
@@ -72,14 +72,14 @@ Most jobs use either `steps` or `ports`, not both. The `inputs` example above is
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `id` | Yes | Unique node ID within the job. The ID is used by logs, task rows, input bindings, and optional secret `task_keys`. |
-| `uses` | Yes | Action reference. Use canonical names such as `builtins/shell`; short built-in names are accepted internally but are less clear in job files. |
+| `uses` | Yes | Action reference. Use canonical names such as `builtins/script`; short built-in names are accepted internally but are less clear in job files. |
 | `with` | Action-specific | Static string inputs for the selected action. Unknown keys are rejected by strict actions. |
 | `inputs` | No | Bound inputs from earlier node outputs, shaped as `inputs.<field>.from.node` and `inputs.<field>.from.output`. |
 | `steps` | No | Shorthand child list for the node's primary port. |
 | `ports` | No | Explicit typed child ports. Each port has a `nodes` array. |
 | `isolation` | No | Node-level override for `default_isolation`. Supported values are `host` and `vm`. |
 
-Action references can include selectors when the resolver supports them, such as `builtins/shell@v1` or `builtins/shell@sha256:<digest>`. Built-in examples use unselected canonical names.
+Action references can include selectors when the resolver supports them, such as `builtins/script@v1` or `builtins/script@sha256:<digest>`. Built-in examples use unselected canonical names.
 
 ## Static Inputs
 
@@ -115,7 +115,7 @@ When omitted, `builtins/parallel` defaults to `distributed`; other built-ins def
   "inputs": {
     "command": {
       "from": {
-        "node": "shell-command",
+        "node": "script-command",
         "output": "command"
       }
     }
@@ -136,8 +136,8 @@ Bound input names must be accepted by the selected action. A node cannot set the
   "ports": {
     "branches": {
       "nodes": [
-        {"id": "unit", "uses": "builtins/shell", "with": {"command": "go test ./..."}},
-        {"id": "lint", "uses": "builtins/shell", "with": {"command": "go vet ./..."}}
+        {"id": "unit", "uses": "builtins/script", "with": {"script": "go test ./..."}},
+        {"id": "lint", "uses": "builtins/script", "with": {"script": "go vet ./..."}}
       ]
     }
   }
@@ -176,7 +176,7 @@ Workers materialize file-delivered secrets below the configured secrets director
 
 | Action | Static `with` fields | Bound `inputs` | Ports | Local-only | Outputs and behavior |
 | --- | --- | --- | --- | --- | --- |
-| `builtins/shell` | Required `command`; optional `outputs` | `command`, `outputs` | None | No | Runs `sh -c`. If `outputs` is set, reads that workspace-relative JSON object file after success and returns its keys as node outputs. |
+| `builtins/script` | Required `script`; optional `runner`, `outputs` | `script`, `runner`, `outputs` | None | No | Writes the script to a temporary workspace file and runs it with the selected runner. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. |
 | `builtins/test` | Required `command` | `command` | None | No | Runs a predicate command. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
 | `builtins/checkout` | Required `url` | `url` | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected; SCP-style Git URLs are accepted. |
 | `builtins/upload-artifact` | Required `name`, `path`; optional `content_type`, `metadata_json`, `max_bytes` | None | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object with blob and size metadata. See [Artifacts](./artifacts.md). |

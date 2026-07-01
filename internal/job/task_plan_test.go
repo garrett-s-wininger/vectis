@@ -26,8 +26,8 @@ func TestPlanTaskExecutionsBuildsStableBoundaryPlan(t *testing.T) {
 	}
 
 	assertPlanEntry(t, plan[0], "build", dal.RootTaskKey, "root.steps[1]", "builtins/parallel", []string{"compile", "test"})
-	assertPlanEntry(t, plan[1], "compile", "build", "root.steps[1].steps[0]", "builtins/shell", nil)
-	assertPlanEntry(t, plan[2], "test", "build", "root.steps[1].steps[1]", "builtins/shell", nil)
+	assertPlanEntry(t, plan[1], "compile", "build", "root.steps[1].steps[0]", "builtins/script", nil)
+	assertPlanEntry(t, plan[2], "test", "build", "root.steps[1].steps[1]", "builtins/script", nil)
 
 	again, err := job.PlanTaskExecutions(taskPlanJob("echo compile"))
 	if err != nil {
@@ -60,14 +60,14 @@ func TestPlanTaskExecutionsAllowsRootOnlyJob(t *testing.T) {
 	jobID := "job-root-only"
 	runID := "run-root-only"
 	rootID := "root"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	plan, err := job.PlanTaskExecutions(&api.Job{
 		Id:    &jobID,
 		RunId: &runID,
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &uses,
-			With: map[string]string{"command": "echo root"},
+			With: map[string]string{"script": "echo root"},
 		},
 	})
 
@@ -107,7 +107,7 @@ func TestPlanTaskExecutionsIncludesActionDigestsInSpecHash(t *testing.T) {
 
 	for i := range first {
 		if first[i].SpecHash == second[i].SpecHash {
-			t.Fatalf("task %q spec hash did not change after resolved shell digest changed: %q", first[i].TaskKey, first[i].SpecHash)
+			t.Fatalf("task %q spec hash did not change after resolved script digest changed: %q", first[i].TaskKey, first[i].SpecHash)
 		}
 	}
 }
@@ -197,7 +197,7 @@ func taskPlanJob(compileCommand string) *api.Job {
 	compileID := "compile"
 	testID := "test"
 	buildUses := "builtins/parallel"
-	shellUses := "builtins/shell"
+	shellUses := "builtins/script"
 
 	return &api.Job{
 		Id:    &jobID,
@@ -209,7 +209,7 @@ func taskPlanJob(compileCommand string) *api.Job {
 				{
 					Id:   &setupID,
 					Uses: &shellUses,
-					With: map[string]string{"command": "echo setup"},
+					With: map[string]string{"script": "echo setup"},
 				},
 				{
 					Id:   &buildID,
@@ -218,12 +218,12 @@ func taskPlanJob(compileCommand string) *api.Job {
 						{
 							Id:   &compileID,
 							Uses: &shellUses,
-							With: map[string]string{"command": compileCommand},
+							With: map[string]string{"script": compileCommand},
 						},
 						{
 							Id:   &testID,
 							Uses: &shellUses,
-							With: map[string]string{"command": "echo test"},
+							With: map[string]string{"script": "echo test"},
 						},
 					},
 				},
@@ -248,8 +248,8 @@ func (r fakeTaskPlanResolver) ResolveDescriptor(uses string) (actionregistry.Des
 func taskPlanResolver(shellDigest, parallelDigest string) fakeTaskPlanResolver {
 	return fakeTaskPlanResolver{
 		descriptors: map[string]actionregistry.Descriptor{
-			"builtins/shell": {
-				CanonicalName: "builtins/shell",
+			"builtins/script": {
+				CanonicalName: "builtins/script",
 				Version:       "v1",
 				Digest:        shellDigest,
 				Source:        actionregistry.SourceBuiltin,

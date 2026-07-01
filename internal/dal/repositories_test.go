@@ -63,8 +63,8 @@ func TestJobsRepository_DefinitionSnapshotsAppendImmutableVersions(t *testing.T)
 	ctx := context.Background()
 
 	jobID := "job-a"
-	def1 := `{"id":"job-a","root":{"uses":"builtins/shell"}}`
-	def2 := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo hi"}}}`
+	def1 := `{"id":"job-a","root":{"uses":"builtins/script"}}`
+	def2 := `{"id":"job-a","root":{"uses":"builtins/script","with":{"script":"echo hi"}}}`
 
 	if err := jobs.CreateDefinitionSnapshot(ctx, jobID, def1); err != nil {
 		t.Fatalf("create definition snapshot v1: %v", err)
@@ -101,7 +101,7 @@ func TestJobsRepository_DefinitionSnapshotsAppendImmutableVersions(t *testing.T)
 		t.Fatalf("definition version 2 mismatch: got %q want %q", gotV2, def2)
 	}
 
-	def3 := `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo recreated"}}}`
+	def3 := `{"id":"job-a","root":{"uses":"builtins/script","with":{"script":"echo recreated"}}}`
 	if err := jobs.CreateDefinitionSnapshot(ctx, jobID, def3); err != nil {
 		t.Fatalf("create definition snapshot v3: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestTriggerInvocations_CreateRunAuditAndPayloadLedger(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "job-audit"
-	definitionJSON := `{"id":"job-audit","root":{"uses":"builtins/shell"}}`
+	definitionJSON := `{"id":"job-audit","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definitionJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestCellExecutionAcceptances_AcceptExecutionMaterializesLocalRows(t *testin
 		Attempt:           1,
 		DefinitionVersion: 3,
 		DefinitionHash:    "sha256:abc123",
-		DefinitionJSON:    `{"id":"job-1","root":{"uses":"builtins/shell"}}`,
+		DefinitionJSON:    `{"id":"job-1","root":{"uses":"builtins/script"}}`,
 		RequestJSON:       `{"job":{"id":"job-1","runId":"run-1"}}`,
 	}
 
@@ -429,7 +429,7 @@ func TestCellExecutionAcceptances_QueueHandoffMarkers(t *testing.T) {
 		Attempt:           1,
 		DefinitionVersion: 1,
 		DefinitionHash:    "sha256:repair",
-		DefinitionJSON:    `{"id":"job-repair","root":{"uses":"builtins/shell"}}`,
+		DefinitionJSON:    `{"id":"job-repair","root":{"uses":"builtins/script"}}`,
 		RequestJSON:       `{"job":{"id":"job-repair","runId":"run-repair"}}`,
 	}
 
@@ -520,7 +520,7 @@ func TestCellExecutionAcceptances_AcceptsExistingPendingExecution(t *testing.T) 
 	ctx := context.Background()
 
 	jobID := "job-existing"
-	definitionJSON := `{"id":"job-existing","root":{"uses":"builtins/shell"}}`
+	definitionJSON := `{"id":"job-existing","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definitionJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestCellExecutionAcceptances_RejectsConflictingDuplicate(t *testing.T) {
 		CellID:            "iad-a",
 		DefinitionVersion: 1,
 		DefinitionHash:    "sha256:abc123",
-		DefinitionJSON:    `{"id":"job-1","root":{"uses":"builtins/shell"}}`,
+		DefinitionJSON:    `{"id":"job-1","root":{"uses":"builtins/script"}}`,
 		RequestJSON:       `{"job":{"id":"job-1","runId":"run-1"}}`,
 	}
 
@@ -600,7 +600,7 @@ func TestSQLRepositoriesWithCellID_WritesHomeAndOwningCell(t *testing.T) {
 	}
 
 	jobID := "job-cell-owned"
-	def := `{"id":"job-cell-owned","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-cell-owned","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -727,7 +727,7 @@ func TestRunsRepository_CreateRunInCell_TargetsExecutionCell(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "job-target-cell"
-	def := `{"id":"job-target-cell","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-target-cell","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -780,8 +780,8 @@ func TestRunsRepository_CreateReplayRun_UsesSourceSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "job-replay"
-	defV1 := `{"id":"job-replay","root":{"uses":"builtins/shell","with":{"command":"echo old"}}}`
-	defV2 := `{"id":"job-replay","root":{"uses":"builtins/shell","with":{"command":"echo new"}}}`
+	defV1 := `{"id":"job-replay","root":{"uses":"builtins/script","with":{"script":"echo old"}}}`
+	defV2 := `{"id":"job-replay","root":{"uses":"builtins/script","with":{"script":"echo new"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defV1); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -874,7 +874,7 @@ func TestRunsRepository_CountByStatusByCell(t *testing.T) {
 	}
 
 	jobID := "job-status-cells"
-	def := `{"id":"job-status-cells","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-status-cells","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -924,7 +924,7 @@ func TestRunsRepository_CountStuckBeforeDispatchCutoffByCell(t *testing.T) {
 	}
 
 	jobID := "job-stuck-cells"
-	def := `{"id":"job-stuck-cells","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-stuck-cells","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -983,7 +983,7 @@ func TestRunsRepository_CreateRunsInCells_FanoutTargetsExecutionCells(t *testing
 	}
 
 	jobID := "job-fanout-cells"
-	def := `{"id":"job-fanout-cells","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-fanout-cells","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1051,7 +1051,7 @@ func TestRunsRepository_ListRunTasks_ReturnsRootTaskAndAttempt(t *testing.T) {
 	}
 
 	jobID := "job-root-task-list"
-	def := `{"id":"job-root-task-list","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-root-task-list","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1190,7 +1190,7 @@ func TestRunsRepository_EnsurePendingTaskExecutionCreatesLinkedRows(t *testing.T
 	}
 
 	jobID := "job-task-create"
-	def := `{"id":"job-task-create","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-task-create","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1294,7 +1294,7 @@ func TestRunsRepository_EnsurePlannedTaskExecutionCreatesNonDispatchableRows(t *
 	}
 
 	jobID := "job-task-plan"
-	def := `{"id":"job-task-plan","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-task-plan","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1431,7 +1431,7 @@ func TestRunsRepository_MirrorExecutionClaimAcceptsPlannedChildClaim(t *testing.
 	}
 
 	jobID := "job-mirror-child-claim"
-	def := `{"id":"job-mirror-child-claim","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-mirror-child-claim","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1505,7 +1505,7 @@ func TestRunsRepository_ActivatePlannedChildTaskExecutionsFansOutDirectChildren(
 	}
 
 	jobID := "job-task-child-activate"
-	def := `{"id":"job-task-child-activate","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-task-child-activate","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1705,7 +1705,7 @@ func TestRunsRepository_GetRunTaskCompletion(t *testing.T) {
 	}
 
 	jobID := "job-task-completion"
-	def := `{"id":"job-task-completion","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-task-completion","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1773,7 +1773,7 @@ func TestSQLRepositories_CreateDefinitionAndRunInCell_TargetsExecutionCell(t *te
 	ctx := context.Background()
 
 	jobID := "ephemeral-target-cell"
-	def := `{"id":"ephemeral-target-cell","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	def := `{"id":"ephemeral-target-cell","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, jobID, def, nil, "pdx-b")
 	if err != nil {
 		t.Fatalf("CreateDefinitionAndRunInCell: %v", err)
@@ -1808,7 +1808,7 @@ func TestRunsRepository_GetPendingExecution_NotFound(t *testing.T) {
 	}
 
 	jobID := "job-no-pending-execution"
-	def := `{"id":"job-no-pending-execution","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-no-pending-execution","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1838,7 +1838,7 @@ func TestRunsRepository_ExecutionTransitions(t *testing.T) {
 	}
 
 	jobID := "job-execution-transitions"
-	def := `{"id":"job-execution-transitions","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-execution-transitions","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1885,7 +1885,7 @@ func TestRunsRepository_ExecutionClaims(t *testing.T) {
 	}
 
 	jobID := "job-execution-claims"
-	def := `{"id":"job-execution-claims","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-execution-claims","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1979,7 +1979,7 @@ func TestRunsRepository_TryClaimExecutionExpiresPastStartDeadline(t *testing.T) 
 	}
 
 	jobID := "job-execution-deadline-claim"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-claim","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-claim","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2025,7 +2025,7 @@ func TestRunsRepository_MirrorExecutionClaimExpiresPastStartDeadline(t *testing.
 	}
 
 	jobID := "job-execution-deadline-mirror"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-mirror","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-mirror","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
 
@@ -2063,7 +2063,7 @@ func TestRunsRepository_MarkExpiredQueuedExecutionsFailed(t *testing.T) {
 	}
 
 	jobID := "job-execution-deadline-sweep"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-sweep","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-sweep","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2198,7 +2198,7 @@ func TestRunsRepository_RequeueRunForRetry_RestoresDispatchExpiredExecution(t *t
 	}
 
 	jobID := "job-retry-dispatch-expired"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-retry-dispatch-expired","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-retry-dispatch-expired","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2294,7 +2294,7 @@ func TestRunsRepository_EnsureExecutionStartDeadlineAdoptsMissingDeadline(t *tes
 	}
 
 	jobID := "job-execution-deadline-adopt"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-adopt","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-execution-deadline-adopt","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -2365,7 +2365,7 @@ func TestRunsRepository_ValidateActiveExecutionClaim(t *testing.T) {
 	}
 
 	jobID := "job-validate-execution-claims"
-	def := `{"id":"job-validate-execution-claims","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-validate-execution-claims","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2437,7 +2437,7 @@ func TestRunsRepository_ExecutionClaimsRejectExpiredAcceptedReclaim(t *testing.T
 	}
 
 	jobID := "job-execution-reclaim"
-	def := `{"id":"job-execution-reclaim","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-execution-reclaim","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2492,7 +2492,7 @@ func setupClaimedExecutionFinalizationRun(t *testing.T, ctx context.Context, rep
 	}
 
 	jobID := "job-execution-finalize-" + suffix
-	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2954,7 +2954,7 @@ func TestRunsRepository_DispatchAndTransitionsUseLinkedTaskAttempt(t *testing.T)
 	}
 
 	jobID := "job-linked-task"
-	def := `{"id":"job-linked-task","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-linked-task","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -3013,7 +3013,7 @@ func TestRunCatalogUpdater_AppliesRunAndExecutionStatusUpdates(t *testing.T) {
 	}
 
 	jobID := "job-catalog-updates"
-	def := `{"id":"job-catalog-updates","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-catalog-updates","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -3098,7 +3098,7 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotMaterializesFinalState(t *
 	}
 
 	jobID := "job-terminal-snapshot"
-	def := `{"id":"job-terminal-snapshot","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-terminal-snapshot","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -3246,7 +3246,7 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotRejectsConflictingTerminal
 	}
 
 	jobID := "job-terminal-snapshot-conflict"
-	def := `{"id":"job-terminal-snapshot-conflict","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-terminal-snapshot-conflict","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -3326,7 +3326,7 @@ func TestRunsRepository_ApplyTerminalExecutionSnapshotClearsActiveExecutionClaim
 	}
 
 	jobID := "job-terminal-snapshot-clears-claims"
-	def := `{"id":"job-terminal-snapshot-clears-claims","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-terminal-snapshot-clears-claims","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -3503,7 +3503,7 @@ func TestRunCatalogUpdater_AppliesExecutionUpdatesFromPlannedRows(t *testing.T) 
 	}
 
 	jobID := "job-catalog-planned-updates"
-	def := `{"id":"job-catalog-planned-updates","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-catalog-planned-updates","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -3583,7 +3583,7 @@ func TestRunCatalogUpdater_IgnoresStaleCatalogStatusUpdates(t *testing.T) {
 	}
 
 	jobID := "job-catalog-stale-updates"
-	def := `{"id":"job-catalog-stale-updates","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-catalog-stale-updates","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
@@ -3989,7 +3989,7 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 	testID := "test"
 	deployID := "deploy"
 	buildUses := "builtins/parallel"
-	shellUses := "builtins/shell"
+	shellUses := "builtins/script"
 
 	return &api.Job{
 		Id:    stringPtr(jobID),
@@ -4001,7 +4001,7 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 				{
 					Id:   &setupID,
 					Uses: &shellUses,
-					With: map[string]string{"command": "echo setup"},
+					With: map[string]string{"script": "echo setup"},
 				},
 				{
 					Id:   &buildID,
@@ -4010,19 +4010,19 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 						{
 							Id:   &compileID,
 							Uses: &shellUses,
-							With: map[string]string{"command": "echo compile"},
+							With: map[string]string{"script": "echo compile"},
 						},
 						{
 							Id:   &testID,
 							Uses: &shellUses,
-							With: map[string]string{"command": "echo test"},
+							With: map[string]string{"script": "echo test"},
 						},
 					},
 				},
 				{
 					Id:   &deployID,
 					Uses: &shellUses,
-					With: map[string]string{"command": "echo deploy"},
+					With: map[string]string{"script": "echo deploy"},
 				},
 			},
 		},
@@ -5480,7 +5480,7 @@ func TestSQLRepositories_CreateDefinitionAndRun_AndGetDefinitionVersion(t *testi
 	ctx := context.Background()
 
 	jobID := "ephemeral-job-id"
-	def := `{"id":"ephemeral-job-id","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	def := `{"id":"ephemeral-job-id","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 	idx := 1
 
 	runID, outIdx, err := repos.CreateDefinitionAndRun(ctx, jobID, def, &idx)
@@ -5558,7 +5558,7 @@ func TestSQLRepositories_SourceRunDispatchUsesRepositoryNamespace(t *testing.T) 
 		t.Fatalf("create source repository: %v", err)
 	}
 
-	runID, _, _, err := repos.CreateSourceDefinitionAndRunInCellWithAudit(ctx, "source-job", `{"id":"source-job","root":{"uses":"builtins/shell"}}`, dal.JobDefinitionSourceRecord{
+	runID, _, _, err := repos.CreateSourceDefinitionAndRunInCellWithAudit(ctx, "source-job", `{"id":"source-job","root":{"uses":"builtins/script"}}`, dal.JobDefinitionSourceRecord{
 		RepositoryID:   "source-repo",
 		RequestedRef:   "main",
 		ResolvedCommit: "abc123",

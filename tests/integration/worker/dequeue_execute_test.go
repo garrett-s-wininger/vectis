@@ -32,7 +32,7 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 
 	// Insert a definition snapshot.
 	jobID := "integration-worker-job"
-	defJSON := `{"id":"integration-worker-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hello-from-worker"}}}`
+	defJSON := `{"id":"integration-worker-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo hello-from-worker"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -50,14 +50,14 @@ func TestIntegrationWorker_DequeueClaimExecuteFinalize(t *testing.T) {
 
 	// Enqueue the job with run_id.
 	rootID := "root"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	enqueueJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &uses,
-			With: map[string]string{"command": "echo hello-from-worker"},
+			With: map[string]string{"script": "echo hello-from-worker"},
 		},
 	}
 

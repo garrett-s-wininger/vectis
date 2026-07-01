@@ -117,4 +117,4 @@ func resetBenchmarkReconcilerQueuedRuns(b *testing.B, ctx context.Context, db *s
 	}
 }
 
-const benchmarkReconcilerJobDefinition = `{"id":"%s","root":{"uses":"builtins/shell","with":{"command":"true"}}}`
+const benchmarkReconcilerJobDefinition = `{"id":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}}`

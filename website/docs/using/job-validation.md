@@ -21,9 +21,9 @@ A reusable source-backed job needs an `id` and a `root` node:
   "id": "hello",
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -35,9 +35,9 @@ An ephemeral run can omit the top-level job `id` because the API creates a run I
 {
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -70,7 +70,7 @@ These are the built-in actions that the validator knows today:
 
 | Action | Required `with` | Ports | Notes |
 | --- | --- | --- | --- |
-| `builtins/shell` | `command` | none | Runs the command with `sh -c`. Optional `outputs` reads a workspace-relative JSON object file after success and returns it as node outputs. Empty commands and unknown action keys are rejected. |
+| `builtins/script` | `script` | none | Writes the script body to a temporary workspace file and runs it with `runner`. Supported runners are `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. Optional `outputs` reads a workspace-relative JSON object file after success and returns it as node outputs. |
 | `builtins/test` | `command` | none | Runs the command as a predicate. Exit `0` returns `outputs.result=true`, exit `1` returns `outputs.result=false`, and other execution errors fail the action. |
 | `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Unknown action keys are rejected. |
 | `builtins/sequence` | none | `steps` | Runs child nodes in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional `with` keys are tolerated for compatibility. |
@@ -94,8 +94,8 @@ Child nodes can be attached through typed ports:
   "ports": {
     "branches": {
       "nodes": [
-        {"id": "unit", "uses": "builtins/shell", "with": {"command": "go test ./..."}},
-        {"id": "lint", "uses": "builtins/shell", "with": {"command": "go vet ./..."}}
+        {"id": "unit", "uses": "builtins/script", "with": {"script": "go test ./..."}},
+        {"id": "lint", "uses": "builtins/script", "with": {"script": "go vet ./..."}}
       ]
     }
   }
@@ -118,12 +118,12 @@ Conditionals are modeled with nodes instead of an expression language:
     },
     "then": {
       "nodes": [
-        {"id": "deploy", "uses": "builtins/shell", "with": {"command": "make deploy"}}
+        {"id": "deploy", "uses": "builtins/script", "with": {"script": "make deploy"}}
       ]
     },
     "else": {
       "nodes": [
-        {"id": "skip-note", "uses": "builtins/shell", "with": {"command": "echo no deploy"}}
+        {"id": "skip-note", "uses": "builtins/script", "with": {"script": "echo no deploy"}}
       ]
     }
   }
@@ -147,7 +147,7 @@ Execution policy nodes wrap local child subtrees:
           "ports": {
             "body": {
               "nodes": [
-                {"id": "build", "uses": "builtins/shell", "with": {"command": "mage build"}}
+                {"id": "build", "uses": "builtins/script", "with": {"script": "mage build"}}
               ]
             }
           }
@@ -158,14 +158,14 @@ Execution policy nodes wrap local child subtrees:
 }
 ```
 
-Shell actions can publish structured outputs by writing a JSON object inside the workspace and naming it in `with.outputs`:
+Script actions can publish structured outputs by writing a JSON object inside the workspace and naming it in `with.outputs`:
 
 ```json
 {
   "id": "publish-image",
-  "uses": "builtins/shell",
+  "uses": "builtins/script",
   "with": {
-    "command": "printf '{\"image\":\"app:dev\"}' > outputs.json",
+    "script": "printf '{\"image\":\"app:dev\"}' > outputs.json",
     "outputs": "outputs.json"
   }
 }
@@ -180,7 +180,7 @@ Later nodes can bind accepted action inputs from earlier outputs without using a
   "inputs": {
     "command": {
       "from": {
-        "node": "shell-command",
+        "node": "script-command",
         "output": "command"
       }
     }
@@ -208,10 +208,10 @@ Nodes can request an isolation level with `isolation`:
 ```json
 {
   "id": "test-in-vm",
-  "uses": "builtins/shell",
+  "uses": "builtins/script",
   "isolation": "vm",
   "with": {
-    "command": "go test ./..."
+    "script": "go test ./..."
   }
 }
 ```
@@ -247,7 +247,7 @@ Each entry in `details.fields` points to a field path in the job document:
 | `root` | The job has no root node. |
 | `root.id` | The root node is missing its node ID. |
 | `root.uses` | The root node is missing or names an unknown action. |
-| `root.with.command` | The root action rejected its `command` input. |
+| `root.with.script` | The root script action rejected its script body. |
 | `root.inputs.command.from.node` | A bound input references a node that cannot provide a value before this node runs. |
 | `root.isolation` | The root node requested an unsupported isolation level. |
 | `root.steps[0].id` | The first child step has an ID problem. |
@@ -263,9 +263,9 @@ This fails when you store a job:
 {
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -278,9 +278,9 @@ Add a top-level `id`:
   "id": "hello",
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -299,8 +299,8 @@ This fails because both steps use `id: "test"`:
     "id": "root",
     "uses": "builtins/sequence",
     "steps": [
-      {"id": "test", "uses": "builtins/shell", "with": {"command": "echo one"}},
-      {"id": "test", "uses": "builtins/shell", "with": {"command": "echo two"}}
+      {"id": "test", "uses": "builtins/script", "with": {"script": "echo one"}},
+      {"id": "test", "uses": "builtins/script", "with": {"script": "echo two"}}
     ]
   }
 }
@@ -315,8 +315,8 @@ Give each node its own ID:
     "id": "root",
     "uses": "builtins/sequence",
     "steps": [
-      {"id": "test-one", "uses": "builtins/shell", "with": {"command": "echo one"}},
-      {"id": "test-two", "uses": "builtins/shell", "with": {"command": "echo two"}}
+      {"id": "test-one", "uses": "builtins/script", "with": {"script": "echo one"}},
+      {"id": "test-two", "uses": "builtins/script", "with": {"script": "echo two"}}
     ]
   }
 }
@@ -336,18 +336,18 @@ This fails because Vectis does not know `builtins/not-real`:
 }
 ```
 
-Use one of the supported actions, such as `builtins/shell`, `builtins/test`, `builtins/checkout`, `builtins/sequence`, `builtins/parallel`, `builtins/result`, or `builtins/upload-artifact`.
+Use one of the supported actions, such as `builtins/script`, `builtins/test`, `builtins/checkout`, `builtins/sequence`, `builtins/parallel`, `builtins/result`, or `builtins/upload-artifact`.
 
 ### Invalid `with` Fields
 
-This fails because `builtins/shell` needs `command`, not `cmd`:
+This fails because `builtins/script` needs `script`, not `cmd`:
 
 ```json
 {
-  "id": "bad-shell",
+  "id": "bad-script",
   "root": {
     "id": "root",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
       "cmd": "echo hello"
     }
@@ -359,12 +359,12 @@ Use the action's documented field name:
 
 ```json
 {
-  "id": "good-shell",
+  "id": "good-script",
   "root": {
     "id": "root",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -402,10 +402,10 @@ Use a URL without inline credentials:
 }
 ```
 
-Secret values should come through top-level `secrets` references and the cell-local secrets broker, not inline in the job definition. Shell and checkout actions do not inherit the worker service environment; they run with a minimal Vectis-built environment so deployment secrets such as database DSNs, TLS settings, bootstrap material, and SPIFFE endpoint sockets are not passed as ambient child-process variables.
+Secret values should come through top-level `secrets` references and the cell-local secrets broker, not inline in the job definition. Process-launching actions do not inherit the worker service environment; they run with a minimal Vectis-built environment so deployment secrets such as database DSNs, TLS settings, bootstrap material, and SPIFFE endpoint sockets are not passed as ambient child-process variables.
 
 ## Validation Boundaries
 
 Validation checks the job shape and action inputs. It does not prove that runtime dependencies exist.
 
-For example, Vectis can check that `builtins/checkout` has a URL, but the worker may still fail later if the repository is unreachable. Vectis can check that `builtins/shell` has a command, but it cannot know whether that command will succeed on the worker.
+For example, Vectis can check that `builtins/checkout` has a URL, but the worker may still fail later if the repository is unreachable. Vectis can check that `builtins/script` has a script body, but it cannot know whether that script will succeed on the worker.

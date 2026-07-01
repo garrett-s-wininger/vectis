@@ -265,7 +265,7 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesAndMarksEvents(t *testing.T)
 	}
 
 	jobID := "job-catalog-inbox"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-inbox","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-inbox","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -379,7 +379,7 @@ func TestCatalogInboxProcessor_RejectsCrossCellRunStatusEvent(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "job-catalog-cross-cell"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-cross-cell","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-cross-cell","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -433,7 +433,7 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesArtifactRecord(t *testing.T)
 	}
 
 	jobID := "job-catalog-artifact"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-artifact","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-artifact","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -495,7 +495,7 @@ func TestCatalogInboxProcessor_ProcessPendingAppliesTerminalSnapshot(t *testing.
 	}
 
 	jobID := "job-catalog-terminal-snapshot"
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-terminal-snapshot","root":{"uses":"builtins/shell"}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, `{"id":"job-catalog-terminal-snapshot","root":{"uses":"builtins/script"}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

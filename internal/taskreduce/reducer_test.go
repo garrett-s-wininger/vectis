@@ -88,7 +88,7 @@ func TestReducerReduceFailureDominatesIncompleteSibling(t *testing.T) {
 	}
 
 	jobID := "job-task-reduce-branch-failure"
-	def := `{"id":"job-task-reduce-branch-failure","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-task-reduce-branch-failure","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}

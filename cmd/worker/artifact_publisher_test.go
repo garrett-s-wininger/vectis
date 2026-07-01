@@ -47,7 +47,7 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	jobID := "job-worker-artifact"
-	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 		t.Fatalf("create run: %v", err)
 	}
 
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	job := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -280,7 +280,7 @@ func TestWorkerArtifactPublisherAppliesUploadLimit(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	jobID := "job-worker-artifact-limit"
-	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestWorkerArtifactPublisherAppliesUploadLimit(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	job := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -348,7 +348,7 @@ func TestWorkerArtifactPublisherAppliesRunQuota(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 	jobID := "job-worker-artifact-run-quota"
-	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestWorkerArtifactPublisherAppliesRunQuota(t *testing.T) {
 		t.Fatalf("create run: %v", err)
 	}
 
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	job := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,

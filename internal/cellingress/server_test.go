@@ -626,14 +626,14 @@ func validJobRequestForCellAttempt(t *testing.T, cellID string, attempt int) *ap
 
 	jobID := "job-1"
 	runID := "run-1"
-	action := "builtins/shell"
+	action := "builtins/script"
 	req := &api.JobRequest{
 		Job: &api.Job{
 			Id:    &jobID,
 			RunId: &runID,
 			Root: &api.Node{
 				Uses: &action,
-				With: map[string]string{"command": "echo hi"},
+				With: map[string]string{"script": "echo hi"},
 			},
 		},
 	}

@@ -132,7 +132,7 @@ func TestFanInProcessorRecordsSourceMetrics(t *testing.T) {
 	sourceRepos := dal.NewSQLRepositoriesWithCellID(sourceDB, "iad-a")
 	targetRepos := dal.NewSQLRepositories(targetDB)
 
-	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-metrics", `{"id":"job-fanin-metrics","root":{"uses":"builtins/shell"}}`, nil, "iad-a")
+	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-metrics", `{"id":"job-fanin-metrics","root":{"uses":"builtins/script"}}`, nil, "iad-a")
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestFanInProcessorBackfillsSourceBeforeCopy(t *testing.T) {
 	sourceRepos := dal.NewSQLRepositoriesWithCellID(sourceDB, "iad-a")
 	targetRepos := dal.NewSQLRepositories(targetDB)
 
-	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-backfill", `{"id":"job-fanin-backfill","root":{"uses":"builtins/shell"}}`, nil, "iad-a")
+	runID, _, err := sourceRepos.CreateDefinitionAndRunInCell(ctx, "job-fanin-backfill", `{"id":"job-fanin-backfill","root":{"uses":"builtins/script"}}`, nil, "iad-a")
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}

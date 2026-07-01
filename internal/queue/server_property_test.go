@@ -319,7 +319,7 @@ func supportedIsolationForTrace(trace []byte) []string {
 }
 
 func propertyIsolationJob(jobID string, raw byte) (*api.JobRequest, error) {
-	root := queueTestNode("root", "builtins/shell")
+	root := queueTestNode("root", "builtins/script")
 	switch raw % 3 {
 	case 1:
 		host := action.IsolationHost

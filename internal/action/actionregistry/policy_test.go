@@ -9,8 +9,8 @@ import (
 func TestPolicyAllowsBuiltins(t *testing.T) {
 	t.Parallel()
 
-	ref := parsePolicyRef(t, "builtins/shell")
-	descriptor := policyDescriptorWithSource("builtins/shell", SourceBuiltin)
+	ref := parsePolicyRef(t, "builtins/script")
+	descriptor := policyDescriptorWithSource("builtins/script", SourceBuiltin)
 	policy := Policy{
 		AllowedNamespaces: []string{"examples"},
 		AllowedSources:    []SourceType{SourceLocalFilesystem},
@@ -107,7 +107,7 @@ func TestPolicyResolverListDescriptorsFiltersPolicy(t *testing.T) {
 	t.Parallel()
 
 	resolver := NewPolicyResolver(policyMapResolver{
-		"builtins/shell":     policyDescriptorWithSource("builtins/shell", SourceBuiltin),
+		"builtins/script":     policyDescriptorWithSource("builtins/script", SourceBuiltin),
 		"examples/cache@v1":  policyDescriptor("examples/cache"),
 		"acme/cache@v1":      policyDescriptor("acme/cache"),
 		"examples/remote@v1": policyDescriptorWithSource("examples/remote", SourceOCI),
@@ -127,7 +127,7 @@ func TestPolicyResolverListDescriptorsFiltersPolicy(t *testing.T) {
 		got = append(got, descriptor.CanonicalName)
 	}
 
-	want := []string{"builtins/shell", "examples/cache"}
+	want := []string{"builtins/script", "examples/cache"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("listed descriptors = %v, want %v", got, want)
 	}

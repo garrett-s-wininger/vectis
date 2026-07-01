@@ -326,7 +326,7 @@ func TestAttachExecutionEnvelopeBuildsFromDispatchRecord(t *testing.T) {
 func TestAttachExecutionEnvelopeWithActionsResolvesLocks(t *testing.T) {
 	runID := "run-1"
 	jobID := "job-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	req := &api.JobRequest{
 		Job: validExecutionEnvelope().Job,
 	}
@@ -348,8 +348,8 @@ func TestAttachExecutionEnvelopeWithActionsResolvesLocks(t *testing.T) {
 		DefinitionVersion: 7,
 		DefinitionHash:    "sha256:def456",
 	}, 99, envelopeResolver{
-		"builtins/shell": {
-			CanonicalName: "builtins/shell",
+		"builtins/script": {
+			CanonicalName: "builtins/script",
 			Version:       "v1",
 			Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Source:        actionregistry.SourceBuiltin,
@@ -366,7 +366,7 @@ func TestAttachExecutionEnvelopeWithActionsResolvesLocks(t *testing.T) {
 	}
 
 	lock := env.ActionLocks[0]
-	if lock.NodePath != "root" || lock.Uses != "builtins/shell" || lock.Descriptor.Digest == "" {
+	if lock.NodePath != "root" || lock.Uses != "builtins/script" || lock.Descriptor.Digest == "" {
 		t.Fatalf("unexpected action lock: %+v", lock)
 	}
 }
@@ -376,9 +376,9 @@ func TestAttachExecutionEnvelopePreservesExistingActionLocks(t *testing.T) {
 	base.ActionLocks = []actionregistry.ActionLock{{
 		NodeID:   "root",
 		NodePath: "root",
-		Uses:     "builtins/shell",
+		Uses:     "builtins/script",
 		Descriptor: actionregistry.Descriptor{
-			CanonicalName: "builtins/shell",
+			CanonicalName: "builtins/script",
 			Version:       "v1",
 			Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Source:        actionregistry.SourceBuiltin,
@@ -411,8 +411,8 @@ func TestAttachExecutionEnvelopePreservesExistingActionLocks(t *testing.T) {
 		DefinitionVersion: base.DefinitionVersion,
 		DefinitionHash:    base.DefinitionHash,
 	}, 99, envelopeResolver{
-		"builtins/shell": {
-			CanonicalName: "builtins/shell",
+		"builtins/script": {
+			CanonicalName: "builtins/script",
 			Version:       "v1",
 			Digest:        "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			Source:        actionregistry.SourceBuiltin,
@@ -629,7 +629,7 @@ func validExecutionEnvelope() *ExecutionEnvelope {
 	jobID := "job-1"
 	runID := "run-1"
 	rootID := "root"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 
 	return &ExecutionEnvelope{
 		EnvelopeVersion:   ExecutionEnvelopeVersion,

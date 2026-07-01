@@ -74,13 +74,13 @@ For managed repositories with `authoring_mode: "local_commit"`, the same jobs AP
 curl -sS \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"repository_id":"vectis-local","job_id":"build","branch":"main","message":"Add build job","job":{"root":{"id":"root","uses":"builtins/shell","with":{"command":"mage test"}}}}' \
+  -d '{"repository_id":"vectis-local","job_id":"build","branch":"main","message":"Add build job","job":{"root":{"id":"root","uses":"builtins/script","with":{"script":"mage test"}}}}' \
   http://localhost:8080/api/v1/jobs
 
 curl -sS \
   -X PUT \
   -H 'Content-Type: application/json' \
-  -d '{"repository_id":"vectis-local","branch":"main","message":"Update build job","job":{"root":{"id":"root","uses":"builtins/shell","with":{"command":"mage testQuick"}}}}' \
+  -d '{"repository_id":"vectis-local","branch":"main","message":"Update build job","job":{"root":{"id":"root","uses":"builtins/script","with":{"script":"mage testQuick"}}}}' \
   http://localhost:8080/api/v1/jobs/build
 
 curl -sS \

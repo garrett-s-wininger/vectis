@@ -2889,7 +2889,7 @@ func (r *SQLRunsRepository) ListAll(ctx context.Context, cursor int64, limit int
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []RunRecord
 	var lastID int64

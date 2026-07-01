@@ -453,7 +453,7 @@ func newBenchmarkArtifactRepositories(b *testing.B) *dal.SQLRepositories {
 func createBenchmarkArtifactRun(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string) string {
 	b.Helper()
 
-	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		b.Fatalf("create artifact benchmark job definition: %v", err)
 	}

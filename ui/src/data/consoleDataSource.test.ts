@@ -39,7 +39,7 @@ describe("console data source", () => {
                 id: "smoke-test",
                 root: {
                   id: "root",
-                  uses: "builtins/shell"
+                  uses: "builtins/script"
                 }
               }
             }
@@ -164,7 +164,7 @@ describe("console data source", () => {
                 id: "test-run",
                 root: {
                   id: "root",
-                  uses: "builtins/shell"
+                  uses: "builtins/script"
                 }
               }
             }
@@ -262,7 +262,7 @@ describe("console data source", () => {
 
     await createConsoleDataSource().createJob({
       branch: "",
-      definition: JSON.stringify({ root: { id: "root", uses: "builtins/shell" } }),
+      definition: JSON.stringify({ root: { id: "root", uses: "builtins/script" } }),
       description: "Shown in the editor, not written into the definition.",
       name: "database-vacuum",
       namespacePath: "/",
@@ -279,7 +279,7 @@ describe("console data source", () => {
         body: JSON.stringify({
           namespace: "/",
           job: {
-            root: { id: "root", uses: "builtins/shell" },
+            root: { id: "root", uses: "builtins/script" },
             id: "database-vacuum"
           }
         })
@@ -446,7 +446,7 @@ describe("console data source", () => {
     await createConsoleDataSource().updateJob("database-vacuum", {
       branch: "",
       definition: JSON.stringify({
-        root: { id: "root", uses: "builtins/shell" }
+        root: { id: "root", uses: "builtins/script" }
       }),
       description: "Do not write this back into JSON.",
       name: "ignored-by-update",
@@ -461,7 +461,7 @@ describe("console data source", () => {
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
-          root: { id: "root", uses: "builtins/shell" },
+          root: { id: "root", uses: "builtins/script" },
           id: "database-vacuum"
         })
       })
@@ -472,7 +472,7 @@ describe("console data source", () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     const definition = JSON.stringify({
       id: "ad-hoc-backfill",
-      root: { id: "root", uses: "builtins/shell" }
+      root: { id: "root", uses: "builtins/script" }
     });
 
     fetchMock
@@ -556,7 +556,7 @@ describe("console data source", () => {
     vi.stubEnv("VITE_CONSOLE_DATA_SOURCE", "api");
     const definition = JSON.stringify({
       id: "ad-hoc-backfill",
-      root: { id: "root", uses: "builtins/shell" }
+      root: { id: "root", uses: "builtins/script" }
     });
 
     fetchMock
@@ -731,7 +731,7 @@ describe("console data source", () => {
           definition_version: 1,
           definition: {
             id: "ad-hoc-backfill",
-            root: { id: "root", uses: "builtins/shell" }
+            root: { id: "root", uses: "builtins/script" }
           },
           owning_cell: "local"
         })

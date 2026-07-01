@@ -120,7 +120,7 @@ func TestPostgres_CronClaimAndDispatchSmoke(t *testing.T) {
 	clock.SetNow(now)
 
 	jobID := "pg-cron-job"
-	definition := `{"id":"pg-cron-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo pg"}}}`
+	definition := `{"id":"pg-cron-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo pg"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestPostgres_ReconcilerRedispatchSmoke(t *testing.T) {
 
 	ctx := context.Background()
 	jobID := "pg-reconciler-job"
-	definition := `{"id":"pg-reconciler-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo pg"}}}`
+	definition := `{"id":"pg-reconciler-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo pg"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create job: %v", err)
 	}

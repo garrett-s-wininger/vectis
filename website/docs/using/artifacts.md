@@ -17,9 +17,9 @@ Add `builtins/upload-artifact` after the step that creates the file:
     "steps": [
       {
         "id": "test",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "go test ./... -coverprofile coverage.out"
+          "script": "go test ./... -coverprofile coverage.out"
         }
       },
       {

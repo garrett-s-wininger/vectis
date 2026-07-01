@@ -103,7 +103,7 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	writeID := "write-artifact"
 	uploadID := "upload-artifact"
 	sequenceUses := "builtins/sequence"
-	shellUses := "builtins/shell"
+	shellUses := "builtins/script"
 	uploadUses := "builtins/upload-artifact"
 
 	job := &api.Job{
@@ -117,7 +117,7 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 					Id:   &writeID,
 					Uses: &shellUses,
 					With: map[string]string{
-						"command": "printf smoke-log && printf smoke-artifact > artifact.txt",
+						"script": "printf smoke-log && printf smoke-artifact > artifact.txt",
 					},
 				},
 				{

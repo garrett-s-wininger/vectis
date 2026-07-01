@@ -19,9 +19,9 @@
         "nodes": [
           {
             "id": "deploy",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "echo 'Deploying changes'"
+              "script": "echo 'Deploying changes'"
             }
           }
         ]
@@ -30,9 +30,9 @@
         "nodes": [
           {
             "id": "skip-deploy",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "echo 'No deploy changes detected'"
+              "script": "echo 'No deploy changes detected'"
             }
           }
         ]

@@ -502,9 +502,9 @@ func TestServiceCompleteExecutionHonorsSequenceReadiness(t *testing.T) {
 		RootUses: "builtins/sequence",
 		Tasks: []orchestrator.TaskSpec{
 			{TaskKey: "build", ParentTaskKey: dal.RootTaskKey, Name: "build", CellID: "iad-a", Uses: "builtins/parallel"},
-			{TaskKey: "compile", ParentTaskKey: "build", Name: "compile", CellID: "iad-a", Uses: "builtins/shell"},
-			{TaskKey: "test", ParentTaskKey: "build", Name: "test", CellID: "iad-a", Uses: "builtins/shell"},
-			{TaskKey: "deploy", ParentTaskKey: dal.RootTaskKey, Name: "deploy", CellID: "iad-a", Uses: "builtins/shell"},
+			{TaskKey: "compile", ParentTaskKey: "build", Name: "compile", CellID: "iad-a", Uses: "builtins/script"},
+			{TaskKey: "test", ParentTaskKey: "build", Name: "test", CellID: "iad-a", Uses: "builtins/script"},
+			{TaskKey: "deploy", ParentTaskKey: dal.RootTaskKey, Name: "deploy", CellID: "iad-a", Uses: "builtins/script"},
 		},
 	})
 

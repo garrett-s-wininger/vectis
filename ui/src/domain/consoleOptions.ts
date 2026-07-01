@@ -16,9 +16,9 @@ export const defaultJobDefinition = JSON.stringify(
     id: "stored-job",
     root: {
       id: "root",
-      uses: "builtins/shell",
+      uses: "builtins/script",
       with: {
-        command: "echo 'Hello from Vectis'"
+        script: "echo 'Hello from Vectis'"
       }
     }
   },
@@ -31,9 +31,9 @@ export const defaultRunDefinition = JSON.stringify(
     id: "ad-hoc-check",
     root: {
       id: "root",
-      uses: "builtins/shell",
+      uses: "builtins/script",
       with: {
-        command: "echo 'Hello from Vectis'"
+        script: "echo 'Hello from Vectis'"
       }
     }
   },

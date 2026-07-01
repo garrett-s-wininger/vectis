@@ -82,8 +82,8 @@ describe("JobsPage", () => {
         value: JSON.stringify({
           id: "worker-image",
           root: {
-            uses: "builtins/shell",
-            with: { command: "echo build" }
+            uses: "builtins/script",
+            with: { script: "echo build" }
           }
         })
       }
@@ -154,7 +154,7 @@ describe("JobsPage", () => {
       branch: "",
       sourceDetail: "Stored in Vectis",
       sourceKind: "db" as const,
-      definition: JSON.stringify({ id: "test-run", root: { uses: "builtins/shell" } }),
+      definition: JSON.stringify({ id: "test-run", root: { uses: "builtins/script" } }),
       namespacePath: "/",
       schedule: "Manual",
       nextRun: "On demand",
@@ -186,7 +186,7 @@ describe("JobsPage", () => {
     expect(screen.getByRole("heading", { name: "Definition" })).toBeInTheDocument();
     expect(screen.getByText("Root")).toBeInTheDocument();
     expect(screen.getByText("Reusable job definition stored in Vectis.")).toBeInTheDocument();
-    expect(screen.getByText(/builtins\/shell/)).toBeInTheDocument();
+    expect(screen.getByText(/builtins\/script/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
     expect(openJob).toHaveBeenCalledWith("");

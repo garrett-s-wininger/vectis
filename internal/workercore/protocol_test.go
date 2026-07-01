@@ -22,7 +22,7 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 	jobID := "job-remote-core"
 	runID := "run-remote-core"
 	nodeID := "root"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	job := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,

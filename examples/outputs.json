@@ -2,9 +2,9 @@
   "id": "outputs-job",
   "root": {
     "id": "publish-outputs",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "printf '{\"image\":\"app:dev\",\"ok\":true}' > outputs.json",
+      "script": "printf '{\"image\":\"app:dev\",\"ok\":true}' > outputs.json",
       "outputs": "outputs.json"
     }
   }

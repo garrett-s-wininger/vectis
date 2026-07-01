@@ -399,7 +399,7 @@ func TestBFFBlocksTokenRoutesThroughBrowserProxy(t *testing.T) {
 
 	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		t.Fatalf("blocked route reached API: %s", r.URL.Path)
-		return nil, nil
+		return nil, fmt.Errorf("blocked route reached API")
 	})
 
 	for _, path := range []string{"/api/v1/login", "/api/v1/setup/complete", "/api/v1/tokens"} {
@@ -552,9 +552,10 @@ func TestSPAGateSkipsStaticAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		t.Fatalf("static asset should not call API")
-		return nil, nil
+		return nil, fmt.Errorf("static asset should not call API")
 	})
 
 	rec := httptest.NewRecorder()
@@ -573,7 +574,7 @@ func TestSPAGateSkipsViteDevAssetsWhenEnabled(t *testing.T) {
 
 	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		t.Fatalf("Vite dev asset should not call API")
-		return nil, nil
+		return nil, fmt.Errorf("Vite dev asset should not call API")
 	})
 
 	for _, path := range []string{"/@vite/client", "/@id/react", "/@react-refresh", "/src/main.tsx", "/node_modules/.vite/deps/react.js"} {
@@ -591,9 +592,10 @@ func TestSPAGateSkipsViteWebSocketWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	backend.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		t.Fatalf("Vite websocket should not call API")
-		return nil, nil
+		return nil, fmt.Errorf("Vite websocket should not call API")
 	})
 
 	rec := httptest.NewRecorder()

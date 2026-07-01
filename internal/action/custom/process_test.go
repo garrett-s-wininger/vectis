@@ -201,6 +201,42 @@ func TestProcessActionExecutesConfiguredWorkingDirectoryInsideBase(t *testing.T)
 	}
 }
 
+func TestProcessActionExecutesConfiguredRunner(t *testing.T) {
+	executor := mocks.NewMockExecExecutor()
+	executor.SetProcess(mocks.NewMockProcess())
+
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command": "Write-Output hello",
+			"runner":  "pwsh",
+		},
+	}, executor)
+
+	state := &action.ExecutionState{
+		Workspace: "/work/run-1",
+		Logger:    mocks.NewMockLogger(),
+	}
+
+	result := act.Execute(context.Background(), state, nil, nil)
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("Execute status = %s err=%v, want success", result.Status, result.Error)
+	}
+
+	if got := executor.GetPaths(); len(got) != 1 || got[0] != "pwsh" {
+		t.Fatalf("executor paths = %v, want [pwsh]", got)
+	}
+
+	args := executor.GetArgs()
+	want := []string{"-NoProfile", "-NonInteractive", "-Command", "Write-Output hello"}
+	if len(args) != 1 || strings.Join(args[0], "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("executor args = %v, want %v", args, want)
+	}
+}
+
 func TestProcessActionRejectsSymlinkEscapingWorkingDirectory(t *testing.T) {
 	root := t.TempDir()
 	actionDir := filepath.Join(root, "action")

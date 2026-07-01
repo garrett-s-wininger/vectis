@@ -13,7 +13,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const benchJobDefinition = `{"id":"%s","root":{"uses":"builtins/shell","with":{"command":"true"}}}`
+const benchJobDefinition = `{"id":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}}`
 
 func newBenchmarkRepos(b *testing.B) *dal.SQLRepositories {
 	b.Helper()

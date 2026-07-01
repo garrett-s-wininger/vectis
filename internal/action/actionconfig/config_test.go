@@ -124,7 +124,7 @@ func TestDescriptorResolverPolicyAllowsBuiltins(t *testing.T) {
 		t.Fatalf("DescriptorResolver(): %v", err)
 	}
 
-	if _, err := resolver.ResolveDescriptor("builtins/shell"); err != nil {
+	if _, err := resolver.ResolveDescriptor("builtins/script"); err != nil {
 		t.Fatalf("ResolveDescriptor builtin: %v", err)
 	}
 }

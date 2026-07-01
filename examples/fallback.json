@@ -8,16 +8,16 @@
         "nodes": [
           {
             "id": "preferred-build",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "test -x ./preferred-build.sh && ./preferred-build.sh"
+              "script": "test -x ./preferred-build.sh && ./preferred-build.sh"
             }
           },
           {
             "id": "portable-build",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "echo running portable fallback build"
+              "script": "echo running portable fallback build"
             }
           }
         ]

@@ -194,7 +194,7 @@ func startUIDevAssets(logger interfaces.Logger) (*exec.Cmd, error) {
 		return nil, err
 	}
 
-	command := exec.Command("npm", "run", "dev", "--", "--host", uiDevAssetsHost(), "--port", fmt.Sprintf("%d", viper.GetInt("ui_dev_assets_port")), "--strictPort") //#nosec G204
+	command := exec.CommandContext(context.Background(), "npm", "run", "dev", "--", "--host", uiDevAssetsHost(), "--port", fmt.Sprintf("%d", viper.GetInt("ui_dev_assets_port")), "--strictPort") //#nosec G204
 	command.Dir = dir
 	command.Stdin = nil
 	command.Stdout = os.Stdout

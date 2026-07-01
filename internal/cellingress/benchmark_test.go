@@ -154,7 +154,7 @@ func cellIngressBenchmarkAcceptance(jobID string, i int) dal.CellExecutionAccept
 	runID := fmt.Sprintf("run-%06d", i)
 	taskID := runID + ":" + dal.RootTaskKey
 	attempt := 1
-	definitionJSON := fmt.Sprintf(`{"id":"%s","root":{"uses":"builtins/shell","with":{"command":"true"}}}`, jobID)
+	definitionJSON := fmt.Sprintf(`{"id":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}}`, jobID)
 	executionID := fmt.Sprintf("execution-%06d", i)
 
 	return dal.CellExecutionAcceptance{
@@ -173,7 +173,7 @@ func cellIngressBenchmarkAcceptance(jobID string, i int) dal.CellExecutionAccept
 		DefinitionVersion:  1,
 		DefinitionHash:     dal.DefinitionHash(definitionJSON),
 		DefinitionJSON:     definitionJSON,
-		RequestJSON:        fmt.Sprintf(`{"job":{"id":"%s","runId":"%s","root":{"uses":"builtins/shell","with":{"command":"true"}}},"metadata":{"benchExecution":"%s"}}`, jobID, runID, executionID),
+		RequestJSON:        fmt.Sprintf(`{"job":{"id":"%s","runId":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}},"metadata":{"benchExecution":"%s"}}`, jobID, runID, executionID),
 		AcceptedAtUnixNano: int64(i + 1),
 	}
 }

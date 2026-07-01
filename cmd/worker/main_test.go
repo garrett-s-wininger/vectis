@@ -375,7 +375,7 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 	runs := repos.Runs()
 
 	jobID := "job-worker-secret-path"
-	def := `{"id":"job-worker-secret-path","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"job-worker-secret-path","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job definition: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 
 	sequence := "builtins/sequence"
 	parallel := "builtins/parallel"
-	shell := "builtins/shell"
+	script := "builtins/script"
 	fileType := api.SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE
 	j := &api.Job{
 		Id:    &jobID,
@@ -412,8 +412,8 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 						Ports: map[string]*api.NodePort{
 							"branches": {
 								Nodes: []*api.Node{
-									{Id: workerStrp("secret-lane"), Uses: &shell, With: map[string]string{"command": "echo secret"}},
-									{Id: workerStrp("plain-lane"), Uses: &shell, With: map[string]string{"command": "echo plain"}},
+									{Id: workerStrp("secret-lane"), Uses: &script, With: map[string]string{"script": "echo secret"}},
+									{Id: workerStrp("plain-lane"), Uses: &script, With: map[string]string{"script": "echo plain"}},
 								},
 							},
 						},
@@ -1199,11 +1199,11 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 	deliveryID := "delivery-orphaned-finish"
 	commandNodeID := "node-1"
 	command := "sleep 0.08"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -1386,7 +1386,7 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 	}
 
 	jobID := "job-worker-envelope"
-	def := `{"id":"job-worker-envelope","root":{"uses":"builtins/shell","with":{"command":"echo envelope"}}}`
+	def := `{"id":"job-worker-envelope","root":{"uses":"builtins/script","with":{"script":"echo envelope"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1422,11 +1422,11 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 	deliveryID := "delivery-envelope"
 	commandNodeID := "node-1"
 	command := "echo envelope"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -1512,7 +1512,7 @@ func TestWorkerTryClaimExecution_RejectsExpiredReclaimAfterInitialClaim(t *testi
 	}
 
 	jobID := "job-worker-execution-reclaim-catalog"
-	def := `{"id":"job-worker-execution-reclaim-catalog","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo claim"}}}`
+	def := `{"id":"job-worker-execution-reclaim-catalog","root":{"id":"root","uses":"builtins/script","with":{"script":"echo claim"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1528,14 +1528,14 @@ func TestWorkerTryClaimExecution_RejectsExpiredReclaimAfterInitialClaim(t *testi
 	}
 
 	rootID := "root"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "echo claim"},
+			With: map[string]string{"script": "echo claim"},
 		},
 	}
 
@@ -1599,7 +1599,7 @@ func TestWorkerRunClaimedJob_SPIFFEEnabledRejectsMissingSVIDBeforeAction(t *test
 	}
 
 	jobID := "job-worker-spiffe-gate"
-	def := `{"id":"job-worker-spiffe-gate","root":{"uses":"builtins/shell","with":{"command":"echo spiffe"}}}`
+	def := `{"id":"job-worker-spiffe-gate","root":{"uses":"builtins/script","with":{"script":"echo spiffe"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1646,11 +1646,11 @@ func TestWorkerRunClaimedJob_SPIFFEEnabledRejectsMissingSVIDBeforeAction(t *test
 
 	deliveryID := "delivery-spiffe-gate"
 	commandNodeID := "node-1"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -1806,7 +1806,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	}
 
 	jobID := "job-worker-task-fanout"
-	def := `{"id":"job-worker-task-fanout","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
+	def := `{"id":"job-worker-task-fanout","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/script","with":{"script":"echo child"}}]}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -1844,7 +1844,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 	rootID := "root"
 	childID := "child"
 	rootAction := "builtins/parallel"
-	childAction := "builtins/shell"
+	childAction := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -1855,7 +1855,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &childAction,
-				With: map[string]string{"command": "echo child"},
+				With: map[string]string{"script": "echo child"},
 			}},
 		},
 	}
@@ -1965,7 +1965,7 @@ func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailu
 	}
 
 	jobID := "job-worker-task-fanout-repair"
-	def := `{"id":"job-worker-task-fanout-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
+	def := `{"id":"job-worker-task-fanout-repair","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/script","with":{"script":"echo child"}}]}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
@@ -2002,7 +2002,7 @@ func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailu
 	rootID := "root"
 	childID := "child"
 	rootAction := "builtins/parallel"
-	childAction := "builtins/shell"
+	childAction := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2013,7 +2013,7 @@ func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailu
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &childAction,
-				With: map[string]string{"command": "echo child"},
+				With: map[string]string{"script": "echo child"},
 			}},
 		},
 	}
@@ -2069,7 +2069,7 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 	}
 
 	jobID := "job-worker-task-reduce-waiting"
-	def := `{"id":"job-worker-task-reduce-waiting","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/shell","with":{"command":"echo child"}}]}}`
+	def := `{"id":"job-worker-task-reduce-waiting","root":{"id":"root","uses":"builtins/parallel","steps":[{"id":"child","uses":"builtins/script","with":{"script":"echo child"}}]}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2105,7 +2105,7 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 	rootID := "root"
 	childID := "child"
 	rootAction := "builtins/parallel"
-	childAction := "builtins/shell"
+	childAction := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2116,7 +2116,7 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &childAction,
-				With: map[string]string{"command": "echo child"},
+				With: map[string]string{"script": "echo child"},
 			}},
 		},
 	}
@@ -2141,9 +2141,11 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 	if err != nil {
 		t.Fatalf("get run hot-state owner after waiting reduction: %v", err)
 	}
+
 	if !found {
 		t.Fatal("expected run hot-state owner after waiting reduction")
 	}
+
 	if owner.RunID != runID || owner.OwnerID == "" || owner.OwnerEpoch == "" || !owner.LeaseUntil.After(time.Now()) {
 		t.Fatalf("run hot-state owner after waiting reduction: %+v", owner)
 	}
@@ -2200,7 +2202,7 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 	}
 
 	jobID := "job-worker-task-failure-order"
-	def := `{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/shell","with":{"command":"false"}}}`
+	def := `{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2233,7 +2235,7 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 
 	deliveryID := "delivery-task-failure-order"
 	rootID := "root"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2241,7 +2243,7 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "false"},
+			With: map[string]string{"script": "false"},
 		},
 	}
 
@@ -2297,7 +2299,7 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 	}
 
 	jobID := "job-worker-task-cancel-order"
-	def := `{"id":"job-worker-task-cancel-order","root":{"id":"root","uses":"builtins/shell","with":{"command":"exec sleep 5"}}}`
+	def := `{"id":"job-worker-task-cancel-order","root":{"id":"root","uses":"builtins/script","with":{"script":"exec sleep 5"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2331,7 +2333,7 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 
 	deliveryID := "delivery-task-cancel-order"
 	rootID := "root"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2339,7 +2341,7 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "exec sleep 5"},
+			With: map[string]string{"script": "exec sleep 5"},
 		},
 	}
 
@@ -2491,7 +2493,7 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 	firstID := "first"
 	secondID := "second"
 	sequenceAction := "builtins/sequence"
-	shellAction := "builtins/shell"
+	shellAction := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2503,12 +2505,12 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 				{
 					Id:   &firstID,
 					Uses: &shellAction,
-					With: map[string]string{"command": "echo worker-first-marker"},
+					With: map[string]string{"script": "echo worker-first-marker"},
 				},
 				{
 					Id:   &secondID,
 					Uses: &shellAction,
-					With: map[string]string{"command": "echo worker-second-marker"},
+					With: map[string]string{"script": "echo worker-second-marker"},
 				},
 			},
 		},
@@ -2600,7 +2602,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	rootID := "root-node"
 	childID := "child"
 	parallelAction := "builtins/parallel"
-	shellAction := "builtins/shell"
+	shellAction := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2611,7 +2613,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &shellAction,
-				With: map[string]string{"command": "echo child-ran"},
+				With: map[string]string{"script": "echo child-ran"},
 			}},
 		},
 	}
@@ -2832,14 +2834,14 @@ func TestWorkerHandleJob_RunlessDeliveryIsMalformed(t *testing.T) {
 	deliveryID := "delivery-runless"
 	commandNodeID := "node-1"
 	command := "echo should-not-run"
-	action := "builtins/shell"
+	action := "builtins/script"
 	req := &api.JobRequest{Job: &api.Job{
 		Id:         &jobID,
 		DeliveryId: &deliveryID,
 		Root: &api.Node{
 			Id:   &commandNodeID,
 			Uses: &action,
-			With: map[string]string{"command": command},
+			With: map[string]string{"script": command},
 		},
 	}}
 
@@ -2889,11 +2891,11 @@ func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 	deliveryID := "delivery-missing-envelope"
 	commandNodeID := "node-1"
 	command := "echo should-not-run"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -2952,7 +2954,7 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 	}
 
 	jobID := "job-worker-execution-claim-required"
-	def := `{"id":"job-worker-execution-claim-required","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo should-not-run"}}}`
+	def := `{"id":"job-worker-execution-claim-required","root":{"id":"root","uses":"builtins/script","with":{"script":"echo should-not-run"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2996,7 +2998,7 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 
 	deliveryID := "delivery-claim-required"
 	rootID := "root"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -3004,7 +3006,7 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "echo should-not-run"},
+			With: map[string]string{"script": "echo should-not-run"},
 		},
 	}
 
@@ -3063,7 +3065,7 @@ func TestWorkerRunTaskExecution_MirroredExpiredDispatchDoesNotOrphan(t *testing.
 	}
 
 	jobID := "job-worker-expired-mirror"
-	def := `{"id":"job-worker-expired-mirror","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo should-not-run"}}}`
+	def := `{"id":"job-worker-expired-mirror","root":{"id":"root","uses":"builtins/script","with":{"script":"echo should-not-run"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
@@ -3102,7 +3104,7 @@ func TestWorkerRunTaskExecution_MirroredExpiredDispatchDoesNotOrphan(t *testing.
 
 	deliveryID := "delivery-expired-mirror"
 	rootID := "root"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -3110,7 +3112,7 @@ func TestWorkerRunTaskExecution_MirroredExpiredDispatchDoesNotOrphan(t *testing.
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "echo should-not-run"},
+			With: map[string]string{"script": "echo should-not-run"},
 		},
 	}
 
@@ -3181,11 +3183,11 @@ func TestWorkerRunTaskExecution_AckTransientThenSuccess_Completes(t *testing.T) 
 	deliveryID := "delivery-ack-retry"
 	commandNodeID := "node-1"
 	command := "echo ack-retry"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3258,11 +3260,11 @@ func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(
 	deliveryID := "delivery-ack-persistent"
 	commandNodeID := "node-1"
 	command := "echo should-not-run"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3342,11 +3344,11 @@ func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(
 	deliveryID := "delivery-finalize-retry"
 	commandNodeID := "node-1"
 	command := "echo finalize-retry"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3386,7 +3388,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationSurvivesCatalogRecordFailure(
 	}
 
 	jobID := "job-worker-durable-finalize-catalog-failure"
-	def := `{"id":"job-worker-durable-finalize-catalog-failure","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo durable"}}}`
+	def := `{"id":"job-worker-durable-finalize-catalog-failure","root":{"id":"root","uses":"builtins/script","with":{"script":"echo durable"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
@@ -3414,7 +3416,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationSurvivesCatalogRecordFailure(
 
 	deliveryID := "delivery-durable-finalize-catalog-failure"
 	rootID := "root"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -3422,7 +3424,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationSurvivesCatalogRecordFailure(
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "echo durable"},
+			With: map[string]string{"script": "echo durable"},
 		},
 	}
 
@@ -3460,7 +3462,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationFailurePreventsSuccess(t *tes
 	}
 
 	jobID := "job-worker-durable-finalize-required"
-	def := `{"id":"job-worker-durable-finalize-required","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo durable-required"}}}`
+	def := `{"id":"job-worker-durable-finalize-required","root":{"id":"root","uses":"builtins/script","with":{"script":"echo durable-required"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create definition snapshot: %v", err)
 	}
@@ -3493,7 +3495,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationFailurePreventsSuccess(t *tes
 
 	deliveryID := "delivery-durable-finalize-required"
 	rootID := "root"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -3501,7 +3503,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationFailurePreventsSuccess(t *tes
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "echo durable-required"},
+			With: map[string]string{"script": "echo durable-required"},
 		},
 	}
 
@@ -3557,11 +3559,11 @@ func TestWorkerRunTaskExecution_RecoversOrchestratorRestartDuringFinalize(t *tes
 	deliveryID := "delivery-orchestrator-restart-finalize"
 	commandNodeID := "node-1"
 	command := "echo orchestrator-restart-finalize"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3640,11 +3642,11 @@ func TestWorkerRunTaskExecution_LifecyclePhaseShowsFinalizing(t *testing.T) {
 	deliveryID := "delivery-finalizing-phase"
 	commandNodeID := "node-1"
 	command := "echo finalizing-phase"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3724,11 +3726,11 @@ func TestWorkerRunTaskExecution_RenewExecutionLeaseTransientStoreFailure_StillSu
 	deliveryID := "delivery-renew-retry"
 	commandNodeID := "node-1"
 	command := "echo renew-retry-start; sleep 0.06; echo renew-retry-end"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3774,11 +3776,11 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 	deliveryID := "delivery-restart-recovery"
 	commandNodeID := "node-1"
 	command := "echo restart-recovered"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3884,11 +3886,11 @@ func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrpha
 	deliveryID := "delivery-finalize-exhausted"
 	commandNodeID := "node-1"
 	command := "echo finalize-exhausted"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -3966,11 +3968,11 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 	deliveryID := "delivery-drain"
 	commandNodeID := "node-1"
 	command := "sleep 0.08"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -4096,11 +4098,11 @@ func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 	deliveryID := "delivery-cancel"
 	commandNodeID := "node-1"
 	command := "exec sleep 5"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -4326,7 +4328,7 @@ func TestWorkerRunTaskExecution_WorkerCoreCancelledResultCancelsRun(t *testing.T
 	jobID := "job-worker-core-cancelled"
 	deliveryID := "delivery-worker-core-cancelled"
 	commandNodeID := "node-1"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -4411,7 +4413,7 @@ func TestWorkerRunTaskExecution_WorkerCoreUnknownResultOrphansRun(t *testing.T) 
 	jobID := "job-worker-core-unknown"
 	deliveryID := "delivery-worker-core-unknown"
 	commandNodeID := "node-1"
-	action := "builtins/shell"
+	action := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -4488,11 +4490,11 @@ func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
 	deliveryID := "delivery-durable-cancel"
 	commandNodeID := "node-1"
 	command := "exec sleep 5"
-	action := "builtins/shell"
+	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"command": command},
+		With: map[string]string{"script": command},
 	}
 
 	j := &api.Job{
@@ -4861,7 +4863,7 @@ func TestHandleJobExecutionIdentityEnabledRejectsJobWithoutRunContext(t *testing
 
 	jobID := "job-without-run-context"
 	deliveryID := "delivery-without-run-context"
-	action := "builtins/shell"
+	action := "builtins/script"
 	command := "echo should-not-run"
 	w.handleJob(&api.JobRequest{
 		Job: &api.Job{
@@ -4869,7 +4871,7 @@ func TestHandleJobExecutionIdentityEnabledRejectsJobWithoutRunContext(t *testing
 			DeliveryId: &deliveryID,
 			Root: &api.Node{
 				Uses: &action,
-				With: map[string]string{"command": command},
+				With: map[string]string{"script": command},
 			},
 		},
 	})
@@ -5151,7 +5153,7 @@ func TestLeaseRenewalLoopRenewsSPIFFERegistration(t *testing.T) {
 	}
 
 	jobID := "job-worker-spiffe-renew"
-	def := `{"id":"job-worker-spiffe-renew","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo renew"}}}`
+	def := `{"id":"job-worker-spiffe-renew","root":{"id":"root","uses":"builtins/script","with":{"script":"echo renew"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -5176,7 +5178,7 @@ func TestLeaseRenewalLoopRenewsSPIFFERegistration(t *testing.T) {
 		t.Fatalf("expected execution claim, got %+v", claim)
 	}
 
-	action := "builtins/shell"
+	action := "builtins/script"
 	rootID := "root"
 	j := &api.Job{
 		Id:    &jobID,
@@ -5184,7 +5186,7 @@ func TestLeaseRenewalLoopRenewsSPIFFERegistration(t *testing.T) {
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"command": "echo renew"},
+			With: map[string]string{"script": "echo renew"},
 		},
 	}
 
@@ -5460,7 +5462,7 @@ func workerTestWorkloadIdentity() *workloadidentity.Identity {
 func workerTestExecutionEnvelope() *cell.ExecutionEnvelope {
 	jobID := "job-1"
 	runID := "run-1"
-	action := "builtins/shell"
+	action := "builtins/script"
 	return &cell.ExecutionEnvelope{
 		EnvelopeVersion:   cell.ExecutionEnvelopeVersion,
 		RunID:             runID,

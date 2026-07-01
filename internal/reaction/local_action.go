@@ -29,11 +29,7 @@ func (a *LocalNotifyAction) Type() string {
 }
 
 func (a *LocalNotifyAction) ExecuteInvocation(ctx context.Context, req ActionRequest) error {
-	_, err := a.Execute(ctx, LocalNotifyActionRequest{
-		Event:      req.Event,
-		Invocation: req.Invocation,
-		Payload:    req.Payload,
-	})
+	_, err := a.Execute(ctx, LocalNotifyActionRequest(req))
 
 	return err
 }

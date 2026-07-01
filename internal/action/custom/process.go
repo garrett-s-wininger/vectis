@@ -12,6 +12,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
+	"vectis/internal/action/scriptrunner"
 	"vectis/internal/interfaces"
 )
 
@@ -72,7 +73,12 @@ func (a *ProcessAction) Execute(ctx context.Context, state *action.ExecutionStat
 
 	env := processEnv(a.descriptor, state, inputs)
 	logLine(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", command))
-	process, err := a.executor.Start(ctx, "sh", []string{"-c", command}, workDir, env)
+	runner, err := scriptrunner.Resolve(a.descriptor.RuntimeConfig["runner"], "sh")
+	if err != nil {
+		return action.NewFailureResult(fmt.Errorf("custom process action %s runner: %w", a.Type(), err))
+	}
+
+	process, err := a.executor.Start(ctx, runner.Path, runner.InlineArgs(command), workDir, env)
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start custom process action %s: %w", a.Type(), err))
 	}

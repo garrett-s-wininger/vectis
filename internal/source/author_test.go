@@ -151,7 +151,7 @@ func TestLocalCommitDefinitionAuthorUsesDefaultRef(t *testing.T) {
 
 	written, err := author.WriteDefinition(context.Background(), WriteDefinitionRequest{
 		Path:           ".vectis/jobs/build.json",
-		DefinitionJSON: `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`,
+		DefinitionJSON: `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`,
 		Message:        "add build",
 		ExpectedHead:   gitOutput(t, repo, "rev-parse", "HEAD"),
 	})

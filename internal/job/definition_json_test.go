@@ -27,8 +27,8 @@ func TestDecodeDefinitionJSONAcceptsFriendlySecretDeliveryType(t *testing.T) {
   }],
   "root": {
     "id": "verify",
-    "uses": "builtins/shell",
-    "with": {"command": "test -f \"$VECTIS_SECRETS_DIR/token\""}
+    "uses": "builtins/script",
+    "with":{"script": "test -f \"$VECTIS_SECRETS_DIR/token\""}
   }
 }`)
 
@@ -52,7 +52,7 @@ func TestDecodeDefinitionJSONRejectsUnknownSecretDeliveryTypeAlias(t *testing.T)
     "ref": "encryptedfs://team/token",
     "delivery": {"type": "env", "path": "token"}
   }],
-  "root": {"id": "root", "uses": "builtins/shell", "with": {"command": "true"}}
+  "root": {"id": "root", "uses": "builtins/script", "with":{"script": "true"}}
 }`)
 
 	var decoded api.Job

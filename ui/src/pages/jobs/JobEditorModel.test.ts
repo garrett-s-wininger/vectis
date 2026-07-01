@@ -7,18 +7,18 @@ describe("JobEditorModel", () => {
     );
   });
 
-  it("starts with a runnable shell definition by default", () => {
+  it("starts with a runnable script definition by default", () => {
     const input = jobInputFromValues({ ...emptyJobForm, name: "hello-vectis" });
     const definition = JSON.parse(input.definition) as {
       root?: {
         uses?: string;
         with?: {
-          command?: string;
+          script?: string;
         };
       };
     };
 
-    expect(definition.root?.uses).toBe("builtins/shell");
-    expect(definition.root?.with?.command).toBe("echo 'Hello from Vectis'");
+    expect(definition.root?.uses).toBe("builtins/script");
+    expect(definition.root?.with?.script).toBe("echo 'Hello from Vectis'");
   });
 });

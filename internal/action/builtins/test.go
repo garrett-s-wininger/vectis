@@ -11,6 +11,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/action/scriptrunner"
 	"vectis/internal/interfaces"
 )
 
@@ -53,7 +54,12 @@ func (t *TestAction) Execute(ctx context.Context, state *action.ExecutionState, 
 	state.Logger.Info("Executing test command: %s", commandStr)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", commandStr))
 
-	process, err := t.executor.Start(ctx, "sh", []string{"-c", commandStr}, state.Workspace, state.CommandEnv())
+	runner, err := scriptrunner.Resolve("sh", "sh")
+	if err != nil {
+		return action.NewFailureResult(err)
+	}
+
+	process, err := t.executor.Start(ctx, runner.Path, runner.InlineArgs(commandStr), state.Workspace, state.CommandEnv())
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start test command: %w", err))
 	}

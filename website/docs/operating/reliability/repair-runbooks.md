@@ -77,7 +77,7 @@ Use this when `VectisWorkerSPIFFESVIDCheckFailures` fires or when `vectis_worker
 8. For `missing_identity`, confirm the run reached the worker through cell execution dispatch with an execution envelope and that `worker.execution_identity.enabled=true` is configured consistently.
 9. For `missing_source`, confirm `worker.spiffe.enabled=true` and `worker.spiffe.workload_api_address` are set on the worker process.
 10. For `invalid_expected_id`, validate `worker.execution_identity.trust_domain` and `worker.execution_identity.path_template` against the allowed SPIFFE URI shape.
-11. Do not fix these alerts by exposing the SPIFFE Workload API socket, SVID, private key, or derived identity to shell actions. Repair the worker-controlled SPIFFE registration or configuration path.
+11. Do not fix these alerts by exposing the SPIFFE Workload API socket, SVID, private key, or derived identity to job subprocesses. Repair the worker-controlled SPIFFE registration or configuration path.
 12. After repair, retry only the failed runs that are safe to re-run and confirm the failed-check counter no longer increases.
 
 ## Secret Resolution

@@ -103,7 +103,7 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatalf("resolved definition JSON: %v", err)
 	}
 
-	if resolvedJob.GetRoot().GetWith()["command"] != "true" {
+	if resolvedJob.GetRoot().GetWith()["script"] != "true" {
 		t.Fatalf("resolved definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 
@@ -132,7 +132,7 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatalf("old resolved definition JSON: %v", err)
 	}
 
-	if resolvedJob.GetRoot().GetWith()["command"] != "true" {
+	if resolvedJob.GetRoot().GetWith()["script"] != "true" {
 		t.Fatalf("old resolved definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 
@@ -154,7 +154,7 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		t.Fatalf("current source definition JSON: %v", err)
 	}
 
-	if resolvedJob.GetRoot().GetWith()["command"] != "false" {
+	if resolvedJob.GetRoot().GetWith()["script"] != "false" {
 		t.Fatalf("current source definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 
@@ -271,7 +271,7 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 		runDefinitionResp.DefinitionHash != triggerResp.DefinitionHash ||
 		runDefinitionResp.Source == nil ||
 		runDefinitionResp.Source.ResolvedCommit != secondCommit ||
-		resolvedJob.GetRoot().GetWith()["command"] != "false" {
+		resolvedJob.GetRoot().GetWith()["script"] != "false" {
 		t.Fatalf("run definition response mismatch: resp=%+v job=%+v", runDefinitionResp, resolvedJob.GetRoot().GetWith())
 	}
 }
@@ -457,8 +457,8 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		"job": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "created"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "created"},
 			},
 		},
 	})
@@ -494,7 +494,7 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		t.Fatalf("decode created job definition: %v", err)
 	}
 
-	if createdJob.GetRoot().GetWith()["command"] != "created" {
+	if createdJob.GetRoot().GetWith()["script"] != "created" {
 		t.Fatalf("created job command mismatch: %+v", createdJob.GetRoot().GetWith())
 	}
 
@@ -505,8 +505,8 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		"job": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "duplicate"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "duplicate"},
 			},
 		},
 	})
@@ -521,8 +521,8 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		"job": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "updated"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "updated"},
 			},
 		},
 	})
@@ -554,7 +554,7 @@ func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 		t.Fatalf("decode updated job definition: %v", err)
 	}
 
-	if updatedJob.GetRoot().GetWith()["command"] != "updated" {
+	if updatedJob.GetRoot().GetWith()["script"] != "updated" {
 		t.Fatalf("updated job command mismatch: %+v", updatedJob.GetRoot().GetWith())
 	}
 
@@ -1065,8 +1065,8 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 		"id": "source-build",
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]any{"command": "source"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "source"},
 		},
 	}
 
@@ -1096,8 +1096,8 @@ func TestAPIServer_ReusableJobsRequireSourceRepository(t *testing.T) {
 	runRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/jobs/run", map[string]any{
 		"root": map[string]any{
 			"id":   "root",
-			"uses": "builtins/shell",
-			"with": map[string]any{"command": "one-off"},
+			"uses": "builtins/script",
+			"with": map[string]any{"script": "one-off"},
 		},
 	})
 
@@ -1503,7 +1503,7 @@ func TestAPIServer_DeleteSourceRepositoryConflictsWhenReferenced(t *testing.T) {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -1708,15 +1708,15 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "build", "build definition")
 	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/team/deploy.json", `{
-		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "deploy"}}
+		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "deploy"}}
 	}`+"\n", "nested definition")
 
 	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/bad name.json", `{
-		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "bad"}}
+		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "bad"}}
 	}`+"\n", "invalid source job name")
 
 	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/team.deploy.json", `{
-		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "duplicate"}}
+		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "duplicate"}}
 	}`+"\n", "duplicate derived job id")
 
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
@@ -1903,7 +1903,7 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	if err := json.Unmarshal(definitionResp.Definition, &resolvedJob); err != nil {
 		t.Fatalf("source job definition JSON: %v", err)
 	}
-	if resolvedJob.GetRoot().GetWith()["command"] != "build" {
+	if resolvedJob.GetRoot().GetWith()["script"] != "build" {
 		t.Fatalf("source job definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 
@@ -1922,7 +1922,7 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	if err := json.Unmarshal(nestedDefinitionResp.Definition, &resolvedJob); err != nil {
 		t.Fatalf("nested source job definition JSON: %v", err)
 	}
-	if resolvedJob.GetRoot().GetWith()["command"] != "deploy" {
+	if resolvedJob.GetRoot().GetWith()["script"] != "deploy" {
 		t.Fatalf("nested source job definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 
@@ -1941,7 +1941,7 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 	if err := json.Unmarshal(overrideDefinitionResp.Definition, &resolvedJob); err != nil {
 		t.Fatalf("override source job definition JSON: %v", err)
 	}
-	if resolvedJob.GetRoot().GetWith()["command"] != "duplicate" {
+	if resolvedJob.GetRoot().GetWith()["script"] != "duplicate" {
 		t.Fatalf("override source job definition command: got %+v", resolvedJob.GetRoot().GetWith())
 	}
 }
@@ -2203,7 +2203,7 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		t.Fatalf("managed resolved definition JSON: %v", err)
 	}
 
-	if job.GetRoot().GetWith()["command"] != "false" {
+	if job.GetRoot().GetWith()["script"] != "false" {
 		t.Fatalf("managed resolved definition command: got %+v", job.GetRoot().GetWith())
 	}
 
@@ -2240,7 +2240,7 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 		t.Fatalf("managed feature definition JSON: %v", err)
 	}
 
-	if job.GetRoot().GetWith()["command"] != "feature" {
+	if job.GetRoot().GetWith()["script"] != "feature" {
 		t.Fatalf("managed feature definition command: got %+v", job.GetRoot().GetWith())
 	}
 
@@ -2444,8 +2444,8 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		"definition": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "blocked"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "blocked"},
 			},
 		},
 	})
@@ -2477,8 +2477,8 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		"definition": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "authored"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "authored"},
 			},
 		},
 	})
@@ -2525,7 +2525,7 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		t.Fatalf("read authored definition JSON: %v", err)
 	}
 
-	if job.GetRoot().GetWith()["command"] != "authored" {
+	if job.GetRoot().GetWith()["script"] != "authored" {
 		t.Fatalf("authored definition command: got %+v", job.GetRoot().GetWith())
 	}
 
@@ -2547,8 +2547,8 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 		"definition": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "stale"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "stale"},
 			},
 		},
 	})
@@ -2631,7 +2631,7 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("source snapshot definition JSON: %v", err)
 	}
 
-	if job.GetRoot().GetWith()["command"] != "source-trigger" {
+	if job.GetRoot().GetWith()["script"] != "source-trigger" {
 		t.Fatalf("source snapshot command: got %+v", job.GetRoot().GetWith())
 	}
 
@@ -2732,7 +2732,7 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		runDefinitionResp.Source.RepositoryID != "managed-repo" ||
 		runDefinitionResp.Source.ResolvedCommit != commit ||
 		runDefinitionResp.Source.BlobSHA != blob ||
-		runDefinitionJob.GetRoot().GetWith()["command"] != "source-trigger" {
+		runDefinitionJob.GetRoot().GetWith()["script"] != "source-trigger" {
 		t.Fatalf("source repository run definition response mismatch: resp=%+v job=%+v", runDefinitionResp, runDefinitionJob.GetRoot().GetWith())
 	}
 
@@ -2749,7 +2749,7 @@ func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testin
 		t.Fatalf("second source trigger response mismatch: %+v", secondTriggerResp)
 	}
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(context.Background(), "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"unprovenanced"}}}`); err != nil {
+	if err := repos.Jobs().CreateDefinitionSnapshot(context.Background(), "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"unprovenanced"}}}`); err != nil {
 		t.Fatalf("Create unprovenanced job snapshot with same id: %v", err)
 	}
 
@@ -3708,7 +3708,7 @@ func writeAPIJobDefinitionAndCommit(t *testing.T, repo, command, message string)
 	t.Helper()
 
 	writeAPIFileAndCommit(t, repo, ".vectis/jobs/build.json", `{
-		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "`+command+`"}}
+		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "`+command+`"}}
 	}`+"\n", message)
 }
 

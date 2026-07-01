@@ -66,7 +66,7 @@ func newQueueTestRequest(req *api.JobRequest, deadlineUnixNano int64) (*api.JobR
 	}
 
 	if cloned.GetJob().GetRoot() == nil {
-		cloned.Job.Root = queueTestNode("root", "builtins/shell")
+		cloned.Job.Root = queueTestNode("root", "builtins/script")
 	}
 
 	taskKey := strings.TrimSpace(cloned.GetMetadata()[cell.ExecutionTaskKeyMetadataKey])

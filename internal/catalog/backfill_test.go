@@ -14,7 +14,7 @@ func TestBackfillProcessorRecordsMissingRunAndExecutionEvents(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 
-	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill", `{"id":"job-backfill","root":{"uses":"builtins/shell"}}`, nil, "iad-a")
+	runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, "job-backfill", `{"id":"job-backfill","root":{"uses":"builtins/script"}}`, nil, "iad-a")
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestBackfillProcessorHonorsLimit(t *testing.T) {
 	repos := dal.NewSQLRepositoriesWithCellID(db, "iad-a")
 
 	for _, jobID := range []string{"job-backfill-limit-a", "job-backfill-limit-b"} {
-		runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, jobID, `{"id":"`+jobID+`","root":{"uses":"builtins/shell"}}`, nil, "iad-a")
+		runID, _, err := repos.CreateDefinitionAndRunInCell(ctx, jobID, `{"id":"`+jobID+`","root":{"uses":"builtins/script"}}`, nil, "iad-a")
 		if err != nil {
 			t.Fatalf("create run %s: %v", jobID, err)
 		}

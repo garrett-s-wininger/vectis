@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"vectis/internal/action"
+	"vectis/internal/action/scriptrunner"
 )
 
 const LocalManifestFile = "action.json"
@@ -304,7 +305,7 @@ func readStableRegularFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	openedInfo, err := file.Stat()
 	if err != nil {
@@ -426,7 +427,7 @@ func (m LocalManifest) validate(ref Reference) error {
 		return fmt.Errorf("local process actions do not support port_schema")
 	}
 
-	if err := validateRuntimeConfig(m.RuntimeConfig); err != nil {
+	if err := validateRuntimeConfig(m.Runtime, m.RuntimeConfig); err != nil {
 		return err
 	}
 
@@ -454,13 +455,20 @@ func validateLocalRuntime(runtime RuntimeType) error {
 	}
 }
 
-func validateRuntimeConfig(config map[string]string) error {
+func validateRuntimeConfig(runtime RuntimeType, config map[string]string) error {
 	for key, value := range config {
 		if strings.TrimSpace(key) == "" {
 			return fmt.Errorf("local action manifest runtime_config contains an empty key")
 		}
 
-		if strings.TrimSpace(key) == "working_directory" {
+		switch strings.TrimSpace(key) {
+		case "runner":
+			if runtime == RuntimeProcess {
+				if err := scriptrunner.Validate(value); err != nil {
+					return fmt.Errorf("local action manifest runtime_config.runner: %w", err)
+				}
+			}
+		case "working_directory":
 			if err := validateRuntimeConfigWorkingDirectory(value); err != nil {
 				return fmt.Errorf("local action manifest runtime_config.working_directory: %w", err)
 			}

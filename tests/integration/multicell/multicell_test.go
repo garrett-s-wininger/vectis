@@ -38,7 +38,7 @@ func TestIntegrationMultiCell_RoutedExecutionCatalogFanInAndBackfill(t *testing.
 	logger := mocks.NewMockLogger()
 	cellID := "pdx-b"
 	jobID := "integration-multicell-job"
-	definition := `{"id":"integration-multicell-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hello-from-pdx"}}}`
+	definition := `{"id":"integration-multicell-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo hello-from-pdx"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	cellDB := dbtest.NewTestDB(t)
@@ -134,7 +134,7 @@ func TestIntegrationMultiCell_FanOutRunsAcrossCellsAndFanInIsIdempotent(t *testi
 	ctx := context.Background()
 	logger := mocks.NewMockLogger()
 	jobID := "integration-multicell-fanout"
-	definition := `{"id":"integration-multicell-fanout","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo fanout"}}}`
+	definition := `{"id":"integration-multicell-fanout","root":{"id":"root","uses":"builtins/script","with":{"script":"echo fanout"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
@@ -221,8 +221,8 @@ func TestIntegrationMultiCell_ReplayRunRoutesToNamedCellWithSourceSnapshot(t *te
 	ctx := context.Background()
 	logger := mocks.NewMockLogger()
 	jobID := "integration-multicell-replay"
-	definitionV1 := `{"id":"integration-multicell-replay","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo replay-source"}}}`
-	definitionV2 := `{"id":"integration-multicell-replay","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo replay-current"}}}`
+	definitionV1 := `{"id":"integration-multicell-replay","root":{"id":"root","uses":"builtins/script","with":{"script":"echo replay-source"}}}`
+	definitionV2 := `{"id":"integration-multicell-replay","root":{"id":"root","uses":"builtins/script","with":{"script":"echo replay-current"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
@@ -312,7 +312,7 @@ func TestIntegrationMultiCell_CellsStatusCombinesRoutesRunsAndCatalogSources(t *
 	ctx := context.Background()
 	logger := mocks.NewMockLogger()
 	jobID := "integration-multicell-cells-status"
-	definition := `{"id":"integration-multicell-cells-status","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo cell-status"}}}`
+	definition := `{"id":"integration-multicell-cells-status","root":{"id":"root","uses":"builtins/script","with":{"script":"echo cell-status"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
@@ -420,7 +420,7 @@ func TestIntegrationMultiCell_FailedExecutionPropagatesThroughCatalog(t *testing
 	ctx := context.Background()
 	logger := mocks.NewMockLogger()
 	jobID := "integration-multicell-failure"
-	definition := `{"id":"integration-multicell-failure","root":{"id":"root","uses":"builtins/shell","with":{"command":"exit 42"}}}`
+	definition := `{"id":"integration-multicell-failure","root":{"id":"root","uses":"builtins/script","with":{"script":"exit 42"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
@@ -469,7 +469,7 @@ func TestIntegrationMultiCell_UnroutableCellRecordsDispatchFailure(t *testing.T)
 	logger := mocks.NewMockLogger()
 	cellID := "missing-cell"
 	jobID := "integration-multicell-unroutable"
-	definition := `{"id":"integration-multicell-unroutable","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo unroutable"}}}`
+	definition := `{"id":"integration-multicell-unroutable","root":{"id":"root","uses":"builtins/script","with":{"script":"echo unroutable"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
@@ -495,7 +495,7 @@ func TestIntegrationMultiCell_UnavailableCellIngressRecordsDispatchFailure(t *te
 	logger := mocks.NewMockLogger()
 	cellID := "lax-a"
 	jobID := "integration-multicell-ingress-down"
-	definition := `{"id":"integration-multicell-ingress-down","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo ingress-down"}}}`
+	definition := `{"id":"integration-multicell-ingress-down","root":{"id":"root","uses":"builtins/script","with":{"script":"echo ingress-down"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)
@@ -530,7 +530,7 @@ func TestIntegrationMultiCell_ReconcilerRepairsFailedDispatchThroughCellIngress(
 	logger := mocks.NewMockLogger()
 	cellID := "den-a"
 	jobID := "integration-multicell-repair"
-	definition := `{"id":"integration-multicell-repair","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo repaired"}}}`
+	definition := `{"id":"integration-multicell-repair","root":{"id":"root","uses":"builtins/script","with":{"script":"echo repaired"}}}`
 
 	globalDB := dbtest.NewTestDB(t)
 	globalRepos := dal.NewSQLRepositoriesWithCellID(globalDB, dal.DefaultCellID)

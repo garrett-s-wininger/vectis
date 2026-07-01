@@ -211,7 +211,7 @@ func BenchmarkAPIServer_Write_RunJobAccepted(b *testing.B) {
 	ingress := newBenchmarkAPIIngress()
 	server.SetExecutionIngress(ingress)
 
-	const body = `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+	const body = `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -242,7 +242,7 @@ func BenchmarkAPIServer_Write_RunJobDispatch(b *testing.B) {
 	ingress := newBenchmarkAPIIngress()
 	server.SetExecutionIngress(ingress)
 
-	const body = `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+	const body = `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -464,7 +464,7 @@ func BenchmarkAPIServer_HTTP_Write_RunJobAccepted(b *testing.B) {
 	server.SetExecutionIngress(ingress)
 	handler := server.Handler()
 
-	const body = `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+	const body = `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -495,7 +495,7 @@ func BenchmarkAPIServer_HTTP_Write_RunJobDispatch(b *testing.B) {
 	server.SetExecutionIngress(ingress)
 	handler := server.Handler()
 
-	const body = `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+	const body = `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -965,7 +965,7 @@ func seedBenchmarkAPIRunReadFinalFacts(b *testing.B, ctx context.Context, repos 
 	return runID
 }
 
-const benchAPIJobDefinition = `{"id":"%s","root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`
+const benchAPIJobDefinition = `{"id":"%s","root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`
 
 func benchmarkAPIRunReadTaskKey(i int) string {
 	return fmt.Sprintf("task-%06d", i)

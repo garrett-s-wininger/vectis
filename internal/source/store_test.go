@@ -12,7 +12,7 @@ func TestGitDefinitionStoreFromRecordResolvesAndListsDefinitions(t *testing.T) {
 	repoPath := initGitRepo(t)
 
 	writeAndCommit(t, repoPath, ".vectis/jobs/build.json", `{
-		"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "go test ./..."}}
+		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "go test ./..."}}
 	}`+"\n", "build definition")
 
 	commit := gitOutput(t, repoPath, "rev-parse", "HEAD")
@@ -89,7 +89,7 @@ func TestGitDefinitionStoreFromRecordResolvesAndListsDefinitions(t *testing.T) {
 
 	if loaded.Source.Commit != commit ||
 		loaded.Source.BlobSHA != blob ||
-		loaded.Job.GetRoot().GetWith()["command"] != "go test ./..." {
+		loaded.Job.GetRoot().GetWith()["script"] != "go test ./..." {
 		t.Fatalf("loaded definition mismatch: %+v", loaded)
 	}
 }

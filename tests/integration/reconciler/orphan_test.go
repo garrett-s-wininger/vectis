@@ -24,7 +24,7 @@ func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
 
 	// Insert a definition snapshot.
 	jobID := "integration-reconciler-job"
-	defJSON := `{"id":"integration-reconciler-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hello"}}}`
+	defJSON := `{"id":"integration-reconciler-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo hello"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 
 	// Insert a definition snapshot.
 	jobID := "integration-reconciler-orphan-job"
-	defJSON := `{"id":"integration-reconciler-orphan-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo hello"}}}`
+	defJSON := `{"id":"integration-reconciler-orphan-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo hello"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, defJSON); err != nil {
 		t.Fatalf("create job: %v", err)
 	}

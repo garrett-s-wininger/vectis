@@ -14,7 +14,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const catalogBenchmarkJobDefinition = `{"id":"%s","root":{"uses":"builtins/shell","with":{"command":"true"}}}`
+const catalogBenchmarkJobDefinition = `{"id":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}}`
 
 func BenchmarkCatalog_BackfillRepairMissingRunStatuses(b *testing.B) {
 	for _, tc := range catalogBenchmarkCases() {

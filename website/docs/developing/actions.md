@@ -1,6 +1,6 @@
 # Adding Actions
 
-Actions are the executable nodes in a Vectis job tree. User-facing jobs refer to them through the node `uses` field, such as `builtins/shell`, `builtins/checkout`, or `builtins/result`. For a compact user/operator contract, see [Actions Reference](../using/actions-reference.md).
+Actions are the executable nodes in a Vectis job tree. User-facing jobs refer to them through the node `uses` field, such as `builtins/script`, `builtins/checkout`, or `builtins/result`. For a compact user/operator contract, see [Actions Reference](../using/actions-reference.md).
 
 This page is for contributors adding or changing actions in Vectis itself. If you are writing job files, start with [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md).
 
@@ -110,7 +110,7 @@ If digest pins are already required, use `--ignore-policy` while preparing the p
 
 `--ignore-policy` also shows yanked, revoked, and purged tombstones so operators can inspect why an action was removed.
 
-For `runtime: "process"`, set `runtime_config.command` to the command the worker should run. If a worker resolves the descriptor from a local manifest, commands run from that manifest's directory by default. Set `runtime_config.working_directory` only when the action needs a subdirectory below that action base directory; the value must be relative and cannot contain parent-directory escapes. The process receives a sanitized environment plus action metadata and inputs:
+For `runtime: "process"`, set `runtime_config.command` to the command the worker should run. The default runner is `sh`, preserving the original local process action behavior. Set `runtime_config.runner` to `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, or `node` when the command should run through a different command interpreter; `auto` uses PowerShell on Windows and `sh` elsewhere. If a worker resolves the descriptor from a local manifest, commands run from that manifest's directory by default. Set `runtime_config.working_directory` only when the action needs a subdirectory below that action base directory; the value must be relative and cannot contain parent-directory escapes. The process receives a sanitized environment plus action metadata and inputs:
 
 ```text
 VECTIS_ACTION_NAME
@@ -138,16 +138,16 @@ Keep validation messages direct. They appear in `details.fields` on API errors a
 
 ## Field Paths
 
-The job validator adds the action's field errors under the node path. For example, if `builtins/shell` rejects a missing `command` on the root node, the API returns a field path like:
+The job validator adds the action's field errors under the node path. For example, if `builtins/script` rejects a missing `script` on the root node, the API returns a field path like:
 
 ```text
-root.with.command
+root.with.script
 ```
 
 If the same error happens in the first child step, the path includes the step index:
 
 ```text
-root.steps[0].with.command
+root.steps[0].with.script
 ```
 
 Use action field names that make these paths obvious to users.

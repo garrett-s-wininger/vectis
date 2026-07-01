@@ -60,7 +60,7 @@ func TestVirtualMachineIntegration_ActionIsolation(t *testing.T) {
 	rootUses := "builtins/sequence"
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
-	shellUses := "builtins/shell"
+	shellUses := "builtins/script"
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
 		Id:    &jobID,

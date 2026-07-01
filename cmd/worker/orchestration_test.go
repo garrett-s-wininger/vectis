@@ -137,7 +137,7 @@ func TestGRPCExecutionChoreographerLoadRunHydratesSnapshots(t *testing.T) {
 	rootID := "root-node"
 	childID := "build"
 	rootAction := "builtins/parallel"
-	childAction := "builtins/shell"
+	childAction := "builtins/script"
 	j := &api.Job{
 		Id:    stringPtr("job-grpc-hydrate"),
 		RunId: stringPtr(runID),
@@ -147,7 +147,7 @@ func TestGRPCExecutionChoreographerLoadRunHydratesSnapshots(t *testing.T) {
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &childAction,
-				With: map[string]string{"command": "echo build"},
+				With: map[string]string{"script": "echo build"},
 			}},
 		},
 	}
@@ -220,7 +220,7 @@ func TestGRPCExecutionChoreographerFallsBackWhenExecutionStreamUnavailable(t *te
 	j := &api.Job{
 		Id:    stringPtr("job-grpc-stream-fallback"),
 		RunId: stringPtr(runID),
-		Root:  &api.Node{Id: stringPtr("root"), Uses: stringPtr("builtins/shell")},
+		Root:  &api.Node{Id: stringPtr("root"), Uses: stringPtr("builtins/script")},
 	}
 
 	root := defaultTaskExecutionRecord(runID, dal.RootTaskKey, "", dal.RootTaskKey, "local")

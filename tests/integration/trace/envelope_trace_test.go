@@ -65,12 +65,12 @@ func TestEnvelopeTrace_QueueRoundTrip_ToWorkerContext(t *testing.T) {
 
 	jobID := "job-trace"
 	runID := "run-trace"
-	action := "builtins/shell"
+	action := "builtins/script"
 	req := &api.JobRequest{
 		Job: &api.Job{
 			Id:    &jobID,
 			RunId: &runID,
-			Root:  &api.Node{Uses: &action, With: map[string]string{"command": "echo hi"}},
+			Root:  &api.Node{Uses: &action, With: map[string]string{"script": "echo hi"}},
 		},
 	}
 

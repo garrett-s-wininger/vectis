@@ -26,9 +26,9 @@ Top-level `secrets` entries live beside `id` and `root`:
   ],
   "root": {
     "id": "publish",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "npm publish --//registry.npmjs.org/:_authToken=\"$(cat \"$VECTIS_SECRETS_DIR/npm/token\")\""
+      "script": "npm publish --//registry.npmjs.org/:_authToken=\"$(cat \"$VECTIS_SECRETS_DIR/npm/token\")\""
     }
   }
 }
@@ -59,7 +59,7 @@ The broker returns `SecretFileMaterial` records with `id`, `path`, `data`, and `
 | File mode | File material defaults to mode `0400`; returned modes are masked to permission bits. |
 | Duplicate paths | Materialization uses exclusive create, so two secret files resolving to the same `delivery.path` fail the task. |
 | Cleanup | The worker removes `.vectis/secrets` before materializing and defers cleanup after the task completes. |
-| Ambient env | Shell and checkout actions do not receive the worker service environment as a secret-delivery mechanism. |
+| Ambient env | Process-launching actions do not receive the worker service environment as a secret-delivery mechanism. |
 
 Actions should read the file they need from `VECTIS_SECRETS_DIR`. Vectis does not inject secret values directly into environment variables.
 

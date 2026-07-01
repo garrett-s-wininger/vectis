@@ -11,8 +11,8 @@ const ephemeralData = submitMockEphemeralRun(createMockConsoleDataSnapshot(), {
       id: "database-backfill",
       root: {
         id: "root",
-        uses: "builtins/shell",
-        with: { command: "echo backfill" }
+        uses: "builtins/script",
+        with: { script: "echo backfill" }
       }
     },
     null,

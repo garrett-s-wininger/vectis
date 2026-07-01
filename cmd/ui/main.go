@@ -32,9 +32,9 @@ var embeddedUI embed.FS
 
 func runUI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("ui")
-	defer logger.Close()
-	cli.SetLogLevel(logger)
+	defer func() { _ = logger.Close() }()
 
+	cli.SetLogLevel(logger)
 	ui, source := uiHandler(viper.GetString("dir"), logger)
 	devAssets := false
 	if rawDevAssetsURL := strings.TrimSpace(viper.GetString("dev-assets-url")); rawDevAssetsURL != "" {

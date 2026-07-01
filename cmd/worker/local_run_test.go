@@ -16,10 +16,10 @@ func writeLocalRunJob(t *testing.T, dir, command string) string {
 	body := `{
   "id": "local-test",
   "root": {
-    "id": "shell",
-    "uses": "builtins/shell",
+    "id": "script",
+    "uses": "builtins/script",
     "with": {
-      "command": "` + command + `"
+      "script": "` + command + `"
     }
   }
 }
@@ -42,7 +42,7 @@ func TestRunLocalJobSuccess(t *testing.T) {
 	}
 
 	if !strings.Contains(stdout.String(), "local-ok") {
-		t.Fatalf("expected stdout log to contain command output, got %q", stdout.String())
+		t.Fatalf("expected stdout log to contain script output, got %q", stdout.String())
 	}
 
 	if _, err := os.Stat(workspace); err != nil {
@@ -61,8 +61,8 @@ func TestRunLocalJobFailure(t *testing.T) {
 		t.Fatal("expected local job failure")
 	}
 
-	if !strings.Contains(err.Error(), "command failed") {
-		t.Fatalf("expected command failure, got %v", err)
+	if !strings.Contains(err.Error(), "script failed") {
+		t.Fatalf("expected script failure, got %v", err)
 	}
 
 	if !strings.Contains(stdout.String(), "local-fail") {

@@ -73,7 +73,7 @@ func createRunForReadRoutingTest(t *testing.T, db *sql.DB, jobID string) string 
 	t.Helper()
 
 	repos := dal.NewSQLRepositoriesWithCellID(db, "local")
-	insertStoredJobForTest(t, db, jobID, `{"id":"`+jobID+`","root":{"uses":"builtins/shell"}}`)
+	insertStoredJobForTest(t, db, jobID, `{"id":"`+jobID+`","root":{"uses":"builtins/script"}}`)
 
 	runID, _, err := repos.Runs().CreateRun(context.Background(), jobID, nil, 1)
 	if err != nil {

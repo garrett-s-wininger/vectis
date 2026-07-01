@@ -95,7 +95,7 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 	mockClock.SetNow(testTime)
 
 	jobID := "test-cron-job"
-	jobDef := `{"id": "test-cron-job", "root": {"uses": "builtins/shell", "with": {"command": "echo hello"}}}`
+	jobDef := `{"id": "test-cron-job", "root": {"uses": "builtins/script", "with":{"script": "echo hello"}}}`
 	insertCronIntegrationJob(t, db, jobID, jobDef)
 
 	nextRun := testTime.Add(-1 * time.Minute)

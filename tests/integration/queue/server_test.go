@@ -36,13 +36,13 @@ func TestIntegrationQueue_EnqueueDequeueRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "test-job-1"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 	job := &api.Job{
 		Id: &jobID,
 		Root: &api.Node{
 			Id:   &jobID,
 			Uses: &uses,
-			With: map[string]string{"command": "echo hello"},
+			With: map[string]string{"script": "echo hello"},
 		},
 	}
 
@@ -60,8 +60,8 @@ func TestIntegrationQueue_EnqueueDequeueRoundTrip(t *testing.T) {
 		t.Errorf("expected job ID %q, got %q", jobID, got.GetJob().GetId())
 	}
 
-	if got.GetJob().GetRoot().GetUses() != "builtins/shell" {
-		t.Errorf("expected action builtins/shell, got %q", got.GetJob().GetRoot().GetUses())
+	if got.GetJob().GetRoot().GetUses() != "builtins/script" {
+		t.Errorf("expected action builtins/script, got %q", got.GetJob().GetRoot().GetUses())
 	}
 }
 

@@ -83,7 +83,7 @@ func seedDefinitionSnapshotAndRun(t *testing.T, db *sql.DB, jobID string) string
 	t.Helper()
 
 	ctx := context.Background()
-	jobDef := `{"id":"` + jobID + `","root":{"uses":"builtins/shell","with":{"command":"echo ok"}}}`
+	jobDef := `{"id":"` + jobID + `","root":{"uses":"builtins/script","with":{"script":"echo ok"}}}`
 	repos := dal.NewSQLRepositories(db)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, jobDef); err != nil {
 		t.Fatalf("insert definition snapshot: %v", err)

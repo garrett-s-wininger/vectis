@@ -31,7 +31,7 @@ func TestGetRunJobNamespacePathUsesSourceRepositoryNamespace(t *testing.T) {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	runID, _, _, err := repos.CreateSourceDefinitionAndRunInCellWithAudit(ctx, "build", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, dal.JobDefinitionSourceRecord{
+	runID, _, _, err := repos.CreateSourceDefinitionAndRunInCellWithAudit(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, dal.JobDefinitionSourceRecord{
 		RepositoryID:   "source-repo",
 		RequestedRef:   "main",
 		ResolvedCommit: "abc123",
@@ -59,7 +59,7 @@ func TestGetRunJobNamespacePathUsesPersistedEphemeralNamespace(t *testing.T) {
 	server := NewAPIServer(mocks.NewMockLogger(), db)
 	ctx := context.Background()
 
-	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "ephemeral-job", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, nil, "", dal.RunAuditMetadata{
+	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "ephemeral-job", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, nil, "", dal.RunAuditMetadata{
 		NamespacePath: dal.EphemeralNamespacePath,
 	})
 
@@ -83,7 +83,7 @@ func TestGetRunJobNamespacePathKeepsLegacyRootFallback(t *testing.T) {
 	server := NewAPIServer(mocks.NewMockLogger(), db)
 	ctx := context.Background()
 
-	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "legacy-ephemeral-job", `{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`, nil, "", dal.RunAuditMetadata{})
+	runID, _, err := repos.CreateDefinitionAndRunInCellWithAudit(ctx, "legacy-ephemeral-job", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`, nil, "", dal.RunAuditMetadata{})
 	if err != nil {
 		t.Fatalf("CreateDefinitionAndRunInCellWithAudit: %v", err)
 	}

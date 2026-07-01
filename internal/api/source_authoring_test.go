@@ -98,8 +98,8 @@ func TestAPIServer_SourceDefinitionAuthoringHooks(t *testing.T) {
 		"definition": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "true"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "true"},
 			},
 		},
 	})
@@ -124,7 +124,7 @@ func TestAPIServer_SourceDefinitionAuthoringHooks(t *testing.T) {
 		gotReq.Path != ".vectis/jobs/custom-build.json" ||
 		gotReq.Message != "open change request" ||
 		gotReq.ExpectedHead != "fedcba9876543210fedcba9876543210fedcba98" ||
-		!strings.Contains(gotReq.DefinitionJSON, "builtins/shell") {
+		!strings.Contains(gotReq.DefinitionJSON, "builtins/script") {
 		t.Fatalf("write definition request mismatch: %+v", gotReq)
 	}
 

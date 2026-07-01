@@ -19,7 +19,7 @@ func NewRegistry() *Registry {
 		nodes: make(map[string]action.Node),
 	}
 
-	r.Register(NewShellAction(nil))
+	r.Register(NewScriptAction(nil))
 	r.Register(NewTestAction(nil))
 	r.Register(NewCheckoutAction(nil))
 	r.Register(&UploadArtifactAction{})

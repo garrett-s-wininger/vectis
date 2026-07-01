@@ -293,7 +293,7 @@ func (b *uiBackend) setupStatus(w http.ResponseWriter, r *http.Request) (apiSetu
 		writeBFFError(w, http.StatusBadGateway, "api_unreachable", "unable to reach Vectis API")
 		return apiSetupStatusResponse{}, false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		copyAPIError(w, resp)
@@ -558,7 +558,7 @@ func (b *uiBackend) forwardJSON(w http.ResponseWriter, r *http.Request, method, 
 		writeBFFError(w, http.StatusBadGateway, "api_unreachable", "unable to reach Vectis API")
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		copyAPIError(w, resp)

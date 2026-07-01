@@ -162,7 +162,7 @@ func benchmarkExecutorExecuteJob(b *testing.B, jobFactory func(string) *api.Job,
 func benchmarkShellTrueJob(runID string) *api.Job {
 	jobID := "bench-shell"
 	nodeID := "root"
-	uses := "builtins/shell"
+	uses := "builtins/script"
 
 	return &api.Job{
 		Id:    &jobID,
@@ -170,7 +170,7 @@ func benchmarkShellTrueJob(runID string) *api.Job {
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{"command": "true"},
+			With: map[string]string{"script": "true"},
 		},
 	}
 }

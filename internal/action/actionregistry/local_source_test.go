@@ -274,6 +274,7 @@ func TestLocalManifestSourceRejectsInvalidManifest(t *testing.T) {
 		{name: "unknown status", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, Status: "retired"}, want: "status"},
 		{name: "absolute working directory", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, RuntimeConfig: map[string]string{"working_directory": "/tmp"}}, want: "must be relative"},
 		{name: "escaping working directory", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, RuntimeConfig: map[string]string{"working_directory": "../outside"}}, want: "must stay within the action base directory"},
+		{name: "unsupported runner", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, RuntimeConfig: map[string]string{"runner": "fish"}}, want: "unsupported runner"},
 		{
 			name: "duplicate field",
 			manifest: LocalManifest{

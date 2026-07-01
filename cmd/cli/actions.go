@@ -185,7 +185,7 @@ By default this uses the configured action registry policy. Use --ignore-policy 
 var actionsResolveCmd = &cobra.Command{
 	Use:   "resolve [uses]",
 	Short: "Resolve an action reference",
-	Long: `Resolve an action reference such as examples/greet@v1 or builtins/shell.
+	Long: `Resolve an action reference such as examples/greet@v1 or builtins/script.
 
 By default this uses the configured action registry policy. Use --ignore-policy to discover the digest for a version selector when preparing a digest-pinned reference.`,
 	Args: cobra.ExactArgs(1),

@@ -16,7 +16,7 @@ func TestResolveJobActions(t *testing.T) {
 	resolver := fakeDescriptorResolver{
 		descriptors: map[string]Descriptor{
 			"builtins/sequence": descriptorForLockTest("builtins/sequence", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-			"builtins/shell":    descriptorForLockTest("builtins/shell", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+			"builtins/script":   descriptorForLockTest("builtins/script", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
 		},
 	}
 
@@ -33,7 +33,7 @@ func TestResolveJobActions(t *testing.T) {
 		t.Fatalf("root lock mismatch: %+v", locks[0])
 	}
 
-	if locks[1].NodeID != "shell" || locks[1].NodePath != "root.steps[0]" || locks[1].Descriptor.CanonicalName != "builtins/shell" {
+	if locks[1].NodeID != "script" || locks[1].NodePath != "root.steps[0]" || locks[1].Descriptor.CanonicalName != "builtins/script" {
 		t.Fatalf("child lock mismatch: %+v", locks[1])
 	}
 }
@@ -59,9 +59,9 @@ func TestValidateActionLocks(t *testing.T) {
 
 	lock := ActionLock{
 		NodePath: "root",
-		Uses:     "builtins/shell",
+		Uses:     "builtins/script",
 		Descriptor: Descriptor{
-			CanonicalName: "builtins/shell",
+			CanonicalName: "builtins/script",
 			Version:       "v1",
 			Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			Source:        SourceBuiltin,
@@ -101,7 +101,7 @@ func descriptorForLockTest(name, digest string) Descriptor {
 		Source:        SourceBuiltin,
 		Runtime:       RuntimeBuiltin,
 		InputSchema: InputSchema{
-			Fields: []InputField{{Name: "command", Type: action.FieldString, Required: true}},
+			Fields: []InputField{{Name: "script", Type: action.FieldString, Required: true}},
 		},
 	}
 }
@@ -110,9 +110,9 @@ func actionLockJob() *api.Job {
 	jobID := "job-lock"
 	runID := "run-lock"
 	rootID := "root"
-	childID := "shell"
+	childID := "script"
 	sequenceUses := "builtins/sequence"
-	shellUses := "builtins/shell"
+	scriptUses := "builtins/script"
 
 	return &api.Job{
 		Id:    &jobID,
@@ -122,8 +122,8 @@ func actionLockJob() *api.Job {
 			Uses: &sequenceUses,
 			Steps: []*api.Node{{
 				Id:   &childID,
-				Uses: &shellUses,
-				With: map[string]string{"command": "echo hi"},
+				Uses: &scriptUses,
+				With: map[string]string{"script": "echo hi"},
 			}},
 		},
 	}

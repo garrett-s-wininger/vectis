@@ -18,7 +18,7 @@ import (
 	"vectis/internal/taskgraph"
 )
 
-func TestExecutorTimeoutTerminatesShellProcessGroup(t *testing.T) {
+func TestExecutorTimeoutTerminatesScriptProcessGroup(t *testing.T) {
 	workspace := t.TempDir()
 	childPIDPath := filepath.Join(workspace, "child.pid")
 	childTermPath := filepath.Join(workspace, "child.term")
@@ -26,19 +26,19 @@ func TestExecutorTimeoutTerminatesShellProcessGroup(t *testing.T) {
 	jobID := "test-timeout-process-group"
 	runID := "test-timeout-process-group-run"
 	timeoutUses := "builtins/timeout"
-	shellUses := "builtins/shell"
+	scriptUses := "builtins/script"
 	testJob := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
 		Root: &api.Node{
-			Id:   executorStrp("timed-shell"),
+			Id:   executorStrp("timed-script"),
 			Uses: &timeoutUses,
 			With: map[string]string{"duration": "500ms"},
 			Ports: map[string]*api.NodePort{taskgraph.BodyPort: executorNodePort(&api.Node{
-				Id:   executorStrp("shell"),
-				Uses: &shellUses,
+				Id:   executorStrp("script"),
+				Uses: &scriptUses,
 				With: map[string]string{
-					"command": `(trap 'echo term > child.term; exit 0' TERM; sleep 30) & echo $! > child.pid; wait`,
+					"script": `(trap 'echo term > child.term; exit 0' TERM; sleep 30) & echo $! > child.pid; wait`,
 				},
 			})},
 		},

@@ -35,7 +35,7 @@ func TestEnsureJobTaskExecutionsMaterializesPlannedTasks(t *testing.T) {
 	}
 
 	jobID := "job-task-materialize"
-	def := `{"id":"job-task-materialize","root":{"id":"root","uses":"builtins/sequence","steps":[{"id":"setup","uses":"builtins/shell","with":{"command":"echo setup"}},{"id":"build","uses":"builtins/parallel","steps":[{"id":"compile","uses":"builtins/shell","with":{"command":"echo compile"}},{"id":"test","uses":"builtins/shell","with":{"command":"echo test"}}]}]}}`
+	def := `{"id":"job-task-materialize","root":{"id":"root","uses":"builtins/sequence","steps":[{"id":"setup","uses":"builtins/script","with":{"script":"echo setup"}},{"id":"build","uses":"builtins/parallel","steps":[{"id":"compile","uses":"builtins/script","with":{"script":"echo compile"}},{"id":"test","uses":"builtins/script","with":{"script":"echo test"}}]}]}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}

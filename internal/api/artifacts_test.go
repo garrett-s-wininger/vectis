@@ -254,7 +254,7 @@ func setupArtifactAPITest(t *testing.T) (*api.APIServer, *dal.SQLRepositories, s
 func createArtifactAPITestRun(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, jobID string) string {
 	t.Helper()
 
-	def := `{"id":"` + jobID + `","root":{"uses":"builtins/shell"}}`
+	def := `{"id":"` + jobID + `","root":{"uses":"builtins/script"}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}

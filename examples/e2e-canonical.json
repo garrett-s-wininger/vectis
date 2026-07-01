@@ -24,9 +24,9 @@
         "nodes": [
           {
             "id": "setup-control",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "echo canonical-control-start; sleep 1"
+              "script": "echo canonical-control-start; sleep 1"
             }
           },
           {
@@ -40,9 +40,9 @@
                 "nodes": [
                   {
                     "id": "secret-lane",
-                    "uses": "builtins/shell",
+                    "uses": "builtins/script",
                     "with": {
-                      "command": "test -n \"$VECTIS_SECRETS_DIR\"; test \"$(cksum < \"$VECTIS_SECRETS_DIR/smoke/token\")\" = \"2931055294 13\"; echo canonical-secret-ok"
+                      "script": "test -n \"$VECTIS_SECRETS_DIR\"; test \"$(cksum < \"$VECTIS_SECRETS_DIR/smoke/token\")\" = \"2931055294 13\"; echo canonical-secret-ok"
                     }
                   },
                   {
@@ -56,9 +56,9 @@
                         "nodes": [
                           {
                             "id": "artifact-write",
-                            "uses": "builtins/shell",
+                            "uses": "builtins/script",
                             "with": {
-                              "command": "mkdir -p reports; printf 'canonical-artifact-ok\\n' > reports/e2e-smoke.txt; echo canonical-artifact-written"
+                              "script": "mkdir -p reports; printf 'canonical-artifact-ok\\n' > reports/e2e-smoke.txt; echo canonical-artifact-written"
                             }
                           },
                           {
@@ -120,10 +120,10 @@
                     }
                   },
                   {
-                    "id": "fanout-shell-lane",
-                    "uses": "builtins/shell",
+                    "id": "fanout-script-lane",
+                    "uses": "builtins/script",
                     "with": {
-                      "command": "echo canonical-fanout-ok"
+                      "script": "echo canonical-fanout-ok"
                     }
                   }
                 ]

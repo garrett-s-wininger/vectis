@@ -33,8 +33,8 @@ Action references use this shape:
 Examples:
 
 ```text
-builtins/shell
-builtins/shell@v1
+builtins/script
+builtins/script@v1
 examples/greet@v1
 examples/greet@sha256:<64-hex-digest>
 ```

@@ -222,13 +222,13 @@ Jobs are trees of nodes. Each node has:
 - `steps`, child nodes
 - `isolation`, an optional `host` or `vm` execution request
 
-Built-in actions include process actions such as `builtins/shell`, `builtins/test`, `builtins/checkout`, and `builtins/upload-artifact`; control-flow actions such as `builtins/sequence`, `builtins/parallel`, `builtins/if`, `builtins/retry`, `builtins/timeout`, `builtins/finally`, and `builtins/fallback`; and the `builtins/result` summary action. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
+Built-in actions include process actions such as `builtins/script`, `builtins/test`, `builtins/checkout`, and `builtins/upload-artifact`; control-flow actions such as `builtins/sequence`, `builtins/parallel`, `builtins/if`, `builtins/retry`, `builtins/timeout`, `builtins/finally`, and `builtins/fallback`; and the `builtins/result` summary action. Job shape and validation are covered in [Your First Job](../using/your-first-job.md) and [Job Definition Validation](../using/job-validation.md). Contributor guidance for adding actions is in [Adding Actions](../developing/actions.md).
 
 ## Worker Execution Environment
 
 By default, the worker and worker core are deployed together on the same host or in the same pod. The worker creates shell-owned task sessions and the core executes the claimed task through the local Unix-domain socket contract. Logs and artifacts flow back through worker-owned shell callbacks, so the worker remains responsible for durable log/artifact routing and final run state.
 
-The built-in worker core creates a per-run workspace directory and executes built-in actions as child processes on the core host. The workspace is useful operational isolation: checkout and shell steps share a predictable directory, and the executor can clean it up when the run finishes.
+The built-in worker core creates a per-run workspace directory and executes built-in actions as child processes on the core host. The workspace is useful operational isolation: checkout and script steps share a predictable directory, and the executor can clean it up when the run finishes.
 
 That workspace is not a security sandbox. Host execution still shares the worker user's permissions, host kernel, process environment, network access, and mounted credentials. The accepted target design for stronger containment is [ADR 0009](../developing/architecture-decisions/0009-worker-execution-containment-providers.md): keep host execution as the default compatibility path, then add container and VM execution providers behind a worker runner boundary.
 

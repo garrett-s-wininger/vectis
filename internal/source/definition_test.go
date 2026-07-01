@@ -19,8 +19,8 @@ func TestLoadDefinitionResolvesReadsAndCanonicalizesJob(t *testing.T) {
 			Content: []byte(`{
 				"root": {
 					"id": "root",
-					"uses": "builtins/shell",
-					"with": {"command": "go test ./..."}
+					"uses": "builtins/script",
+					"with":{"script": "go test ./..."}
 				}
 			}`),
 		},
@@ -60,8 +60,8 @@ func TestLoadDefinitionResolvesReadsAndCanonicalizesJob(t *testing.T) {
 		t.Fatalf("canonical definition json did not parse: %v\n%s", err, loaded.DefinitionJSON)
 	}
 
-	if roundTrip.GetId() != "" || roundTrip.GetRoot().GetWith()["command"] != "go test ./..." {
-		t.Fatalf("canonical definition mismatch: id=%q command=%q", roundTrip.GetId(), roundTrip.GetRoot().GetWith()["command"])
+	if roundTrip.GetId() != "" || roundTrip.GetRoot().GetWith()["script"] != "go test ./..." {
+		t.Fatalf("canonical definition mismatch: id=%q command=%q", roundTrip.GetId(), roundTrip.GetRoot().GetWith()["script"])
 	}
 }
 
@@ -72,7 +72,7 @@ func TestLoadDefinitionCanValidateCallerPolicy(t *testing.T) {
 			Path:    ".vectis/jobs/build.json",
 			BlobSHA: "abcdef0123456789abcdef0123456789abcdef01",
 			Content: []byte(`{
-				"root": {"id": "root", "uses": "builtins/shell", "with": {"command": "true"}}
+				"root": {"id": "root", "uses": "builtins/script", "with":{"script": "true"}}
 			}`),
 		},
 	}
@@ -103,7 +103,7 @@ func TestLoadDefinitionReportsValidationErrors(t *testing.T) {
 			BlobSHA: "abcdef0123456789abcdef0123456789abcdef01",
 			Content: []byte(`{
 				"id": "build",
-				"root": {"id": "root", "uses": "builtins/shell"}
+				"root": {"id": "root", "uses": "builtins/script"}
 			}`),
 		},
 	}

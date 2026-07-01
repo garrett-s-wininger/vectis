@@ -26,9 +26,9 @@
                         "nodes": [
                           {
                             "id": "build",
-                            "uses": "builtins/shell",
+                            "uses": "builtins/script",
                             "with": {
-                              "command": "mage build"
+                              "script": "mage build"
                             }
                           }
                         ]
@@ -45,9 +45,9 @@
         "nodes": [
           {
             "id": "cleanup",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "mage clean"
+              "script": "mage clean"
             }
           }
         ]

@@ -342,7 +342,7 @@ func (r *SQLReactionsRepository) ListMatchingSubscriptions(ctx context.Context, 
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ReactionSubscriptionMatch
 	for rows.Next() {
@@ -376,7 +376,7 @@ func (r *SQLReactionsRepository) ListJobTriggerEdges(ctx context.Context) ([]Rea
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ReactionJobTriggerEdge
 	for rows.Next() {
@@ -558,7 +558,7 @@ func (r *SQLReactionsRepository) ListReadyInvocations(ctx context.Context, nowUn
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ReactionInvocationRecord
 	for rows.Next() {
@@ -798,7 +798,7 @@ func (r *SQLReactionsRepository) ListLocalMessages(ctx context.Context, mailbox 
 	if err != nil {
 		return nil, 0, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ReactionLocalMessageRecord
 	var next int64

@@ -287,8 +287,8 @@ func portSchemaFromAction(specs []action.PortSpec) []PortSpec {
 
 func BuiltinDisplayName(actionType string) string {
 	switch actionType {
-	case "builtins/shell":
-		return "Shell"
+	case "builtins/script":
+		return "Script"
 	case "builtins/test":
 		return "Test"
 	case "builtins/checkout":
@@ -314,7 +314,7 @@ func BuiltinDisplayName(actionType string) string {
 
 func BuiltinCapabilities(actionType string) []Capability {
 	switch actionType {
-	case "builtins/shell", "builtins/test":
+	case "builtins/script", "builtins/test":
 		return []Capability{CapabilityProcessLaunch, CapabilityWorkspaceRead, CapabilityWorkspaceWrite}
 	case "builtins/checkout":
 		return []Capability{CapabilityNetwork, CapabilityProcessLaunch, CapabilityWorkspaceWrite}

@@ -16,7 +16,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const cronBenchmarkJobDefinition = `{"id":"%s","root":{"uses":"builtins/shell","with":{"command":"true"}}}`
+const cronBenchmarkJobDefinition = `{"id":"%s","root":{"uses":"builtins/script","with":{"script":"true"}}}`
 
 func BenchmarkCron_GetReadySchedules(b *testing.B) {
 	for _, schedules := range []int{100, 1000, 5000} {

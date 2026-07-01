@@ -13,9 +13,9 @@ A Vectis job has a `root` node. A node says which action to run with `uses`, and
   "id": "hello-job",
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo 'Hello from Vectis'"
+      "script": "echo 'Hello from Vectis'"
     }
   }
 }
@@ -74,16 +74,16 @@ Use `builtins/sequence` when you want child steps to run in order. Each child is
     "steps": [
       {
         "id": "hello",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "echo 'Hello from step one'"
+          "script": "echo 'Hello from step one'"
         }
       },
       {
         "id": "where-am-i",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "pwd && ls -la"
+          "script": "pwd && ls -la"
         }
       }
     ]
@@ -106,8 +106,8 @@ The repository includes a working version of this pattern at `examples/sequenced
     "ports": {
       "steps": {
         "nodes": [
-          {"id": "hello", "uses": "builtins/shell", "with": {"command": "echo hello"}},
-          {"id": "where-am-i", "uses": "builtins/shell", "with": {"command": "pwd"}}
+          {"id": "hello", "uses": "builtins/script", "with": {"script": "echo hello"}},
+          {"id": "where-am-i", "uses": "builtins/script", "with": {"script": "pwd"}}
         ]
       }
     }
@@ -117,7 +117,7 @@ The repository includes a working version of this pattern at `examples/sequenced
 
 ## Passing Outputs Between Nodes
 
-A shell step can publish structured outputs by writing a JSON object to a workspace-relative file and setting `with.outputs`.
+A script step can publish structured outputs by writing a JSON object to a workspace-relative file and setting `with.outputs`.
 
 Later nodes can bind accepted inputs from earlier outputs in the same local execution scope with `inputs`:
 
@@ -129,10 +129,10 @@ Later nodes can bind accepted inputs from earlier outputs in the same local exec
     "uses": "builtins/sequence",
     "steps": [
       {
-        "id": "shell-command",
-        "uses": "builtins/shell",
+        "id": "script-command",
+        "uses": "builtins/script",
         "with": {
-          "command": "printf '{\"command\":\"true\"}' > outputs.json",
+          "script": "printf '{\"command\":\"true\"}' > outputs.json",
           "outputs": "outputs.json"
         }
       },
@@ -142,7 +142,7 @@ Later nodes can bind accepted inputs from earlier outputs in the same local exec
         "inputs": {
           "command": {
             "from": {
-              "node": "shell-command",
+              "node": "script-command",
               "output": "command"
             }
           }
@@ -153,7 +153,9 @@ Later nodes can bind accepted inputs from earlier outputs in the same local exec
 }
 ```
 
-Use either `with.command` or `inputs.command` on a node, not both.
+For a node that accepts `command`, such as `builtins/test`, use either `with.command` or `inputs.command`, not both.
+
+For multi-line or OS-aware script bodies, omit `runner` or set it to `auto` to use PowerShell on Windows workers and `sh` on other workers; set `runner` explicitly for Bash, Batch, PowerShell, Python, or Node scripts.
 
 ## Optional Action Isolation
 
@@ -169,17 +171,17 @@ Each job can set a default command boundary with `default_isolation`, and each n
     "steps": [
       {
         "id": "test",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "go test ./..."
+          "script": "go test ./..."
         }
       },
       {
         "id": "host-summary",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "isolation": "host",
         "with": {
-          "command": "echo 'summary step on host'"
+          "script": "echo 'summary step on host'"
         }
       }
     ]
@@ -191,7 +193,7 @@ If `isolation` is omitted, the node inherits the nearest parent sequence's isola
 
 ## Checkout Then Build
 
-Use `builtins/checkout` to clone a Git repository into the run workspace. Shell steps after checkout run from that workspace.
+Use `builtins/checkout` to clone a Git repository into the run workspace. Script steps after checkout run from that workspace.
 
 ```json
 {
@@ -209,9 +211,9 @@ Use `builtins/checkout` to clone a Git repository into the run workspace. Shell 
       },
       {
         "id": "test",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "go test ./..."
+          "script": "go test ./..."
         }
       }
     ]
@@ -257,9 +259,9 @@ The broker decrypts that envelope with `--encryptedfs-key-file` before handing t
   ],
   "root": {
     "id": "publish",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "npm publish --//registry.npmjs.org/:_authToken=\"$(cat \"$VECTIS_SECRETS_DIR/npm/token\")\""
+      "script": "npm publish --//registry.npmjs.org/:_authToken=\"$(cat \"$VECTIS_SECRETS_DIR/npm/token\")\""
     }
   }
 }
@@ -273,7 +275,7 @@ These are the built-ins available today:
 
 | Action | Required `with` fields | What it does |
 | --- | --- | --- |
-| `builtins/shell` | `command` | Runs `sh -c <command>` in the run workspace. Optional `outputs` reads a workspace-relative JSON output file after success. |
+| `builtins/script` | `script` | Writes the script to a temporary workspace file and runs it with the selected runner. Optional `outputs` reads a workspace-relative JSON output file after success. |
 | `builtins/test` | `command` | Runs a predicate command and returns a boolean `result` output. |
 | `builtins/checkout` | `url` | Runs `git clone <url> .` in the run workspace. |
 | `builtins/sequence` | none | Runs child `steps` in order. |
@@ -301,7 +303,7 @@ Vectis validates jobs before storing them or starting a one-off run.
 | Duplicate node ID | Rename one of the duplicate node IDs. |
 | Unknown action | Check the `uses` value and any configured action registry roots. Builtins work without configuration; local custom actions require `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS`. |
 | Unsupported `isolation` | Use `host` or `vm`. |
-| Missing `command` for `builtins/shell` | Add `with.command`. |
+| Missing `script` for `builtins/script` | Add `with.script`. |
 | Missing `url` for `builtins/checkout` | Add `with.url`. |
 | Unknown key in `with` | Remove fields the selected action does not understand. |
 
