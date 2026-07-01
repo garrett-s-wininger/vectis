@@ -309,11 +309,11 @@ func normalizeChanges(changes []scm.Change) (map[string]string, []pollChange, er
 }
 
 func changeIdentity(change scm.Change) string {
-	if id := strings.TrimSpace(change.ID); id != "" {
-		return id
+	if identity := canonicalChangeIdentity(change.Project, change.Branch, change.ChangeID, change.Number); identity != "" {
+		return identity
 	}
 
-	return canonicalChangeIdentity(change.Project, change.Branch, change.ChangeID, change.Number)
+	return strings.TrimSpace(change.ID)
 }
 
 type eventPayload struct {

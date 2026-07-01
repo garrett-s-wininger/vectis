@@ -64,6 +64,7 @@ func TestPollAndStreamEventsUseSameKeyForRevision(t *testing.T) {
 
 	provider := NewProvider(WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return gerritChangesResponse(r, `[{
+			"id":"project~master~35",
 			"project":"project",
 			"branch":"master",
 			"status":"NEW",

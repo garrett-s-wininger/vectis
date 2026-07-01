@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -25,8 +26,14 @@ import (
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
 	"vectis/internal/action/custom"
+	"vectis/internal/cell"
+	"vectis/internal/dal"
+	"vectis/internal/database"
+	_ "vectis/internal/dbdrivers"
 	"vectis/internal/interfaces"
 	jobexec "vectis/internal/job"
+	"vectis/internal/migrations"
+	"vectis/internal/scmpoller"
 	"vectis/internal/secrets"
 	sdkscm "vectis/sdk/scm"
 )
@@ -72,6 +79,7 @@ type SmokeResult struct {
 	WrongPasswordDenied bool   `json:"wrong_password_denied"`
 	JobExecuted         bool   `json:"job_executed"`
 	JobReviewPosted     bool   `json:"job_review_posted"`
+	PollerBackstop      bool   `json:"poller_backstop"`
 }
 
 type smokeRunner struct {
@@ -356,6 +364,10 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		return SmokeResult{}, err
 	}
 
+	if err := r.runPollerBackstop(ctx, workspaceRoot, password, change, revision, fetchRef); err != nil {
+		return SmokeResult{}, err
+	}
+
 	return SmokeResult{
 		Status:              "ok",
 		URL:                 r.opts.URL,
@@ -371,6 +383,7 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		WrongPasswordDenied: true,
 		JobExecuted:         true,
 		JobReviewPosted:     true,
+		PollerBackstop:      true,
 	}, nil
 }
 
@@ -692,6 +705,160 @@ func (r smokeRunner) verifyReviewMessage(ctx context.Context, password, change, 
 	return fmt.Errorf("gerrit review message %q was not found", message)
 }
 
+func (r smokeRunner) runPollerBackstop(ctx context.Context, workspaceRoot, password, change, revision, fetchRef string) error {
+	restoreDriver, err := forceSQLiteDatabaseDriver()
+	if err != nil {
+		return err
+	}
+	defer restoreDriver()
+
+	dbPath := filepath.Join(workspaceRoot, "poller-backstop.sqlite")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("open gerrit poller backstop db: %w", err)
+	}
+	defer db.Close()
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	if err := migrations.Run(db, "sqlite3"); err != nil {
+		return fmt.Errorf("migrate gerrit poller backstop db: %w", err)
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	ns, err := repos.Namespaces().Create(ctx, "gerrit-smoke", nil)
+	if err != nil {
+		return fmt.Errorf("create gerrit poller smoke namespace: %w", err)
+	}
+
+	jobID := "gerrit-poller-backstop"
+	definition := `{"id":"gerrit-poller-backstop","root":{"uses":"builtins/shell","with":{"command":"echo gerrit poller backstop"}}}`
+	if err := repos.Jobs().CreateWithTriggers(ctx, jobID, definition, ns.ID, []dal.JobTriggerConfig{{
+		ID:   "gerrit",
+		Name: "Gerrit poller backstop",
+		SCMPoll: &dal.JobSCMPollTriggerConfig{
+			Provider: "gerrit",
+			BaseURL:  r.opts.URL,
+			Project:  r.opts.Project,
+			Branch:   "master",
+			Query:    "status:open",
+			Interval: time.Minute,
+		},
+	}}); err != nil {
+		return fmt.Errorf("create gerrit poller smoke job: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		UPDATE scm_poll_trigger_specs
+		SET cursor = ?, next_poll_at = ?
+	`, gerritEmptyBootstrappedCursor, time.Now().UTC().Add(-time.Second).Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("prime gerrit poller smoke cursor: %w", err)
+	}
+
+	ingress := &pollerSmokeIngress{}
+	provider := scmgerrit.NewProvider(
+		scmgerrit.WithHTTPClient(r.client),
+		scmgerrit.WithBasicAuth(r.opts.Username, password),
+	)
+
+	service := scmpoller.NewService(interfaces.NewLogger("gerrit-smoke-poller"), db)
+	service.SetInstanceID("gerrit-smoke-poller")
+	service.SetExecutionIngress(ingress)
+	service.RegisterProvider("gerrit", provider)
+
+	if err := service.Process(ctx); err != nil {
+		return fmt.Errorf("run gerrit poller backstop: %w", err)
+	}
+
+	submissions := ingress.Submissions()
+	if len(submissions) != 1 {
+		return fmt.Errorf("gerrit poller backstop dispatched %d submissions, want 1", len(submissions))
+	}
+
+	runID := submissions[0].Envelope.RunID
+	if strings.TrimSpace(runID) == "" {
+		return fmt.Errorf("gerrit poller backstop dispatched submission without run id")
+	}
+
+	if err := r.verifyPollerBackstopRows(ctx, db, runID, change, revision, fetchRef); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r smokeRunner) verifyPollerBackstopRows(ctx context.Context, db *sql.DB, runID, change, revision, fetchRef string) error {
+	var eventKey, payloadJSON, eventRunID, firstSource, firstInstance, lastSource, lastInstance string
+	var observationCount int
+	if err := db.QueryRowContext(ctx, `
+		SELECT event_key, payload_json, COALESCE(run_id, ''), first_observed_source, first_observed_source_instance,
+			last_observed_source, last_observed_source_instance, observation_count
+		FROM scm_trigger_events
+		ORDER BY discovered_at ASC
+		LIMIT 1
+	`).Scan(&eventKey, &payloadJSON, &eventRunID, &firstSource, &firstInstance, &lastSource, &lastInstance, &observationCount); err != nil {
+		return fmt.Errorf("read gerrit poller backstop event: %w", err)
+	}
+
+	if eventRunID != runID {
+		return fmt.Errorf("gerrit poller backstop event run_id = %q, want %q", eventRunID, runID)
+	}
+
+	if firstSource != dal.DispatchSourceSCMPoller || lastSource != dal.DispatchSourceSCMPoller ||
+		firstInstance != "gerrit-smoke-poller" || lastInstance != "gerrit-smoke-poller" || observationCount != 1 {
+		return fmt.Errorf("gerrit poller backstop observation metadata first=%s/%s last=%s/%s count=%d", firstSource, firstInstance, lastSource, lastInstance, observationCount)
+	}
+
+	if !strings.Contains(eventKey, revision) {
+		return fmt.Errorf("gerrit poller backstop event key %q did not include revision %s", eventKey, revision)
+	}
+
+	if !strings.Contains(eventKey, change) {
+		return fmt.Errorf("gerrit poller backstop event key %q did not include change identity %s", eventKey, change)
+	}
+
+	var payload struct {
+		CurrentRevision string `json:"current_revision"`
+		Ref             string `json:"ref"`
+	}
+
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		return fmt.Errorf("decode gerrit poller backstop payload: %w", err)
+	}
+
+	if payload.CurrentRevision != revision || payload.Ref != fetchRef {
+		return fmt.Errorf("gerrit poller backstop payload revision/ref %s/%s, want %s/%s", payload.CurrentRevision, payload.Ref, revision, fetchRef)
+	}
+
+	repos := dal.NewSQLRepositories(db)
+	run, err := repos.Runs().GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("get gerrit poller backstop run: %w", err)
+	}
+
+	if run.TriggerSourceInstance == nil || *run.TriggerSourceInstance != "gerrit-smoke-poller" {
+		return fmt.Errorf("gerrit poller backstop run source instance = %+v, want gerrit-smoke-poller", run.TriggerSourceInstance)
+	}
+
+	dispatches, err := repos.DispatchEvents().ListByRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("list gerrit poller backstop dispatch events: %w", err)
+	}
+
+	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt || dispatches[1].EventType != dal.DispatchEventSuccess {
+		return fmt.Errorf("gerrit poller backstop dispatch events = %+v, want attempt/success", dispatches)
+	}
+
+	for _, dispatch := range dispatches {
+		if dispatch.Source != dal.DispatchSourceSCMPoller || dispatch.SourceInstance != "gerrit-smoke-poller" {
+			return fmt.Errorf("gerrit poller backstop dispatch source = %+v", dispatch)
+		}
+	}
+
+	return nil
+}
+
 func gerritReviewDescriptor() (actionregistry.Descriptor, error) {
 	source, err := gerritActionResolver()
 	if err != nil {
@@ -815,6 +982,30 @@ func (s *smokeLogStream) Send(chunk *api.LogChunk) error {
 
 func (s *smokeLogStream) CloseSend() error { return nil }
 
+type pollerSmokeIngress struct {
+	mu          sync.Mutex
+	submissions []cell.ExecutionSubmission
+}
+
+func (i *pollerSmokeIngress) SubmitExecution(_ context.Context, submission cell.ExecutionSubmission) error {
+	if err := submission.Validate(); err != nil {
+		return err
+	}
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.submissions = append(i.submissions, submission)
+	return nil
+}
+
+func (i *pollerSmokeIngress) Submissions() []cell.ExecutionSubmission {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	out := make([]cell.ExecutionSubmission, len(i.submissions))
+	copy(out, i.submissions)
+	return out
+}
+
 func (r smokeRunner) runGit(ctx context.Context, dir string, gitOpts, args []string, operation string) error {
 	fullArgs := append([]string{}, gitOpts...)
 	fullArgs = append(fullArgs, args...)
@@ -871,4 +1062,21 @@ func sanitizeGerritOutput(value string) string {
 
 func strPtr(value string) *string {
 	return &value
+}
+
+const gerritEmptyBootstrappedCursor = `{"version":1,"changes":{}}`
+
+func forceSQLiteDatabaseDriver() (func(), error) {
+	previous, hadPrevious := os.LookupEnv(database.EnvDatabaseDriver)
+	if err := os.Setenv(database.EnvDatabaseDriver, "sqlite3"); err != nil {
+		return nil, fmt.Errorf("set %s for gerrit poller smoke: %w", database.EnvDatabaseDriver, err)
+	}
+
+	return func() {
+		if hadPrevious {
+			_ = os.Setenv(database.EnvDatabaseDriver, previous)
+			return
+		}
+		_ = os.Unsetenv(database.EnvDatabaseDriver)
+	}, nil
 }
