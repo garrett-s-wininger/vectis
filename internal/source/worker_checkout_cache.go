@@ -40,7 +40,9 @@ type WorkerCheckoutCacheStats struct {
 }
 
 type workerCheckoutGenerationLease struct {
-	path string
+	path          string
+	stopHeartbeat func()
+	heartbeatDone <-chan struct{}
 }
 
 func WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep int) WorkerCheckoutCacheOption {
@@ -391,7 +393,7 @@ func (c *WorkerCheckoutCache) acquireCurrentMirrorLease(ctx context.Context, rem
 		return "", nil, fmt.Errorf("close worker checkout cache generation lease: %w", err)
 	}
 
-	return mirrorPath, &workerCheckoutGenerationLease{path: leasePath}, nil
+	return mirrorPath, newWorkerCheckoutGenerationLease(leasePath, c.leaseTTL), nil
 }
 
 func (c *WorkerCheckoutCache) newGenerationPath(generationsPath string) string {
@@ -816,6 +818,61 @@ func workerCheckoutLeaseName() string {
 	return fmt.Sprintf("%020d-%d", time.Now().UnixNano(), os.Getpid())
 }
 
+func newWorkerCheckoutGenerationLease(path string, leaseTTL time.Duration) *workerCheckoutGenerationLease {
+	stop, done := startWorkerCheckoutLeaseHeartbeat(path, leaseTTL)
+	return &workerCheckoutGenerationLease{
+		path:          path,
+		stopHeartbeat: stop,
+		heartbeatDone: done,
+	}
+}
+
+func startWorkerCheckoutLeaseHeartbeat(path string, leaseTTL time.Duration) (func(), <-chan struct{}) {
+	interval := workerCheckoutLeaseHeartbeatInterval(leaseTTL)
+	if strings.TrimSpace(path) == "" || interval <= 0 {
+		return nil, nil
+	}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stop:
+				return
+			case now := <-ticker.C:
+				if err := os.Chtimes(path, now, now); errors.Is(err, os.ErrNotExist) {
+					return
+				}
+			}
+		}
+	}()
+
+	return func() { close(stop) }, done
+}
+
+func workerCheckoutLeaseHeartbeatInterval(leaseTTL time.Duration) time.Duration {
+	if leaseTTL <= 0 {
+		return 0
+	}
+
+	interval := leaseTTL / 4
+	if interval < 10*time.Millisecond {
+		return 10 * time.Millisecond
+	}
+
+	if interval > time.Minute {
+		return time.Minute
+	}
+
+	return interval
+}
+
 func sameCleanPath(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
@@ -827,6 +884,15 @@ func (l *workerCheckoutGenerationLease) Close() error {
 
 	path := l.path
 	l.path = ""
+	if l.stopHeartbeat != nil {
+		l.stopHeartbeat()
+		l.stopHeartbeat = nil
+	}
+	if l.heartbeatDone != nil {
+		<-l.heartbeatDone
+		l.heartbeatDone = nil
+	}
+
 	err := os.Remove(path)
 	_ = os.Remove(filepath.Dir(path))
 	return err

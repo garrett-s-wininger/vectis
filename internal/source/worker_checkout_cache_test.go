@@ -306,6 +306,62 @@ func TestWorkerCheckoutCacheCleanupDropsStaleLeases(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheLeaseHeartbeatKeepsActiveLeaseFresh(t *testing.T) {
+	remote := "https://example.invalid/large.git"
+	leaseTTL := 120 * time.Millisecond
+	cache, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{remote},
+		WithWorkerCheckoutCacheLeaseTTL(leaseTTL),
+	)
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	repoPath := cache.repositoryPath(remote)
+	generationNames := []string{
+		"generation-00000000000000000001-1.git",
+		"generation-00000000000000000002-1.git",
+		"generation-00000000000000000003-1.git",
+	}
+
+	for _, name := range generationNames {
+		if err := os.MkdirAll(filepath.Join(repoPath, "generations", name), 0o755); err != nil {
+			t.Fatalf("create generation %s: %v", name, err)
+		}
+	}
+
+	if err := os.Symlink(filepath.Join("generations", generationNames[0]), filepath.Join(repoPath, "current")); err != nil {
+		t.Fatalf("create current generation link: %v", err)
+	}
+
+	_, lease, err := cache.acquireCurrentMirrorLease(context.Background(), remote)
+	if err != nil {
+		t.Fatalf("acquire current mirror lease: %v", err)
+	}
+	defer lease.Close()
+
+	stale := time.Now().Add(-2 * leaseTTL)
+	if err := os.Chtimes(lease.path, stale, stale); err != nil {
+		t.Fatalf("age active lease: %v", err)
+	}
+
+	waitForFreshWorkerCheckoutLease(t, lease.path, leaseTTL)
+
+	if err := cache.flipCurrentGeneration(repoPath, filepath.Join(repoPath, "generations", generationNames[2])); err != nil {
+		t.Fatalf("flip current generation: %v", err)
+	}
+
+	if err := cache.cleanupOldGenerations(context.Background(), repoPath); err != nil {
+		t.Fatalf("cleanupOldGenerations: %v", err)
+	}
+
+	if info, err := os.Stat(filepath.Join(repoPath, "generations", generationNames[0])); err != nil || !info.IsDir() {
+		t.Fatalf("heartbeat-protected generation path info=%v err=%v", info, err)
+	}
+}
+
 func TestWorkerCheckoutCacheCleanupRemovesOldUnleasedGenerations(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
@@ -469,4 +525,24 @@ func currentWorkerCheckoutGeneration(t *testing.T, cache *WorkerCheckoutCache, r
 	}
 
 	return path
+}
+
+func waitForFreshWorkerCheckoutLease(t *testing.T, path string, leaseTTL time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat lease: %v", err)
+		}
+
+		if !workerCheckoutLeaseIsStale(info.ModTime(), leaseTTL, time.Now()) {
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("lease %s was not refreshed before deadline", path)
 }
