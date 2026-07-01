@@ -314,15 +314,27 @@ func TestServiceWarmCheckoutCache(t *testing.T) {
 
 	service := NewService(core, ServiceOptions{Logger: mocks.NewMockLogger()})
 	resp, err := service.WarmCheckoutCache(context.Background(), &api.WarmWorkerCoreCheckoutCacheRequest{
-		RemoteUrls: []string{"https://mirror.invalid/warm.git"},
+		RemoteUrls: []string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"},
+		Remotes: []*api.WorkerCoreCheckoutCacheRemote{
+			{
+				RemoteUrl:          proto.String("https://mirror.invalid/warm.git"),
+				FallbackRemoteUrls: []string{"https://tier1.invalid/warm.git"},
+			},
+		},
 	})
 
 	if err != nil {
 		t.Fatalf("WarmCheckoutCache: %v", err)
 	}
 
-	if !reflect.DeepEqual(core.req.RemoteURLs, []string{"https://mirror.invalid/warm.git"}) {
+	if !reflect.DeepEqual(core.req.RemoteURLs, []string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"}) {
 		t.Fatalf("warm request = %+v", core.req)
+	}
+
+	if len(core.req.Remotes) != 1 ||
+		core.req.Remotes[0].RemoteURL != "https://mirror.invalid/warm.git" ||
+		!reflect.DeepEqual(core.req.Remotes[0].FallbackRemoteURLs, []string{"https://tier1.invalid/warm.git"}) {
+		t.Fatalf("structured warm request = %+v", core.req.Remotes)
 	}
 
 	if resp.GetWarmed() != 1 ||

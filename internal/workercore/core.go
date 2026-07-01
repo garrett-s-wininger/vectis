@@ -44,11 +44,17 @@ type CancelTaskRequest struct {
 
 type WarmCheckoutCacheRequest struct {
 	RemoteURLs []string
+	Remotes    []CheckoutCacheRemote
 }
 
 type WarmCheckoutCacheResult struct {
 	Warmed   int
 	Failures []CheckoutCacheWarmFailure
+}
+
+type CheckoutCacheRemote struct {
+	RemoteURL          string
+	FallbackRemoteURLs []string
 }
 
 type CheckoutCacheWarmFailure struct {
@@ -129,6 +135,7 @@ type TaskSession interface {
 	ActionResolver() actionregistry.Resolver
 	SecretFiles() []secrets.FileMaterial
 	CheckoutCacheRemoteURLs() []string
+	CheckoutCacheRemotes() []CheckoutCacheRemote
 }
 
 type TaskSessionOptions struct {
@@ -143,6 +150,7 @@ type TaskSessionOptions struct {
 	ActionResolver          actionregistry.Resolver
 	SecretFiles             []secrets.FileMaterial
 	CheckoutCacheRemoteURLs []string
+	CheckoutCacheRemotes    []CheckoutCacheRemote
 }
 
 func NewTaskSession(opts TaskSessionOptions) TaskSession {
@@ -150,6 +158,14 @@ func NewTaskSession(opts TaskSessionOptions) TaskSession {
 	if runID == "" && opts.WorkloadIdentity != nil {
 		runID = opts.WorkloadIdentity.RunID
 	}
+
+	checkoutCacheRemotes := cloneCheckoutCacheRemotes(opts.CheckoutCacheRemotes)
+	checkoutCacheRemoteURLs := cloneStringSlice(opts.CheckoutCacheRemoteURLs)
+	if len(checkoutCacheRemotes) == 0 {
+		checkoutCacheRemotes = checkoutCacheRemotesFromURLs(checkoutCacheRemoteURLs)
+	}
+
+	checkoutCacheRemoteURLs = uniqueCheckoutCacheRemoteURLs(append(checkoutCacheRemoteURLs, checkoutCacheRemoteURLsFromRemotes(checkoutCacheRemotes)...))
 
 	return taskSession{
 		sessionID:               opts.SessionID,
@@ -162,7 +178,8 @@ func NewTaskSession(opts TaskSessionOptions) TaskSession {
 		actionLocks:             actionregistry.CloneActionLocks(opts.ActionLocks),
 		actionResolver:          opts.ActionResolver,
 		secretFiles:             cloneSecretFiles(opts.SecretFiles),
-		checkoutCacheRemoteURLs: cloneStringSlice(opts.CheckoutCacheRemoteURLs),
+		checkoutCacheRemoteURLs: checkoutCacheRemoteURLs,
+		checkoutCacheRemotes:    checkoutCacheRemotes,
 	}
 }
 
@@ -178,6 +195,7 @@ type taskSession struct {
 	actionResolver          actionregistry.Resolver
 	secretFiles             []secrets.FileMaterial
 	checkoutCacheRemoteURLs []string
+	checkoutCacheRemotes    []CheckoutCacheRemote
 }
 
 func (s taskSession) SessionID() string {
@@ -224,6 +242,10 @@ func (s taskSession) CheckoutCacheRemoteURLs() []string {
 	return cloneStringSlice(s.checkoutCacheRemoteURLs)
 }
 
+func (s taskSession) CheckoutCacheRemotes() []CheckoutCacheRemote {
+	return cloneCheckoutCacheRemotes(s.checkoutCacheRemotes)
+}
+
 func cloneSecretFiles(files []secrets.FileMaterial) []secrets.FileMaterial {
 	if len(files) == 0 {
 		return nil
@@ -244,4 +266,67 @@ func cloneStringSlice(in []string) []string {
 	}
 
 	return append([]string(nil), in...)
+}
+
+func cloneCheckoutCacheRemotes(in []CheckoutCacheRemote) []CheckoutCacheRemote {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]CheckoutCacheRemote, 0, len(in))
+	for _, remote := range in {
+		remote.RemoteURL = strings.TrimSpace(remote.RemoteURL)
+		remote.FallbackRemoteURLs = cloneStringSlice(remote.FallbackRemoteURLs)
+		if remote.RemoteURL == "" && len(remote.FallbackRemoteURLs) == 0 {
+			continue
+		}
+
+		out = append(out, remote)
+	}
+
+	return out
+}
+
+func checkoutCacheRemotesFromURLs(remoteURLs []string) []CheckoutCacheRemote {
+	if len(remoteURLs) == 0 {
+		return nil
+	}
+
+	remotes := make([]CheckoutCacheRemote, 0, len(remoteURLs))
+	for _, remoteURL := range remoteURLs {
+		remoteURL = strings.TrimSpace(remoteURL)
+		if remoteURL == "" {
+			continue
+		}
+
+		remotes = append(remotes, CheckoutCacheRemote{RemoteURL: remoteURL})
+	}
+
+	return remotes
+}
+
+func checkoutCacheRemoteURLsFromRemotes(remotes []CheckoutCacheRemote) []string {
+	if len(remotes) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(remotes))
+	out := make([]string, 0, len(remotes))
+	for _, remote := range remotes {
+		for _, remoteURL := range append([]string{remote.RemoteURL}, remote.FallbackRemoteURLs...) {
+			remoteURL = strings.TrimSpace(remoteURL)
+			if remoteURL == "" {
+				continue
+			}
+
+			if _, ok := seen[remoteURL]; ok {
+				continue
+			}
+
+			seen[remoteURL] = struct{}{}
+			out = append(out, remoteURL)
+		}
+	}
+
+	return out
 }

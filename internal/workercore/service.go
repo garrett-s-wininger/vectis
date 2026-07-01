@@ -112,7 +112,7 @@ func (s *Service) WarmCheckoutCache(ctx context.Context, req *api.WarmWorkerCore
 		return nil, status.Error(codes.Unimplemented, "worker core does not support checkout cache warming")
 	}
 
-	result, err := warmer.WarmCheckoutCache(ctx, WarmCheckoutCacheRequest{RemoteURLs: req.GetRemoteUrls()})
+	result, err := warmer.WarmCheckoutCache(ctx, WarmCheckoutCacheRequestFromProto(req))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "warm worker core checkout cache: %v", err)
 	}
@@ -178,6 +178,7 @@ func (s *Service) executeTaskRequest(ctx context.Context, req *api.ExecuteWorker
 		ActionResolver:          actionResolver,
 		SecretFiles:             secretFilesFromProto(session.GetSecretFiles()),
 		CheckoutCacheRemoteURLs: session.GetCheckoutCacheRemoteUrls(),
+		CheckoutCacheRemotes:    checkoutCacheRemotesFromProto(session.GetCheckoutCacheRemotes()),
 	})
 
 	return ExecuteTaskRequest{

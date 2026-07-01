@@ -229,3 +229,28 @@ func TestTaskSessionClonesCheckoutCacheRemoteURLs(t *testing.T) {
 		t.Fatalf("session checkout cache remote URLs were not cloned defensively: %+v", again)
 	}
 }
+
+func TestTaskSessionClonesCheckoutCacheRemotes(t *testing.T) {
+	remotes := []CheckoutCacheRemote{
+		{
+			RemoteURL:          "https://mirror.invalid/one.git",
+			FallbackRemoteURLs: []string{"https://tier1.invalid/one.git"},
+		},
+	}
+
+	session := NewTaskSession(TaskSessionOptions{CheckoutCacheRemotes: remotes})
+	remotes[0].RemoteURL = "https://mirror.invalid/mutated.git"
+	remotes[0].FallbackRemoteURLs[0] = "https://tier1.invalid/mutated.git"
+
+	got := session.CheckoutCacheRemotes()
+	got[0].RemoteURL = "https://mirror.invalid/changed-again.git"
+	got[0].FallbackRemoteURLs[0] = "https://tier1.invalid/changed-again.git"
+
+	again := session.CheckoutCacheRemotes()
+	if len(again) != 1 ||
+		again[0].RemoteURL != "https://mirror.invalid/one.git" ||
+		len(again[0].FallbackRemoteURLs) != 1 ||
+		again[0].FallbackRemoteURLs[0] != "https://tier1.invalid/one.git" {
+		t.Fatalf("session checkout cache remotes were not cloned defensively: %+v", again)
+	}
+}

@@ -154,6 +154,18 @@ func TestWorkerCheckoutCacheRemoteURLsUsesPersistentSources(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("checkout cache remotes = %+v, want %+v", got, want)
 	}
+
+	gotStructured := w.checkoutCacheRemotes(ctx)
+	wantStructured := []workercore.CheckoutCacheRemote{
+		{
+			RemoteURL:          "https://mirror.invalid/persistent.git",
+			FallbackRemoteURLs: []string{"https://tier1.invalid/persistent.git"},
+		},
+	}
+
+	if !reflect.DeepEqual(gotStructured, wantStructured) {
+		t.Fatalf("structured checkout cache remotes = %+v, want %+v", gotStructured, wantStructured)
+	}
 }
 
 func TestWorkerWarmCheckoutCacheUsesPersistentSources(t *testing.T) {
@@ -186,7 +198,15 @@ func TestWorkerWarmCheckoutCacheUsesPersistentSources(t *testing.T) {
 		"https://mirror.invalid/persistent.git",
 		"https://tier1.invalid/persistent.git",
 	}
-	if len(warmer.requests) != 1 || !reflect.DeepEqual(warmer.requests[0].RemoteURLs, want) {
+	wantStructured := []workercore.CheckoutCacheRemote{
+		{
+			RemoteURL:          "https://mirror.invalid/persistent.git",
+			FallbackRemoteURLs: []string{"https://tier1.invalid/persistent.git"},
+		},
+	}
+	if len(warmer.requests) != 1 ||
+		!reflect.DeepEqual(warmer.requests[0].RemoteURLs, want) ||
+		!reflect.DeepEqual(warmer.requests[0].Remotes, wantStructured) {
 		t.Fatalf("warm requests = %+v, want one request with %+v", warmer.requests, want)
 	}
 }

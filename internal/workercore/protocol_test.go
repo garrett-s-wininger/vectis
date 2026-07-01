@@ -91,9 +91,11 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 					},
 				},
 			},
-			CheckoutCacheRemoteURLs: []string{
-				"https://mirror.invalid/vectis.git",
-				"https://tier1.invalid/vectis.git",
+			CheckoutCacheRemotes: []CheckoutCacheRemote{
+				{
+					RemoteURL:          "https://mirror.invalid/vectis.git",
+					FallbackRemoteURLs: []string{"https://tier1.invalid/vectis.git"},
+				},
 			},
 		}),
 	})
@@ -133,6 +135,12 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 
 	if got, want := session.GetCheckoutCacheRemoteUrls(), []string{"https://mirror.invalid/vectis.git", "https://tier1.invalid/vectis.git"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("checkout cache remote urls = %+v, want %+v", got, want)
+	}
+
+	if got := session.GetCheckoutCacheRemotes(); len(got) != 1 ||
+		got[0].GetRemoteUrl() != "https://mirror.invalid/vectis.git" ||
+		!reflect.DeepEqual(got[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/vectis.git"}) {
+		t.Fatalf("checkout cache structured remotes = %+v", got)
 	}
 
 	identity := session.GetWorkloadIdentity()
@@ -391,14 +399,23 @@ func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
 	})
 
 	result, err := core.WarmCheckoutCache(context.Background(), WarmCheckoutCacheRequest{
-		RemoteURLs: []string{"https://mirror.invalid/warm.git"},
+		Remotes: []CheckoutCacheRemote{
+			{
+				RemoteURL:          "https://mirror.invalid/warm.git",
+				FallbackRemoteURLs: []string{"https://tier1.invalid/warm.git"},
+			},
+		},
 	})
 
 	if err != nil {
 		t.Fatalf("WarmCheckoutCache: %v", err)
 	}
 
-	if captured == nil || !reflect.DeepEqual(captured.GetRemoteUrls(), []string{"https://mirror.invalid/warm.git"}) {
+	if captured == nil ||
+		!reflect.DeepEqual(captured.GetRemoteUrls(), []string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"}) ||
+		len(captured.GetRemotes()) != 1 ||
+		captured.GetRemotes()[0].GetRemoteUrl() != "https://mirror.invalid/warm.git" ||
+		!reflect.DeepEqual(captured.GetRemotes()[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/warm.git"}) {
 		t.Fatalf("captured warm request = %+v", captured)
 	}
 

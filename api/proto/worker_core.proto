@@ -53,6 +53,7 @@ message CancelWorkerCoreTaskRequest {
 
 message WarmWorkerCoreCheckoutCacheRequest {
     repeated string remote_urls = 1;
+    repeated WorkerCoreCheckoutCacheRemote remotes = 2;
 }
 
 message WarmWorkerCoreCheckoutCacheResponse {
@@ -74,6 +75,12 @@ message WorkerCoreTaskSession {
     bool artifacts_enabled = 6;
     repeated secrets.SecretFileMaterial secret_files = 7;
     repeated string checkout_cache_remote_urls = 8;
+    repeated WorkerCoreCheckoutCacheRemote checkout_cache_remotes = 9;
+}
+
+message WorkerCoreCheckoutCacheRemote {
+    string remote_url = 1;
+    repeated string fallback_remote_urls = 2;
 }
 
 message WorkerCoreWorkloadIdentity {

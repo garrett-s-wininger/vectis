@@ -187,6 +187,60 @@ func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheHydratesCanonicalMirrorFromFallback(t *testing.T) {
+	primary := initGitRepo(t)
+	writeAndCommit(t, primary, "README.md", "primary\n", "primary")
+
+	upstream := filepath.Join(t.TempDir(), "upstream")
+	cloneGitRepo(t, primary, upstream)
+	git(t, upstream, "config", "user.name", "Vectis Test")
+	git(t, upstream, "config", "user.email", "vectis@example.invalid")
+	writeAndCommit(t, upstream, "README.md", "upstream\n", "upstream")
+	upstreamCommit := gitOutput(t, upstream, "rev-parse", "HEAD")
+
+	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+		{
+			RemoteURL:          primary,
+			FallbackRemoteURLs: []string{upstream},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
+	}
+
+	handled, normalizedRemote, err := cache.WarmRemote(context.Background(), primary, nil)
+	if err != nil {
+		t.Fatalf("WarmRemote: %v", err)
+	}
+
+	if !handled || normalizedRemote != primary {
+		t.Fatalf("WarmRemote handled=%v normalized=%q, want primary %q", handled, normalizedRemote, primary)
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	handled, err = cache.Checkout(context.Background(), primary, workspace, nil)
+	if err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+
+	if !handled {
+		t.Fatal("expected primary remote to be handled by cache")
+	}
+
+	if got := gitOutput(t, workspace, "rev-parse", "HEAD"); got != upstreamCommit {
+		t.Fatalf("workspace commit = %q, want fallback commit %q", got, upstreamCommit)
+	}
+
+	if got := gitOutput(t, workspace, "remote", "get-url", "origin"); got != primary {
+		t.Fatalf("origin url = %q, want primary %q", got, primary)
+	}
+}
+
 func TestWorkerCheckoutCacheRejectsInvalidGenerationRetention(t *testing.T) {
 	_, err := NewWorkerCheckoutCache(
 		filepath.Join(t.TempDir(), "cache"),

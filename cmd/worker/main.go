@@ -638,6 +638,10 @@ func (w *worker) executionChoreographer() executionChoreographer {
 }
 
 func (w *worker) checkoutCacheRemoteURLs(ctx context.Context) []string {
+	return checkoutCacheRemoteURLsFromWorkerRemotes(w.checkoutCacheRemotes(ctx))
+}
+
+func (w *worker) checkoutCacheRemotes(ctx context.Context) []workercore.CheckoutCacheRemote {
 	if w == nil || w.sourceRepositories == nil {
 		return nil
 	}
@@ -650,7 +654,7 @@ func (w *worker) checkoutCacheRemoteURLs(ctx context.Context) []string {
 		return nil
 	}
 
-	return sourceRepositoryRemoteURLs(repositories)
+	return sourceRepositoryCheckoutCacheRemotes(repositories)
 }
 
 func (w *worker) startCheckoutCacheWarmLoop(desc workercore.CoreDescription) {
@@ -710,18 +714,21 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		defer cancel()
 	}
 
-	remoteURLs := w.checkoutCacheRemoteURLs(ctx)
+	remotes := w.checkoutCacheRemotes(ctx)
 	if err := ctx.Err(); err != nil {
 		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0)
 		return
 	}
 
-	if len(remoteURLs) == 0 {
+	if len(remotes) == 0 {
 		record(observability.WorkerCheckoutCacheWarmOutcomeSkipped, observability.WorkerCheckoutCacheWarmReasonNoRemotes, 0, 0)
 		return
 	}
 
-	result, err := warmer.WarmCheckoutCache(ctx, workercore.WarmCheckoutCacheRequest{RemoteURLs: remoteURLs})
+	result, err := warmer.WarmCheckoutCache(ctx, workercore.WarmCheckoutCacheRequest{
+		RemoteURLs: checkoutCacheRemoteURLsFromWorkerRemotes(remotes),
+		Remotes:    remotes,
+	})
 	if err != nil {
 		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0)
 		if w.logger != nil {
@@ -830,14 +837,47 @@ func checkoutCacheWarmStableJitter(interval time.Duration, ratio float64, worker
 }
 
 func sourceRepositoryRemoteURLs(repositories []dal.SourceRepositoryRecord) []string {
-	seen := make(map[string]struct{}, len(repositories))
-	out := make([]string, 0, len(repositories))
+	return checkoutCacheRemoteURLsFromWorkerRemotes(sourceRepositoryCheckoutCacheRemotes(repositories))
+}
+
+func sourceRepositoryCheckoutCacheRemotes(repositories []dal.SourceRepositoryRecord) []workercore.CheckoutCacheRemote {
+	seen := make(map[string]int, len(repositories))
+	out := make([]workercore.CheckoutCacheRemote, 0, len(repositories))
 	for _, repository := range repositories {
 		if !repository.Enabled || strings.TrimSpace(repository.WorkerCacheMode) != dal.SourceWorkerCacheModePersistent {
 			continue
 		}
 
-		for _, remoteURL := range append([]string{repository.CanonicalURL}, repository.FallbackRemoteURLs...) {
+		remoteURL := strings.TrimSpace(repository.CanonicalURL)
+		if remoteURL == "" {
+			continue
+		}
+
+		fallbackRemoteURLs := checkoutCacheUniqueRemoteURLs(repository.FallbackRemoteURLs, remoteURL)
+		if existing, ok := seen[remoteURL]; ok {
+			out[existing].FallbackRemoteURLs = checkoutCacheUniqueRemoteURLs(append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...), remoteURL)
+			continue
+		}
+
+		seen[remoteURL] = len(out)
+		out = append(out, workercore.CheckoutCacheRemote{
+			RemoteURL:          remoteURL,
+			FallbackRemoteURLs: fallbackRemoteURLs,
+		})
+	}
+
+	return out
+}
+
+func checkoutCacheRemoteURLsFromWorkerRemotes(remotes []workercore.CheckoutCacheRemote) []string {
+	if len(remotes) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(remotes))
+	out := make([]string, 0, len(remotes))
+	for _, remote := range remotes {
+		for _, remoteURL := range append([]string{remote.RemoteURL}, remote.FallbackRemoteURLs...) {
 			remoteURL = strings.TrimSpace(remoteURL)
 			if remoteURL == "" {
 				continue
@@ -850,6 +890,30 @@ func sourceRepositoryRemoteURLs(repositories []dal.SourceRepositoryRecord) []str
 			seen[remoteURL] = struct{}{}
 			out = append(out, remoteURL)
 		}
+	}
+
+	return out
+}
+
+func checkoutCacheUniqueRemoteURLs(remoteURLs []string, primaryRemoteURL string) []string {
+	if len(remoteURLs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(remoteURLs))
+	out := make([]string, 0, len(remoteURLs))
+	for _, remoteURL := range remoteURLs {
+		remoteURL = strings.TrimSpace(remoteURL)
+		if remoteURL == "" || remoteURL == primaryRemoteURL {
+			continue
+		}
+
+		if _, ok := seen[remoteURL]; ok {
+			continue
+		}
+
+		seen[remoteURL] = struct{}{}
+		out = append(out, remoteURL)
 	}
 
 	return out
@@ -3695,6 +3759,7 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			defer func(closer interface{ Close() error }) { _ = closer.Close() }(artifactPublisher)
 		}
 
+		checkoutCacheRemotes := w.checkoutCacheRemotes(execCtx)
 		execSessionOpts := workercore.TaskSessionOptions{
 			SessionID:               env.ExecutionID,
 			RunID:                   env.RunID,
@@ -3705,8 +3770,10 @@ func (w *worker) executeWithLeaseRenewal(ctx context.Context, runID string, exec
 			ActionResolver:          w.actionResolver,
 			ActionLocks:             env.ActionLocks,
 			SecretFiles:             secretFiles,
-			CheckoutCacheRemoteURLs: w.checkoutCacheRemoteURLs(execCtx),
+			CheckoutCacheRemoteURLs: checkoutCacheRemoteURLsFromWorkerRemotes(checkoutCacheRemotes),
+			CheckoutCacheRemotes:    checkoutCacheRemotes,
 		}
+
 		if artifactPublisher != nil {
 			execSessionOpts.ArtifactPublisher = action.ArtifactPublisher(artifactPublisher)
 		}

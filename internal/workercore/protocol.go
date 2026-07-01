@@ -218,6 +218,7 @@ func TaskSessionProto(session TaskSession) (*api.WorkerCoreTaskSession, error) {
 		ArtifactsEnabled:        proto.Bool(session.ArtifactPublisher() != nil),
 		SecretFiles:             secretFilesProto(session.SecretFiles()),
 		CheckoutCacheRemoteUrls: cloneStringSlice(session.CheckoutCacheRemoteURLs()),
+		CheckoutCacheRemotes:    checkoutCacheRemotesProto(session.CheckoutCacheRemotes()),
 	}, nil
 }
 
@@ -236,8 +237,11 @@ func CoreDescriptionProto(desc CoreDescription) *api.DescribeWorkerCoreResponse 
 }
 
 func WarmCheckoutCacheRequestProto(req WarmCheckoutCacheRequest) *api.WarmWorkerCoreCheckoutCacheRequest {
+	remoteURLs := uniqueCheckoutCacheRemoteURLs(append(cloneStringSlice(req.RemoteURLs), checkoutCacheRemoteURLsFromRemotes(req.Remotes)...))
+
 	return &api.WarmWorkerCoreCheckoutCacheRequest{
-		RemoteUrls: cloneStringSlice(req.RemoteURLs),
+		RemoteUrls: remoteURLs,
+		Remotes:    checkoutCacheRemotesProto(req.Remotes),
 	}
 }
 
@@ -257,6 +261,68 @@ func WarmCheckoutCacheResultFromProto(in *api.WarmWorkerCoreCheckoutCacheRespons
 		Warmed:   int(in.GetWarmed()),
 		Failures: checkoutCacheWarmFailuresFromProto(in.GetFailures()),
 	}
+}
+
+func WarmCheckoutCacheRequestFromProto(in *api.WarmWorkerCoreCheckoutCacheRequest) WarmCheckoutCacheRequest {
+	if in == nil {
+		return WarmCheckoutCacheRequest{}
+	}
+
+	remotes := checkoutCacheRemotesFromProto(in.GetRemotes())
+	if len(remotes) == 0 {
+		remotes = checkoutCacheRemotesFromURLs(in.GetRemoteUrls())
+	}
+
+	return WarmCheckoutCacheRequest{
+		RemoteURLs: cloneStringSlice(in.GetRemoteUrls()),
+		Remotes:    remotes,
+	}
+}
+
+func checkoutCacheRemotesProto(remotes []CheckoutCacheRemote) []*api.WorkerCoreCheckoutCacheRemote {
+	if len(remotes) == 0 {
+		return nil
+	}
+
+	out := make([]*api.WorkerCoreCheckoutCacheRemote, 0, len(remotes))
+	for _, remote := range remotes {
+		remoteURL := strings.TrimSpace(remote.RemoteURL)
+		if remoteURL == "" {
+			continue
+		}
+
+		out = append(out, &api.WorkerCoreCheckoutCacheRemote{
+			RemoteUrl:          proto.String(remoteURL),
+			FallbackRemoteUrls: cloneStringSlice(remote.FallbackRemoteURLs),
+		})
+	}
+
+	return out
+}
+
+func checkoutCacheRemotesFromProto(remotes []*api.WorkerCoreCheckoutCacheRemote) []CheckoutCacheRemote {
+	if len(remotes) == 0 {
+		return nil
+	}
+
+	out := make([]CheckoutCacheRemote, 0, len(remotes))
+	for _, remote := range remotes {
+		if remote == nil {
+			continue
+		}
+
+		remoteURL := strings.TrimSpace(remote.GetRemoteUrl())
+		if remoteURL == "" {
+			continue
+		}
+
+		out = append(out, CheckoutCacheRemote{
+			RemoteURL:          remoteURL,
+			FallbackRemoteURLs: cloneStringSlice(remote.GetFallbackRemoteUrls()),
+		})
+	}
+
+	return out
 }
 
 func ArtifactMetadataProto(sessionID string, req action.ArtifactPublishRequest) *api.WorkerCoreArtifactMetadata {
