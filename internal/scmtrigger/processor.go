@@ -68,9 +68,11 @@ func (p Processor) recordEvent(ctx context.Context, triggerID int64, event scm.E
 	}
 
 	rec, created, err := p.Events.RecordEvent(ctx, dal.SCMTriggerEvent{
-		TriggerID:   triggerID,
-		EventKey:    key,
-		PayloadJSON: event.PayloadJSON,
+		TriggerID:      triggerID,
+		EventKey:       key,
+		PayloadJSON:    event.PayloadJSON,
+		Source:         p.source(),
+		SourceInstance: p.InstanceID(),
 	})
 
 	if err != nil {
@@ -177,11 +179,6 @@ func (p Processor) recordTriggerInvocation(ctx context.Context, spec dal.SCMPoll
 }
 
 func (p Processor) dispatcher() trigger.Dispatcher {
-	source := strings.TrimSpace(p.Source)
-	if source == "" {
-		source = "scm_trigger"
-	}
-
 	return trigger.Dispatcher{
 		Runs:           p.Runs,
 		Dispatch:       p.Dispatch,
@@ -190,9 +187,17 @@ func (p Processor) dispatcher() trigger.Dispatcher {
 		Logger:         p.logger(),
 		Clock:          p.clock(),
 		ActionResolver: p.ActionResolver,
-		Source:         source,
+		Source:         p.source(),
 		SourceInstance: p.InstanceID(),
 	}
+}
+
+func (p Processor) source() string {
+	if source := strings.TrimSpace(p.Source); source != "" {
+		return source
+	}
+
+	return "scm_trigger"
 }
 
 func (p Processor) InstanceID() string {

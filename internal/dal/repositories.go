@@ -946,17 +946,25 @@ type SCMPollTriggerSpec struct {
 }
 
 type SCMTriggerEvent struct {
-	TriggerID   int64
-	EventKey    string
-	RunID       string
-	PayloadJSON string
+	TriggerID      int64
+	EventKey       string
+	RunID          string
+	PayloadJSON    string
+	Source         string
+	SourceInstance string
 }
 
 type SCMTriggerEventRecord struct {
-	TriggerID   int64
-	EventKey    string
-	RunID       *string
-	PayloadJSON string
+	TriggerID                   int64
+	EventKey                    string
+	RunID                       *string
+	PayloadJSON                 string
+	FirstObservedSource         string
+	FirstObservedSourceInstance string
+	LastObservedSource          string
+	LastObservedSourceInstance  string
+	ObservationCount            int
+	LastObservedAt              *string
 }
 
 type RunForCancel struct {

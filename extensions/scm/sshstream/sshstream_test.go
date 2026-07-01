@@ -7,12 +7,11 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
-
-	"vectis/internal/interfaces/mocks"
 )
 
 func TestNormalizeOptionsDefaults(t *testing.T) {
@@ -127,8 +126,8 @@ func TestNewClientConfigAcceptsKeyFile(t *testing.T) {
 }
 
 func TestConsumeWithReconnectRetriesWithBackoff(t *testing.T) {
-	clock := mocks.NewMockClock()
-	logger := mocks.NewMockLogger()
+	clock := &mockClock{}
+	logger := &mockLogger{}
 	attempts := 0
 	streamErr := errors.New("stream dropped")
 
@@ -152,12 +151,34 @@ func TestConsumeWithReconnectRetriesWithBackoff(t *testing.T) {
 		t.Fatalf("attempts = %d, want 3", attempts)
 	}
 
-	sleeps := clock.GetSleeps()
+	sleeps := clock.sleeps
 	if len(sleeps) != 2 || sleeps[0] != time.Second || sleeps[1] != 2*time.Second {
 		t.Fatalf("sleeps = %v, want [1s 2s]", sleeps)
 	}
 
-	if len(logger.GetWarnCalls()) != 2 {
-		t.Fatalf("warn calls = %d, want 2", len(logger.GetWarnCalls()))
+	if len(logger.warns) != 2 {
+		t.Fatalf("warn calls = %d, want 2", len(logger.warns))
 	}
+}
+
+type mockClock struct {
+	sleeps []time.Duration
+}
+
+func (c *mockClock) Sleep(ctx context.Context, d time.Duration) error {
+	c.sleeps = append(c.sleeps, d)
+	return ctx.Err()
+}
+
+type mockLogger struct {
+	infos []string
+	warns []string
+}
+
+func (l *mockLogger) Info(msg string, args ...any) {
+	l.infos = append(l.infos, fmt.Sprintf(msg, args...))
+}
+
+func (l *mockLogger) Warn(msg string, args ...any) {
+	l.warns = append(l.warns, fmt.Sprintf(msg, args...))
 }

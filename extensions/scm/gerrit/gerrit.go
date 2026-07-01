@@ -313,15 +313,7 @@ func changeIdentity(change scm.Change) string {
 		return id
 	}
 
-	if changeID := strings.TrimSpace(change.ChangeID); changeID != "" {
-		return changeID
-	}
-
-	if change.Number != 0 {
-		return strconv.Itoa(change.Number)
-	}
-
-	return ""
+	return canonicalChangeIdentity(change.Project, change.Branch, change.ChangeID, change.Number)
 }
 
 type eventPayload struct {
@@ -348,7 +340,7 @@ func eventForChange(spec scm.PollSpec, serverHash, query string, change pollChan
 		Branch:           strings.TrimSpace(change.Info.Branch),
 		Query:            strings.TrimSpace(query),
 		ChangeID:         strings.TrimSpace(change.Info.ChangeID),
-		ID:               strings.TrimSpace(change.Info.ID),
+		ID:               change.Identity,
 		Number:           change.Info.Number,
 		Status:           strings.TrimSpace(change.Info.Status),
 		CurrentRevision:  change.Revision,
@@ -370,9 +362,32 @@ func eventForChange(spec scm.PollSpec, serverHash, query string, change pollChan
 	}
 
 	return scm.Event{
-		Key:         fmt.Sprintf("gerrit:%s:%s:%s", shortServerHash(serverHash), change.Identity, change.Revision),
+		Key:         gerritEventKey(serverHash, change.Identity, change.Revision),
 		PayloadJSON: string(payloadJSON),
 	}, nil
+}
+
+func canonicalChangeIdentity(project, branch, changeID string, number int) string {
+	changeID = strings.TrimSpace(changeID)
+	if changeID != "" {
+		project = strings.TrimSpace(project)
+		branch = strings.TrimSpace(branch)
+		if project != "" && branch != "" {
+			return project + "~" + branch + "~" + changeID
+		}
+
+		return changeID
+	}
+
+	if number != 0 {
+		return strconv.Itoa(number)
+	}
+
+	return ""
+}
+
+func gerritEventKey(serverHash, identity, revision string) string {
+	return fmt.Sprintf("gerrit:%s:%s:%s", shortServerHash(serverHash), strings.TrimSpace(identity), strings.TrimSpace(revision))
 }
 
 func providerName(name string) string {

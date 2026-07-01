@@ -3,6 +3,7 @@ package gerrit
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -52,6 +53,87 @@ func TestNormalizeStreamEventPatchSetCreatedUsesPollCompatibleKey(t *testing.T) 
 		payload.ID != "project~master~Iabc" || payload.Number != 17 || payload.Status != "NEW" ||
 		payload.CurrentRevision != "rev2" || payload.Ref != "refs/changes/17/17/2" {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestPollAndStreamEventsUseSameKeyForRevision(t *testing.T) {
+	cursor, err := encodeCursor(map[string]string{"project~master~Iabc": "rev1"})
+	if err != nil {
+		t.Fatalf("encode cursor: %v", err)
+	}
+
+	provider := NewProvider(WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return gerritChangesResponse(r, `[{
+			"project":"project",
+			"branch":"master",
+			"status":"NEW",
+			"change_id":"Iabc",
+			"number":17,
+			"current_revision":"rev2",
+			"revisions":{"rev2":{"ref":"refs/changes/17/17/2"}}
+		}]`), nil
+	})}))
+
+	pollResult, err := provider.Poll(context.Background(), scm.PollSpec{
+		Provider: "gerrit",
+		BaseURL:  "http://gerrit.example.com/",
+		Project:  "project",
+		Branch:   "master",
+		Cursor:   cursor,
+	})
+
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+
+	if len(pollResult.Events) != 1 {
+		t.Fatalf("poll events = %+v, want one event", pollResult.Events)
+	}
+
+	streamEvent, ok, err := NormalizeStreamEvent([]byte(`{
+		"type":"patchset-created",
+		"change":{
+			"project":"project",
+			"branch":"master",
+			"id":"Iabc",
+			"number":17,
+			"status":"NEW"
+		},
+		"patchSet":{
+			"revision":"rev2",
+			"ref":"refs/changes/17/17/2"
+		}
+	}`), StreamOptions{
+		Provider: "gerrit",
+		BaseURL:  "http://gerrit.example.com",
+		Project:  "project",
+		Branch:   "master",
+	})
+
+	if err != nil {
+		t.Fatalf("NormalizeStreamEvent: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected stream event to normalize")
+	}
+
+	if pollResult.Events[0].Key != streamEvent.Key {
+		t.Fatalf("poll key %q != stream key %q", pollResult.Events[0].Key, streamEvent.Key)
+	}
+
+	pollInfo, err := StreamEventInfoFromEvent(pollResult.Events[0])
+	if err != nil {
+		t.Fatalf("poll event info: %v", err)
+	}
+
+	streamInfo, err := StreamEventInfoFromEvent(streamEvent)
+	if err != nil {
+		t.Fatalf("stream event info: %v", err)
+	}
+
+	if pollInfo.ID != streamInfo.ID || pollInfo.CurrentRevision != streamInfo.CurrentRevision || pollInfo.Ref != streamInfo.Ref {
+		t.Fatalf("poll info = %+v, stream info = %+v", pollInfo, streamInfo)
 	}
 }
 

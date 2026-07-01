@@ -4827,9 +4827,11 @@ func TestRunsRepository_CreateSCMEventRunIdempotentByEventKey(t *testing.T) {
 
 	eventKey := "gerrit:project:master:Iabc:rev1"
 	if _, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
-		TriggerID:   ready[0].TriggerID,
-		EventKey:    eventKey,
-		PayloadJSON: `{"change_id":"Iabc","revision":"rev1"}`,
+		TriggerID:      ready[0].TriggerID,
+		EventKey:       eventKey,
+		PayloadJSON:    `{"change_id":"Iabc","revision":"rev1"}`,
+		Source:         dal.DispatchSourceSCMGerritStream,
+		SourceInstance: "gerrit-stream-a",
 	}); err != nil || !created {
 		t.Fatalf("record scm event created=%v err=%v", created, err)
 	}
@@ -4872,36 +4874,51 @@ func TestRunsRepository_CreateSCMEventRunIdempotentByEventKey(t *testing.T) {
 	}
 
 	rec, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
-		TriggerID:   ready[0].TriggerID,
-		EventKey:    eventKey,
-		PayloadJSON: `{"duplicate":true}`,
+		TriggerID:      ready[0].TriggerID,
+		EventKey:       eventKey,
+		PayloadJSON:    `{"duplicate":true}`,
+		Source:         dal.DispatchSourceSCMPoller,
+		SourceInstance: "scm-poller-a",
 	})
+
 	if err != nil {
 		t.Fatalf("record duplicate scm event: %v", err)
 	}
+
 	if created {
 		t.Fatal("expected duplicate scm event not to create another row")
 	}
+
 	if rec.RunID == nil || *rec.RunID != runID1 {
 		t.Fatalf("expected duplicate event to report run %s, got %+v", runID1, rec.RunID)
+	}
+
+	if rec.FirstObservedSource != dal.DispatchSourceSCMGerritStream || rec.FirstObservedSourceInstance != "gerrit-stream-a" ||
+		rec.LastObservedSource != dal.DispatchSourceSCMPoller || rec.LastObservedSourceInstance != "scm-poller-a" ||
+		rec.ObservationCount != 2 {
+		t.Fatalf("duplicate observation metadata = %+v", rec)
 	}
 
 	runID2, idx2, created, err := runs.CreateSCMEventRun(ctx, ready[0].TriggerID, eventKey, jobID, 1, dal.RunAuditMetadata{})
 	if err != nil {
 		t.Fatalf("create duplicate scm event run: %v", err)
 	}
+
 	if created {
 		t.Fatal("expected duplicate scm event run call to reuse existing run")
 	}
+
 	if runID2 != runID1 || idx2 != idx1 {
 		t.Fatalf("expected duplicate to reuse run %s/%d, got %s/%d", runID1, idx1, runID2, idx2)
 	}
 
 	nextEventKey := "gerrit:project:master:Iabc:rev2"
 	if _, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
-		TriggerID:   ready[0].TriggerID,
-		EventKey:    nextEventKey,
-		PayloadJSON: `{"change_id":"Iabc","revision":"rev2"}`,
+		TriggerID:      ready[0].TriggerID,
+		EventKey:       nextEventKey,
+		PayloadJSON:    `{"change_id":"Iabc","revision":"rev2"}`,
+		Source:         dal.DispatchSourceSCMGerritStream,
+		SourceInstance: "gerrit-stream-a",
 	}); err != nil || !created {
 		t.Fatalf("record next scm event created=%v err=%v", created, err)
 	}
@@ -6574,23 +6591,30 @@ func TestSCMPollTriggersRepository_GetReadyClaimCompleteAndRecordEvent(t *testin
 	}
 
 	rec, created, err := polls.RecordEvent(ctx, dal.SCMTriggerEvent{
-		TriggerID:   ready[0].TriggerID,
-		EventKey:    "gerrit:project:master:Iabc:rev1",
-		PayloadJSON: `{"change_id":"Iabc","revision":"rev1"}`,
+		TriggerID:      ready[0].TriggerID,
+		EventKey:       "gerrit:project:master:Iabc:rev1",
+		PayloadJSON:    `{"change_id":"Iabc","revision":"rev1"}`,
+		Source:         dal.DispatchSourceSCMPoller,
+		SourceInstance: "scm-poller-a",
 	})
 
 	if err != nil {
 		t.Fatalf("record scm trigger event: %v", err)
 	}
 
-	if !created || rec.EventKey != "gerrit:project:master:Iabc:rev1" {
+	if !created || rec.EventKey != "gerrit:project:master:Iabc:rev1" ||
+		rec.FirstObservedSource != dal.DispatchSourceSCMPoller ||
+		rec.LastObservedSource != dal.DispatchSourceSCMPoller ||
+		rec.ObservationCount != 1 || rec.LastObservedAt == nil {
 		t.Fatalf("first event record: rec=%+v created=%v", rec, created)
 	}
 
-	_, created, err = polls.RecordEvent(ctx, dal.SCMTriggerEvent{
-		TriggerID:   ready[0].TriggerID,
-		EventKey:    "gerrit:project:master:Iabc:rev1",
-		PayloadJSON: `{"duplicate":true}`,
+	rec, created, err = polls.RecordEvent(ctx, dal.SCMTriggerEvent{
+		TriggerID:      ready[0].TriggerID,
+		EventKey:       "gerrit:project:master:Iabc:rev1",
+		PayloadJSON:    `{"duplicate":true}`,
+		Source:         dal.DispatchSourceSCMGerritStream,
+		SourceInstance: "gerrit-stream-a",
 	})
 
 	if err != nil {
@@ -6599,6 +6623,11 @@ func TestSCMPollTriggersRepository_GetReadyClaimCompleteAndRecordEvent(t *testin
 
 	if created {
 		t.Fatal("expected duplicate event key not to create another row")
+	}
+	if rec.FirstObservedSource != dal.DispatchSourceSCMPoller || rec.FirstObservedSourceInstance != "scm-poller-a" ||
+		rec.LastObservedSource != dal.DispatchSourceSCMGerritStream || rec.LastObservedSourceInstance != "gerrit-stream-a" ||
+		rec.ObservationCount != 2 {
+		t.Fatalf("duplicate event record: rec=%+v", rec)
 	}
 
 	nextPoll := now.Add(10 * time.Minute)

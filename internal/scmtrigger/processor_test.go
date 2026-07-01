@@ -38,7 +38,7 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 		Ingress:        ingress,
 		Logger:         mocks.NopLogger{},
 		Clock:          clock,
-		Source:         "gerrit_stream",
+		Source:         dal.DispatchSourceSCMGerritStream,
 		SourceInstance: "gerrit-stream-a",
 	}
 
@@ -105,7 +105,7 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 		t.Fatalf("unexpected dispatch events: %+v", dispatches)
 	}
 
-	if dispatches[0].Source != "gerrit_stream" || dispatches[1].Source != "gerrit_stream" {
+	if dispatches[0].Source != dal.DispatchSourceSCMGerritStream || dispatches[1].Source != dal.DispatchSourceSCMGerritStream {
 		t.Fatalf("unexpected dispatch sources: %+v", dispatches)
 	}
 
@@ -114,7 +114,7 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 	}
 }
 
-func TestProcessorHandleEventReusesExistingRun(t *testing.T) {
+func TestProcessorHandleEventDedupesAcrossSources(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	repos := dal.NewSQLRepositories(db)
 	ctx := context.Background()
@@ -135,9 +135,12 @@ func TestProcessorHandleEventReusesExistingRun(t *testing.T) {
 		Invocations:    repos.TriggerInvocations(),
 		Ingress:        ingress,
 		Logger:         mocks.NopLogger{},
-		Source:         "gerrit_stream",
+		Source:         dal.DispatchSourceSCMGerritStream,
 		SourceInstance: "gerrit-stream-a",
 	}
+	pollerProcessor := processor
+	pollerProcessor.Source = dal.DispatchSourceSCMPoller
+	pollerProcessor.SourceInstance = "scm-poller-a"
 
 	spec := dal.SCMPollTriggerSpec{TriggerID: triggerID, JobID: jobID, Provider: "gerrit", BaseURL: "http://gerrit.example.com", Project: "project", Branch: "master"}
 	event := scm.Event{Key: "gerrit:server:project~master~Iabc:rev1", PayloadJSON: `{"change_id":"Iabc"}`}
@@ -146,12 +149,37 @@ func TestProcessorHandleEventReusesExistingRun(t *testing.T) {
 		t.Fatalf("first HandleEvent: %v", err)
 	}
 
-	if err := processor.HandleEvent(ctx, spec, event); err != nil {
+	if err := pollerProcessor.HandleEvent(ctx, spec, event); err != nil {
 		t.Fatalf("second HandleEvent: %v", err)
 	}
 
 	if len(ingress.submissions) != 1 {
 		t.Fatalf("expected duplicate event not to dispatch again, got %d submissions", len(ingress.submissions))
+	}
+
+	run, err := repos.Runs().GetRun(ctx, ingress.submissions[0].Envelope.RunID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+
+	if run.TriggerSourceInstance == nil || *run.TriggerSourceInstance != "gerrit-stream-a" {
+		t.Fatalf("expected first source instance to remain on run, got %+v", run.TriggerSourceInstance)
+	}
+
+	var firstSource, firstInstance, lastSource, lastInstance string
+	var observationCount int
+	if err := db.QueryRowContext(ctx, `
+		SELECT first_observed_source, first_observed_source_instance, last_observed_source, last_observed_source_instance, observation_count
+		FROM scm_trigger_events
+		WHERE trigger_id = ? AND event_key = ?
+	`, triggerID, event.Key).Scan(&firstSource, &firstInstance, &lastSource, &lastInstance, &observationCount); err != nil {
+		t.Fatalf("read scm trigger event observations: %v", err)
+	}
+
+	if firstSource != dal.DispatchSourceSCMGerritStream || firstInstance != "gerrit-stream-a" ||
+		lastSource != dal.DispatchSourceSCMPoller || lastInstance != "scm-poller-a" ||
+		observationCount != 2 {
+		t.Fatalf("unexpected observation metadata: first=%s/%s last=%s/%s count=%d", firstSource, firstInstance, lastSource, lastInstance, observationCount)
 	}
 }
 

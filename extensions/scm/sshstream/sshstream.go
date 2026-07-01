@@ -15,12 +15,20 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
-
-	"vectis/internal/backoff"
-	"vectis/internal/interfaces"
 )
 
 const DefaultConnectTimeout = 10 * time.Second
+
+const maxExponentShift = 30
+
+type Logger interface {
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+}
+
+type Clock interface {
+	Sleep(ctx context.Context, d time.Duration) error
+}
 
 type Options struct {
 	Host                  string
@@ -38,8 +46,8 @@ type ReconnectOptions struct {
 	BaseDelay   time.Duration
 	MaxDelay    time.Duration
 	MaxAttempts int
-	Clock       interfaces.Clock
-	Logger      interfaces.Logger
+	Clock       Clock
+	Logger      Logger
 	Label       string
 }
 
@@ -56,7 +64,7 @@ func ConsumeWithReconnect(ctx context.Context, opts Options, reconnect Reconnect
 	})
 }
 
-func ConsumeOnce(ctx context.Context, opts Options, consume Consumer, logger interfaces.Logger) error {
+func ConsumeOnce(ctx context.Context, opts Options, consume Consumer, logger Logger) error {
 	opts, err := NormalizeOptions(opts)
 	if err != nil {
 		return err
@@ -261,12 +269,12 @@ func consumeWithReconnect(ctx context.Context, opts ReconnectOptions, consume fu
 
 	clock := opts.Clock
 	if clock == nil {
-		clock = interfaces.SystemClock{}
+		clock = systemClock{}
 	}
 
 	logger := opts.Logger
 	if logger == nil {
-		logger = interfaces.NewLogger("ssh-stream")
+		logger = stderrLogger{component: "ssh-stream"}
 	}
 
 	label := strings.TrimSpace(opts.Label)
@@ -294,7 +302,7 @@ func consumeWithReconnect(ctx context.Context, opts ReconnectOptions, consume fu
 			return lastErr
 		}
 
-		delay := backoff.ExponentialDelay(baseDelay, attempt, opts.MaxDelay)
+		delay := exponentialDelay(baseDelay, attempt, opts.MaxDelay)
 		logger.Warn("%s disconnected: %v; reconnecting in %v", label, lastErr, delay)
 		if err := clock.Sleep(ctx, delay); err != nil {
 			return err
@@ -356,7 +364,7 @@ func authMethods(opts Options) ([]ssh.AuthMethod, func() error, error) {
 	return auths, closeAuth, nil
 }
 
-func logStderr(logger interfaces.Logger, r io.Reader) {
+func logStderr(logger Logger, r io.Reader) {
 	if logger == nil || r == nil {
 		return
 	}
@@ -372,6 +380,57 @@ func logStderr(logger interfaces.Logger, r io.Reader) {
 	if err := scanner.Err(); err != nil {
 		logger.Warn("Read SSH stderr: %v", err)
 	}
+}
+
+func exponentialDelay(baseDelay time.Duration, attempt int, maxDelay time.Duration) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	if attempt > maxExponentShift {
+		attempt = maxExponentShift
+	}
+
+	delay := baseDelay * time.Duration(uint64(1)<<uint(attempt))
+	if maxDelay > 0 && delay > maxDelay {
+		return maxDelay
+	}
+
+	return delay
+}
+
+type systemClock struct{}
+
+func (systemClock) Sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type stderrLogger struct {
+	component string
+}
+
+func (l stderrLogger) Info(msg string, args ...any) {
+	l.log("INFO", msg, args...)
+}
+
+func (l stderrLogger) Warn(msg string, args ...any) {
+	l.log("WARN", msg, args...)
+}
+
+func (l stderrLogger) log(level, msg string, args ...any) {
+	component := strings.TrimSpace(l.component)
+	if component == "" {
+		component = "ssh-stream"
+	}
+
+	fmt.Fprintf(os.Stderr, "%s [%s] %s\n", time.Now().Format(time.RFC3339), level, component+": "+fmt.Sprintf(msg, args...))
 }
 
 func defaultKnownHostsFile() string {

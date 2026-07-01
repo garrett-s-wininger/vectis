@@ -358,6 +358,12 @@ CREATE TABLE scm_trigger_events (
     event_key TEXT NOT NULL,
     run_id TEXT UNIQUE REFERENCES job_runs(run_id) ON DELETE SET NULL,
     payload_json TEXT NOT NULL DEFAULT '',
+    first_observed_source TEXT NOT NULL DEFAULT '',
+    first_observed_source_instance TEXT NOT NULL DEFAULT '',
+    last_observed_source TEXT NOT NULL DEFAULT '',
+    last_observed_source_instance TEXT NOT NULL DEFAULT '',
+    observation_count INTEGER NOT NULL DEFAULT 1 CHECK(observation_count > 0),
+    last_observed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (trigger_id, event_key)

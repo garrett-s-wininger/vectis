@@ -66,7 +66,8 @@ func TestServiceProcessClaimsPollsRecordsEventsAndCompletes(t *testing.T) {
 		t.Fatalf("provider spec = %+v", provider.got)
 	}
 
-	if len(repo.events) != 1 || repo.events[0].EventKey != "gerrit:project:master:Iabc:rev1" {
+	if len(repo.events) != 1 || repo.events[0].EventKey != "gerrit:project:master:Iabc:rev1" ||
+		repo.events[0].Source != dal.DispatchSourceSCMPoller || repo.events[0].SourceInstance != "poller-a" {
 		t.Fatalf("events = %+v", repo.events)
 	}
 

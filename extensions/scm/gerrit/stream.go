@@ -123,7 +123,7 @@ func NormalizeStreamEvent(raw []byte, opts StreamOptions) (scm.Event, bool, erro
 		return scm.Event{}, false, err
 	}
 
-	identity := streamChangeIdentity(project, branch, changeID, number)
+	identity := canonicalChangeIdentity(project, branch, changeID, number)
 	if identity == "" {
 		return scm.Event{}, false, fmt.Errorf("gerrit stream event %q missing change identity", event.Type)
 	}
@@ -150,7 +150,7 @@ func NormalizeStreamEvent(raw []byte, opts StreamOptions) (scm.Event, bool, erro
 	}
 
 	return scm.Event{
-		Key:         fmt.Sprintf("gerrit:%s:%s:%s", shortServerHash(serverHash), identity, revision),
+		Key:         gerritEventKey(serverHash, identity, revision),
 		PayloadJSON: string(payloadJSON),
 	}, true, nil
 }
@@ -207,25 +207,6 @@ func isOpenStatus(status string) bool {
 	default:
 		return false
 	}
-}
-
-func streamChangeIdentity(project, branch, changeID string, number int) string {
-	changeID = strings.TrimSpace(changeID)
-	if changeID != "" {
-		project = strings.TrimSpace(project)
-		branch = strings.TrimSpace(branch)
-		if project != "" && branch != "" {
-			return project + "~" + branch + "~" + changeID
-		}
-
-		return changeID
-	}
-
-	if number != 0 {
-		return strconv.Itoa(number)
-	}
-
-	return ""
 }
 
 func parseStreamNumber(raw json.RawMessage) (int, error) {

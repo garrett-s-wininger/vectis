@@ -240,6 +240,8 @@ func (r *SQLSCMPollTriggersRepository) ReleaseClaim(ctx context.Context, specID 
 func (r *SQLSCMPollTriggersRepository) RecordEvent(ctx context.Context, event SCMTriggerEvent) (SCMTriggerEventRecord, bool, error) {
 	event.TriggerID = normalizeTriggerID(event.TriggerID)
 	event.EventKey = strings.TrimSpace(event.EventKey)
+	event.Source = strings.TrimSpace(event.Source)
+	event.SourceInstance = strings.TrimSpace(event.SourceInstance)
 	if event.TriggerID <= 0 {
 		return SCMTriggerEventRecord{}, false, fmt.Errorf("%w: trigger_id is required", ErrConflict)
 	}
@@ -254,10 +256,19 @@ func (r *SQLSCMPollTriggersRepository) RecordEvent(ctx context.Context, event SC
 	}
 
 	result, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
-		INSERT INTO scm_trigger_events (trigger_id, event_key, run_id, payload_json)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO scm_trigger_events (
+			trigger_id,
+			event_key,
+			run_id,
+			payload_json,
+			first_observed_source,
+			first_observed_source_instance,
+			last_observed_source,
+			last_observed_source_instance
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(trigger_id, event_key) DO NOTHING
-	`), event.TriggerID, event.EventKey, runID, event.PayloadJSON)
+	`), event.TriggerID, event.EventKey, runID, event.PayloadJSON, event.Source, event.SourceInstance, event.Source, event.SourceInstance)
 
 	if err != nil {
 		return SCMTriggerEventRecord{}, false, normalizeSQLError(err)
@@ -268,27 +279,68 @@ func (r *SQLSCMPollTriggersRepository) RecordEvent(ctx context.Context, event SC
 		return SCMTriggerEventRecord{}, false, normalizeSQLError(err)
 	}
 
+	created := rows == 1
+	if !created {
+		if _, err := r.db.ExecContext(ctx, rebindQueryForPgx(`
+			UPDATE scm_trigger_events
+			SET last_observed_source = ?,
+				last_observed_source_instance = ?,
+				last_observed_at = CURRENT_TIMESTAMP,
+				observation_count = observation_count + 1,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE trigger_id = ? AND event_key = ?
+		`), event.Source, event.SourceInstance, event.TriggerID, event.EventKey); err != nil {
+			return SCMTriggerEventRecord{}, false, normalizeSQLError(err)
+		}
+	}
+
 	rec, err := r.getEvent(ctx, event.TriggerID, event.EventKey)
 	if err != nil {
 		return SCMTriggerEventRecord{}, false, err
 	}
 
-	return rec, rows == 1, nil
+	return rec, created, nil
 }
 
 func (r *SQLSCMPollTriggersRepository) getEvent(ctx context.Context, triggerID int64, eventKey string) (SCMTriggerEventRecord, error) {
 	var rec SCMTriggerEventRecord
 	var runID sql.NullString
+	var lastObservedAt sql.NullString
 	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
-		SELECT trigger_id, event_key, run_id, payload_json
+		SELECT
+			trigger_id,
+			event_key,
+			run_id,
+			payload_json,
+			first_observed_source,
+			first_observed_source_instance,
+			last_observed_source,
+			last_observed_source_instance,
+			observation_count,
+			CAST(last_observed_at AS TEXT)
 		FROM scm_trigger_events
 		WHERE trigger_id = ? AND event_key = ?
-	`), triggerID, eventKey).Scan(&rec.TriggerID, &rec.EventKey, &runID, &rec.PayloadJSON); err != nil {
+	`), triggerID, eventKey).Scan(
+		&rec.TriggerID,
+		&rec.EventKey,
+		&runID,
+		&rec.PayloadJSON,
+		&rec.FirstObservedSource,
+		&rec.FirstObservedSourceInstance,
+		&rec.LastObservedSource,
+		&rec.LastObservedSourceInstance,
+		&rec.ObservationCount,
+		&lastObservedAt,
+	); err != nil {
 		return SCMTriggerEventRecord{}, normalizeSQLError(err)
 	}
 
 	if runID.Valid {
 		rec.RunID = &runID.String
+	}
+
+	if lastObservedAt.Valid {
+		rec.LastObservedAt = &lastObservedAt.String
 	}
 
 	return rec, nil
