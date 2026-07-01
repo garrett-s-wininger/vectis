@@ -2771,6 +2771,90 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-secrets"), []string{"127.0.0.1:9091"})
 }
 
+func TestDeployPodmanRender_ProfilesHaveUniquePodTCPListeners(t *testing.T) {
+	for _, profile := range []string{podmanProfileSimple, podmanProfileHA} {
+		t.Run(profile, func(t *testing.T) {
+			t.Setenv(envDeployConfigDir, t.TempDir())
+
+			oldProfile := podmanProfile
+			oldKubeSpec := podmanKubeSpec
+			podmanProfile = profile
+			podmanKubeSpec = defaultPodmanKubeSpec
+			t.Cleanup(func() {
+				podmanProfile = oldProfile
+				podmanKubeSpec = oldKubeSpec
+			})
+
+			manifestBytes, _, _, err := renderPodmanManifest(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			docs := decodeYAMLDocuments(t, manifestBytes)
+			pod := findYAMLDocument(t, docs, "Pod", "vectis")
+			assertUniquePodTCPListeners(t, pod)
+		})
+	}
+}
+
+func TestDeployPodmanRender_PrometheusTargetsMatchServiceListeners(t *testing.T) {
+	jobs := map[string][]string{
+		"prometheus":          {"prometheus"},
+		"vectis-api":          {"api", "api-2"},
+		"vectis-queue":        {"queue", "queue-2"},
+		"vectis-orchestrator": {"orchestrator"},
+		"vectis-worker":       {"worker", "worker-2"},
+		"vectis-log":          {"log", "log-2"},
+		"vectis-artifact":     {"artifact", "artifact-2"},
+		"vectis-secrets":      {"secrets"},
+		"vectis-reconciler":   {"reconciler", "reconciler-2"},
+		"vectis-catalog":      {"catalog"},
+	}
+
+	for _, profile := range []string{podmanProfileSimple, podmanProfileHA} {
+		t.Run(profile, func(t *testing.T) {
+			t.Setenv(envDeployConfigDir, t.TempDir())
+
+			oldProfile := podmanProfile
+			oldKubeSpec := podmanKubeSpec
+			podmanProfile = profile
+			podmanKubeSpec = defaultPodmanKubeSpec
+			t.Cleanup(func() {
+				podmanProfile = oldProfile
+				podmanKubeSpec = oldKubeSpec
+			})
+
+			manifestBytes, _, _, err := renderPodmanManifest(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			docs := decodeYAMLDocuments(t, manifestBytes)
+			pod := findYAMLDocument(t, docs, "Pod", "vectis")
+			portOwners := podTCPListenerOwners(t, pod)
+			for jobName, allowedOwners := range jobs {
+				for _, target := range prometheusTargets(t, docs, jobName) {
+					host, port, err := splitPodmanTarget(target)
+					if err != nil {
+						t.Fatalf("prometheus job %s target %q: %v", jobName, target, err)
+					}
+					if host != "127.0.0.1" {
+						t.Fatalf("prometheus job %s target host = %q, want 127.0.0.1", jobName, host)
+					}
+
+					owner, ok := portOwners[port]
+					if !ok {
+						t.Fatalf("prometheus job %s target %q has no declared pod listener", jobName, target)
+					}
+					if !containsString(allowedOwners, owner) {
+						t.Fatalf("prometheus job %s target %q is owned by container %s, want one of %v", jobName, target, owner, allowedOwners)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestDeployPodmanRender_InvalidProfileFails(t *testing.T) {
 	oldProfile := podmanProfile
 	podmanProfile = "weird"
@@ -2779,6 +2863,98 @@ func TestDeployPodmanRender_InvalidProfileFails(t *testing.T) {
 	if _, _, _, err := renderPodmanManifest(false); err == nil {
 		t.Fatalf("expected invalid profile error")
 	}
+}
+
+func assertUniquePodTCPListeners(t *testing.T, pod map[string]any) {
+	t.Helper()
+
+	owners := map[int]string{}
+	var duplicates []string
+	for _, listener := range podTCPListeners(t, pod) {
+		if previous, ok := owners[listener.port]; ok {
+			duplicates = append(duplicates, fmt.Sprintf("%d: %s and %s", listener.port, previous, listener.container))
+			continue
+		}
+		owners[listener.port] = listener.container
+	}
+
+	if len(duplicates) > 0 {
+		sort.Strings(duplicates)
+		t.Fatalf("pod %s has duplicate TCP listeners:\n%s", stringValue(mapValue(t, pod["metadata"])["name"]), strings.Join(duplicates, "\n"))
+	}
+}
+
+func podTCPListenerOwners(t *testing.T, pod map[string]any) map[int]string {
+	t.Helper()
+
+	out := map[int]string{}
+	for _, listener := range podTCPListeners(t, pod) {
+		out[listener.port] = listener.container
+	}
+	return out
+}
+
+type podTCPListener struct {
+	container string
+	port      int
+}
+
+func podTCPListeners(t *testing.T, pod map[string]any) []podTCPListener {
+	t.Helper()
+
+	spec := mapValue(t, pod["spec"])
+	containers := sliceValue(t, spec["containers"])
+	listeners := make([]podTCPListener, 0, len(containers))
+	for _, rawContainer := range containers {
+		container := mapValue(t, rawContainer)
+		name := stringValue(container["name"])
+		rawPorts, ok := container["ports"]
+		if !ok {
+			continue
+		}
+
+		for _, rawPort := range sliceValue(t, rawPorts) {
+			portConfig := mapValue(t, rawPort)
+			protocol := stringValue(portConfig["protocol"])
+			if protocol != "" && protocol != "TCP" {
+				continue
+			}
+
+			port := intValue(portConfig["containerPort"])
+			if port <= 0 {
+				t.Fatalf("container %s has invalid TCP containerPort %#v", name, portConfig["containerPort"])
+			}
+			listeners = append(listeners, podTCPListener{container: name, port: port})
+		}
+	}
+
+	return listeners
+}
+
+func splitPodmanTarget(target string) (string, int, error) {
+	host, portText, err := net.SplitHostPort(target)
+	if err != nil {
+		return "", 0, err
+	}
+
+	var port int
+	if _, err := fmt.Sscanf(portText, "%d", &port); err != nil {
+		return "", 0, err
+	}
+	if port <= 0 {
+		return "", 0, fmt.Errorf("invalid port %q", portText)
+	}
+
+	return host, port, nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeYAMLDocuments(t *testing.T, manifest []byte) []map[string]any {

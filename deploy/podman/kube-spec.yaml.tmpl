@@ -791,6 +791,9 @@ spec:
       imagePullPolicy: Never
       envFrom: *vectisGrpcTlsEnvFrom
       volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
+      ports:
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
       env:
         - name: VECTIS_DATABASE_DRIVER
           value: pgx
