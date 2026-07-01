@@ -103,6 +103,13 @@ data:
           ca_file: /run/vectis/grpc-tls/ca.pem
         static_configs:
           - targets: {{ quoteList .PrometheusWorkerTargets }}
+      - job_name: vectis-worker-core
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusWorkerCoreTargets }}
       - job_name: vectis-log
         scheme: https
         metrics_path: /metrics
@@ -846,6 +853,9 @@ spec:
       image: vectis-worker-core:latest
       imagePullPolicy: Never
       envFrom: *vectisGrpcTlsEnvFrom
+      ports:
+        - containerPort: 9092
+          protocol: TCP
       volumeMounts:
         - <<: *componentLogsMount
         - &workerCoreSocketsMount
@@ -854,6 +864,8 @@ spec:
       env:
         - name: VECTIS_WORKER_CORE_SOCKET
           value: /run/vectis/worker-core/worker-core.sock
+        - name: VECTIS_WORKER_CORE_METRICS_PORT
+          value: "9092"
 {{ range .WorkerReplicas }}
     - name: {{ .Name }}
       image: vectis-worker:latest

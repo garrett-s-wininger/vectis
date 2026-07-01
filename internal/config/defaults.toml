@@ -259,6 +259,10 @@ x509_svid_ttl = "0s"
 min_ttl = "0s"
 max_ttl = "0s"
 
+[worker_core]
+metrics_host = "localhost"
+metrics_port = 9092
+
 [grpc_tls]
 insecure = true
 ca_file = ""

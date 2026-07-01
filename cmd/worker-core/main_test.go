@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -84,6 +86,7 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	socketPath := socktest.ShortPath(t, "worker-core.sock")
 	shellSocketPath := socktest.ShortPath(t, "worker-core-shell.sock")
 	workspaceRoot := t.TempDir()
+	metricsPort := reserveWorkerCoreProcessMetricsPort(t)
 
 	var output bytes.Buffer
 	cmd := exec.Command(os.Args[0], "-test.run=^TestWorkerCoreProcessHelper$")
@@ -91,6 +94,7 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 		workerCoreProcessHelperEnv+"=1",
 		"VECTIS_WORKER_CORE_PROCESS_SOCKET="+socketPath,
 		"VECTIS_WORKER_CORE_PROCESS_WORKSPACE_ROOT="+workspaceRoot,
+		"VECTIS_WORKER_CORE_PROCESS_METRICS_PORT="+strconv.Itoa(metricsPort),
 	)
 
 	cmd.Stdout = &output
@@ -232,18 +236,38 @@ func TestWorkerCoreProcessHelper(t *testing.T) {
 
 	socketPath := os.Getenv("VECTIS_WORKER_CORE_PROCESS_SOCKET")
 	workspaceRoot := os.Getenv("VECTIS_WORKER_CORE_PROCESS_WORKSPACE_ROOT")
-	if socketPath == "" || workspaceRoot == "" {
-		t.Fatal("worker core helper missing socket or workspace root")
+	metricsPort := os.Getenv("VECTIS_WORKER_CORE_PROCESS_METRICS_PORT")
+	if socketPath == "" || workspaceRoot == "" || metricsPort == "" {
+		t.Fatal("worker core helper missing socket, workspace root, or metrics port")
 	}
 
 	os.Args = []string{
 		"vectis-worker-core",
 		"--socket", socketPath,
+		"--metrics-host", "127.0.0.1",
+		"--metrics-port", metricsPort,
 		"--execution-backend", "host",
 		"--workspace-root", workspaceRoot,
 	}
 
 	main()
+}
+
+func reserveWorkerCoreProcessMetricsPort(t *testing.T) int {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve worker-core metrics port: %v", err)
+	}
+	defer ln.Close()
+
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok || addr.Port <= 0 {
+		t.Fatalf("reserve worker-core metrics port returned %v", ln.Addr())
+	}
+
+	return addr.Port
 }
 
 func dialWorkerCoreProcess(t *testing.T, ctx context.Context, socketPath string, done <-chan error, output *bytes.Buffer) (*workercore.RemoteCore, func()) {

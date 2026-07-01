@@ -218,6 +218,13 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.spiffe.registration.min_ttl` | `0s` | Optional minimum accepted registration lifetime. |
 | `worker.spiffe.registration.max_ttl` | `0s` | Optional maximum accepted registration lifetime. |
 
+## Worker Core
+
+| Key | Default | Operator note |
+| --- | --- | --- |
+| `worker_core.metrics_host` | `localhost` | Worker-core metrics bind host. |
+| `worker_core.metrics_port` | `9092` | Worker-core metrics port. |
+
 ## Cron, Reconciler, And Catalog
 
 | Key | Default | Operator note |

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 )
 
 type CheckoutAction struct {
@@ -53,30 +55,43 @@ func (c *CheckoutAction) Type() string {
 }
 
 func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
+	started := time.Now()
+
 	url, ok := inputs["url"].(string)
 	if !ok || url == "" {
+		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyValidation, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonMissingURL, time.Since(started))
 		return action.NewFailureResult(fmt.Errorf("checkout action requires 'url' input"))
 	}
 
 	if hasCredentialedCloneURL(url) {
+		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyValidation, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonCredentialedURL, time.Since(started))
 		return action.NewFailureResult(fmt.Errorf("checkout action requires url without embedded credentials"))
 	}
 
 	displayURL := redactCloneURL(url)
 
 	if cache := c.checkoutCache(state); cache != nil && state != nil {
+		cacheStarted := time.Now()
 		handled, err := cache.Checkout(ctx, url, state.Workspace, state.Logger)
 		if err != nil {
+			recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeFailed, observability.CheckoutActionReasonCacheError, time.Since(cacheStarted))
+			recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyCache, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonCacheError, time.Since(started))
 			state.Logger.Error("Cached checkout failed for %s: %v", displayURL, err)
 			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Cached checkout failed: %v", err))
 			return action.NewFailureResult(fmt.Errorf("cached checkout failed: %w", err))
 		}
 
 		if handled {
+			recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeHit, observability.CheckoutActionReasonOK, time.Since(cacheStarted))
+			recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyCache, observability.CheckoutActionOutcomeSuccess, observability.CheckoutActionReasonOK, time.Since(started))
 			state.Logger.Info("Checkout completed successfully from worker cache")
 			sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully from worker cache")
 			return action.NewSuccessResult(nil)
 		}
+
+		recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeMiss, observability.CheckoutActionReasonNoCache, time.Since(cacheStarted))
+	} else {
+		recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeSkipped, observability.CheckoutActionReasonNoCache, 0)
 	}
 
 	state.Logger.Info("Cloning repository: %s", displayURL)
@@ -85,6 +100,7 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
 	process, err := c.processExecutor(state).Start(ctx, "git", []string{"clone", url, "."}, state.Workspace, env)
 	if err != nil {
+		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(started))
 		return action.NewFailureResult(fmt.Errorf("failed to start git clone: %w", err))
 	}
 
@@ -105,11 +121,13 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	cmdErr := process.Wait()
 
 	if cmdErr != nil {
+		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitCloneFailed, time.Since(started))
 		state.Logger.Error("Git clone failed: %v", cmdErr)
 		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Git clone failed: %v", cmdErr))
 		return action.NewFailureResult(fmt.Errorf("git clone failed: %w", cmdErr))
 	}
 
+	recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeSuccess, observability.CheckoutActionReasonOK, time.Since(started))
 	state.Logger.Info("Checkout completed successfully")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully")
 	return action.NewSuccessResult(nil)

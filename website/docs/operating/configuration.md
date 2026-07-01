@@ -142,7 +142,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-secrets` | `VECTIS_SECRETS` | `--port`, `--metrics-host`, `--metrics-port`, `--encryptedfs-root`, `--encryptedfs-key-file`, `--allow-secret` |
 | `vectis-spiffe` | `VECTIS_SPIFFE` | `--trust-domain`, `--data-dir`, `--runtime-dir`, `--workload-socket`, `--registration-socket`, `--bundle-file`, `--selector`, `--x509-svid-ttl`, `--init-only` |
 | `vectis-worker` | `VECTIS_WORKER` | `--metrics-host`, `--metrics-port`, `--artifact-max-bytes`, `--artifact-max-run-bytes`, `--artifact-max-count`, `--queue-continuation-inline-job-max-bytes`, `--core-socket`, `--core-shell-socket`, `--core-connect-timeout`, `--checkout-cache-warm-interval`, `--checkout-cache-warm-timeout`, `--checkout-cache-warm-jitter-ratio`, `--secrets-address`; use `VECTIS_WORKER_QUEUE_ADDRESS`, `VECTIS_WORKER_LOG_ADDRESS`, `VECTIS_WORKER_ORCHESTRATOR_ADDRESS`, and `VECTIS_WORKER_SECRETS_ADDRESS` to pin internal dependencies |
-| `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--execution-backend`, `--workspace-root`, `--checkout-cache-root`, `--lima-instance`, `--lima-start` |
+| `vectis-worker-core` | `VECTIS_WORKER_CORE` | `--socket`, `--metrics-host`, `--metrics-port`, `--execution-backend`, `--workspace-root`, `--checkout-cache-root`, `--lima-instance`, `--lima-start` |
 | `vectis-cron` | `VECTIS_CRON` | `--instance-id`, `--claim-ttl` |
 | `vectis-reconciler` | `VECTIS_RECONCILER` | `--interval`, `--lease-ttl`, `--redispatch-limit`, `--metrics-host`, `--metrics-port` |
 | `vectis-catalog` | `VECTIS_CATALOG` | `--interval`, `--batch-size`, `--metrics-host`, `--metrics-port`, `--cell-database-dsn` |
@@ -476,6 +476,8 @@ For failure behavior with and without registry, see [Failure Domains](../concept
 
 Set `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` or `--checkout-cache-root` to enable worker-local persistent checkout mirrors for `builtins/checkout`. Worker-core caches only source repositories whose `worker_cache_mode` is `persistent`; provide static worker-core declarations through `source.repositories`, `VECTIS_SOURCE_REPOSITORIES`, `VECTIS_WORKER_SOURCE_REPOSITORIES`, or `VECTIS_WORKER_CORE_SOURCE_REPOSITORIES`. The worker also reads enabled persistent source repository rows from the cell database and asks worker-core to warm those mirrors before task checkout uses them. Tune `VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL`, `VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT`, and `VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO` for very large repositories or large worker fleets. Repositories left at the default `ephemeral` mode keep using direct per-workspace clones.
 
+Worker-core exposes its own metrics listener with `VECTIS_WORKER_CORE_METRICS_HOST` / `VECTIS_WORKER_CORE_METRICS_PORT`. Scrape it alongside `vectis-worker` to see checkout cache hits, misses, cache errors, direct clone fallbacks, and checkout action latency.
+
 Jobs can declare `default_isolation: "host"` or `default_isolation: "vm"` as the default for their action tree. Individual nodes can declare `isolation: "host"` or `isolation: "vm"` to override that default. Nodes that omit `isolation` inherit the nearest parent `builtins/sequence` isolation, then the job default, then the worker backend default. A worker must have a matching provider for the effective isolation level; Vectis does not silently fall back from `vm` to `host`.
 
 The first VM-oriented backend is `lima`, intended for macOS worker isolation experiments with a prepared [Lima](https://lima-vm.io/) instance:
@@ -493,6 +495,7 @@ Equivalent environment variables:
 | Variable / key | Purpose |
 | --- | --- |
 | `VECTIS_WORKER_CORE_EXECUTION_BACKEND` | `host` or `lima` to run action commands through `limactl shell`. |
+| `VECTIS_WORKER_CORE_METRICS_PORT` | Worker-core `/metrics` listener port. Defaults to `9092`. |
 | `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` | Host-side root for persistent checkout mirrors used by `builtins/checkout`. |
 | `VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL` | Worker cadence for warming persistent checkout mirrors. Defaults to `5m`. |
 | `VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT` | Per-pass timeout for worker-driven checkout cache warming. Defaults to `30m`. |
@@ -578,8 +581,10 @@ The complete embedded port defaults are listed by key in [Configuration Key Refe
 | Log-forwarder metrics | `9088` |
 | Artifact metrics | `9089` |
 | Orchestrator metrics | `9090` |
+| Secrets metrics | `9091` |
+| Worker-core metrics | `9092` |
 
-Each extra `vectis-local --cell` uses the default cell-local ports plus `100` per additional cell. For example, the first extra cell uses queue `8181`, cell ingress `8185`, queue metrics `9181`, worker metrics `9182`, and cell ingress metrics `9187`. Multi-cell local workers use ephemeral worker-control ports.
+Each extra `vectis-local --cell` uses the default cell-local ports plus `100` per additional cell. For example, the first extra cell uses queue `8181`, cell ingress `8185`, queue metrics `9181`, worker metrics `9182`, cell ingress metrics `9187`, and worker-core metrics `9192`. Multi-cell local workers use ephemeral worker-control ports.
 
 ## Reference Deployment Notes
 

@@ -68,6 +68,7 @@ type localCell struct {
 	CellIngressPort        int
 	CellIngressMetricsPort int
 	WorkerMetricsPort      int
+	WorkerCoreMetricsPort  int
 	CellDB                 string
 	QueueDir               string
 	SecretsDir             string
@@ -464,10 +465,15 @@ func localHAProfileServices(logger interfaces.Logger, topology localTopology) []
 		env:         orchestratorEnv,
 	})
 
+	workerCoreEnv := []string{
+		fmt.Sprintf("VECTIS_WORKER_CORE_METRICS_PORT=%d", cell.WorkerCoreMetricsPort),
+	}
+
 	services = append(services, serviceStage{
 		binary: "vectis-worker-core",
 		name:   "worker-core",
 		stage:  1,
+		env:    workerCoreEnv,
 	})
 
 	if localSecretsEnabled() {
@@ -1346,6 +1352,7 @@ func newLocalCell(cellID string, index int, cellDB string) localCell {
 		CellIngressPort:        config.CellIngressPort() + offset,
 		CellIngressMetricsPort: config.CellIngressMetricsPort() + offset,
 		WorkerMetricsPort:      config.WorkerMetricsPort() + offset,
+		WorkerCoreMetricsPort:  config.WorkerCoreMetricsPort() + offset,
 		CellDB:                 cellDB,
 		QueueDir:               localManagedQueueDir(cellID),
 		SecretsDir:             localManagedSecretsDir(cellID),
@@ -1362,6 +1369,7 @@ func validateLocalCellPorts(cell localCell) error {
 		"cell ingress":         cell.CellIngressPort,
 		"cell ingress metrics": cell.CellIngressMetricsPort,
 		"worker metrics":       cell.WorkerMetricsPort,
+		"worker-core metrics":  cell.WorkerCoreMetricsPort,
 	} {
 		if port <= 0 || port > 65535 {
 			return fmt.Errorf("cell %q %s port %d is outside 1-65535", cell.ID, name, port)

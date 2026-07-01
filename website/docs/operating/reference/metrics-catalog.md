@@ -16,6 +16,7 @@ Scrape only from trusted monitoring networks. Metrics expose operational shape a
 | `vectis-log` | Dedicated metrics listener | Log ingest, durable append failures, in-memory drops, subscriber drops |
 | `vectis-log-forwarder` | Dedicated metrics listener | Forwarder chunk/batch outcomes, durable spool gauges, retry, log routing |
 | `vectis-artifact` | Dedicated metrics listener | Local artifact CAS storage gauges |
+| `vectis-worker-core` | Dedicated metrics listener | Checkout action cache use and direct clone results |
 | `vectis-reconciler` | Dedicated metrics listener | Reenqueue and task-finalization repair outcomes, dispatch events, retry |
 | `vectis-catalog` | Dedicated metrics listener | Catalog inbox and fan-in counters |
 | `vectis-secrets` | Dedicated metrics listener | Secret resolution counters and latency |
@@ -89,6 +90,10 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `vectis_worker_checkout_cache_warm_passes_total` | Counter | `outcome`, `reason` | Worker-driven persistent checkout cache warm passes. Outcomes are `success`, `partial`, `failed`, or `skipped`; reasons include `ok`, `no_remotes`, `remote_failures`, `core_error`, `context_canceled`, `timeout`, and `unknown`. | Alert on sustained `failed` or `partial` outcomes for repositories expected to stay warm. |
 | `vectis_worker_checkout_cache_warm_duration_seconds` | Histogram | `outcome`, `reason` | Wall time spent in worker-driven persistent checkout cache warm passes. | Track warm latency against the configured timeout and repository churn. |
 | `vectis_worker_checkout_cache_warm_remotes_total` | Counter | `outcome` | Remote-level warm results. `outcome` is `warmed` or `failed`. | Compare failed versus warmed remotes to spot mirror or upstream access problems. |
+| `vectis_checkout_action_results_total` | Counter | `strategy`, `outcome`, `reason` | Worker-core checkout action terminal results. `strategy` is `cache`, `direct`, or `validation`; `outcome` is `success` or `failed`; reasons include `ok`, `missing_url`, `credentialed_url`, `cache_error`, `start_failed`, `git_clone_failed`, and `unknown`. | Measure whether task checkout is actually using the worker-core cache or falling back to direct clones. |
+| `vectis_checkout_action_duration_seconds` | Histogram | `strategy`, `outcome`, `reason` | Wall time spent executing checkout actions, using the same labels as checkout results. | Compare cache-backed checkout latency with direct clone latency for large repositories. |
+| `vectis_checkout_action_cache_checks_total` | Counter | `outcome`, `reason` | Worker-core checkout cache checks. Outcomes are `hit`, `miss`, `failed`, or `skipped`; reasons include `ok`, `no_cache`, `cache_error`, and `unknown`. | Track cache hit rate and identify work still bypassing persistent mirrors. |
+| `vectis_checkout_action_cache_check_duration_seconds` | Histogram | `outcome`, `reason` | Wall time spent checking the worker-core checkout cache. | Detect cache lock contention, mirror fetch latency, or local filesystem stalls during checkout. |
 | `vectis_task_reduce_decisions_total` | Counter | `outcome` | Task reducer decisions. Outcomes are `waiting`, `succeeded`, `failed`, or `error`. | Errors indicate reducer/DB trouble; failed outcomes explain run finalization. |
 | `vectis_task_finalize_decisions_total` | Counter | `outcome`, `reduce_outcome` | Task finalizer decisions. Outcomes include `continue`, `reduce_succeeded`, `reduce_failed`, `incomplete`, `execution_failed`, and `execution_aborted`; `reduce_outcome` is reducer output or `none`. | Debug task graph continuation and terminal run decisions. |
 

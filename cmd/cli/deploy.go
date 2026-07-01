@@ -244,6 +244,7 @@ type podmanTemplateData struct {
 	PrometheusQueueTargets        []string
 	PrometheusOrchestratorTargets []string
 	PrometheusWorkerTargets       []string
+	PrometheusWorkerCoreTargets   []string
 	PrometheusLogTargets          []string
 	PrometheusArtifactTargets     []string
 	PrometheusSecretsTargets      []string
@@ -377,6 +378,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 		PrometheusQueueTargets:        podmanTargets(9081),
 		PrometheusOrchestratorTargets: podmanTargets(9090),
 		PrometheusWorkerTargets:       podmanTargets(9082),
+		PrometheusWorkerCoreTargets:   podmanTargets(9092),
 		PrometheusLogTargets:          podmanTargets(9083),
 		PrometheusArtifactTargets:     podmanTargets(9089),
 		PrometheusSecretsTargets:      podmanTargets(9091),
@@ -425,6 +427,7 @@ func podmanTemplateDataForProfile(profile string) podmanTemplateData {
 	data.PrometheusQueueTargets = podmanTargets(9081, 9181)
 	data.PrometheusOrchestratorTargets = podmanTargets(9090)
 	data.PrometheusWorkerTargets = podmanTargets(9082, 9182)
+	data.PrometheusWorkerCoreTargets = podmanTargets(9092)
 	data.PrometheusLogTargets = podmanTargets(9083, 9183)
 	data.PrometheusArtifactTargets = podmanTargets(9089, 9189)
 	data.PrometheusSecretsTargets = podmanTargets(9091)

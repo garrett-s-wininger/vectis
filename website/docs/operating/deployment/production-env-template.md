@@ -150,6 +150,7 @@ separate persistence or storage directory.
 
 ```sh
 VECTIS_WORKER_CORE_SOCKET=/run/vectis/worker-core.sock
+VECTIS_WORKER_CORE_METRICS_PORT=9092
 VECTIS_WORKER_CORE_EXECUTION_BACKEND=host
 VECTIS_WORKER_CORE_WORKSPACE_ROOT=/var/lib/vectis/workspaces
 VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT=/var/lib/vectis/checkout-cache

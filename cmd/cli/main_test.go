@@ -2660,6 +2660,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_METRICS_PORT", "9182")
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
+	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_METRICS_PORT", "9092")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-shell.sock")
 	assertEnv(t, findContainer(t, pod, "worker-2"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-2-shell.sock")
@@ -2675,6 +2676,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081", "127.0.0.1:9181"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089", "127.0.0.1:9189"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-worker-core"), []string{"127.0.0.1:9092"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-secrets"), []string{"127.0.0.1:9091"})
 }
 
@@ -2710,6 +2712,7 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 
 	assertEnv(t, findContainer(t, pod, "orchestrator"), "VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS", "127.0.0.1:8087")
 	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_SOCKET", "/run/vectis/worker-core/worker-core.sock")
+	assertEnv(t, findContainer(t, pod, "worker-core"), "VECTIS_WORKER_CORE_METRICS_PORT", "9092")
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_CORE_SHELL_SOCKET", "/run/vectis/worker-core/worker-shell.sock")
 	findInitContainer(t, pod, "vectis-spiffe-init")
 	findInitContainer(t, pod, "vectis-client-ca-bundle-init")
@@ -2723,6 +2726,7 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-worker-core"), []string{"127.0.0.1:9092"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-secrets"), []string{"127.0.0.1:9091"})
 }
 
@@ -5199,6 +5203,8 @@ func withCleanDoctorMetricsEnv(t *testing.T) {
 		"VECTIS_ORCHESTRATOR_METRICS_ALLOWED_HOSTS",
 		"VECTIS_WORKER_METRICS_HOST",
 		"VECTIS_WORKER_METRICS_ALLOWED_HOSTS",
+		"VECTIS_WORKER_CORE_METRICS_HOST",
+		"VECTIS_WORKER_CORE_METRICS_ALLOWED_HOSTS",
 		"VECTIS_LOG_METRICS_HOST",
 		"VECTIS_LOG_METRICS_ALLOWED_HOSTS",
 		"VECTIS_ARTIFACT_METRICS_HOST",

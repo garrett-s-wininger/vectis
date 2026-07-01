@@ -119,6 +119,39 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	if got := LogForwarderMetricsEffectiveListenPort(); got != 19086 {
 		t.Fatalf("LogForwarderMetricsEffectiveListenPort() override: got %d", got)
 	}
+
+	viper.Set("metrics_host", "")
+	viper.Set("metrics_port", 0)
+
+	if d.WorkerCore.MetricsPort != 9092 {
+		t.Fatalf("expected worker_core.metrics_port 9092, got %d", d.WorkerCore.MetricsPort)
+	}
+
+	if d.WorkerCore.MetricsHost != "localhost" {
+		t.Fatalf("expected worker_core.metrics_host localhost, got %q", d.WorkerCore.MetricsHost)
+	}
+
+	if got := WorkerCoreMetricsHost(); got != "localhost" {
+		t.Fatalf("WorkerCoreMetricsHost() with empty viper: got %q", got)
+	}
+
+	if got := WorkerCoreMetricsListenAddr(); got != "localhost:9092" {
+		t.Fatalf("WorkerCoreMetricsListenAddr() with empty viper: got %q", got)
+	}
+
+	if got := WorkerCoreMetricsPort(); got != 9092 {
+		t.Fatalf("WorkerCoreMetricsPort() with empty viper: got %d", got)
+	}
+
+	viper.Set("metrics_host", "127.0.0.1")
+	viper.Set("metrics_port", 19092)
+	if got := WorkerCoreMetricsListenAddr(); got != "127.0.0.1:19092" {
+		t.Fatalf("WorkerCoreMetricsListenAddr() override: got %q", got)
+	}
+
+	if got := WorkerCoreMetricsEffectiveListenPort(); got != 19092 {
+		t.Fatalf("WorkerCoreMetricsEffectiveListenPort() override: got %d", got)
+	}
 }
 
 func TestSecretsPolicyAllowRules(t *testing.T) {
@@ -315,6 +348,7 @@ func TestMetricsListenAddressesDefaultToLocalhost(t *testing.T) {
 		{name: "log", host: d.Log.MetricsHost, addr: LogMetricsListenAddr()},
 		{name: "artifact", host: d.Artifact.MetricsHost, addr: ArtifactMetricsListenAddr()},
 		{name: "worker", host: d.Worker.MetricsHost, addr: WorkerMetricsListenAddr()},
+		{name: "worker-core", host: d.WorkerCore.MetricsHost, addr: WorkerCoreMetricsListenAddr()},
 	}
 
 	for _, tc := range cases {
@@ -329,6 +363,7 @@ func TestMetricsListenAddressesDefaultToLocalhost(t *testing.T) {
 		"log":          "localhost:9083",
 		"artifact":     "localhost:9089",
 		"worker":       "localhost:9082",
+		"worker-core":  "localhost:9092",
 	}
 
 	for _, tc := range cases {

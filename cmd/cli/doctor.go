@@ -2530,6 +2530,7 @@ func doctorMetricsSurfaces() []doctorMetricsSurface {
 		{label: "queue", hostEnv: "VECTIS_QUEUE_METRICS_HOST", allowedEnv: "VECTIS_QUEUE_METRICS_ALLOWED_HOSTS", defaultHost: config.QueueMetricsHost()},
 		{label: "orchestrator", hostEnv: "VECTIS_ORCHESTRATOR_METRICS_HOST", allowedEnv: "VECTIS_ORCHESTRATOR_METRICS_ALLOWED_HOSTS", defaultHost: config.OrchestratorMetricsHost()},
 		{label: "worker", hostEnv: "VECTIS_WORKER_METRICS_HOST", allowedEnv: "VECTIS_WORKER_METRICS_ALLOWED_HOSTS", defaultHost: config.WorkerMetricsHost()},
+		{label: "worker-core", hostEnv: "VECTIS_WORKER_CORE_METRICS_HOST", allowedEnv: "VECTIS_WORKER_CORE_METRICS_ALLOWED_HOSTS", defaultHost: config.WorkerCoreMetricsHost()},
 		{label: "log", hostEnv: "VECTIS_LOG_METRICS_HOST", allowedEnv: "VECTIS_LOG_METRICS_ALLOWED_HOSTS", defaultHost: config.LogMetricsHost()},
 		{label: "artifact", hostEnv: "VECTIS_ARTIFACT_METRICS_HOST", allowedEnv: "VECTIS_ARTIFACT_METRICS_ALLOWED_HOSTS", defaultHost: config.ArtifactMetricsHost()},
 		{label: "log-forwarder", hostEnv: "VECTIS_LOG_FORWARDER_METRICS_HOST", allowedEnv: "VECTIS_LOG_FORWARDER_METRICS_ALLOWED_HOSTS", defaultHost: config.LogForwarderMetricsHost()},

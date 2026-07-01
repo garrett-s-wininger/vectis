@@ -13,6 +13,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 	"vectis/internal/platform"
 	"vectis/internal/registry"
 	"vectis/internal/workercore"
@@ -26,12 +27,29 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 
 	cli.SetLogLevel(logger)
 
+	if err := config.ValidateMetricsTLS(); err != nil {
+		logger.Fatal("Invalid metrics TLS config: %v", err)
+	}
+	config.StartMetricsTLSReloadLoop(ctx)
+
+	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(ctx, "vectis-worker-core")
+	if err != nil {
+		logger.Fatal("Failed to initialize metrics: %v", err)
+	}
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
+
+	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, config.WorkerCoreMetricsListenAddr(), "Worker core", logger)
+	if err != nil {
+		logger.Fatal("Failed to start metrics server: %v", err)
+	}
+	defer metricsSrv.Shutdown()
+
 	socketPath := strings.TrimSpace(viper.GetString("socket"))
 	if socketPath == "" {
 		socketPath = workercore.DefaultCoreSocketPath()
 	}
 
-	socketPath, err := workercore.SocketPathFromEndpoint(socketPath)
+	socketPath, err = workercore.SocketPathFromEndpoint(socketPath)
 	if err != nil {
 		logger.Fatal("Invalid worker core socket: %v", err)
 	}
@@ -176,6 +194,8 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 
 	rootCmd.PersistentFlags().String("socket", workercore.DefaultCoreSocketPath(), "Unix socket served by the worker core")
+	rootCmd.PersistentFlags().String("metrics-host", config.WorkerCoreMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().Int("metrics-port", config.WorkerCoreMetricsPort(), "HTTP port for Prometheus /metrics")
 	rootCmd.PersistentFlags().String("execution-backend", workercore.ExecutionBackendHost, "Command execution backend: host or lima")
 	rootCmd.PersistentFlags().String("workspace-root", "", "Parent directory for automatically-created run workspaces")
 	rootCmd.PersistentFlags().String("checkout-cache-root", "", "Persistent worker checkout cache root for source repositories with worker_cache_mode=persistent")
@@ -186,6 +206,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("lima-preserve-env", false, "Preserve host environment variables in Lima shell commands")
 
 	_ = viper.BindPFlag("socket", rootCmd.PersistentFlags().Lookup("socket"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
+	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 	_ = viper.BindPFlag("execution_backend", rootCmd.PersistentFlags().Lookup("execution-backend"))
 	_ = viper.BindPFlag("workspace_root", rootCmd.PersistentFlags().Lookup("workspace-root"))
 	_ = viper.BindPFlag("checkout_cache_root", rootCmd.PersistentFlags().Lookup("checkout-cache-root"))

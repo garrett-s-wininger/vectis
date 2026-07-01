@@ -675,6 +675,7 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 	var workersUseRegistry bool
 	var foundWorker1ShellSocket bool
 	var foundWorker2ShellSocket bool
+	var foundWorkerCoreMetricsPort bool
 	var workersUseSecrets bool
 	for _, svc := range services {
 		if svc.name == "queue-2" &&
@@ -718,6 +719,10 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 			foundWorker2ShellSocket = true
 		}
 
+		if svc.name == "worker-core" && hasEnv(svc.env, "VECTIS_WORKER_CORE_METRICS_PORT=9092") {
+			foundWorkerCoreMetricsPort = true
+		}
+
 		if svc.name == "worker-1" && hasEnv(svc.env, "VECTIS_WORKER_SECRETS_ADDRESS=localhost:8090") {
 			workersUseSecrets = true
 		}
@@ -745,6 +750,10 @@ func TestLocalServices_HAProfileBuildsMultiInstanceCell(t *testing.T) {
 
 	if !foundWorker1ShellSocket || !foundWorker2ShellSocket {
 		t.Fatalf("HA workers did not include distinct core shell sockets: %+v", services)
+	}
+
+	if !foundWorkerCoreMetricsPort {
+		t.Fatalf("worker-core did not include metrics port env: %+v", services)
 	}
 
 	if !workersUseSecrets {

@@ -52,6 +52,7 @@ type Defaults struct {
 	Database       DatabaseDefaults        `toml:"database"`
 	Source         SourceDefaults          `toml:"source"`
 	Worker         WorkerDefaults          `toml:"worker"`
+	WorkerCore     WorkerCoreDefaults      `toml:"worker_core"`
 	Cron           CronDefaults            `toml:"cron"`
 	Reconciler     ReconcilerDefaults      `toml:"reconciler"`
 	Catalog        CatalogDefaults         `toml:"catalog"`
@@ -333,6 +334,11 @@ type WorkerDefaults struct {
 	ExecutionIdentity    WorkerExecutionIdentityDefaults `toml:"execution_identity"`
 	SPIFFE               WorkerSPIFFEDefaults            `toml:"spiffe"`
 	RegisterWithRegistry bool                            `toml:"register_with_registry"`
+}
+
+type WorkerCoreDefaults struct {
+	MetricsHost string `toml:"metrics_host"`
+	MetricsPort int    `toml:"metrics_port"`
 }
 
 type WorkerExecutionIdentityDefaults struct {
@@ -681,6 +687,22 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.MetricsPort == d.LogForwarder.MetricsPort {
 		panic("config defaults: worker.metrics_port must differ from log_forwarder.metrics_port")
+	}
+
+	validateHost(d.WorkerCore.MetricsHost, "worker_core.metrics_host")
+	validatePort(d.WorkerCore.MetricsPort, "worker_core.metrics_port")
+	if d.WorkerCore.MetricsPort == d.Queue.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Orchestrator.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Worker.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Log.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Artifact.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.LogForwarder.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Reconciler.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Catalog.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.CellIngress.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Secrets.MetricsPort ||
+		d.WorkerCore.MetricsPort == d.Worker.Control.Port {
+		panic("config defaults: worker_core.metrics_port must differ from queue/orchestrator/worker/log/artifact/log-forwarder/reconciler/catalog/cell-ingress/secrets metrics ports and worker control port")
 	}
 
 	if strings.TrimSpace(d.Worker.ExecutionIdentity.PathTemplate) == "" {
@@ -1055,6 +1077,18 @@ func WorkerMetricsPort() int {
 
 func WorkerMetricsListenAddr() string {
 	return metricsListenAddr(WorkerMetricsHost(), WorkerMetricsEffectiveListenPort())
+}
+
+func WorkerCoreMetricsHost() string {
+	return metricsHost("metrics_host", "worker_core.metrics_host", MustDefaults().WorkerCore.MetricsHost)
+}
+
+func WorkerCoreMetricsPort() int {
+	return MustDefaults().WorkerCore.MetricsPort
+}
+
+func WorkerCoreMetricsListenAddr() string {
+	return metricsListenAddr(WorkerCoreMetricsHost(), WorkerCoreMetricsEffectiveListenPort())
 }
 
 func WorkerArtifactMaxBytes() int64 {
@@ -2388,6 +2422,14 @@ func WorkerMetricsEffectiveListenPort() int {
 		return p
 	}
 	return WorkerMetricsPort()
+}
+
+// WorkerCoreMetricsEffectiveListenPort returns the HTTP /metrics listen port for vectis-worker-core.
+func WorkerCoreMetricsEffectiveListenPort() int {
+	if p := viper.GetInt("metrics_port"); p > 0 {
+		return p
+	}
+	return WorkerCoreMetricsPort()
 }
 
 func RegistryEffectiveListenPort() int {
