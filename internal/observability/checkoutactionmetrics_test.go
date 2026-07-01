@@ -30,6 +30,8 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 	metrics.RecordCheckoutActionCacheCheck(ctx, CheckoutActionCacheOutcomeMiss, CheckoutActionReasonNoCache, 3*time.Millisecond)
 	metrics.RecordCheckoutActionResult(ctx, CheckoutActionStrategyCache, CheckoutActionOutcomeSuccess, CheckoutActionReasonOK, 120*time.Millisecond)
 	metrics.RecordCheckoutActionResult(ctx, CheckoutActionStrategyDirect, CheckoutActionOutcomeFailed, CheckoutActionReasonGitCloneFailed, 2*time.Second)
+	metrics.RecordCheckoutActionDirectClone(ctx, CheckoutActionCacheOutcomeMiss, CheckoutActionOutcomeFailed, CheckoutActionReasonGitCloneFailed, 1800*time.Millisecond)
+	metrics.RecordCheckoutActionDirectClone(ctx, CheckoutActionCacheOutcomeSkipped, CheckoutActionOutcomeSuccess, CheckoutActionReasonOK, 900*time.Millisecond)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -49,6 +51,7 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 		"vectis_checkout_action_duration_seconds",
 		"vectis_checkout_action_cache_checks_total",
 		"vectis_checkout_action_cache_check_duration_seconds",
+		"vectis_checkout_action_direct_clone_duration_seconds",
 	} {
 		if families[family] == nil {
 			t.Fatalf("missing metric family %q", family)
@@ -83,5 +86,21 @@ func TestCheckoutActionMetrics_appearsOnScrape(t *testing.T) {
 		"reason":  CheckoutActionReasonNoCache,
 	}) {
 		t.Fatalf("checkout cache check metric missing miss labels: %v", families["vectis_checkout_action_cache_checks_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_action_direct_clone_duration_seconds"], map[string]string{
+		"cache_state": CheckoutActionCacheOutcomeMiss,
+		"outcome":     CheckoutActionOutcomeFailed,
+		"reason":      CheckoutActionReasonGitCloneFailed,
+	}) {
+		t.Fatalf("checkout direct clone metric missing fallback failure labels: %v", families["vectis_checkout_action_direct_clone_duration_seconds"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_action_direct_clone_duration_seconds"], map[string]string{
+		"cache_state": CheckoutActionCacheOutcomeSkipped,
+		"outcome":     CheckoutActionOutcomeSuccess,
+		"reason":      CheckoutActionReasonOK,
+	}) {
+		t.Fatalf("checkout direct clone metric missing skipped-cache success labels: %v", families["vectis_checkout_action_direct_clone_duration_seconds"])
 	}
 }

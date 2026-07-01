@@ -22,6 +22,7 @@ const (
 	CheckoutActionCacheOutcomeMiss    = "miss"
 	CheckoutActionCacheOutcomeFailed  = "failed"
 	CheckoutActionCacheOutcomeSkipped = "skipped"
+	CheckoutActionCacheOutcomeUnknown = "unknown"
 
 	CheckoutActionReasonOK              = "ok"
 	CheckoutActionReasonMissingURL      = "missing_url"
@@ -38,6 +39,7 @@ type CheckoutActionMetrics struct {
 	duration           metric.Float64Histogram
 	cacheChecks        metric.Int64Counter
 	cacheCheckDuration metric.Float64Histogram
+	directCloneTime    metric.Float64Histogram
 }
 
 func NewCheckoutActionMetrics() (*CheckoutActionMetrics, error) {
@@ -73,11 +75,20 @@ func NewCheckoutActionMetrics() (*CheckoutActionMetrics, error) {
 		return nil, fmt.Errorf("vectis_checkout_action_cache_check_duration_seconds: %w", err)
 	}
 
+	directCloneTime, err := m.Float64Histogram("vectis_checkout_action_direct_clone_duration_seconds",
+		metric.WithDescription("Wall time spent in direct git clone execution after cache miss or cache bypass"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_checkout_action_direct_clone_duration_seconds: %w", err)
+	}
+
 	return &CheckoutActionMetrics{
 		results:            results,
 		duration:           duration,
 		cacheChecks:        cacheChecks,
 		cacheCheckDuration: cacheCheckDuration,
+		directCloneTime:    directCloneTime,
 	}, nil
 }
 
@@ -118,9 +129,36 @@ func (m *CheckoutActionMetrics) RecordCheckoutActionCacheCheck(ctx context.Conte
 	m.cacheCheckDuration.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
 }
 
+func (m *CheckoutActionMetrics) RecordCheckoutActionDirectClone(ctx context.Context, cacheState, outcome, reason string, d time.Duration) {
+	if m == nil {
+		return
+	}
+
+	if cacheState == "" {
+		cacheState = CheckoutActionCacheOutcomeUnknown
+	}
+	if outcome == "" {
+		outcome = CheckoutActionOutcomeFailed
+	}
+	if reason == "" {
+		reason = CheckoutActionReasonUnknown
+	}
+
+	attrs := checkoutActionDirectCloneAttributes(cacheState, outcome, reason)
+	m.directCloneTime.Record(ctx, max(d.Seconds(), 0), metric.WithAttributes(attrs...))
+}
+
 func checkoutActionResultAttributes(strategy, outcome, reason string) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("strategy", strategy),
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	}
+}
+
+func checkoutActionDirectCloneAttributes(cacheState, outcome, reason string) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("cache_state", cacheState),
 		attribute.String("outcome", outcome),
 		attribute.String("reason", reason),
 	}

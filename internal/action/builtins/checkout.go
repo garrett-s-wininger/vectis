@@ -69,6 +69,7 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	}
 
 	displayURL := redactCloneURL(url)
+	cacheState := observability.CheckoutActionCacheOutcomeSkipped
 
 	if cache := c.checkoutCache(state); cache != nil && state != nil {
 		cacheStarted := time.Now()
@@ -89,17 +90,20 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 			return action.NewSuccessResult(nil)
 		}
 
-		recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeMiss, observability.CheckoutActionReasonNoCache, time.Since(cacheStarted))
+		cacheState = observability.CheckoutActionCacheOutcomeMiss
+		recordCheckoutActionCacheCheck(ctx, cacheState, observability.CheckoutActionReasonNoCache, time.Since(cacheStarted))
 	} else {
-		recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeSkipped, observability.CheckoutActionReasonNoCache, 0)
+		recordCheckoutActionCacheCheck(ctx, cacheState, observability.CheckoutActionReasonNoCache, 0)
 	}
 
 	state.Logger.Info("Cloning repository: %s", displayURL)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Cloning %s...", displayURL))
 
 	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
+	cloneStarted := time.Now()
 	process, err := c.processExecutor(state).Start(ctx, "git", []string{"clone", url, "."}, state.Workspace, env)
 	if err != nil {
+		recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(cloneStarted))
 		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(started))
 		return action.NewFailureResult(fmt.Errorf("failed to start git clone: %w", err))
 	}
@@ -121,12 +125,14 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	cmdErr := process.Wait()
 
 	if cmdErr != nil {
+		recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitCloneFailed, time.Since(cloneStarted))
 		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitCloneFailed, time.Since(started))
 		state.Logger.Error("Git clone failed: %v", cmdErr)
 		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Git clone failed: %v", cmdErr))
 		return action.NewFailureResult(fmt.Errorf("git clone failed: %w", cmdErr))
 	}
 
+	recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeSuccess, observability.CheckoutActionReasonOK, time.Since(cloneStarted))
 	recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeSuccess, observability.CheckoutActionReasonOK, time.Since(started))
 	state.Logger.Info("Checkout completed successfully")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully")

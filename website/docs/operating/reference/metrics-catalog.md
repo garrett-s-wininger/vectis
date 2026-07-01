@@ -94,6 +94,7 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `vectis_checkout_action_duration_seconds` | Histogram | `strategy`, `outcome`, `reason` | Wall time spent executing checkout actions, using the same labels as checkout results. | Compare cache-backed checkout latency with direct clone latency for large repositories. |
 | `vectis_checkout_action_cache_checks_total` | Counter | `outcome`, `reason` | Worker-core checkout cache checks. Outcomes are `hit`, `miss`, `failed`, or `skipped`; reasons include `ok`, `no_cache`, `cache_error`, and `unknown`. | Track cache hit rate and identify work still bypassing persistent mirrors. |
 | `vectis_checkout_action_cache_check_duration_seconds` | Histogram | `outcome`, `reason` | Wall time spent checking the worker-core checkout cache. | Detect cache lock contention, mirror fetch latency, or local filesystem stalls during checkout. |
+| `vectis_checkout_action_direct_clone_duration_seconds` | Histogram | `cache_state`, `outcome`, `reason` | Wall time spent running direct `git clone` after cache miss or cache bypass. `cache_state` is `miss`, `skipped`, or `unknown`. | Separate fallback clone cost from cache lookup cost and total checkout action latency. |
 | `vectis_task_reduce_decisions_total` | Counter | `outcome` | Task reducer decisions. Outcomes are `waiting`, `succeeded`, `failed`, or `error`. | Errors indicate reducer/DB trouble; failed outcomes explain run finalization. |
 | `vectis_task_finalize_decisions_total` | Counter | `outcome`, `reduce_outcome` | Task finalizer decisions. Outcomes include `continue`, `reduce_succeeded`, `reduce_failed`, `incomplete`, `execution_failed`, and `execution_aborted`; `reduce_outcome` is reducer output or `none`. | Debug task graph continuation and terminal run decisions. |
 
@@ -170,6 +171,8 @@ Keep `component` values from code-controlled constants. Do not include dynamic t
 | API security rejection spike | `sum by (reason, route, status) (increase(vectis_api_security_rejections_total[5m]))` |
 | Dispatch drops | `increase(vectis_queue_expired_dropped_total[10m]) > 0` |
 | Log append failures | `increase(vectis_log_storage_append_failures_total[10m]) > 0` |
+| Checkout cache hit ratio | `sum(rate(vectis_checkout_action_cache_checks_total{outcome="hit"}[15m])) / clamp_min(sum(rate(vectis_checkout_action_cache_checks_total{outcome=~"hit|miss"}[15m])), 1)` |
+| Checkout fallback clone p95 | `histogram_quantile(0.95, sum by (le) (rate(vectis_checkout_action_direct_clone_duration_seconds_bucket{cache_state="miss"}[15m])))` |
 | Artifact read-only shard | `vectis_artifact_storage_new_blob_writable == 0` |
 | Reconciler failures | `increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0` |
 | Retry exhaustion | `increase(vectis_retries_exhausted_total[10m]) > 0` |

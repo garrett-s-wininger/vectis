@@ -32,6 +32,15 @@ func recordCheckoutActionCacheCheck(ctx context.Context, outcome, reason string,
 	metrics.RecordCheckoutActionCacheCheck(ctx, outcome, reason, d)
 }
 
+func recordCheckoutActionDirectClone(ctx context.Context, cacheState, outcome, reason string, d time.Duration) {
+	metrics := checkoutMetrics()
+	if metrics == nil {
+		return
+	}
+
+	metrics.RecordCheckoutActionDirectClone(ctx, cacheState, outcome, reason, d)
+}
+
 func checkoutMetrics() *observability.CheckoutActionMetrics {
 	checkoutActionMetricsOnce.Do(func() {
 		checkoutActionMetrics, checkoutActionMetricsErr = observability.NewCheckoutActionMetrics()
