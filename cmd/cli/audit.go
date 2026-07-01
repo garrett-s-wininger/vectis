@@ -27,12 +27,14 @@ type auditListOptions struct {
 	CorrelationID string
 	Since         string
 	Until         string
+	Cursor        string
 	Limit         int
 }
 
 type auditEventListResult struct {
-	Events []auditEventResult `json:"events"`
-	Limit  int                `json:"limit"`
+	Events     []auditEventResult `json:"events"`
+	Limit      int                `json:"limit"`
+	NextCursor string             `json:"next_cursor,omitempty"`
 }
 
 type auditEventResult struct {
@@ -66,6 +68,7 @@ type auditExportEvidence struct {
 	GeneratedAt    string             `json:"generated_at"`
 	Filters        auditExportFilters `json:"filters"`
 	Limit          int                `json:"limit"`
+	PageCount      int                `json:"page_count"`
 	RowCount       int                `json:"row_count"`
 	MayBeTruncated bool               `json:"may_be_truncated"`
 	NewestEventAt  string             `json:"newest_event_at,omitempty"`
@@ -95,6 +98,7 @@ var auditListCmd = &cobra.Command{
 			CorrelationID: auditListCorrelationID,
 			Since:         auditListSince,
 			Until:         auditListUntil,
+			Cursor:        auditListCursor,
 			Limit:         auditListLimit,
 		}))
 	},
@@ -114,6 +118,7 @@ var auditExportCmd = &cobra.Command{
 				CorrelationID: auditExportCorrelationID,
 				Since:         auditExportSince,
 				Until:         auditExportUntil,
+				Cursor:        "",
 				Limit:         auditExportLimit,
 			},
 			OutputPath: auditExportOutputPath,
@@ -128,6 +133,7 @@ func configureAuditListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&auditListCorrelationID, "correlation-id", "", "Only include events with this request correlation ID")
 	cmd.Flags().StringVar(&auditListSince, "since", "", "Only include events at or after this RFC3339 timestamp or YYYY-MM-DD date")
 	cmd.Flags().StringVar(&auditListUntil, "until", "", "Only include events at or before this RFC3339 timestamp or YYYY-MM-DD date")
+	cmd.Flags().StringVar(&auditListCursor, "cursor", "", "Continue listing after a previous audit event cursor")
 	cmd.Flags().IntVar(&auditListLimit, "limit", 100, "Maximum events to return (1-1000)")
 }
 
@@ -148,6 +154,7 @@ func auditEventsPath(opts auditListOptions) string {
 	setTrimmedQueryParam(params, "correlation_id", opts.CorrelationID)
 	setTrimmedQueryParam(params, "since", opts.Since)
 	setTrimmedQueryParam(params, "until", opts.Until)
+	setTrimmedQueryParam(params, "cursor", opts.Cursor)
 	if opts.ActorID > 0 {
 		params.Set("actor_id", strconv.FormatInt(opts.ActorID, 10))
 	}
@@ -188,7 +195,7 @@ func auditExport(w io.Writer, opts auditExportOptions) error {
 		opts.Limit = 1000
 	}
 
-	result, err := fetchAuditEvents(opts.auditListOptions)
+	result, pageCount, err := fetchAllAuditEvents(opts.auditListOptions)
 	if err != nil {
 		return err
 	}
@@ -198,7 +205,7 @@ func auditExport(w io.Writer, opts auditExportOptions) error {
 		generatedAt = time.Now().UTC()
 	}
 
-	evidence, err := buildAuditExportEvidence(result, opts.auditListOptions, generatedAt)
+	evidence, err := buildAuditExportEvidence(result, opts.auditListOptions, generatedAt, pageCount)
 	if err != nil {
 		return err
 	}
@@ -235,7 +242,41 @@ func auditExport(w io.Writer, opts auditExportOptions) error {
 	return nil
 }
 
-func buildAuditExportEvidence(result auditEventListResult, opts auditListOptions, generatedAt time.Time) (auditExportEvidence, error) {
+func fetchAllAuditEvents(opts auditListOptions) (auditEventListResult, int, error) {
+	if strings.TrimSpace(opts.Cursor) != "" {
+		return auditEventListResult{}, 0, fmt.Errorf("audit export manages cursors internally; omit --cursor")
+	}
+
+	var combined auditEventListResult
+	pageCount := 0
+	seenCursors := map[string]bool{}
+	for {
+		page, err := fetchAuditEvents(opts)
+		if err != nil {
+			return auditEventListResult{}, 0, err
+		}
+
+		pageCount++
+		if combined.Limit == 0 {
+			combined.Limit = page.Limit
+		}
+
+		combined.Events = append(combined.Events, page.Events...)
+		nextCursor := strings.TrimSpace(page.NextCursor)
+		if nextCursor == "" {
+			return combined, pageCount, nil
+		}
+
+		if seenCursors[nextCursor] {
+			return auditEventListResult{}, pageCount, fmt.Errorf("audit export pagination cursor repeated")
+		}
+
+		seenCursors[nextCursor] = true
+		opts.Cursor = nextCursor
+	}
+}
+
+func buildAuditExportEvidence(result auditEventListResult, opts auditListOptions, generatedAt time.Time, pageCount int) (auditExportEvidence, error) {
 	eventsSHA256, err := auditEventsSHA256(result.Events)
 	if err != nil {
 		return auditExportEvidence{}, err
@@ -261,8 +302,9 @@ func buildAuditExportEvidence(result auditEventListResult, opts auditListOptions
 		GeneratedAt:    generatedAt.UTC().Format(time.RFC3339),
 		Filters:        filters,
 		Limit:          result.Limit,
+		PageCount:      pageCount,
 		RowCount:       len(result.Events),
-		MayBeTruncated: result.Limit > 0 && len(result.Events) >= result.Limit,
+		MayBeTruncated: strings.TrimSpace(result.NextCursor) != "",
 		EventsSHA256:   eventsSHA256,
 		Events:         result.Events,
 	}
@@ -316,7 +358,15 @@ func writeAuditEventsText(w io.Writer, result auditEventListResult) error {
 		)
 	}
 
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(result.NextCursor) != "" {
+		fmt.Fprintf(w, "\nMore audit events available. Continue with --cursor %s.\n", result.NextCursor)
+	}
+
+	return nil
 }
 
 func formatOptionalInt64(v *int64) string {

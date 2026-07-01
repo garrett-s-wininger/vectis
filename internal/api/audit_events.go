@@ -2,7 +2,9 @@ package api
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,8 +19,9 @@ const (
 )
 
 type auditEventListResponse struct {
-	Events []auditEventResponse `json:"events"`
-	Limit  int                  `json:"limit"`
+	Events     []auditEventResponse `json:"events"`
+	Limit      int                  `json:"limit"`
+	NextCursor string               `json:"next_cursor,omitempty"`
 }
 
 type auditEventResponse struct {
@@ -30,6 +33,11 @@ type auditEventResponse struct {
 	IPAddress     string          `json:"ip_address,omitempty"`
 	CorrelationID string          `json:"correlation_id,omitempty"`
 	CreatedAt     string          `json:"created_at,omitempty"`
+}
+
+type auditEventCursor struct {
+	CreatedAt string `json:"created_at"`
+	ID        int64  `json:"id"`
 }
 
 func (s *APIServer) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +69,18 @@ func (s *APIServer) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
 		Limit:  filter.Limit,
 	}
 
+	if len(events) > filter.Limit {
+		cursor, err := encodeAuditEventCursor(events[filter.Limit-1])
+		if err != nil {
+			s.logger.Error("Failed to encode audit event cursor: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
+
+		resp.NextCursor = cursor
+		events = events[:filter.Limit]
+	}
+
 	for _, event := range events {
 		resp.Events = append(resp.Events, auditEventRecordResponse(event))
 	}
@@ -73,6 +93,16 @@ func parseAuditEventListFilter(w http.ResponseWriter, r *http.Request) (dal.Audi
 		EventType:     strings.TrimSpace(r.URL.Query().Get("event_type")),
 		CorrelationID: strings.TrimSpace(r.URL.Query().Get("correlation_id")),
 		Limit:         defaultAuditEventListLimit,
+	}
+
+	if cursorRaw := strings.TrimSpace(r.URL.Query().Get("cursor")); cursorRaw != "" {
+		cursor, ok := parseAuditEventCursor(w, cursorRaw)
+		if !ok {
+			return filter, false
+		}
+
+		filter.CursorCreatedAt = &cursor.CreatedAt
+		filter.CursorID = cursor.ID
 	}
 
 	if limitRaw := strings.TrimSpace(r.URL.Query().Get("limit")); limitRaw != "" {
@@ -121,6 +151,55 @@ func parseAuditEventListFilter(w http.ResponseWriter, r *http.Request) (dal.Audi
 	}
 
 	return filter, true
+}
+
+type parsedAuditEventCursor struct {
+	CreatedAt time.Time
+	ID        int64
+}
+
+func parseAuditEventCursor(w http.ResponseWriter, raw string) (parsedAuditEventCursor, bool) {
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_cursor", "cursor is invalid", nil)
+		return parsedAuditEventCursor{}, false
+	}
+
+	var cursor auditEventCursor
+	if err := json.Unmarshal(decoded, &cursor); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_cursor", "cursor is invalid", nil)
+		return parsedAuditEventCursor{}, false
+	}
+
+	if cursor.ID <= 0 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_cursor", "cursor is invalid", nil)
+		return parsedAuditEventCursor{}, false
+	}
+
+	createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(cursor.CreatedAt))
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_cursor", "cursor is invalid", nil)
+		return parsedAuditEventCursor{}, false
+	}
+
+	return parsedAuditEventCursor{CreatedAt: createdAt.UTC(), ID: cursor.ID}, true
+}
+
+func encodeAuditEventCursor(event *dal.AuditEventRecord) (string, error) {
+	if event == nil || event.ID <= 0 || !event.CreatedAt.Valid {
+		return "", fmt.Errorf("audit event cursor requires id and created_at")
+	}
+
+	payload, err := json.Marshal(auditEventCursor{
+		CreatedAt: event.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		ID:        event.ID,
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
 func parseAuditEventInt64Filter(w http.ResponseWriter, raw, name, code string) (sql.NullInt64, bool) {

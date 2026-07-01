@@ -3059,6 +3059,7 @@ func TestAuditList_sendsFiltersAndPrintsEvents(t *testing.T) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method=%s", r.Method)
 		}
+
 		if r.URL.Path != "/api/v1/audit/events" {
 			t.Errorf("path=%s", r.URL.Path)
 		}
@@ -3071,8 +3072,10 @@ func TestAuditList_sendsFiltersAndPrintsEvents(t *testing.T) {
 			"correlation_id": "corr-1",
 			"since":          "2026-06-29",
 			"until":          "2026-06-30T00:00:00Z",
+			"cursor":         "cursor-1",
 			"limit":          "50",
 		}
+
 		for key, value := range want {
 			if got := query.Get(key); got != value {
 				t.Errorf("query %s=%q, want %q", key, got, value)
@@ -3104,6 +3107,7 @@ func TestAuditList_sendsFiltersAndPrintsEvents(t *testing.T) {
 		CorrelationID: "corr-1",
 		Since:         "2026-06-29",
 		Until:         "2026-06-30T00:00:00Z",
+		Cursor:        "cursor-1",
 		Limit:         50,
 	})
 	if err != nil {

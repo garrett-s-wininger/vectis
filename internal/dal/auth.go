@@ -49,13 +49,15 @@ type AuditEventRecord struct {
 }
 
 type AuditEventListFilter struct {
-	EventType     string
-	ActorID       sql.NullInt64
-	TargetID      sql.NullInt64
-	CorrelationID string
-	Since         *time.Time
-	Until         *time.Time
-	Limit         int
+	EventType       string
+	ActorID         sql.NullInt64
+	TargetID        sql.NullInt64
+	CorrelationID   string
+	Since           *time.Time
+	Until           *time.Time
+	CursorCreatedAt *time.Time
+	CursorID        int64
+	Limit           int
 }
 
 // AuthRepository persists HTTP API authentication: bootstrap completion, local users, and API tokens.
@@ -798,13 +800,18 @@ func (r *SQLAuthRepository) ListAuditEvents(ctx context.Context, filter AuditEve
 		where = append(where, "created_at <= ?")
 		args = append(args, filter.Until.UTC())
 	}
+	if filter.CursorCreatedAt != nil && filter.CursorID > 0 {
+		cursorCreatedAt := filter.CursorCreatedAt.UTC()
+		where = append(where, "(created_at < ? OR (created_at = ? AND id < ?))")
+		args = append(args, cursorCreatedAt, cursorCreatedAt, filter.CursorID)
+	}
 
 	query := `SELECT id, event_type, actor_id, target_id, metadata, COALESCE(ip_address, ''), COALESCE(correlation_id, ''), created_at FROM audit_log`
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 	query += " ORDER BY created_at DESC, id DESC LIMIT ?"
-	args = append(args, limit)
+	args = append(args, limit+1)
 
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
 	if err != nil {

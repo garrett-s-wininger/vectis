@@ -316,7 +316,7 @@ func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
 func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 	s := &APIServer{}
 	want := map[string]routeQueryPolicy{
-		"GET /api/v1/audit/events":                                              routeQueryParams("actor_id", "correlation_id", "event_type", "limit", "since", "target_id", "until"),
+		"GET /api/v1/audit/events":                                              routeQueryParams("actor_id", "correlation_id", "cursor", "event_type", "limit", "since", "target_id", "until"),
 		"GET /api/v1/source-schedules":                                          routeQueryParams("namespace"),
 		"GET /api/v1/source-repositories":                                       routeQueryParams("namespace"),
 		"GET /api/v1/source-repositories/{id}/refs/branches":                    routeQueryParams("limit", "prefix"),

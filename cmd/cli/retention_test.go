@@ -301,6 +301,7 @@ func auditExportEvidenceForTest(t *testing.T, generatedAt time.Time, until strin
 		GeneratedAt:    generatedAt.UTC().Format(time.RFC3339),
 		Filters:        auditExportFilters{Until: until},
 		Limit:          limit,
+		PageCount:      1,
 		RowCount:       len(events),
 		MayBeTruncated: limit > 0 && len(events) >= limit,
 		EventsSHA256:   eventsSHA256,

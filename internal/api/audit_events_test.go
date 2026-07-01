@@ -110,3 +110,82 @@ func TestListAuditEventsRejectsInvalidLimit(t *testing.T) {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestListAuditEventsCursorPagination(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+
+	base := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
+	if err := s.authRepo.InsertAuditEvents(context.Background(), []*dal.AuditEventRecord{
+		{Type: "audit.page", Metadata: []byte(`{"page":3}`), CreatedAt: sql.NullTime{Time: base.Add(-2 * time.Minute), Valid: true}},
+		{Type: "audit.page", Metadata: []byte(`{"page":2}`), CreatedAt: sql.NullTime{Time: base.Add(-1 * time.Minute), Valid: true}},
+		{Type: "audit.page", Metadata: []byte(`{"page":1}`), CreatedAt: sql.NullTime{Time: base, Valid: true}},
+	}); err != nil {
+		t.Fatalf("InsertAuditEvents: %v", err)
+	}
+
+	firstRec := httptest.NewRecorder()
+	firstReq := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?event_type=audit.page&limit=2", nil)
+	s.ListAuditEvents(firstRec, firstReq)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first code=%d body=%s", firstRec.Code, firstRec.Body.String())
+	}
+
+	var first auditEventListResponse
+	if err := json.NewDecoder(firstRec.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first: %v", err)
+	}
+
+	if len(first.Events) != 2 {
+		t.Fatalf("expected 2 first-page events, got %d", len(first.Events))
+	}
+
+	if first.NextCursor == "" {
+		t.Fatal("expected next cursor")
+	}
+
+	if string(first.Events[0].Metadata) != `{"page":1}` || string(first.Events[1].Metadata) != `{"page":2}` {
+		t.Fatalf("unexpected first page order: %+v", first.Events)
+	}
+
+	secondRec := httptest.NewRecorder()
+	secondReq := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?event_type=audit.page&limit=2&cursor="+first.NextCursor, nil)
+	s.ListAuditEvents(secondRec, secondReq)
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("second code=%d body=%s", secondRec.Code, secondRec.Body.String())
+	}
+
+	var second auditEventListResponse
+	if err := json.NewDecoder(secondRec.Body).Decode(&second); err != nil {
+		t.Fatalf("decode second: %v", err)
+	}
+
+	if len(second.Events) != 1 {
+		t.Fatalf("expected 1 second-page event, got %d", len(second.Events))
+	}
+
+	if second.NextCursor != "" {
+		t.Fatalf("unexpected second next cursor %q", second.NextCursor)
+	}
+
+	if string(second.Events[0].Metadata) != `{"page":3}` {
+		t.Fatalf("unexpected second page event: %+v", second.Events[0])
+	}
+}
+
+func TestListAuditEventsRejectsInvalidCursor(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	s := NewAPIServer(mocks.NewMockLogger(), db)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?cursor=not-a-cursor", nil)
+	s.ListAuditEvents(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}

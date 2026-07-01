@@ -263,6 +263,14 @@
             }
           },
           {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor returned by a previous audit event list response.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "since",
             "in": "query",
             "description": "RFC3339 timestamp or YYYY-MM-DD date.",

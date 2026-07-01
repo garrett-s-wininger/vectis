@@ -330,7 +330,7 @@ Cleanup also protects:
 | Recently orphaned blobs | Unreferenced blobs are skipped until their file mtime is older than the artifact blob cutoff. |
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
 | Optional backup gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. |
-| Optional audit export gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, not possibly truncated, and broad enough to cover the audit cleanup cutoff and eligible row count. |
+| Optional audit export gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, fully exhausted across cursor pages, and broad enough to cover the audit cleanup cutoff and eligible row count. |
 | Active retention holds | Active run-scoped holds skip matching terminal runs, related SQL child rows, local run log deletion, and artifact reference removal. |
 | Audit trail of cleanup | Applied SQL cleanup inserts a `retention.cleanup` audit event. |
 | Audit trail of holds | Creating or releasing a hold inserts `retention.hold.created` or `retention.hold.released` in `audit_log`. |

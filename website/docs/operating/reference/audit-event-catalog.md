@@ -10,7 +10,7 @@ For storage fields and indexes, see [Database Schema Reference](./database-schem
 
 Audit emission is enabled by default through `api.audit.enabled`. When enabled, the API writes events to the application-owned SQL database through `audit_log`.
 
-Use `GET /api/v1/audit/events`, `vectis-cli audit list --format json`, or `vectis-cli audit export --output audit-export.json` to review and retain audit-event evidence. The first-party list path supports `event_type`, `actor_id`, `target_id`, `correlation_id`, `since`, `until`, and `limit` filters. `since` and `until` accept RFC3339 timestamps or `YYYY-MM-DD` dates, and `limit` is bounded to 1-1000 rows. Results are ordered newest first by `created_at` and row ID.
+Use `GET /api/v1/audit/events`, `vectis-cli audit list --format json`, or `vectis-cli audit export --output audit-export.json` to review and retain audit-event evidence. The first-party list path supports `event_type`, `actor_id`, `target_id`, `correlation_id`, `since`, `until`, `cursor`, and `limit` filters. `since` and `until` accept RFC3339 timestamps or `YYYY-MM-DD` dates. `limit` is a page size bounded to 1-1000 rows; responses include `next_cursor` when another page is available. Results are ordered newest first by `created_at` and row ID.
 
 | Field | Operator meaning |
 | --- | --- |
@@ -31,7 +31,7 @@ vectis-cli audit export --until 2026-07-01T00:00:00Z --output audit-export.json
 vectis-cli retention cleanup --yes --audit-export audit-export.json --audit-export-max-age 24h
 ```
 
-The retention gate accepts only unfiltered, untruncated exports whose range covers the audit cleanup cutoff and whose event hash matches the retained rows in the export file.
+`vectis-cli audit export` follows `next_cursor` pages automatically. The retention gate accepts only unfiltered, fully exhausted exports whose range covers the audit cleanup cutoff and whose event hash matches the retained rows in the export file.
 
 ## Durability Policy
 

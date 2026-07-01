@@ -55,6 +55,7 @@ type retentionAuditExportEvidence struct {
 	Cutoff         string `json:"cutoff,omitempty"`
 	RowsEligible   int64  `json:"rows_eligible"`
 	RowsExported   int    `json:"rows_exported"`
+	PageCount      int    `json:"page_count"`
 	EventsSHA256   string `json:"events_sha256,omitempty"`
 	OldestEventAt  string `json:"oldest_event_at,omitempty"`
 	NewestEventAt  string `json:"newest_event_at,omitempty"`
@@ -306,6 +307,7 @@ func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff 
 		Cutoff:         retentionCutoff(cutoff),
 		RowsEligible:   rowsEligible,
 		RowsExported:   export.RowCount,
+		PageCount:      export.PageCount,
 		EventsSHA256:   export.EventsSHA256,
 		OldestEventAt:  export.OldestEventAt,
 		NewestEventAt:  export.NewestEventAt,
@@ -322,10 +324,6 @@ func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff 
 
 	if export.RowCount != len(export.Events) {
 		return evidence, fmt.Errorf("audit export row_count=%d does not match events length %d", export.RowCount, len(export.Events))
-	}
-
-	if export.Limit > 0 && export.RowCount >= export.Limit {
-		return evidence, fmt.Errorf("audit export may be truncated: row_count=%d limit=%d", export.RowCount, export.Limit)
 	}
 
 	if export.MayBeTruncated {
@@ -540,6 +538,7 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 
 		fmt.Fprintf(w, "audit_export_rows_eligible=%d\n", auditExportEvidence.RowsEligible)
 		fmt.Fprintf(w, "audit_export_rows_exported=%d\n", auditExportEvidence.RowsExported)
+		fmt.Fprintf(w, "audit_export_pages=%d\n", auditExportEvidence.PageCount)
 		fmt.Fprintf(w, "audit_export_may_be_truncated=%t\n", auditExportEvidence.MayBeTruncated)
 		if auditExportEvidence.EventsSHA256 != "" {
 			fmt.Fprintf(w, "audit_export_events_sha256=%s\n", auditExportEvidence.EventsSHA256)

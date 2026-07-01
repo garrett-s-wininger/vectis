@@ -92,6 +92,7 @@ var (
 	auditListCorrelationID      string
 	auditListSince              string
 	auditListUntil              string
+	auditListCursor             string
 	auditListLimit              int
 	auditExportEventType        string
 	auditExportActorID          int64

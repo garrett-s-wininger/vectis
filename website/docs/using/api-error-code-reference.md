@@ -138,6 +138,7 @@ Most API failures use this JSON envelope:
 | `invalid_after_index` | `400` | `after_index` must be a non-negative integer. |
 | `invalid_actor_id` | `400` | Audit `actor_id` filter is malformed or not positive. |
 | `invalid_cell_id` | `400` | Cell filter or target cell options are invalid or contradictory. |
+| `invalid_cursor` | `400` | A pagination cursor is malformed or no longer valid for the route. |
 | `invalid_job_definition` | `400` | Job document failed parsing or validation. `details.fields` may describe field-level failures. |
 | `invalid_limit` | `400` | A list limit query parameter is outside the allowed range. |
 | `invalid_replay_limit` | `400` | Log replay limit is outside the allowed range. |
