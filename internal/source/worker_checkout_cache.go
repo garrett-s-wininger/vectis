@@ -139,7 +139,7 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 		logger.Info("Cloning repository from worker checkout cache: %s", normalizedRemoteURL)
 	}
 
-	if err := runWorkerCacheGit(ctx, workspace, "clone", "--local", "--", mirrorPath, "."); err != nil {
+	if err := cloneWorkerCheckoutCacheWorkspace(ctx, workspace, mirrorPath); err != nil {
 		return true, fmt.Errorf("clone from worker checkout cache: %w", err)
 	}
 
@@ -149,6 +149,77 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 	}
 
 	return true, nil
+}
+
+type workerCheckoutCacheGitRunner func(context.Context, string, ...string) error
+
+func cloneWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, mirrorPath string) error {
+	return cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx, workspace, mirrorPath, runWorkerCacheGit)
+}
+
+func cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner) error {
+	if run == nil {
+		return fmt.Errorf("%w: worker checkout cache git runner is required", ErrInvalidReference)
+	}
+
+	err := run(ctx, workspace, "clone", "--local", "--", mirrorPath, ".")
+	if err == nil {
+		return nil
+	}
+
+	if !workerCheckoutCacheCloneNeedsNoHardlinksRetry(err) {
+		return err
+	}
+
+	if cleanupErr := cleanupWorkerCheckoutCachePartialClone(workspace); cleanupErr != nil {
+		return fmt.Errorf("%w; cleanup partial worker checkout cache clone: %v", err, cleanupErr)
+	}
+
+	if retryErr := run(ctx, workspace, "clone", "--local", "--no-hardlinks", "--", mirrorPath, "."); retryErr != nil {
+		return fmt.Errorf("%w; retry without hardlinks: %v", err, retryErr)
+	}
+
+	return nil
+}
+
+func workerCheckoutCacheCloneNeedsNoHardlinksRetry(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "link") && !strings.Contains(msg, "hardlink") && !strings.Contains(msg, "hard link") {
+		return false
+	}
+
+	reasons := []string{
+		"cross-device",
+		"operation not permitted",
+		"permission denied",
+		"not supported",
+		"not implemented",
+		"too many links",
+	}
+
+	for _, reason := range reasons {
+		if strings.Contains(msg, reason) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func cleanupWorkerCheckoutCachePartialClone(workspace string) error {
+	if strings.TrimSpace(workspace) == "" {
+		return nil
+	}
+
+	if err := os.RemoveAll(filepath.Join(workspace, ".git")); err != nil {
+		return fmt.Errorf("remove partial git directory: %w", err)
+	}
+
+	return nil
 }
 
 func (c *WorkerCheckoutCache) WarmRemote(ctx context.Context, remoteURL string, logger interfaces.Logger) (bool, string, error) {

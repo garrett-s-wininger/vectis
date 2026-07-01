@@ -51,6 +51,58 @@ func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testing.T) {
+	workspace := t.TempDir()
+	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
+	var calls [][]string
+
+	err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(_ context.Context, dir string, args ...string) error {
+		if dir != workspace {
+			t.Fatalf("clone dir = %q, want %q", dir, workspace)
+		}
+
+		calls = append(calls, append([]string(nil), args...))
+		if len(calls) == 1 {
+			if err := os.MkdirAll(filepath.Join(workspace, ".git", "objects"), 0o755); err != nil {
+				t.Fatalf("create partial clone artifact: %v", err)
+			}
+
+			return errors.New("fatal: failed to create link: invalid cross-device link")
+		}
+
+		if _, err := os.Stat(filepath.Join(workspace, ".git")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("partial clone artifact still exists before retry: err=%v", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("cloneWorkerCheckoutCacheWorkspaceWithRunner: %v", err)
+	}
+
+	assertStringSliceEqual(t, calls[0], []string{"clone", "--local", "--", mirrorPath, "."})
+	assertStringSliceEqual(t, calls[1], []string{"clone", "--local", "--no-hardlinks", "--", mirrorPath, "."})
+}
+
+func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
+	workspace := t.TempDir()
+	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
+	calls := 0
+
+	err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(context.Context, string, ...string) error {
+		calls++
+		return errors.New("fatal: destination path '.' already exists and is not an empty directory")
+	})
+
+	if err == nil {
+		t.Fatal("expected clone failure")
+	}
+
+	if calls != 1 {
+		t.Fatalf("clone calls = %d, want 1", calls)
+	}
+}
+
 func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "warmed\n", "warmed")
@@ -692,4 +744,17 @@ func waitForFreshWorkerCheckoutLease(t *testing.T, path string, leaseTTL time.Du
 	}
 
 	t.Fatalf("lease %s was not refreshed before deadline", path)
+}
+
+func assertStringSliceEqual(t *testing.T, got, want []string) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("slice length = %d, want %d; got=%v want=%v", len(got), len(want), got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("slice[%d] = %q, want %q; got=%v want=%v", i, got[i], want[i], got, want)
+		}
+	}
 }
