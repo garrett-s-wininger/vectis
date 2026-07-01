@@ -18,6 +18,8 @@ import (
 
 const (
 	workerCheckoutGenerationPrefix         = "generation-"
+	workerCheckoutReceivingSuffix          = ".receiving"
+	workerCheckoutCacheRemoteName          = "vectis-cache"
 	defaultWorkerCheckoutGenerationsToKeep = 2
 	defaultWorkerCheckoutLeaseTTL          = time.Hour
 )
@@ -137,12 +139,13 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 		logger.Info("Cloning repository from worker checkout cache: %s", normalizedRemoteURL)
 	}
 
-	if err := runWorkerCacheGit(ctx, workspace, "clone", "--shared", "--local", "--", mirrorPath, "."); err != nil {
+	if err := runWorkerCacheGit(ctx, workspace, "clone", "--local", "--", mirrorPath, "."); err != nil {
 		return true, fmt.Errorf("clone from worker checkout cache: %w", err)
 	}
 
-	if err := runWorkerCacheGit(ctx, workspace, "remote", "set-url", "origin", normalizedRemoteURL); err != nil {
-		return true, fmt.Errorf("restore checkout origin URL: %w", err)
+	cacheRemoteURL := filepath.Join(c.repositoryPath(normalizedRemoteURL), "current")
+	if err := configureWorkerCheckoutCacheWorkspace(ctx, workspace, normalizedRemoteURL, cacheRemoteURL); err != nil {
+		return true, err
 	}
 
 	return true, nil
@@ -218,8 +221,12 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remoteU
 		return "", fmt.Errorf("create worker checkout cache generations parent: %w", err)
 	}
 
+	if err := cleanupStaleWorkerCheckoutReceivingGenerations(generationsPath, c.leaseTTL, time.Now()); err != nil {
+		return "", err
+	}
+
 	generationPath := c.newGenerationPath(generationsPath)
-	tmp := generationPath + ".receiving"
+	tmp := generationPath + workerCheckoutReceivingSuffix
 	_ = os.RemoveAll(tmp)
 
 	if currentPath == "" {
@@ -265,6 +272,31 @@ func configureWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string) 
 	for _, setting := range managedGitMaintenanceSettings {
 		if err := runWorkerCacheGitNoDir(ctx, workerCacheMirrorGitArgs(mirrorPath, "config", "--local", setting[0], setting[1])...); err != nil {
 			return fmt.Errorf("set worker checkout cache git config %s: %w", setting[0], err)
+		}
+	}
+
+	return nil
+}
+
+func configureWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, originURL, cacheRemoteURL string) error {
+	if err := runWorkerCacheGit(ctx, workspace, "remote", "set-url", "origin", originURL); err != nil {
+		return fmt.Errorf("restore checkout origin URL: %w", err)
+	}
+
+	_, _ = execGitRunner{}.RunGit(ctx, workspace, "remote", "remove", workerCheckoutCacheRemoteName)
+	if err := runWorkerCacheGit(ctx, workspace, "remote", "add", workerCheckoutCacheRemoteName, cacheRemoteURL); err != nil {
+		return fmt.Errorf("add worker checkout cache remote: %w", err)
+	}
+
+	settings := [][2]string{
+		{"remote." + workerCheckoutCacheRemoteName + ".tagOpt", "--no-tags"},
+		{"remote." + workerCheckoutCacheRemoteName + ".skipDefaultUpdate", "true"},
+		{"remote." + workerCheckoutCacheRemoteName + ".skipFetchAll", "true"},
+	}
+
+	for _, setting := range settings {
+		if err := runWorkerCacheGit(ctx, workspace, "config", "--local", setting[0], setting[1]); err != nil {
+			return fmt.Errorf("set worker checkout cache workspace config %s: %w", setting[0], err)
 		}
 	}
 
@@ -679,6 +711,47 @@ func workerCheckoutGenerationPaths(repoPath string) ([]string, error) {
 	}
 
 	return out, nil
+}
+
+func cleanupStaleWorkerCheckoutReceivingGenerations(generationsPath string, ttl time.Duration, now time.Time) error {
+	entries, err := os.ReadDir(generationsPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
+		return fmt.Errorf("read worker checkout cache receiving generations: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || !isWorkerCheckoutReceivingGenerationName(entry.Name()) {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+
+			return fmt.Errorf("stat worker checkout cache receiving generation: %w", err)
+		}
+
+		if !workerCheckoutLeaseIsStale(info.ModTime(), ttl, now) {
+			continue
+		}
+
+		path := filepath.Join(generationsPath, entry.Name())
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("remove stale worker checkout cache receiving generation: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func isWorkerCheckoutReceivingGenerationName(name string) bool {
+	return strings.HasPrefix(name, workerCheckoutGenerationPrefix) && strings.HasSuffix(name, ".git"+workerCheckoutReceivingSuffix)
 }
 
 func currentGenerationPath(repoPath string) (string, error) {

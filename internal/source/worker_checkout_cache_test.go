@@ -41,6 +41,14 @@ func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(got) != "cached\n" {
 		t.Fatalf("workspace README = %q, %v", got, err)
 	}
+
+	if _, err := os.Stat(filepath.Join(workspace, ".git", "objects", "info", "alternates")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cached checkout should not depend on alternates after clone: err=%v", err)
+	}
+
+	if got, want := gitOutput(t, workspace, "remote", "get-url", workerCheckoutCacheRemoteName), filepath.Join(cache.repositoryPath(remote), "current"); got != want {
+		t.Fatalf("cache remote url = %q, want %q", got, want)
+	}
 }
 
 func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
@@ -306,6 +314,59 @@ func TestWorkerCheckoutCacheCleanupDropsStaleLeases(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheCleanupDropsStaleReceivingGenerations(t *testing.T) {
+	remote := "https://example.invalid/large.git"
+	ttl := time.Hour
+	cache, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{remote},
+		WithWorkerCheckoutCacheLeaseTTL(ttl),
+	)
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	generationsPath := filepath.Join(cache.repositoryPath(remote), "generations")
+	names := []string{
+		"generation-00000000000000000001-1.git.receiving",
+		"generation-00000000000000000002-1.git.receiving",
+		"generation-00000000000000000003-1.git",
+		"scratch.git.receiving",
+	}
+
+	for _, name := range names {
+		if err := os.MkdirAll(filepath.Join(generationsPath, name), 0o755); err != nil {
+			t.Fatalf("create generation dir %s: %v", name, err)
+		}
+	}
+
+	now := time.Now()
+	stale := now.Add(-2 * ttl)
+	if err := os.Chtimes(filepath.Join(generationsPath, names[0]), stale, stale); err != nil {
+		t.Fatalf("age stale receiving generation: %v", err)
+	}
+
+	fresh := now.Add(-ttl / 2)
+	if err := os.Chtimes(filepath.Join(generationsPath, names[1]), fresh, fresh); err != nil {
+		t.Fatalf("age fresh receiving generation: %v", err)
+	}
+
+	if err := cleanupStaleWorkerCheckoutReceivingGenerations(generationsPath, ttl, now); err != nil {
+		t.Fatalf("cleanupStaleWorkerCheckoutReceivingGenerations: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(generationsPath, names[0])); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale receiving generation still exists after cleanup: err=%v", err)
+	}
+
+	for _, name := range names[1:] {
+		if info, err := os.Stat(filepath.Join(generationsPath, name)); err != nil || !info.IsDir() {
+			t.Fatalf("kept generation dir %s: info=%v err=%v", name, info, err)
+		}
+	}
+}
+
 func TestWorkerCheckoutCacheLeaseHeartbeatKeepsActiveLeaseFresh(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	leaseTTL := 120 * time.Millisecond
@@ -449,6 +510,92 @@ func TestWorkerCheckoutCacheCleanupKeepsLeasedGeneration(t *testing.T) {
 
 	if _, err := os.Stat(firstPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("released generation still exists after cleanup: err=%v", err)
+	}
+}
+
+func TestWorkerCheckoutCacheCheckoutSurvivesGenerationCleanup(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "first\n", "first")
+	firstCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := cache.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("Checkout: handled=%v err=%v", handled, err)
+	}
+
+	firstGeneration := currentWorkerCheckoutGeneration(t, cache, remote)
+	writeAndCommit(t, remote, "README.md", "second\n", "second")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("second WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	writeAndCommit(t, remote, "README.md", "third\n", "third")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("third WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	if _, err := os.Stat(firstGeneration); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first generation still exists after retention cleanup: err=%v", err)
+	}
+
+	if got := gitOutput(t, workspace, "rev-parse", "HEAD"); got != firstCommit {
+		t.Fatalf("workspace HEAD after generation cleanup = %q, want %q", got, firstCommit)
+	}
+
+	git(t, workspace, "cat-file", "-e", firstCommit+"^{commit}")
+}
+
+func TestWorkerCheckoutCacheCheckoutAddsLocalCacheRemoteForAuxiliaryRefs(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+	git(t, remote, "notes", "--ref=commits", "add", "-m", "cached note", mainCommit)
+
+	git(t, remote, "checkout", "-b", "review/cache")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "update-ref", "refs/pull/123/head", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := cache.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("Checkout: handled=%v err=%v", handled, err)
+	}
+
+	git(t, workspace, "fetch", "--no-tags", workerCheckoutCacheRemoteName,
+		"refs/notes/commits:refs/notes/commits",
+		"refs/pull/123/head:refs/vectis/test/pull-123",
+	)
+
+	if got := gitOutput(t, workspace, "notes", "--ref=commits", "show", mainCommit); got != "cached note" {
+		t.Fatalf("fetched note = %q, want cached note", got)
+	}
+
+	if got := gitOutput(t, workspace, "rev-parse", "refs/vectis/test/pull-123"); got != reviewCommit {
+		t.Fatalf("fetched provider ref = %q, want %q", got, reviewCommit)
 	}
 }
 
