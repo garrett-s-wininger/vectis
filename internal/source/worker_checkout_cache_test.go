@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,6 +133,96 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheCleanupRemovesOldUnleasedGenerations(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "first\n", "first")
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("initial WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	firstPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	writeAndCommit(t, remote, "README.md", "second\n", "second")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("second WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	secondPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	writeAndCommit(t, remote, "README.md", "third\n", "third")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("third WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	thirdPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	if _, err := os.Stat(firstPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first generation still exists after cleanup: err=%v", err)
+	}
+
+	if info, err := os.Stat(secondPath); err != nil || !info.IsDir() {
+		t.Fatalf("second generation path = %s, info=%v err=%v", secondPath, info, err)
+	}
+
+	if info, err := os.Stat(thirdPath); err != nil || !info.IsDir() {
+		t.Fatalf("third generation path = %s, info=%v err=%v", thirdPath, info, err)
+	}
+}
+
+func TestWorkerCheckoutCacheCleanupKeepsLeasedGeneration(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "first\n", "first")
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("initial WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	firstPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	mirrorPath, lease, err := cache.acquireCurrentMirrorLease(context.Background(), remote)
+	if err != nil {
+		t.Fatalf("acquire current mirror lease: %v", err)
+	}
+
+	if mirrorPath != firstPath {
+		t.Fatalf("leased generation = %q, want %q", mirrorPath, firstPath)
+	}
+
+	writeAndCommit(t, remote, "README.md", "second\n", "second")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("second WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	writeAndCommit(t, remote, "README.md", "third\n", "third")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("third WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	if info, err := os.Stat(firstPath); err != nil || !info.IsDir() {
+		t.Fatalf("leased generation path = %s, info=%v err=%v", firstPath, info, err)
+	}
+
+	if err := lease.Close(); err != nil {
+		t.Fatalf("close generation lease: %v", err)
+	}
+
+	writeAndCommit(t, remote, "README.md", "fourth\n", "fourth")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("fourth WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	if _, err := os.Stat(firstPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("released generation still exists after cleanup: err=%v", err)
+	}
+}
+
 func TestWorkerCheckoutCacheCheckoutUsesCurrentGenerationWhileWarmLocked(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "cached\n", "cached")
@@ -190,4 +281,19 @@ func TestWorkerCheckoutCacheIgnoresUnconfiguredRemote(t *testing.T) {
 	if handled {
 		t.Fatal("expected unconfigured remote to bypass cache")
 	}
+}
+
+func currentWorkerCheckoutGeneration(t *testing.T, cache *WorkerCheckoutCache, remote string) string {
+	t.Helper()
+
+	path, err := currentGenerationPath(cache.repositoryPath(remote))
+	if err != nil {
+		t.Fatalf("current generation path: %v", err)
+	}
+
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+
+	return path
 }
