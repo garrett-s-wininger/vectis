@@ -46,6 +46,7 @@ import (
 	"vectis/internal/resolver"
 	"vectis/internal/runpolicy"
 	"vectis/internal/secrets"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
@@ -241,6 +242,11 @@ func runWorker(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to configure secrets service client: %v", err)
 	}
 
+	sourceCredentialResolver, err := newConfiguredSourceRepositoryCredentialResolver(logger)
+	if err != nil {
+		logger.Fatal("Failed to configure source repository credentials: %v", err)
+	}
+
 	var spiffeSVIDSource spire.X509SVIDSource
 	if config.WorkerSPIFFEEnabled() {
 		src, err := spire.NewWorkloadAPISource(config.WorkerSPIFFEWorkloadAPIAddress())
@@ -310,6 +316,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 		hotStateOwnerID:               orchestratorDial.OwnerID,
 		hotStateOwnerEpoch:            workerID,
 		secretResolverForWorkload:     secretResolverForWorkload,
+		sourceCredentialResolver:      sourceCredentialResolver,
 		catalog:                       cell.NewCatalogEventPublisher(config.CellID(), repos.CatalogEvents()),
 		metrics:                       workerMetrics,
 		taskFinalizeMetrics:           taskFinalizeMetrics,
@@ -537,6 +544,7 @@ type worker struct {
 	hotStateOwnerEpoch            string
 	secretResolver                secrets.Resolver
 	secretResolverForWorkload     secretResolverFactory
+	sourceCredentialResolver      sourcepkg.RepositoryCredentialResolver
 	catalog                       cell.CatalogEventPublisher
 	metrics                       *observability.WorkerMetrics
 	taskFinalizeMetrics           *observability.TaskFinalizeMetrics
@@ -598,6 +606,29 @@ func newSecretsResolverFactory(logger interfaces.Logger) (secretResolverFactory,
 	}, nil
 }
 
+func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourcepkg.RepositoryCredentialResolver, error) {
+	root := strings.TrimSpace(config.SecretsEncryptedFSRoot())
+	keyFile := strings.TrimSpace(config.SecretsEncryptedFSKeyFile())
+	if root == "" && keyFile == "" {
+		return nil, nil
+	}
+
+	if root == "" || keyFile == "" {
+		return nil, fmt.Errorf("source repository credentials require both secrets.encryptedfs.root and secrets.encryptedfs.key_file")
+	}
+
+	provider, err := secrets.NewEncryptedFSProvider(root, secrets.WithEncryptedFSKeyFile(keyFile))
+	if err != nil {
+		return nil, fmt.Errorf("source repository credential provider: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("Configured encryptedfs source repository credential resolver")
+	}
+
+	return sourcepkg.NewRepositoryCredentialResolverFromSecrets(provider), nil
+}
+
 func secretsAddressDisabled(addr string) bool {
 	switch strings.ToLower(strings.TrimSpace(addr)) {
 	case "", "disabled", "none", "off", "-":
@@ -642,8 +673,13 @@ func (w *worker) checkoutCacheRemoteURLs(ctx context.Context) []string {
 }
 
 func (w *worker) checkoutCacheRemotes(ctx context.Context) []workercore.CheckoutCacheRemote {
+	remotes, _ := w.checkoutCacheRemotesWithFailures(ctx)
+	return remotes
+}
+
+func (w *worker) checkoutCacheRemotesWithFailures(ctx context.Context) ([]workercore.CheckoutCacheRemote, []workercore.CheckoutCacheWarmFailure) {
 	if w == nil || w.sourceRepositories == nil {
-		return nil
+		return nil, nil
 	}
 
 	repositories, err := w.sourceRepositories.ListRepositoriesByWorkerCacheMode(ctx, dal.SourceWorkerCacheModePersistent)
@@ -651,10 +687,10 @@ func (w *worker) checkoutCacheRemotes(ctx context.Context) []workercore.Checkout
 		if w.logger != nil {
 			w.logger.Warn("Failed to load persistent checkout cache repositories: %v", err)
 		}
-		return nil
+		return nil, nil
 	}
 
-	return sourceRepositoryCheckoutCacheRemotes(repositories)
+	return sourceRepositoryCheckoutCacheRemotes(ctx, repositories, w.sourceCredentialResolver)
 }
 
 func (w *worker) startCheckoutCacheWarmLoop(desc workercore.CoreDescription) {
@@ -714,13 +750,19 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		defer cancel()
 	}
 
-	remotes := w.checkoutCacheRemotes(ctx)
+	remotes, credentialFailures := w.checkoutCacheRemotesWithFailures(ctx)
 	if err := ctx.Err(); err != nil {
 		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0)
 		return
 	}
 
 	if len(remotes) == 0 {
+		if len(credentialFailures) > 0 {
+			record(observability.WorkerCheckoutCacheWarmOutcomeFailed, observability.WorkerCheckoutCacheWarmReasonRemoteFailures, 0, len(credentialFailures))
+			w.logCheckoutCacheWarmFailures(credentialFailures, 0)
+			return
+		}
+
 		record(observability.WorkerCheckoutCacheWarmOutcomeSkipped, observability.WorkerCheckoutCacheWarmReasonNoRemotes, 0, 0)
 		return
 	}
@@ -737,7 +779,9 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		return
 	}
 
-	failed := len(result.Failures)
+	failures := append([]workercore.CheckoutCacheWarmFailure(nil), credentialFailures...)
+	failures = append(failures, result.Failures...)
+	failed := len(failures)
 	outcome := observability.WorkerCheckoutCacheWarmOutcomeSuccess
 	reason := observability.WorkerCheckoutCacheWarmReasonOK
 	if failed > 0 {
@@ -755,17 +799,25 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		return
 	}
 
-	if len(result.Failures) == 0 {
+	if len(failures) == 0 {
 		if result.Warmed > 0 {
 			w.logger.Debug("Worker checkout cache warm completed for %d remotes", result.Warmed)
 		}
 		return
 	}
 
-	w.logger.Warn("Worker checkout cache warm completed with %d failures and %d warmed remotes", len(result.Failures), result.Warmed)
-	for i, failure := range result.Failures {
+	w.logCheckoutCacheWarmFailures(failures, result.Warmed)
+}
+
+func (w *worker) logCheckoutCacheWarmFailures(failures []workercore.CheckoutCacheWarmFailure, warmed int) {
+	if w == nil || w.logger == nil || len(failures) == 0 {
+		return
+	}
+
+	w.logger.Warn("Worker checkout cache warm completed with %d failures and %d warmed remotes", len(failures), warmed)
+	for i, failure := range failures {
 		if i >= 3 {
-			w.logger.Warn("Worker checkout cache warm omitted %d additional failures", len(result.Failures)-i)
+			w.logger.Warn("Worker checkout cache warm omitted %d additional failures", len(failures)-i)
 			break
 		}
 		w.logger.Warn("Worker checkout cache warm failed for %s: %s", failure.RemoteURL, failure.Message)
@@ -837,12 +889,14 @@ func checkoutCacheWarmStableJitter(interval time.Duration, ratio float64, worker
 }
 
 func sourceRepositoryRemoteURLs(repositories []dal.SourceRepositoryRecord) []string {
-	return checkoutCacheRemoteURLsFromWorkerRemotes(sourceRepositoryCheckoutCacheRemotes(repositories))
+	remotes, _ := sourceRepositoryCheckoutCacheRemotes(context.Background(), repositories, nil)
+	return checkoutCacheRemoteURLsFromWorkerRemotes(remotes)
 }
 
-func sourceRepositoryCheckoutCacheRemotes(repositories []dal.SourceRepositoryRecord) []workercore.CheckoutCacheRemote {
+func sourceRepositoryCheckoutCacheRemotes(ctx context.Context, repositories []dal.SourceRepositoryRecord, credentialResolver sourcepkg.RepositoryCredentialResolver) ([]workercore.CheckoutCacheRemote, []workercore.CheckoutCacheWarmFailure) {
 	seen := make(map[string]int, len(repositories))
 	out := make([]workercore.CheckoutCacheRemote, 0, len(repositories))
+	failures := make([]workercore.CheckoutCacheWarmFailure, 0)
 	for _, repository := range repositories {
 		if !repository.Enabled || strings.TrimSpace(repository.WorkerCacheMode) != dal.SourceWorkerCacheModePersistent {
 			continue
@@ -853,9 +907,21 @@ func sourceRepositoryCheckoutCacheRemotes(repositories []dal.SourceRepositoryRec
 			continue
 		}
 
+		credentials, err := sourcepkg.RepositoryGitCredentials(ctx, repository, credentialResolver)
+		if err != nil {
+			failures = append(failures, workercore.CheckoutCacheWarmFailure{
+				RemoteURL: remoteURL,
+				Message:   err.Error(),
+			})
+			continue
+		}
+
 		fallbackRemoteURLs := checkoutCacheUniqueRemoteURLs(repository.FallbackRemoteURLs, remoteURL)
 		if existing, ok := seen[remoteURL]; ok {
 			out[existing].FallbackRemoteURLs = checkoutCacheUniqueRemoteURLs(append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...), remoteURL)
+			if out[existing].Credentials.IsZero() && !credentials.IsZero() {
+				out[existing].Credentials = credentials
+			}
 			continue
 		}
 
@@ -863,10 +929,11 @@ func sourceRepositoryCheckoutCacheRemotes(repositories []dal.SourceRepositoryRec
 		out = append(out, workercore.CheckoutCacheRemote{
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: fallbackRemoteURLs,
+			Credentials:        credentials,
 		})
 	}
 
-	return out
+	return out, failures
 }
 
 func checkoutCacheRemoteURLsFromWorkerRemotes(remotes []workercore.CheckoutCacheRemote) []string {

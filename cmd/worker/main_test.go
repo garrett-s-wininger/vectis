@@ -23,6 +23,7 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/orchestrator"
 	"vectis/internal/secrets"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/testutil/dbtest"
@@ -165,6 +166,86 @@ func TestWorkerCheckoutCacheRemoteURLsUsesPersistentSources(t *testing.T) {
 
 	if !reflect.DeepEqual(gotStructured, wantStructured) {
 		t.Fatalf("structured checkout cache remotes = %+v, want %+v", gotStructured, wantStructured)
+	}
+}
+
+func TestWorkerCheckoutCacheRemotesResolveCredentials(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:    "private",
+		NamespaceID:     1,
+		SourceKind:      dal.SourceKindLocalCheckout,
+		CheckoutPath:    "/work/private",
+		WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+		CanonicalURL:    "https://mirror.invalid/private.git",
+		CredentialRef:   "secret://git/private",
+		Enabled:         true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	var resolvedRepositoryID string
+	w := &worker{
+		sourceRepositories: sources,
+		logger:             mocks.NewMockLogger(),
+		sourceCredentialResolver: func(_ context.Context, rec dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
+			resolvedRepositoryID = rec.RepositoryID
+			return sourcepkg.GitCredentials{Username: "oauth2", Password: "token"}, nil
+		},
+	}
+
+	remotes, failures := w.checkoutCacheRemotesWithFailures(ctx)
+	if len(failures) != 0 {
+		t.Fatalf("credential failures = %+v, want none", failures)
+	}
+	if resolvedRepositoryID != "private" {
+		t.Fatalf("resolved repository id = %q, want private", resolvedRepositoryID)
+	}
+	if len(remotes) != 1 ||
+		remotes[0].RemoteURL != "https://mirror.invalid/private.git" ||
+		remotes[0].Credentials.Username != "oauth2" ||
+		remotes[0].Credentials.Password != "token" {
+		t.Fatalf("checkout cache remotes = %+v, want credentialed private remote", remotes)
+	}
+}
+
+func TestWorkerCheckoutCacheRemotesReportsCredentialFailure(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:    "private",
+		NamespaceID:     1,
+		SourceKind:      dal.SourceKindLocalCheckout,
+		CheckoutPath:    "/work/private",
+		WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+		CanonicalURL:    "https://mirror.invalid/private.git",
+		CredentialRef:   "secret://git/private",
+		Enabled:         true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	w := &worker{
+		sourceRepositories: sources,
+		logger:             mocks.NewMockLogger(),
+		sourceCredentialResolver: func(context.Context, dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
+			return sourcepkg.GitCredentials{}, fmt.Errorf("secret missing")
+		},
+	}
+
+	remotes, failures := w.checkoutCacheRemotesWithFailures(ctx)
+	if len(remotes) != 0 {
+		t.Fatalf("checkout cache remotes = %+v, want none", remotes)
+	}
+	if len(failures) != 1 ||
+		failures[0].RemoteURL != "https://mirror.invalid/private.git" ||
+		!strings.Contains(failures[0].Message, "secret missing") {
+		t.Fatalf("credential failures = %+v, want private remote failure", failures)
 	}
 }
 

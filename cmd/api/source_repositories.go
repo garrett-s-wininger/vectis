@@ -19,7 +19,7 @@ import (
 
 type sourceRepositorySyncStatusFunc func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
 type sourceRepositoryRefHydratorFunc func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus
-type sourceRepositoryCredentialResolver func(context.Context, dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error)
+type sourceRepositoryCredentialResolver = sourcepkg.RepositoryCredentialResolver
 type sourceRepositorySyncMetrics interface {
 	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
 }
@@ -686,15 +686,7 @@ func configuredSourceRepositoryRefHydratorWithCredentialResolver(resolver source
 }
 
 func configuredSourceRepositoryGitCredentials(ctx context.Context, rec dal.SourceRepositoryRecord, resolver sourceRepositoryCredentialResolver) (sourcepkg.GitCredentials, error) {
-	if strings.TrimSpace(rec.CredentialRef) == "" {
-		return sourcepkg.GitCredentials{}, nil
-	}
-
-	if resolver == nil {
-		return sourcepkg.GitCredentials{}, fmt.Errorf("credential_ref is configured but source credential resolver is not configured")
-	}
-
-	return resolver(ctx, rec)
+	return sourcepkg.RepositoryGitCredentials(ctx, rec, resolver)
 }
 
 func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (sourceRepositoryCredentialResolver, error) {
@@ -717,45 +709,11 @@ func newConfiguredSourceRepositoryCredentialResolver(logger interfaces.Logger) (
 		logger.Info("Configured encryptedfs source repository credential resolver")
 	}
 
-	return sourceRepositoryCredentialResolverFromSecrets(provider), nil
+	return sourcepkg.NewRepositoryCredentialResolverFromSecrets(provider), nil
 }
 
 func sourceRepositoryCredentialResolverFromSecrets(resolver secrets.Resolver) sourceRepositoryCredentialResolver {
-	if resolver == nil {
-		return nil
-	}
-
-	return func(ctx context.Context, rec dal.SourceRepositoryRecord) (sourcepkg.GitCredentials, error) {
-		ref := strings.TrimSpace(rec.CredentialRef)
-		if ref == "" {
-			return sourcepkg.GitCredentials{}, nil
-		}
-
-		bundle, err := resolver.Resolve(ctx, secrets.ResolveRequest{
-			Scope: secrets.ExecutionScope{
-				JobID: "source-repository:" + strings.TrimSpace(rec.RepositoryID),
-			},
-			Secrets: []secrets.Reference{{
-				ID:  "git-credential",
-				Ref: ref,
-			}},
-		})
-
-		if err != nil {
-			return sourcepkg.GitCredentials{}, fmt.Errorf("resolve source repository credential %q: %w", rec.RepositoryID, err)
-		}
-
-		if len(bundle.Files) != 1 {
-			return sourcepkg.GitCredentials{}, fmt.Errorf("resolve source repository credential %q: expected 1 secret, got %d", rec.RepositoryID, len(bundle.Files))
-		}
-
-		credentials, err := sourcepkg.ParseGitCredentials(bundle.Files[0].Data)
-		if err != nil {
-			return sourcepkg.GitCredentials{}, fmt.Errorf("parse source repository credential %q: %w", rec.RepositoryID, err)
-		}
-
-		return credentials, nil
-	}
+	return sourcepkg.NewRepositoryCredentialResolverFromSecrets(resolver)
 }
 
 func configuredSourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string {
