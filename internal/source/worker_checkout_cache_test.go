@@ -84,6 +84,43 @@ func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testin
 	assertStringSliceEqual(t, calls[1], []string{"clone", "--local", "--no-hardlinks", "--", mirrorPath, "."})
 }
 
+func TestWorkerCheckoutCacheCloneSkipsHardlinksWhenProbeFails(t *testing.T) {
+	workspace := t.TempDir()
+	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
+	var calls [][]string
+
+	err := cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(
+		context.Background(),
+		workspace,
+		mirrorPath,
+		func(_ context.Context, dir string, args ...string) error {
+			if dir != workspace {
+				t.Fatalf("clone dir = %q, want %q", dir, workspace)
+			}
+
+			calls = append(calls, append([]string(nil), args...))
+			return nil
+		},
+		func(probeMirrorPath, probeWorkspace string) bool {
+			if probeMirrorPath != mirrorPath || probeWorkspace != workspace {
+				t.Fatalf("probe got mirror=%q workspace=%q, want mirror=%q workspace=%q", probeMirrorPath, probeWorkspace, mirrorPath, workspace)
+			}
+
+			return false
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe: %v", err)
+	}
+
+	if len(calls) != 1 {
+		t.Fatalf("clone calls = %d, want 1", len(calls))
+	}
+
+	assertStringSliceEqual(t, calls[0], []string{"clone", "--local", "--no-hardlinks", "--", mirrorPath, "."})
+}
+
 func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
 	workspace := t.TempDir()
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")

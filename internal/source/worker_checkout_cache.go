@@ -152,22 +152,35 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 }
 
 type workerCheckoutCacheGitRunner func(context.Context, string, ...string) error
+type workerCheckoutCacheHardlinkProbe func(mirrorPath, workspace string) bool
 
 func cloneWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, mirrorPath string) error {
 	return cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx, workspace, mirrorPath, runWorkerCacheGit)
 }
 
 func cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner) error {
+	return cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx, workspace, mirrorPath, run, workerCheckoutCacheHardlinksAvailable)
+}
+
+func cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner, canHardlink workerCheckoutCacheHardlinkProbe) error {
 	if run == nil {
 		return fmt.Errorf("%w: worker checkout cache git runner is required", ErrInvalidReference)
 	}
 
-	err := run(ctx, workspace, "clone", "--local", "--", mirrorPath, ".")
+	cloneArgs := []string{"clone", "--local"}
+	usesHardlinks := true
+	if canHardlink != nil && !canHardlink(mirrorPath, workspace) {
+		cloneArgs = append(cloneArgs, "--no-hardlinks")
+		usesHardlinks = false
+	}
+
+	cloneArgs = append(cloneArgs, "--", mirrorPath, ".")
+	err := run(ctx, workspace, cloneArgs...)
 	if err == nil {
 		return nil
 	}
 
-	if !workerCheckoutCacheCloneNeedsNoHardlinksRetry(err) {
+	if !usesHardlinks || !workerCheckoutCacheCloneNeedsNoHardlinksRetry(err) {
 		return err
 	}
 
@@ -180,6 +193,30 @@ func cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx context.Context, workspace,
 	}
 
 	return nil
+}
+
+func workerCheckoutCacheHardlinksAvailable(mirrorPath, workspace string) bool {
+	sourcePath := filepath.Join(mirrorPath, "HEAD")
+	for i := range 100 {
+		targetPath := filepath.Join(workspace, fmt.Sprintf(".vectis-checkout-cache-hardlink-probe-%d-%d", os.Getpid(), i))
+		err := os.Link(sourcePath, targetPath)
+		if err == nil {
+			_ = os.Remove(targetPath)
+			return true
+		}
+
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+
+		if workerCheckoutCacheCloneNeedsNoHardlinksRetry(fmt.Errorf("link probe: %w", err)) {
+			return false
+		}
+
+		return true
+	}
+
+	return true
 }
 
 func workerCheckoutCacheCloneNeedsNoHardlinksRetry(err error) bool {
