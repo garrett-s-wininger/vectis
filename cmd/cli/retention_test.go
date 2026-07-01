@@ -12,7 +12,7 @@ import (
 )
 
 func TestRetentionCleanupRequiresBackupManifestForBackupExpect(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{ExpectPath: "expected-topology.json"})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{ExpectPath: "expected-topology.json"}, retentionAuditExportCheckOptions{})
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -22,12 +22,112 @@ func TestRetentionCleanupRequiresBackupManifestForBackupExpect(t *testing.T) {
 }
 
 func TestRetentionCleanupRequiresBackupManifestForBackupStorageReport(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{StorageReportPaths: []string{"queue.report.json"}})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{StorageReportPaths: []string{"queue.report.json"}}, retentionAuditExportCheckOptions{})
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
 	if !strings.Contains(err.Error(), "--backup-manifest") {
 		t.Fatalf("retention cleanup error = %v, want --backup-manifest", err)
+	}
+}
+
+func TestRetentionCleanupRequiresAuditExportForAuditExportMaxAge(t *testing.T) {
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{MaxAge: time.Hour})
+	if err == nil {
+		t.Fatalf("retention cleanup succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "--audit-export") {
+		t.Fatalf("retention cleanup error = %v, want --audit-export", err)
+	}
+}
+
+func TestCheckRetentionAuditExportAcceptsFreshFullRange(t *testing.T) {
+	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-365 * 24 * time.Hour)
+	events := []auditEventResult{
+		{ID: 2, EventType: "token.deleted", CreatedAt: cutoff.Add(-time.Hour).Format(time.RFC3339)},
+		{ID: 1, EventType: "token.created", CreatedAt: cutoff.Add(-2 * time.Hour).Format(time.RFC3339)},
+	}
+
+	root := t.TempDir()
+	exportPath := writeBackupJSONFile(t, root, "audit-export.json", auditExportEvidenceForTest(t, now.Add(-30*time.Minute), cutoff.Format(time.RFC3339), 10, events))
+
+	evidence, err := checkRetentionAuditExport(retentionAuditExportCheckOptions{ExportPath: exportPath, MaxAge: time.Hour}, &cutoff, 2, now)
+	if err != nil {
+		t.Fatalf("audit export check: %v", err)
+	}
+	if evidence == nil || !evidence.Verified {
+		t.Fatalf("audit export evidence = %+v, want verified", evidence)
+	}
+	if evidence.Age != "30m0s" || evidence.MaxAge != "1h0m0s" {
+		t.Fatalf("freshness evidence = age %q max %q", evidence.Age, evidence.MaxAge)
+	}
+	if evidence.RowsEligible != 2 || evidence.RowsExported != 2 {
+		t.Fatalf("row evidence = eligible %d exported %d", evidence.RowsEligible, evidence.RowsExported)
+	}
+}
+
+func TestCheckRetentionAuditExportRejectsTruncatedExport(t *testing.T) {
+	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-365 * 24 * time.Hour)
+	events := []auditEventResult{{ID: 1, EventType: "token.created", CreatedAt: cutoff.Add(-time.Hour).Format(time.RFC3339)}}
+	export := auditExportEvidenceForTest(t, now.Add(-30*time.Minute), cutoff.Format(time.RFC3339), 1, events)
+	export.MayBeTruncated = true
+
+	root := t.TempDir()
+	exportPath := writeBackupJSONFile(t, root, "audit-export.json", export)
+
+	evidence, err := checkRetentionAuditExport(retentionAuditExportCheckOptions{ExportPath: exportPath}, &cutoff, 1, now)
+	if err == nil {
+		t.Fatalf("audit export check succeeded unexpectedly")
+	}
+	if evidence == nil || evidence.Verified {
+		t.Fatalf("audit export evidence = %+v, want unverified", evidence)
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("audit export error = %v, want truncated", err)
+	}
+}
+
+func TestCheckRetentionAuditExportRejectsFilteredExport(t *testing.T) {
+	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-365 * 24 * time.Hour)
+	events := []auditEventResult{{ID: 1, EventType: "token.created", CreatedAt: cutoff.Add(-time.Hour).Format(time.RFC3339)}}
+	export := auditExportEvidenceForTest(t, now.Add(-30*time.Minute), cutoff.Format(time.RFC3339), 10, events)
+	export.Filters.EventType = "token.created"
+
+	root := t.TempDir()
+	exportPath := writeBackupJSONFile(t, root, "audit-export.json", export)
+
+	evidence, err := checkRetentionAuditExport(retentionAuditExportCheckOptions{ExportPath: exportPath}, &cutoff, 1, now)
+	if err == nil {
+		t.Fatalf("audit export check succeeded unexpectedly")
+	}
+	if evidence == nil || evidence.Verified {
+		t.Fatalf("audit export evidence = %+v, want unverified", evidence)
+	}
+	if !strings.Contains(err.Error(), "must not set") {
+		t.Fatalf("audit export error = %v, want filter rejection", err)
+	}
+}
+
+func TestCheckRetentionAuditExportRejectsUndercount(t *testing.T) {
+	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-365 * 24 * time.Hour)
+	events := []auditEventResult{{ID: 1, EventType: "token.created", CreatedAt: cutoff.Add(-time.Hour).Format(time.RFC3339)}}
+
+	root := t.TempDir()
+	exportPath := writeBackupJSONFile(t, root, "audit-export.json", auditExportEvidenceForTest(t, now.Add(-30*time.Minute), cutoff.Format(time.RFC3339), 10, events))
+
+	evidence, err := checkRetentionAuditExport(retentionAuditExportCheckOptions{ExportPath: exportPath}, &cutoff, 2, now)
+	if err == nil {
+		t.Fatalf("audit export check succeeded unexpectedly")
+	}
+	if evidence == nil || evidence.Verified {
+		t.Fatalf("audit export evidence = %+v, want unverified", evidence)
+	}
+	if !strings.Contains(err.Error(), "less than retention-eligible") {
+		t.Fatalf("audit export error = %v, want undercount", err)
 	}
 }
 
@@ -186,4 +286,34 @@ func retentionBackupManifestForTest(generatedAt string) backupManifest {
 			{InventorySource: "host-a.inventory.json", Category: "config_paths", ID: "deploy.config_dir", Kind: "directory", Path: "/etc/vectis/deploy", Enabled: true, Exists: true, Readable: true},
 		},
 	}
+}
+
+func auditExportEvidenceForTest(t *testing.T, generatedAt time.Time, until string, limit int, events []auditEventResult) auditExportEvidence {
+	t.Helper()
+
+	eventsSHA256, err := auditEventsSHA256(events)
+	if err != nil {
+		t.Fatalf("audit events sha256: %v", err)
+	}
+
+	evidence := auditExportEvidence{
+		SchemaVersion:  auditExportSchemaVersion,
+		GeneratedAt:    generatedAt.UTC().Format(time.RFC3339),
+		Filters:        auditExportFilters{Until: until},
+		Limit:          limit,
+		RowCount:       len(events),
+		MayBeTruncated: limit > 0 && len(events) >= limit,
+		EventsSHA256:   eventsSHA256,
+		Events:         events,
+	}
+	for _, event := range events {
+		if evidence.NewestEventAt == "" || event.CreatedAt > evidence.NewestEventAt {
+			evidence.NewestEventAt = event.CreatedAt
+		}
+		if evidence.OldestEventAt == "" || event.CreatedAt < evidence.OldestEventAt {
+			evidence.OldestEventAt = event.CreatedAt
+		}
+	}
+
+	return evidence
 }

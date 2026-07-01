@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -39,6 +40,27 @@ type retentionBackupEvidence struct {
 	StorageReportMaxAge    string `json:"storage_report_max_age,omitempty"`
 }
 
+type retentionAuditExportCheckOptions struct {
+	ExportPath string
+	MaxAge     time.Duration
+}
+
+type retentionAuditExportEvidence struct {
+	ExportPath     string `json:"export_path"`
+	Verified       bool   `json:"verified"`
+	CheckedAt      string `json:"checked_at"`
+	GeneratedAt    string `json:"generated_at,omitempty"`
+	MaxAge         string `json:"max_age,omitempty"`
+	Age            string `json:"age,omitempty"`
+	Cutoff         string `json:"cutoff,omitempty"`
+	RowsEligible   int64  `json:"rows_eligible"`
+	RowsExported   int    `json:"rows_exported"`
+	EventsSHA256   string `json:"events_sha256,omitempty"`
+	OldestEventAt  string `json:"oldest_event_at,omitempty"`
+	NewestEventAt  string `json:"newest_event_at,omitempty"`
+	MayBeTruncated bool   `json:"may_be_truncated"`
+}
+
 func runRetentionCleanup(cmd *cobra.Command, args []string) {
 	policy := retention.Policy{
 		TerminalRuns:    retentionRunAge,
@@ -56,10 +78,15 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 		StorageReportMaxAge: retentionBackupStorageMaxAge,
 	}
 
-	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions))
+	auditExportOptions := retentionAuditExportCheckOptions{
+		ExportPath: retentionAuditExport,
+		MaxAge:     retentionAuditExportMaxAge,
+	}
+
+	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions))
 }
 
-func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions) error {
+func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions) error {
 	if !dryRun && !yes {
 		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
 	}
@@ -68,6 +95,10 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 	backupEvidence, err := checkRetentionBackupManifest(backupOptions, now)
 	if err != nil {
 		return err
+	}
+
+	if strings.TrimSpace(auditExportOptions.ExportPath) == "" && auditExportOptions.MaxAge > 0 {
+		return fmt.Errorf("--audit-export-max-age requires --audit-export")
 	}
 
 	db, err := openRetentionDatabase()
@@ -81,6 +112,23 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 	}
 
 	cleaner := retention.NewSQLCleaner(db)
+
+	var auditExportEvidence *retentionAuditExportEvidence
+	var precheckedReport *retention.Report
+	if strings.TrimSpace(auditExportOptions.ExportPath) != "" {
+		preview, err := cleaner.Preview(ctx, policy, now)
+		if err != nil {
+			return err
+		}
+
+		precheckedReport = &preview
+		auditExportEvidence, err = checkRetentionAuditExport(auditExportOptions, preview.Cutoffs.AuditLog, preview.Counts.AuditLog, now)
+		if err != nil {
+			return err
+		}
+	} else if auditExportOptions.MaxAge > 0 {
+		return fmt.Errorf("--audit-export-max-age requires --audit-export")
+	}
 
 	var fileReport retention.FileReport
 	var artifactRefs map[string]bool
@@ -111,7 +159,11 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 
 	var report retention.Report
 	if dryRun {
-		report, err = cleaner.Preview(ctx, policy, now)
+		if precheckedReport != nil {
+			report = *precheckedReport
+		} else {
+			report, err = cleaner.Preview(ctx, policy, now)
+		}
 	} else {
 		report, err = cleaner.Apply(ctx, policy, now)
 	}
@@ -191,10 +243,14 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 			payload["backup"] = backupEvidence
 		}
 
+		if auditExportEvidence != nil {
+			payload["audit_export"] = auditExportEvidence
+		}
+
 		return writeJSON(w, payload)
 	}
 
-	printRetentionReport(w, report, fileReport, backupEvidence)
+	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence)
 	if dryRun {
 		fmt.Fprintln(w, "Cleanup not applied.")
 		return nil
@@ -217,6 +273,138 @@ func openRetentionDatabase() (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff *time.Time, rowsEligible int64, checkedAt time.Time) (*retentionAuditExportEvidence, error) {
+	options.ExportPath = strings.TrimSpace(options.ExportPath)
+	if options.ExportPath == "" {
+		if options.MaxAge > 0 {
+			return nil, fmt.Errorf("--audit-export-max-age requires --audit-export")
+		}
+
+		return nil, nil
+	}
+
+	if options.ExportPath == "-" {
+		return nil, fmt.Errorf("--audit-export must be a retained file path")
+	}
+
+	raw, err := os.ReadFile(options.ExportPath)
+	if err != nil {
+		return nil, fmt.Errorf("read audit export: %w", err)
+	}
+
+	var export auditExportEvidence
+	if err := json.Unmarshal(raw, &export); err != nil {
+		return nil, fmt.Errorf("parse audit export: %w", err)
+	}
+
+	evidence := &retentionAuditExportEvidence{
+		ExportPath:     options.ExportPath,
+		CheckedAt:      checkedAt.UTC().Format(time.RFC3339),
+		GeneratedAt:    export.GeneratedAt,
+		Cutoff:         retentionCutoff(cutoff),
+		RowsEligible:   rowsEligible,
+		RowsExported:   export.RowCount,
+		EventsSHA256:   export.EventsSHA256,
+		OldestEventAt:  export.OldestEventAt,
+		NewestEventAt:  export.NewestEventAt,
+		MayBeTruncated: export.MayBeTruncated,
+	}
+
+	if options.MaxAge > 0 {
+		evidence.MaxAge = options.MaxAge.String()
+	}
+
+	if export.SchemaVersion != auditExportSchemaVersion {
+		return evidence, fmt.Errorf("audit export schema_version = %q, want %q", export.SchemaVersion, auditExportSchemaVersion)
+	}
+
+	if export.RowCount != len(export.Events) {
+		return evidence, fmt.Errorf("audit export row_count=%d does not match events length %d", export.RowCount, len(export.Events))
+	}
+
+	if export.Limit > 0 && export.RowCount >= export.Limit {
+		return evidence, fmt.Errorf("audit export may be truncated: row_count=%d limit=%d", export.RowCount, export.Limit)
+	}
+
+	if export.MayBeTruncated {
+		return evidence, fmt.Errorf("audit export may be truncated")
+	}
+
+	eventsSHA256, err := auditEventsSHA256(export.Events)
+	if err != nil {
+		return evidence, err
+	}
+
+	if export.EventsSHA256 != eventsSHA256 {
+		return evidence, fmt.Errorf("audit export events_sha256 mismatch")
+	}
+
+	generatedAt, err := time.Parse(time.RFC3339, export.GeneratedAt)
+	if err != nil {
+		return evidence, fmt.Errorf("audit export generated_at is not RFC3339: %w", err)
+	}
+
+	age := checkedAt.Sub(generatedAt)
+	evidence.Age = age.String()
+	if age < 0 {
+		return evidence, fmt.Errorf("audit export generated_at %s is after check time %s", export.GeneratedAt, checkedAt.Format(time.RFC3339))
+	}
+
+	if options.MaxAge > 0 && age > options.MaxAge {
+		return evidence, fmt.Errorf("audit export is stale: generated_at=%s age=%s max_age=%s", export.GeneratedAt, age, options.MaxAge)
+	}
+
+	if !auditExportHasFullRetentionRange(export.Filters) {
+		return evidence, fmt.Errorf("audit export for retention cleanup must not set event, actor, target, correlation, or since filters")
+	}
+
+	if cutoff != nil {
+		until := strings.TrimSpace(export.Filters.Until)
+		if until != "" {
+			untilTime, err := parseAuditExportRetentionTime(until)
+			if err != nil {
+				return evidence, err
+			}
+
+			if untilTime.Before(cutoff.UTC()) {
+				return evidence, fmt.Errorf("audit export until %s is before audit cleanup cutoff %s", until, cutoff.UTC().Format(time.RFC3339))
+			}
+		}
+	}
+
+	if rowsEligible > int64(export.RowCount) {
+		return evidence, fmt.Errorf("audit export row_count=%d is less than retention-eligible audit rows=%d", export.RowCount, rowsEligible)
+	}
+
+	evidence.Verified = true
+	return evidence, nil
+}
+
+func auditExportHasFullRetentionRange(filters auditExportFilters) bool {
+	return strings.TrimSpace(filters.EventType) == "" &&
+		filters.ActorID == nil &&
+		filters.TargetID == nil &&
+		strings.TrimSpace(filters.CorrelationID) == "" &&
+		strings.TrimSpace(filters.Since) == ""
+}
+
+func parseAuditExportRetentionTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+
+	if t, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return t.UTC(), nil
+	}
+
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return t.UTC(), nil
+	}
+
+	return time.Time{}, fmt.Errorf("audit export until must be RFC3339 or YYYY-MM-DD")
 }
 
 func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt time.Time) (*retentionBackupEvidence, error) {
@@ -305,7 +493,7 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 	return evidence, nil
 }
 
-func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence) {
+func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence) {
 	prefix := "deleted"
 	if report.DryRun {
 		prefix = "would_delete"
@@ -334,6 +522,27 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 			if backupEvidence.StorageReportMaxAge != "" {
 				fmt.Fprintf(w, "backup_storage_report_max_age=%s\n", backupEvidence.StorageReportMaxAge)
 			}
+		}
+	}
+	if auditExportEvidence != nil {
+		fmt.Fprintf(w, "audit_export_verified=%t\n", auditExportEvidence.Verified)
+		fmt.Fprintf(w, "audit_export_path=%s\n", auditExportEvidence.ExportPath)
+		fmt.Fprintf(w, "audit_export_checked_at=%s\n", auditExportEvidence.CheckedAt)
+		fmt.Fprintf(w, "audit_export_generated_at=%s\n", auditExportEvidence.GeneratedAt)
+		if auditExportEvidence.MaxAge != "" {
+			fmt.Fprintf(w, "audit_export_max_age=%s\n", auditExportEvidence.MaxAge)
+			fmt.Fprintf(w, "audit_export_age=%s\n", auditExportEvidence.Age)
+		}
+
+		if auditExportEvidence.Cutoff != "" {
+			fmt.Fprintf(w, "audit_export_cutoff=%s\n", auditExportEvidence.Cutoff)
+		}
+
+		fmt.Fprintf(w, "audit_export_rows_eligible=%d\n", auditExportEvidence.RowsEligible)
+		fmt.Fprintf(w, "audit_export_rows_exported=%d\n", auditExportEvidence.RowsExported)
+		fmt.Fprintf(w, "audit_export_may_be_truncated=%t\n", auditExportEvidence.MayBeTruncated)
+		if auditExportEvidence.EventsSHA256 != "" {
+			fmt.Fprintf(w, "audit_export_events_sha256=%s\n", auditExportEvidence.EventsSHA256)
 		}
 	}
 

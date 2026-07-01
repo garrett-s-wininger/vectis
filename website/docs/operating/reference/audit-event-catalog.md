@@ -10,7 +10,7 @@ For storage fields and indexes, see [Database Schema Reference](./database-schem
 
 Audit emission is enabled by default through `api.audit.enabled`. When enabled, the API writes events to the application-owned SQL database through `audit_log`.
 
-Use `GET /api/v1/audit/events` or `vectis-cli audit list --format json` to list and retain audit-event evidence. The first-party list path supports `event_type`, `actor_id`, `target_id`, `correlation_id`, `since`, `until`, and `limit` filters. `since` and `until` accept RFC3339 timestamps or `YYYY-MM-DD` dates, and `limit` is bounded to 1-1000 rows. Results are ordered newest first by `created_at` and row ID.
+Use `GET /api/v1/audit/events`, `vectis-cli audit list --format json`, or `vectis-cli audit export --output audit-export.json` to review and retain audit-event evidence. The first-party list path supports `event_type`, `actor_id`, `target_id`, `correlation_id`, `since`, `until`, and `limit` filters. `since` and `until` accept RFC3339 timestamps or `YYYY-MM-DD` dates, and `limit` is bounded to 1-1000 rows. Results are ordered newest first by `created_at` and row ID.
 
 | Field | Operator meaning |
 | --- | --- |
@@ -24,11 +24,14 @@ Use `GET /api/v1/audit/events` or `vectis-cli audit list --format json` to list 
 
 Audit metadata can contain usernames, token labels, namespace paths, job IDs, run IDs, and operator-supplied repair reasons. Raw API tokens, passwords, CSRF/session tokens, and secret plaintext are not written by the audit emitters, but `audit_log` should still be treated as sensitive operational evidence.
 
-For retention workflows, export the relevant range before deleting old audit rows:
+For retention workflows, export the relevant range before deleting old audit rows, then pass that retained evidence to cleanup:
 
 ```sh
-vectis-cli audit list --since 2026-06-01 --until 2026-07-01 --format json
+vectis-cli audit export --until 2026-07-01T00:00:00Z --output audit-export.json
+vectis-cli retention cleanup --yes --audit-export audit-export.json --audit-export-max-age 24h
 ```
+
+The retention gate accepts only unfiltered, untruncated exports whose range covers the audit cleanup cutoff and whose event hash matches the retained rows in the export file.
 
 ## Durability Policy
 

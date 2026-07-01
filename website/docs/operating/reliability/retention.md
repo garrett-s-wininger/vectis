@@ -15,7 +15,9 @@ Cleanup is intentionally explicit today:
 - `--backup-manifest` verifies backup manifest evidence before preview or apply.
 - `--backup-expect` makes the manifest match an expected topology file.
 - `--backup-max-age` rejects stale manifest evidence, based on `generated_at`.
-- Running without either flag fails.
+- `--audit-export` verifies retained audit export evidence before deleting old audit rows.
+- `--audit-export-max-age` rejects stale audit export evidence, based on `generated_at`.
+- Running without `--dry-run` or `--yes` fails.
 
 `vectis-cli retention holds` creates, lists, and releases run-scoped compliance
 holds. Use holds for incident response, legal discovery, customer evidence
@@ -109,6 +111,21 @@ vectis-cli retention cleanup --yes \
   --backup-manifest backup-manifest.json \
   --backup-expect expected-topology.json \
   --backup-max-age 24h
+```
+
+When audit rows are being pruned, capture an unfiltered audit export for the
+range that covers the cleanup cutoff and pass it to cleanup. The export gate
+rejects filtered, stale, hash-mismatched, or potentially truncated evidence:
+
+```sh
+vectis-cli audit export \
+  --until 2026-07-01T00:00:00Z \
+  --output audit-export.json
+
+vectis-cli retention cleanup --yes \
+  --audit-age 8760h \
+  --audit-export audit-export.json \
+  --audit-export-max-age 24h
 ```
 
 Override windows when the defaults are not right for the environment:
@@ -313,6 +330,7 @@ Cleanup also protects:
 | Recently orphaned blobs | Unreferenced blobs are skipped until their file mtime is older than the artifact blob cutoff. |
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
 | Optional backup gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. |
+| Optional audit export gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, not possibly truncated, and broad enough to cover the audit cleanup cutoff and eligible row count. |
 | Active retention holds | Active run-scoped holds skip matching terminal runs, related SQL child rows, local run log deletion, and artifact reference removal. |
 | Audit trail of cleanup | Applied SQL cleanup inserts a `retention.cleanup` audit event. |
 | Audit trail of holds | Creating or releasing a hold inserts `retention.hold.created` or `retention.hold.released` in `audit_log`. |

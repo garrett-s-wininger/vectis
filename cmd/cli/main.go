@@ -93,6 +93,14 @@ var (
 	auditListSince              string
 	auditListUntil              string
 	auditListLimit              int
+	auditExportEventType        string
+	auditExportActorID          int64
+	auditExportTargetID         int64
+	auditExportCorrelationID    string
+	auditExportSince            string
+	auditExportUntil            string
+	auditExportLimit            int
+	auditExportOutputPath       string
 	runListJobID                string
 	runListRepositoryID         string
 	runListLimit                int
@@ -186,6 +194,8 @@ var (
 var (
 	retentionBackupStorageReports []string
 	retentionBackupStorageMaxAge  time.Duration
+	retentionAuditExport          string
+	retentionAuditExportMaxAge    time.Duration
 )
 
 var rootCmd = &cobra.Command{
@@ -356,7 +366,8 @@ func init() {
 	rootCmd.AddCommand(storageCmd)
 
 	configureAuditListFlags(auditListCmd)
-	auditCmd.AddCommand(auditListCmd)
+	configureAuditExportFlags(auditExportCmd)
+	auditCmd.AddCommand(auditListCmd, auditExportCmd)
 	rootCmd.AddCommand(auditCmd)
 
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")
@@ -397,6 +408,8 @@ func init() {
 	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", 0, "Maximum accepted backup manifest age before cleanup (0 disables)")
 	retentionCleanupCmd.Flags().StringArrayVar(&retentionBackupStorageReports, "backup-storage-report", nil, "Optional storage verification report JSON to verify before cleanup (repeatable)")
 	retentionCleanupCmd.Flags().DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", 0, "Maximum accepted storage verification report age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().StringVar(&retentionAuditExport, "audit-export", "", "Optional audit export evidence JSON to verify before deleting audit rows")
+	retentionCleanupCmd.Flags().DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", 0, "Maximum accepted audit export evidence age before cleanup (0 disables)")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldReason, "reason", "", "Compliance or incident reason for the hold")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldOwner, "owner", "", "Accountable owner for the hold")

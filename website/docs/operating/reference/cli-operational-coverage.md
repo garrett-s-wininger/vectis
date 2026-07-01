@@ -20,11 +20,11 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Role bindings | Grant or revoke namespace roles. | `vectis-cli role-bindings list`, `grant`, `revoke` |
 | Source control | Register, sync, inspect, author, and clean up source repositories and schedules. | `vectis-cli sources overview`, `list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--format json`, `--strict` |
-| Audit events | Review or export API audit events by type, actor, target, correlation ID, or time range. | `vectis-cli audit list`, `audit list --event-type`, `--actor-id`, `--target-id`, `--correlation-id`, `--since`, `--until`, `--format json` |
+| Audit events | Review or export API audit events by type, actor, target, correlation ID, or time range. | `vectis-cli audit list`, `audit export --output`, `--event-type`, `--actor-id`, `--target-id`, `--correlation-id`, `--since`, `--until`, `--format json` |
 | Backup evidence | Capture local backup scope evidence, aggregate host inventories, generate reference expectations, verify manifest completeness, and emit retained restore validation evidence with attached storage reports and a post-restore smoke run. | `vectis-cli backup inventory --format json`, `backup manifest --format json`, `backup expect podman --format json`, `backup expect linux --format json`, `backup verify`, `backup verify --expect`, `backup verify --storage-report`, `backup restore-validation --smoke-run`, `--storage-max-age` |
 | Storage integrity | Verify local file-backed durable state before accepting a backup set or restored files. | `vectis-cli storage verify queue`, `logs`, `artifact`, `log-forwarder-spool`, `worker-log-spool`, `--dir`, `--format json` |
 | Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
-| Retention | Preview or apply cleanup for old durable records, optionally gated by backup manifest freshness, storage integrity reports, and expected topology; create, list, and release run-scoped compliance holds. | `vectis-cli retention cleanup --dry-run`, `--yes`, `--backup-manifest`, `--backup-expect`, `--backup-max-age`, `--backup-storage-report`, `--backup-storage-max-age`, `retention holds create`, `holds list`, `holds release` |
+| Retention | Preview or apply cleanup for old durable records, optionally gated by backup manifest freshness, storage integrity reports, expected topology, and audit export evidence; create, list, and release run-scoped compliance holds. | `vectis-cli retention cleanup --dry-run`, `--yes`, `--backup-manifest`, `--backup-expect`, `--backup-max-age`, `--backup-storage-report`, `--backup-storage-max-age`, `--audit-export`, `--audit-export-max-age`, `retention holds create`, `holds list`, `holds release` |
 | Reference deploy | Render, start, stop, and inspect the Podman reference deployment, including `--profile simple` and `--profile ha`. | `vectis-cli deploy podman init`, `render`, `up`, `status`, `down` |
 | Local reset | Preview or reset local Vectis development state. | `vectis-cli local reset --dry-run`, `--yes` |
 
@@ -45,7 +45,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Inspect source-control readiness | `vectis-cli sources overview` |
 | Inspect source repository health | `vectis-cli sources status <repository-id>` |
 | Check config-as-code readiness | `vectis-cli health check --strict` |
-| Export audit events for a range | `vectis-cli audit list --since <YYYY-MM-DD> --until <YYYY-MM-DD> --format json` |
+| Export audit events for a range | `vectis-cli audit export --until <RFC3339> --output audit-export.json` |
 | Capture backup scope evidence | `vectis-cli backup inventory --format json` |
 | Generate Podman expected topology | `vectis-cli backup expect podman --profile simple --format json` or `--profile ha` |
 | Generate Linux expected topology | `vectis-cli backup expect linux --manifest deploy/linux/services.toml --format json` |
@@ -54,7 +54,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Verify restored file stores | `vectis-cli storage verify queue --dir <queue-dir>`, then repeat for `logs`, `artifact`, `log-forwarder-spool`, and `worker-log-spool` paths in scope |
 | Preserve a run for compliance or incident review | `vectis-cli retention holds create --run <run-id> --owner <owner> --reason <reason> [--external-ref <ticket>]` |
 | List active retention holds | `vectis-cli retention holds list` |
-| Apply retention cleanup after backup validation | `vectis-cli retention cleanup --yes --backup-manifest backup-manifest.json --backup-expect expected-topology.json --backup-max-age 24h --backup-storage-report queue.storage-report.json` |
+| Apply retention cleanup after backup and audit validation | `vectis-cli retention cleanup --yes --backup-manifest backup-manifest.json --backup-expect expected-topology.json --backup-max-age 24h --backup-storage-report queue.storage-report.json --audit-export audit-export.json --audit-export-max-age 24h` |
 | List stale source repositories | `vectis-cli sources list --stale` |
 | List stale source schedules | `vectis-cli sources schedules --stale` |
 | Trigger a source-defined job | `vectis-cli jobs trigger <job-id> --repository <repository-id>` |
@@ -73,13 +73,13 @@ Most operational commands use stable, line-oriented text:
 - `health check` prints a grouped human report using stable check IDs from the [Health Check Catalog](./health-check-catalog.md).
 - `health check --format json` emits a summary object with the full check model in `checks`.
 - `health check --strict` exits non-zero on warnings (for CI).
-- `audit list` prints one event per line in newest-first order; `--format json` emits an `events` array and the effective `limit` for retention/export evidence.
+- `audit list` prints one event per line in newest-first order; `--format json` emits an `events` array and the effective `limit`. `audit export` writes a versioned JSON evidence envelope with filters, row count, truncation signal, event time bounds, exported rows, and `events_sha256`.
 - `backup inventory --format json` emits local backup scope evidence with redacted database DSNs and path readability.
 - `backup expect podman --format json` emits expected topology JSON for the Podman reference deployment's simple or HA profile.
 - `backup expect linux --format json` emits expected topology JSON from the Linux services manifest's example environment.
 - `backup manifest --format json` aggregates inventory files into backup-set evidence; `backup verify` exits non-zero when core database, queue, log, or artifact evidence is incomplete, and `--expect` also fails when expected host inventory sources, service instances, database roles, paths, or path categories are absent. When `--storage-report` is supplied, every storage-backed `local_state` path in the manifest must have a matching `ok` report; `--storage-max-age` rejects stale reports. `backup restore-validation --format json` emits retained validation evidence and exits non-zero unless backup verification passes and the referenced smoke run has status `succeeded`.
 - `storage verify` prints `key=value` report summaries or JSON reports for queue snapshot/WAL files, durable run logs, artifact blobs, log-forwarder CRC spools, and worker pending log spools. It exits non-zero on corrupt files, digest mismatches, malformed records, or quarantined spools.
-- `retention cleanup` prints `key=value` summary lines for cutoffs, delete counts, and `held.*` counts. When `--backup-manifest` is provided, text output includes `backup_manifest_*` and optional `backup_storage_*` validation lines, and JSON output includes a `backup` object; verification or freshness failure exits non-zero before cleanup.
+- `retention cleanup` prints `key=value` summary lines for cutoffs, delete counts, and `held.*` counts. When `--backup-manifest` is provided, text output includes `backup_manifest_*` and optional `backup_storage_*` validation lines, and JSON output includes a `backup` object. When `--audit-export` is provided, cleanup verifies the export before deleting audit rows and reports `audit_export_*` fields or a JSON `audit_export` object; verification or freshness failure exits non-zero before cleanup.
 - `retention holds create` and `retention holds release` print the hold record as `key=value` lines; `retention holds list` prints one hold per line, or a JSON `holds` array with `--format json`.
 - Errors are written to stderr by command runners and return a non-zero process exit.
 
