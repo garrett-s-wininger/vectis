@@ -11,8 +11,9 @@ import (
 )
 
 type ExecutorCore struct {
-	executor          *job.Executor
-	checkoutCacheRoot string
+	executor                       *job.Executor
+	checkoutCacheRoot              string
+	checkoutCacheGenerationsToKeep int
 }
 
 type ExecutorCoreOption func(*ExecutorCore)
@@ -20,6 +21,12 @@ type ExecutorCoreOption func(*ExecutorCore)
 func WithExecutorCheckoutCacheRoot(root string) ExecutorCoreOption {
 	return func(c *ExecutorCore) {
 		c.checkoutCacheRoot = strings.TrimSpace(root)
+	}
+}
+
+func WithExecutorCheckoutCacheGenerationsToKeep(generationsToKeep int) ExecutorCoreOption {
+	return func(c *ExecutorCore) {
+		c.checkoutCacheGenerationsToKeep = generationsToKeep
 	}
 }
 
@@ -98,6 +105,7 @@ func (c *ExecutorCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCa
 	if c == nil || strings.TrimSpace(c.checkoutCacheRoot) == "" {
 		return result, nil
 	}
+	defer c.recordCheckoutCacheRootStats(ctx)
 
 	for _, remoteURL := range uniqueCheckoutCacheRemoteURLs(req.RemoteURLs) {
 		cache, err := c.checkoutCacheForRemoteURLs([]string{remoteURL})
@@ -136,6 +144,24 @@ func (c *ExecutorCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCa
 	return result, nil
 }
 
+func (c *ExecutorCore) recordCheckoutCacheRootStats(ctx context.Context) {
+	if c == nil || strings.TrimSpace(c.checkoutCacheRoot) == "" {
+		return
+	}
+
+	cache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, nil, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep)...)
+	if err != nil {
+		return
+	}
+
+	stats, err := cache.Stats(ctx)
+	if err != nil {
+		return
+	}
+
+	recordCheckoutCacheStats(ctx, stats)
+}
+
 func (c *ExecutorCore) checkoutCacheForRemoteURLs(remoteURLs []string) (*source.WorkerCheckoutCache, error) {
 	if c == nil || strings.TrimSpace(c.checkoutCacheRoot) == "" {
 		return nil, nil
@@ -146,12 +172,20 @@ func (c *ExecutorCore) checkoutCacheForRemoteURLs(remoteURLs []string) (*source.
 		return nil, nil
 	}
 
-	checkoutCache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, remoteURLs)
+	checkoutCache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, remoteURLs, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep)...)
 	if err != nil {
 		return nil, fmt.Errorf("initialize task checkout cache: %w", err)
 	}
 
 	return checkoutCache, nil
+}
+
+func workerCheckoutCacheOptions(generationsToKeep int) []source.WorkerCheckoutCacheOption {
+	if generationsToKeep <= 0 {
+		return nil
+	}
+
+	return []source.WorkerCheckoutCacheOption{source.WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep)}
 }
 
 func uniqueCheckoutCacheRemoteURLs(remoteURLs []string) []string {

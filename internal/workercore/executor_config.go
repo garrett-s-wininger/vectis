@@ -17,11 +17,12 @@ const (
 )
 
 type ExecutorConfig struct {
-	Backend                 string
-	WorkspaceRoot           string
-	CheckoutCacheRoot       string
-	CheckoutCacheRemoteURLs []string
-	Lima                    platform.VirtualMachineConfig
+	Backend                        string
+	WorkspaceRoot                  string
+	CheckoutCacheRoot              string
+	CheckoutCacheGenerationsToKeep int
+	CheckoutCacheRemoteURLs        []string
+	Lima                           platform.VirtualMachineConfig
 }
 
 func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
@@ -36,7 +37,7 @@ func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
 	}
 
 	if checkoutCacheRoot := strings.TrimSpace(cfg.CheckoutCacheRoot); checkoutCacheRoot != "" && len(cfg.CheckoutCacheRemoteURLs) > 0 {
-		checkoutCache, err := source.NewWorkerCheckoutCache(checkoutCacheRoot, cfg.CheckoutCacheRemoteURLs)
+		checkoutCache, err := source.NewWorkerCheckoutCache(checkoutCacheRoot, cfg.CheckoutCacheRemoteURLs, workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep)...)
 		if err != nil {
 			return nil, "", err
 		}

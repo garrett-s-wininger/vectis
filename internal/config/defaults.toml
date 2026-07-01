@@ -223,6 +223,7 @@ queue.continuation_inline_job_max_bytes = 65536
 backend = "host"
 workspace_root = ""
 checkout_cache_root = ""
+checkout_cache_generations_to_keep = 2
 checkout_cache_warm_interval = "5m"
 checkout_cache_warm_timeout = "30m"
 checkout_cache_warm_jitter_ratio = 0.2

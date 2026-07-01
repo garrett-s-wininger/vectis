@@ -17,20 +17,37 @@ import (
 )
 
 const (
-	workerCheckoutGenerationPrefix  = "generation-"
-	workerCheckoutGenerationsToKeep = 2
+	workerCheckoutGenerationPrefix         = "generation-"
+	defaultWorkerCheckoutGenerationsToKeep = 2
 )
+
+type WorkerCheckoutCacheOption func(*WorkerCheckoutCache)
 
 type WorkerCheckoutCache struct {
 	root                string
 	persistentRemoteURL map[string]struct{}
+	generationsToKeep   int
+}
+
+type WorkerCheckoutCacheStats struct {
+	Repositories int64
+	Generations  int64
+	PackFiles    int64
+	PackBytes    int64
+	ActiveLeases int64
 }
 
 type workerCheckoutGenerationLease struct {
 	path string
 }
 
-func NewWorkerCheckoutCache(root string, persistentRemoteURLs []string) (*WorkerCheckoutCache, error) {
+func WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep int) WorkerCheckoutCacheOption {
+	return func(c *WorkerCheckoutCache) {
+		c.generationsToKeep = generationsToKeep
+	}
+}
+
+func NewWorkerCheckoutCache(root string, persistentRemoteURLs []string, options ...WorkerCheckoutCacheOption) (*WorkerCheckoutCache, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, fmt.Errorf("%w: worker checkout cache root is required", ErrInvalidReference)
@@ -44,6 +61,17 @@ func NewWorkerCheckoutCache(root string, persistentRemoteURLs []string) (*Worker
 	cache := &WorkerCheckoutCache{
 		root:                absRoot,
 		persistentRemoteURL: make(map[string]struct{}, len(persistentRemoteURLs)),
+		generationsToKeep:   defaultWorkerCheckoutGenerationsToKeep,
+	}
+
+	for _, option := range options {
+		if option != nil {
+			option(cache)
+		}
+	}
+
+	if cache.generationsToKeep <= 0 {
+		return nil, fmt.Errorf("%w: worker checkout cache generations to keep must be > 0", ErrInvalidReference)
 	}
 
 	for _, raw := range persistentRemoteURLs {
@@ -407,7 +435,7 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 		return err
 	}
 
-	if len(generationPaths) <= workerCheckoutGenerationsToKeep {
+	if len(generationPaths) <= c.generationsToKeep {
 		return nil
 	}
 
@@ -424,7 +452,7 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 			continue
 		}
 
-		if kept < workerCheckoutGenerationsToKeep {
+		if kept < c.generationsToKeep {
 			kept++
 			continue
 		}
@@ -446,8 +474,172 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 	return cleanupEmptyWorkerCheckoutLeaseDirs(repoPath)
 }
 
+func (c *WorkerCheckoutCache) Stats(ctx context.Context) (WorkerCheckoutCacheStats, error) {
+	if c == nil {
+		return WorkerCheckoutCacheStats{}, nil
+	}
+
+	return workerCheckoutCacheStats(ctx, c.root)
+}
+
 func (c *WorkerCheckoutCache) acquireLeaseLock(ctx context.Context, repoPath string) (*managedGitWriterLock, error) {
 	return acquireManagedGitWriterLock(ctx, filepath.Join(repoPath, "leases"))
+}
+
+func workerCheckoutCacheStats(ctx context.Context, root string) (WorkerCheckoutCacheStats, error) {
+	var stats WorkerCheckoutCacheStats
+	mirrorsPath := filepath.Join(root, "mirrors")
+	entries, err := os.ReadDir(mirrorsPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return stats, nil
+		}
+
+		return stats, fmt.Errorf("read worker checkout cache mirrors: %w", err)
+	}
+
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return stats, err
+		}
+		if !entry.IsDir() {
+			continue
+		}
+
+		path := filepath.Join(mirrorsPath, entry.Name())
+		if strings.HasSuffix(entry.Name(), ".git") {
+			stats.Repositories++
+			if err := addWorkerCheckoutCacheGenerationStats(ctx, path, &stats); err != nil {
+				return stats, err
+			}
+			continue
+		}
+
+		repoStats, err := workerCheckoutCacheRepositoryStats(ctx, path)
+		if err != nil {
+			return stats, err
+		}
+		if repoStats.Generations > 0 {
+			stats.Repositories++
+		}
+		stats.Generations += repoStats.Generations
+		stats.PackFiles += repoStats.PackFiles
+		stats.PackBytes = addWorkerCheckoutCacheBytes(stats.PackBytes, repoStats.PackBytes)
+		stats.ActiveLeases += repoStats.ActiveLeases
+	}
+
+	return stats, nil
+}
+
+func workerCheckoutCacheRepositoryStats(ctx context.Context, repoPath string) (WorkerCheckoutCacheStats, error) {
+	var stats WorkerCheckoutCacheStats
+	generationPaths, err := workerCheckoutGenerationPaths(repoPath)
+	if err != nil {
+		return stats, err
+	}
+
+	for _, generationPath := range generationPaths {
+		if err := addWorkerCheckoutCacheGenerationStats(ctx, generationPath, &stats); err != nil {
+			return stats, err
+		}
+	}
+
+	activeLeases, err := workerCheckoutActiveLeaseCount(ctx, repoPath)
+	if err != nil {
+		return stats, err
+	}
+	stats.ActiveLeases = activeLeases
+	return stats, nil
+}
+
+func addWorkerCheckoutCacheGenerationStats(ctx context.Context, generationPath string, stats *WorkerCheckoutCacheStats) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	stats.Generations++
+	packEntries, err := os.ReadDir(filepath.Join(generationPath, "objects", "pack"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
+		return fmt.Errorf("read worker checkout cache generation pack directory: %w", err)
+	}
+
+	for _, entry := range packEntries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pack") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+
+			return fmt.Errorf("stat worker checkout cache pack file: %w", err)
+		}
+
+		stats.PackFiles++
+		stats.PackBytes = addWorkerCheckoutCacheBytes(stats.PackBytes, info.Size())
+	}
+
+	return nil
+}
+
+func workerCheckoutActiveLeaseCount(ctx context.Context, repoPath string) (int64, error) {
+	leaseRoot := filepath.Join(repoPath, "leases")
+	leaseDirs, err := os.ReadDir(leaseRoot)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+
+		return 0, fmt.Errorf("read worker checkout cache leases: %w", err)
+	}
+
+	var leases int64
+	for _, leaseDir := range leaseDirs {
+		if err := ctx.Err(); err != nil {
+			return leases, err
+		}
+		if !leaseDir.IsDir() {
+			continue
+		}
+
+		entries, err := os.ReadDir(filepath.Join(leaseRoot, leaseDir.Name()))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+
+			return leases, fmt.Errorf("read worker checkout cache generation leases: %w", err)
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				leases++
+			}
+		}
+	}
+
+	return leases, nil
+}
+
+func addWorkerCheckoutCacheBytes(a, b int64) int64 {
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if b <= 0 {
+		return a
+	}
+	if maxInt64-a < b {
+		return maxInt64
+	}
+
+	return a + b
 }
 
 func workerCheckoutGenerationPaths(repoPath string) ([]string, error) {

@@ -73,6 +73,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	service := workercore.NewService(workercore.NewExecutorCore(
 		executor,
 		workercore.WithExecutorCheckoutCacheRoot(executorConfig.CheckoutCacheRoot),
+		workercore.WithExecutorCheckoutCacheGenerationsToKeep(executorConfig.CheckoutCacheGenerationsToKeep),
 	), workercore.ServiceOptions{
 		Logger:         logger,
 		ActionResolver: actionResolver,
@@ -102,7 +103,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	logger.Info("Worker core listening on %s", socketPath)
 	logger.Info("Worker core execution backend: %s", backend)
 	if strings.TrimSpace(executorConfig.CheckoutCacheRoot) != "" && len(executorConfig.CheckoutCacheRemoteURLs) > 0 {
-		logger.Info("Worker core checkout cache enabled: root=%s persistent_remotes=%d", executorConfig.CheckoutCacheRoot, len(executorConfig.CheckoutCacheRemoteURLs))
+		logger.Info("Worker core checkout cache enabled: root=%s persistent_remotes=%d generations_to_keep=%d", executorConfig.CheckoutCacheRoot, len(executorConfig.CheckoutCacheRemoteURLs), executorConfig.CheckoutCacheGenerationsToKeep)
 	}
 
 	if err := grpcServer.Serve(listener); err != nil && ctx.Err() == nil {
@@ -135,12 +136,17 @@ func workerCoreExecutorConfig() (workercore.ExecutorConfig, error) {
 	if checkoutCacheRoot == "" {
 		checkoutCacheRoot = config.WorkerExecutionCheckoutCacheRoot()
 	}
+	checkoutCacheGenerationsToKeep := viper.GetInt("checkout_cache_generations_to_keep")
+	if checkoutCacheGenerationsToKeep <= 0 {
+		checkoutCacheGenerationsToKeep = config.WorkerExecutionCheckoutCacheGenerationsToKeep()
+	}
 
 	return workercore.ExecutorConfig{
-		Backend:                 viper.GetString("execution_backend"),
-		WorkspaceRoot:           viper.GetString("workspace_root"),
-		CheckoutCacheRoot:       checkoutCacheRoot,
-		CheckoutCacheRemoteURLs: persistentRemotes,
+		Backend:                        viper.GetString("execution_backend"),
+		WorkspaceRoot:                  viper.GetString("workspace_root"),
+		CheckoutCacheRoot:              checkoutCacheRoot,
+		CheckoutCacheGenerationsToKeep: checkoutCacheGenerationsToKeep,
+		CheckoutCacheRemoteURLs:        persistentRemotes,
 		Lima: platform.VirtualMachineConfig{
 			Provider:           platform.VirtualMachineProviderLima,
 			Instance:           viper.GetString("lima_instance"),
@@ -199,6 +205,7 @@ func init() {
 	rootCmd.PersistentFlags().String("execution-backend", workercore.ExecutionBackendHost, "Command execution backend: host or lima")
 	rootCmd.PersistentFlags().String("workspace-root", "", "Parent directory for automatically-created run workspaces")
 	rootCmd.PersistentFlags().String("checkout-cache-root", "", "Persistent worker checkout cache root for source repositories with worker_cache_mode=persistent")
+	rootCmd.PersistentFlags().Int("checkout-cache-generations-to-keep", 0, "Persistent checkout cache mirror generations to keep per remote; 0 uses worker execution config")
 	rootCmd.PersistentFlags().String("lima-path", "", "Path to limactl when --execution-backend=lima")
 	rootCmd.PersistentFlags().String("lima-instance", "", "Lima instance name when --execution-backend=lima")
 	rootCmd.PersistentFlags().String("lima-guest-workspace-root", "", "Guest-side parent directory for Lima workspaces")
@@ -211,6 +218,7 @@ func init() {
 	_ = viper.BindPFlag("execution_backend", rootCmd.PersistentFlags().Lookup("execution-backend"))
 	_ = viper.BindPFlag("workspace_root", rootCmd.PersistentFlags().Lookup("workspace-root"))
 	_ = viper.BindPFlag("checkout_cache_root", rootCmd.PersistentFlags().Lookup("checkout-cache-root"))
+	_ = viper.BindPFlag("checkout_cache_generations_to_keep", rootCmd.PersistentFlags().Lookup("checkout-cache-generations-to-keep"))
 	_ = viper.BindPFlag("lima_path", rootCmd.PersistentFlags().Lookup("lima-path"))
 	_ = viper.BindPFlag("lima_instance", rootCmd.PersistentFlags().Lookup("lima-instance"))
 	_ = viper.BindPFlag("lima_guest_workspace_root", rootCmd.PersistentFlags().Lookup("lima-guest-workspace-root"))

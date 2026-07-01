@@ -80,6 +80,30 @@ func TestWorkerCoreCapabilitiesAdvertiseCheckoutCacheWarmWithRoot(t *testing.T) 
 	}
 }
 
+func TestWorkerCoreExecutorConfigUsesCheckoutCacheGenerationRetention(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_WORKER_CORE_SOURCE_REPOSITORIES", "")
+
+	viper.Set("checkout_cache_root", "/tmp/vectis-cache")
+	viper.Set("checkout_cache_generations_to_keep", 7)
+
+	cfg, err := workerCoreExecutorConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.CheckoutCacheRoot != "/tmp/vectis-cache" {
+		t.Fatalf("checkout cache root = %q", cfg.CheckoutCacheRoot)
+	}
+	if cfg.CheckoutCacheGenerationsToKeep != 7 {
+		t.Fatalf("checkout cache generations to keep = %d, want 7", cfg.CheckoutCacheGenerationsToKeep)
+	}
+}
+
 const workerCoreProcessHelperEnv = "VECTIS_WORKER_CORE_PROCESS_HELPER"
 
 func TestWorkerCoreProcessSmoke(t *testing.T) {

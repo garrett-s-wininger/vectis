@@ -1,6 +1,7 @@
 package source
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -81,6 +82,17 @@ func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheRejectsInvalidGenerationRetention(t *testing.T) {
+	_, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{"https://example.invalid/repo.git"},
+		WithWorkerCheckoutCacheGenerationsToKeep(0),
+	)
+	if err == nil {
+		t.Fatal("expected invalid generation retention to fail")
+	}
+}
+
 func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
@@ -130,6 +142,89 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 
 	if got, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(got) != "second\n" {
 		t.Fatalf("workspace README = %q, %v", got, err)
+	}
+}
+
+func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
+	remote := "https://example.invalid/large.git"
+	cache, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{remote},
+		WithWorkerCheckoutCacheGenerationsToKeep(3),
+	)
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	repoPath := cache.repositoryPath(remote)
+	generationNames := []string{
+		"generation-00000000000000000001-1.git",
+		"generation-00000000000000000002-1.git",
+		"generation-00000000000000000003-1.git",
+		"generation-00000000000000000004-1.git",
+	}
+	for _, name := range generationNames {
+		if err := os.MkdirAll(filepath.Join(repoPath, "generations", name), 0o755); err != nil {
+			t.Fatalf("create generation %s: %v", name, err)
+		}
+	}
+	if err := os.Symlink(filepath.Join("generations", generationNames[3]), filepath.Join(repoPath, "current")); err != nil {
+		t.Fatalf("create current generation link: %v", err)
+	}
+
+	if err := cache.cleanupOldGenerations(context.Background(), repoPath); err != nil {
+		t.Fatalf("cleanupOldGenerations: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(repoPath, "generations", generationNames[0])); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oldest generation still exists after cleanup: err=%v", err)
+	}
+	for _, name := range generationNames[1:] {
+		if info, err := os.Stat(filepath.Join(repoPath, "generations", name)); err != nil || !info.IsDir() {
+			t.Fatalf("kept generation %s: info=%v err=%v", name, info, err)
+		}
+	}
+}
+
+func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
+	remote := "https://example.invalid/large.git"
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	repoPath := cache.repositoryPath(remote)
+	generationNames := []string{
+		"generation-00000000000000000001-1.git",
+		"generation-00000000000000000002-1.git",
+	}
+	for i, name := range generationNames {
+		packPath := filepath.Join(repoPath, "generations", name, "objects", "pack")
+		if err := os.MkdirAll(packPath, 0o755); err != nil {
+			t.Fatalf("create pack dir %s: %v", packPath, err)
+		}
+		if err := os.WriteFile(filepath.Join(packPath, "pack-test.pack"), bytes.Repeat([]byte{'x'}, 10+i), 0o644); err != nil {
+			t.Fatalf("write pack file: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(packPath, "pack-test.idx"), []byte("ignored"), 0o644); err != nil {
+			t.Fatalf("write index file: %v", err)
+		}
+	}
+	leasePath := filepath.Join(repoPath, "leases", generationNames[0])
+	if err := os.MkdirAll(leasePath, 0o755); err != nil {
+		t.Fatalf("create lease dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(leasePath, "lease"), []byte("leased"), 0o644); err != nil {
+		t.Fatalf("write lease: %v", err)
+	}
+
+	stats, err := cache.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+
+	if stats.Repositories != 1 || stats.Generations != 2 || stats.PackFiles != 2 || stats.PackBytes != 21 || stats.ActiveLeases != 1 {
+		t.Fatalf("stats = %+v, want repositories=1 generations=2 pack_files=2 pack_bytes=21 active_leases=1", stats)
 	}
 }
 

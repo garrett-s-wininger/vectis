@@ -1166,6 +1166,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	if got := WorkerExecutionCheckoutCacheRoot(); got != "" {
 		t.Fatalf("default checkout cache root = %q, want empty", got)
 	}
+	if got := WorkerExecutionCheckoutCacheGenerationsToKeep(); got != 2 {
+		t.Fatalf("default checkout cache generations to keep = %d, want 2", got)
+	}
 	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 5*time.Minute {
 		t.Fatalf("default checkout cache warm interval = %v, want 5m", got)
 	}
@@ -1191,6 +1194,7 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	viper.Set("worker.execution.backend", " LIMA ")
 	viper.Set("worker.execution.workspace_root", "/Users/me/vectis-work")
 	viper.Set("worker.execution.checkout_cache_root", "/Users/me/vectis-cache")
+	viper.Set("worker.execution.checkout_cache_generations_to_keep", 5)
 	viper.Set("worker.execution.checkout_cache_warm_interval", 10*time.Minute)
 	viper.Set("worker.execution.checkout_cache_warm_timeout", 45*time.Minute)
 	viper.Set("worker.execution.checkout_cache_warm_jitter_ratio", 0.5)
@@ -1208,6 +1212,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	}
 	if got := WorkerExecutionCheckoutCacheRoot(); got != "/Users/me/vectis-cache" {
 		t.Fatalf("override checkout cache root = %q", got)
+	}
+	if got := WorkerExecutionCheckoutCacheGenerationsToKeep(); got != 5 {
+		t.Fatalf("override checkout cache generations to keep = %d", got)
 	}
 	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 10*time.Minute {
 		t.Fatalf("override checkout cache warm interval = %v", got)
@@ -1234,6 +1241,10 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 		t.Fatal("override lima preserve env = false, want true")
 	}
 
+	viper.Set("worker.execution.checkout_cache_generations_to_keep", 0)
+	if got := WorkerExecutionCheckoutCacheGenerationsToKeep(); got != 2 {
+		t.Fatalf("invalid checkout cache generations to keep should use default: got %d", got)
+	}
 	viper.Set("worker.execution.checkout_cache_warm_interval", time.Duration(0))
 	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 5*time.Minute {
 		t.Fatalf("invalid checkout cache warm interval should use default: got %v", got)
