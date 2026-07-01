@@ -211,7 +211,6 @@ type JobDefinitionSourceRecord struct {
 }
 
 type RunRecord struct {
-	JobID                string
 	RunID                string
 	JobID                string
 	RunIndex             int

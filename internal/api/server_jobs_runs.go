@@ -1636,7 +1636,7 @@ func detachedTraceContextFromContext(ctx context.Context) context.Context {
 func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 	params := parsePageParams(r)
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1675,7 +1675,7 @@ func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 
 	var runs []runRow
 	for _, rec := range runRows {
-		nsPath, err := s.getJobNamespacePath(ctx, rec.JobID)
+		nsPath, err := s.getRunJobNamespacePath(ctx, rec.RunID)
 		if err != nil {
 			if dal.IsNotFound(err) {
 				nsPath = "/"
@@ -1948,7 +1948,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			// Ephemeral runs don't have stored_jobs entries;

@@ -2508,8 +2508,8 @@ func TestAPIServer_GetRun_EphemeralRun(t *testing.T) {
 		t.Fatal("expected job_id in run response")
 	}
 
-	if got.Namespace != "/" {
-		t.Fatalf("namespace: want /, got %q", got.Namespace)
+	if got.Namespace != "/ephemeral" {
+		t.Fatalf("namespace: want /ephemeral, got %q", got.Namespace)
 	}
 
 	if len(got.DispatchEvents) != 3 {
@@ -2914,8 +2914,8 @@ func TestAPIServer_ListRuns_IncludesEphemeralRuns(t *testing.T) {
 		t.Fatalf("job_id: want %q, got %q", runResp.ID, got.Data[0].JobID)
 	}
 
-	if got.Data[0].Namespace != "/" {
-		t.Fatalf("namespace: want /, got %q", got.Data[0].Namespace)
+	if got.Data[0].Namespace != "/ephemeral" {
+		t.Fatalf("namespace: want /ephemeral, got %q", got.Data[0].Namespace)
 	}
 
 	if got.Data[0].Status != "queued" {

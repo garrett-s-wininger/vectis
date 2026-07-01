@@ -1312,6 +1312,37 @@
         }
       }
     },
+    "/api/v1/runs": {
+      "get": {
+        "operationId": "listRuns",
+        "summary": "List recent runs",
+        "tags": [
+          "Runs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "run:read",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedJSON"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "getRun",
@@ -2384,6 +2415,49 @@
           }
         }
       },
+      "put": {
+        "operationId": "updateNamespace",
+        "summary": "Update a namespace",
+        "tags": [
+          "Namespaces"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-vectis-auth-action": "admin:*",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NumericID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNamespaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Namespace updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
       "delete": {
         "operationId": "deleteNamespace",
         "summary": "Delete a namespace",
@@ -3345,9 +3419,21 @@
           "name": {
             "type": "string"
           },
+          "description": {
+            "type": "string"
+          },
           "parent_id": {
             "type": "integer",
             "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateNamespaceRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -3357,6 +3443,7 @@
         "required": [
           "id",
           "name",
+          "description",
           "path",
           "break_inheritance"
         ],
@@ -3366,6 +3453,9 @@
             "format": "int64"
           },
           "name": {
+            "type": "string"
+          },
+          "description": {
             "type": "string"
           },
           "parent_id": {
