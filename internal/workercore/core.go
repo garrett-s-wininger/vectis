@@ -10,6 +10,7 @@ import (
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/interfaces"
 	"vectis/internal/secrets"
+	"vectis/internal/source"
 	"vectis/internal/workloadidentity"
 	workersdk "vectis/sdk/workercore"
 )
@@ -55,6 +56,7 @@ type WarmCheckoutCacheResult struct {
 type CheckoutCacheRemote struct {
 	RemoteURL          string
 	FallbackRemoteURLs []string
+	Credentials        source.GitCredentials
 }
 
 type CheckoutCacheWarmFailure struct {

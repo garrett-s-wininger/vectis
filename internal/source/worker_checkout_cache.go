@@ -31,6 +31,7 @@ type WorkerCheckoutCacheCloneRecorder func(context.Context, string, string)
 type WorkerCheckoutCacheRemote struct {
 	RemoteURL          string
 	FallbackRemoteURLs []string
+	Credentials        GitCredentials
 }
 
 type WorkerCheckoutCache struct {
@@ -119,17 +120,23 @@ func NewWorkerCheckoutCacheWithRemotes(root string, persistentRemotes []WorkerCh
 			return nil, err
 		}
 
+		credentials := raw.Credentials
 		if existing, ok := cache.persistentRemoteURL[remoteURL]; ok {
 			fallbackRemoteURLs = append(existing.FallbackRemoteURLs, fallbackRemoteURLs...)
 			fallbackRemoteURLs, err = normalizeWorkerCheckoutCacheFallbackRemoteURLs(remoteURL, fallbackRemoteURLs)
 			if err != nil {
 				return nil, err
 			}
+
+			if credentials.IsZero() && !existing.Credentials.IsZero() {
+				credentials = existing.Credentials
+			}
 		}
 
 		cache.persistentRemoteURL[remoteURL] = WorkerCheckoutCacheRemote{
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: fallbackRemoteURLs,
+			Credentials:        credentials,
 		}
 	}
 
@@ -419,6 +426,12 @@ func (c *WorkerCheckoutCache) ensureMirror(ctx context.Context, remote WorkerChe
 }
 
 func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote WorkerCheckoutCacheRemote, repoPath, currentPath string) (string, error) {
+	credentialEnv, credentialCleanup, err := managedGitCredentialEnvironment(remote.Credentials)
+	if err != nil {
+		return "", fmt.Errorf("worker checkout cache credentials: %w", err)
+	}
+	defer credentialCleanup()
+
 	generationsPath := filepath.Join(repoPath, "generations")
 	if err := os.MkdirAll(generationsPath, 0o755); err != nil {
 		return "", fmt.Errorf("create worker checkout cache generations parent: %w", err)
@@ -433,7 +446,7 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote 
 	_ = os.RemoveAll(tmp)
 
 	if currentPath == "" {
-		clonedFrom, err := cloneWorkerCheckoutCacheMirror(ctx, remote, tmp)
+		clonedFrom, err := cloneWorkerCheckoutCacheMirror(ctx, remote, credentialEnv, tmp)
 		if err != nil {
 			_ = os.RemoveAll(tmp)
 			return "", err
@@ -446,7 +459,7 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote 
 			}
 		}
 
-		_ = fetchWorkerCheckoutCacheFallbackMirrors(ctx, tmp, remote.FallbackRemoteURLs)
+		_ = fetchWorkerCheckoutCacheFallbackMirrors(ctx, tmp, credentialEnv, remote.FallbackRemoteURLs)
 	} else {
 		if resolved, err := filepath.EvalSymlinks(currentPath); err == nil {
 			currentPath = resolved
@@ -462,7 +475,7 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote 
 			return "", err
 		}
 
-		if err := refreshWorkerCheckoutCacheMirror(ctx, tmp, remote); err != nil {
+		if err := refreshWorkerCheckoutCacheMirror(ctx, tmp, credentialEnv, remote); err != nil {
 			_ = os.RemoveAll(tmp)
 			return "", err
 		}
@@ -481,11 +494,11 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote 
 	return generationPath, nil
 }
 
-func cloneWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, tmp string) (string, error) {
+func cloneWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, env []string, tmp string) (string, error) {
 	remoteURLs := append([]string{remote.RemoteURL}, remote.FallbackRemoteURLs...)
 	var errs []string
 	for _, remoteURL := range remoteURLs {
-		if err := runWorkerCacheGitNoDir(ctx, managedGitCommandArgs("clone", "--mirror", "--", remoteURL, tmp)...); err != nil {
+		if err := runWorkerCacheGitNoDirWithEnv(ctx, env, managedGitCommandArgs("clone", "--mirror", "--", remoteURL, tmp)...); err != nil {
 			_ = os.RemoveAll(tmp)
 			errs = append(errs, fmt.Sprintf("%s: %v", remoteURL, err))
 			continue
@@ -509,9 +522,9 @@ func setWorkerCheckoutCacheMirrorOrigin(ctx context.Context, mirrorPath, remoteU
 	return nil
 }
 
-func refreshWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, remote WorkerCheckoutCacheRemote) error {
-	primaryErr := fetchWorkerCheckoutCacheMirror(ctx, mirrorPath, "origin", true)
-	fallbackErr := fetchWorkerCheckoutCacheFallbackMirrors(ctx, mirrorPath, remote.FallbackRemoteURLs)
+func refreshWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, env []string, remote WorkerCheckoutCacheRemote) error {
+	primaryErr := fetchWorkerCheckoutCacheMirror(ctx, mirrorPath, env, "origin", true)
+	fallbackErr := fetchWorkerCheckoutCacheFallbackMirrors(ctx, mirrorPath, env, remote.FallbackRemoteURLs)
 	if primaryErr == nil {
 		return nil
 	}
@@ -526,10 +539,10 @@ func refreshWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, re
 	return fmt.Errorf("refresh worker checkout cache mirror: %w", primaryErr)
 }
 
-func fetchWorkerCheckoutCacheFallbackMirrors(ctx context.Context, mirrorPath string, fallbackRemoteURLs []string) error {
+func fetchWorkerCheckoutCacheFallbackMirrors(ctx context.Context, mirrorPath string, env []string, fallbackRemoteURLs []string) error {
 	var errs []string
 	for _, remoteURL := range fallbackRemoteURLs {
-		if err := fetchWorkerCheckoutCacheMirror(ctx, mirrorPath, remoteURL, false); err != nil {
+		if err := fetchWorkerCheckoutCacheMirror(ctx, mirrorPath, env, remoteURL, false); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", remoteURL, err))
 		}
 	}
@@ -541,13 +554,13 @@ func fetchWorkerCheckoutCacheFallbackMirrors(ctx context.Context, mirrorPath str
 	return nil
 }
 
-func fetchWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath, remote string, prune bool) error {
+func fetchWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, env []string, remote string, prune bool) error {
 	args := workerCacheMirrorGitArgs(mirrorPath, "fetch")
 	if prune {
 		args = append(args, "--prune")
 	}
 	args = append(args, "--no-auto-gc", remote, "+refs/*:refs/*")
-	return runWorkerCacheGitNoDir(ctx, args...)
+	return runWorkerCacheGitNoDirWithEnv(ctx, env, args...)
 }
 
 func configureWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string) error {
@@ -1263,17 +1276,25 @@ func runWorkerCacheGitNoDir(ctx context.Context, args ...string) error {
 	return runWorkerCacheGitCommand(ctx, "", args...)
 }
 
+func runWorkerCacheGitNoDirWithEnv(ctx context.Context, env []string, args ...string) error {
+	return runWorkerCacheGitCommandWithEnv(ctx, "", env, args...)
+}
+
 func runWorkerCacheGit(ctx context.Context, dir string, args ...string) error {
 	return runWorkerCacheGitCommand(ctx, dir, managedGitCommandArgs(args...)...)
 }
 
 func runWorkerCacheGitCommand(ctx context.Context, dir string, args ...string) error {
+	return runWorkerCacheGitCommandWithEnv(ctx, dir, nil, args...)
+}
+
+func runWorkerCacheGitCommandWithEnv(ctx context.Context, dir string, env []string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if strings.TrimSpace(dir) != "" {
 		cmd.Dir = dir
 	}
 
-	cmd.Env = gitCommandEnv([]string{"GIT_TERMINAL_PROMPT=0"})
+	cmd.Env = gitCommandEnv(append([]string{"GIT_TERMINAL_PROMPT=0"}, env...))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

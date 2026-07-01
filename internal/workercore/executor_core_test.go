@@ -12,6 +12,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/job"
+	"vectis/internal/source"
 )
 
 func TestExecutorCoreExecutesTaskThroughJobExecutor(t *testing.T) {
@@ -235,6 +236,7 @@ func TestTaskSessionClonesCheckoutCacheRemotes(t *testing.T) {
 		{
 			RemoteURL:          "https://mirror.invalid/one.git",
 			FallbackRemoteURLs: []string{"https://tier1.invalid/one.git"},
+			Credentials:        source.GitCredentials{Username: "alice", Password: "secret"},
 		},
 	}
 
@@ -245,12 +247,15 @@ func TestTaskSessionClonesCheckoutCacheRemotes(t *testing.T) {
 	got := session.CheckoutCacheRemotes()
 	got[0].RemoteURL = "https://mirror.invalid/changed-again.git"
 	got[0].FallbackRemoteURLs[0] = "https://tier1.invalid/changed-again.git"
+	got[0].Credentials.Username = "mallory"
 
 	again := session.CheckoutCacheRemotes()
 	if len(again) != 1 ||
 		again[0].RemoteURL != "https://mirror.invalid/one.git" ||
 		len(again[0].FallbackRemoteURLs) != 1 ||
-		again[0].FallbackRemoteURLs[0] != "https://tier1.invalid/one.git" {
+		again[0].FallbackRemoteURLs[0] != "https://tier1.invalid/one.git" ||
+		again[0].Credentials.Username != "alice" ||
+		again[0].Credentials.Password != "secret" {
 		t.Fatalf("session checkout cache remotes were not cloned defensively: %+v", again)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
+	"vectis/internal/source"
 	"vectis/internal/workloadidentity"
 	workersdk "vectis/sdk/workercore"
 
@@ -95,6 +96,7 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 				{
 					RemoteURL:          "https://mirror.invalid/vectis.git",
 					FallbackRemoteURLs: []string{"https://tier1.invalid/vectis.git"},
+					Credentials:        source.GitCredentials{Username: "alice", Password: "secret"},
 				},
 			},
 		}),
@@ -139,7 +141,9 @@ func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
 
 	if got := session.GetCheckoutCacheRemotes(); len(got) != 1 ||
 		got[0].GetRemoteUrl() != "https://mirror.invalid/vectis.git" ||
-		!reflect.DeepEqual(got[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/vectis.git"}) {
+		!reflect.DeepEqual(got[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/vectis.git"}) ||
+		got[0].GetCredentials().GetUsername() != "alice" ||
+		got[0].GetCredentials().GetPassword() != "secret" {
 		t.Fatalf("checkout cache structured remotes = %+v", got)
 	}
 
@@ -403,6 +407,7 @@ func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
 			{
 				RemoteURL:          "https://mirror.invalid/warm.git",
 				FallbackRemoteURLs: []string{"https://tier1.invalid/warm.git"},
+				Credentials:        source.GitCredentials{SSHPrivateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----"},
 			},
 		},
 	})
@@ -415,7 +420,8 @@ func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
 		!reflect.DeepEqual(captured.GetRemoteUrls(), []string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"}) ||
 		len(captured.GetRemotes()) != 1 ||
 		captured.GetRemotes()[0].GetRemoteUrl() != "https://mirror.invalid/warm.git" ||
-		!reflect.DeepEqual(captured.GetRemotes()[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/warm.git"}) {
+		!reflect.DeepEqual(captured.GetRemotes()[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/warm.git"}) ||
+		captured.GetRemotes()[0].GetCredentials().GetSshPrivateKey() == "" {
 		t.Fatalf("captured warm request = %+v", captured)
 	}
 

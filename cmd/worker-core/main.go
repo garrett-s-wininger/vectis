@@ -128,7 +128,7 @@ func workerCoreCapabilities(checkoutCacheRoot string) []workercore.CoreCapabilit
 }
 
 func workerCoreExecutorConfig() (workercore.ExecutorConfig, error) {
-	persistentRemotes, err := workerCorePersistentCheckoutCacheRemoteURLs()
+	persistentRemotes, err := workerCorePersistentCheckoutCacheRemotes()
 	if err != nil {
 		return workercore.ExecutorConfig{}, err
 	}
@@ -154,7 +154,8 @@ func workerCoreExecutorConfig() (workercore.ExecutorConfig, error) {
 		CheckoutCacheRoot:              checkoutCacheRoot,
 		CheckoutCacheGenerationsToKeep: checkoutCacheGenerationsToKeep,
 		CheckoutCacheLeaseTTL:          checkoutCacheLeaseTTL,
-		CheckoutCacheRemoteURLs:        persistentRemotes,
+		CheckoutCacheRemoteURLs:        workerCoreCheckoutCacheRemoteURLs(persistentRemotes),
+		CheckoutCacheRemotes:           persistentRemotes,
 		Lima: platform.VirtualMachineConfig{
 			Provider:           platform.VirtualMachineProviderLima,
 			Instance:           viper.GetString("lima_instance"),
@@ -167,19 +168,57 @@ func workerCoreExecutorConfig() (workercore.ExecutorConfig, error) {
 }
 
 func workerCorePersistentCheckoutCacheRemoteURLs() ([]string, error) {
+	remotes, err := workerCorePersistentCheckoutCacheRemotes()
+	if err != nil {
+		return nil, err
+	}
+
+	return workerCoreCheckoutCacheRemoteURLs(remotes), nil
+}
+
+func workerCorePersistentCheckoutCacheRemotes() ([]workercore.CheckoutCacheRemote, error) {
 	decls, err := config.SourceRepositoryDeclarations()
 	if err != nil {
 		return nil, err
 	}
 
-	seen := make(map[string]struct{}, len(decls))
-	out := make([]string, 0, len(decls))
+	seen := make(map[string]int, len(decls))
+	out := make([]workercore.CheckoutCacheRemote, 0, len(decls))
 	for _, decl := range decls {
 		if strings.TrimSpace(decl.WorkerCacheMode) != dal.SourceWorkerCacheModePersistent {
 			continue
 		}
 
-		for _, remoteURL := range append([]string{decl.CanonicalURL}, decl.FallbackRemoteURLs...) {
+		remoteURL := strings.TrimSpace(decl.CanonicalURL)
+		if remoteURL == "" {
+			continue
+		}
+
+		fallbackRemoteURLs := workerCoreUniqueRemoteURLs(decl.FallbackRemoteURLs, remoteURL)
+		if existing, ok := seen[remoteURL]; ok {
+			out[existing].FallbackRemoteURLs = workerCoreUniqueRemoteURLs(append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...), remoteURL)
+			continue
+		}
+
+		seen[remoteURL] = len(out)
+		out = append(out, workercore.CheckoutCacheRemote{
+			RemoteURL:          remoteURL,
+			FallbackRemoteURLs: fallbackRemoteURLs,
+		})
+	}
+
+	return out, nil
+}
+
+func workerCoreCheckoutCacheRemoteURLs(remotes []workercore.CheckoutCacheRemote) []string {
+	if len(remotes) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(remotes))
+	out := make([]string, 0, len(remotes))
+	for _, remote := range remotes {
+		for _, remoteURL := range append([]string{remote.RemoteURL}, remote.FallbackRemoteURLs...) {
 			remoteURL = strings.TrimSpace(remoteURL)
 			if remoteURL == "" {
 				continue
@@ -194,7 +233,31 @@ func workerCorePersistentCheckoutCacheRemoteURLs() ([]string, error) {
 		}
 	}
 
-	return out, nil
+	return out
+}
+
+func workerCoreUniqueRemoteURLs(remoteURLs []string, primaryRemoteURL string) []string {
+	if len(remoteURLs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(remoteURLs))
+	out := make([]string, 0, len(remoteURLs))
+	for _, remoteURL := range remoteURLs {
+		remoteURL = strings.TrimSpace(remoteURL)
+		if remoteURL == "" || remoteURL == primaryRemoteURL {
+			continue
+		}
+
+		if _, ok := seen[remoteURL]; ok {
+			continue
+		}
+
+		seen[remoteURL] = struct{}{}
+		out = append(out, remoteURL)
+	}
+
+	return out
 }
 
 var rootCmd = &cobra.Command{

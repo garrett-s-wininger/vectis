@@ -66,6 +66,25 @@ func TestWorkerCorePersistentCheckoutCacheRemoteURLs(t *testing.T) {
 			t.Fatalf("remotes = %v, want %v", remotes, want)
 		}
 	}
+
+	structured, err := workerCorePersistentCheckoutCacheRemotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantStructured := []workercore.CheckoutCacheRemote{
+		{
+			RemoteURL:          "https://mirror.invalid/large.git",
+			FallbackRemoteURLs: []string{"https://origin.invalid/large.git"},
+		},
+	}
+
+	if len(structured) != len(wantStructured) ||
+		structured[0].RemoteURL != wantStructured[0].RemoteURL ||
+		len(structured[0].FallbackRemoteURLs) != 1 ||
+		structured[0].FallbackRemoteURLs[0] != wantStructured[0].FallbackRemoteURLs[0] {
+		t.Fatalf("structured remotes = %+v, want %+v", structured, wantStructured)
+	}
 }
 
 func TestWorkerCoreCapabilitiesAdvertiseCheckoutCacheWarmWithRoot(t *testing.T) {

@@ -319,6 +319,10 @@ func TestServiceWarmCheckoutCache(t *testing.T) {
 			{
 				RemoteUrl:          proto.String("https://mirror.invalid/warm.git"),
 				FallbackRemoteUrls: []string{"https://tier1.invalid/warm.git"},
+				Credentials: &api.WorkerCoreGitCredentials{
+					Username: proto.String("alice"),
+					Password: proto.String("secret"),
+				},
 			},
 		},
 	})
@@ -333,7 +337,9 @@ func TestServiceWarmCheckoutCache(t *testing.T) {
 
 	if len(core.req.Remotes) != 1 ||
 		core.req.Remotes[0].RemoteURL != "https://mirror.invalid/warm.git" ||
-		!reflect.DeepEqual(core.req.Remotes[0].FallbackRemoteURLs, []string{"https://tier1.invalid/warm.git"}) {
+		!reflect.DeepEqual(core.req.Remotes[0].FallbackRemoteURLs, []string{"https://tier1.invalid/warm.git"}) ||
+		core.req.Remotes[0].Credentials.Username != "alice" ||
+		core.req.Remotes[0].Credentials.Password != "secret" {
 		t.Fatalf("structured warm request = %+v", core.req.Remotes)
 	}
 

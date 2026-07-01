@@ -207,6 +207,7 @@ func sourceWorkerCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []source.Wo
 		out = append(out, source.WorkerCheckoutCacheRemote{
 			RemoteURL:          remote.RemoteURL,
 			FallbackRemoteURLs: cloneStringSlice(remote.FallbackRemoteURLs),
+			Credentials:        remote.Credentials,
 		})
 	}
 
@@ -266,6 +267,10 @@ func uniqueCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []CheckoutCacheRe
 
 		if existing, ok := seen[remoteURL]; ok {
 			out[existing].FallbackRemoteURLs = uniqueCheckoutCacheRemoteURLs(append(out[existing].FallbackRemoteURLs, remote.FallbackRemoteURLs...))
+			if out[existing].Credentials.IsZero() && !remote.Credentials.IsZero() {
+				out[existing].Credentials = remote.Credentials
+			}
+
 			continue
 		}
 

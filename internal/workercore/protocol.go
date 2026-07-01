@@ -10,6 +10,7 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/secrets"
+	"vectis/internal/source"
 	"vectis/internal/workloadidentity"
 	workersdk "vectis/sdk/workercore"
 
@@ -294,6 +295,7 @@ func checkoutCacheRemotesProto(remotes []CheckoutCacheRemote) []*api.WorkerCoreC
 		out = append(out, &api.WorkerCoreCheckoutCacheRemote{
 			RemoteUrl:          proto.String(remoteURL),
 			FallbackRemoteUrls: cloneStringSlice(remote.FallbackRemoteURLs),
+			Credentials:        gitCredentialsProto(remote.Credentials),
 		})
 	}
 
@@ -319,10 +321,37 @@ func checkoutCacheRemotesFromProto(remotes []*api.WorkerCoreCheckoutCacheRemote)
 		out = append(out, CheckoutCacheRemote{
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: cloneStringSlice(remote.GetFallbackRemoteUrls()),
+			Credentials:        gitCredentialsFromProto(remote.GetCredentials()),
 		})
 	}
 
 	return out
+}
+
+func gitCredentialsProto(creds source.GitCredentials) *api.WorkerCoreGitCredentials {
+	if creds.IsZero() {
+		return nil
+	}
+
+	return &api.WorkerCoreGitCredentials{
+		Username:      proto.String(creds.Username),
+		Password:      proto.String(creds.Password),
+		SshPrivateKey: proto.String(creds.SSHPrivateKey),
+		SshKnownHosts: proto.String(creds.SSHKnownHosts),
+	}
+}
+
+func gitCredentialsFromProto(in *api.WorkerCoreGitCredentials) source.GitCredentials {
+	if in == nil {
+		return source.GitCredentials{}
+	}
+
+	return source.GitCredentials{
+		Username:      in.GetUsername(),
+		Password:      in.GetPassword(),
+		SSHPrivateKey: in.GetSshPrivateKey(),
+		SSHKnownHosts: in.GetSshKnownHosts(),
+	}
 }
 
 func ArtifactMetadataProto(sessionID string, req action.ArtifactPublishRequest) *api.WorkerCoreArtifactMetadata {

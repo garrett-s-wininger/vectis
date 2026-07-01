@@ -148,6 +148,38 @@ func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheGitRunnerAppliesCredentialEnv(t *testing.T) {
+	binDir := t.TempDir()
+	capturePath := filepath.Join(t.TempDir(), "env.txt")
+	gitPath := filepath.Join(binDir, "git")
+	script := `#!/bin/sh
+{
+  printf 'prompt=%s\n' "$GIT_TERMINAL_PROMPT"
+  printf 'user=%s\n' "$VECTIS_GIT_USERNAME"
+} > "$VECTIS_CAPTURE"
+`
+	if err := os.WriteFile(gitPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write git shim: %v", err)
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("VECTIS_CAPTURE", capturePath)
+
+	err := runWorkerCacheGitNoDirWithEnv(context.Background(), []string{"VECTIS_GIT_USERNAME=alice"}, "status")
+	if err != nil {
+		t.Fatalf("runWorkerCacheGitNoDirWithEnv: %v", err)
+	}
+
+	got, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("read captured env: %v", err)
+	}
+
+	if !strings.Contains(string(got), "prompt=0\n") || !strings.Contains(string(got), "user=alice\n") {
+		t.Fatalf("captured env = %q, want prompt and credential env", got)
+	}
+}
+
 func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "warmed\n", "warmed")

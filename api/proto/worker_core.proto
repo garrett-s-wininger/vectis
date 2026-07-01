@@ -81,6 +81,14 @@ message WorkerCoreTaskSession {
 message WorkerCoreCheckoutCacheRemote {
     string remote_url = 1;
     repeated string fallback_remote_urls = 2;
+    WorkerCoreGitCredentials credentials = 3;
+}
+
+message WorkerCoreGitCredentials {
+    string username = 1;
+    string password = 2;
+    string ssh_private_key = 3;
+    string ssh_known_hosts = 4;
 }
 
 message WorkerCoreWorkloadIdentity {

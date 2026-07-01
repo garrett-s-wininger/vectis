@@ -24,6 +24,7 @@ type ExecutorConfig struct {
 	CheckoutCacheGenerationsToKeep int
 	CheckoutCacheLeaseTTL          time.Duration
 	CheckoutCacheRemoteURLs        []string
+	CheckoutCacheRemotes           []CheckoutCacheRemote
 	Lima                           platform.VirtualMachineConfig
 }
 
@@ -38,8 +39,13 @@ func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
 		options = append(options, job.WithWorkspaceRoot(workspaceRoot))
 	}
 
-	if checkoutCacheRoot := strings.TrimSpace(cfg.CheckoutCacheRoot); checkoutCacheRoot != "" && len(cfg.CheckoutCacheRemoteURLs) > 0 {
-		checkoutCache, err := source.NewWorkerCheckoutCache(checkoutCacheRoot, cfg.CheckoutCacheRemoteURLs, workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep, cfg.CheckoutCacheLeaseTTL)...)
+	checkoutCacheRemotes := cfg.CheckoutCacheRemotes
+	if len(checkoutCacheRemotes) == 0 {
+		checkoutCacheRemotes = checkoutCacheRemotesFromURLs(cfg.CheckoutCacheRemoteURLs)
+	}
+
+	if checkoutCacheRoot := strings.TrimSpace(cfg.CheckoutCacheRoot); checkoutCacheRoot != "" && len(checkoutCacheRemotes) > 0 {
+		checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(checkoutCacheRoot, sourceWorkerCheckoutCacheRemotes(checkoutCacheRemotes), workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep, cfg.CheckoutCacheLeaseTTL)...)
 		if err != nil {
 			return nil, "", err
 		}
