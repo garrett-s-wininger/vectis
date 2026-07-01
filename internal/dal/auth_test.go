@@ -2,6 +2,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -240,6 +241,83 @@ func TestAuthRepository_TouchAPITokenUsed(t *testing.T) {
 
 	if cnt != 1 {
 		t.Fatalf("expected last_used_at set for token, count=%d", cnt)
+	}
+}
+
+func TestAuthRepository_ListAuditEventsFiltersAndOrders(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLAuthRepository(db)
+	ctx := context.Background()
+
+	base := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
+	events := []*AuditEventRecord{
+		{
+			Type:          "auth.success",
+			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+			TargetID:      sql.NullInt64{Int64: 10, Valid: true},
+			Metadata:      []byte(`{"old":true}`),
+			IPAddress:     "127.0.0.1",
+			CorrelationID: "corr-old",
+			CreatedAt:     sql.NullTime{Time: base.Add(-2 * time.Hour), Valid: true},
+		},
+		{
+			Type:          "token.created",
+			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+			TargetID:      sql.NullInt64{Int64: 20, Valid: true},
+			Metadata:      []byte(`{"label":"first"}`),
+			IPAddress:     "127.0.0.2",
+			CorrelationID: "corr-match",
+			CreatedAt:     sql.NullTime{Time: base.Add(-1 * time.Hour), Valid: true},
+		},
+		{
+			Type:          "token.created",
+			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+			TargetID:      sql.NullInt64{Int64: 20, Valid: true},
+			Metadata:      []byte(`{"label":"second"}`),
+			IPAddress:     "127.0.0.3",
+			CorrelationID: "corr-match",
+			CreatedAt:     sql.NullTime{Time: base, Valid: true},
+		},
+		{
+			Type:          "token.created",
+			ActorID:       sql.NullInt64{Int64: 2, Valid: true},
+			TargetID:      sql.NullInt64{Int64: 20, Valid: true},
+			Metadata:      []byte(`{"label":"other-actor"}`),
+			CorrelationID: "corr-match",
+			CreatedAt:     sql.NullTime{Time: base, Valid: true},
+		},
+	}
+	if err := repo.InsertAuditEvents(ctx, events); err != nil {
+		t.Fatalf("InsertAuditEvents: %v", err)
+	}
+
+	since := base.Add(-90 * time.Minute)
+	until := base.Add(30 * time.Minute)
+	got, err := repo.ListAuditEvents(ctx, AuditEventListFilter{
+		EventType:     "token.created",
+		ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+		TargetID:      sql.NullInt64{Int64: 20, Valid: true},
+		CorrelationID: "corr-match",
+		Since:         &since,
+		Until:         &until,
+		Limit:         10,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditEvents: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(got))
+	}
+	if got[0].ID <= got[1].ID {
+		t.Fatalf("events are not newest first by created_at/id: got ids %d then %d", got[0].ID, got[1].ID)
+	}
+	if string(got[0].Metadata) != `{"label":"second"}` {
+		t.Fatalf("first metadata=%s", string(got[0].Metadata))
+	}
+	if got[0].IPAddress != "127.0.0.3" {
+		t.Fatalf("first ip=%s", got[0].IPAddress)
 	}
 }
 

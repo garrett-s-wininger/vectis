@@ -10,7 +10,7 @@ For storage fields and indexes, see [Database Schema Reference](./database-schem
 
 Audit emission is enabled by default through `api.audit.enabled`. When enabled, the API writes events to the application-owned SQL database through `audit_log`.
 
-There is not yet an API or CLI command that lists audit records. Operators who need audit review or export should read `audit_log` through approved database access, backup/export tooling, or the deployment's log and SIEM pipeline.
+Use `GET /api/v1/audit/events` or `vectis-cli audit list --format json` to list and retain audit-event evidence. The first-party list path supports `event_type`, `actor_id`, `target_id`, `correlation_id`, `since`, `until`, and `limit` filters. `since` and `until` accept RFC3339 timestamps or `YYYY-MM-DD` dates, and `limit` is bounded to 1-1000 rows. Results are ordered newest first by `created_at` and row ID.
 
 | Field | Operator meaning |
 | --- | --- |
@@ -23,6 +23,12 @@ There is not yet an API or CLI command that lists audit records. Operators who n
 | `created_at` | Event timestamp. |
 
 Audit metadata can contain usernames, token labels, namespace paths, job IDs, run IDs, and operator-supplied repair reasons. Raw API tokens, passwords, CSRF/session tokens, and secret plaintext are not written by the audit emitters, but `audit_log` should still be treated as sensitive operational evidence.
+
+For retention workflows, export the relevant range before deleting old audit rows:
+
+```sh
+vectis-cli audit list --since 2026-06-01 --until 2026-07-01 --format json
+```
 
 ## Durability Policy
 

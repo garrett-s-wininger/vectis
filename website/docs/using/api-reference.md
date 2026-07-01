@@ -347,6 +347,7 @@ Rate-limit categories are configured under `api.rate_limit.*`. `general`, `auth`
 | GET | `/api/v1/schema/status` | Migration schema status | `admin:*` | none | `200` JSON schema status |
 | GET | `/api/v1/reconciler/heartbeat` | Reconciler last-activity signal | `admin:*` | none | `200` JSON heartbeat |
 | GET | `/api/v1/audit/drops` | Audit event drop count | `admin:*` | none | `200` JSON drop count |
+| GET | `/api/v1/audit/events` | List audit events with optional event, actor, target, correlation, time, and limit filters | `admin:*` | none | `200` JSON audit event list |
 | GET | `/api/v1/db/pool-stats` | Database connection pool stats | `admin:*` | none | `200` JSON pool stats |
 | GET | `/api/v1/queue/backlog` | Count of queued runs with per-cell counts when available | `admin:*` | none | `200` JSON backlog |
 | GET | `/api/v1/reconciler/stuck-runs` | Count of stuck queued runs, pending task continuations, and pending orphaned task-finalization repairs, including per-cell counts when available | `admin:*` | none | `200` JSON stuck runs |

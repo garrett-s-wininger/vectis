@@ -136,15 +136,20 @@ Most API failures use this JSON envelope:
 | `idempotency_in_progress` | `409` | Another request with the same idempotency key is still in progress. |
 | `idempotency_key_reused` | `409` | Idempotency key was reused with a different request shape. |
 | `invalid_after_index` | `400` | `after_index` must be a non-negative integer. |
+| `invalid_actor_id` | `400` | Audit `actor_id` filter is malformed or not positive. |
 | `invalid_cell_id` | `400` | Cell filter or target cell options are invalid or contradictory. |
 | `invalid_job_definition` | `400` | Job document failed parsing or validation. `details.fields` may describe field-level failures. |
+| `invalid_limit` | `400` | A list limit query parameter is outside the allowed range. |
 | `invalid_replay_limit` | `400` | Log replay limit is outside the allowed range. |
 | `invalid_replay_options` | `400` | Replay body contains invalid or contradictory target-cell options. |
 | `invalid_since` | `400` | `since` is not an RFC3339 timestamp or `YYYY-MM-DD` date. |
 | `invalid_since_sequence` | `400` | Log sequence cursor is not a non-negative integer. |
 | `invalid_stored_job_definition` | `500` | Stored job definition could not be parsed by the server. |
 | `invalid_tail` | `400` | Log tail limit is outside the allowed range. |
+| `invalid_target_id` | `400` | Audit `target_id` filter is malformed or not positive. |
+| `invalid_time_range` | `400` | Time range query parameters are contradictory, such as `since` after `until`. |
 | `invalid_trigger_options` | `400` | Trigger body contains invalid or contradictory target-cell options. |
+| `invalid_until` | `400` | Audit `until` filter is not an RFC3339 timestamp or `YYYY-MM-DD` date. |
 | `invalid_version` | `400` | Job version query parameter is invalid. |
 | `job_already_exists` | `409` | Stored job ID already exists. |
 | `job_id_mismatch` | `400` | Path job ID and JSON body job ID differ. |

@@ -22,6 +22,10 @@ func (m *mockAuthRepo) InsertAuditEvents(_ context.Context, events []*dal.AuditE
 	return nil
 }
 
+func (m *mockAuthRepo) ListAuditEvents(_ context.Context, _ dal.AuditEventListFilter) ([]*dal.AuditEventRecord, error) {
+	return m.events, m.err
+}
+
 func (m *mockAuthRepo) IsSetupComplete(_ context.Context) (bool, error) { return false, nil }
 func (m *mockAuthRepo) CompleteInitialSetup(_ context.Context, _, _, _, _ string) (int64, error) {
 	return 0, nil

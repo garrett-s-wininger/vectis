@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -37,6 +38,7 @@ type TokenScopeRecord struct {
 
 // AuditEventRecord represents a single audit log entry.
 type AuditEventRecord struct {
+	ID            int64
 	Type          string
 	ActorID       sql.NullInt64
 	TargetID      sql.NullInt64
@@ -44,6 +46,16 @@ type AuditEventRecord struct {
 	IPAddress     string
 	CorrelationID string
 	CreatedAt     sql.NullTime
+}
+
+type AuditEventListFilter struct {
+	EventType     string
+	ActorID       sql.NullInt64
+	TargetID      sql.NullInt64
+	CorrelationID string
+	Since         *time.Time
+	Until         *time.Time
+	Limit         int
 }
 
 // AuthRepository persists HTTP API authentication: bootstrap completion, local users, and API tokens.
@@ -72,6 +84,7 @@ type AuthRepository interface {
 	UpdateLocalUserEnabled(ctx context.Context, id int64, enabled bool) error
 	DeleteLocalUser(ctx context.Context, id int64) error
 	InsertAuditEvents(ctx context.Context, events []*AuditEventRecord) error
+	ListAuditEvents(ctx context.Context, filter AuditEventListFilter) ([]*AuditEventRecord, error)
 	CountEnabledAdmins(ctx context.Context) (int, error)
 	IsUserAdmin(ctx context.Context, localUserID int64) (bool, error)
 	CountEnabledRootAdmins(ctx context.Context) (int, error)
@@ -751,6 +764,73 @@ func (r *SQLAuthRepository) InsertAuditEvents(ctx context.Context, events []*Aud
 	}
 
 	return tx.Commit()
+}
+
+func (r *SQLAuthRepository) ListAuditEvents(ctx context.Context, filter AuditEventListFilter) ([]*AuditEventRecord, error) {
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	var where []string
+	var args []any
+	if eventType := strings.TrimSpace(filter.EventType); eventType != "" {
+		where = append(where, "event_type = ?")
+		args = append(args, eventType)
+	}
+	if filter.ActorID.Valid {
+		where = append(where, "actor_id = ?")
+		args = append(args, filter.ActorID.Int64)
+	}
+	if filter.TargetID.Valid {
+		where = append(where, "target_id = ?")
+		args = append(args, filter.TargetID.Int64)
+	}
+	if correlationID := strings.TrimSpace(filter.CorrelationID); correlationID != "" {
+		where = append(where, "correlation_id = ?")
+		args = append(args, correlationID)
+	}
+	if filter.Since != nil {
+		where = append(where, "created_at >= ?")
+		args = append(args, filter.Since.UTC())
+	}
+	if filter.Until != nil {
+		where = append(where, "created_at <= ?")
+		args = append(args, filter.Until.UTC())
+	}
+
+	query := `SELECT id, event_type, actor_id, target_id, metadata, COALESCE(ip_address, ''), COALESCE(correlation_id, ''), created_at FROM audit_log`
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(query), args...)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+	defer rows.Close()
+
+	var events []*AuditEventRecord
+	for rows.Next() {
+		var rec AuditEventRecord
+		var metadata sql.NullString
+		if err := rows.Scan(&rec.ID, &rec.Type, &rec.ActorID, &rec.TargetID, &metadata, &rec.IPAddress, &rec.CorrelationID, &rec.CreatedAt); err != nil {
+			return nil, normalizeSQLError(err)
+		}
+		if metadata.Valid {
+			rec.Metadata = []byte(metadata.String)
+		}
+
+		events = append(events, &rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return events, nil
 }
 
 var ErrSetupAlreadyComplete = errors.New("setup already complete")

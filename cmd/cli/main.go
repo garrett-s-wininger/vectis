@@ -86,6 +86,13 @@ var (
 	retentionHoldListAll        bool
 	retentionHoldReleasedBy     string
 	retentionHoldReleaseReason  string
+	auditListEventType          string
+	auditListActorID            int64
+	auditListTargetID           int64
+	auditListCorrelationID      string
+	auditListSince              string
+	auditListUntil              string
+	auditListLimit              int
 	runListJobID                string
 	runListRepositoryID         string
 	runListLimit                int
@@ -193,6 +200,7 @@ Commands are grouped around the thing you want to work with:
   runs       show run status, list tasks/artifacts or run history, cancel, fail, or retry runs
   cells      inspect execution cell routing and catalog state
   logs       stream run logs or follow future runs for a job
+  audit      review API audit events
   storage    verify durable file storage integrity
   secrets    manage job secret stores
   auth       log in, log out, and manage API tokens`,
@@ -346,6 +354,10 @@ func init() {
 	storageVerifyCmd.AddCommand(storageVerifyArtifactCmd, storageVerifyLogsCmd, storageVerifyQueueCmd, storageVerifyLogForwarderSpoolCmd, storageVerifyWorkerLogSpoolCmd)
 	storageCmd.AddCommand(storageVerifyCmd)
 	rootCmd.AddCommand(storageCmd)
+
+	configureAuditListFlags(auditListCmd)
+	auditCmd.AddCommand(auditListCmd)
+	rootCmd.AddCommand(auditCmd)
 
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanNetwork, "network", "pasta", "Podman network mode for play kube")
 	deployPodmanCmd.PersistentFlags().StringVar(&podmanProfile, "profile", podmanProfileSimple, "Deployment profile: simple or ha")

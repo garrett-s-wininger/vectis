@@ -23,6 +23,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/schema/status", string(authz.ActionAdmin)},
 		{"GET /api/v1/reconciler/heartbeat", string(authz.ActionAdmin)},
 		{"GET /api/v1/audit/drops", string(authz.ActionAdmin)},
+		{"GET /api/v1/audit/events", string(authz.ActionAdmin)},
 		{"GET /api/v1/db/pool-stats", string(authz.ActionAdmin)},
 		{"GET /api/v1/queue/backlog", string(authz.ActionAdmin)},
 		{"GET /api/v1/reconciler/stuck-runs", string(authz.ActionAdmin)},
@@ -315,6 +316,7 @@ func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
 func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 	s := &APIServer{}
 	want := map[string]routeQueryPolicy{
+		"GET /api/v1/audit/events":                                              routeQueryParams("actor_id", "correlation_id", "event_type", "limit", "since", "target_id", "until"),
 		"GET /api/v1/source-schedules":                                          routeQueryParams("namespace"),
 		"GET /api/v1/source-repositories":                                       routeQueryParams("namespace"),
 		"GET /api/v1/source-repositories/{id}/refs/branches":                    routeQueryParams("limit", "prefix"),
@@ -324,18 +326,18 @@ func TestAPIRouteInventory_queryPolicies(t *testing.T) {
 		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/definition":         routeQueryParams("path", "ref"),
 		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs":               routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "since"),
 		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": routeQueryParams("replay_limit", "since_sequence", "tail"),
-		"GET /api/v1/jobs":                                  routeQueryParams("cursor", "limit", "path", "ref", "repository_id"),
-		"GET /api/v1/jobs/{id}":                             routeQueryParams("path", "ref", "repository_id"),
-		"GET /api/v1/jobs/{id}/runs":                        routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "repository_id", "since"),
-		"GET /api/v1/sse/jobs/{id}/runs":                    routeQueryParams("repository_id"),
-		"DELETE /api/v1/jobs/{id}":                          routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
-		"PUT /api/v1/jobs/{id}":                             routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
-		"GET /api/v1/runs":                                  routeQueryParams("cursor", "limit"),
-		"GET /api/v1/runs/{id}/tasks":                       routeQueryParams("cursor", "limit"),
-		"GET /api/v1/runs/{id}/artifacts":                   routeQueryParams("cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
-		"GET /api/v1/runs/{id}/logs":                        routeQueryParams("replay_limit", "since_sequence", "tail"),
-		"GET /api/v1/tokens":                                routeQueryParams("user_id"),
-		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}": routeQueryParams("role"),
+		"GET /api/v1/jobs":                                                      routeQueryParams("cursor", "limit", "path", "ref", "repository_id"),
+		"GET /api/v1/jobs/{id}":                                                 routeQueryParams("path", "ref", "repository_id"),
+		"GET /api/v1/jobs/{id}/runs":                                            routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "repository_id", "since"),
+		"GET /api/v1/sse/jobs/{id}/runs":                                        routeQueryParams("repository_id"),
+		"DELETE /api/v1/jobs/{id}":                                              routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
+		"PUT /api/v1/jobs/{id}":                                                 routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
+		"GET /api/v1/runs":                                                      routeQueryParams("cursor", "limit"),
+		"GET /api/v1/runs/{id}/tasks":                                           routeQueryParams("cursor", "limit"),
+		"GET /api/v1/runs/{id}/artifacts":                                       routeQueryParams("cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
+		"GET /api/v1/runs/{id}/logs":                                            routeQueryParams("replay_limit", "since_sequence", "tail"),
+		"GET /api/v1/tokens":                                                    routeQueryParams("user_id"),
+		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}":                     routeQueryParams("role"),
 	}
 
 	seen := make(map[string]bool, len(want))

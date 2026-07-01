@@ -89,6 +89,12 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
 		},
 		{
+			Pattern: "GET /api/v1/audit/events",
+			Handler: http.HandlerFunc(s.ListAuditEvents),
+			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
+			Query:   routeQueryParams("actor_id", "correlation_id", "event_type", "limit", "since", "target_id", "until"),
+		},
+		{
 			Pattern: "GET /api/v1/db/pool-stats",
 			Handler: http.HandlerFunc(s.GetDBPoolStats),
 			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},

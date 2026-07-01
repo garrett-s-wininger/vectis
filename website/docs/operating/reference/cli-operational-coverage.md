@@ -20,6 +20,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Role bindings | Grant or revoke namespace roles. | `vectis-cli role-bindings list`, `grant`, `revoke` |
 | Source control | Register, sync, inspect, author, and clean up source repositories and schedules. | `vectis-cli sources overview`, `list`, `register`, `sync`, `status`, `schedules`, `override`, `clear-override`, `delete-schedule`, `jobs`, `show`, `write`, `trigger`, `runs`, `logs` |
 | Health checks | Run operator checks against API and local deployment paths. | `vectis-cli health check`, `--format json`, `--strict` |
+| Audit events | Review or export API audit events by type, actor, target, correlation ID, or time range. | `vectis-cli audit list`, `audit list --event-type`, `--actor-id`, `--target-id`, `--correlation-id`, `--since`, `--until`, `--format json` |
 | Backup evidence | Capture local backup scope evidence, aggregate host inventories, generate reference expectations, verify manifest completeness, and emit retained restore validation evidence with attached storage reports and a post-restore smoke run. | `vectis-cli backup inventory --format json`, `backup manifest --format json`, `backup expect podman --format json`, `backup expect linux --format json`, `backup verify`, `backup verify --expect`, `backup verify --storage-report`, `backup restore-validation --smoke-run`, `--storage-max-age` |
 | Storage integrity | Verify local file-backed durable state before accepting a backup set or restored files. | `vectis-cli storage verify queue`, `logs`, `artifact`, `log-forwarder-spool`, `worker-log-spool`, `--dir`, `--format json` |
 | Database migrations | Apply embedded SQL migrations during deploy, upgrade, or restore. | `vectis-cli database migrate` |
@@ -44,6 +45,7 @@ For task walkthroughs, use the [CLI Guide](../../using/cli-guide.md). For repair
 | Inspect source-control readiness | `vectis-cli sources overview` |
 | Inspect source repository health | `vectis-cli sources status <repository-id>` |
 | Check config-as-code readiness | `vectis-cli health check --strict` |
+| Export audit events for a range | `vectis-cli audit list --since <YYYY-MM-DD> --until <YYYY-MM-DD> --format json` |
 | Capture backup scope evidence | `vectis-cli backup inventory --format json` |
 | Generate Podman expected topology | `vectis-cli backup expect podman --profile simple --format json` or `--profile ha` |
 | Generate Linux expected topology | `vectis-cli backup expect linux --manifest deploy/linux/services.toml --format json` |
@@ -71,6 +73,7 @@ Most operational commands use stable, line-oriented text:
 - `health check` prints a grouped human report using stable check IDs from the [Health Check Catalog](./health-check-catalog.md).
 - `health check --format json` emits a summary object with the full check model in `checks`.
 - `health check --strict` exits non-zero on warnings (for CI).
+- `audit list` prints one event per line in newest-first order; `--format json` emits an `events` array and the effective `limit` for retention/export evidence.
 - `backup inventory --format json` emits local backup scope evidence with redacted database DSNs and path readability.
 - `backup expect podman --format json` emits expected topology JSON for the Podman reference deployment's simple or HA profile.
 - `backup expect linux --format json` emits expected topology JSON from the Linux services manifest's example environment.

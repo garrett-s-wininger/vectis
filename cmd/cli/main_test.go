@@ -3054,6 +3054,98 @@ func withOutputFormat(t *testing.T, format string) {
 	t.Cleanup(func() { cliOutputFormat = oldFormat })
 }
 
+func TestAuditList_sendsFiltersAndPrintsEvents(t *testing.T) {
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method=%s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/audit/events" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+
+		query := r.URL.Query()
+		want := map[string]string{
+			"event_type":     "token.created",
+			"actor_id":       "1",
+			"target_id":      "2",
+			"correlation_id": "corr-1",
+			"since":          "2026-06-29",
+			"until":          "2026-06-30T00:00:00Z",
+			"limit":          "50",
+		}
+		for key, value := range want {
+			if got := query.Get(key); got != value {
+				t.Errorf("query %s=%q, want %q", key, got, value)
+			}
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"limit": 50,
+			"events": []map[string]any{
+				{
+					"id":             42,
+					"event_type":     "token.created",
+					"actor_id":       1,
+					"target_id":      2,
+					"metadata":       map[string]any{"label": "deploy"},
+					"ip_address":     "127.0.0.1",
+					"correlation_id": "corr-1",
+					"created_at":     "2026-06-29T12:00:00Z",
+				},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	err := auditList(&buf, auditListOptions{
+		EventType:     "token.created",
+		ActorID:       1,
+		TargetID:      2,
+		CorrelationID: "corr-1",
+		Since:         "2026-06-29",
+		Until:         "2026-06-30T00:00:00Z",
+		Limit:         50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"token.created", "42", "corr-1", `{"label":"deploy"}`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestAuditList_jsonOutput(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/audit/events" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"limit": 100,
+			"events": []map[string]any{
+				{"id": 1, "event_type": "auth.success", "created_at": "2026-06-29T12:00:00Z"},
+			},
+		})
+	})
+
+	var buf bytes.Buffer
+	if err := auditList(&buf, auditListOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out auditEventListResult
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("decode json output: %v\n%s", err, buf.String())
+	}
+	if len(out.Events) != 1 || out.Events[0].EventType != "auth.success" {
+		t.Fatalf("unexpected output: %+v", out)
+	}
+}
+
 func TestTokenList_success(t *testing.T) {
 	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
