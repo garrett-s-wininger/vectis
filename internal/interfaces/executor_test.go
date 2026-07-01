@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -284,6 +285,28 @@ func TestDirectExecutorDoesNotPassExtraFileDescriptorsByDefault(t *testing.T) {
 
 	if err := process.Wait(); err == nil || !strings.Contains(err.Error(), "exit status") {
 		t.Fatalf("process unexpectedly wrote to fd 3: %v", err)
+	}
+}
+
+func TestWindowsExecutableExtensionsFromPATHEXT(t *testing.T) {
+	got := windowsExecutableExtensionsFromPATHEXT(".COM;.EXE;.cmd;EXE;; .BAT ")
+	want := []string{".COM", ".EXE", ".cmd", ".BAT"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("windowsExecutableExtensionsFromPATHEXT = %v, want %v", got, want)
+	}
+}
+
+func TestWindowsExecutableCandidateNames(t *testing.T) {
+	got := windowsExecutableCandidateNames("vectis-child", []string{"PATHEXT=.EXE;.CMD"})
+	want := []string{"vectis-child", "vectis-child.EXE", "vectis-child.CMD"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("windowsExecutableCandidateNames = %v, want %v", got, want)
+	}
+
+	got = windowsExecutableCandidateNames("vectis-child.exe", []string{"PATHEXT=.EXE;.CMD"})
+	want = []string{"vectis-child.exe"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("windowsExecutableCandidateNames with extension = %v, want %v", got, want)
 	}
 }
 

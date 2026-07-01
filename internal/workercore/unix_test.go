@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +195,14 @@ func TestUnixPeerCredentialsRequireCurrentUID(t *testing.T) {
 
 func assertSocketPathModes(t *testing.T, socketPath string) {
 	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		if _, err := os.Stat(socketPath); err != nil {
+			t.Fatalf("stat socket: %v", err)
+		}
+
+		return
+	}
 
 	dirInfo, err := os.Stat(filepath.Dir(socketPath))
 	if err != nil {

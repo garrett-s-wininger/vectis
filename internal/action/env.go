@@ -8,7 +8,10 @@ import (
 	"strings"
 )
 
-const defaultProcessPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+const (
+	posixDefaultProcessPath  = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	windowsDefaultSystemRoot = `C:\Windows`
+)
 
 func (s *ExecutionState) CommandEnv() []string {
 	if s == nil {
@@ -29,7 +32,7 @@ func SanitizedProcessEnv(workspace string, base []string) []string {
 	}
 
 	tmpDir := filepath.Join(workspace, ".tmp")
-	path := envValueOrDefault(base, "PATH", defaultProcessPath)
+	path := envValueOrDefault(base, "PATH", defaultProcessPath(base))
 
 	values := map[string]string{
 		"CI":     "true",
@@ -50,6 +53,29 @@ func SanitizedProcessEnv(workspace string, base []string) []string {
 	}
 
 	return sortedEnv(values)
+}
+
+func defaultProcessPath(base []string) string {
+	if runtime.GOOS != "windows" {
+		return posixDefaultProcessPath
+	}
+
+	systemRoot := windowsSystemRoot(base)
+	return strings.Join([]string{
+		filepath.Join(systemRoot, "System32"),
+		systemRoot,
+		filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0"),
+	}, string(os.PathListSeparator))
+}
+
+func windowsSystemRoot(env []string) string {
+	for _, key := range []string{"SystemRoot", "WINDIR"} {
+		if value, ok := lookupEnv(env, key); ok && filepath.IsAbs(value) {
+			return value
+		}
+	}
+
+	return windowsDefaultSystemRoot
 }
 
 func AppendEnv(env []string, key, value string) []string {

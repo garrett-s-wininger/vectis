@@ -13,7 +13,11 @@ import (
 	"vectis/internal/actionlauncher"
 )
 
-const defaultExecutableSearchPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+const (
+	posixDefaultExecutableSearchPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	windowsDefaultSystemRoot         = `C:\Windows`
+	windowsDefaultPathExt            = ".COM;.EXE;.BAT;.CMD"
+)
 
 type CommandExecutor interface {
 	Start(ctx context.Context, command string, workDir string, env []string) (Process, error)
@@ -129,7 +133,7 @@ func resolveExecutablePath(path string, env []string) (string, error) {
 		return path, nil
 	}
 
-	resolved, err := lookPath(path, executableSearchPath(env))
+	resolved, err := lookPath(path, executableSearchPath(env), env)
 	if err != nil {
 		return "", fmt.Errorf("resolve command path %q: %w", path, err)
 	}
@@ -140,10 +144,33 @@ func resolveExecutablePath(path string, env []string) (string, error) {
 func executableSearchPath(env []string) string {
 	path, ok := lookupEnvValue(env, "PATH")
 	if !ok || path == "" {
-		return defaultExecutableSearchPath
+		return defaultExecutableSearchPath(env)
 	}
 
 	return path
+}
+
+func defaultExecutableSearchPath(env []string) string {
+	if runtime.GOOS != "windows" {
+		return posixDefaultExecutableSearchPath
+	}
+
+	systemRoot := windowsSystemRoot(env)
+	return strings.Join([]string{
+		filepath.Join(systemRoot, "System32"),
+		systemRoot,
+		filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0"),
+	}, string(os.PathListSeparator))
+}
+
+func windowsSystemRoot(env []string) string {
+	for _, key := range []string{"SystemRoot", "WINDIR"} {
+		if value, ok := lookupEnvValue(env, key); ok && filepath.IsAbs(value) {
+			return value
+		}
+	}
+
+	return windowsDefaultSystemRoot
 }
 
 func lookupEnvValue(env []string, key string) (string, bool) {
@@ -169,19 +196,76 @@ func envKeyEqual(a, b string) bool {
 	return a == b
 }
 
-func lookPath(file, searchPath string) (string, error) {
+func lookPath(file, searchPath string, env []string) (string, error) {
 	for _, dir := range filepath.SplitList(searchPath) {
 		if dir == "" || !filepath.IsAbs(dir) {
 			continue
 		}
 
-		candidate := filepath.Join(dir, file)
-		if isExecutableFile(candidate) {
-			return candidate, nil
+		for _, name := range executableCandidateNames(file, env) {
+			candidate := filepath.Join(dir, name)
+			if isExecutableFile(candidate) {
+				return candidate, nil
+			}
 		}
 	}
 
 	return "", exec.ErrNotFound
+}
+
+func executableCandidateNames(file string, env []string) []string {
+	if runtime.GOOS != "windows" {
+		return []string{file}
+	}
+
+	return windowsExecutableCandidateNames(file, env)
+}
+
+func windowsExecutableCandidateNames(file string, env []string) []string {
+	if filepath.Ext(file) != "" {
+		return []string{file}
+	}
+
+	out := []string{file}
+	for _, ext := range windowsExecutableExtensions(env) {
+		out = append(out, file+ext)
+	}
+
+	return out
+}
+
+func windowsExecutableExtensions(env []string) []string {
+	pathext, ok := lookupEnvValue(env, "PATHEXT")
+	if !ok || strings.TrimSpace(pathext) == "" {
+		pathext = windowsDefaultPathExt
+	}
+
+	return windowsExecutableExtensionsFromPATHEXT(pathext)
+}
+
+func windowsExecutableExtensionsFromPATHEXT(pathext string) []string {
+	seen := map[string]struct{}{}
+	var exts []string
+	for _, raw := range strings.Split(pathext, ";") {
+		ext := strings.TrimSpace(raw)
+		if ext == "" {
+			continue
+		}
+
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+
+		key := strings.ToUpper(ext)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		exts = append(exts, ext)
+	}
+
+	return exts
 }
 
 func isExecutableFile(path string) bool {
