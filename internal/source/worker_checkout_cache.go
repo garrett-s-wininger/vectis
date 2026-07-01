@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"vectis/internal/interfaces"
+	"vectis/internal/observability"
 )
 
 const (
@@ -25,12 +26,14 @@ const (
 )
 
 type WorkerCheckoutCacheOption func(*WorkerCheckoutCache)
+type WorkerCheckoutCacheCloneRecorder func(context.Context, string, string)
 
 type WorkerCheckoutCache struct {
 	root                string
 	persistentRemoteURL map[string]struct{}
 	generationsToKeep   int
 	leaseTTL            time.Duration
+	cloneRecorder       WorkerCheckoutCacheCloneRecorder
 }
 
 type WorkerCheckoutCacheStats struct {
@@ -56,6 +59,12 @@ func WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep int) WorkerCheck
 func WithWorkerCheckoutCacheLeaseTTL(ttl time.Duration) WorkerCheckoutCacheOption {
 	return func(c *WorkerCheckoutCache) {
 		c.leaseTTL = ttl
+	}
+}
+
+func WithWorkerCheckoutCacheCloneRecorder(recorder WorkerCheckoutCacheCloneRecorder) WorkerCheckoutCacheOption {
+	return func(c *WorkerCheckoutCache) {
+		c.cloneRecorder = recorder
 	}
 }
 
@@ -139,9 +148,11 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 		logger.Info("Cloning repository from worker checkout cache: %s", normalizedRemoteURL)
 	}
 
-	if err := cloneWorkerCheckoutCacheWorkspace(ctx, workspace, mirrorPath); err != nil {
+	mode, reason, err := cloneWorkerCheckoutCacheWorkspace(ctx, workspace, mirrorPath)
+	if err != nil {
 		return true, fmt.Errorf("clone from worker checkout cache: %w", err)
 	}
+	c.recordClone(ctx, mode, reason)
 
 	cacheRemoteURL := filepath.Join(c.repositoryPath(normalizedRemoteURL), "current")
 	if err := configureWorkerCheckoutCacheWorkspace(ctx, workspace, normalizedRemoteURL, cacheRemoteURL); err != nil {
@@ -154,45 +165,55 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 type workerCheckoutCacheGitRunner func(context.Context, string, ...string) error
 type workerCheckoutCacheHardlinkProbe func(mirrorPath, workspace string) bool
 
-func cloneWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, mirrorPath string) error {
+func (c *WorkerCheckoutCache) recordClone(ctx context.Context, mode, reason string) {
+	if c == nil || c.cloneRecorder == nil {
+		return
+	}
+
+	c.cloneRecorder(ctx, mode, reason)
+}
+
+func cloneWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, mirrorPath string) (string, string, error) {
 	return cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx, workspace, mirrorPath, runWorkerCacheGit)
 }
 
-func cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner) error {
+func cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner) (string, string, error) {
 	return cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx, workspace, mirrorPath, run, workerCheckoutCacheHardlinksAvailable)
 }
 
-func cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner, canHardlink workerCheckoutCacheHardlinkProbe) error {
+func cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner, canHardlink workerCheckoutCacheHardlinkProbe) (string, string, error) {
 	if run == nil {
-		return fmt.Errorf("%w: worker checkout cache git runner is required", ErrInvalidReference)
+		return "", "", fmt.Errorf("%w: worker checkout cache git runner is required", ErrInvalidReference)
 	}
 
 	cloneArgs := []string{"clone", "--local"}
-	usesHardlinks := true
+	mode := observability.CheckoutCacheCloneModeHardlink
+	reason := observability.CheckoutCacheCloneReasonOK
 	if canHardlink != nil && !canHardlink(mirrorPath, workspace) {
 		cloneArgs = append(cloneArgs, "--no-hardlinks")
-		usesHardlinks = false
+		mode = observability.CheckoutCacheCloneModeCopy
+		reason = observability.CheckoutCacheCloneReasonProbe
 	}
 
 	cloneArgs = append(cloneArgs, "--", mirrorPath, ".")
 	err := run(ctx, workspace, cloneArgs...)
 	if err == nil {
-		return nil
+		return mode, reason, nil
 	}
 
-	if !usesHardlinks || !workerCheckoutCacheCloneNeedsNoHardlinksRetry(err) {
-		return err
+	if mode != observability.CheckoutCacheCloneModeHardlink || !workerCheckoutCacheCloneNeedsNoHardlinksRetry(err) {
+		return "", "", err
 	}
 
 	if cleanupErr := cleanupWorkerCheckoutCachePartialClone(workspace); cleanupErr != nil {
-		return fmt.Errorf("%w; cleanup partial worker checkout cache clone: %v", err, cleanupErr)
+		return "", "", fmt.Errorf("%w; cleanup partial worker checkout cache clone: %v", err, cleanupErr)
 	}
 
 	if retryErr := run(ctx, workspace, "clone", "--local", "--no-hardlinks", "--", mirrorPath, "."); retryErr != nil {
-		return fmt.Errorf("%w; retry without hardlinks: %v", err, retryErr)
+		return "", "", fmt.Errorf("%w; retry without hardlinks: %v", err, retryErr)
 	}
 
-	return nil
+	return observability.CheckoutCacheCloneModeCopy, observability.CheckoutCacheCloneReasonRetry, nil
 }
 
 func workerCheckoutCacheHardlinksAvailable(mirrorPath, workspace string) bool {

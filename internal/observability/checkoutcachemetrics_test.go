@@ -33,6 +33,9 @@ func TestCheckoutCacheMetrics_appearsOnScrape(t *testing.T) {
 		ActiveLeases: 1,
 	})
 
+	metrics.RecordCheckoutCacheClone(ctx, CheckoutCacheCloneModeHardlink, CheckoutCacheCloneReasonOK)
+	metrics.RecordCheckoutCacheClone(ctx, CheckoutCacheCloneModeCopy, CheckoutCacheCloneReasonProbe)
+
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
 	req.Header.Set("Accept", string(expfmt.NewFormat(expfmt.TypeOpenMetrics)))
@@ -52,9 +55,24 @@ func TestCheckoutCacheMetrics_appearsOnScrape(t *testing.T) {
 		"vectis_checkout_cache_pack_files",
 		"vectis_checkout_cache_pack_bytes",
 		"vectis_checkout_cache_active_leases",
+		"vectis_checkout_cache_clones_total",
 	} {
 		if families[family] == nil {
 			t.Fatalf("missing metric family %q", family)
 		}
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_clones_total"], map[string]string{
+		"mode":   CheckoutCacheCloneModeHardlink,
+		"reason": CheckoutCacheCloneReasonOK,
+	}) {
+		t.Fatalf("checkout cache clone metric missing hardlink labels: %v", families["vectis_checkout_cache_clones_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_clones_total"], map[string]string{
+		"mode":   CheckoutCacheCloneModeCopy,
+		"reason": CheckoutCacheCloneReasonProbe,
+	}) {
+		t.Fatalf("checkout cache clone metric missing copy/probe labels: %v", families["vectis_checkout_cache_clones_total"])
 	}
 }

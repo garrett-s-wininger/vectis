@@ -29,6 +29,15 @@ func recordCheckoutCacheStats(ctx context.Context, stats source.WorkerCheckoutCa
 	})
 }
 
+func recordCheckoutCacheClone(ctx context.Context, mode, reason string) {
+	metrics := workerCheckoutCacheMetrics()
+	if metrics == nil {
+		return
+	}
+
+	metrics.RecordCheckoutCacheClone(ctx, mode, reason)
+}
+
 func workerCheckoutCacheMetrics() *observability.CheckoutCacheMetrics {
 	checkoutCacheMetricsOnce.Do(func() {
 		checkoutCacheMetrics, checkoutCacheMetricsErr = observability.NewCheckoutCacheMetrics()

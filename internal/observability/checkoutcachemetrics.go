@@ -6,7 +6,17 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+)
+
+const (
+	CheckoutCacheCloneModeHardlink = "hardlink"
+	CheckoutCacheCloneModeCopy     = "copy"
+
+	CheckoutCacheCloneReasonOK    = "ok"
+	CheckoutCacheCloneReasonProbe = "probe"
+	CheckoutCacheCloneReasonRetry = "retry"
 )
 
 type CheckoutCacheStats struct {
@@ -23,6 +33,7 @@ type CheckoutCacheMetrics struct {
 	packFiles    metric.Int64ObservableGauge
 	packBytes    metric.Int64ObservableGauge
 	activeLeases metric.Int64ObservableGauge
+	clones       metric.Int64Counter
 	mu           sync.RWMutex
 	stats        CheckoutCacheStats
 }
@@ -65,12 +76,20 @@ func NewCheckoutCacheMetrics() (*CheckoutCacheMetrics, error) {
 		return nil, fmt.Errorf("vectis_checkout_cache_active_leases: %w", err)
 	}
 
+	clones, err := m.Int64Counter("vectis_checkout_cache_clones_total",
+		metric.WithDescription("Worker-core checkout cache workspace clones by local object transfer mode and selection reason"),
+		metric.WithUnit("{clone}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_checkout_cache_clones_total: %w", err)
+	}
+
 	metrics := &CheckoutCacheMetrics{
 		repositories: repositories,
 		generations:  generations,
 		packFiles:    packFiles,
 		packBytes:    packBytes,
 		activeLeases: activeLeases,
+		clones:       clones,
 	}
 
 	_, err = m.RegisterCallback(metrics.observeCheckoutCacheStats,
@@ -85,6 +104,25 @@ func NewCheckoutCacheMetrics() (*CheckoutCacheMetrics, error) {
 	}
 
 	return metrics, nil
+}
+
+func (m *CheckoutCacheMetrics) RecordCheckoutCacheClone(ctx context.Context, mode, reason string) {
+	if m == nil {
+		return
+	}
+
+	if mode == "" {
+		mode = CheckoutCacheCloneModeHardlink
+	}
+
+	if reason == "" {
+		reason = CheckoutCacheCloneReasonOK
+	}
+
+	m.clones.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("mode", mode),
+		attribute.String("reason", reason),
+	))
 }
 
 func (m *CheckoutCacheMetrics) RecordCheckoutCacheStats(_ context.Context, stats CheckoutCacheStats) {

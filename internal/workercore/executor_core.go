@@ -189,7 +189,9 @@ func (c *ExecutorCore) checkoutCacheForRemoteURLs(remoteURLs []string) (*source.
 }
 
 func workerCheckoutCacheOptions(generationsToKeep int, leaseTTL time.Duration) []source.WorkerCheckoutCacheOption {
-	options := []source.WorkerCheckoutCacheOption{}
+	options := []source.WorkerCheckoutCacheOption{
+		source.WithWorkerCheckoutCacheCloneRecorder(recordCheckoutCacheClone),
+	}
 	if generationsToKeep > 0 {
 		options = append(options, source.WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep))
 	}

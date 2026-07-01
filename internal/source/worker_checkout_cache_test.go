@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"vectis/internal/observability"
 )
 
 func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
@@ -56,7 +58,7 @@ func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testin
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	var calls [][]string
 
-	err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(_ context.Context, dir string, args ...string) error {
+	mode, reason, err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(_ context.Context, dir string, args ...string) error {
 		if dir != workspace {
 			t.Fatalf("clone dir = %q, want %q", dir, workspace)
 		}
@@ -79,6 +81,9 @@ func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testin
 	if err != nil {
 		t.Fatalf("cloneWorkerCheckoutCacheWorkspaceWithRunner: %v", err)
 	}
+	if mode != observability.CheckoutCacheCloneModeCopy || reason != observability.CheckoutCacheCloneReasonRetry {
+		t.Fatalf("clone mode=%q reason=%q, want copy/retry", mode, reason)
+	}
 
 	assertStringSliceEqual(t, calls[0], []string{"clone", "--local", "--", mirrorPath, "."})
 	assertStringSliceEqual(t, calls[1], []string{"clone", "--local", "--no-hardlinks", "--", mirrorPath, "."})
@@ -89,7 +94,7 @@ func TestWorkerCheckoutCacheCloneSkipsHardlinksWhenProbeFails(t *testing.T) {
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	var calls [][]string
 
-	err := cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(
+	mode, reason, err := cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(
 		context.Background(),
 		workspace,
 		mirrorPath,
@@ -113,6 +118,9 @@ func TestWorkerCheckoutCacheCloneSkipsHardlinksWhenProbeFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe: %v", err)
 	}
+	if mode != observability.CheckoutCacheCloneModeCopy || reason != observability.CheckoutCacheCloneReasonProbe {
+		t.Fatalf("clone mode=%q reason=%q, want copy/probe", mode, reason)
+	}
 
 	if len(calls) != 1 {
 		t.Fatalf("clone calls = %d, want 1", len(calls))
@@ -126,7 +134,7 @@ func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	calls := 0
 
-	err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(context.Context, string, ...string) error {
+	_, _, err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(context.Context, string, ...string) error {
 		calls++
 		return errors.New("fatal: destination path '.' already exists and is not an empty directory")
 	})
