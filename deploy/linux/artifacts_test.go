@@ -22,34 +22,43 @@ const (
 )
 
 var expectedStandaloneExecs = map[string]string{
-	"vectis-api.service":           "/usr/bin/vectis-api",
-	"vectis-artifact.service":      "/usr/bin/vectis-artifact",
-	"vectis-catalog.service":       "/usr/bin/vectis-catalog",
-	"vectis-cell-ingress.service":  "/usr/bin/vectis-cell-ingress",
-	"vectis-cron.service":          "/usr/bin/vectis-cron",
-	"vectis-docs.service":          "/usr/bin/vectis-docs",
-	"vectis-log.service":           "/usr/bin/vectis-log",
-	"vectis-log-forwarder.service": "/usr/bin/vectis-log-forwarder",
-	"vectis-orchestrator.service":  "/usr/bin/vectis-orchestrator",
-	"vectis-queue.service":         "/usr/bin/vectis-queue",
-	"vectis-reconciler.service":    "/usr/bin/vectis-reconciler",
-	"vectis-registry.service":      "/usr/bin/vectis-registry",
-	"vectis-scm-poller.service":    "/usr/bin/vectis-scm-poller",
-	"vectis-secrets.service":       "/usr/bin/vectis-secrets",
-	"vectis-spiffe.service":        "/usr/bin/vectis-spiffe",
-	"vectis-worker.service":        "/usr/bin/vectis-worker",
-	"vectis-worker-core.service":   "/usr/bin/vectis-worker-core",
+	"vectis-api.service":               "/usr/bin/vectis-api",
+	"vectis-artifact.service":          "/usr/bin/vectis-artifact",
+	"vectis-catalog.service":           "/usr/bin/vectis-catalog",
+	"vectis-cell-ingress.service":      "/usr/bin/vectis-cell-ingress",
+	"vectis-cron.service":              "/usr/bin/vectis-cron",
+	"vectis-docs.service":              "/usr/bin/vectis-docs",
+	"vectis-log.service":               "/usr/bin/vectis-log",
+	"vectis-log-forwarder.service":     "/usr/bin/vectis-log-forwarder",
+	"vectis-orchestrator.service":      "/usr/bin/vectis-orchestrator",
+	"vectis-queue.service":             "/usr/bin/vectis-queue",
+	"vectis-reconciler.service":        "/usr/bin/vectis-reconciler",
+	"vectis-registry.service":          "/usr/bin/vectis-registry",
+	"vectis-scm-gerrit-stream.service": "/usr/bin/vectis-scm-gerrit-stream",
+	"vectis-scm-poller.service":        "/usr/bin/vectis-scm-poller",
+	"vectis-secrets.service":           "/usr/bin/vectis-secrets",
+	"vectis-spiffe.service":            "/usr/bin/vectis-spiffe",
+	"vectis-worker.service":            "/usr/bin/vectis-worker",
+	"vectis-worker-core.service":       "/usr/bin/vectis-worker-core",
 }
 
 var expectedDBBackedServices = map[string]struct{}{
-	"vectis-api.service":          {},
-	"vectis-catalog.service":      {},
-	"vectis-cell-ingress.service": {},
-	"vectis-cron.service":         {},
-	"vectis-reconciler.service":   {},
-	"vectis-scm-poller.service":   {},
-	"vectis-secrets.service":      {},
-	"vectis-worker.service":       {},
+	"vectis-api.service":               {},
+	"vectis-catalog.service":           {},
+	"vectis-cell-ingress.service":      {},
+	"vectis-cron.service":              {},
+	"vectis-reconciler.service":        {},
+	"vectis-scm-gerrit-stream.service": {},
+	"vectis-scm-poller.service":        {},
+	"vectis-secrets.service":           {},
+	"vectis-worker.service":            {},
+}
+
+var expectedQueueProducerServices = map[string]struct{}{
+	"vectis-cron.service":              {},
+	"vectis-reconciler.service":        {},
+	"vectis-scm-gerrit-stream.service": {},
+	"vectis-scm-poller.service":        {},
 }
 
 func TestLinuxArtifactsRenderFromTOML(t *testing.T) {
@@ -111,6 +120,13 @@ func TestStandaloneServiceUnitContract(t *testing.T) {
 			requireValue(t, unit, "Service", "RuntimeDirectoryPreserve", "yes")
 			requireEnvFiles(t, unit, service, true)
 			requireNoInlineEnvironment(t, unit, service)
+
+			if _, queueProducer := expectedQueueProducerServices[service]; queueProducer {
+				requireWord(t, unit, "Unit", "Wants", "vectis-registry.service")
+				requireWord(t, unit, "Unit", "Wants", "vectis-queue.service")
+				requireWord(t, unit, "Unit", "After", "vectis-registry.service")
+				requireWord(t, unit, "Unit", "After", "vectis-queue.service")
+			}
 
 			_, dbBacked := expectedDBBackedServices[service]
 			if dbBacked {

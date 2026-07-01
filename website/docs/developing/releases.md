@@ -266,7 +266,7 @@ Rollback usually means restoring the pre-upgrade backup and previous artifacts u
 
 1. Back up Postgres, queue persistence, log storage, artifact storage, secret material, TLS material, and live config according to [Backup And Restore](../operating/reliability/backup-restore.md).
 2. Read release notes for required downtime, allowed skew, and migration rollback path.
-3. Stop cron, SCM poller, and workers first if the release does not allow mixed execution.
+3. Stop cron, SCM trigger producers, and workers first if the release does not allow mixed execution.
 4. Run `vectis-cli database migrate` against the Postgres DSN.
 5. Roll registry, queue, orchestrator, log, artifact, spiffe, secrets, cell ingress, API, worker-core, workers, cron, SCM trigger producers, reconciler, catalog, log-forwarder, and docs according to the release notes.
 6. Run the upgrade smoke test.

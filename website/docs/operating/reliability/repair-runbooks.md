@@ -161,7 +161,7 @@ Use this when `health check` warns on `db.connection.pool` or the DB pool alert 
 
 Use this when `health check` fails `db.schema.current`, API readiness reports database/schema issues, or a restore drill reaches migration checks.
 
-1. Stop workers, cron, SCM poller, reconciler, and catalog if the schema state is uncertain.
+1. Stop workers, cron, SCM trigger producers, reconciler, and catalog if the schema state is uncertain.
 2. Confirm `VECTIS_DATABASE_DRIVER` and `VECTIS_DATABASE_DSN` point at the intended database. For split global/cell deployments, run this once for the global DSN and once for the cell DSN.
 3. Run the migration from the same network/config context used by the deployment:
 

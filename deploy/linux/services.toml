@@ -346,11 +346,34 @@ description = "Vectis SCM poller service"
 target_member = true
 common_env = true
 db_backed = true
+wants = ["registry", "queue"]
+after = ["registry", "queue"]
 
 [unit.env_example]
 VECTIS_SCM_POLLER_INSTANCE_ID = "scm-poller-1"
 VECTIS_SCM_POLLER_INTERVAL = "30s"
 VECTIS_SCM_POLLER_CLAIM_TTL = "5m"
+VECTIS_SCM_POLLER_PROVIDERS_GERRIT_USERNAME = ""
+VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD_FILE = ""
+
+[[unit]]
+id = "scm-gerrit-stream"
+description = "Vectis Gerrit SCM stream bridge service"
+target_member = true
+common_env = true
+db_backed = true
+wants = ["registry", "queue"]
+after = ["registry", "queue"]
+
+[unit.env_example]
+VECTIS_SCM_GERRIT_STREAM_URL = "https://gerrit.example.com"
+VECTIS_SCM_GERRIT_STREAM_INSTANCE_ID = "gerrit-stream-1"
+VECTIS_SCM_GERRIT_STREAM_TRANSPORT = "ssh"
+VECTIS_SCM_GERRIT_STREAM_SSH_HOST = "gerrit.example.com"
+VECTIS_SCM_GERRIT_STREAM_SSH_PORT = "29418"
+VECTIS_SCM_GERRIT_STREAM_SSH_USER = "ci-bot"
+VECTIS_SCM_GERRIT_STREAM_SSH_KEY_FILE = "/etc/vectis/ssh/gerrit-stream"
+VECTIS_SCM_GERRIT_STREAM_SSH_KNOWN_HOSTS_FILE = "/etc/vectis/ssh/known_hosts"
 
 [[unit]]
 id = "catalog"

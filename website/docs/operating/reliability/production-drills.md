@@ -45,8 +45,8 @@ Use this for release rehearsals and planned production upgrades.
 7. Roll cell ingress and API behind readiness checks.
 8. Roll worker-core and workers gradually, keeping paired worker/core instances
    together.
-9. Restart cron, SCM poller, reconciler, catalog, log-forwarder, and docs according to the
-   deployment plan.
+9. Restart cron, SCM trigger producers, reconciler, catalog, log-forwarder, and
+   docs according to the deployment plan.
 10. Run `vectis-cli health check --strict`.
 11. Save `vectis-cli health check --json` output as the machine-readable health
    evidence artifact.
@@ -94,7 +94,8 @@ platform's documented backup/restore mechanism.
 5. Run `vectis-cli database migrate` for every restored database.
 6. Start registry, queue, orchestrator, log, artifact, SPIFFE, and secrets.
 7. Start cell ingress and API.
-8. Start worker-core, workers, cron, SCM poller, reconciler, catalog, and log-forwarder.
+8. Start worker-core, workers, cron, SCM trigger producers, reconciler, catalog,
+   and log-forwarder.
 9. Run `vectis-cli health check --strict`.
 10. Save `vectis-cli health check --json` output as the machine-readable health
     evidence artifact.

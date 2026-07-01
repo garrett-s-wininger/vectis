@@ -165,40 +165,45 @@ func TestLoadManifestIncludesGeneratedServicePackage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	artifactRoot := t.TempDir()
-	for _, path := range []string{
-		"systemd/vectis-api.service",
-		"env/vectis-api.env.example",
-	} {
-		writeTestFile(t, filepath.Join(artifactRoot, filepath.FromSlash(path)), "test\n")
+	for _, service := range []string{"api", "scm-gerrit-stream"} {
+		t.Run(service, func(t *testing.T) {
+			artifactRoot := t.TempDir()
+			for _, path := range []string{
+				"systemd/vectis-" + service + ".service",
+				"env/vectis-" + service + ".env.example",
+			} {
+				writeTestFile(t, filepath.Join(artifactRoot, filepath.FromSlash(path)), "test\n")
+			}
+
+			packageID := "vectis-" + service
+			pkg, err := manifest.resolve(BuildOptions{
+				PackageID: packageID,
+				Version:   "v1.2.3",
+				Release:   "2",
+				Arch:      "arm64",
+				Inputs: map[string]string{
+					"linux-artifacts": artifactRoot,
+					packageID:         "/tmp/" + packageID,
+				},
+			})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if pkg.Name != packageID {
+				t.Fatalf("package name = %q", pkg.Name)
+			}
+
+			if !containsString(pkg.Depends, "vectis-common") {
+				t.Fatalf("%s dependencies missing vectis-common: %v", packageID, pkg.Depends)
+			}
+
+			requireResolvedFile(t, pkg, "/usr/bin/"+packageID, "/tmp/"+packageID, 0o755)
+			requireResolvedFile(t, pkg, "/usr/lib/systemd/system/"+packageID+".service", filepath.Join(artifactRoot, "systemd", packageID+".service"), 0o644)
+			requireResolvedFile(t, pkg, "/usr/share/doc/"+packageID+"/examples/"+packageID+".env.example", filepath.Join(artifactRoot, "env", packageID+".env.example"), 0o644)
+		})
 	}
-
-	pkg, err := manifest.resolve(BuildOptions{
-		PackageID: "vectis-api",
-		Version:   "v1.2.3",
-		Release:   "2",
-		Arch:      "arm64",
-		Inputs: map[string]string{
-			"linux-artifacts": artifactRoot,
-			"vectis-api":      "/tmp/vectis-api",
-		},
-	})
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if pkg.Name != "vectis-api" {
-		t.Fatalf("package name = %q", pkg.Name)
-	}
-
-	if !containsString(pkg.Depends, "vectis-common") {
-		t.Fatalf("vectis-api dependencies missing vectis-common: %v", pkg.Depends)
-	}
-
-	requireResolvedFile(t, pkg, "/usr/bin/vectis-api", "/tmp/vectis-api", 0o755)
-	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis-api.service", filepath.Join(artifactRoot, "systemd", "vectis-api.service"), 0o644)
-	requireResolvedFile(t, pkg, "/usr/share/doc/vectis-api/examples/vectis-api.env.example", filepath.Join(artifactRoot, "env", "vectis-api.env.example"), 0o644)
 }
 
 func TestLoadManifestIncludesVectisServicesMetapackage(t *testing.T) {
@@ -222,7 +227,7 @@ func TestLoadManifestIncludesVectisServicesMetapackage(t *testing.T) {
 		t.Fatalf("vectis-services should be metadata-only, got files: %+v", pkg.Files)
 	}
 
-	for _, depend := range []string{"vectis-common", "vectis-api", "vectis-artifact", "vectis-orchestrator", "vectis-worker", "vectis-worker-core", "vectis-secrets", "vectis-spiffe"} {
+	for _, depend := range []string{"vectis-common", "vectis-api", "vectis-artifact", "vectis-orchestrator", "vectis-scm-gerrit-stream", "vectis-scm-poller", "vectis-worker", "vectis-worker-core", "vectis-secrets", "vectis-spiffe"} {
 		if !containsString(pkg.Depends, depend) {
 			t.Fatalf("vectis-services dependencies missing %s: %v", depend, pkg.Depends)
 		}

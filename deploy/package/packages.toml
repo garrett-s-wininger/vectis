@@ -225,6 +225,13 @@ service = "scm-poller"
 depends = ["vectis-common"]
 
 [[package]]
+id = "vectis-scm-gerrit-stream"
+name = "vectis-scm-gerrit-stream"
+summary = "Vectis Gerrit SCM stream bridge service"
+service = "scm-gerrit-stream"
+depends = ["vectis-common"]
+
+[[package]]
 id = "vectis-secrets"
 name = "vectis-secrets"
 summary = "Vectis secrets service"
@@ -275,6 +282,7 @@ depends = [
   "vectis-queue",
   "vectis-reconciler",
   "vectis-registry",
+  "vectis-scm-gerrit-stream",
   "vectis-scm-poller",
   "vectis-secrets",
   "vectis-spiffe",
