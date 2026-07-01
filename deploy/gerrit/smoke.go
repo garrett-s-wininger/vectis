@@ -26,6 +26,8 @@ import (
 	"vectis/internal/action/builtins"
 	"vectis/internal/action/custom"
 	"vectis/internal/interfaces"
+	jobexec "vectis/internal/job"
+	"vectis/internal/secrets"
 	sdkscm "vectis/sdk/scm"
 )
 
@@ -68,6 +70,8 @@ type SmokeResult struct {
 	CheckoutVerified    bool   `json:"checkout_verified"`
 	ReviewPosted        bool   `json:"review_posted"`
 	WrongPasswordDenied bool   `json:"wrong_password_denied"`
+	JobExecuted         bool   `json:"job_executed"`
+	JobReviewPosted     bool   `json:"job_review_posted"`
 }
 
 type smokeRunner struct {
@@ -343,6 +347,15 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		return SmokeResult{}, err
 	}
 
+	jobMessage := r.opts.Message + " via Vectis job"
+	if err := r.executeReviewJob(ctx, workspaceRoot, change, revision, fetchRef, password, jobMessage); err != nil {
+		return SmokeResult{}, err
+	}
+
+	if err := r.verifyReviewMessage(ctx, password, change, jobMessage); err != nil {
+		return SmokeResult{}, err
+	}
+
 	return SmokeResult{
 		Status:              "ok",
 		URL:                 r.opts.URL,
@@ -356,6 +369,8 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		CheckoutVerified:    true,
 		ReviewPosted:        true,
 		WrongPasswordDenied: true,
+		JobExecuted:         true,
+		JobReviewPosted:     true,
 	}, nil
 }
 
@@ -577,18 +592,127 @@ func (r smokeRunner) postReview(ctx context.Context, workspace, change, revision
 	return nil
 }
 
-func gerritReviewDescriptor() (actionregistry.Descriptor, error) {
-	root, err := findRepoRoot()
-	if err != nil {
-		return actionregistry.Descriptor{}, err
+func (r smokeRunner) executeReviewJob(ctx context.Context, workspaceRoot, change, revision, fetchRef, password, message string) error {
+	workspace := filepath.Join(workspaceRoot, "job")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		return fmt.Errorf("create gerrit job workspace: %w", err)
 	}
 
-	source, err := actionregistry.NewLocalManifestSource(filepath.Join(root, "extensions", "actions"))
+	actionResolver, err := gerritActionResolver()
+	if err != nil {
+		return err
+	}
+
+	jobID := "gerrit-smoke-review-job"
+	runID := fmt.Sprintf("gerrit-smoke-review-job-%d", time.Now().UTC().UnixNano())
+	testJob := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   strPtr("root"),
+			Uses: strPtr("builtins/sequence"),
+			Steps: []*api.Node{
+				{
+					Id:   strPtr("checkout"),
+					Uses: strPtr("builtins/checkout"),
+					With: map[string]string{
+						"url": r.opts.URL + "/" + r.opts.Project,
+						"ref": fetchRef,
+					},
+				},
+				{
+					Id:   strPtr("review"),
+					Uses: strPtr("gerrit/review@v1"),
+					With: map[string]string{
+						"url":           r.opts.URL,
+						"change":        change,
+						"revision":      revision,
+						"message":       message,
+						"label":         r.opts.Label,
+						"value":         r.opts.Value,
+						"username":      r.opts.Username,
+						"password_file": ".vectis/secrets/gerrit/http-password",
+					},
+				},
+			},
+		},
+	}
+
+	logClient := &smokeLogClient{}
+	executor := jobexec.NewExecutor()
+	err = executor.ExecuteJobInWorkspaceWithOptions(ctx, testJob, logClient, interfaces.NewLogger("gerrit-smoke-job"), workspace, jobexec.ExecuteOptions{
+		ActionResolver: actionResolver,
+		SecretFiles: []secrets.FileMaterial{{
+			ID:   "gerrit-http-password",
+			Path: "gerrit/http-password",
+			Data: []byte(password),
+			Mode: 0o600,
+		}},
+	})
+
+	if err != nil {
+		return fmt.Errorf("execute gerrit review job: %w: logs=%s", err, logClient.String())
+	}
+
+	if !logClient.Contains("Gerrit review posted successfully") {
+		return fmt.Errorf("gerrit review job logs did not confirm review post: logs=%s", logClient.String())
+	}
+
+	return nil
+}
+
+func (r smokeRunner) verifyReviewMessage(ctx context.Context, password, change, message string) error {
+	endpoint := r.opts.URL + "/a/changes/" + url.PathEscape(change) + "/messages"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(r.opts.Username, password)
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("list gerrit change messages: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var messages []struct {
+		Message string `json:"message"`
+	}
+
+	if err := gerritaction.DecodeJSON(resp, &messages); err != nil {
+		return fmt.Errorf("list gerrit change messages: %w", err)
+	}
+
+	for _, msg := range messages {
+		if strings.Contains(msg.Message, message) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("gerrit review message %q was not found", message)
+}
+
+func gerritReviewDescriptor() (actionregistry.Descriptor, error) {
+	source, err := gerritActionResolver()
 	if err != nil {
 		return actionregistry.Descriptor{}, err
 	}
 
 	return source.ResolveDescriptor("gerrit/review@v1")
+}
+
+func gerritActionResolver() (actionregistry.Resolver, error) {
+	root, err := findRepoRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	source, err := actionregistry.NewLocalManifestSource(filepath.Join(root, "extensions", "actions"))
+	if err != nil {
+		return nil, err
+	}
+
+	return source, nil
 }
 
 func findRepoRoot() (string, error) {
@@ -637,6 +761,59 @@ func (s *captureLogStream) String() string {
 	defer s.mu.Unlock()
 	return strings.Join(s.chunks, "")
 }
+
+type smokeLogClient struct {
+	mu     sync.Mutex
+	chunks []string
+}
+
+func (c *smokeLogClient) StreamLogs(context.Context) (interfaces.LogStream, error) {
+	return &smokeLogStream{client: c}, nil
+}
+
+func (c *smokeLogClient) Close() error { return nil }
+
+func (c *smokeLogClient) add(chunk *api.LogChunk) {
+	if chunk == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.chunks = append(c.chunks, string(chunk.GetData()))
+}
+
+func (c *smokeLogClient) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return strings.Join(c.chunks, "")
+}
+
+func (c *smokeLogClient) Contains(value string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, chunk := range c.chunks {
+		if strings.Contains(chunk, value) {
+			return true
+		}
+	}
+
+	return false
+}
+
+type smokeLogStream struct {
+	client *smokeLogClient
+}
+
+func (s *smokeLogStream) Send(chunk *api.LogChunk) error {
+	if s != nil && s.client != nil {
+		s.client.add(chunk)
+	}
+
+	return nil
+}
+
+func (s *smokeLogStream) CloseSend() error { return nil }
 
 func (r smokeRunner) runGit(ctx context.Context, dir string, gitOpts, args []string, operation string) error {
 	fullArgs := append([]string{}, gitOpts...)
@@ -690,4 +867,8 @@ func sanitizeGerritOutput(value string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func strPtr(value string) *string {
+	return &value
 }

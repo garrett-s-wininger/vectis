@@ -49,8 +49,10 @@ creates a project, pushes a real review change, polls Gerrit's REST query API
 until the open change is discoverable, verifies that `extensions/scm/gerrit`
 emits an SCM event for the change's current revision, checks out the discovered
 Gerrit change ref with `builtins/checkout`, posts a `gerrit/review@v1` message
-and label vote through the action-extension process runtime, and verifies that a
-wrong password is rejected.
+and label vote through the action-extension process runtime, verifies that a
+wrong password is rejected, then runs a small Vectis job definition through the
+job executor to check out the review and post another `gerrit/review@v1`
+message using the normal workspace secret-file materialization path.
 
 Useful knobs:
 
