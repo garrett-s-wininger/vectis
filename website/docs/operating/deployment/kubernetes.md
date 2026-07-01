@@ -90,13 +90,13 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repa
 ```
 
 The first manifest is a single-cell deployment. It includes Postgres, registry,
-queue, orchestrator, log, artifact, secrets, API, docs, cron, reconciler,
-catalog, and a worker pod that runs `vectis-worker` beside
-`vectis-worker-core` over a shared Unix socket and shared log spool. The worker
-pod also runs a local `vectis-spiffe` sidecar so secret resolution uses
-per-execution SVIDs over internal gRPC mTLS. The worker registers its pod IP and
-worker-control port with the registry so the API can issue fast cancel requests
-inside the cluster.
+queue, orchestrator, log, artifact, secrets, API, docs, cron, SCM poller, a
+disabled-by-default Gerrit stream bridge, reconciler, catalog, and a worker pod
+that runs `vectis-worker` beside `vectis-worker-core` over a shared Unix socket
+and shared log spool. The worker pod also runs a local `vectis-spiffe` sidecar
+so secret resolution uses per-execution SVIDs over internal gRPC mTLS. The
+worker registers its pod IP and worker-control port with the registry so the API
+can issue fast cancel requests inside the cluster.
 
 ## Current Scope
 
@@ -121,6 +121,9 @@ claim production security posture yet:
 - the repair smoke creates pod-loss orphaned runs and then verifies explicit
   operator repair through `force-requeue` to a second successful attempt and
   `repair/mark-abandoned` to a terminal abandoned state;
+- `vectis-scm-gerrit-stream` is rendered at `replicas: 0`; set
+  `VECTIS_SCM_GERRIT_STREAM_*`, replace the `vectis-gerrit-stream-ssh` Secret,
+  and scale the Deployment when using Gerrit `stream-events`;
 - `vectis-cell-ingress` is not exposed yet;
 - default Secret values are placeholders and must be overridden before shared use.
 

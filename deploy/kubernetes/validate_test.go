@@ -112,6 +112,10 @@ func TestRunValidateAppliesWaitsAndRunsSmoke(t *testing.T) {
 		t.Fatalf("workloads mismatch\ngot:  %+v\nwant: %+v", result.Workloads, workloads)
 	}
 
+	if !validateWorkloadsContain(result.Workloads, ValidateWorkload{Kind: "deployment", Name: "vectis-scm-gerrit-stream"}) {
+		t.Fatalf("default validation workloads should include the Gerrit stream bridge: %+v", result.Workloads)
+	}
+
 	getPods := calls[len(calls)-2]
 	if getPods.scope != validateKubectlNamespaced || !reflect.DeepEqual(getPods.args, []string{"get", "pods", "-o", "wide"}) {
 		t.Fatalf("unexpected get pods call: %+v", getPods)
@@ -138,6 +142,16 @@ func TestRunValidateAppliesWaitsAndRunsSmoke(t *testing.T) {
 	if smokeOpts.APILocalPort != 19090 || smokeOpts.APIToken != "token-test" || smokeOpts.SeedSecret == nil || *smokeOpts.SeedSecret {
 		t.Fatalf("smoke-specific options were not preserved: %+v", smokeOpts)
 	}
+}
+
+func validateWorkloadsContain(workloads []ValidateWorkload, want ValidateWorkload) bool {
+	for _, workload := range workloads {
+		if workload == want {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestRunValidateCanSkipSmoke(t *testing.T) {

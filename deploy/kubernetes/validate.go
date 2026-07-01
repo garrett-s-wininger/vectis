@@ -33,6 +33,7 @@ var (
 		"vectis-docs",
 		"vectis-cron",
 		"vectis-scm-poller",
+		"vectis-scm-gerrit-stream",
 		"vectis-reconciler",
 		"vectis-catalog",
 		"vectis-worker",

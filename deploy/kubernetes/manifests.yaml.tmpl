@@ -30,6 +30,13 @@ data:
   VECTIS_ACTION_REGISTRY_LOCAL_ROOTS: /app/examples/actions
   VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED: "true"
   VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN: vectis.internal
+  VECTIS_SCM_GERRIT_STREAM_URL: ""
+  VECTIS_SCM_GERRIT_STREAM_TRANSPORT: ssh
+  VECTIS_SCM_GERRIT_STREAM_SSH_HOST: ""
+  VECTIS_SCM_GERRIT_STREAM_SSH_PORT: "29418"
+  VECTIS_SCM_GERRIT_STREAM_SSH_USER: ""
+  VECTIS_SCM_GERRIT_STREAM_SSH_KEY_FILE: /run/vectis/gerrit-stream/id_rsa
+  VECTIS_SCM_GERRIT_STREAM_SSH_KNOWN_HOSTS_FILE: /run/vectis/gerrit-stream/known_hosts
   VECTIS_API_ALLOWED_HOSTS: "localhost,127.0.0.1,vectis-api,vectis-api.{{ .Namespace }}.svc,vectis-api.{{ .Namespace }}.svc.cluster.local"
   VECTIS_DOCS_ALLOWED_HOSTS: "localhost,127.0.0.1,vectis-docs,vectis-docs.{{ .Namespace }}.svc,vectis-docs.{{ .Namespace }}.svc.cluster.local"
 ---
@@ -64,6 +71,19 @@ stringData:
   client-ca-bundle.pem: {{ yamlQuote .GRPCClientCABundle }}
   spiffe-ca.pem: {{ yamlQuote .SPIFFECA }}
   spiffe-ca-key.pem: {{ yamlQuote .SPIFFECAKey }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vectis-gerrit-stream-ssh
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: scm-gerrit-stream
+type: Opaque
+stringData:
+  id_rsa: ""
+  known_hosts: ""
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -1048,6 +1068,80 @@ spec:
         - name: grpc-tls
           secret:
             secretName: vectis-grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-scm-gerrit-stream
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: scm-gerrit-stream
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: scm-gerrit-stream
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: scm-gerrit-stream
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: scm-gerrit-stream
+          image: {{ image "scm-gerrit-stream" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_SCM_GERRIT_STREAM_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+            - name: gerrit-stream-ssh
+              mountPath: /run/vectis/gerrit-stream
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+        - name: gerrit-stream-ssh
+          secret:
+            secretName: vectis-gerrit-stream-ssh
+            defaultMode: 0400
 ---
 apiVersion: apps/v1
 kind: Deployment
