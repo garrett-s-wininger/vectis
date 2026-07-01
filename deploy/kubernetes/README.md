@@ -39,6 +39,7 @@ make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
+make k8s-kind-run-gerrit-stream-smoke
 ```
 
 Or run the full local lifecycle, image-load step, and smoke matrix:
@@ -84,6 +85,18 @@ The local contract is:
 | `K8S_REPAIR_SMOKE_JOB` | `examples/e2e-kubernetes-repair.json` | Dynamic-cutoff job submitted by the explicit orphan repair smoke harness. |
 | `K8S_REPAIR_LEASE_TTL` | `30s` | Temporary `VECTIS_WORKER_EXECUTION_LEASE_TTL` used by the repair smoke. |
 | `K8S_REPAIR_READY_AFTER` | `75s` | Delay after repair job submission before force-requeue should take the success path. |
+| `K8S_GERRIT_API_LOCAL_PORT` | `18086` | Local port used by the Gerrit stream smoke API port-forward. |
+| `K8S_GERRIT_HTTP_LOCAL_PORT` | `18087` | Local port used by the Gerrit HTTP port-forward. |
+| `K8S_GERRIT_SSH_LOCAL_PORT` | `29419` | Local port used by the Gerrit SSH port-forward. |
+| `K8S_GERRIT_IMAGE` | `docker.io/gerritcodereview/gerrit:3.14.1-ubuntu24` | Gerrit image applied inside the namespace by the optional stream smoke. |
+| `K8S_GERRIT_CLUSTER_URL` | `http://vectis-gerrit:8080` | In-cluster Gerrit base URL stored on the SCM trigger and stream bridge. |
+| `K8S_GERRIT_SSH_HOST` | `vectis-gerrit` | In-cluster Gerrit SSH host used by `vectis-scm-gerrit-stream`. |
+| `K8S_GERRIT_SSH_PORT` | `29418` | In-cluster Gerrit SSH port used by `vectis-scm-gerrit-stream`. |
+| `K8S_GERRIT_ACCOUNT_ID` | `1000000` | Development auth account id used to bootstrap Gerrit credentials. |
+| `K8S_GERRIT_USERNAME` | `admin` | Gerrit username used by the stream smoke. |
+| `K8S_GERRIT_PROJECT` | unset | Optional Gerrit project; generated from `K8S_GERRIT_PROJECT_PREFIX` when empty. |
+| `K8S_GERRIT_PROJECT_PREFIX` | `vectis-k8s-gerrit-stream` | Prefix for generated Gerrit projects. |
+| `K8S_GERRIT_GIT` | `git` | Git executable used by the smoke harness to push the Gerrit change. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -182,6 +195,18 @@ succeed. Then it creates another orphaned run and verifies
 `POST /api/v1/runs/{id}/repair/mark-abandoned` moves it to `abandoned` without
 creating another task attempt.
 
+`make k8s-kind-run-gerrit-stream-smoke` is optional and intentionally kept out
+of `K8S_KIND_VALIDATE_STEPS` because it starts a Gerrit fixture image inside the
+namespace. It applies `deployment/vectis-gerrit`, port-forwards Gerrit HTTP and
+SSH for setup, creates a stored job with a Gerrit `scm_poll` trigger through the
+Vectis API, writes a temporary SSH key into `vectis-gerrit-stream-ssh`, scales
+`deployment/vectis-scm-poller` down to zero to isolate the source under test,
+scales `deployment/vectis-scm-gerrit-stream` from zero to one replica, pushes a
+real Gerrit change, and verifies the resulting run succeeds with SCM trigger
+audit metadata sourced from the stream bridge. The harness requires the stream
+bridge Deployment to be scaled to zero before it starts so it does not overwrite
+a running bridge.
+
 The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
@@ -191,6 +216,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --canc
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scale-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
 ```
 
 Build local component images before loading or pushing them to a cluster:

@@ -39,6 +39,16 @@ const (
 	DefaultSmokeWorkerCoreTaskImage  = "localhost/vectis-worker:dev-local"
 	DefaultSmokeSeedSecret           = true
 	DefaultSmokeAPIPort              = 18080
+	DefaultSmokeGerritImage          = "docker.io/gerritcodereview/gerrit:3.14.1-ubuntu24"
+	DefaultSmokeGerritHTTPPort       = 18086
+	DefaultSmokeGerritSSHLocalPort   = 29419
+	DefaultSmokeGerritClusterURL     = "http://vectis-gerrit:8080"
+	DefaultSmokeGerritSSHHost        = "vectis-gerrit"
+	DefaultSmokeGerritSSHPort        = 29418
+	DefaultSmokeGerritAccountID      = "1000000"
+	DefaultSmokeGerritUsername       = "admin"
+	DefaultSmokeGerritProjectPrefix  = "vectis-k8s-gerrit-stream"
+	DefaultSmokeGerritGitBin         = "git"
 	DefaultSmokeWait                 = 180 * time.Second
 	smokeAPIServiceName              = "service/vectis-api"
 	smokeAPIRemotePort               = 8080
@@ -73,6 +83,7 @@ type SmokeOptions struct {
 	ScaleOnly           bool
 	OrphanOnly          bool
 	RepairOnly          bool
+	GerritStreamOnly    bool
 	ScaleWorkerReplicas int
 	ScaleMinWorkers     int
 	OrphanLeaseTTL      time.Duration
@@ -82,6 +93,17 @@ type SmokeOptions struct {
 	CLIImage            string
 	WorkerCoreImage     string
 	WorkerCoreTaskImage string
+	GerritImage         string
+	GerritHTTPPort      int
+	GerritSSHLocalPort  int
+	GerritClusterURL    string
+	GerritSSHHost       string
+	GerritSSHPort       int
+	GerritAccountID     string
+	GerritUsername      string
+	GerritProject       string
+	GerritProjectPrefix string
+	GerritGitBin        string
 	SeedSecret          *bool
 	APILocalPort        int
 	Wait                time.Duration
@@ -90,18 +112,21 @@ type SmokeOptions struct {
 }
 
 type SmokeResult struct {
-	Status       string               `json:"status"`
-	Context      string               `json:"context,omitempty"`
-	Namespace    string               `json:"namespace"`
-	JobPath      string               `json:"job_path"`
-	JobID        string               `json:"job_id,omitempty"`
-	RunID        string               `json:"run_id"`
-	RunStatus    string               `json:"run_status"`
-	TaskJob      string               `json:"task_job,omitempty"`
-	WorkerOwners []string             `json:"worker_owners,omitempty"`
-	DeletedPod   string               `json:"deleted_pod,omitempty"`
-	RepairChecks []SmokeRepairCheck   `json:"repair_checks,omitempty"`
-	Artifacts    []SmokeArtifactCheck `json:"artifacts"`
+	Status                string               `json:"status"`
+	Context               string               `json:"context,omitempty"`
+	Namespace             string               `json:"namespace"`
+	JobPath               string               `json:"job_path"`
+	JobID                 string               `json:"job_id,omitempty"`
+	RunID                 string               `json:"run_id"`
+	RunStatus             string               `json:"run_status"`
+	TaskJob               string               `json:"task_job,omitempty"`
+	WorkerOwners          []string             `json:"worker_owners,omitempty"`
+	DeletedPod            string               `json:"deleted_pod,omitempty"`
+	RepairChecks          []SmokeRepairCheck   `json:"repair_checks,omitempty"`
+	GerritProject         string               `json:"gerrit_project,omitempty"`
+	GerritChange          string               `json:"gerrit_change,omitempty"`
+	TriggerSourceInstance string               `json:"trigger_source_instance,omitempty"`
+	Artifacts             []SmokeArtifactCheck `json:"artifacts"`
 }
 
 type SmokeArtifactCheck struct {
@@ -125,8 +150,24 @@ type smokeJobRunResult struct {
 }
 
 type smokeRunDetail struct {
-	RunID  string `json:"run_id"`
-	Status string `json:"status"`
+	RunID                 string               `json:"run_id"`
+	RunIndex              int                  `json:"run_index,omitempty"`
+	Status                string               `json:"status"`
+	TriggerInvocationID   *string              `json:"trigger_invocation_id,omitempty"`
+	TriggerID             *int64               `json:"trigger_id,omitempty"`
+	TriggerKey            *string              `json:"trigger_key,omitempty"`
+	TriggerName           *string              `json:"trigger_name,omitempty"`
+	TriggerType           *string              `json:"trigger_type,omitempty"`
+	TriggerSourceInstance *string              `json:"trigger_source_instance,omitempty"`
+	TriggerPayloadHash    *string              `json:"trigger_payload_hash,omitempty"`
+	DispatchEvents        []smokeDispatchEvent `json:"dispatch_events,omitempty"`
+}
+
+type smokeDispatchEvent struct {
+	Source         string `json:"source"`
+	SourceInstance string `json:"source_instance,omitempty"`
+	EventType      string `json:"event_type"`
+	CreatedAt      int64  `json:"created_at,omitempty"`
 }
 
 type smokeLogEntry struct {
@@ -237,6 +278,9 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	}
 	if opts.RepairOnly {
 		return runRepairSmoke(ctx, opts)
+	}
+	if opts.GerritStreamOnly {
+		return runGerritStreamSmoke(ctx, opts)
 	}
 
 	if err := validateSmokeOptions(opts); err != nil {
@@ -1007,6 +1051,54 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 		opts.WorkerCoreTaskImage = DefaultSmokeWorkerCoreTaskImage
 	}
 
+	opts.GerritImage = strings.TrimSpace(opts.GerritImage)
+	if opts.GerritImage == "" {
+		opts.GerritImage = DefaultSmokeGerritImage
+	}
+
+	if opts.GerritHTTPPort == 0 {
+		opts.GerritHTTPPort = DefaultSmokeGerritHTTPPort
+	}
+
+	if opts.GerritSSHLocalPort == 0 {
+		opts.GerritSSHLocalPort = DefaultSmokeGerritSSHLocalPort
+	}
+
+	opts.GerritClusterURL = strings.TrimRight(strings.TrimSpace(opts.GerritClusterURL), "/")
+	if opts.GerritClusterURL == "" {
+		opts.GerritClusterURL = DefaultSmokeGerritClusterURL
+	}
+
+	opts.GerritSSHHost = strings.TrimSpace(opts.GerritSSHHost)
+	if opts.GerritSSHHost == "" {
+		opts.GerritSSHHost = DefaultSmokeGerritSSHHost
+	}
+
+	if opts.GerritSSHPort == 0 {
+		opts.GerritSSHPort = DefaultSmokeGerritSSHPort
+	}
+
+	opts.GerritAccountID = strings.TrimSpace(opts.GerritAccountID)
+	if opts.GerritAccountID == "" {
+		opts.GerritAccountID = DefaultSmokeGerritAccountID
+	}
+
+	opts.GerritUsername = strings.TrimSpace(opts.GerritUsername)
+	if opts.GerritUsername == "" {
+		opts.GerritUsername = DefaultSmokeGerritUsername
+	}
+
+	opts.GerritProject = strings.Trim(strings.TrimSpace(opts.GerritProject), "/")
+	opts.GerritProjectPrefix = strings.Trim(strings.TrimSpace(opts.GerritProjectPrefix), "/")
+	if opts.GerritProjectPrefix == "" {
+		opts.GerritProjectPrefix = DefaultSmokeGerritProjectPrefix
+	}
+
+	opts.GerritGitBin = strings.TrimSpace(opts.GerritGitBin)
+	if opts.GerritGitBin == "" {
+		opts.GerritGitBin = DefaultSmokeGerritGitBin
+	}
+
 	if opts.SeedSecret == nil {
 		seedSecret := DefaultSmokeSeedSecret
 		opts.SeedSecret = &seedSecret
@@ -1658,19 +1750,32 @@ func runSmokeKubectl(ctx context.Context, opts SmokeOptions, stdin io.Reader, ar
 }
 
 func startSmokeAPIPortForward(ctx context.Context, opts SmokeOptions) (*smokePortForward, error) {
+	return startSmokePortForward(ctx, opts, smokeAPIServiceName, []smokePortMapping{{
+		LocalPort:  opts.APILocalPort,
+		RemotePort: smokeAPIRemotePort,
+	}}, "API")
+}
+
+type smokePortMapping struct {
+	LocalPort  int
+	RemotePort int
+}
+
+func startSmokePortForward(ctx context.Context, opts SmokeOptions, target string, mappings []smokePortMapping, label string) (*smokePortForward, error) {
 	pfCtx, cancel := context.WithCancel(ctx)
 	args := []string{}
 	if opts.Context != "" {
 		args = append(args, "--context", opts.Context)
 	}
 
-	args = append(args,
-		"-n", opts.Namespace,
-		"port-forward",
-		"--address", "127.0.0.1",
-		smokeAPIServiceName,
-		fmt.Sprintf("%d:%d", opts.APILocalPort, smokeAPIRemotePort),
-	)
+	args = append(args, "-n", opts.Namespace, "port-forward", "--address", "127.0.0.1", target)
+	for _, mapping := range mappings {
+		args = append(args, fmt.Sprintf("%d:%d", mapping.LocalPort, mapping.RemotePort))
+	}
+
+	if strings.TrimSpace(label) == "" {
+		label = target
+	}
 
 	cmd := exec.CommandContext(pfCtx, opts.Kubectl, args...) // #nosec G204 -- kubectl path and args are smoke-harness controlled.
 	stdout, err := cmd.StdoutPipe()
@@ -1716,24 +1821,32 @@ func startSmokeAPIPortForward(ctx context.Context, opts SmokeOptions) (*smokePor
 
 	readyCtx, readyCancel := context.WithTimeout(ctx, opts.Wait)
 	defer readyCancel()
+	readyLines := 0
+	readyTarget := len(mappings)
+	if readyTarget == 0 {
+		readyTarget = 1
+	}
 
 	for {
 		select {
 		case line := <-lines:
 			fmt.Fprintln(opts.Stdout, line)
 			if strings.Contains(line, "Forwarding from") {
-				return &smokePortForward{cancel: cancel, done: done}, nil
+				readyLines++
+				if readyLines >= readyTarget {
+					return &smokePortForward{cancel: cancel, done: done}, nil
+				}
 			}
 		case err := <-done:
 			cancel()
 			if err != nil {
-				return nil, fmt.Errorf("API port-forward failed: %w: %s", err, strings.TrimSpace(output.String()))
+				return nil, fmt.Errorf("%s port-forward failed: %w: %s", label, err, strings.TrimSpace(output.String()))
 			}
 
-			return nil, fmt.Errorf("API port-forward exited before becoming ready: %s", strings.TrimSpace(output.String()))
+			return nil, fmt.Errorf("%s port-forward exited before becoming ready: %s", label, strings.TrimSpace(output.String()))
 		case <-readyCtx.Done():
 			cancel()
-			return nil, fmt.Errorf("timed out waiting for API port-forward: %s", strings.TrimSpace(output.String()))
+			return nil, fmt.Errorf("timed out waiting for %s port-forward: %s", label, strings.TrimSpace(output.String()))
 		}
 	}
 }

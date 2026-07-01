@@ -19,7 +19,7 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 	ctx := context.Background()
 
 	jobID := "scm-trigger-dispatch"
-	definition := `{"id":"scm-trigger-dispatch","root":{"uses":"builtins/shell","with":{"command":"echo scm"}}}`
+	definition := `{"id":"scm-trigger-dispatch","root":{"uses":"builtins/shell","with":{"command":"echo scm"}},"triggers":[{"id":"gerrit_stream","scm_poll":{"provider":"gerrit","base_url":"http://gerrit.example.com","project":"project","branch":"master","query":"status:open","interval_seconds":60}}]}`
 	if err := repos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -68,6 +68,14 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 	runID := ingress.submissions[0].Envelope.RunID
 	if runID == "" {
 		t.Fatal("expected dispatched submission to include a run id")
+	}
+
+	if got := len(ingress.submissions[0].Request.GetJob().GetTriggers()); got != 0 {
+		t.Fatalf("execution request should not include stored triggers, got %d", got)
+	}
+
+	if got := len(ingress.submissions[0].Envelope.Job.GetTriggers()); got != 0 {
+		t.Fatalf("execution envelope should not include stored triggers, got %d", got)
 	}
 
 	var eventRunID sql.NullString

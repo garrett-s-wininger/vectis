@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -291,6 +292,46 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatalf("worker-core task image = %q", opts.WorkerCoreTaskImage)
 	}
 
+	if opts.GerritImage != DefaultSmokeGerritImage {
+		t.Fatalf("gerrit image = %q", opts.GerritImage)
+	}
+
+	if opts.GerritHTTPPort != DefaultSmokeGerritHTTPPort {
+		t.Fatalf("gerrit HTTP local port = %d", opts.GerritHTTPPort)
+	}
+
+	if opts.GerritSSHLocalPort != DefaultSmokeGerritSSHLocalPort {
+		t.Fatalf("gerrit SSH local port = %d", opts.GerritSSHLocalPort)
+	}
+
+	if opts.GerritClusterURL != DefaultSmokeGerritClusterURL {
+		t.Fatalf("gerrit cluster URL = %q", opts.GerritClusterURL)
+	}
+
+	if opts.GerritSSHHost != DefaultSmokeGerritSSHHost {
+		t.Fatalf("gerrit SSH host = %q", opts.GerritSSHHost)
+	}
+
+	if opts.GerritSSHPort != DefaultSmokeGerritSSHPort {
+		t.Fatalf("gerrit SSH port = %d", opts.GerritSSHPort)
+	}
+
+	if opts.GerritAccountID != DefaultSmokeGerritAccountID {
+		t.Fatalf("gerrit account id = %q", opts.GerritAccountID)
+	}
+
+	if opts.GerritUsername != DefaultSmokeGerritUsername {
+		t.Fatalf("gerrit username = %q", opts.GerritUsername)
+	}
+
+	if opts.GerritProjectPrefix != DefaultSmokeGerritProjectPrefix {
+		t.Fatalf("gerrit project prefix = %q", opts.GerritProjectPrefix)
+	}
+
+	if opts.GerritGitBin != DefaultSmokeGerritGitBin {
+		t.Fatalf("gerrit git executable = %q", opts.GerritGitBin)
+	}
+
 	if !smokeSeedSecretEnabled(opts) {
 		t.Fatal("secret seeding should be enabled by default")
 	}
@@ -338,8 +379,20 @@ func TestKubernetesValidationEntrypointContract(t *testing.T) {
 		`"scale-only"`,
 		`"orphan-only"`,
 		`"repair-only"`,
+		`"gerrit-stream-only"`,
 		`"worker-core-image"`,
 		`"worker-core-task-image"`,
+		`"gerrit-image"`,
+		`"gerrit-http-local-port"`,
+		`"gerrit-ssh-local-port"`,
+		`"gerrit-cluster-url"`,
+		`"gerrit-ssh-host"`,
+		`"gerrit-ssh-port"`,
+		`"gerrit-account-id"`,
+		`"gerrit-username"`,
+		`"gerrit-project"`,
+		`"gerrit-project-prefix"`,
+		`"gerrit-git"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke entrypoint missing %q", want)
@@ -358,6 +411,122 @@ func TestKubernetesContainerBuildContextIncludesWorkerCoreProtos(t *testing.T) {
 		if line == "api/proto/" || line == "api/proto" {
 			t.Fatalf(".containerignore must not exclude api/proto; container builds need worker_core.proto for the worker-core Kubernetes binary")
 		}
+	}
+
+	containerfile, err := os.ReadFile("../../build/Containerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(containerfile)
+	for _, stage := range []string{"scm-poller", "scm-gerrit-stream"} {
+		stageStart := strings.Index(text, "FROM scratch AS "+stage)
+		if stageStart < 0 {
+			t.Fatalf("Containerfile missing %s stage", stage)
+		}
+
+		stageText := text[stageStart:]
+		if nextStage := strings.Index(stageText[1:], "\nFROM "); nextStage >= 0 {
+			stageText = stageText[:nextStage+1]
+		}
+		if !strings.Contains(stageText, "COPY --from=builder /app/examples/actions /app/examples/actions") {
+			t.Fatalf("%s image must include /app/examples/actions for Kubernetes action registry defaults", stage)
+		}
+	}
+}
+
+func TestSmokeGerritFixtureManifestContract(t *testing.T) {
+	manifest := smokeGerritFixtureManifest("registry.example.com/gerrit:test")
+	for _, want := range []string{
+		"kind: Deployment",
+		"name: vectis-gerrit",
+		"image: \"registry.example.com/gerrit:test\"",
+		"name: CANONICAL_WEB_URL",
+		"value: \"http://vectis-gerrit:8080/\"",
+		"containerPort: 29418",
+		"kind: Service",
+		"targetPort: ssh",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q: %s", want, manifest)
+		}
+	}
+
+	for _, forbidden := range []string{
+		"mountPath: /var/gerrit",
+		"name: gerrit-site",
+	} {
+		if strings.Contains(manifest, forbidden) {
+			t.Fatalf("manifest must not shadow Gerrit image contents with %q: %s", forbidden, manifest)
+		}
+	}
+}
+
+func TestSmokeGerritStreamJobPayloadContract(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{GerritClusterURL: "http://vectis-gerrit:8080"})
+	payload, err := smokeGerritStreamJobPayload(opts, "kubernetes-gerrit-stream-test", "project/test", "echo kubernetes-gerrit-stream-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decoded struct {
+		Namespace string `json:"namespace"`
+		Job       struct {
+			ID   string `json:"id"`
+			Root struct {
+				Uses string            `json:"uses"`
+				With map[string]string `json:"with"`
+			} `json:"root"`
+			Triggers []struct {
+				ID      string `json:"id"`
+				SCMPoll struct {
+					Provider        string `json:"provider"`
+					BaseURL         string `json:"base_url"`
+					Project         string `json:"project"`
+					Branch          string `json:"branch"`
+					Query           string `json:"query"`
+					IntervalSeconds int    `json:"interval_seconds"`
+				} `json:"scm_poll"`
+			} `json:"triggers"`
+		} `json:"job"`
+	}
+
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+
+	if decoded.Namespace != "/" || decoded.Job.ID != "kubernetes-gerrit-stream-test" || decoded.Job.Root.Uses != "builtins/shell" {
+		t.Fatalf("unexpected job payload: %+v", decoded)
+	}
+
+	if got := decoded.Job.Root.With["command"]; got != "echo kubernetes-gerrit-stream-ok" {
+		t.Fatalf("command = %q", got)
+	}
+
+	if len(decoded.Job.Triggers) != 1 {
+		t.Fatalf("triggers = %d, want 1", len(decoded.Job.Triggers))
+	}
+
+	trigger := decoded.Job.Triggers[0]
+	if trigger.ID != smokeGerritStreamTriggerID || trigger.SCMPoll.Provider != "gerrit" ||
+		trigger.SCMPoll.BaseURL != "http://vectis-gerrit:8080" ||
+		trigger.SCMPoll.Project != "project/test" ||
+		trigger.SCMPoll.Branch != smokeGerritStreamBranch ||
+		trigger.SCMPoll.Query != smokeGerritStreamQuery ||
+		trigger.SCMPoll.IntervalSeconds != smokeGerritStreamPollInterval {
+		t.Fatalf("unexpected trigger payload: %+v", trigger)
+	}
+}
+
+func TestValidateGerritStreamSmokeOptions(t *testing.T) {
+	if err := validateGerritStreamSmokeOptions(normalizeSmokeOptions(SmokeOptions{})); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := normalizeSmokeOptions(SmokeOptions{})
+	opts.GerritClusterURL = "not a url"
+	if err := validateGerritStreamSmokeOptions(opts); err == nil {
+		t.Fatal("expected invalid cluster URL to fail")
 	}
 }
 

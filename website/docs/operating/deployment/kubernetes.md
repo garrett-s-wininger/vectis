@@ -29,6 +29,7 @@ make k8s-kind-run-cancel-smoke
 make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
+make k8s-kind-run-gerrit-stream-smoke
 ```
 
 The generic `k8s-*` aliases dispatch through `K8S_PROVIDER`, which defaults to
@@ -87,6 +88,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --canc
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scale-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
 ```
 
 The first manifest is a single-cell deployment. It includes Postgres, registry,
@@ -124,6 +126,11 @@ claim production security posture yet:
 - `vectis-scm-gerrit-stream` is rendered at `replicas: 0`; set
   `VECTIS_SCM_GERRIT_STREAM_*`, replace the `vectis-gerrit-stream-ssh` Secret,
   and scale the Deployment when using Gerrit `stream-events`;
+- the optional Gerrit stream smoke starts a Gerrit fixture in-cluster, creates a
+  stored Gerrit `scm_poll` job through the API, temporarily scales the SCM
+  poller to zero to isolate the source under test, scales the stream bridge from
+  zero to one replica, pushes a real change, and verifies the triggered run and
+  audit metadata;
 - `vectis-cell-ingress` is not exposed yet;
 - default Secret values are placeholders and must be overridden before shared use.
 
@@ -144,7 +151,9 @@ Use these render flags when preparing a cluster-specific manifest:
 
 The Kubernetes deployment lane now validates the core workload path,
 worker-control cancellation, scaled worker fanout, pod-loss orphan safety, and
-explicit orphan repair.
+explicit orphan repair. The optional Gerrit stream smoke validates the deployed
+Gerrit `stream-events` trigger path when the cluster can pull or has loaded the
+configured Gerrit image.
 The next useful checks are:
 
 1. Expose cell ingress once the mTLS edge contract is ready.

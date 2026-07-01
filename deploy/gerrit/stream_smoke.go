@@ -66,6 +66,19 @@ type StreamSmokeResult struct {
 	StreamPollerDedupe bool   `json:"stream_poller_dedupe"`
 }
 
+type StreamSmokeFixture struct {
+	URL           string
+	Username      string
+	Project       string
+	ChangeID      string
+	PrivateKeyPEM string
+
+	password      string
+	hostKey       ssh.PublicKey
+	workspaceRoot string
+	runner        smokeRunner
+}
+
 func RunStreamSmoke(ctx context.Context, opts StreamSmokeOptions) (StreamSmokeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -103,6 +116,132 @@ func RunStreamSmoke(ctx context.Context, opts StreamSmokeOptions) (StreamSmokeRe
 	}
 
 	return runner.runStreamSmoke(ctx, opts)
+}
+
+func PrepareStreamSmokeFixture(ctx context.Context, opts StreamSmokeOptions) (*StreamSmokeFixture, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	opts = normalizeStreamSmokeOptions(opts)
+	if err := validateStreamSmokeOptions(opts); err != nil {
+		return nil, err
+	}
+
+	runner := smokeRunner{
+		opts: SmokeOptions{
+			URL:           opts.URL,
+			AccountID:     opts.AccountID,
+			Username:      opts.Username,
+			Project:       opts.Project,
+			ProjectPrefix: opts.ProjectPrefix,
+			Timeout:       opts.Timeout,
+			GitBin:        opts.GitBin,
+			Stdout:        opts.Stdout,
+		},
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
+
+	if err := runner.waitForGerrit(ctx); err != nil {
+		return nil, err
+	}
+
+	accessToken, err := runner.loginDevelopmentAccount(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	password, err := runner.generateHTTPPassword(ctx, accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := runner.createProject(ctx, password); err != nil {
+		return nil, err
+	}
+
+	changeID, err := randomChangeID()
+	if err != nil {
+		return nil, err
+	}
+
+	workspaceRoot, err := os.MkdirTemp("", "vectis-gerrit-stream-fixture-*")
+	if err != nil {
+		return nil, fmt.Errorf("create gerrit stream fixture workspace: %w", err)
+	}
+
+	keyFile, signer, err := writeStreamSmokeSSHKey(workspaceRoot)
+	if err != nil {
+		_ = os.RemoveAll(workspaceRoot)
+		return nil, err
+	}
+
+	keyPEM, err := os.ReadFile(keyFile)
+	if err != nil {
+		_ = os.RemoveAll(workspaceRoot)
+		return nil, fmt.Errorf("read stream smoke SSH key: %w", err)
+	}
+
+	if err := runner.addSSHKey(ctx, password, signer.PublicKey()); err != nil {
+		_ = os.RemoveAll(workspaceRoot)
+		return nil, err
+	}
+
+	hostKey, err := runner.waitForSSHKeyAuth(ctx, opts, signer)
+	if err != nil {
+		_ = os.RemoveAll(workspaceRoot)
+		return nil, err
+	}
+
+	return &StreamSmokeFixture{
+		URL:           opts.URL,
+		Username:      opts.Username,
+		Project:       opts.Project,
+		ChangeID:      changeID,
+		PrivateKeyPEM: string(keyPEM),
+		password:      password,
+		hostKey:       hostKey,
+		workspaceRoot: workspaceRoot,
+		runner:        runner,
+	}, nil
+}
+
+func (f *StreamSmokeFixture) Close() error {
+	if f == nil || strings.TrimSpace(f.workspaceRoot) == "" {
+		return nil
+	}
+
+	return os.RemoveAll(f.workspaceRoot)
+}
+
+func (f *StreamSmokeFixture) KnownHostsLine(host string, port int) (string, error) {
+	if f == nil || f.hostKey == nil {
+		return "", fmt.Errorf("gerrit stream fixture host key is not available")
+	}
+
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", fmt.Errorf("known_hosts host is required")
+	}
+
+	if port <= 0 {
+		return "", fmt.Errorf("known_hosts port must be > 0")
+	}
+
+	return knownhosts.Line([]string{net.JoinHostPort(host, strconv.Itoa(port))}, f.hostKey), nil
+}
+
+func (f *StreamSmokeFixture) PushChange(ctx context.Context) error {
+	if f == nil {
+		return fmt.Errorf("gerrit stream fixture is required")
+	}
+
+	return f.runner.pushChange(ctx, f.workspaceRoot, f.password, f.ChangeID)
 }
 
 func normalizeStreamSmokeOptions(opts StreamSmokeOptions) StreamSmokeOptions {

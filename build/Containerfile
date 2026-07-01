@@ -116,12 +116,14 @@ FROM scratch AS scm-poller
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-scm-poller /usr/local/bin/vectis-scm-poller
+COPY --from=builder /app/examples/actions /app/examples/actions
 ENTRYPOINT ["/usr/local/bin/vectis-scm-poller"]
 
 FROM scratch AS scm-gerrit-stream
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-scm-gerrit-stream /usr/local/bin/vectis-scm-gerrit-stream
+COPY --from=builder /app/examples/actions /app/examples/actions
 ENTRYPOINT ["/usr/local/bin/vectis-scm-gerrit-stream"]
 
 FROM scratch AS secrets

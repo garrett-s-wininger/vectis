@@ -13,6 +13,8 @@ import (
 	"vectis/internal/database"
 	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
+
+	"google.golang.org/protobuf/proto"
 )
 
 type Dispatcher struct {
@@ -41,8 +43,9 @@ func (d Dispatcher) DispatchRun(ctx context.Context, job *api.Job, runID, defini
 		return fmt.Errorf("trigger dispatcher job is required")
 	}
 
-	job.RunId = &runID
-	req := &api.JobRequest{Job: job}
+	executionJob := executionJobForTriggerDispatch(job)
+	executionJob.RunId = &runID
+	req := &api.JobRequest{Job: executionJob}
 	if _, err := d.attachExecutionEnvelope(ctx, req, runID, d.clock().Now().UnixNano()); err != nil {
 		d.logger().Error("Failed to attach execution envelope for trigger run %s: %v", runID, err)
 	}
@@ -84,6 +87,20 @@ func (d Dispatcher) DispatchRun(ctx context.Context, job *api.Job, runID, defini
 
 	d.recordDispatchEvent(ctx, runID, dal.DispatchEventSuccess, nil)
 	return nil
+}
+
+func executionJobForTriggerDispatch(job *api.Job) *api.Job {
+	if job == nil {
+		return nil
+	}
+
+	cloned, ok := proto.Clone(job).(*api.Job)
+	if !ok {
+		cloned = job
+	}
+
+	cloned.Triggers = nil
+	return cloned
 }
 
 func (d Dispatcher) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
