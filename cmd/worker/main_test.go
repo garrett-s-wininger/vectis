@@ -2299,7 +2299,7 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 	}
 
 	jobID := "job-worker-task-cancel-order"
-	def := `{"id":"job-worker-task-cancel-order","root":{"id":"root","uses":"builtins/script","with":{"script":"exec sleep 5"}}}`
+	def := `{"id":"job-worker-task-cancel-order","root":{"id":"root","uses":"builtins/script","with":{"script":"sleep 5"}}}`
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2341,7 +2341,7 @@ func TestWorkerRunTaskExecution_TaskFanoutCancelFinalizesExecutionAndRun(t *test
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "exec sleep 5"},
+			With: map[string]string{"script": "sleep 5"},
 		},
 	}
 
@@ -2493,7 +2493,7 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 	firstID := "first"
 	secondID := "second"
 	sequenceAction := "builtins/sequence"
-	shellAction := "builtins/script"
+	scriptAction := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2504,12 +2504,12 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 			Steps: []*api.Node{
 				{
 					Id:   &firstID,
-					Uses: &shellAction,
+					Uses: &scriptAction,
 					With: map[string]string{"script": "echo worker-first-marker"},
 				},
 				{
 					Id:   &secondID,
-					Uses: &shellAction,
+					Uses: &scriptAction,
 					With: map[string]string{"script": "echo worker-second-marker"},
 				},
 			},
@@ -2602,7 +2602,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 	rootID := "root-node"
 	childID := "child"
 	parallelAction := "builtins/parallel"
-	shellAction := "builtins/script"
+	scriptAction := "builtins/script"
 	j := &api.Job{
 		Id:         &jobID,
 		RunId:      &runID,
@@ -2612,7 +2612,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 			Uses: &parallelAction,
 			Steps: []*api.Node{{
 				Id:   &childID,
-				Uses: &shellAction,
+				Uses: &scriptAction,
 				With: map[string]string{"script": "echo child-ran"},
 			}},
 		},
@@ -4097,7 +4097,7 @@ func TestWorkerRunTaskExecution_RemoteCancel_MarksRunAborted(t *testing.T) {
 	jobID := "job-worker-cancel"
 	deliveryID := "delivery-cancel"
 	commandNodeID := "node-1"
-	command := "exec sleep 5"
+	command := "sleep 5"
 	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
@@ -4489,7 +4489,7 @@ func TestWorkerRunTaskExecution_DurableCancel_MarksRunAborted(t *testing.T) {
 	jobID := "job-worker-durable-cancel"
 	deliveryID := "delivery-durable-cancel"
 	commandNodeID := "node-1"
-	command := "exec sleep 5"
+	command := "sleep 5"
 	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,

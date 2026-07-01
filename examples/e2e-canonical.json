@@ -39,11 +39,12 @@
               "branches": {
                 "nodes": [
                   {
-                    "id": "secret-lane",
-                    "uses": "builtins/script",
-                    "with": {
-                      "script": "test -n \"$VECTIS_SECRETS_DIR\"; test \"$(cksum < \"$VECTIS_SECRETS_DIR/smoke/token\")\" = \"2931055294 13\"; echo canonical-secret-ok"
-                    }
+            "id": "secret-lane",
+            "uses": "builtins/script",
+            "with": {
+              "runner": "sh",
+              "script": "test -n \"$VECTIS_SECRETS_DIR\"; test \"$(cksum < \"$VECTIS_SECRETS_DIR/smoke/token\")\" = \"2931055294 13\"; echo canonical-secret-ok"
+            }
                   },
                   {
                     "id": "artifact-lane",
@@ -58,6 +59,7 @@
                             "id": "artifact-write",
                             "uses": "builtins/script",
                             "with": {
+                              "runner": "sh",
                               "script": "mkdir -p reports; printf 'canonical-artifact-ok\\n' > reports/e2e-smoke.txt; echo canonical-artifact-written"
                             }
                           },

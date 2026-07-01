@@ -10,6 +10,7 @@
             "id": "has-deploy-changes",
             "uses": "builtins/test",
             "with": {
+              "runner": "sh",
               "command": "test -f deploy.changed"
             }
           }

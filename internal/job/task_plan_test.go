@@ -197,7 +197,7 @@ func taskPlanJob(compileCommand string) *api.Job {
 	compileID := "compile"
 	testID := "test"
 	buildUses := "builtins/parallel"
-	shellUses := "builtins/script"
+	scriptUses := "builtins/script"
 
 	return &api.Job{
 		Id:    &jobID,
@@ -208,7 +208,7 @@ func taskPlanJob(compileCommand string) *api.Job {
 			Steps: []*api.Node{
 				{
 					Id:   &setupID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{"script": "echo setup"},
 				},
 				{
@@ -217,12 +217,12 @@ func taskPlanJob(compileCommand string) *api.Job {
 					Steps: []*api.Node{
 						{
 							Id:   &compileID,
-							Uses: &shellUses,
+							Uses: &scriptUses,
 							With: map[string]string{"script": compileCommand},
 						},
 						{
 							Id:   &testID,
-							Uses: &shellUses,
+							Uses: &scriptUses,
 							With: map[string]string{"script": "echo test"},
 						},
 					},

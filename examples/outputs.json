@@ -4,6 +4,7 @@
     "id": "publish-outputs",
     "uses": "builtins/script",
     "with": {
+      "runner": "sh",
       "script": "printf '{\"image\":\"app:dev\",\"ok\":true}' > outputs.json",
       "outputs": "outputs.json"
     }

@@ -34,7 +34,7 @@ Short built-in names such as `script` can resolve internally, but job files shou
 | Action | Required `with` fields | Optional `with` fields | Ports | Local-only | Behavior |
 | --- | --- | --- | --- | --- | --- |
 | `builtins/script` | `script` | `runner`, `outputs` | None | No | Writes `script` to a temporary workspace file and runs it with the selected runner. `runner: "auto"` or an omitted runner defaults to PowerShell on Windows and `sh` elsewhere. |
-| `builtins/test` | `command` | None | None | No | Runs a predicate command. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
+| `builtins/test` | `command` | `runner` | None | No | Runs a predicate command with the selected runner. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
 | `builtins/checkout` | `url` | None | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected. |
 | `builtins/upload-artifact` | `name`, `path` | `content_type`, `metadata_json`, `max_bytes` | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object. |
 | `builtins/sequence` | None | `execution` | `steps` | No | Runs child nodes in order and stops on first failure. |
@@ -48,7 +48,7 @@ Short built-in names such as `script` can resolve internally, but job files shou
 
 `execution` is reserved for Vectis execution policy. When omitted, `builtins/parallel` defaults to distributed execution and other built-ins default to local execution.
 
-`builtins/script` supports `runner` values `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. The action writes the script below `.vectis/scripts/` in the workspace, rejects symlinked script directories, runs the file through the worker process executor, and removes the temporary file after execution. `outputs` must point to a workspace-relative JSON object file.
+`builtins/script` and `builtins/test` support `runner` values `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. `builtins/script` writes the script below `.vectis/scripts/` in the workspace, rejects symlinked script directories, runs the file through the worker process executor, and removes the temporary file after execution. `outputs` must point to a workspace-relative JSON object file.
 
 ### Timeout Composition
 

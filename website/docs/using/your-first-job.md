@@ -83,7 +83,7 @@ Use `builtins/sequence` when you want child steps to run in order. Each child is
         "id": "where-am-i",
         "uses": "builtins/script",
         "with": {
-          "script": "pwd && ls -la"
+          "script": "pwd"
         }
       }
     ]
@@ -132,7 +132,8 @@ Later nodes can bind accepted inputs from earlier outputs in the same local exec
         "id": "script-command",
         "uses": "builtins/script",
         "with": {
-          "script": "printf '{\"command\":\"true\"}' > outputs.json",
+          "runner": "sh",
+          "script": "printf '{\"command\":\"exit 0\"}' > outputs.json",
           "outputs": "outputs.json"
         }
       },
@@ -276,7 +277,7 @@ These are the built-ins available today:
 | Action | Required `with` fields | What it does |
 | --- | --- | --- |
 | `builtins/script` | `script` | Writes the script to a temporary workspace file and runs it with the selected runner. Optional `outputs` reads a workspace-relative JSON output file after success. |
-| `builtins/test` | `command` | Runs a predicate command and returns a boolean `result` output. |
+| `builtins/test` | `command`; optional `runner` | Runs a predicate command and returns a boolean `result` output. |
 | `builtins/checkout` | `url` | Runs `git clone <url> .` in the run workspace. |
 | `builtins/sequence` | none | Runs child `steps` in order. |
 | `builtins/parallel` | none | Runs child `branches` concurrently or fans them out across workers. |

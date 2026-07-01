@@ -16,6 +16,7 @@ import (
 )
 
 const TestResultOutput = "result"
+const TestCommandField = "command"
 
 var exitStatusRe = regexp.MustCompile(`exit status ([0-9]+)`)
 
@@ -24,20 +25,25 @@ type TestAction struct {
 }
 
 func NewTestAction(executor interfaces.ExecExecutor) *TestAction {
-	if executor == nil {
-		executor = interfaces.NewDirectExecutor()
-	}
-
 	return &TestAction{executor: executor}
 }
 
 func (t *TestAction) ValidateWith(with map[string]string) []action.FieldError {
-	return action.ValidateWithSpec(with, t.InputSchema())
+	errs := action.ValidateWithSpec(with, t.InputSchema())
+
+	if runner := with[ScriptRunnerField]; runner != "" {
+		if err := scriptrunner.Validate(runner); err != nil {
+			errs = append(errs, action.FieldError{Field: ScriptRunnerField, Message: err.Error()})
+		}
+	}
+
+	return errs
 }
 
 func (t *TestAction) InputSchema() []action.FieldSpec {
 	return []action.FieldSpec{
-		{Name: "command", Type: action.FieldString, Required: true},
+		{Name: TestCommandField, Type: action.FieldString, Required: true},
+		{Name: ScriptRunnerField, Type: action.FieldString},
 	}
 }
 
@@ -46,20 +52,25 @@ func (t *TestAction) Type() string {
 }
 
 func (t *TestAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
-	commandStr, ok := inputs["command"].(string)
+	commandStr, ok := inputs[TestCommandField].(string)
 	if !ok || commandStr == "" {
 		return action.NewFailureResult(fmt.Errorf("test action requires 'command' input"))
+	}
+
+	runnerName := scriptrunner.Auto
+	if raw, ok := inputs[ScriptRunnerField].(string); ok && raw != "" {
+		runnerName = raw
 	}
 
 	state.Logger.Info("Executing test command: %s", commandStr)
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("$ %s", commandStr))
 
-	runner, err := scriptrunner.Resolve("sh", "sh")
+	runner, err := scriptrunner.Resolve(runnerName, scriptrunner.Auto)
 	if err != nil {
 		return action.NewFailureResult(err)
 	}
 
-	process, err := t.executor.Start(ctx, runner.Path, runner.InlineArgs(commandStr), state.Workspace, state.CommandEnv())
+	process, err := processExecutor(t.executor, state).Start(ctx, runner.Path, runner.InlineArgs(commandStr), state.Workspace, state.CommandEnv())
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start test command: %w", err))
 	}

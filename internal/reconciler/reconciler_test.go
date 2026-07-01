@@ -144,7 +144,7 @@ func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 	childAID := "child-a"
 	childBID := "child-b"
 	parallelAction := "builtins/parallel"
-	shellAction := "builtins/script"
+	scriptAction := "builtins/script"
 	job := &api.Job{
 		Id:    &jobID,
 		RunId: &runID,
@@ -152,8 +152,8 @@ func TestService_Process_ReenqueuesAllPendingTaskContinuations(t *testing.T) {
 			Id:   &rootID,
 			Uses: &parallelAction,
 			Steps: []*api.Node{
-				{Id: &childAID, Uses: &shellAction, With: map[string]string{"script": "echo a"}},
-				{Id: &childBID, Uses: &shellAction, With: map[string]string{"script": "echo b"}},
+				{Id: &childAID, Uses: &scriptAction, With: map[string]string{"script": "echo a"}},
+				{Id: &childBID, Uses: &scriptAction, With: map[string]string{"script": "echo b"}},
 			},
 		},
 	}

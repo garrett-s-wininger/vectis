@@ -17,6 +17,7 @@ import (
 	"vectis/internal/action"
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
+	"vectis/internal/action/scriptrunner"
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
@@ -26,6 +27,28 @@ import (
 )
 
 func executorStrp(s string) *string { return &s }
+
+func defaultScriptRunnerForTest(t *testing.T) scriptrunner.Runner {
+	t.Helper()
+
+	runner, err := scriptrunner.Resolve(scriptrunner.Auto, scriptrunner.Auto)
+	if err != nil {
+		t.Fatalf("resolve default script runner: %v", err)
+	}
+
+	return runner
+}
+
+func generatedScriptArg(args []string, extension string) string {
+	for _, arg := range args {
+		arg = strings.Trim(arg, `"`)
+		if filepath.Ext(arg) == extension {
+			return arg
+		}
+	}
+
+	return ""
+}
 
 func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
 	t.Helper()
@@ -1464,11 +1487,12 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 	paths := mockProcessExecutor.GetPaths()
 	args := mockProcessExecutor.GetArgs()
 	workDirs := mockProcessExecutor.GetWorkDirs()
-	if len(paths) != 1 || paths[0] != "sh" {
+	defaultRunner := defaultScriptRunnerForTest(t)
+	if len(paths) != 1 || paths[0] != defaultRunner.Path {
 		t.Fatalf("expected one script execution through configured process executor, got paths=%v", paths)
 	}
-	if len(args) != 1 || len(args[0]) != 1 || filepath.Ext(args[0][0]) != ".sh" {
-		t.Fatalf("expected one generated .sh script arg, got %v", args)
+	if len(args) != 1 || generatedScriptArg(args[0], defaultRunner.Extension) == "" {
+		t.Fatalf("expected one generated %s script arg, got %v", defaultRunner.Extension, args)
 	}
 	if len(workDirs) != 1 || workDirs[0] != workspace {
 		t.Fatalf("expected configured workspace %q, got workDirs=%v", workspace, workDirs)
@@ -1503,7 +1527,7 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
 	inheritStepID := "inherit-step"
-	shellUses := "builtins/script"
+	scriptUses := "builtins/script"
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -1514,18 +1538,18 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 			Steps: []*api.Node{
 				{
 					Id:   &vmStepID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{"script": "echo vm"},
 				},
 				{
 					Id:        &hostStepID,
-					Uses:      &shellUses,
+					Uses:      &scriptUses,
 					Isolation: &hostIsolation,
 					With:      map[string]string{"script": "echo host"},
 				},
 				{
 					Id:   &inheritStepID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{"script": "echo inherit"},
 				},
 			},
@@ -1537,13 +1561,15 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	if len(hostArgs) != 1 || len(hostArgs[0]) != 1 || filepath.Ext(hostArgs[0][0]) != ".sh" {
+	defaultRunner := defaultScriptRunnerForTest(t)
+	if len(hostArgs) != 1 || generatedScriptArg(hostArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected only explicit host action on host executor, got %v", hostArgs)
 	}
 
 	vmArgs := vmProcessExecutor.GetArgs()
-	if len(vmArgs) != 2 || len(vmArgs[0]) != 1 || len(vmArgs[1]) != 1 ||
-		filepath.Ext(vmArgs[0][0]) != ".sh" || filepath.Ext(vmArgs[1][0]) != ".sh" {
+	if len(vmArgs) != 2 ||
+		generatedScriptArg(vmArgs[0], defaultRunner.Extension) == "" ||
+		generatedScriptArg(vmArgs[1], defaultRunner.Extension) == "" {
 		t.Fatalf("expected inherited VM actions on VM executor, got %v", vmArgs)
 	}
 }
@@ -1574,7 +1600,7 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 	rootUses := "builtins/sequence"
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
-	shellUses := "builtins/script"
+	scriptUses := "builtins/script"
 	vmIsolation := action.IsolationVM
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
@@ -1587,12 +1613,12 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 			Steps: []*api.Node{
 				{
 					Id:   &vmStepID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{"script": "echo vm"},
 				},
 				{
 					Id:        &hostStepID,
-					Uses:      &shellUses,
+					Uses:      &scriptUses,
 					Isolation: &hostIsolation,
 					With:      map[string]string{"script": "echo host"},
 				},
@@ -1605,12 +1631,13 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	if len(hostArgs) != 1 || len(hostArgs[0]) != 1 || filepath.Ext(hostArgs[0][0]) != ".sh" {
+	defaultRunner := defaultScriptRunnerForTest(t)
+	if len(hostArgs) != 1 || generatedScriptArg(hostArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected explicit host action on host executor, got %v", hostArgs)
 	}
 
 	vmArgs := vmProcessExecutor.GetArgs()
-	if len(vmArgs) != 1 || len(vmArgs[0]) != 1 || filepath.Ext(vmArgs[0][0]) != ".sh" {
+	if len(vmArgs) != 1 || generatedScriptArg(vmArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected inherited job-default VM action on VM executor, got %v", vmArgs)
 	}
 }
@@ -1641,7 +1668,7 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 	rootUses := "builtins/sequence"
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
-	shellUses := "builtins/script"
+	scriptUses := "builtins/script"
 	vmIsolation := action.IsolationVM
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
@@ -1654,12 +1681,12 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 			Steps: []*api.Node{
 				{
 					Id:   &vmStepID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{"script": "echo vm task"},
 				},
 				{
 					Id:        &hostStepID,
-					Uses:      &shellUses,
+					Uses:      &scriptUses,
 					Isolation: &hostIsolation,
 					With:      map[string]string{"script": "echo host task"},
 				},
@@ -1676,12 +1703,13 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	if len(hostArgs) != 1 || len(hostArgs[0]) != 1 || filepath.Ext(hostArgs[0][0]) != ".sh" {
+	defaultRunner := defaultScriptRunnerForTest(t)
+	if len(hostArgs) != 1 || generatedScriptArg(hostArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected explicit host task on host executor, got %v", hostArgs)
 	}
 
 	vmArgs := vmProcessExecutor.GetArgs()
-	if len(vmArgs) != 1 || len(vmArgs[0]) != 1 || filepath.Ext(vmArgs[0][0]) != ".sh" {
+	if len(vmArgs) != 1 || generatedScriptArg(vmArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected job-default VM task on VM executor, got %v", vmArgs)
 	}
 }

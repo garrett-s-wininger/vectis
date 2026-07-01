@@ -60,7 +60,7 @@ func TestVirtualMachineIntegration_ActionIsolation(t *testing.T) {
 	rootUses := "builtins/sequence"
 	vmStepID := "vm-step"
 	hostStepID := "host-step"
-	shellUses := "builtins/script"
+	scriptUses := "builtins/script"
 	hostIsolation := action.IsolationHost
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -71,17 +71,19 @@ func TestVirtualMachineIntegration_ActionIsolation(t *testing.T) {
 			Steps: []*api.Node{
 				{
 					Id:   &vmStepID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{
-						"command": `set -eu; test "$(uname -s)" = Linux; printf 'vm-action\n'`,
+						"runner": "sh",
+						"script": `set -eu; test "$(uname -s)" = Linux; printf 'vm-action\n'`,
 					},
 				},
 				{
 					Id:        &hostStepID,
-					Uses:      &shellUses,
+					Uses:      &scriptUses,
 					Isolation: &hostIsolation,
 					With: map[string]string{
-						"command": `printf 'host-action\n'`,
+						"runner": "sh",
+						"script": `printf 'host-action\n'`,
 					},
 				},
 			},

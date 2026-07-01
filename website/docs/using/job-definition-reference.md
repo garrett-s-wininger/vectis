@@ -177,7 +177,7 @@ Workers materialize file-delivered secrets below the configured secrets director
 | Action | Static `with` fields | Bound `inputs` | Ports | Local-only | Outputs and behavior |
 | --- | --- | --- | --- | --- | --- |
 | `builtins/script` | Required `script`; optional `runner`, `outputs` | `script`, `runner`, `outputs` | None | No | Writes the script to a temporary workspace file and runs it with the selected runner. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. |
-| `builtins/test` | Required `command` | `command` | None | No | Runs a predicate command. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
+| `builtins/test` | Required `command`; optional `runner` | `command`, `runner` | None | No | Runs a predicate command with the selected runner. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
 | `builtins/checkout` | Required `url` | `url` | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected; SCP-style Git URLs are accepted. |
 | `builtins/upload-artifact` | Required `name`, `path`; optional `content_type`, `metadata_json`, `max_bytes` | None | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object with blob and size metadata. See [Artifacts](./artifacts.md). |
 | `builtins/sequence` | Optional `execution` | None | Primary `steps` | No | Runs child nodes in order and stops on the first failure. Returns the last child outputs on success. |

@@ -71,7 +71,7 @@ These are the built-in actions that the validator knows today:
 | Action | Required `with` | Ports | Notes |
 | --- | --- | --- | --- |
 | `builtins/script` | `script` | none | Writes the script body to a temporary workspace file and runs it with `runner`. Supported runners are `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. Optional `outputs` reads a workspace-relative JSON object file after success and returns it as node outputs. |
-| `builtins/test` | `command` | none | Runs the command as a predicate. Exit `0` returns `outputs.result=true`, exit `1` returns `outputs.result=false`, and other execution errors fail the action. |
+| `builtins/test` | `command` | none | Runs the command as a predicate with the selected runner. Optional `runner` uses the same values and OS default as `builtins/script`. Exit `0` returns `outputs.result=true`, exit `1` returns `outputs.result=false`, and other execution errors fail the action. |
 | `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Unknown action keys are rejected. |
 | `builtins/sequence` | none | `steps` | Runs child nodes in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional `with` keys are tolerated for compatibility. |
 | `builtins/parallel` | none | `branches` | Runs branch nodes concurrently when local, or fans them out as task executions when distributed. Defaults to `execution: "distributed"`. Unknown optional `with` keys are tolerated for compatibility. |
@@ -113,7 +113,7 @@ Conditionals are modeled with nodes instead of an expression language:
   "ports": {
     "condition": {
       "nodes": [
-        {"id": "has-changes", "uses": "builtins/test", "with": {"command": "test -f deploy.changed"}}
+        {"id": "has-changes", "uses": "builtins/test", "with": {"runner": "sh", "command": "test -f deploy.changed"}}
       ]
     },
     "then": {
@@ -165,6 +165,7 @@ Script actions can publish structured outputs by writing a JSON object inside th
   "id": "publish-image",
   "uses": "builtins/script",
   "with": {
+    "runner": "sh",
     "script": "printf '{\"image\":\"app:dev\"}' > outputs.json",
     "outputs": "outputs.json"
   }

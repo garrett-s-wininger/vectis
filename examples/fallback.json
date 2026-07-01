@@ -10,6 +10,7 @@
             "id": "preferred-build",
             "uses": "builtins/script",
             "with": {
+              "runner": "sh",
               "script": "test -x ./preferred-build.sh && ./preferred-build.sh"
             }
           },

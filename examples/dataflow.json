@@ -8,7 +8,8 @@
         "id": "script-command",
         "uses": "builtins/script",
         "with": {
-          "script": "printf '{\"command\":\"true\"}' > outputs.json",
+          "runner": "sh",
+          "script": "printf '{\"command\":\"exit 0\"}' > outputs.json",
           "outputs": "outputs.json"
         }
       },

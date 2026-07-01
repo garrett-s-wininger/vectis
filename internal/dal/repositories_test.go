@@ -3989,7 +3989,7 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 	testID := "test"
 	deployID := "deploy"
 	buildUses := "builtins/parallel"
-	shellUses := "builtins/script"
+	scriptUses := "builtins/script"
 
 	return &api.Job{
 		Id:    stringPtr(jobID),
@@ -4000,7 +4000,7 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 			Steps: []*api.Node{
 				{
 					Id:   &setupID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{"script": "echo setup"},
 				},
 				{
@@ -4009,19 +4009,19 @@ func durableSequenceJob(jobID, runID string) *api.Job {
 					Steps: []*api.Node{
 						{
 							Id:   &compileID,
-							Uses: &shellUses,
+							Uses: &scriptUses,
 							With: map[string]string{"script": "echo compile"},
 						},
 						{
 							Id:   &testID,
-							Uses: &shellUses,
+							Uses: &scriptUses,
 							With: map[string]string{"script": "echo test"},
 						},
 					},
 				},
 				{
 					Id:   &deployID,
-					Uses: &shellUses,
+					Uses: &scriptUses,
 					With: map[string]string{"script": "echo deploy"},
 				},
 			},
