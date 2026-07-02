@@ -555,12 +555,12 @@ func findInstallEntryByKind(entries []InstallEntry, kind string) (InstallEntry, 
 func vmSmokeTargetMemberUnits(entries []InstallEntry) []string {
 	var units []string
 	for _, entry := range entries {
-		if entry.Kind != "systemd" {
+		if entry.Kind != "systemd" || !entry.EnableWithTarget {
 			continue
 		}
 
 		name := path.Base(entry.Destination)
-		if name == "vectis-db-migrate.service" || !strings.HasSuffix(name, ".service") {
+		if !strings.HasSuffix(name, ".service") {
 			continue
 		}
 

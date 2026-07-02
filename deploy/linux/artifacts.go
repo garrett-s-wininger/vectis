@@ -35,12 +35,13 @@ type RenderResult struct {
 }
 
 type InstallEntry struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
-	Mode        string `json:"mode"`
-	Owner       string `json:"owner"`
-	Group       string `json:"group"`
-	Kind        string `json:"kind"`
+	Source           string `json:"source"`
+	Destination      string `json:"destination"`
+	Mode             string `json:"mode"`
+	Owner            string `json:"owner"`
+	Group            string `json:"group"`
+	Kind             string `json:"kind"`
+	EnableWithTarget bool   `json:"-"`
 }
 
 type Manifest struct {
@@ -50,6 +51,7 @@ type Manifest struct {
 	Tmpfiles         []TmpfileEntry    `toml:"tmpfiles"`
 	Sysusers         []SysuserEntry    `toml:"sysusers"`
 	Units            []Unit            `toml:"unit"`
+	Timers           []Timer           `toml:"timer"`
 }
 
 type TargetConfig struct {
@@ -110,11 +112,21 @@ type Unit struct {
 	CommonEnv       bool              `toml:"common_env"`
 	DBBacked        bool              `toml:"db_backed"`
 	InstallWantedBy string            `toml:"install_wanted_by"`
+	NoInstall       bool              `toml:"no_install"`
 	TimeoutStopSec  string            `toml:"timeout_stop_sec"`
 	CacheDirectory  string            `toml:"cache_directory"`
 	Wants           []string          `toml:"wants"`
 	After           []string          `toml:"after"`
 	EnvExample      map[string]string `toml:"env_example"`
+}
+
+type Timer struct {
+	ID              string `toml:"id"`
+	Description     string `toml:"description"`
+	Unit            string `toml:"unit"`
+	OnCalendar      string `toml:"on_calendar"`
+	Persistent      bool   `toml:"persistent"`
+	InstallWantedBy string `toml:"install_wanted_by"`
 }
 
 func LoadManifest(path string) (Manifest, error) {
@@ -196,6 +208,10 @@ func (m Manifest) RenderFiles() (map[string]string, error) {
 			renderEnvExample(fmt.Sprintf("Service-specific settings for %s.", unit.UnitName()), unit.EnvExample)
 	}
 
+	for _, timer := range m.Timers {
+		files[path.Join("systemd", timer.TimerName())] = m.renderTimer(timer)
+	}
+
 	installPlan, err := m.InstallPlan()
 	if err != nil {
 		return nil, err
@@ -227,9 +243,18 @@ func (m Manifest) InstallPlan() ([]InstallEntry, error) {
 	for _, unit := range m.Units {
 		unitName := unit.UnitName()
 		envName := strings.TrimSuffix(unitName, ".service") + ".env"
+		unitEntry := installEntry("systemd/"+unitName, "/etc/systemd/system/"+unitName, "0644", "root", "root", "systemd")
+		unitEntry.EnableWithTarget = unit.TargetMember && valueOr(unit.Type, "simple") != "oneshot"
 		entries = append(entries,
-			installEntry("systemd/"+unitName, "/etc/systemd/system/"+unitName, "0644", "root", "root", "systemd"),
+			unitEntry,
 			installEntry("env/"+envName+".example", "/etc/vectis/"+envName, "0640", "root", m.Defaults.Group, "env"),
+		)
+	}
+
+	for _, timer := range m.Timers {
+		timerName := timer.TimerName()
+		entries = append(entries,
+			installEntry("systemd/"+timerName, "/etc/systemd/system/"+timerName, "0644", "root", "root", "systemd"),
 		)
 	}
 
@@ -308,6 +333,23 @@ func renderInstallManifestTSV(entries []InstallEntry) string {
 
 func (u Unit) UnitName() string {
 	return "vectis-" + u.ID + ".service"
+}
+
+func (t Timer) TimerName() string {
+	return "vectis-" + t.ID + ".timer"
+}
+
+func (t Timer) UnitName() string {
+	unit := strings.TrimSpace(t.Unit)
+	if unit == "" {
+		unit = t.ID
+	}
+
+	if strings.Contains(unit, ".") {
+		return unit
+	}
+
+	return "vectis-" + unit + ".service"
 }
 
 func (m Manifest) renderTarget() string {
@@ -445,10 +487,45 @@ func (m Manifest) renderUnit(unit Unit) string {
 		installWantedBy = m.Target.Name
 	}
 
-	return renderSections([]section{
+	sections := []section{
 		{Name: "Unit", Lines: unitLines},
 		{Name: "Service", Lines: serviceLines},
-		{Name: "Install", Lines: []directive{{"WantedBy", installWantedBy}}},
+	}
+	if !unit.NoInstall {
+		sections = append(sections, section{Name: "Install", Lines: []directive{{"WantedBy", installWantedBy}}})
+	}
+
+	return renderSections(sections)
+}
+
+func (m Manifest) renderTimer(timer Timer) string {
+	installWantedBy := timer.InstallWantedBy
+	if installWantedBy == "" {
+		installWantedBy = "timers.target"
+	}
+
+	return renderSections([]section{
+		{
+			Name: "Unit",
+			Lines: []directive{
+				{"Description", timer.Description},
+				{"Documentation", m.Target.Documentation},
+			},
+		},
+		{
+			Name: "Timer",
+			Lines: []directive{
+				{"OnCalendar", timer.OnCalendar},
+				{"Persistent", fmt.Sprintf("%t", timer.Persistent)},
+				{"Unit", timer.UnitName()},
+			},
+		},
+		{
+			Name: "Install",
+			Lines: []directive{
+				{"WantedBy", installWantedBy},
+			},
+		},
 	})
 }
 
@@ -565,12 +642,51 @@ func (m Manifest) validate() error {
 		}
 	}
 
+	seenTimers := map[string]struct{}{}
+	for _, timer := range m.Timers {
+		if timer.ID == "" {
+			return fmt.Errorf("timer.id is required")
+		}
+
+		if _, ok := seenTimers[timer.ID]; ok {
+			return fmt.Errorf("duplicate timer id %q", timer.ID)
+		}
+
+		seenTimers[timer.ID] = struct{}{}
+		if timer.Description == "" {
+			return fmt.Errorf("timer %q description is required", timer.ID)
+		}
+
+		if strings.TrimSpace(timer.OnCalendar) == "" {
+			return fmt.Errorf("timer %q on_calendar is required", timer.ID)
+		}
+
+		unitName := timer.UnitName()
+		if !strings.HasSuffix(unitName, ".service") {
+			return fmt.Errorf("timer %q unit must reference a .service unit: %s", timer.ID, unitName)
+		}
+
+		if !hasUnitName(m.Units, unitName) {
+			return fmt.Errorf("timer %q references unknown unit %q", timer.ID, unitName)
+		}
+	}
+
 	return nil
 }
 
 func hasUnitID(units []Unit, id string) bool {
 	for _, unit := range units {
 		if unit.ID == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasUnitName(units []Unit, name string) bool {
+	for _, unit := range units {
+		if unit.UnitName() == name {
 			return true
 		}
 	}

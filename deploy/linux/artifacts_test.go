@@ -13,10 +13,12 @@ import (
 )
 
 const (
-	commonEnvFile = "-/etc/vectis/vectis.env"
-	migrationUnit = "vectis-db-migrate.service"
-	networkUnit   = "network-online.target"
-	targetUnit    = "vectis.target"
+	commonEnvFile  = "-/etc/vectis/vectis.env"
+	migrationUnit  = "vectis-db-migrate.service"
+	networkUnit    = "network-online.target"
+	retentionUnit  = "vectis-retention-scheduled-cleanup.service"
+	retentionTimer = "vectis-retention-scheduled-cleanup.timer"
+	targetUnit     = "vectis.target"
 )
 
 var expectedStandaloneExecs = map[string]string{
@@ -139,6 +141,63 @@ func TestMigrationUnitContract(t *testing.T) {
 	}
 }
 
+func TestRetentionScheduledCleanupUnitAndTimerContract(t *testing.T) {
+	files := renderTestFiles(t)
+	unit := parseUnit(t, "systemd/"+retentionUnit, files["systemd/"+retentionUnit])
+
+	requireSections(t, unit, retentionUnit, "Unit", "Service")
+	if unit["Install"] != nil {
+		t.Fatalf("%s should be static and timer-triggered, got [Install]: %v", retentionUnit, unit["Install"])
+	}
+
+	requireValue(t, unit, "Service", "Type", "oneshot")
+	requireBaseServiceContract(t, unit)
+	requireEnvFiles(t, unit, retentionUnit, true)
+	requireNoInlineEnvironment(t, unit, retentionUnit)
+	requireWord(t, unit, "Unit", "Requires", migrationUnit)
+	requireWord(t, unit, "Unit", "Wants", networkUnit)
+	requireWord(t, unit, "Unit", "Wants", "vectis-api.service")
+	requireWord(t, unit, "Unit", "After", networkUnit)
+	requireWord(t, unit, "Unit", "After", migrationUnit)
+	requireWord(t, unit, "Unit", "After", "vectis-api.service")
+
+	execStart := strings.Join(values(unit, "Service", "ExecStart"), "\n")
+	for _, want := range []string{
+		"/usr/bin/vectis-cli --format json retention scheduled-cleanup --yes",
+		"--backup-manifest /var/lib/vectis/ops/backup-manifest.json",
+		"--backup-expect /etc/vectis/expected-topology.json",
+		"--audit-export-output /var/lib/vectis/ops/audit-export.json",
+		"--hold-review-output /var/lib/vectis/ops/hold-review.json",
+		"--require-backup-manifest",
+		"--require-audit-export",
+		"--require-hold-review",
+		"--evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json",
+		"> /var/lib/vectis/ops/retention-scheduled-cleanup.json",
+	} {
+		if !strings.Contains(execStart, want) {
+			t.Fatalf("%s ExecStart missing %q:\n%s", retentionUnit, want, execStart)
+		}
+	}
+
+	if values(unit, "Service", "Restart") != nil {
+		t.Fatalf("%s should not declare Restart", retentionUnit)
+	}
+
+	env := parseEnvExample(t, "env/vectis-retention-scheduled-cleanup.env.example", files["env/vectis-retention-scheduled-cleanup.env.example"])
+	for _, key := range []string{"VECTIS_API_SERVER_HOST", "VECTIS_API_SERVER_PORT", "VECTIS_API_TOKEN"} {
+		if _, ok := env[key]; !ok {
+			t.Fatalf("retention scheduled cleanup env example missing %s", key)
+		}
+	}
+
+	timer := parseUnit(t, "systemd/"+retentionTimer, files["systemd/"+retentionTimer])
+	requireSections(t, timer, retentionTimer, "Unit", "Timer", "Install")
+	requireValue(t, timer, "Timer", "OnCalendar", "Sun *-*-* 03:00:00")
+	requireValue(t, timer, "Timer", "Persistent", "true")
+	requireValue(t, timer, "Timer", "Unit", retentionUnit)
+	requireValue(t, timer, "Install", "WantedBy", "timers.target")
+}
+
 func TestEnvExamples(t *testing.T) {
 	files := renderTestFiles(t)
 	common := parseEnvExample(t, "env/vectis.env.example", files["env/vectis.env.example"])
@@ -214,7 +273,10 @@ func TestInstallManifestContract(t *testing.T) {
 	}
 
 	requireInstallDestination(t, covered, "systemd/"+targetUnit, "/etc/systemd/system/"+targetUnit, "0644", "root", "root")
+	requireInstallDestination(t, covered, "systemd/"+retentionUnit, "/etc/systemd/system/"+retentionUnit, "0644", "root", "root")
+	requireInstallDestination(t, covered, "systemd/"+retentionTimer, "/etc/systemd/system/"+retentionTimer, "0644", "root", "root")
 	requireInstallDestination(t, covered, "env/vectis.env.example", "/etc/vectis/vectis.env", "0640", "root", "vectis")
+	requireInstallDestination(t, covered, "env/vectis-retention-scheduled-cleanup.env.example", "/etc/vectis/vectis-retention-scheduled-cleanup.env", "0640", "root", "vectis")
 	requireInstallDestination(t, covered, "sysusers.d/vectis.conf", "/usr/lib/sysusers.d/vectis.conf", "0644", "root", "root")
 	requireInstallDestination(t, covered, "tmpfiles.d/vectis.conf", "/usr/lib/tmpfiles.d/vectis.conf", "0644", "root", "root")
 
@@ -231,7 +293,7 @@ func TestSysusersAndTmpfiles(t *testing.T) {
 	}
 
 	tmpfiles := files["tmpfiles.d/vectis.conf"]
-	for _, requiredPath := range []string{"/etc/vectis", "/var/lib/vectis", "/var/log/vectis", "/run/vectis"} {
+	for _, requiredPath := range []string{"/etc/vectis", "/var/lib/vectis", "/var/lib/vectis/ops", "/var/log/vectis", "/run/vectis"} {
 		if !strings.Contains(tmpfiles, requiredPath) {
 			t.Fatalf("tmpfiles missing %s:\n%s", requiredPath, tmpfiles)
 		}
@@ -474,6 +536,9 @@ func systemdPaths(t *testing.T, manifest Manifest) []string {
 	paths := []string{filepath.ToSlash(filepath.Join("systemd", manifest.Target.Name))}
 	for _, unit := range manifest.Units {
 		paths = append(paths, filepath.ToSlash(filepath.Join("systemd", unit.UnitName())))
+	}
+	for _, timer := range manifest.Timers {
+		paths = append(paths, filepath.ToSlash(filepath.Join("systemd", timer.TimerName())))
 	}
 
 	sort.Strings(paths)

@@ -65,6 +65,14 @@ age = "-"
 
 [[tmpfiles]]
 type = "d"
+path = "/var/lib/vectis/ops"
+mode = "0750"
+user = "vectis"
+group = "vectis"
+age = "-"
+
+[[tmpfiles]]
+type = "d"
 path = "/var/cache/vectis"
 mode = "0750"
 user = "vectis"
@@ -110,6 +118,29 @@ exec_start = "/usr/bin/vectis-cli database migrate"
 type = "oneshot"
 target_member = true
 common_env = true
+
+[[unit]]
+id = "retention-scheduled-cleanup"
+description = "Run Vectis scheduled retention cleanup"
+exec_start = "/bin/sh -c 'umask 077; /usr/bin/vectis-cli --format json retention scheduled-cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h --audit-export-output /var/lib/vectis/ops/audit-export.json --audit-export-max-age 24h --hold-review-output /var/lib/vectis/ops/hold-review.json --hold-review-max-age 24h --generated-by systemd:vectis-retention-scheduled-cleanup.timer --reviewed-by retention-scheduler --reason scheduled-retention-cleanup-review --external-ref systemd:vectis-retention-scheduled-cleanup.timer --require-backup-manifest --require-audit-export --require-hold-review --evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json > /var/lib/vectis/ops/retention-scheduled-cleanup.json'"
+type = "oneshot"
+common_env = true
+db_backed = true
+no_install = true
+wants = ["api"]
+after = ["api"]
+
+[unit.env_example]
+VECTIS_API_SERVER_HOST = "localhost"
+VECTIS_API_SERVER_PORT = "8080"
+VECTIS_API_TOKEN = "<operator-api-token-if-auth-enabled>"
+
+[[timer]]
+id = "retention-scheduled-cleanup"
+description = "Run Vectis scheduled retention cleanup"
+unit = "retention-scheduled-cleanup"
+on_calendar = "Sun *-*-* 03:00:00"
+persistent = true
 
 [[unit]]
 id = "registry"

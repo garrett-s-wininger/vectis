@@ -52,10 +52,13 @@ func TestLoadManifestIncludesVectisCommon(t *testing.T) {
 	for _, path := range []string{
 		"systemd/vectis.target",
 		"systemd/vectis-db-migrate.service",
+		"systemd/vectis-retention-scheduled-cleanup.service",
+		"systemd/vectis-retention-scheduled-cleanup.timer",
 		"sysusers.d/vectis.conf",
 		"tmpfiles.d/vectis.conf",
 		"env/vectis.env.example",
 		"env/vectis-db-migrate.env.example",
+		"env/vectis-retention-scheduled-cleanup.env.example",
 	} {
 		writeTestFile(t, filepath.Join(artifactRoot, filepath.FromSlash(path)), "test\n")
 	}
@@ -84,9 +87,12 @@ func TestLoadManifestIncludesVectisCommon(t *testing.T) {
 
 	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis.target", filepath.Join(artifactRoot, "systemd", "vectis.target"), 0o644)
 	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis-db-migrate.service", filepath.Join(artifactRoot, "systemd", "vectis-db-migrate.service"), 0o644)
+	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.service", filepath.Join(artifactRoot, "systemd", "vectis-retention-scheduled-cleanup.service"), 0o644)
+	requireResolvedFile(t, pkg, "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.timer", filepath.Join(artifactRoot, "systemd", "vectis-retention-scheduled-cleanup.timer"), 0o644)
 	requireResolvedFile(t, pkg, "/usr/lib/sysusers.d/vectis.conf", filepath.Join(artifactRoot, "sysusers.d", "vectis.conf"), 0o644)
 	requireResolvedFile(t, pkg, "/usr/share/doc/vectis-common/examples/vectis.env.example", filepath.Join(artifactRoot, "env", "vectis.env.example"), 0o644)
 	requireResolvedFile(t, pkg, "/usr/share/doc/vectis-common/examples/vectis-db-migrate.env.example", filepath.Join(artifactRoot, "env", "vectis-db-migrate.env.example"), 0o644)
+	requireResolvedFile(t, pkg, "/usr/share/doc/vectis-common/examples/vectis-retention-scheduled-cleanup.env.example", filepath.Join(artifactRoot, "env", "vectis-retention-scheduled-cleanup.env.example"), 0o644)
 
 	for _, file := range pkg.Files {
 		if strings.HasPrefix(file.Destination, "/etc/vectis/") {

@@ -360,8 +360,15 @@ point one cleanup job at a storage directory owned by another active shard.
 
 ### Example systemd Timer
 
-This example records a daily dry-run and applies cleanup weekly. Adjust windows,
-paths, and backup checks for the environment.
+The Linux service artifacts and `vectis-common` package include
+`vectis-retention-scheduled-cleanup.service` and
+`vectis-retention-scheduled-cleanup.timer`. The reference timer applies cleanup
+weekly, writes the JSON workflow receipt to
+`/var/lib/vectis/ops/retention-scheduled-cleanup.json`, and expects retained
+backup evidence at `/var/lib/vectis/ops/backup-manifest.json`.
+
+This example adds a site-owned daily dry-run beside the packaged apply timer.
+Adjust windows, paths, and backup checks for the environment.
 
 `/etc/systemd/system/vectis-retention-dry-run.service`:
 
@@ -389,36 +396,37 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-`/etc/systemd/system/vectis-retention-apply.service`:
+Generated `/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.service`:
 
 ```ini
 [Unit]
-Description=Apply Vectis retention cleanup
-ConditionPathExists=/var/lib/vectis/ops/backup-manifest.json
+Description=Run Vectis scheduled retention cleanup
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/vectis/vectis.env
-ExecStart=/usr/bin/vectis-cli retention scheduled-cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h --audit-export-output /var/lib/vectis/ops/audit-export.json --audit-export-max-age 24h --hold-review-output /var/lib/vectis/ops/hold-review.json --hold-review-max-age 24h --reason "weekly retention cleanup review" --require-backup-manifest --require-audit-export --require-hold-review --evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json
+EnvironmentFile=-/etc/vectis/vectis.env
+EnvironmentFile=-/etc/vectis/vectis-retention-scheduled-cleanup.env
+ExecStart=/bin/sh -c 'umask 077; /usr/bin/vectis-cli --format json retention scheduled-cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h --audit-export-output /var/lib/vectis/ops/audit-export.json --audit-export-max-age 24h --hold-review-output /var/lib/vectis/ops/hold-review.json --hold-review-max-age 24h --generated-by systemd:vectis-retention-scheduled-cleanup.timer --reviewed-by retention-scheduler --reason scheduled-retention-cleanup-review --external-ref systemd:vectis-retention-scheduled-cleanup.timer --require-backup-manifest --require-audit-export --require-hold-review --evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json > /var/lib/vectis/ops/retention-scheduled-cleanup.json'
 ```
 
-`/etc/systemd/system/vectis-retention-apply.timer`:
+Generated `/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.timer`:
 
 ```ini
 [Unit]
-Description=Weekly Vectis retention cleanup
+Description=Run Vectis scheduled retention cleanup
 
 [Timer]
 OnCalendar=Sun *-*-* 03:00:00
 Persistent=true
+Unit=vectis-retention-scheduled-cleanup.service
 
 [Install]
 WantedBy=timers.target
 ```
 
-The `ConditionPathExists` guard is only an example. The CLI still verifies the
-manifest contents, expected topology, and `generated_at` freshness before
-cleanup. In production, wire the manifest path to your backup platform's latest
+The CLI verifies the manifest contents, expected topology, and `generated_at`
+freshness before cleanup. In production, wire
+`/var/lib/vectis/ops/backup-manifest.json` to your backup platform's latest
 successful backup evidence or require an operator approval step before moving a
 manifest into place.
 
@@ -427,7 +435,7 @@ Enable timers with:
 ```sh
 systemctl daemon-reload
 systemctl enable --now vectis-retention-dry-run.timer
-systemctl enable --now vectis-retention-apply.timer
+systemctl enable --now vectis-retention-scheduled-cleanup.timer
 ```
 
 ### Example Kubernetes CronJobs

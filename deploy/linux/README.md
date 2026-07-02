@@ -1,10 +1,10 @@
 # Linux Service Artifacts
 
 This directory contains the first production-install artifact set for Linux
-hosts. The checked-in source of truth is `services.toml`; systemd units,
-environment examples, sysusers, and tmpfiles entries are rendered from that
-manifest. The render and validation path works on macOS without booting a VM.
-The Lima smoke path adds a real Linux systemd check when developers want the
+hosts. The checked-in source of truth is `services.toml`; systemd services and
+timers, environment examples, sysusers, and tmpfiles entries are rendered from
+that manifest. The render and validation path works on macOS without booting a
+VM. The Lima smoke path adds a real Linux systemd check when developers want the
 heavier cross-platform lane.
 
 ## What Is Included
@@ -12,7 +12,7 @@ heavier cross-platform lane.
 | Path | Purpose |
 | --- | --- |
 | `services.toml` | Linux service inventory, systemd defaults, and env examples |
-| `artifacts.go` | Renderer for systemd units, env examples, sysusers, and tmpfiles |
+| `artifacts.go` | Renderer for systemd units/timers, env examples, sysusers, and tmpfiles |
 | `vm_smoke.go` | provider-neutral Linux systemd smoke flow over `internal/platform` VMs |
 | `cmd/render` | small renderer entrypoint retained for package/build integrations |
 
@@ -27,7 +27,11 @@ real PostgreSQL DSN after copying the rendered `env/vectis.env.example` to
 The rendered artifact contract describes the standalone multi-service stack,
 including API, artifact, catalog, cell ingress, cron, docs, log, log-forwarder,
 orchestrator, queue, reconciler, registry, secrets, SPIFFE authority, worker,
-and worker-core units.
+and worker-core units. It also includes a static
+`vectis-retention-scheduled-cleanup.service` plus
+`vectis-retention-scheduled-cleanup.timer` for the retained backup/audit/hold
+evidence cleanup workflow; operators still own the backup manifest, expected
+topology, API token, and timer enablement.
 The `vectis-local` DEB/RPM package is intentionally separate from this
 TOML-driven service inventory and does not install systemd units.
 
@@ -147,10 +151,10 @@ Package scripts or config management should eventually own this, but the intende
 
 1. Render the artifacts with `vectis-cli deploy linux render`.
 2. Install `vectis-*` binaries into `/usr/bin`.
-3. Install rendered `systemd/*.service` and `systemd/*.target` into the system unit dir.
+3. Install rendered `systemd/*.service`, `systemd/*.timer`, and `systemd/*.target` into the system unit dir.
 4. Install rendered `sysusers.d/vectis.conf` and `tmpfiles.d/vectis.conf`.
 5. Copy rendered `env/*.example` to `/etc/vectis/*.env` and adjust secrets, DSNs, TLS,
    ports, and auth settings.
 6. Run `systemctl daemon-reload`.
-7. Enable the desired service units, such as `systemctl enable vectis-api.service`.
+7. Enable the desired service units, such as `systemctl enable vectis-api.service`, and any desired timers, such as `systemctl enable --now vectis-retention-scheduled-cleanup.timer`.
 8. Start the enabled standalone stack with `systemctl start vectis.target`.

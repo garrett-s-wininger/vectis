@@ -30,7 +30,8 @@ name = "vectis-common"
 summary = "Common Linux service integration for Vectis"
 description = """
 Vectis common installs shared systemd, sysusers, tmpfiles, and environment
-examples used by the long-running Linux service packages.
+examples used by the long-running Linux service packages and reference
+operator automation timers.
 """
 depends = ["vectis-cli", "ca-certificates", "systemd"]
 
@@ -46,6 +47,22 @@ group = "root"
 id = "systemd-db-migrate"
 source = "linux-artifacts/systemd/vectis-db-migrate.service"
 destination = "/usr/lib/systemd/system/vectis-db-migrate.service"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "systemd-retention-scheduled-cleanup"
+source = "linux-artifacts/systemd/vectis-retention-scheduled-cleanup.service"
+destination = "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.service"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "systemd-retention-scheduled-cleanup-timer"
+source = "linux-artifacts/systemd/vectis-retention-scheduled-cleanup.timer"
+destination = "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.timer"
 mode = "0644"
 owner = "root"
 group = "root"
@@ -78,6 +95,14 @@ group = "root"
 id = "db-migrate-env-example"
 source = "linux-artifacts/env/vectis-db-migrate.env.example"
 destination = "/usr/share/doc/vectis-common/examples/vectis-db-migrate.env.example"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "retention-scheduled-cleanup-env-example"
+source = "linux-artifacts/env/vectis-retention-scheduled-cleanup.env.example"
+destination = "/usr/share/doc/vectis-common/examples/vectis-retention-scheduled-cleanup.env.example"
 mode = "0644"
 owner = "root"
 group = "root"

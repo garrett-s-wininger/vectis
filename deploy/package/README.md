@@ -9,13 +9,16 @@ The first package split is:
 | --- | --- |
 | `vectis-cli` | `/usr/bin/vectis-cli`; no systemd units or service configuration |
 | `vectis-local` | `/usr/bin/vectis-local` wrapper plus private SQLite-capable local-stack binaries under `/usr/lib/vectis-local/bin` |
-| `vectis-common` | shared target, migration unit, sysusers/tmpfiles, and common env examples |
+| `vectis-common` | shared target, migration unit, reference retention cleanup timer, sysusers/tmpfiles, and common env examples |
 | `vectis-<service>` | one service binary, its systemd unit, and its env example |
 | `vectis-services` | metadata-only convenience package depending on the standard standalone service set |
 
 The standard standalone service set includes API, artifact, catalog, cell
 ingress, cron, docs, log, log-forwarder, orchestrator, queue, reconciler,
-registry, secrets, SPIFFE authority, worker, and worker-core packages.
+registry, secrets, SPIFFE authority, worker, and worker-core packages. The
+common package also ships the timer-driven retention cleanup workflow that uses
+`vectis-cli`; operators enable it only after supplying backup evidence,
+expected topology, and API credentials.
 
 Build the production Linux package set with:
 

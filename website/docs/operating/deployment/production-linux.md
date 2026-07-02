@@ -18,8 +18,8 @@ exposing the deployment to users or shared infrastructure.
 The production package lane installs the standard standalone service set from
 `deploy/linux/services.toml`: common files, migration unit, registry, queue,
 orchestrator, log, log-forwarder, artifact, API, cell-ingress, worker-core,
-worker, cron, catalog, reconciler, secrets, SPIFFE authority, docs, and CLI
-packages.
+worker, cron, catalog, reconciler, secrets, SPIFFE authority, docs, the
+reference retention cleanup timer, and CLI packages.
 
 Packages place files on disk. They do not decide host placement, write live
 secrets, enable units, start services, or replace operator-owned supervision and
@@ -39,7 +39,7 @@ Decide these deployment facts first:
 | Storage | Assign durable directories or volumes for queue persistence, logs, artifacts, secret envelopes, SPIFFE CA material, and log-forwarder spools. |
 | Secrets | Store bootstrap token, API tokens, PostgreSQL credentials, TLS keys, SPIFFE CA material, and encryptedfs keys in a secret manager. |
 | Observability | Scrape Vectis metrics and also monitor hosts, filesystems, and PostgreSQL directly. |
-| Retention | Schedule `vectis-cli retention cleanup` or assign it to an operator runbook. |
+| Retention | Schedule `vectis-cli retention scheduled-cleanup` or assign cleanup to an operator runbook. |
 
 ## Install Artifacts
 
@@ -246,7 +246,7 @@ Before the deployment is handed to operators:
 
 - run and record the [Production v1 backup/restore drill](../reliability/backup-restore.md#production-v1-drill);
 - define `VECTIS_RETENTION_CLEANUP_*` defaults for run, idempotency, audit, log, artifact, backup-evidence, audit-export, hold-review policy, and any scheduled cleanup evidence manifest;
-- schedule or assign `vectis-cli retention cleanup` using the [production scheduling guidance](../reliability/retention.md#production-scheduling);
+- enable `vectis-retention-scheduled-cleanup.timer`, schedule equivalent automation, or assign `vectis-cli retention scheduled-cleanup` using the [production scheduling guidance](../reliability/retention.md#production-scheduling);
 - install alert rules for queue backlog, DLQ growth, reconciler failures, worker failure ratio, log append failures, artifact/storage pressure, audit drops, retry exhaustion, DB pool saturation, and API security rejection spikes;
 - record all service instance IDs and durable storage paths.
 
