@@ -189,36 +189,11 @@ func validateKnoxSecretsSmokeOptions(opts SmokeOptions) error {
 }
 
 func applySmokeKnoxFixture(ctx context.Context, opts SmokeOptions, certs smokeKnoxCertBundle) error {
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(smokeKnoxFixtureManifest(opts, certs)), "apply", "-f", "-")
-	if err != nil {
-		return fmt.Errorf("apply Knox smoke fixture: %w: %s%s", err, stdout, stderr)
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
-
-	if err := waitForSmokeWorkload(ctx, opts, smokeKnoxDeploymentName); err != nil {
-		return fmt.Errorf("wait for %s: %w", smokeKnoxDeploymentName, err)
-	}
-
-	return nil
+	return applySmokeManifest(ctx, opts, "Knox smoke fixture", smokeKnoxFixtureManifest(opts, certs), smokeKnoxDeploymentName)
 }
 
 func cleanupSmokeKnoxFixture(opts SmokeOptions) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
-	defer cancel()
-
-	fmt.Fprintf(opts.Stdout, "Deleting Knox smoke fixture %s and %s\n", smokeKnoxDeploymentName, smokeKnoxServiceName)
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "delete", smokeKnoxDeploymentName, smokeKnoxServiceName, smokeKnoxCertSecretResource, "--ignore-not-found")
-	if err != nil {
-		fmt.Fprintf(opts.Stdout, "Warning: cleanup Knox smoke fixture failed: %v: %s%s\n", err, stdout, stderr)
-		return
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
+	cleanupSmokeResources(opts, "Knox smoke fixture", smokeKnoxDeploymentName, smokeKnoxServiceName, smokeKnoxCertSecretResource)
 }
 
 func smokeKnoxFixtureManifest(opts SmokeOptions, certs smokeKnoxCertBundle) string {

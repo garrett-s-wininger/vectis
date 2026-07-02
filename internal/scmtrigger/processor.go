@@ -39,22 +39,46 @@ type Processor struct {
 	SourceInstance string
 }
 
-func (p Processor) HandleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) error {
-	rec, _, err := p.recordEvent(ctx, spec.TriggerID, event)
+type HandleResult struct {
+	EventKey          string
+	EventCreated      bool
+	RunID             string
+	RunCreated        bool
+	Dispatched        bool
+	AlreadyDispatched bool
+}
+
+func (p Processor) HandleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) (HandleResult, error) {
+	rec, created, err := p.recordEvent(ctx, spec.TriggerID, event)
 	if err != nil {
-		return err
+		return HandleResult{}, err
+	}
+
+	result := HandleResult{
+		EventKey:     rec.EventKey,
+		EventCreated: created,
 	}
 
 	if p.Jobs == nil || p.Runs == nil {
-		return nil
+		return result, nil
 	}
 
 	if rec.RunID != nil && strings.TrimSpace(*rec.RunID) != "" {
+		result.RunID = strings.TrimSpace(*rec.RunID)
+		result.AlreadyDispatched = true
 		p.logger().Debug("scm-trigger: scm event %s already has run %s", rec.EventKey, *rec.RunID)
-		return nil
+		return result, nil
 	}
 
-	return p.dispatchEventRun(ctx, spec, event)
+	runID, created, err := p.dispatchEventRun(ctx, spec, event)
+	if err != nil {
+		return HandleResult{}, err
+	}
+
+	result.RunID = runID
+	result.RunCreated = created
+	result.Dispatched = true
+	return result, nil
 }
 
 func (p Processor) recordEvent(ctx context.Context, triggerID int64, event scm.Event) (dal.SCMTriggerEventRecord, bool, error) {
@@ -88,16 +112,16 @@ func (p Processor) recordEvent(ctx context.Context, triggerID int64, event scm.E
 	return rec, created, nil
 }
 
-func (p Processor) dispatchEventRun(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) error {
+func (p Processor) dispatchEventRun(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) (string, bool, error) {
 	job, definitionVersion, definitionHash, err := p.getJobDefinitionWithVersion(ctx, spec.JobID)
 	if err != nil {
-		return err
+		return "", false, err
 	}
 
 	job.Id = &spec.JobID
 	invocationID, err := p.recordTriggerInvocation(ctx, spec, event)
 	if err != nil {
-		return err
+		return "", false, err
 	}
 
 	audit := dal.RunAuditMetadata{
@@ -107,14 +131,18 @@ func (p Processor) dispatchEventRun(ctx context.Context, spec dal.SCMPollTrigger
 
 	runID, _, created, err := p.Runs.CreateSCMEventRun(ctx, spec.TriggerID, strings.TrimSpace(event.Key), spec.JobID, definitionVersion, audit)
 	if err != nil {
-		return fmt.Errorf("create scm event run: %w", err)
+		return "", false, fmt.Errorf("create scm event run: %w", err)
 	}
 
 	if !created {
 		p.logger().Info("scm-trigger: reusing existing run %s for scm event %s", runID, strings.TrimSpace(event.Key))
 	}
 
-	return p.dispatcher().DispatchRun(ctx, job, runID, definitionHash)
+	if err := p.dispatcher().DispatchRun(ctx, job, runID, definitionHash); err != nil {
+		return "", false, err
+	}
+
+	return runID, created, nil
 }
 
 func (p Processor) getJobDefinitionWithVersion(ctx context.Context, jobID string) (*api.Job, int, string, error) {

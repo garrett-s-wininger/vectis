@@ -535,8 +535,8 @@ func (r smokeRunner) runStreamPollerDedupe(ctx context.Context, workspaceRoot st
 		return fmt.Errorf("route gerrit stream smoke event: %w", err)
 	}
 
-	if routed.Candidates != 1 || routed.Matched != 1 || routed.Handled != 1 {
-		return fmt.Errorf("gerrit stream smoke route result = %+v, want one handled trigger", routed)
+	if routed.Candidates != 1 || routed.Matched != 1 || routed.Handled != 1 || routed.Dispatched != 1 || routed.RunsCreated != 1 || routed.AlreadyDispatched != 0 {
+		return fmt.Errorf("gerrit stream smoke route result = %+v, want one new dispatched trigger", routed)
 	}
 
 	submissions := ingress.Submissions()

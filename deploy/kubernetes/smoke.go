@@ -339,7 +339,10 @@ type smokeRunTaskAttempt struct {
 
 type smokePortForward struct {
 	cancel context.CancelFunc
-	done   <-chan error
+	done   <-chan struct{}
+	errMu  sync.Mutex
+	err    error
+	output *smokeLineBuffer
 }
 
 type smokeLineBuffer struct {
@@ -2041,6 +2044,50 @@ func runSmokeKubectl(ctx context.Context, opts SmokeOptions, stdin io.Reader, ar
 	return stdout.String(), stderr.String(), err
 }
 
+func applySmokeManifest(ctx context.Context, opts SmokeOptions, description, manifest, waitResource string) error {
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(manifest), "apply", "-f", "-")
+	if err != nil {
+		return fmt.Errorf("apply %s: %w: %s%s", description, err, stdout, stderr)
+	}
+
+	printSmokeKubectlOutput(opts.Stdout, stdout, stderr)
+	if strings.TrimSpace(waitResource) == "" {
+		return nil
+	}
+
+	if err := waitForSmokeWorkload(ctx, opts, waitResource); err != nil {
+		return fmt.Errorf("wait for %s: %w", waitResource, err)
+	}
+
+	return nil
+}
+
+func cleanupSmokeResources(opts SmokeOptions, description string, resources ...string) {
+	if len(resources) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
+	defer cancel()
+
+	fmt.Fprintf(opts.Stdout, "Deleting %s %s\n", description, strings.Join(resources, " "))
+	args := append([]string{"delete"}, resources...)
+	args = append(args, "--ignore-not-found")
+	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, args...)
+	if err != nil {
+		fmt.Fprintf(opts.Stdout, "Warning: cleanup %s failed: %v: %s%s\n", description, err, stdout, stderr)
+		return
+	}
+
+	printSmokeKubectlOutput(opts.Stdout, stdout, stderr)
+}
+
+func printSmokeKubectlOutput(out io.Writer, stdout, stderr string) {
+	if text := strings.TrimSpace(stdout + stderr); text != "" {
+		fmt.Fprintln(out, text)
+	}
+}
+
 func startSmokeAPIPortForward(ctx context.Context, opts SmokeOptions) (*smokePortForward, error) {
 	return startSmokePortForward(ctx, opts, smokeAPIServiceName, []smokePortMapping{{
 		LocalPort:  opts.APILocalPort,
@@ -2106,9 +2153,11 @@ func startSmokePortForward(ctx context.Context, opts SmokeOptions, target string
 	go scan(stdout)
 	go scan(stderr)
 
-	done := make(chan error, 1)
+	done := make(chan struct{})
+	pf := &smokePortForward{cancel: cancel, done: done, output: &output}
 	go func() {
-		done <- cmd.Wait()
+		pf.setErr(cmd.Wait())
+		close(done)
 	}()
 
 	readyCtx, readyCancel := context.WithTimeout(ctx, opts.Wait)
@@ -2126,16 +2175,12 @@ func startSmokePortForward(ctx context.Context, opts SmokeOptions, target string
 			if strings.Contains(line, "Forwarding from") {
 				readyLines++
 				if readyLines >= readyTarget {
-					return &smokePortForward{cancel: cancel, done: done}, nil
+					return pf, nil
 				}
 			}
-		case err := <-done:
+		case <-done:
 			cancel()
-			if err != nil {
-				return nil, fmt.Errorf("%s port-forward failed: %w: %s", label, err, strings.TrimSpace(output.String()))
-			}
-
-			return nil, fmt.Errorf("%s port-forward exited before becoming ready: %s", label, strings.TrimSpace(output.String()))
+			return nil, pf.exitError(label)
 		case <-readyCtx.Done():
 			cancel()
 			return nil, fmt.Errorf("timed out waiting for %s port-forward: %s", label, strings.TrimSpace(output.String()))
@@ -2157,6 +2202,59 @@ func (p *smokePortForward) stop() {
 	case <-p.done:
 	case <-time.After(5 * time.Second):
 	}
+}
+
+func (p *smokePortForward) monitorContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	monitorCtx, cancel := context.WithCancel(ctx)
+	if p == nil || p.done == nil {
+		return monitorCtx, cancel
+	}
+
+	go func() {
+		select {
+		case <-p.done:
+			cancel()
+		case <-monitorCtx.Done():
+		}
+	}()
+
+	return monitorCtx, cancel
+}
+
+func (p *smokePortForward) exitErrorIfExited(label string) error {
+	if p == nil || p.done == nil {
+		return nil
+	}
+
+	select {
+	case <-p.done:
+		return p.exitError(label)
+	default:
+		return nil
+	}
+}
+
+func (p *smokePortForward) setErr(err error) {
+	p.errMu.Lock()
+	defer p.errMu.Unlock()
+	p.err = err
+}
+
+func (p *smokePortForward) exitError(label string) error {
+	p.errMu.Lock()
+	err := p.err
+	p.errMu.Unlock()
+
+	output := ""
+	if p.output != nil {
+		output = strings.TrimSpace(p.output.String())
+	}
+
+	if err != nil {
+		return fmt.Errorf("%s port-forward failed: %w: %s", label, err, output)
+	}
+
+	return fmt.Errorf("%s port-forward exited: %s", label, output)
 }
 
 func (b *smokeLineBuffer) add(line string) {

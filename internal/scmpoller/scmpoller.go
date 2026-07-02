@@ -282,7 +282,8 @@ func (s *Service) processSpec(ctx context.Context, spec dal.SCMPollTriggerSpec, 
 }
 
 func (s *Service) handleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event Event) error {
-	return s.eventProcessor().HandleEvent(ctx, spec, event)
+	_, err := s.eventProcessor().HandleEvent(ctx, spec, event)
+	return err
 }
 
 func (s *Service) eventProcessor() scmtrigger.Processor {

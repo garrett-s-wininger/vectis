@@ -150,36 +150,11 @@ func validateS3ArtifactSmokeOptions(opts SmokeOptions) error {
 }
 
 func applySmokeS3ArtifactFixture(ctx context.Context, opts SmokeOptions) error {
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(smokeS3ArtifactFixtureManifest(opts)), "apply", "-f", "-")
-	if err != nil {
-		return fmt.Errorf("apply S3 artifact smoke fixture: %w: %s%s", err, stdout, stderr)
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
-
-	if err := waitForSmokeWorkload(ctx, opts, smokeS3ArtifactDeploymentName); err != nil {
-		return fmt.Errorf("wait for %s: %w", smokeS3ArtifactDeploymentName, err)
-	}
-
-	return nil
+	return applySmokeManifest(ctx, opts, "S3 artifact smoke fixture", smokeS3ArtifactFixtureManifest(opts), smokeS3ArtifactDeploymentName)
 }
 
 func cleanupSmokeS3ArtifactFixture(opts SmokeOptions) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
-	defer cancel()
-
-	fmt.Fprintf(opts.Stdout, "Deleting S3 artifact smoke fixture %s and %s\n", smokeS3ArtifactDeploymentName, smokeS3ArtifactServiceName)
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "delete", smokeS3ArtifactDeploymentName, smokeS3ArtifactServiceName, "configmap/vectis-s3-artifact-auth", "--ignore-not-found")
-	if err != nil {
-		fmt.Fprintf(opts.Stdout, "Warning: cleanup S3 artifact smoke fixture failed: %v: %s%s\n", err, stdout, stderr)
-		return
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
+	cleanupSmokeResources(opts, "S3 artifact smoke fixture", smokeS3ArtifactDeploymentName, smokeS3ArtifactServiceName, "configmap/vectis-s3-artifact-auth")
 }
 
 func smokeS3ArtifactFixtureManifest(opts SmokeOptions) string {

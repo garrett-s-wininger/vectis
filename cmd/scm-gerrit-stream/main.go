@@ -121,7 +121,7 @@ func runSCMGerritStream(cmd *cobra.Command, args []string) {
 		}
 
 		if result.Handled > 0 {
-			logger.Info("Gerrit stream event %s routed to %d trigger(s)", event.Key, result.Handled)
+			logger.Info("Gerrit stream event %s routed to %d trigger(s), dispatched=%d new_runs=%d already_dispatched=%d", event.Key, result.Handled, result.Dispatched, result.RunsCreated, result.AlreadyDispatched)
 		}
 
 		return nil

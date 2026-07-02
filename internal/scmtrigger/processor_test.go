@@ -57,8 +57,13 @@ func TestProcessorHandleEventCreatesRunAndDispatchesWithSource(t *testing.T) {
 		Query:     "status:open",
 	}
 
-	if err := processor.HandleEvent(ctx, spec, event); err != nil {
+	result, err := processor.HandleEvent(ctx, spec, event)
+	if err != nil {
 		t.Fatalf("HandleEvent: %v", err)
+	}
+
+	if !result.EventCreated || !result.RunCreated || !result.Dispatched || result.AlreadyDispatched || result.RunID == "" {
+		t.Fatalf("HandleEvent result = %+v", result)
 	}
 
 	if len(ingress.submissions) != 1 {
@@ -153,12 +158,22 @@ func TestProcessorHandleEventDedupesAcrossSources(t *testing.T) {
 	spec := dal.SCMPollTriggerSpec{TriggerID: triggerID, JobID: jobID, Provider: "gerrit", BaseURL: "http://gerrit.example.com", Project: "project", Branch: "master"}
 	event := scm.Event{Key: "gerrit:server:project~master~Iabc:rev1", PayloadJSON: `{"change_id":"Iabc"}`}
 
-	if err := processor.HandleEvent(ctx, spec, event); err != nil {
+	first, err := processor.HandleEvent(ctx, spec, event)
+	if err != nil {
 		t.Fatalf("first HandleEvent: %v", err)
 	}
 
-	if err := pollerProcessor.HandleEvent(ctx, spec, event); err != nil {
+	second, err := pollerProcessor.HandleEvent(ctx, spec, event)
+	if err != nil {
 		t.Fatalf("second HandleEvent: %v", err)
+	}
+
+	if !first.EventCreated || !first.RunCreated || !first.Dispatched || first.AlreadyDispatched {
+		t.Fatalf("first result = %+v", first)
+	}
+
+	if second.EventCreated || second.RunCreated || second.Dispatched || !second.AlreadyDispatched || second.RunID != first.RunID {
+		t.Fatalf("second result = %+v, first=%+v", second, first)
 	}
 
 	if len(ingress.submissions) != 1 {

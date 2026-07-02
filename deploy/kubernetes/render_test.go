@@ -682,6 +682,8 @@ func TestSmokeGerritFixtureManifestContract(t *testing.T) {
 		"name: CANONICAL_WEB_URL",
 		"value: \"http://vectis-gerrit:8080/\"",
 		"containerPort: 29418",
+		"path: /config/server/version",
+		"port: http",
 		"kind: Service",
 		"targetPort: ssh",
 	} {

@@ -187,36 +187,11 @@ func applySmokeLDAPFixture(ctx context.Context, opts SmokeOptions) error {
 		return fmt.Errorf("read LDAP bootstrap LDIF %s: %w", opts.LDAPBootstrapLDIF, err)
 	}
 
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(smokeLDAPFixtureManifest(opts, string(ldif))), "apply", "-f", "-")
-	if err != nil {
-		return fmt.Errorf("apply LDAP smoke fixture: %w: %s%s", err, stdout, stderr)
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
-
-	if err := waitForSmokeWorkload(ctx, opts, smokeLDAPDeploymentName); err != nil {
-		return fmt.Errorf("wait for %s: %w", smokeLDAPDeploymentName, err)
-	}
-
-	return nil
+	return applySmokeManifest(ctx, opts, "LDAP smoke fixture", smokeLDAPFixtureManifest(opts, string(ldif)), smokeLDAPDeploymentName)
 }
 
 func cleanupSmokeLDAPFixture(opts SmokeOptions) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
-	defer cancel()
-
-	fmt.Fprintf(opts.Stdout, "Deleting LDAP smoke fixture %s and %s\n", smokeLDAPDeploymentName, smokeLDAPServiceName)
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "delete", smokeLDAPDeploymentName, smokeLDAPServiceName, smokeLDAPConfigMapResource, "--ignore-not-found")
-	if err != nil {
-		fmt.Fprintf(opts.Stdout, "Warning: cleanup LDAP smoke fixture failed: %v: %s%s\n", err, stdout, stderr)
-		return
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
+	cleanupSmokeResources(opts, "LDAP smoke fixture", smokeLDAPDeploymentName, smokeLDAPServiceName, smokeLDAPConfigMapResource)
 }
 
 func smokeLDAPFixtureManifest(opts SmokeOptions, ldif string) string {

@@ -104,6 +104,7 @@ func runGerritStreamSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, 
 	defer gerritPF.stop()
 
 	fixtureCtx, fixtureCancel := context.WithTimeout(ctx, opts.Wait)
+	fixtureCtx, fixtureMonitorCancel := gerritPF.monitorContext(fixtureCtx)
 	fixture, err := gerritsmoke.PrepareStreamSmokeFixture(fixtureCtx, gerritsmoke.StreamSmokeOptions{
 		URL:           fmt.Sprintf("http://127.0.0.1:%d", opts.GerritHTTPPort),
 		AccountID:     opts.GerritAccountID,
@@ -116,9 +117,14 @@ func runGerritStreamSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, 
 		GitBin:        opts.GerritGitBin,
 		Stdout:        out,
 	})
+	fixtureMonitorCancel()
 
 	fixtureCancel()
 	if err != nil {
+		if pfErr := gerritPF.exitErrorIfExited("Gerrit"); pfErr != nil {
+			return SmokeResult{}, pfErr
+		}
+
 		return SmokeResult{}, err
 	}
 	defer func() { _ = fixture.Close() }()
@@ -276,17 +282,8 @@ func validateGerritStreamSmokeOptions(opts SmokeOptions) error {
 }
 
 func applySmokeGerritFixture(ctx context.Context, opts SmokeOptions) error {
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(smokeGerritFixtureManifest(opts.GerritImage)), "apply", "-f", "-")
-	if err != nil {
-		return fmt.Errorf("apply Gerrit smoke fixture: %w: %s%s", err, stdout, stderr)
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
-
-	if err := waitForSmokeDeployment(ctx, opts, smokeGerritDeploymentName); err != nil {
-		return fmt.Errorf("wait for Gerrit smoke fixture: %w", err)
+	if err := applySmokeManifest(ctx, opts, "Gerrit smoke fixture", smokeGerritFixtureManifest(opts.GerritImage), smokeGerritDeploymentName); err != nil {
+		return err
 	}
 
 	if _, err := waitForSingleReadySmokeGerritPod(ctx, opts); err != nil {
@@ -297,19 +294,7 @@ func applySmokeGerritFixture(ctx context.Context, opts SmokeOptions) error {
 }
 
 func cleanupSmokeGerritFixture(opts SmokeOptions) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Wait)
-	defer cancel()
-
-	fmt.Fprintf(opts.Stdout, "Deleting Gerrit smoke fixture %s and %s\n", smokeGerritDeploymentName, smokeGerritServiceName)
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "delete", smokeGerritDeploymentName, smokeGerritServiceName, "--ignore-not-found")
-	if err != nil {
-		fmt.Fprintf(opts.Stdout, "Warning: cleanup Gerrit smoke fixture failed: %v: %s%s\n", err, stdout, stderr)
-		return
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
-	}
+	cleanupSmokeResources(opts, "Gerrit smoke fixture", smokeGerritDeploymentName, smokeGerritServiceName)
 }
 
 func smokeGerritFixtureManifest(image string) string {
@@ -346,6 +331,14 @@ spec:
               containerPort: 8080
             - name: ssh
               containerPort: 29418
+          readinessProbe:
+            httpGet:
+              path: /config/server/version
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
 ---
 apiVersion: v1
 kind: Service
@@ -689,22 +682,8 @@ func scaleSmokeDeployment(ctx context.Context, opts SmokeOptions, name string, r
 		fmt.Fprintln(opts.Stdout, text)
 	}
 
-	if err := waitForSmokeDeployment(ctx, opts, name); err != nil {
+	if err := waitForSmokeWorkload(ctx, opts, name); err != nil {
 		return fmt.Errorf("wait for %s after scale to %d: %w", name, replicas, err)
-	}
-
-	return nil
-}
-
-func waitForSmokeDeployment(ctx context.Context, opts SmokeOptions, name string) error {
-	timeout := opts.Wait.String()
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "rollout", "status", name, "--timeout", timeout)
-	if err != nil {
-		return fmt.Errorf("rollout status: %w: %s%s", err, stdout, stderr)
-	}
-
-	if text := strings.TrimSpace(stdout + stderr); text != "" {
-		fmt.Fprintln(opts.Stdout, text)
 	}
 
 	return nil

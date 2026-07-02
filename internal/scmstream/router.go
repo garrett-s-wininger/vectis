@@ -7,6 +7,7 @@ import (
 
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
+	"vectis/internal/scmtrigger"
 	"vectis/sdk/scm"
 )
 
@@ -17,7 +18,7 @@ type SpecRepository interface {
 }
 
 type EventProcessor interface {
-	HandleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) error
+	HandleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) (scmtrigger.HandleResult, error)
 }
 
 type Matcher func(dal.SCMPollTriggerSpec, scm.Event) bool
@@ -38,9 +39,14 @@ type EventTarget struct {
 }
 
 type RouteResult struct {
-	Candidates int
-	Matched    int
-	Handled    int
+	Candidates        int
+	Matched           int
+	Handled           int
+	EventsCreated     int
+	RunsCreated       int
+	RunsReused        int
+	Dispatched        int
+	AlreadyDispatched int
 }
 
 func (r Router) HandleEvent(ctx context.Context, target EventTarget, event scm.Event) (RouteResult, error) {
@@ -77,11 +83,30 @@ func (r Router) HandleEvent(ctx context.Context, target EventTarget, event scm.E
 		}
 
 		result.Matched++
-		if err := r.Processor.HandleEvent(ctx, spec, event); err != nil {
+		handled, err := r.Processor.HandleEvent(ctx, spec, event)
+		if err != nil {
 			return result, err
 		}
 
 		result.Handled++
+		if handled.EventCreated {
+			result.EventsCreated++
+		}
+
+		if handled.RunCreated {
+			result.RunsCreated++
+		}
+
+		if handled.Dispatched {
+			result.Dispatched++
+			if !handled.RunCreated {
+				result.RunsReused++
+			}
+		}
+
+		if handled.AlreadyDispatched {
+			result.AlreadyDispatched++
+		}
 	}
 
 	if result.Handled == 0 {

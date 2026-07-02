@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"vectis/internal/dal"
+	"vectis/internal/scmtrigger"
 	"vectis/sdk/scm"
 )
 
@@ -17,7 +18,12 @@ func TestRouterRoutesMatchingSpecs(t *testing.T) {
 		{TriggerID: 4, Provider: "git", BaseURL: "http://gerrit.example.com", Project: "project", Branch: "master"},
 	}}
 
-	processor := &fakeEventProcessor{}
+	processor := &fakeEventProcessor{result: scmtrigger.HandleResult{
+		EventCreated: true,
+		RunCreated:   true,
+		Dispatched:   true,
+	}}
+
 	router := Router{
 		Specs:     specs,
 		Processor: processor,
@@ -39,6 +45,10 @@ func TestRouterRoutesMatchingSpecs(t *testing.T) {
 
 	if result.Candidates != 4 || result.Matched != 1 || result.Handled != 1 {
 		t.Fatalf("result = %+v", result)
+	}
+
+	if result.EventsCreated != 1 || result.RunsCreated != 1 || result.Dispatched != 1 || result.AlreadyDispatched != 0 {
+		t.Fatalf("route outcomes = %+v", result)
 	}
 
 	if len(processor.calls) != 1 || processor.calls[0].TriggerID != 1 {
@@ -71,6 +81,31 @@ func TestRouterAllowsWildcardProjectAndBranch(t *testing.T) {
 
 	if result.Handled != 1 || len(processor.calls) != 1 {
 		t.Fatalf("result=%+v calls=%+v", result, processor.calls)
+	}
+}
+
+func TestRouterCountsAlreadyDispatchedEvents(t *testing.T) {
+	specs := &fakeSpecRepository{specs: []dal.SCMPollTriggerSpec{
+		{TriggerID: 1, Provider: "gerrit", BaseURL: "http://gerrit.example.com"},
+	}}
+
+	processor := &fakeEventProcessor{result: scmtrigger.HandleResult{
+		EventKey:          "event-1",
+		AlreadyDispatched: true,
+	}}
+
+	router := Router{Specs: specs, Processor: processor}
+	result, err := router.HandleEvent(context.Background(), EventTarget{
+		Provider: "gerrit",
+		BaseURL:  "http://gerrit.example.com",
+	}, scm.Event{Key: "event-1"})
+
+	if err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+
+	if result.Handled != 1 || result.Dispatched != 0 || result.AlreadyDispatched != 1 {
+		t.Fatalf("result = %+v", result)
 	}
 }
 
@@ -111,15 +146,16 @@ func (r *fakeSpecRepository) ListEnabledByProvider(_ context.Context, provider s
 }
 
 type fakeEventProcessor struct {
-	calls []dal.SCMPollTriggerSpec
-	err   error
+	calls  []dal.SCMPollTriggerSpec
+	result scmtrigger.HandleResult
+	err    error
 }
 
-func (p *fakeEventProcessor) HandleEvent(_ context.Context, spec dal.SCMPollTriggerSpec, _ scm.Event) error {
+func (p *fakeEventProcessor) HandleEvent(_ context.Context, spec dal.SCMPollTriggerSpec, _ scm.Event) (scmtrigger.HandleResult, error) {
 	if p.err != nil {
-		return p.err
+		return scmtrigger.HandleResult{}, p.err
 	}
 
 	p.calls = append(p.calls, spec)
-	return nil
+	return p.result, nil
 }
