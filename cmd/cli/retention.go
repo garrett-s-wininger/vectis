@@ -45,6 +45,12 @@ type retentionAuditExportCheckOptions struct {
 	MaxAge     time.Duration
 }
 
+type retentionPolicyGateOptions struct {
+	RequireBackupManifest bool
+	RequireAuditExport    bool
+	WaiverPath            string
+}
+
 type retentionAuditExportEvidence struct {
 	ExportPath     string `json:"export_path"`
 	Verified       bool   `json:"verified"`
@@ -61,6 +67,33 @@ type retentionAuditExportEvidence struct {
 	NewestEventAt  string `json:"newest_event_at,omitempty"`
 	MayBeTruncated bool   `json:"may_be_truncated"`
 }
+
+type retentionWaiverEvidence struct {
+	WaiverPath    string   `json:"waiver_path"`
+	Verified      bool     `json:"verified"`
+	CheckedAt     string   `json:"checked_at"`
+	SchemaVersion string   `json:"schema_version"`
+	Waives        []string `json:"waives"`
+	Reason        string   `json:"reason"`
+	ApprovedBy    string   `json:"approved_by"`
+	ExternalRef   string   `json:"external_ref,omitempty"`
+	ExpiresAt     string   `json:"expires_at"`
+}
+
+type retentionWaiverFile struct {
+	SchemaVersion string   `json:"schema_version"`
+	Waives        []string `json:"waives"`
+	Reason        string   `json:"reason"`
+	ApprovedBy    string   `json:"approved_by"`
+	ExternalRef   string   `json:"external_ref,omitempty"`
+	ExpiresAt     string   `json:"expires_at"`
+}
+
+const (
+	retentionWaiverSchemaVersion = "vectis.retention_waiver.v1"
+	retentionWaiverBackup        = "backup_manifest"
+	retentionWaiverAuditExport   = "audit_export"
+)
 
 func runRetentionCleanup(cmd *cobra.Command, args []string) {
 	policy := retention.Policy{
@@ -84,17 +117,32 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 		MaxAge:     retentionAuditExportMaxAge,
 	}
 
-	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions))
+	gateOptions := retentionPolicyGateOptions{
+		RequireBackupManifest: retentionRequireBackupManifest,
+		RequireAuditExport:    retentionRequireAuditExport,
+		WaiverPath:            retentionWaiver,
+	}
+
+	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions, gateOptions))
 }
 
-func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions) error {
+func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, gateOptions retentionPolicyGateOptions) error {
 	if !dryRun && !yes {
 		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
 	}
 
 	now := time.Now().UTC()
+	waiverEvidence, err := checkRetentionWaiver(gateOptions.WaiverPath, now)
+	if err != nil {
+		return err
+	}
+
 	backupEvidence, err := checkRetentionBackupManifest(backupOptions, now)
 	if err != nil {
+		return err
+	}
+
+	if err := enforceRetentionBackupGate(gateOptions, backupEvidence, waiverEvidence); err != nil {
 		return err
 	}
 
@@ -116,19 +164,27 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 
 	var auditExportEvidence *retentionAuditExportEvidence
 	var precheckedReport *retention.Report
-	if strings.TrimSpace(auditExportOptions.ExportPath) != "" {
+	needsAuditPreview := strings.TrimSpace(auditExportOptions.ExportPath) != "" || gateOptions.RequireAuditExport
+	if needsAuditPreview {
 		preview, err := cleaner.Preview(ctx, policy, now)
 		if err != nil {
 			return err
 		}
 
 		precheckedReport = &preview
-		auditExportEvidence, err = checkRetentionAuditExport(auditExportOptions, preview.Cutoffs.AuditLog, preview.Counts.AuditLog, now)
+	}
+
+	if strings.TrimSpace(auditExportOptions.ExportPath) != "" {
+		auditExportEvidence, err = checkRetentionAuditExport(auditExportOptions, precheckedReport.Cutoffs.AuditLog, precheckedReport.Counts.AuditLog, now)
 		if err != nil {
 			return err
 		}
 	} else if auditExportOptions.MaxAge > 0 {
 		return fmt.Errorf("--audit-export-max-age requires --audit-export")
+	}
+
+	if err := enforceRetentionAuditExportGate(gateOptions, auditExportEvidence, waiverEvidence, precheckedReport); err != nil {
+		return err
 	}
 
 	var fileReport retention.FileReport
@@ -249,10 +305,14 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 			payload["audit_export"] = auditExportEvidence
 		}
 
+		if waiverEvidence != nil {
+			payload["waiver"] = waiverEvidence
+		}
+
 		return writeJSON(w, payload)
 	}
 
-	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence)
+	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence, waiverEvidence)
 	if dryRun {
 		fmt.Fprintln(w, "Cleanup not applied.")
 		return nil
@@ -381,6 +441,146 @@ func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff 
 	return evidence, nil
 }
 
+func checkRetentionWaiver(path string, checkedAt time.Time) (*retentionWaiverEvidence, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+
+	if path == "-" {
+		return nil, fmt.Errorf("--waiver must be a retained file path")
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read retention waiver: %w", err)
+	}
+
+	var waiver retentionWaiverFile
+	if err := json.Unmarshal(raw, &waiver); err != nil {
+		return nil, fmt.Errorf("parse retention waiver: %w", err)
+	}
+
+	evidence := &retentionWaiverEvidence{
+		WaiverPath:    path,
+		CheckedAt:     checkedAt.UTC().Format(time.RFC3339),
+		SchemaVersion: waiver.SchemaVersion,
+		Waives:        normalizeRetentionWaiverNames(waiver.Waives),
+		Reason:        strings.TrimSpace(waiver.Reason),
+		ApprovedBy:    strings.TrimSpace(waiver.ApprovedBy),
+		ExternalRef:   strings.TrimSpace(waiver.ExternalRef),
+		ExpiresAt:     strings.TrimSpace(waiver.ExpiresAt),
+	}
+
+	if evidence.SchemaVersion != retentionWaiverSchemaVersion {
+		return evidence, fmt.Errorf("retention waiver schema_version = %q, want %q", evidence.SchemaVersion, retentionWaiverSchemaVersion)
+	}
+
+	if len(evidence.Waives) == 0 {
+		return evidence, fmt.Errorf("retention waiver must list at least one waived gate")
+	}
+
+	seen := map[string]bool{}
+	for _, name := range evidence.Waives {
+		switch name {
+		case retentionWaiverBackup, retentionWaiverAuditExport:
+		default:
+			return evidence, fmt.Errorf("retention waiver references unknown gate %q", name)
+		}
+
+		if seen[name] {
+			return evidence, fmt.Errorf("retention waiver references duplicate gate %q", name)
+		}
+		seen[name] = true
+	}
+
+	if evidence.Reason == "" {
+		return evidence, fmt.Errorf("retention waiver reason is required")
+	}
+
+	if evidence.ApprovedBy == "" {
+		return evidence, fmt.Errorf("retention waiver approved_by is required")
+	}
+
+	if evidence.ExpiresAt == "" {
+		return evidence, fmt.Errorf("retention waiver expires_at is required")
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, evidence.ExpiresAt)
+	if err != nil {
+		return evidence, fmt.Errorf("retention waiver expires_at must be RFC3339: %w", err)
+	}
+
+	if !expiresAt.After(checkedAt.UTC()) {
+		return evidence, fmt.Errorf("retention waiver expired at %s", evidence.ExpiresAt)
+	}
+
+	evidence.Verified = true
+	return evidence, nil
+}
+
+func normalizeRetentionWaiverNames(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+
+	return out
+}
+
+func enforceRetentionBackupGate(options retentionPolicyGateOptions, backupEvidence *retentionBackupEvidence, waiverEvidence *retentionWaiverEvidence) error {
+	if !options.RequireBackupManifest {
+		return nil
+	}
+
+	if backupEvidence != nil && backupEvidence.Verified {
+		return nil
+	}
+
+	if retentionWaiverAllows(waiverEvidence, retentionWaiverBackup) {
+		return nil
+	}
+
+	return fmt.Errorf("--require-backup-manifest requires --backup-manifest or a retention waiver for %s", retentionWaiverBackup)
+}
+
+func enforceRetentionAuditExportGate(options retentionPolicyGateOptions, auditExportEvidence *retentionAuditExportEvidence, waiverEvidence *retentionWaiverEvidence, report *retention.Report) error {
+	if !options.RequireAuditExport {
+		return nil
+	}
+
+	if report == nil || report.Cutoffs.AuditLog == nil || report.Counts.AuditLog == 0 {
+		return nil
+	}
+
+	if auditExportEvidence != nil && auditExportEvidence.Verified {
+		return nil
+	}
+
+	if retentionWaiverAllows(waiverEvidence, retentionWaiverAuditExport) {
+		return nil
+	}
+
+	return fmt.Errorf("--require-audit-export requires --audit-export or a retention waiver for %s before deleting %d audit row(s)", retentionWaiverAuditExport, report.Counts.AuditLog)
+}
+
+func retentionWaiverAllows(evidence *retentionWaiverEvidence, gate string) bool {
+	if evidence == nil || !evidence.Verified {
+		return false
+	}
+
+	for _, waived := range evidence.Waives {
+		if waived == gate {
+			return true
+		}
+	}
+
+	return false
+}
+
 func auditExportHasFullRetentionRange(filters auditExportFilters) bool {
 	return strings.TrimSpace(filters.EventType) == "" &&
 		filters.ActorID == nil &&
@@ -492,7 +692,7 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 	return evidence, nil
 }
 
-func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence) {
+func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence, waiverEvidence *retentionWaiverEvidence) {
 	prefix := "deleted"
 	if report.DryRun {
 		prefix = "would_delete"
@@ -544,6 +744,18 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 		if auditExportEvidence.EventsSHA256 != "" {
 			fmt.Fprintf(w, "audit_export_events_sha256=%s\n", auditExportEvidence.EventsSHA256)
 		}
+	}
+	if waiverEvidence != nil {
+		fmt.Fprintf(w, "retention_waiver_verified=%t\n", waiverEvidence.Verified)
+		fmt.Fprintf(w, "retention_waiver_path=%s\n", waiverEvidence.WaiverPath)
+		fmt.Fprintf(w, "retention_waiver_checked_at=%s\n", waiverEvidence.CheckedAt)
+		fmt.Fprintf(w, "retention_waiver_waives=%s\n", strings.Join(waiverEvidence.Waives, ","))
+		fmt.Fprintf(w, "retention_waiver_reason=%s\n", waiverEvidence.Reason)
+		fmt.Fprintf(w, "retention_waiver_approved_by=%s\n", waiverEvidence.ApprovedBy)
+		if waiverEvidence.ExternalRef != "" {
+			fmt.Fprintf(w, "retention_waiver_external_ref=%s\n", waiverEvidence.ExternalRef)
+		}
+		fmt.Fprintf(w, "retention_waiver_expires_at=%s\n", waiverEvidence.ExpiresAt)
 	}
 
 	fmt.Fprintf(w, "cutoff.terminal_runs=%s\n", retentionCutoff(report.Cutoffs.TerminalRuns))

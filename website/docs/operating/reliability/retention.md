@@ -17,6 +17,9 @@ Cleanup is intentionally explicit today:
 - `--backup-max-age` rejects stale manifest evidence, based on `generated_at`.
 - `--audit-export` verifies retained audit export evidence before deleting old audit rows.
 - `--audit-export-max-age` rejects stale audit export evidence, based on `generated_at`.
+- `--require-backup-manifest` makes backup-manifest evidence mandatory unless an approved waiver is supplied.
+- `--require-audit-export` makes audit-export evidence mandatory when audit rows are eligible for deletion unless an approved waiver is supplied.
+- `--waiver` verifies retained waiver JSON for policy-required gates.
 - Running without `--dry-run` or `--yes` fails.
 
 `vectis-cli retention holds` creates, lists, and releases compliance holds.
@@ -117,11 +120,12 @@ vectis-cli retention cleanup --yes
 ```
 
 For production apply jobs, pass the backup manifest that was captured with the
-backup set. This makes freshness and topology failures stop cleanup before the
-database or local files are opened for deletion:
+backup set. Add `--require-backup-manifest` so missing backup evidence also
+stops cleanup before the database or local files are opened for deletion:
 
 ```sh
 vectis-cli retention cleanup --yes \
+  --require-backup-manifest \
   --backup-manifest backup-manifest.json \
   --backup-expect expected-topology.json \
   --backup-max-age 24h
@@ -137,9 +141,31 @@ vectis-cli audit export \
   --output audit-export.json
 
 vectis-cli retention cleanup --yes \
+  --require-audit-export \
   --audit-age 8760h \
   --audit-export audit-export.json \
   --audit-export-max-age 24h
+```
+
+Use a waiver only for an approved exception where the gate is intentionally
+being bypassed. Waivers are retained JSON files with an expiry, an approver,
+and the gate names being waived:
+
+```json
+{
+  "schema_version": "vectis.retention_waiver.v1",
+  "waives": ["audit_export"],
+  "reason": "Emergency storage pressure while the audit export job is unavailable",
+  "approved_by": "security-oncall",
+  "external_ref": "INC-1234",
+  "expires_at": "2026-07-03T00:00:00Z"
+}
+```
+
+```sh
+vectis-cli retention cleanup --yes \
+  --require-audit-export \
+  --waiver retention-waiver.json
 ```
 
 Override windows when the defaults are not right for the environment:
@@ -255,7 +281,7 @@ ConditionPathExists=/var/lib/vectis/ops/latest-backup-manifest.json
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/vectis/vectis.env
-ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/latest-backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h
+ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --require-backup-manifest --backup-manifest /var/lib/vectis/ops/latest-backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h
 ```
 
 `/etc/systemd/system/vectis-retention-apply.timer`:
@@ -325,8 +351,11 @@ spec:
 Only mount log or artifact storage into an apply CronJob when that job is the
 owner for the shard being pruned and the artifact service lock behavior is
 accounted for. Mount the backup manifest and expected-topology file into the
-apply CronJob, then pass `--backup-manifest`, `--backup-expect`, and
-`--backup-max-age` so a stale or incomplete backup set stops cleanup.
+apply CronJob, then pass `--require-backup-manifest`, `--backup-manifest`,
+`--backup-expect`, and `--backup-max-age` so a missing, stale, or incomplete
+backup set stops cleanup. If the job prunes audit rows, also mount the retained
+audit export and pass `--require-audit-export`, `--audit-export`, and
+`--audit-export-max-age`.
 
 ## Safety Guarantees
 
@@ -343,8 +372,9 @@ Cleanup also protects:
 | Active artifact storage | Apply-time blob pruning takes `artifact.lock` and refuses to delete while the artifact service owns the directory. |
 | Recently orphaned blobs | Unreferenced blobs are skipped until their file mtime is older than the artifact blob cutoff. |
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
-| Optional backup gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. |
-| Optional audit export gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, fully exhausted across cursor pages, and broad enough to cover the audit cleanup cutoff and eligible row count. |
+| Backup evidence gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. `--require-backup-manifest` fails cleanup if that evidence is missing unless a verified waiver covers `backup_manifest`. |
+| Audit export evidence gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, fully exhausted across cursor pages, and broad enough to cover the audit cleanup cutoff and eligible row count. `--require-audit-export` fails cleanup when audit rows are eligible and export evidence is missing unless a verified waiver covers `audit_export`. |
+| Waiver evidence | `--waiver` accepts only a retained file path. The waiver must use schema `vectis.retention_waiver.v1`, list known gates, include `reason`, `approved_by`, and a future RFC3339 `expires_at`, and is reported in cleanup output. |
 | Active retention holds | Active run-scoped holds skip matching terminal runs, related SQL child rows, local run log deletion, and artifact reference removal. Active audit-range holds skip matching `audit_log` rows. |
 | Audit trail of cleanup | Applied SQL cleanup inserts a `retention.cleanup` audit event. |
 | Audit trail of holds | Creating or releasing a hold inserts `retention.hold.created` or `retention.hold.released` in `audit_log`. |
@@ -365,6 +395,14 @@ backup_manifest_expectation_source=expected-topology.json
 backup_manifest_max_age=24h0m0s
 backup_manifest_age=30m0s
 backup_manifest_warnings=0
+retention_waiver_verified=true
+retention_waiver_path=retention-waiver.json
+retention_waiver_checked_at=2026-06-28T16:00:00Z
+retention_waiver_waives=audit_export
+retention_waiver_reason=Emergency storage pressure while the audit export job is unavailable
+retention_waiver_approved_by=security-oncall
+retention_waiver_external_ref=INC-1234
+retention_waiver_expires_at=2026-07-03T00:00:00Z
 cutoff.terminal_runs=2026-04-16T12:00:00Z
 would_delete.terminal_runs=42
 would_delete.run_dispatch_events=84

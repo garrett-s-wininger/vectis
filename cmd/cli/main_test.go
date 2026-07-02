@@ -134,7 +134,7 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17}, nil, nil)
+	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17}, nil, nil, nil)
 
 	out := buf.String()
 	for _, want := range []string{

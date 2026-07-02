@@ -196,10 +196,13 @@ var (
 )
 
 var (
-	retentionBackupStorageReports []string
-	retentionBackupStorageMaxAge  time.Duration
-	retentionAuditExport          string
-	retentionAuditExportMaxAge    time.Duration
+	retentionBackupStorageReports  []string
+	retentionBackupStorageMaxAge   time.Duration
+	retentionAuditExport           string
+	retentionAuditExportMaxAge     time.Duration
+	retentionRequireBackupManifest bool
+	retentionRequireAuditExport    bool
+	retentionWaiver                string
 )
 
 var rootCmd = &cobra.Command{
@@ -414,6 +417,9 @@ func init() {
 	retentionCleanupCmd.Flags().DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", 0, "Maximum accepted storage verification report age before cleanup (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionAuditExport, "audit-export", "", "Optional audit export evidence JSON to verify before deleting audit rows")
 	retentionCleanupCmd.Flags().DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", 0, "Maximum accepted audit export evidence age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().BoolVar(&retentionRequireBackupManifest, "require-backup-manifest", false, "Require --backup-manifest unless waived by --waiver")
+	retentionCleanupCmd.Flags().BoolVar(&retentionRequireAuditExport, "require-audit-export", false, "Require --audit-export before deleting audit rows unless waived by --waiver")
+	retentionCleanupCmd.Flags().StringVar(&retentionWaiver, "waiver", "", "Optional retention waiver JSON for required cleanup gates")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditSince, "audit-since", "", "Start of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditUntil, "audit-until", "", "End of audit_log range to protect (RFC3339 or YYYY-MM-DD)")

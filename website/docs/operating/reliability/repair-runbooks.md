@@ -198,14 +198,28 @@ vectis-cli retention cleanup --dry-run
 
 4. Include `--log-storage-dir` only when pruning local durable run log files for the same deployment.
 5. Include `--artifact-storage-dir` only when pruning local artifact CAS blobs for the same deployment. Apply-time artifact blob pruning requires the artifact storage directory lock, so stop that shard or use a maintenance window.
-6. Review delete counts, `held.*` counts, cutoffs, backup manifest evidence, and any incident/restore holds before applying.
+6. Review delete counts, `held.*` counts, cutoffs, backup manifest evidence, audit export evidence for audit-row deletion, and any incident/restore holds before applying. Use `--waiver` only for an approved, retained, expiring exception.
 7. Apply during a maintenance window:
 
 ```sh
 vectis-cli retention cleanup --yes \
+  --require-backup-manifest \
   --backup-manifest backup-manifest.json \
   --backup-expect expected-topology.json \
   --backup-max-age 24h
+```
+
+When the apply run deletes audit rows, include retained audit export evidence:
+
+```sh
+vectis-cli retention cleanup --yes \
+  --require-backup-manifest \
+  --backup-manifest backup-manifest.json \
+  --backup-expect expected-topology.json \
+  --backup-max-age 24h \
+  --require-audit-export \
+  --audit-export audit-export.json \
+  --audit-export-max-age 24h
 ```
 
 8. Run `vectis-cli health check --strict`.
