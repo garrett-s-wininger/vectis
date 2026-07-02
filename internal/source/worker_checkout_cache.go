@@ -602,6 +602,24 @@ func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote 
 		return "", false, err
 	}
 
+	if currentPath != "" {
+		if resolved, err := filepath.EvalSymlinks(currentPath); err == nil {
+			currentPath = resolved
+		}
+
+		sameAdvertisedRefs, err := workerCheckoutCacheRemoteRefsMatchCurrent(ctx, currentPath, credentialEnv, remote)
+		if err != nil {
+			return "", false, err
+		}
+		if sameAdvertisedRefs {
+			if err := configureWorkerCheckoutCacheMirror(ctx, currentPath); err != nil {
+				return "", false, err
+			}
+
+			return currentPath, false, nil
+		}
+	}
+
 	generationPath := c.newGenerationPath(generationsPath)
 	tmp := generationPath + workerCheckoutReceivingSuffix
 	_ = os.RemoveAll(tmp)
@@ -683,6 +701,23 @@ func workerCheckoutCacheMirrorsHaveSameRefs(ctx context.Context, left, right str
 	return bytes.Equal(leftRefs, rightRefs), nil
 }
 
+func workerCheckoutCacheRemoteRefsMatchCurrent(ctx context.Context, currentPath string, env []string, remote WorkerCheckoutCacheRemote) (bool, error) {
+	currentRefs, err := workerCheckoutCacheMirrorRefsSnapshot(ctx, currentPath)
+	if err != nil {
+		return false, fmt.Errorf("snapshot current worker checkout cache advertised refs: %w", err)
+	}
+
+	remoteRefs, ok, err := workerCheckoutCacheAdvertisedRefSnapshot(ctx, env, remote)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+
+	return bytes.Equal(currentRefs, remoteRefs), nil
+}
+
 func workerCheckoutCacheMirrorRefSnapshot(ctx context.Context, mirrorPath string) ([]byte, error) {
 	var snapshot bytes.Buffer
 	head, err := os.ReadFile(filepath.Join(mirrorPath, "HEAD"))
@@ -694,13 +729,93 @@ func workerCheckoutCacheMirrorRefSnapshot(ctx context.Context, mirrorPath string
 	snapshot.Write(bytes.TrimSpace(head))
 	snapshot.WriteByte('\n')
 
-	refs, err := runWorkerCacheGitNoDirOutput(ctx, workerCacheMirrorGitArgs(mirrorPath, "for-each-ref", "--sort=refname", "--format=%(refname)%00%(objectname)")...)
+	refs, err := workerCheckoutCacheMirrorRefsSnapshot(ctx, mirrorPath)
 	if err != nil {
 		return nil, err
 	}
 
 	snapshot.Write(refs)
 	return snapshot.Bytes(), nil
+}
+
+func workerCheckoutCacheMirrorRefsSnapshot(ctx context.Context, mirrorPath string) ([]byte, error) {
+	refs, err := runWorkerCacheGitNoDirOutput(ctx, workerCacheMirrorGitArgs(mirrorPath, "for-each-ref", "--sort=refname", "--format=%(refname)%00%(objectname)")...)
+	if err != nil {
+		return nil, err
+	}
+
+	return refs, nil
+}
+
+func workerCheckoutCacheAdvertisedRefSnapshot(ctx context.Context, env []string, remote WorkerCheckoutCacheRemote) ([]byte, bool, error) {
+	refs, err := workerCheckoutCacheLsRemoteRefs(ctx, env, remote.RemoteURL)
+	if err != nil {
+		return nil, false, nil
+	}
+
+	for _, fallbackRemoteURL := range remote.FallbackRemoteURLs {
+		fallbackRefs, err := workerCheckoutCacheLsRemoteRefs(ctx, env, fallbackRemoteURL)
+		if err != nil {
+			continue
+		}
+
+		for refName, objectName := range fallbackRefs {
+			refs[refName] = objectName
+		}
+	}
+
+	return workerCheckoutCacheFormatRefSnapshot(refs), true, nil
+}
+
+func workerCheckoutCacheLsRemoteRefs(ctx context.Context, env []string, remoteURL string) (map[string]string, error) {
+	out, err := runWorkerCacheGitCommandOutputWithEnv(ctx, "", env, managedGitCommandArgs("ls-remote", "--refs", "--", remoteURL, "refs/*")...)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseWorkerCheckoutCacheAdvertisedRefs(out)
+}
+
+func parseWorkerCheckoutCacheAdvertisedRefs(out []byte) (map[string]string, error) {
+	refs := make(map[string]string)
+	for _, line := range bytes.Split(out, []byte{'\n'}) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+
+		fields := bytes.Fields(line)
+		if len(fields) != 2 {
+			return nil, fmt.Errorf("parse advertised worker checkout cache ref %q", line)
+		}
+
+		refName := string(fields[1])
+		if !strings.HasPrefix(refName, "refs/") || strings.HasSuffix(refName, "^{}") {
+			continue
+		}
+
+		refs[refName] = string(fields[0])
+	}
+
+	return refs, nil
+}
+
+func workerCheckoutCacheFormatRefSnapshot(refs map[string]string) []byte {
+	refNames := make([]string, 0, len(refs))
+	for refName := range refs {
+		refNames = append(refNames, refName)
+	}
+	sort.Strings(refNames)
+
+	var snapshot bytes.Buffer
+	for _, refName := range refNames {
+		snapshot.WriteString(refName)
+		snapshot.WriteByte(0)
+		snapshot.WriteString(refs[refName])
+		snapshot.WriteByte('\n')
+	}
+
+	return snapshot.Bytes()
 }
 
 func cloneWorkerCheckoutCacheMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, env []string, tmp string) (string, error) {

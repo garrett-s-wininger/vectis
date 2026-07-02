@@ -462,6 +462,91 @@ func TestWorkerCheckoutCacheWarmRemoteSkipsUnchangedGeneration(t *testing.T) {
 	}
 }
 
+func TestWorkerCheckoutCacheAdvertisedRefPreflightMatchesCurrent(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "first\n", "first")
+	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+	git(t, remote, "notes", "--ref=commits", "add", "-m", "preflight note", mainCommit)
+	git(t, remote, "checkout", "-b", "review/preflight")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "update-ref", "refs/changes/01/1", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	currentPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	matched, err := workerCheckoutCacheRemoteRefsMatchCurrent(context.Background(), currentPath, nil, WorkerCheckoutCacheRemote{RemoteURL: remote})
+	if err != nil {
+		t.Fatalf("workerCheckoutCacheRemoteRefsMatchCurrent: %v", err)
+	}
+
+	if !matched {
+		t.Fatal("advertised refs should match current generation")
+	}
+
+	writeAndCommit(t, remote, "README.md", "second\n", "second")
+	matched, err = workerCheckoutCacheRemoteRefsMatchCurrent(context.Background(), currentPath, nil, WorkerCheckoutCacheRemote{RemoteURL: remote})
+	if err != nil {
+		t.Fatalf("workerCheckoutCacheRemoteRefsMatchCurrent after change: %v", err)
+	}
+
+	if matched {
+		t.Fatal("advertised refs matched after remote changed")
+	}
+}
+
+func TestWorkerCheckoutCacheAdvertisedRefPreflightOverlaysFallbackRefs(t *testing.T) {
+	primary := initGitRepo(t)
+	writeAndCommit(t, primary, "README.md", "primary\n", "primary")
+
+	fallback := filepath.Join(t.TempDir(), "fallback")
+	cloneGitRepo(t, primary, fallback)
+	git(t, fallback, "config", "user.name", "Vectis Test")
+	git(t, fallback, "config", "user.email", "vectis@example.invalid")
+	git(t, fallback, "checkout", "-b", "review/fallback")
+	writeAndCommit(t, fallback, "README.md", "fallback\n", "fallback")
+	fallbackCommit := gitOutput(t, fallback, "rev-parse", "HEAD")
+	git(t, fallback, "update-ref", "refs/pull/456/head", fallbackCommit)
+
+	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+		{
+			RemoteURL:          primary,
+			FallbackRemoteURLs: []string{fallback},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), primary, nil); err != nil || !handled {
+		t.Fatalf("WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	currentPath := currentWorkerCheckoutGeneration(t, cache, primary)
+	matched, err := workerCheckoutCacheRemoteRefsMatchCurrent(context.Background(), currentPath, nil, WorkerCheckoutCacheRemote{
+		RemoteURL:          primary,
+		FallbackRemoteURLs: []string{fallback},
+	})
+
+	if err != nil {
+		t.Fatalf("workerCheckoutCacheRemoteRefsMatchCurrent: %v", err)
+	}
+
+	if !matched {
+		t.Fatal("advertised refs with fallback overlay should match current generation")
+	}
+}
+
 func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	cache, err := NewWorkerCheckoutCache(

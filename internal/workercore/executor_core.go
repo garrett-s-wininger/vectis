@@ -187,16 +187,21 @@ func (c *ExecutorCore) warmCheckoutCacheRemotes(ctx context.Context, remotes []C
 	}
 	close(jobs)
 
+	var firstErr error
 	for range sent {
 		remoteResult := <-results
-		if remoteResult.err != nil {
-			return result, remoteResult.err
+		if remoteResult.err != nil && firstErr == nil {
+			firstErr = remoteResult.err
+			continue
 		}
 
 		result.add(remoteResult)
 	}
 
 	wg.Wait()
+	if firstErr != nil {
+		return result, firstErr
+	}
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
