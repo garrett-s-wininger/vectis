@@ -187,6 +187,27 @@ retained cleanup evidence manifest. Paths inside the manifest can be absolute or
 relative to the manifest file, and explicit CLI flags override individual
 manifest fields when an operator needs a one-off apply:
 
+```sh
+vectis-cli retention evidence manifest \
+  --backup-manifest /var/lib/vectis/ops/backup-manifest.json \
+  --backup-expect /etc/vectis/expected-topology.json \
+  --backup-storage-report /var/lib/vectis/ops/queue.storage.json \
+  --backup-storage-report /var/lib/vectis/ops/logs.storage.json \
+  --backup-max-age 24h \
+  --backup-storage-max-age 24h \
+  --audit-export /var/lib/vectis/ops/audit-export.json \
+  --audit-export-max-age 24h \
+  --hold-review /var/lib/vectis/ops/hold-review.json \
+  --hold-review-max-age 24h \
+  --require-backup-manifest \
+  --require-audit-export \
+  --require-hold-review \
+  --generated-by retention-scheduler \
+  --external-ref CHG-123 \
+  --output /var/lib/vectis/ops/retention-cleanup-evidence-20260702.json \
+  --promote /var/lib/vectis/ops/retention-cleanup-evidence.json
+```
+
 ```json
 {
   "schema_version": "vectis.retention_cleanup_evidence.v1",
@@ -342,12 +363,12 @@ WantedBy=timers.target
 ```ini
 [Unit]
 Description=Apply Vectis retention cleanup
-ConditionPathExists=/var/lib/vectis/ops/latest-backup-manifest.json
+ConditionPathExists=/var/lib/vectis/ops/retention-cleanup-evidence.json
 
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/vectis/vectis.env
-ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --require-backup-manifest --backup-manifest /var/lib/vectis/ops/latest-backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h
+ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --evidence-manifest /var/lib/vectis/ops/retention-cleanup-evidence.json
 ```
 
 `/etc/systemd/system/vectis-retention-apply.timer`:

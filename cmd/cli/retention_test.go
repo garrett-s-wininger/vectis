@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -203,6 +204,147 @@ func TestApplyRetentionCleanupEvidenceManifestRejectsInvalidSchema(t *testing.T)
 	}
 	if !strings.Contains(err.Error(), "schema_version") {
 		t.Fatalf("evidence manifest error = %v, want schema_version", err)
+	}
+}
+
+func TestBuildRetentionCleanupEvidenceManifest(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	manifest, err := buildRetentionCleanupEvidenceManifest(now, "retention-scheduler", "CHG-123", retentionCleanupEvidenceManifestBuildOptions{
+		BackupManifest:        "backup-manifest.json",
+		BackupExpect:          "expected-topology.json",
+		BackupStorageReports:  []string{"queue.storage.json", "", "logs.storage.json"},
+		BackupMaxAge:          24 * time.Hour,
+		BackupStorageMaxAge:   time.Hour,
+		AuditExport:           "audit-export.json",
+		AuditExportMaxAge:     2 * time.Hour,
+		HoldReview:            "hold-review.json",
+		HoldReviewMaxAge:      3 * time.Hour,
+		RequireBackupManifest: true,
+		RequireAuditExport:    true,
+		RequireHoldReview:     true,
+		Waiver:                "retention-waiver.json",
+	})
+	if err != nil {
+		t.Fatalf("build evidence manifest: %v", err)
+	}
+
+	if manifest.SchemaVersion != retentionCleanupEvidenceManifestSchemaVersion ||
+		manifest.GeneratedAt != "2026-07-02T12:00:00Z" ||
+		manifest.GeneratedBy != "retention-scheduler" ||
+		manifest.ExternalRef != "CHG-123" {
+		t.Fatalf("manifest metadata = %+v", manifest)
+	}
+	if manifest.BackupManifest != "backup-manifest.json" ||
+		manifest.BackupExpect != "expected-topology.json" ||
+		manifest.BackupMaxAge != "24h0m0s" ||
+		manifest.BackupStorageMaxAge != "1h0m0s" {
+		t.Fatalf("manifest backup fields = %+v", manifest)
+	}
+	if len(manifest.BackupStorageReports) != 2 ||
+		manifest.BackupStorageReports[0] != "queue.storage.json" ||
+		manifest.BackupStorageReports[1] != "logs.storage.json" {
+		t.Fatalf("manifest storage reports = %#v", manifest.BackupStorageReports)
+	}
+	if manifest.AuditExport != "audit-export.json" || manifest.AuditExportMaxAge != "2h0m0s" {
+		t.Fatalf("manifest audit fields = %+v", manifest)
+	}
+	if manifest.HoldReview != "hold-review.json" || manifest.HoldReviewMaxAge != "3h0m0s" {
+		t.Fatalf("manifest hold review fields = %+v", manifest)
+	}
+	if manifest.RequireBackupManifest == nil || !*manifest.RequireBackupManifest ||
+		manifest.RequireAuditExport == nil || !*manifest.RequireAuditExport ||
+		manifest.RequireHoldReview == nil || !*manifest.RequireHoldReview {
+		t.Fatalf("manifest require gates = %+v", manifest)
+	}
+	if manifest.Waiver != "retention-waiver.json" {
+		t.Fatalf("manifest waiver = %q", manifest.Waiver)
+	}
+}
+
+func TestBuildRetentionCleanupEvidenceManifestRejectsIncompleteBackupOptions(t *testing.T) {
+	_, err := buildRetentionCleanupEvidenceManifest(time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC), "retention-scheduler", "", retentionCleanupEvidenceManifestBuildOptions{
+		BackupExpect: "expected-topology.json",
+	})
+	if err == nil {
+		t.Fatalf("build evidence manifest succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "--backup-manifest") {
+		t.Fatalf("build evidence manifest error = %v, want --backup-manifest", err)
+	}
+
+	_, err = buildRetentionCleanupEvidenceManifest(time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC), "retention-scheduler", "", retentionCleanupEvidenceManifestBuildOptions{
+		BackupManifest:      "backup-manifest.json",
+		BackupStorageMaxAge: time.Hour,
+	})
+	if err == nil {
+		t.Fatalf("build evidence manifest succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "--backup-storage-report") {
+		t.Fatalf("build evidence manifest error = %v, want --backup-storage-report", err)
+	}
+}
+
+func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	root := t.TempDir()
+	outputPath := filepath.Join(root, "retention-cleanup-evidence-20260702.json")
+	promotePath := filepath.Join(root, "retention-cleanup-evidence.json")
+	manifest := retentionCleanupEvidenceManifestFile{
+		SchemaVersion:         retentionCleanupEvidenceManifestSchemaVersion,
+		GeneratedAt:           "2026-07-02T12:00:00Z",
+		GeneratedBy:           "retention-scheduler",
+		ExternalRef:           "CHG-123",
+		BackupManifest:        "backup-manifest.json",
+		AuditExport:           "audit-export.json",
+		HoldReview:            "hold-review.json",
+		BackupMaxAge:          "24h",
+		AuditExportMaxAge:     "24h",
+		HoldReviewMaxAge:      "24h",
+		RequireBackupManifest: boolPtr(true),
+		RequireAuditExport:    boolPtr(true),
+		RequireHoldReview:     boolPtr(true),
+	}
+
+	var buf bytes.Buffer
+	if err := writeRetentionCleanupEvidenceManifest(&buf, outputPath, promotePath, manifest); err != nil {
+		t.Fatalf("write evidence manifest: %v", err)
+	}
+
+	var receipt retentionCleanupEvidenceManifestWriteResult
+	if err := json.Unmarshal(buf.Bytes(), &receipt); err != nil {
+		t.Fatalf("parse receipt: %v\n%s", err, buf.String())
+	}
+	if receipt.Status != "generated" || receipt.Path != outputPath || receipt.PromotedTo != promotePath {
+		t.Fatalf("receipt = %+v", receipt)
+	}
+
+	outputPayload, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read output manifest: %v", err)
+	}
+	promotedPayload, err := os.ReadFile(promotePath)
+	if err != nil {
+		t.Fatalf("read promoted manifest: %v", err)
+	}
+	if string(outputPayload) != string(promotedPayload) {
+		t.Fatalf("promoted payload differs from output payload")
+	}
+
+	info, err := os.Stat(promotePath)
+	if err != nil {
+		t.Fatalf("stat promoted manifest: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("promoted manifest mode = %v, want 0600", info.Mode().Perm())
+	}
+
+	var got retentionCleanupEvidenceManifestFile
+	if err := json.Unmarshal(promotedPayload, &got); err != nil {
+		t.Fatalf("parse promoted manifest: %v", err)
+	}
+	if got.SchemaVersion != retentionCleanupEvidenceManifestSchemaVersion || got.BackupManifest != "backup-manifest.json" {
+		t.Fatalf("promoted manifest = %+v", got)
 	}
 }
 
