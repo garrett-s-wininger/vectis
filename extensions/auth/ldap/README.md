@@ -69,8 +69,9 @@ runs an in-memory Vectis API login/session/token flow against that provider:
 make ldap-smoke
 ```
 
-`ldap-smoke-up` starts a local OpenLDAP container with a read-only bind user and
-a seeded login user from `extensions/auth/ldap/testdata/bootstrap`.
+`ldap-smoke-up` recreates a local OpenLDAP container with a read-only bind user
+and a seeded login user from `extensions/auth/ldap/testdata/bootstrap` so
+directory data, bootstrap LDIF, and runtime flags cannot go stale between runs.
 `ldap-smoke-check` authenticates the seeded user, checks the mapped subject,
 username, and display name, and verifies that a wrong password is rejected.
 `ldap-api-smoke-check` discovers the seeded LDAP identity, completes API setup
@@ -93,7 +94,7 @@ Useful knobs:
 | `VECTIS_API_AUTH_LDAP_SUBJECT_ATTRIBUTE` | empty | LDAP attribute used as the stable external subject; empty means use the entry DN. |
 | `VECTIS_API_AUTH_LDAP_AUTO_LINK_USERS` | `true` | Link first-seen LDAP identities to existing local users with matching usernames. Set `false` to require explicit pre-linking. |
 | `LDAP_SMOKE_IMAGE` | `docker.io/osixia/openldap:1.5.0` | Local OpenLDAP image. |
-| `LDAP_SMOKE_CONTAINER` | `vectis-openldap` | Reusable local container name. |
+| `LDAP_SMOKE_CONTAINER` | `vectis-openldap` | Local container name recreated by `ldap-smoke-up`. |
 | `LDAP_SMOKE_PORT` | `1389` | Host port mapped to LDAP. |
 | `LDAP_SMOKE_URL` | `ldap://127.0.0.1:1389` | URL passed to the smoke binary. |
 | `LDAP_SMOKE_BOOTSTRAP_DIR` | `extensions/auth/ldap/testdata/bootstrap` | LDIF directory mounted into the container. |

@@ -225,9 +225,9 @@ and automation. Admin-set password changes explicitly re-enable local password
 auth for a user.
 LDAP groups do not grant Vectis roles in this slice; assign roles through Vectis
 role bindings. For local compatibility validation, run `make ldap-smoke` to
-exercise service-account search, user bind, identity mapping, API login/session
-creation, authenticated API access, and wrong-password rejection against
-OpenLDAP.
+recreate a local OpenLDAP fixture and exercise service-account search, user
+bind, identity mapping, API login/session creation, authenticated API access,
+and wrong-password rejection.
 
 For the auth model and operational posture, see [Security](../concepts/security.md). For CLI auth commands, see [CLI Guide](../using/cli-guide.md).
 
