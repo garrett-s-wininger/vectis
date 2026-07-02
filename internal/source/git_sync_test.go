@@ -727,7 +727,7 @@ func TestManagedGitCheckoutCommitFileWaitsForManagedWriterLock(t *testing.T) {
 		_, err := NewManagedGitCheckout(repo).CommitFile(context.Background(), CommitFileOptions{
 			Ref:          branch,
 			Path:         ".vectis/jobs/build.json",
-			Content:      []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`),
+			Content:      []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`),
 			Message:      "add build",
 			ExpectedHead: parent,
 		})
@@ -775,7 +775,7 @@ func TestManagedGitCheckoutCommitFileContextExpiresWaitingForManagedWriterLock(t
 	_, err = NewManagedGitCheckout(repo).CommitFile(ctx, CommitFileOptions{
 		Ref:          branch,
 		Path:         ".vectis/jobs/build.json",
-		Content:      []byte(`{"root":{"id":"root","uses":"builtins/shell","with":{"command":"true"}}}`),
+		Content:      []byte(`{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`),
 		Message:      "add build",
 		ExpectedHead: parent,
 	})

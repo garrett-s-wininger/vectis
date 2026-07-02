@@ -182,8 +182,8 @@ func TestAPIServer_SourceDefinitionAuthoringBusyError(t *testing.T) {
 		"definition": map[string]any{
 			"root": map[string]any{
 				"id":   "root",
-				"uses": "builtins/shell",
-				"with": map[string]any{"command": "true"},
+				"uses": "builtins/script",
+				"with": map[string]any{"script": "true"},
 			},
 		},
 	})

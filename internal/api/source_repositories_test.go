@@ -2524,8 +2524,8 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T
 		t.Fatalf("hydrated managed feature definition JSON: %v", err)
 	}
 
-	if job.GetRoot().GetWith()["command"] != "feature" {
-		t.Fatalf("hydrated managed feature definition command: got %+v", job.GetRoot().GetWith())
+	if job.GetRoot().GetWith()["script"] != "feature" {
+		t.Fatalf("hydrated managed feature definition script: got %+v", job.GetRoot().GetWith())
 	}
 }
 
@@ -2590,8 +2590,8 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesProviderRefs(t *testing
 				t.Fatalf("hydrated managed provider definition JSON: %v", err)
 			}
 
-			if job.GetRoot().GetWith()["command"] != "provider" {
-				t.Fatalf("hydrated managed provider definition command: got %+v", job.GetRoot().GetWith())
+			if job.GetRoot().GetWith()["script"] != "provider" {
+				t.Fatalf("hydrated managed provider definition script: got %+v", job.GetRoot().GetWith())
 			}
 		})
 	}
@@ -3380,6 +3380,11 @@ func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
 
 func TestAPIServer_SourceRepositoryRejectsInvalidFallbackRemoteURL(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	checkoutRoot := t.TempDir()
+	viper.Set("source.checkout_root", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -3387,7 +3392,7 @@ func TestAPIServer_SourceRepositoryRejectsInvalidFallbackRemoteURL(t *testing.T)
 	createRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
 		"repository_id":        "invalid-fallback",
 		"source_kind":          dal.SourceKindLocalCheckout,
-		"checkout_path":        t.TempDir(),
+		"checkout_path":        filepath.Join(checkoutRoot, "invalid-fallback"),
 		"fallback_remote_urls": []string{"-config"},
 	})
 
@@ -3396,7 +3401,7 @@ func TestAPIServer_SourceRepositoryRejectsInvalidFallbackRemoteURL(t *testing.T)
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
 		"repository_id": "vectis-local",
 		"source_kind":   dal.SourceKindLocalCheckout,
-		"checkout_path": t.TempDir(),
+		"checkout_path": filepath.Join(checkoutRoot, "vectis-local"),
 		"default_ref":   "HEAD",
 	})
 
