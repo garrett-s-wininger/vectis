@@ -32,8 +32,9 @@ make s3-smoke-up
 make s3-smoke-check
 ```
 
-`s3-smoke-up` starts two local SeaweedFS S3 gateways with `CONTAINER_CMD`:
-one public endpoint at `S3_SMOKE_ENDPOINT`, defaulting to
+`s3-smoke-up` recreates two local SeaweedFS S3 gateways with `CONTAINER_CMD` so
+data, auth config, and runtime flags cannot go stale between runs: one public
+endpoint at `S3_SMOKE_ENDPOINT`, defaulting to
 `http://127.0.0.1:18333`, and one credential-enforced endpoint at
 `S3_SMOKE_AUTH_ENDPOINT`, defaulting to `http://127.0.0.1:18334`.
 `s3-smoke-check` writes a blob, stats it, reads it back, and checks storage
@@ -52,14 +53,14 @@ Useful knobs:
 
 | Variable | Default | Purpose |
 | --- | ---: | --- |
-| `S3_SMOKE_IMAGE` | `docker.io/chrislusf/seaweedfs:latest` | Local S3-compatible image. |
-| `S3_SMOKE_CONTAINER` | `vectis-seaweedfs-s3` | Reusable public-mode container name. |
+| `S3_SMOKE_IMAGE` | `docker.io/chrislusf/seaweedfs:4.36` | Local S3-compatible image. |
+| `S3_SMOKE_CONTAINER` | `vectis-seaweedfs-s3` | Public-mode container name recreated by `s3-smoke-public-up`. |
 | `S3_SMOKE_PORT` | `18333` | Host port mapped to the S3 gateway. |
 | `S3_SMOKE_ENDPOINT` | `http://127.0.0.1:18333` | Public endpoint passed to the smoke binary. |
 | `S3_SMOKE_BUCKET` | `vectis-artifacts` | Public bucket used by the smoke. |
 | `S3_SMOKE_PREFIX` | `local-smoke` | Public object prefix used by the smoke. |
 | `S3_SMOKE_CREATE_BUCKET` | `true` | Whether the public smoke creates the bucket first. |
-| `S3_SMOKE_AUTH_CONTAINER` | `vectis-seaweedfs-s3-auth` | Reusable auth-mode container name. |
+| `S3_SMOKE_AUTH_CONTAINER` | `vectis-seaweedfs-s3-auth` | Auth-mode container name recreated by `s3-smoke-auth-up`. |
 | `S3_SMOKE_AUTH_PORT` | `18334` | Host port mapped to the auth S3 gateway. |
 | `S3_SMOKE_AUTH_ENDPOINT` | `http://127.0.0.1:18334` | Auth endpoint passed to the smoke binary. |
 | `S3_SMOKE_AUTH_ACCESS_KEY_ID` | `vectis-smoke` | Access key accepted by the auth smoke config. |

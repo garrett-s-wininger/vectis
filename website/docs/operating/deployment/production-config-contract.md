@@ -188,9 +188,9 @@ The S3 backend changes where artifact bytes are stored; it does not change the
 internal artifact gRPC API, artifact shard identity, or run metadata routing.
 Keep the bucket private and apply operator-managed retention, backup, lifecycle,
 and credential rotation controls. For local compatibility validation, run
-`make s3-smoke-up` and `make s3-smoke-check` to exercise both public and
-access-key-enforced S3 endpoints, or point `go run ./extensions/artifacts/s3/smoke`
-at a managed S3-compatible endpoint.
+`make s3-smoke-up` and `make s3-smoke-check` to recreate local SeaweedFS
+fixtures and exercise both public and access-key-enforced S3 endpoints, or point
+`go run ./extensions/artifacts/s3/smoke` at a managed S3-compatible endpoint.
 
 ## Worker And Isolation Contract
 
