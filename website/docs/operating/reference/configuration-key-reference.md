@@ -23,6 +23,21 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | `cell.id` | `local` | Local cell identity. Override with `VECTIS_CELL_ID` in multi-cell deployments. |
 | `dispatch.start_ttl` | `24h` | Maximum time a root or task execution may wait before start; expired dispatches fail with `dispatch_expired`. |
 
+## Retention Cleanup
+
+| Key | Default | Operator note |
+| --- | --- | --- |
+| `retention.cleanup.terminal_run_age` | `720h` | Default terminal-run cleanup window for `vectis-cli retention cleanup`; `0s` disables terminal-run cleanup. |
+| `retention.cleanup.job_definition_age` | `720h` | Default unreferenced job-definition cleanup window; `0s` disables this surface. |
+| `retention.cleanup.idempotency_age` | `24h` | Default idempotency-key cleanup window; keep longer than realistic client retry windows. |
+| `retention.cleanup.audit_age` | `8760h` | Default audit-log cleanup window; align with security and compliance policy. |
+| `retention.cleanup.artifact_blob_age` | `720h` | Default unreferenced artifact-blob grace period when local blob pruning is enabled. |
+| `retention.cleanup.backup_max_age` | `0s` | Default maximum accepted backup manifest age before cleanup; `0s` disables freshness enforcement. |
+| `retention.cleanup.backup_storage_max_age` | `0s` | Default maximum accepted storage verification report age before cleanup; `0s` disables freshness enforcement. |
+| `retention.cleanup.audit_export_max_age` | `0s` | Default maximum accepted audit export evidence age before cleanup; `0s` disables freshness enforcement. |
+| `retention.cleanup.require_backup_manifest` | `false` | Makes `vectis-cli retention cleanup` require backup manifest evidence unless a verified waiver covers `backup_manifest`. |
+| `retention.cleanup.require_audit_export` | `false` | Makes `vectis-cli retention cleanup` require audit export evidence when audit rows are eligible unless a verified waiver covers `audit_export`. |
+
 ## API
 
 | Key | Default | Operator note |

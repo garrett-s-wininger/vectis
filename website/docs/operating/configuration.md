@@ -22,7 +22,7 @@ For service-scoped variables, take the service prefix, append the setting path w
 VECTIS_WORKER_DISCOVERY_REGISTRY_ADDRESS=localhost:8082
 ```
 
-Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dispatch TTL, API auth, and action registry policy use explicit global `VECTIS_*` names instead of only the service prefix. The common settings below call out the ones operators usually touch.
+Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dispatch TTL, retention cleanup policy, API auth, and action registry policy use explicit global `VECTIS_*` names instead of only the service prefix. The common settings below call out the ones operators usually touch.
 
 `VECTIS_DISPATCH_START_TTL` sets how long a root or task execution may remain dispatchable before Vectis refuses to start it. Producers stamp the deadline into the execution envelope, queues drop expired deliveries instead of redelivering them, the worker refuses a database claim after the deadline, and the reconciler marks expired queued executions failed with failure code `dispatch_expired`.
 
@@ -59,6 +59,8 @@ Shared settings such as cell identity, database DSNs, gRPC TLS, metrics TLS, dis
 | Pin worker to an orchestrator address | `VECTIS_WORKER_ORCHESTRATOR_ADDRESS=host:8087` |
 | Persist queue backlog to disk | `VECTIS_QUEUE_PERSISTENCE_DIR=/path/to/queue-shard` |
 | Expire queued work that never starts | `VECTIS_DISPATCH_START_TTL=24h` |
+| Set retention cleanup windows | `VECTIS_RETENTION_CLEANUP_TERMINAL_RUN_AGE=720h`, `VECTIS_RETENTION_CLEANUP_IDEMPOTENCY_AGE=48h`, and `VECTIS_RETENTION_CLEANUP_AUDIT_AGE=8760h` |
+| Require cleanup evidence by policy | `VECTIS_RETENTION_CLEANUP_REQUIRE_BACKUP_MANIFEST=true`, `VECTIS_RETENTION_CLEANUP_BACKUP_MAX_AGE=24h`, `VECTIS_RETENTION_CLEANUP_REQUIRE_AUDIT_EXPORT=true`, and `VECTIS_RETENTION_CLEANUP_AUDIT_EXPORT_MAX_AGE=24h` |
 | Expose a dedicated metrics listener off-host | Set the service `--metrics-host` flag or `VECTIS_<SERVICE>_METRICS_HOST=0.0.0.0` plus `VECTIS_METRICS_ALLOWED_HOSTS=<scrape-host>` |
 | Change reconciler interval | `VECTIS_RECONCILER_INTERVAL=30s` |
 | Change reconciler failover TTL | `VECTIS_RECONCILER_LEASE_TTL=2m` |
@@ -154,7 +156,7 @@ Use these prefixes when building service-specific environment variable names.
 | `vectis-docs` | `VECTIS_DOCS` | `--host`, `--port`, `--dir`, `--allowed-host`, `--tls-cert-file`, `--tls-key-file` |
 | `vectis-ui` | `VECTIS_UI` | `--host`, `--port`, `--dir`, `--dev-assets-url`, `--api-url` |
 | `vectis-local` | `VECTIS_LOCAL` | `--profile`, `--host`, `--cell`, `--auth`, `--ui-port`, `--ui-dir`, `--ui-dev-assets`, `--ui-dev-assets-host`, `--ui-dev-assets-port`, `--ui-dev-assets-dir`, `--docs-port`, `--docs-dir`, `--log-level`, `--grpc-insecure`, `--http-tls`, `--tls-dir`, `--config-as-code`, `--source-repository`; local SPIFFE smoke-test flags: `--spiffe-trust-domain`, `--spiffe-dir`, `--spiffe-runtime-dir`, `--spiffe-parent-id`, `--spiffe-selector`; subcommands: `init`, `install-cert` |
-| `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate` |
+| `vectis-cli` | none for normal API commands | `VECTIS_API_TOKEN` for auth; `VECTIS_DATABASE_*` for `database migrate`; `VECTIS_RETENTION_CLEANUP_*` for retention cleanup defaults |
 
 The API client IP trust setting is an intentionally separate API-wide variable: `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS`.
 

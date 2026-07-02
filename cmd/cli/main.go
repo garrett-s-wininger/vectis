@@ -8,7 +8,6 @@ import (
 	"time"
 	"vectis/internal/cli"
 	"vectis/internal/config"
-	"vectis/internal/retention"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -236,6 +235,27 @@ Commands are grouped around the thing you want to work with:
 	},
 }
 
+type retentionCleanupDefaults struct {
+	Policy              config.RetentionCleanupPolicyDefaults
+	BackupMaxAge        time.Duration
+	BackupStorageMaxAge time.Duration
+	AuditExportMaxAge   time.Duration
+	RequireBackup       bool
+	RequireAuditExport  bool
+}
+
+func retentionCleanupDefaultsFromConfig() retentionCleanupDefaults {
+	policy := config.RetentionCleanupPolicy()
+	return retentionCleanupDefaults{
+		Policy:              policy,
+		BackupMaxAge:        config.RetentionCleanupBackupMaxAge(),
+		BackupStorageMaxAge: config.RetentionCleanupBackupStorageMaxAge(),
+		AuditExportMaxAge:   config.RetentionCleanupAuditExportMaxAge(),
+		RequireBackup:       config.RetentionCleanupRequireBackupManifest(),
+		RequireAuditExport:  config.RetentionCleanupRequireAuditExport(),
+	}
+}
+
 func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().StringVar(&cliOutputFormat, "format", outputText, "Output format: text or json")
@@ -400,25 +420,25 @@ func init() {
 	localCmd.AddCommand(resetCmd)
 	rootCmd.AddCommand(localCmd)
 
-	defaultRetention := retention.DefaultPolicy()
+	defaultRetention := retentionCleanupDefaultsFromConfig()
 	retentionCleanupCmd.Flags().BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
 	retentionCleanupCmd.Flags().BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
-	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.JobDefinitions, "Delete unreferenced job definition snapshots older than this duration (0 disables)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.AuditLog, "Delete audit log rows older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.Policy.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionDefAge, "job-definition-age", defaultRetention.Policy.JobDefinitions, "Delete unreferenced job definition snapshots older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionIdemAge, "idempotency-age", defaultRetention.Policy.IdempotencyKeys, "Delete idempotency keys older than this duration (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Delete audit log rows older than this duration (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
-	retentionCleanupCmd.Flags().DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.Policy.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupManifest, "backup-manifest", "", "Optional backup manifest JSON to verify before cleanup")
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupExpect, "backup-expect", "", "Optional expected topology JSON for backup manifest verification")
-	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", 0, "Maximum accepted backup manifest age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 disables)")
 	retentionCleanupCmd.Flags().StringArrayVar(&retentionBackupStorageReports, "backup-storage-report", nil, "Optional storage verification report JSON to verify before cleanup (repeatable)")
-	retentionCleanupCmd.Flags().DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", 0, "Maximum accepted storage verification report age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionAuditExport, "audit-export", "", "Optional audit export evidence JSON to verify before deleting audit rows")
-	retentionCleanupCmd.Flags().DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", 0, "Maximum accepted audit export evidence age before cleanup (0 disables)")
-	retentionCleanupCmd.Flags().BoolVar(&retentionRequireBackupManifest, "require-backup-manifest", false, "Require --backup-manifest unless waived by --waiver")
-	retentionCleanupCmd.Flags().BoolVar(&retentionRequireAuditExport, "require-audit-export", false, "Require --audit-export before deleting audit rows unless waived by --waiver")
+	retentionCleanupCmd.Flags().DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted audit export evidence age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().BoolVar(&retentionRequireBackupManifest, "require-backup-manifest", defaultRetention.RequireBackup, "Require --backup-manifest unless waived by --waiver")
+	retentionCleanupCmd.Flags().BoolVar(&retentionRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Require --audit-export before deleting audit rows unless waived by --waiver")
 	retentionCleanupCmd.Flags().StringVar(&retentionWaiver, "waiver", "", "Optional retention waiver JSON for required cleanup gates")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditSince, "audit-since", "", "Start of audit_log range to protect (RFC3339 or YYYY-MM-DD)")

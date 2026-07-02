@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 	"vectis/api/gen/go"
 	"vectis/internal/retention"
@@ -163,6 +164,39 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected output to contain %q, got:\n%s", want, out)
 		}
+	}
+}
+
+func TestRetentionCleanupDefaultsFromConfig(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("retention.cleanup.terminal_run_age", 2*time.Hour)
+	viper.Set("retention.cleanup.job_definition_age", 3*time.Hour)
+	viper.Set("retention.cleanup.idempotency_age", 4*time.Hour)
+	viper.Set("retention.cleanup.audit_age", 5*time.Hour)
+	viper.Set("retention.cleanup.artifact_blob_age", 6*time.Hour)
+	viper.Set("retention.cleanup.backup_max_age", time.Hour)
+	viper.Set("retention.cleanup.backup_storage_max_age", 30*time.Minute)
+	viper.Set("retention.cleanup.audit_export_max_age", 45*time.Minute)
+	viper.Set("retention.cleanup.require_backup_manifest", true)
+	viper.Set("retention.cleanup.require_audit_export", true)
+
+	got := retentionCleanupDefaultsFromConfig()
+	if got.Policy.TerminalRuns != 2*time.Hour ||
+		got.Policy.JobDefinitions != 3*time.Hour ||
+		got.Policy.IdempotencyKeys != 4*time.Hour ||
+		got.Policy.AuditLog != 5*time.Hour ||
+		got.Policy.ArtifactBlobs != 6*time.Hour {
+		t.Fatalf("retention policy defaults = %+v", got.Policy)
+	}
+	if got.BackupMaxAge != time.Hour ||
+		got.BackupStorageMaxAge != 30*time.Minute ||
+		got.AuditExportMaxAge != 45*time.Minute {
+		t.Fatalf("retention evidence freshness defaults = backup %s storage %s audit %s", got.BackupMaxAge, got.BackupStorageMaxAge, got.AuditExportMaxAge)
+	}
+	if !got.RequireBackup || !got.RequireAuditExport {
+		t.Fatalf("retention required gates = backup %t audit %t, want true true", got.RequireBackup, got.RequireAuditExport)
 	}
 }
 

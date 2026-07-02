@@ -49,6 +49,7 @@ type Defaults struct {
 	Secrets        SecretsDefaults         `toml:"secrets"`
 	Discovery      DiscoveryDefaults       `toml:"discovery"`
 	Dispatch       DispatchDefaults        `toml:"dispatch"`
+	Retention      RetentionDefaults       `toml:"retention"`
 	Database       DatabaseDefaults        `toml:"database"`
 	Source         SourceDefaults          `toml:"source"`
 	Worker         WorkerDefaults          `toml:"worker"`
@@ -284,6 +285,31 @@ type DispatchDefaults struct {
 	StartTTL tomlDuration `toml:"start_ttl"`
 }
 
+type RetentionDefaults struct {
+	Cleanup RetentionCleanupDefaults `toml:"cleanup"`
+}
+
+type RetentionCleanupDefaults struct {
+	TerminalRunAge        tomlDuration `toml:"terminal_run_age"`
+	JobDefinitionAge      tomlDuration `toml:"job_definition_age"`
+	IdempotencyAge        tomlDuration `toml:"idempotency_age"`
+	AuditAge              tomlDuration `toml:"audit_age"`
+	ArtifactBlobAge       tomlDuration `toml:"artifact_blob_age"`
+	BackupMaxAge          tomlDuration `toml:"backup_max_age"`
+	BackupStorageMaxAge   tomlDuration `toml:"backup_storage_max_age"`
+	AuditExportMaxAge     tomlDuration `toml:"audit_export_max_age"`
+	RequireBackupManifest bool         `toml:"require_backup_manifest"`
+	RequireAuditExport    bool         `toml:"require_audit_export"`
+}
+
+type RetentionCleanupPolicyDefaults struct {
+	TerminalRuns    time.Duration
+	JobDefinitions  time.Duration
+	IdempotencyKeys time.Duration
+	AuditLog        time.Duration
+	ArtifactBlobs   time.Duration
+}
+
 type WorkerControlDefaults struct {
 	Mode    string `toml:"mode"`
 	Port    int    `toml:"port"`
@@ -444,6 +470,16 @@ func init() {
 	_ = viper.BindEnv("discovery.registry.address", "VECTIS_DISCOVERY_REGISTRY_ADDRESS")
 	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
 	_ = viper.BindEnv("dispatch.start_ttl", "VECTIS_DISPATCH_START_TTL")
+	_ = viper.BindEnv("retention.cleanup.terminal_run_age", "VECTIS_RETENTION_CLEANUP_TERMINAL_RUN_AGE")
+	_ = viper.BindEnv("retention.cleanup.job_definition_age", "VECTIS_RETENTION_CLEANUP_JOB_DEFINITION_AGE")
+	_ = viper.BindEnv("retention.cleanup.idempotency_age", "VECTIS_RETENTION_CLEANUP_IDEMPOTENCY_AGE")
+	_ = viper.BindEnv("retention.cleanup.audit_age", "VECTIS_RETENTION_CLEANUP_AUDIT_AGE")
+	_ = viper.BindEnv("retention.cleanup.artifact_blob_age", "VECTIS_RETENTION_CLEANUP_ARTIFACT_BLOB_AGE")
+	_ = viper.BindEnv("retention.cleanup.backup_max_age", "VECTIS_RETENTION_CLEANUP_BACKUP_MAX_AGE")
+	_ = viper.BindEnv("retention.cleanup.backup_storage_max_age", "VECTIS_RETENTION_CLEANUP_BACKUP_STORAGE_MAX_AGE")
+	_ = viper.BindEnv("retention.cleanup.audit_export_max_age", "VECTIS_RETENTION_CLEANUP_AUDIT_EXPORT_MAX_AGE")
+	_ = viper.BindEnv("retention.cleanup.require_backup_manifest", "VECTIS_RETENTION_CLEANUP_REQUIRE_BACKUP_MANIFEST")
+	_ = viper.BindEnv("retention.cleanup.require_audit_export", "VECTIS_RETENTION_CLEANUP_REQUIRE_AUDIT_EXPORT")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_base_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_BASE_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_jitter_ratio", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_JITTER_RATIO")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
@@ -562,6 +598,21 @@ func validateDefaults(d Defaults) {
 
 	if time.Duration(d.Dispatch.StartTTL) <= 0 {
 		panic("config defaults: dispatch.start_ttl must be > 0")
+	}
+
+	for name, duration := range map[string]time.Duration{
+		"retention.cleanup.terminal_run_age":       time.Duration(d.Retention.Cleanup.TerminalRunAge),
+		"retention.cleanup.job_definition_age":     time.Duration(d.Retention.Cleanup.JobDefinitionAge),
+		"retention.cleanup.idempotency_age":        time.Duration(d.Retention.Cleanup.IdempotencyAge),
+		"retention.cleanup.audit_age":              time.Duration(d.Retention.Cleanup.AuditAge),
+		"retention.cleanup.artifact_blob_age":      time.Duration(d.Retention.Cleanup.ArtifactBlobAge),
+		"retention.cleanup.backup_max_age":         time.Duration(d.Retention.Cleanup.BackupMaxAge),
+		"retention.cleanup.backup_storage_max_age": time.Duration(d.Retention.Cleanup.BackupStorageMaxAge),
+		"retention.cleanup.audit_export_max_age":   time.Duration(d.Retention.Cleanup.AuditExportMaxAge),
+	} {
+		if duration < 0 {
+			panic("config defaults: " + name + " must be >= 0")
+		}
 	}
 
 	validatePort(d.Log.GRPC.Port, "log.grpc.port")
@@ -1369,6 +1420,55 @@ func DispatchStartTTL() time.Duration {
 	}
 
 	return 24 * time.Hour
+}
+
+func RetentionCleanupPolicy() RetentionCleanupPolicyDefaults {
+	d := MustDefaults().Retention.Cleanup
+	return RetentionCleanupPolicyDefaults{
+		TerminalRuns:    retentionCleanupDuration("retention.cleanup.terminal_run_age", d.TerminalRunAge),
+		JobDefinitions:  retentionCleanupDuration("retention.cleanup.job_definition_age", d.JobDefinitionAge),
+		IdempotencyKeys: retentionCleanupDuration("retention.cleanup.idempotency_age", d.IdempotencyAge),
+		AuditLog:        retentionCleanupDuration("retention.cleanup.audit_age", d.AuditAge),
+		ArtifactBlobs:   retentionCleanupDuration("retention.cleanup.artifact_blob_age", d.ArtifactBlobAge),
+	}
+}
+
+func RetentionCleanupBackupMaxAge() time.Duration {
+	return retentionCleanupDuration("retention.cleanup.backup_max_age", MustDefaults().Retention.Cleanup.BackupMaxAge)
+}
+
+func RetentionCleanupBackupStorageMaxAge() time.Duration {
+	return retentionCleanupDuration("retention.cleanup.backup_storage_max_age", MustDefaults().Retention.Cleanup.BackupStorageMaxAge)
+}
+
+func RetentionCleanupAuditExportMaxAge() time.Duration {
+	return retentionCleanupDuration("retention.cleanup.audit_export_max_age", MustDefaults().Retention.Cleanup.AuditExportMaxAge)
+}
+
+func RetentionCleanupRequireBackupManifest() bool {
+	if viper.IsSet("retention.cleanup.require_backup_manifest") {
+		return viper.GetBool("retention.cleanup.require_backup_manifest")
+	}
+
+	return MustDefaults().Retention.Cleanup.RequireBackupManifest
+}
+
+func RetentionCleanupRequireAuditExport() bool {
+	if viper.IsSet("retention.cleanup.require_audit_export") {
+		return viper.GetBool("retention.cleanup.require_audit_export")
+	}
+
+	return MustDefaults().Retention.Cleanup.RequireAuditExport
+}
+
+func retentionCleanupDuration(key string, fallback tomlDuration) time.Duration {
+	if viper.IsSet(key) {
+		if d := viper.GetDuration(key); d >= 0 {
+			return d
+		}
+	}
+
+	return time.Duration(fallback)
 }
 
 func nonNegativeInt64(v int64) int64 {

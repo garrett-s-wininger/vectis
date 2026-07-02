@@ -30,7 +30,10 @@ For retention workflows, export the relevant range before deleting old audit row
 
 ```sh
 vectis-cli audit export --until 2026-07-01T00:00:00Z --output audit-export.json
-vectis-cli retention cleanup --yes --audit-export audit-export.json --audit-export-max-age 24h
+vectis-cli retention cleanup --yes \
+  --require-audit-export \
+  --audit-export audit-export.json \
+  --audit-export-max-age 24h
 ```
 
 `vectis-cli audit export` follows `next_cursor` pages automatically. The retention gate accepts only unfiltered, fully exhausted exports whose range covers the audit cleanup cutoff and whose event hash matches the retained rows in the export file.

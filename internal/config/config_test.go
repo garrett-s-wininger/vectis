@@ -242,6 +242,75 @@ func TestMustDefaults_Dispatch(t *testing.T) {
 	}
 }
 
+func TestRetentionCleanupPolicyDefaultsAndOverrides(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	wantDefault := RetentionCleanupPolicyDefaults{
+		TerminalRuns:    30 * 24 * time.Hour,
+		JobDefinitions:  30 * 24 * time.Hour,
+		IdempotencyKeys: 24 * time.Hour,
+		AuditLog:        365 * 24 * time.Hour,
+		ArtifactBlobs:   30 * 24 * time.Hour,
+	}
+	if got, want := RetentionCleanupPolicy(), wantDefault; got != want {
+		t.Fatalf("RetentionCleanupPolicy() defaults = %+v, want %+v", got, want)
+	}
+	if got := RetentionCleanupBackupMaxAge(); got != 0 {
+		t.Fatalf("RetentionCleanupBackupMaxAge() default = %v, want 0", got)
+	}
+	if got := RetentionCleanupBackupStorageMaxAge(); got != 0 {
+		t.Fatalf("RetentionCleanupBackupStorageMaxAge() default = %v, want 0", got)
+	}
+	if got := RetentionCleanupAuditExportMaxAge(); got != 0 {
+		t.Fatalf("RetentionCleanupAuditExportMaxAge() default = %v, want 0", got)
+	}
+	if RetentionCleanupRequireBackupManifest() {
+		t.Fatal("RetentionCleanupRequireBackupManifest() default = true, want false")
+	}
+	if RetentionCleanupRequireAuditExport() {
+		t.Fatal("RetentionCleanupRequireAuditExport() default = true, want false")
+	}
+
+	viper.Set("retention.cleanup.terminal_run_age", 2*time.Hour)
+	viper.Set("retention.cleanup.job_definition_age", 3*time.Hour)
+	viper.Set("retention.cleanup.idempotency_age", 4*time.Hour)
+	viper.Set("retention.cleanup.audit_age", 5*time.Hour)
+	viper.Set("retention.cleanup.artifact_blob_age", 6*time.Hour)
+	viper.Set("retention.cleanup.backup_max_age", time.Hour)
+	viper.Set("retention.cleanup.backup_storage_max_age", 30*time.Minute)
+	viper.Set("retention.cleanup.audit_export_max_age", 45*time.Minute)
+	viper.Set("retention.cleanup.require_backup_manifest", true)
+	viper.Set("retention.cleanup.require_audit_export", true)
+
+	got := RetentionCleanupPolicy()
+	want := RetentionCleanupPolicyDefaults{
+		TerminalRuns:    2 * time.Hour,
+		JobDefinitions:  3 * time.Hour,
+		IdempotencyKeys: 4 * time.Hour,
+		AuditLog:        5 * time.Hour,
+		ArtifactBlobs:   6 * time.Hour,
+	}
+	if got != want {
+		t.Fatalf("RetentionCleanupPolicy() override = %+v, want %+v", got, want)
+	}
+	if got := RetentionCleanupBackupMaxAge(); got != time.Hour {
+		t.Fatalf("RetentionCleanupBackupMaxAge() override = %v, want 1h", got)
+	}
+	if got := RetentionCleanupBackupStorageMaxAge(); got != 30*time.Minute {
+		t.Fatalf("RetentionCleanupBackupStorageMaxAge() override = %v, want 30m", got)
+	}
+	if got := RetentionCleanupAuditExportMaxAge(); got != 45*time.Minute {
+		t.Fatalf("RetentionCleanupAuditExportMaxAge() override = %v, want 45m", got)
+	}
+	if !RetentionCleanupRequireBackupManifest() {
+		t.Fatal("RetentionCleanupRequireBackupManifest() override = false, want true")
+	}
+	if !RetentionCleanupRequireAuditExport() {
+		t.Fatal("RetentionCleanupRequireAuditExport() override = false, want true")
+	}
+}
+
 func TestMustDefaults_CellIngress(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

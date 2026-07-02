@@ -144,6 +144,7 @@ Retention cleanup can use the same manifest as a destructive-operation gate:
 
 ```sh
 vectis-cli retention cleanup --yes \
+  --require-backup-manifest \
   --backup-manifest backup-manifest.json \
   --backup-expect expected-topology.json \
   --backup-max-age 24h \

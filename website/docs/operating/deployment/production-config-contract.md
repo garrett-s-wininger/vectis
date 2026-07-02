@@ -278,7 +278,9 @@ Backups must include:
 - TLS/private key material;
 - live config, rendered manifests, dashboards, and alert rules.
 
-Retention must be an explicit operator policy. Either schedule
+Retention must be an explicit operator policy. Set
+`VECTIS_RETENTION_CLEANUP_*` defaults for cleanup windows, evidence freshness,
+and required backup/audit gates, then either schedule
 `vectis-cli retention cleanup` or assign it to a recurring runbook. Use
 [Retention And Storage Pressure](../reliability/retention.md#production-scheduling)
 for dry-run/apply scheduling patterns. Keep audit retention aligned with

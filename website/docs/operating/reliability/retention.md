@@ -53,6 +53,12 @@ By default, cleanup uses these windows:
 
 Durations can be overridden per run. Use `0` to disable a surface. Artifact manifest cleanup is SQL cleanup and follows `--terminal-run-age`; artifact blob cleanup is local filesystem cleanup and only runs when `--artifact-storage-dir` is provided.
 
+Deployment defaults can be set with `VECTIS_RETENTION_CLEANUP_*` environment
+variables or the matching `retention.cleanup.*` config keys. These defaults
+cover cleanup windows, evidence freshness limits, and whether backup-manifest
+or audit-export evidence is mandatory. Command-line flags still override the
+configured defaults for one cleanup invocation.
+
 ## Choose A Policy
 
 Before applying cleanup in production, decide:
