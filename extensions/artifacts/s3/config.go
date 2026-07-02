@@ -19,6 +19,7 @@ const (
 	FlagSecretAccessKeyFile = "s3-secret-access-key-file"
 	FlagSessionToken        = "s3-session-token"
 	FlagPathStyle           = "s3-path-style"
+	FlagTempDir             = "s3-temp-dir"
 
 	ConfigKeyEndpoint            = "artifact.storage.s3.endpoint"
 	ConfigKeyRegion              = "artifact.storage.s3.region"
@@ -29,6 +30,7 @@ const (
 	ConfigKeySecretAccessKeyFile = "artifact.storage.s3.secret_access_key_file"
 	ConfigKeySessionToken        = "artifact.storage.s3.session_token"
 	ConfigKeyPathStyle           = "artifact.storage.s3.path_style"
+	ConfigKeyTempDir             = "artifact.storage.s3.temp_dir"
 
 	EnvEndpoint            = "VECTIS_ARTIFACT_STORAGE_S3_ENDPOINT"
 	EnvRegion              = "VECTIS_ARTIFACT_STORAGE_S3_REGION"
@@ -39,6 +41,7 @@ const (
 	EnvSecretAccessKeyFile = "VECTIS_ARTIFACT_STORAGE_S3_SECRET_ACCESS_KEY_FILE"
 	EnvSessionToken        = "VECTIS_ARTIFACT_STORAGE_S3_SESSION_TOKEN"
 	EnvPathStyle           = "VECTIS_ARTIFACT_STORAGE_S3_PATH_STYLE"
+	EnvTempDir             = "VECTIS_ARTIFACT_STORAGE_S3_TEMP_DIR"
 )
 
 type Config struct {
@@ -51,6 +54,7 @@ type Config struct {
 	SecretAccessKeyFile string
 	SessionToken        string
 	PathStyle           bool
+	TempDir             string
 }
 
 func AddConfigFlags(flags *pflag.FlagSet) {
@@ -67,6 +71,7 @@ func AddConfigFlags(flags *pflag.FlagSet) {
 	flags.String(FlagSecretAccessKeyFile, "", "File containing the S3 artifact storage secret access key")
 	flags.String(FlagSessionToken, "", "S3 artifact storage session token")
 	flags.Bool(FlagPathStyle, true, "Use path-style S3 URLs for local S3-compatible services")
+	flags.String(FlagTempDir, "", "Directory for temporary files while hashing S3 artifact uploads (default: OS temp directory)")
 }
 
 func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
@@ -82,6 +87,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		ConfigKeySecretAccessKey,
 		ConfigKeySecretAccessKeyFile,
 		ConfigKeySessionToken,
+		ConfigKeyTempDir,
 	} {
 		v.SetDefault(key, "")
 	}
@@ -114,6 +120,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		{ConfigKeySecretAccessKeyFile, FlagSecretAccessKeyFile},
 		{ConfigKeySessionToken, FlagSessionToken},
 		{ConfigKeyPathStyle, FlagPathStyle},
+		{ConfigKeyTempDir, FlagTempDir},
 	} {
 		if err := bindFlag(pair.key, pair.flag); err != nil {
 			return err
@@ -133,6 +140,7 @@ func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {
 		{ConfigKeySecretAccessKeyFile, EnvSecretAccessKeyFile},
 		{ConfigKeySessionToken, EnvSessionToken},
 		{ConfigKeyPathStyle, EnvPathStyle},
+		{ConfigKeyTempDir, EnvTempDir},
 	} {
 		if err := v.BindEnv(pair.key, pair.env); err != nil {
 			return err
@@ -157,6 +165,7 @@ func ConfigFromViper(v *viper.Viper) Config {
 		SecretAccessKeyFile: configString(v, ConfigKeySecretAccessKeyFile),
 		SessionToken:        configString(v, ConfigKeySessionToken),
 		PathStyle:           configBool(v, ConfigKeyPathStyle),
+		TempDir:             configString(v, ConfigKeyTempDir),
 	}
 }
 
@@ -179,6 +188,7 @@ func (c Config) NewStore() (*Store, error) {
 		SecretAccessKey: secret,
 		SessionToken:    c.SessionToken,
 		PathStyle:       c.PathStyle,
+		TempDir:         c.TempDir,
 	})
 }
 

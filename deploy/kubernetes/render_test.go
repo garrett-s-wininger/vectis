@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -336,6 +337,42 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatal("gerrit keep fixture should be disabled by default")
 	}
 
+	if opts.S3Image != DefaultSmokeS3Image {
+		t.Fatalf("S3 image = %q", opts.S3Image)
+	}
+
+	if opts.S3LocalPort != DefaultSmokeS3LocalPort {
+		t.Fatalf("S3 local port = %d", opts.S3LocalPort)
+	}
+
+	if opts.S3ClusterEndpoint != DefaultSmokeS3ClusterEndpoint {
+		t.Fatalf("S3 cluster endpoint = %q", opts.S3ClusterEndpoint)
+	}
+
+	if opts.S3Bucket != DefaultSmokeS3Bucket {
+		t.Fatalf("S3 bucket = %q", opts.S3Bucket)
+	}
+
+	if opts.S3Prefix != DefaultSmokeS3Prefix {
+		t.Fatalf("S3 prefix = %q", opts.S3Prefix)
+	}
+
+	if opts.S3AccessKeyID != DefaultSmokeS3AccessKeyID {
+		t.Fatalf("S3 access key id = %q", opts.S3AccessKeyID)
+	}
+
+	if opts.S3SecretAccessKey != DefaultSmokeS3SecretAccessKey {
+		t.Fatalf("S3 secret access key = %q", opts.S3SecretAccessKey)
+	}
+
+	if opts.S3TempDir != DefaultSmokeS3TempDir {
+		t.Fatalf("S3 temp dir = %q", opts.S3TempDir)
+	}
+
+	if opts.S3KeepFixture {
+		t.Fatal("S3 keep fixture should be disabled by default")
+	}
+
 	if !smokeSeedSecretEnabled(opts) {
 		t.Fatal("secret seeding should be enabled by default")
 	}
@@ -431,6 +468,16 @@ func TestKubernetesValidationEntrypointContract(t *testing.T) {
 		`"gerrit-project-prefix"`,
 		`"gerrit-git"`,
 		`"gerrit-keep-fixture"`,
+		`"s3-artifact-only"`,
+		`"s3-image"`,
+		`"s3-local-port"`,
+		`"s3-cluster-endpoint"`,
+		`"s3-bucket"`,
+		`"s3-prefix"`,
+		`"s3-access-key-id"`,
+		`"s3-secret-access-key"`,
+		`"s3-temp-dir"`,
+		`"s3-keep-fixture"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke entrypoint missing %q", want)
@@ -497,6 +544,126 @@ func TestSmokeGerritFixtureManifestContract(t *testing.T) {
 		if strings.Contains(manifest, forbidden) {
 			t.Fatalf("manifest must not shadow Gerrit image contents with %q: %s", forbidden, manifest)
 		}
+	}
+}
+
+func TestSmokeS3ArtifactFixtureManifestContract(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{
+		S3Image:           "registry.example.com/seaweedfs:test",
+		S3AccessKeyID:     `access "id"`,
+		S3SecretAccessKey: `secret\value`,
+	})
+
+	manifest := smokeS3ArtifactFixtureManifest(opts)
+	for _, want := range []string{
+		"kind: ConfigMap",
+		"name: vectis-s3-artifact-auth",
+		"s3-auth.json:",
+		"kind: Deployment",
+		"name: vectis-s3-artifact",
+		"image: \"registry.example.com/seaweedfs:test\"",
+		"- -s3.config=/etc/seaweedfs/s3-auth.json",
+		"automountServiceAccountToken: false",
+		"kind: Service",
+		"targetPort: 8333",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q: %s", want, manifest)
+		}
+	}
+
+	const prefix = "  s3-auth.json: "
+	start := strings.Index(manifest, prefix)
+	if start < 0 {
+		t.Fatalf("manifest missing auth config: %s", manifest)
+	}
+
+	line := manifest[start+len(prefix):]
+	line = line[:strings.IndexByte(line, '\n')]
+	authJSON, err := strconv.Unquote(line)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var auth struct {
+		Identities []struct {
+			Name        string `json:"name"`
+			Credentials []struct {
+				AccessKey string `json:"accessKey"`
+				SecretKey string `json:"secretKey"`
+			} `json:"credentials"`
+			Actions []string `json:"actions"`
+		} `json:"identities"`
+	}
+
+	if err := json.Unmarshal([]byte(authJSON), &auth); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(auth.Identities) != 1 || auth.Identities[0].Name != `access "id"` {
+		t.Fatalf("unexpected auth identities: %+v", auth.Identities)
+	}
+
+	if len(auth.Identities[0].Credentials) != 1 ||
+		auth.Identities[0].Credentials[0].AccessKey != `access "id"` ||
+		auth.Identities[0].Credentials[0].SecretKey != `secret\value` {
+		t.Fatalf("unexpected auth credentials: %+v", auth.Identities[0].Credentials)
+	}
+
+	if got := strings.Join(auth.Identities[0].Actions, ","); got != "Admin,Read,List,Tagging,Write" {
+		t.Fatalf("actions = %q", got)
+	}
+}
+
+func TestSmokeArtifactS3EnvContract(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{
+		S3ClusterEndpoint: "http://vectis-s3-artifact:8333/",
+		S3Bucket:          "ci-artifacts",
+		S3Prefix:          "/ci/smoke/",
+		S3AccessKeyID:     "access",
+		S3SecretAccessKey: "secret",
+		S3TempDir:         "/data/vectis/artifact/s3-tmp",
+	})
+
+	env := smokeArtifactS3Env(opts)
+	want := map[string]string{
+		"VECTIS_ARTIFACT_STORAGE_BACKEND":              "s3",
+		"VECTIS_ARTIFACT_STORAGE_S3_ENDPOINT":          "http://vectis-s3-artifact:8333",
+		"VECTIS_ARTIFACT_STORAGE_S3_REGION":            "us-east-1",
+		"VECTIS_ARTIFACT_STORAGE_S3_BUCKET":            "ci-artifacts",
+		"VECTIS_ARTIFACT_STORAGE_S3_PREFIX":            "ci/smoke",
+		"VECTIS_ARTIFACT_STORAGE_S3_ACCESS_KEY_ID":     "access",
+		"VECTIS_ARTIFACT_STORAGE_S3_SECRET_ACCESS_KEY": "secret",
+		"VECTIS_ARTIFACT_STORAGE_S3_PATH_STYLE":        "true",
+		"VECTIS_ARTIFACT_STORAGE_S3_TEMP_DIR":          "/data/vectis/artifact/s3-tmp",
+	}
+
+	if len(env) != len(want) {
+		t.Fatalf("env len = %d, want %d: %+v", len(env), len(want), env)
+	}
+
+	for key, value := range want {
+		if env[key] != value {
+			t.Fatalf("%s = %q, want %q", key, env[key], value)
+		}
+	}
+}
+
+func TestValidateS3ArtifactSmokeOptions(t *testing.T) {
+	if err := validateS3ArtifactSmokeOptions(normalizeSmokeOptions(SmokeOptions{})); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := normalizeSmokeOptions(SmokeOptions{})
+	opts.S3LocalPort = 70000
+	if err := validateS3ArtifactSmokeOptions(opts); err == nil {
+		t.Fatal("expected invalid local port to fail")
+	}
+
+	opts = normalizeSmokeOptions(SmokeOptions{})
+	opts.S3SecretAccessKey = ""
+	if err := validateS3ArtifactSmokeOptions(opts); err == nil {
+		t.Fatal("expected empty secret access key to fail")
 	}
 }
 

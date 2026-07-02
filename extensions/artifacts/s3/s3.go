@@ -145,7 +145,7 @@ func (s *Store) Put(ctx context.Context, r io.Reader, opts sdkartifact.PutOption
 		}
 	}
 
-	tmp, err := os.CreateTemp(s.tempDir, "vectis-s3-artifact-*.part")
+	tmp, err := s.createTempFile()
 	if err != nil {
 		return sdkartifact.BlobDescriptor{}, fmt.Errorf("create artifact s3 temp file: %w", err)
 	}
@@ -208,6 +208,19 @@ func (s *Store) Put(ctx context.Context, r io.Reader, opts sdkartifact.PutOption
 	}
 
 	return desc, nil
+}
+
+func (s *Store) createTempFile() (*os.File, error) {
+	tempDir := strings.TrimSpace(s.tempDir)
+	if tempDir == "" {
+		tempDir = os.TempDir()
+	}
+
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
+		return nil, fmt.Errorf("prepare temp dir %s: %w", tempDir, err)
+	}
+
+	return os.CreateTemp(tempDir, "vectis-s3-artifact-*.part")
 }
 
 func validateExistingBlob(desc sdkartifact.BlobDescriptor, opts sdkartifact.PutOptions) error {

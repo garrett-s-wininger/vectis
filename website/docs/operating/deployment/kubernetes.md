@@ -30,6 +30,7 @@ make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
 make k8s-kind-run-gerrit-stream-smoke
+make k8s-kind-run-s3-artifact-smoke
 ```
 
 The generic `k8s-*` aliases dispatch through `K8S_PROVIDER`, which defaults to
@@ -63,6 +64,15 @@ container tooling already uses Podman:
 | `K8S_REPAIR_SMOKE_JOB` | `examples/e2e-kubernetes-repair.json` | Dynamic-cutoff job submitted by the explicit orphan repair smoke harness. |
 | `K8S_REPAIR_LEASE_TTL` | `30s` | Temporary `VECTIS_WORKER_EXECUTION_LEASE_TTL` used by the repair smoke. |
 | `K8S_REPAIR_READY_AFTER` | `75s` | Delay after repair job submission before force-requeue should take the success path. |
+| `K8S_GERRIT_API_LOCAL_PORT` | `18086` | Local port used by the Gerrit stream smoke API port-forward. |
+| `K8S_GERRIT_KEEP_FIXTURE` | `false` | Keep the Gerrit fixture after the optional stream smoke for local inspection. |
+| `K8S_S3_API_LOCAL_PORT` | `18089` | Local port used by the S3 artifact smoke API port-forward. |
+| `K8S_S3_LOCAL_PORT` | `18335` | Local port used by the in-cluster S3 fixture port-forward. |
+| `K8S_S3_IMAGE` | `docker.io/chrislusf/seaweedfs:4.36` | SeaweedFS image applied inside the namespace by the optional S3 artifact smoke. |
+| `K8S_S3_BUCKET` | `vectis-artifacts` | Bucket used by the S3 artifact smoke. |
+| `K8S_S3_PREFIX` | `kubernetes-smoke` | Object prefix used by the S3 artifact smoke. |
+| `K8S_S3_TEMP_DIR` | `/data/vectis/artifact/s3-tmp` | Writable directory used by `vectis-artifact` while hashing S3 uploads during the smoke. |
+| `K8S_S3_KEEP_FIXTURE` | `false` | Keep the S3 fixture after the optional artifact smoke for local inspection. |
 | `CONTAINER_CMD` | `podman` | Runtime command used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; set `auto` for kind autodetection. |
@@ -89,6 +99,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scal
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --s3-artifact-only
 ```
 
 The first manifest is a single-cell deployment. It includes Postgres, registry,
@@ -132,6 +143,13 @@ claim production security posture yet:
   zero to one replica, pushes a real change, and verifies the triggered run and
   audit metadata. It deletes the Gerrit fixture when the run ends unless
   `K8S_GERRIT_KEEP_FIXTURE=true` or `--gerrit-keep-fixture=true` is set;
+- the optional S3 artifact smoke starts an authenticated SeaweedFS fixture
+  in-cluster, verifies unsigned requests are rejected, creates the configured
+  bucket, patches `statefulset/vectis-artifact` to use that S3-compatible
+  endpoint, runs the canonical workload smoke, verifies artifact upload/download
+  through the deployed API path, and then rolls `vectis-artifact` back. It
+  deletes the S3 fixture when the run ends unless `K8S_S3_KEEP_FIXTURE=true` or
+  `--s3-keep-fixture=true` is set;
 - `vectis-cell-ingress` is not exposed yet;
 - default Secret values are placeholders and must be overridden before shared use.
 
@@ -154,7 +172,9 @@ The Kubernetes deployment lane now validates the core workload path,
 worker-control cancellation, scaled worker fanout, pod-loss orphan safety, and
 explicit orphan repair. The optional Gerrit stream smoke validates the deployed
 Gerrit `stream-events` trigger path when the cluster can pull or has loaded the
-configured Gerrit image.
+configured Gerrit image. The optional S3 artifact smoke validates
+`vectis-artifact` against an in-cluster S3-compatible backend with access-key
+auth and real artifact upload/download.
 The next useful checks are:
 
 1. Expose cell ingress once the mTLS edge contract is ready.

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -111,6 +113,47 @@ func TestStorePutExpectedDigestUsesExistingObject(t *testing.T) {
 
 	if got := fake.methodCount(http.MethodPut); got != putCount {
 		t.Fatalf("PUT count = %d, want %d", got, putCount)
+	}
+}
+
+func TestStorePutCreatesConfiguredTempDir(t *testing.T) {
+	fake := newFakeS3(t)
+	defer fake.server.Close()
+
+	tempDir := filepath.Join(t.TempDir(), "missing", "s3-tmp")
+	store, err := NewStore(StoreOptions{
+		Endpoint:        fake.server.URL,
+		Region:          "us-west-2",
+		Bucket:          "vectis-artifacts",
+		Prefix:          "prefix",
+		AccessKeyID:     "AKIA_TEST",
+		SecretAccessKey: "SECRET_TEST",
+		PathStyle:       true,
+		TempDir:         tempDir,
+		now: func() time.Time {
+			return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	if _, err := store.Put(context.Background(), strings.NewReader("creates temp dir"), sdkartifact.PutOptions{}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	if info, err := os.Stat(tempDir); err != nil || !info.IsDir() {
+		t.Fatalf("temp dir stat = %v, %v", info, err)
+	}
+
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("read temp dir: %v", err)
+	}
+
+	if len(entries) != 0 {
+		t.Fatalf("temp dir should be empty after put, got %d entries", len(entries))
 	}
 }
 

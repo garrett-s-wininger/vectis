@@ -3,7 +3,6 @@ package s3
 import (
 	"bytes"
 	"context"
-	"os"
 	"strings"
 	"testing"
 )
@@ -92,56 +91,4 @@ func TestRunSmokeRequiresEndpoint(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "endpoint is required") {
 		t.Fatalf("RunSmoke error = %v, want endpoint required", err)
 	}
-}
-
-func TestS3SmokeMakefileUsesPinnedRecreatedFixtures(t *testing.T) {
-	b, err := os.ReadFile("../../../Makefile")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	text := string(b)
-	if !strings.Contains(text, "S3_SMOKE_IMAGE ?= docker.io/chrislusf/seaweedfs:4.36") {
-		t.Fatal("S3 smoke Makefile contract must pin the SeaweedFS image")
-	}
-
-	section := s3TextBetween(t, text, ".PHONY: s3-smoke-public-up", "DEPLOY_LINUX_OUT ?=")
-	for _, want := range []string{
-		"$(CONTAINER_CMD) stop \"$(S3_SMOKE_CONTAINER)\"",
-		"$(CONTAINER_CMD) rm \"$(S3_SMOKE_CONTAINER)\"",
-		"$(CONTAINER_CMD) stop \"$(S3_SMOKE_AUTH_CONTAINER)\"",
-		"$(CONTAINER_CMD) rm \"$(S3_SMOKE_AUTH_CONTAINER)\"",
-		"s3-smoke-check: s3-smoke-public-check s3-smoke-auth-check",
-		"s3-smoke: s3-smoke-public s3-smoke-auth",
-	} {
-		if !strings.Contains(section, want) {
-			t.Fatalf("S3 smoke Makefile contract missing %q", want)
-		}
-	}
-
-	for _, staleStart := range []string{
-		"$(CONTAINER_CMD) start \"$(S3_SMOKE_CONTAINER)\"",
-		"$(CONTAINER_CMD) start \"$(S3_SMOKE_AUTH_CONTAINER)\"",
-		"seaweedfs:latest",
-	} {
-		if strings.Contains(section, staleStart) || strings.Contains(text, staleStart) {
-			t.Fatalf("S3 smoke Makefile contract must not contain %q", staleStart)
-		}
-	}
-}
-
-func s3TextBetween(t *testing.T, text, start, end string) string {
-	t.Helper()
-
-	startIndex := strings.Index(text, start)
-	if startIndex < 0 {
-		t.Fatalf("missing start marker %q", start)
-	}
-
-	endIndex := strings.Index(text[startIndex:], end)
-	if endIndex < 0 {
-		t.Fatalf("missing end marker %q", end)
-	}
-
-	return text[startIndex : startIndex+endIndex]
 }

@@ -49,6 +49,14 @@ const (
 	DefaultSmokeGerritUsername       = "admin"
 	DefaultSmokeGerritProjectPrefix  = "vectis-k8s-gerrit-stream"
 	DefaultSmokeGerritGitBin         = "git"
+	DefaultSmokeS3Image              = "docker.io/chrislusf/seaweedfs:4.36"
+	DefaultSmokeS3LocalPort          = 18335
+	DefaultSmokeS3ClusterEndpoint    = "http://vectis-s3-artifact:8333"
+	DefaultSmokeS3Bucket             = "vectis-artifacts"
+	DefaultSmokeS3Prefix             = "kubernetes-smoke"
+	DefaultSmokeS3AccessKeyID        = "vectis-smoke"
+	DefaultSmokeS3SecretAccessKey    = "vectis-smoke-secret"
+	DefaultSmokeS3TempDir            = "/data/vectis/artifact/s3-tmp"
 	DefaultSmokeWait                 = 180 * time.Second
 	smokeAPIServiceName              = "service/vectis-api"
 	smokeAPIRemotePort               = 8080
@@ -84,6 +92,7 @@ type SmokeOptions struct {
 	OrphanOnly          bool
 	RepairOnly          bool
 	GerritStreamOnly    bool
+	S3ArtifactOnly      bool
 	ScaleWorkerReplicas int
 	ScaleMinWorkers     int
 	OrphanLeaseTTL      time.Duration
@@ -105,6 +114,15 @@ type SmokeOptions struct {
 	GerritProjectPrefix string
 	GerritGitBin        string
 	GerritKeepFixture   bool
+	S3Image             string
+	S3LocalPort         int
+	S3ClusterEndpoint   string
+	S3Bucket            string
+	S3Prefix            string
+	S3AccessKeyID       string
+	S3SecretAccessKey   string
+	S3TempDir           string
+	S3KeepFixture       bool
 	SeedSecret          *bool
 	APILocalPort        int
 	Wait                time.Duration
@@ -127,6 +145,9 @@ type SmokeResult struct {
 	GerritProject         string               `json:"gerrit_project,omitempty"`
 	GerritChange          string               `json:"gerrit_change,omitempty"`
 	TriggerSourceInstance string               `json:"trigger_source_instance,omitempty"`
+	S3Endpoint            string               `json:"s3_endpoint,omitempty"`
+	S3Bucket              string               `json:"s3_bucket,omitempty"`
+	S3Prefix              string               `json:"s3_prefix,omitempty"`
 	Artifacts             []SmokeArtifactCheck `json:"artifacts"`
 }
 
@@ -270,22 +291,35 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if opts.WorkerCoreOnly {
 		return runWorkerCoreSmoke(ctx, opts)
 	}
+
 	if opts.CancelOnly {
 		return runCancelSmoke(ctx, opts)
 	}
+
 	if opts.ScaleOnly {
 		return runScaleSmoke(ctx, opts)
 	}
+
 	if opts.OrphanOnly {
 		return runOrphanSmoke(ctx, opts)
 	}
+
 	if opts.RepairOnly {
 		return runRepairSmoke(ctx, opts)
 	}
+
 	if opts.GerritStreamOnly {
 		return runGerritStreamSmoke(ctx, opts)
 	}
 
+	if opts.S3ArtifactOnly {
+		return runS3ArtifactSmoke(ctx, opts)
+	}
+
+	return runCanonicalSmoke(ctx, opts)
+}
+
+func runCanonicalSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if err := validateSmokeOptions(opts); err != nil {
 		return SmokeResult{}, err
 	}
@@ -1100,6 +1134,45 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.GerritGitBin = strings.TrimSpace(opts.GerritGitBin)
 	if opts.GerritGitBin == "" {
 		opts.GerritGitBin = DefaultSmokeGerritGitBin
+	}
+
+	opts.S3Image = strings.TrimSpace(opts.S3Image)
+	if opts.S3Image == "" {
+		opts.S3Image = DefaultSmokeS3Image
+	}
+
+	if opts.S3LocalPort == 0 {
+		opts.S3LocalPort = DefaultSmokeS3LocalPort
+	}
+
+	opts.S3ClusterEndpoint = strings.TrimRight(strings.TrimSpace(opts.S3ClusterEndpoint), "/")
+	if opts.S3ClusterEndpoint == "" {
+		opts.S3ClusterEndpoint = DefaultSmokeS3ClusterEndpoint
+	}
+
+	opts.S3Bucket = strings.TrimSpace(opts.S3Bucket)
+	if opts.S3Bucket == "" {
+		opts.S3Bucket = DefaultSmokeS3Bucket
+	}
+
+	opts.S3Prefix = strings.Trim(strings.TrimSpace(opts.S3Prefix), "/")
+	if opts.S3Prefix == "" {
+		opts.S3Prefix = DefaultSmokeS3Prefix
+	}
+
+	opts.S3AccessKeyID = strings.TrimSpace(opts.S3AccessKeyID)
+	if opts.S3AccessKeyID == "" {
+		opts.S3AccessKeyID = DefaultSmokeS3AccessKeyID
+	}
+
+	opts.S3SecretAccessKey = strings.TrimSpace(opts.S3SecretAccessKey)
+	if opts.S3SecretAccessKey == "" {
+		opts.S3SecretAccessKey = DefaultSmokeS3SecretAccessKey
+	}
+
+	opts.S3TempDir = strings.TrimSpace(opts.S3TempDir)
+	if opts.S3TempDir == "" {
+		opts.S3TempDir = DefaultSmokeS3TempDir
 	}
 
 	if opts.SeedSecret == nil {

@@ -14,12 +14,13 @@ VECTIS_ARTIFACT_STORAGE_S3_PREFIX=local
 VECTIS_ARTIFACT_STORAGE_S3_ACCESS_KEY_ID=vectis
 VECTIS_ARTIFACT_STORAGE_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/vectis-s3-secret
 VECTIS_ARTIFACT_STORAGE_S3_PATH_STYLE=true
+VECTIS_ARTIFACT_STORAGE_S3_TEMP_DIR=/data/vectis/artifact/s3-tmp
 ```
 
 Equivalent flags are available on `vectis-artifact`:
 `--storage-backend=s3`, `--s3-endpoint`, `--s3-region`, `--s3-bucket`,
 `--s3-prefix`, `--s3-access-key-id`, `--s3-secret-access-key-file`,
-`--s3-session-token`, and `--s3-path-style`.
+`--s3-session-token`, `--s3-path-style`, and `--s3-temp-dir`.
 
 ## Real Service Smoke
 
@@ -91,6 +92,9 @@ Notes:
   SigV4 when access key and secret key are configured.
 - Path-style URLs are the default because they work well with local providers
   such as SeaweedFS.
+- S3 uploads hash through a local temporary file before writing the content
+  addressed object. Set `VECTIS_ARTIFACT_STORAGE_S3_TEMP_DIR` to a writable
+  path when running in images or sandboxes that do not provide `/tmp`.
 - `vectis-artifact` still owns the internal gRPC API and shard identity. S3
   storage changes where bytes live; it does not make artifact reads fail over
   automatically to a different shard.

@@ -40,6 +40,7 @@ make k8s-kind-run-scale-smoke
 make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
 make k8s-kind-run-gerrit-stream-smoke
+make k8s-kind-run-s3-artifact-smoke
 ```
 
 Or run the full local lifecycle, image-load step, and smoke matrix:
@@ -98,6 +99,16 @@ The local contract is:
 | `K8S_GERRIT_PROJECT_PREFIX` | `vectis-k8s-gerrit-stream` | Prefix for generated Gerrit projects. |
 | `K8S_GERRIT_GIT` | `git` | Git executable used by the smoke harness to push the Gerrit change. |
 | `K8S_GERRIT_KEEP_FIXTURE` | `false` | Keep `deployment/vectis-gerrit` and `service/vectis-gerrit` after the optional stream smoke for local reruns. |
+| `K8S_S3_API_LOCAL_PORT` | `18089` | Local port used by the S3 artifact smoke API port-forward. |
+| `K8S_S3_LOCAL_PORT` | `18335` | Local port used by the in-cluster S3 fixture port-forward. |
+| `K8S_S3_IMAGE` | `docker.io/chrislusf/seaweedfs:4.36` | SeaweedFS image applied inside the namespace by the optional S3 artifact smoke. |
+| `K8S_S3_CLUSTER_ENDPOINT` | `http://vectis-s3-artifact:8333` | In-cluster S3-compatible endpoint passed to `vectis-artifact`. |
+| `K8S_S3_BUCKET` | `vectis-artifacts` | Bucket used by the S3 artifact smoke. |
+| `K8S_S3_PREFIX` | `kubernetes-smoke` | Object prefix used by the S3 artifact smoke. |
+| `K8S_S3_ACCESS_KEY_ID` | `vectis-smoke` | Access key accepted by the SeaweedFS auth fixture. |
+| `K8S_S3_SECRET_ACCESS_KEY` | `vectis-smoke-secret` | Secret key accepted by the SeaweedFS auth fixture. |
+| `K8S_S3_TEMP_DIR` | `/data/vectis/artifact/s3-tmp` | Writable directory used by `vectis-artifact` while hashing S3 uploads during the smoke. |
+| `K8S_S3_KEEP_FIXTURE` | `false` | Keep `deployment/vectis-s3-artifact`, `service/vectis-s3-artifact`, and the auth ConfigMap after the optional S3 artifact smoke for local inspection. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -210,6 +221,16 @@ a running bridge. It deletes `deployment/vectis-gerrit` and
 `service/vectis-gerrit` when the run ends unless `K8S_GERRIT_KEEP_FIXTURE=true`
 or `--gerrit-keep-fixture=true` is set.
 
+`make k8s-kind-run-s3-artifact-smoke` is optional and intentionally kept out of
+`K8S_KIND_VALIDATE_STEPS` because it starts an S3-compatible fixture image and
+temporarily patches `statefulset/vectis-artifact`. It applies
+`deployment/vectis-s3-artifact`, verifies the fixture requires access keys,
+creates the configured bucket through a local port-forward, patches
+`vectis-artifact` to use the in-cluster S3 endpoint, runs the canonical workload
+smoke, verifies artifact upload/download through the deployed API path, then
+rolls `vectis-artifact` back. It deletes the S3 fixture when the run ends
+unless `K8S_S3_KEEP_FIXTURE=true` or `--s3-keep-fixture=true` is set.
+
 The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
@@ -220,6 +241,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --scal
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orphan-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --s3-artifact-only
 ```
 
 Build local component images before loading or pushing them to a cluster:
