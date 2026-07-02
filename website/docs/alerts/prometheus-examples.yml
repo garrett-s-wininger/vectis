@@ -60,6 +60,70 @@ groups:
           summary: Vectis task graph SQL row count is above the example threshold
           runbook: /docs/operating/reliability/repair-runbooks#retention-cleanup
 
+      - alert: VectisRetentionScheduledCleanupEvidenceMissing
+        expr: absent(vectis_retention_evidence_generated_timestamp_seconds{kind="scheduled_cleanup",name="default"})
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis scheduled retention cleanup evidence metrics are missing
+          runbook: /docs/operating/reliability/retention#production-scheduling
+
+      - alert: VectisRetentionScheduledCleanupEvidenceStale
+        expr: time() - vectis_retention_evidence_generated_timestamp_seconds{kind="scheduled_cleanup",name="default"} > 691200
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis scheduled retention cleanup evidence is older than eight days
+          runbook: /docs/operating/reliability/retention#production-scheduling
+
+      - alert: VectisRetentionScheduledCleanupUnverified
+        expr: vectis_retention_evidence_verified{kind="scheduled_cleanup",name="default"} == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis scheduled retention cleanup did not retain verified evidence
+          runbook: /docs/operating/reliability/retention#operator-flow
+
+      - alert: VectisBackupManifestEvidenceStale
+        expr: time() - vectis_retention_evidence_generated_timestamp_seconds{kind="backup_manifest",name="default"} > 90000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis retained backup manifest evidence is older than twenty-five hours
+          runbook: /docs/operating/reliability/backup-restore
+
+      - alert: VectisRestoreValidationEvidenceStale
+        expr: time() - vectis_retention_evidence_generated_timestamp_seconds{kind="restore_validation",name="default"} > 2678400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis restore-validation evidence is older than thirty-one days
+          runbook: /docs/operating/reliability/backup-restore#production-v1-drill
+
+      - alert: VectisStorageReportEvidenceFailed
+        expr: vectis_retention_evidence_status{kind="storage_report",status!="ok"} == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis retained storage verification evidence is not ok
+          description: "surface={{ $labels.name }} status={{ $labels.status }}"
+          runbook: /docs/operating/reliability/backup-restore
+
+      - alert: VectisRetentionWaiverExpiring
+        expr: vectis_retention_evidence_expires_timestamp_seconds{kind="waiver",name="default"} - time() < 86400
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis retained cleanup waiver expires within twenty-four hours
+          runbook: /docs/operating/reliability/retention#operator-flow
+
       - alert: VectisWorkerHighFailureRatio
         expr: |
           sum(rate(vectis_worker_job_duration_seconds_count{outcome!="success"}[15m]))

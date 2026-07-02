@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -512,6 +513,109 @@ func TestRetentionScheduledCleanupRequiresRetainedManifestPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--evidence-manifest-output") {
 		t.Fatalf("scheduled cleanup error = %v, want evidence manifest output", err)
+	}
+}
+
+func TestRetentionEvidenceMetricsEmitsPrometheusText(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	cleanupPath := writeBackupJSONFile(t, root, "retention-scheduled-cleanup.json", retentionScheduledCleanupResult{
+		Status:      "completed",
+		DryRun:      false,
+		Applied:     true,
+		GeneratedAt: now.Format(time.RFC3339),
+		Verification: &retentionCleanupEvidenceManifestVerification{
+			Verified:  true,
+			CheckedAt: now.Add(time.Minute).Format(time.RFC3339),
+		},
+	})
+	backupPath := writeBackupJSONFile(t, root, "backup-manifest.json", retentionBackupManifestForTest(now.Add(-15*time.Minute).Format(time.RFC3339)))
+	restorePath := writeBackupJSONFile(t, root, "restore-validation.json", backupRestoreValidation{
+		SchemaVersion: backupRestoreValidationSchemaVersion,
+		Status:        backupManifestStatusOK,
+		GeneratedAt:   now.Add(-10 * time.Minute).Format(time.RFC3339),
+		Manifest:      backupPath,
+		Verification: backupManifestVerification{
+			Status:    backupManifestStatusOK,
+			CheckedAt: now.Add(-9 * time.Minute).Format(time.RFC3339),
+		},
+		SmokeRun: backupRestoreSmokeRun{RunID: "run-123", Status: "succeeded", Passed: true},
+	})
+	storagePath := writeBackupJSONFile(t, root, "queue.storage.json", storageverify.Report{
+		Surface:      storageverify.SurfaceQueue,
+		Path:         "/var/lib/vectis/queue",
+		Status:       storageverify.StatusOK,
+		CheckedFiles: 11,
+		CheckedBytes: 22,
+		Records:      33,
+		Batches:      44,
+		CheckedAt:    now.Add(-5 * time.Minute),
+		Warnings:     []storageverify.Finding{{ID: "queue.extra_file", Message: "extra file"}},
+	})
+	auditPath := writeBackupJSONFile(t, root, "audit-export.json", auditExportEvidence{
+		SchemaVersion: auditExportSchemaVersion,
+		GeneratedAt:   now.Add(-20 * time.Minute).Format(time.RFC3339),
+		RowCount:      4,
+	})
+	holdReviewPath := writeBackupJSONFile(t, root, "hold-review.json", retentionHoldReviewFile{
+		SchemaVersion: retentionHoldReviewSchemaVersion,
+		GeneratedAt:   now.Add(-25 * time.Minute).Format(time.RFC3339),
+		ReviewedBy:    "compliance",
+		Reason:        "weekly review",
+		ActiveHolds:   2,
+		HoldsSHA256:   "abc123",
+	})
+	waiverExpiresAt := now.Add(24 * time.Hour)
+	waiverPath := writeBackupJSONFile(t, root, "retention-waiver.json", retentionWaiverFile{
+		SchemaVersion: retentionWaiverSchemaVersion,
+		Waives:        []string{retentionWaiverAuditExport},
+		Reason:        "approved exception",
+		ApprovedBy:    "security",
+		ExpiresAt:     waiverExpiresAt.Format(time.RFC3339),
+	})
+
+	payload, err := buildRetentionEvidenceMetrics(retentionEvidenceMetricsOptions{
+		ScheduledCleanupPath:  cleanupPath,
+		BackupManifestPath:    backupPath,
+		RestoreValidationPath: restorePath,
+		StorageReportPaths:    []string{storagePath},
+		AuditExportPath:       auditPath,
+		HoldReviewPath:        holdReviewPath,
+		WaiverPath:            waiverPath,
+	})
+	if err != nil {
+		t.Fatalf("retention evidence metrics: %v", err)
+	}
+
+	got := string(payload)
+	for _, want := range []string{
+		`# HELP vectis_retention_evidence_generated_timestamp_seconds Unix timestamp when retained evidence was generated.`,
+		`vectis_retention_evidence_generated_timestamp_seconds{kind="scheduled_cleanup",name="default"} ` + strconv.FormatInt(now.Unix(), 10),
+		`vectis_retention_evidence_status{kind="scheduled_cleanup",name="default",status="completed"} 1`,
+		`vectis_retention_evidence_verified{kind="scheduled_cleanup",name="default"} 1`,
+		`vectis_retention_evidence_applied{kind="scheduled_cleanup",name="default"} 1`,
+		`vectis_retention_evidence_status{kind="backup_manifest",name="default",status="present"} 1`,
+		`vectis_retention_evidence_status{kind="restore_validation",name="default",status="ok"} 1`,
+		`vectis_retention_evidence_status{kind="storage_report",name="queue",status="ok"} 1`,
+		`vectis_retention_evidence_storage_checked_files{kind="storage_report",name="queue"} 11`,
+		`vectis_retention_evidence_storage_warnings{kind="storage_report",name="queue"} 1`,
+		`vectis_retention_evidence_rows{kind="audit_export",name="default"} 4`,
+		`vectis_retention_evidence_holds{kind="hold_review",name="default"} 2`,
+		`vectis_retention_evidence_expires_timestamp_seconds{kind="waiver",name="default"} ` + strconv.FormatInt(waiverExpiresAt.Unix(), 10),
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("metrics missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRetentionEvidenceMetricsRequiresInput(t *testing.T) {
+	_, err := buildRetentionEvidenceMetrics(retentionEvidenceMetricsOptions{})
+	if err == nil {
+		t.Fatal("retention evidence metrics succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "at least one evidence path") {
+		t.Fatalf("retention evidence metrics error = %v, want input guard", err)
 	}
 }
 

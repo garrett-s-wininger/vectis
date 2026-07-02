@@ -173,6 +173,9 @@ func TestRetentionScheduledCleanupUnitAndTimerContract(t *testing.T) {
 		"--require-hold-review",
 		"--evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json",
 		"> /var/lib/vectis/ops/retention-scheduled-cleanup.json",
+		"/usr/bin/vectis-cli retention evidence metrics",
+		"--scheduled-cleanup /var/lib/vectis/ops/retention-scheduled-cleanup.json",
+		"--output /var/lib/vectis/ops/retention-evidence.prom",
 	} {
 		if !strings.Contains(execStart, want) {
 			t.Fatalf("%s ExecStart missing %q:\n%s", retentionUnit, want, execStart)

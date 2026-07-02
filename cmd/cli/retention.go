@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,6 +176,17 @@ type retentionScheduledCleanupResult struct {
 	EvidenceManifestPromotedTo string                                        `json:"evidence_manifest_promoted_to,omitempty"`
 	Verification               *retentionCleanupEvidenceManifestVerification `json:"verification"`
 	Cleanup                    any                                           `json:"cleanup,omitempty"`
+}
+
+type retentionEvidenceMetricsOptions struct {
+	OutputPath            string
+	ScheduledCleanupPath  string
+	BackupManifestPath    string
+	RestoreValidationPath string
+	StorageReportPaths    []string
+	AuditExportPath       string
+	HoldReviewPath        string
+	WaiverPath            string
 }
 
 type retentionCleanupFlagChanges struct {
@@ -352,6 +364,19 @@ func runRetentionEvidenceManifest(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(writeRetentionCleanupEvidenceManifest(os.Stdout, retentionEvidenceManifestOutput, retentionEvidenceManifestPromote, manifest, verification))
+}
+
+func runRetentionEvidenceMetrics(cmd *cobra.Command, args []string) {
+	runCLIError(writeRetentionEvidenceMetrics(os.Stdout, retentionEvidenceMetricsOptions{
+		OutputPath:            retentionEvidenceMetricsOutput,
+		ScheduledCleanupPath:  retentionEvidenceMetricsCleanup,
+		BackupManifestPath:    retentionEvidenceMetricsBackup,
+		RestoreValidationPath: retentionEvidenceMetricsRestore,
+		StorageReportPaths:    retentionEvidenceMetricsStorage,
+		AuditExportPath:       retentionEvidenceMetricsAudit,
+		HoldReviewPath:        retentionEvidenceMetricsHoldReview,
+		WaiverPath:            retentionEvidenceMetricsWaiver,
+	}))
 }
 
 func runRetentionScheduledCleanup(cmd *cobra.Command, args []string) {
@@ -989,6 +1014,383 @@ func writeFileAtomic(path string, payload []byte, perm fs.FileMode) error {
 
 	removeTemp = false
 	return nil
+}
+
+func writeRetentionEvidenceMetrics(w io.Writer, opts retentionEvidenceMetricsOptions) error {
+	payload, err := buildRetentionEvidenceMetrics(opts)
+	if err != nil {
+		return err
+	}
+
+	outputPath := strings.TrimSpace(opts.OutputPath)
+	if outputPath == "" {
+		outputPath = "-"
+	}
+
+	if outputPath == "-" {
+		_, err := w.Write(payload)
+		return err
+	}
+
+	return writeFileAtomic(outputPath, payload, 0o644)
+}
+
+func buildRetentionEvidenceMetrics(opts retentionEvidenceMetricsOptions) ([]byte, error) {
+	if !retentionEvidenceMetricsHasInput(opts) {
+		return nil, fmt.Errorf("retention evidence metrics requires at least one evidence path")
+	}
+
+	var b strings.Builder
+	writeRetentionEvidenceMetricsHeader(&b)
+	if path := strings.TrimSpace(opts.ScheduledCleanupPath); path != "" {
+		var result retentionScheduledCleanupResult
+		if err := readRetentionEvidenceMetricsJSON(path, "scheduled cleanup", &result); err != nil {
+			return nil, err
+		}
+
+		if err := writeRetentionEvidenceGeneratedMetric(&b, "scheduled_cleanup", "default", result.GeneratedAt); err != nil {
+			return nil, err
+		}
+
+		writeRetentionEvidenceStatusMetric(&b, "scheduled_cleanup", "default", result.Status)
+		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_applied", "scheduled_cleanup", "default", result.Applied)
+		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_dry_run", "scheduled_cleanup", "default", result.DryRun)
+		verified := false
+		if result.Verification != nil {
+			verified = result.Verification.Verified
+			if err := writeRetentionEvidenceCheckedMetric(&b, "scheduled_cleanup", "default", result.Verification.CheckedAt); err != nil {
+				return nil, err
+			}
+		}
+
+		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_verified", "scheduled_cleanup", "default", verified)
+	}
+
+	if path := strings.TrimSpace(opts.BackupManifestPath); path != "" {
+		var manifest backupManifest
+		if err := readRetentionEvidenceMetricsJSON(path, "backup manifest", &manifest); err != nil {
+			return nil, err
+		}
+
+		if err := writeRetentionEvidenceGeneratedMetric(&b, "backup_manifest", "default", manifest.GeneratedAt); err != nil {
+			return nil, err
+		}
+
+		writeRetentionEvidenceStatusMetric(&b, "backup_manifest", "default", "present")
+	}
+
+	if path := strings.TrimSpace(opts.RestoreValidationPath); path != "" {
+		var validation backupRestoreValidation
+		if err := readRetentionEvidenceMetricsJSON(path, "restore validation", &validation); err != nil {
+			return nil, err
+		}
+
+		if err := writeRetentionEvidenceGeneratedMetric(&b, "restore_validation", "default", validation.GeneratedAt); err != nil {
+			return nil, err
+		}
+
+		if validation.Verification.CheckedAt != "" {
+			if err := writeRetentionEvidenceCheckedMetric(&b, "restore_validation", "default", validation.Verification.CheckedAt); err != nil {
+				return nil, err
+			}
+		}
+
+		writeRetentionEvidenceStatusMetric(&b, "restore_validation", "default", validation.Status)
+		writeRetentionEvidenceBoolMetric(&b, "vectis_retention_evidence_verified", "restore_validation", "default", strings.EqualFold(validation.Status, backupManifestStatusOK))
+	}
+
+	storageNames := make(map[string]int)
+	for _, rawPath := range opts.StorageReportPaths {
+		path := strings.TrimSpace(rawPath)
+		if path == "" {
+			return nil, fmt.Errorf("storage report path cannot be empty")
+		}
+
+		if path == "-" {
+			return nil, fmt.Errorf("storage report evidence path cannot be stdin")
+		}
+
+		report, err := readBackupStorageReportFile(path)
+		if err != nil {
+			return nil, err
+		}
+
+		name := retentionEvidenceStorageMetricName(report.Surface, path, storageNames)
+		if report.CheckedAt.IsZero() {
+			return nil, fmt.Errorf("storage report evidence missing checked_at")
+		}
+
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_checked_timestamp_seconds", retentionEvidenceMetricLabels("storage_report", name), float64(report.CheckedAt.UTC().Unix()))
+		writeRetentionEvidenceStatusMetric(&b, "storage_report", name, report.Status)
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_checked_files", retentionEvidenceMetricLabels("storage_report", name), float64(report.CheckedFiles))
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_checked_bytes", retentionEvidenceMetricLabels("storage_report", name), float64(report.CheckedBytes))
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_records", retentionEvidenceMetricLabels("storage_report", name), float64(report.Records))
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_batches", retentionEvidenceMetricLabels("storage_report", name), float64(report.Batches))
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_errors", retentionEvidenceMetricLabels("storage_report", name), float64(len(report.Errors)))
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_storage_warnings", retentionEvidenceMetricLabels("storage_report", name), float64(len(report.Warnings)))
+	}
+
+	if path := strings.TrimSpace(opts.AuditExportPath); path != "" {
+		var export auditExportEvidence
+		if err := readRetentionEvidenceMetricsJSON(path, "audit export", &export); err != nil {
+			return nil, err
+		}
+
+		if err := writeRetentionEvidenceGeneratedMetric(&b, "audit_export", "default", export.GeneratedAt); err != nil {
+			return nil, err
+		}
+
+		writeRetentionEvidenceStatusMetric(&b, "audit_export", "default", "present")
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_rows", retentionEvidenceMetricLabels("audit_export", "default"), float64(export.RowCount))
+	}
+
+	if path := strings.TrimSpace(opts.HoldReviewPath); path != "" {
+		var review retentionHoldReviewFile
+		if err := readRetentionEvidenceMetricsJSON(path, "hold review", &review); err != nil {
+			return nil, err
+		}
+
+		if err := writeRetentionEvidenceGeneratedMetric(&b, "hold_review", "default", review.GeneratedAt); err != nil {
+			return nil, err
+		}
+
+		writeRetentionEvidenceStatusMetric(&b, "hold_review", "default", "present")
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_holds", retentionEvidenceMetricLabels("hold_review", "default"), float64(review.ActiveHolds))
+	}
+
+	if path := strings.TrimSpace(opts.WaiverPath); path != "" {
+		var waiver retentionWaiverFile
+		if err := readRetentionEvidenceMetricsJSON(path, "waiver", &waiver); err != nil {
+			return nil, err
+		}
+
+		expiresAt, err := retentionEvidenceMetricTimestamp("waiver", "expires_at", waiver.ExpiresAt)
+		if err != nil {
+			return nil, err
+		}
+
+		writeRetentionPrometheusGauge(&b, "vectis_retention_evidence_expires_timestamp_seconds", retentionEvidenceMetricLabels("waiver", "default"), float64(expiresAt.Unix()))
+		writeRetentionEvidenceStatusMetric(&b, "waiver", "default", "present")
+	}
+
+	return []byte(b.String()), nil
+}
+
+func retentionEvidenceMetricsHasInput(opts retentionEvidenceMetricsOptions) bool {
+	if strings.TrimSpace(opts.ScheduledCleanupPath) != "" ||
+		strings.TrimSpace(opts.BackupManifestPath) != "" ||
+		strings.TrimSpace(opts.RestoreValidationPath) != "" ||
+		strings.TrimSpace(opts.AuditExportPath) != "" ||
+		strings.TrimSpace(opts.HoldReviewPath) != "" ||
+		strings.TrimSpace(opts.WaiverPath) != "" {
+		return true
+	}
+
+	return len(opts.StorageReportPaths) > 0
+}
+
+func readRetentionEvidenceMetricsJSON(path, kind string, out any) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("%s evidence path cannot be empty", kind)
+	}
+
+	if path == "-" {
+		return fmt.Errorf("%s evidence path cannot be stdin", kind)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s evidence %s: %w", kind, path, err)
+	}
+	defer f.Close()
+
+	if err := json.NewDecoder(f).Decode(out); err != nil {
+		return fmt.Errorf("decode %s evidence %s: %w", kind, path, err)
+	}
+
+	return nil
+}
+
+type retentionPrometheusLabel struct {
+	Name  string
+	Value string
+}
+
+func writeRetentionEvidenceMetricsHeader(b *strings.Builder) {
+	lines := []string{
+		"# HELP vectis_retention_evidence_generated_timestamp_seconds Unix timestamp when retained evidence was generated.",
+		"# TYPE vectis_retention_evidence_generated_timestamp_seconds gauge",
+		"# HELP vectis_retention_evidence_checked_timestamp_seconds Unix timestamp when retained evidence was checked.",
+		"# TYPE vectis_retention_evidence_checked_timestamp_seconds gauge",
+		"# HELP vectis_retention_evidence_expires_timestamp_seconds Unix timestamp when retained evidence expires.",
+		"# TYPE vectis_retention_evidence_expires_timestamp_seconds gauge",
+		"# HELP vectis_retention_evidence_status Retained evidence status. The active status label has value 1.",
+		"# TYPE vectis_retention_evidence_status gauge",
+		"# HELP vectis_retention_evidence_verified Whether retained evidence verification succeeded.",
+		"# TYPE vectis_retention_evidence_verified gauge",
+		"# HELP vectis_retention_evidence_applied Whether scheduled retention cleanup applied deletions.",
+		"# TYPE vectis_retention_evidence_applied gauge",
+		"# HELP vectis_retention_evidence_dry_run Whether scheduled retention cleanup ran in dry-run mode.",
+		"# TYPE vectis_retention_evidence_dry_run gauge",
+		"# HELP vectis_retention_evidence_rows Rows covered by retained evidence.",
+		"# TYPE vectis_retention_evidence_rows gauge",
+		"# HELP vectis_retention_evidence_holds Active holds covered by retained evidence.",
+		"# TYPE vectis_retention_evidence_holds gauge",
+		"# HELP vectis_retention_evidence_storage_checked_files Files checked by retained storage verification evidence.",
+		"# TYPE vectis_retention_evidence_storage_checked_files gauge",
+		"# HELP vectis_retention_evidence_storage_checked_bytes Bytes checked by retained storage verification evidence.",
+		"# TYPE vectis_retention_evidence_storage_checked_bytes gauge",
+		"# HELP vectis_retention_evidence_storage_records Records checked by retained storage verification evidence.",
+		"# TYPE vectis_retention_evidence_storage_records gauge",
+		"# HELP vectis_retention_evidence_storage_batches Batches checked by retained storage verification evidence.",
+		"# TYPE vectis_retention_evidence_storage_batches gauge",
+		"# HELP vectis_retention_evidence_storage_errors Errors in retained storage verification evidence.",
+		"# TYPE vectis_retention_evidence_storage_errors gauge",
+		"# HELP vectis_retention_evidence_storage_warnings Warnings in retained storage verification evidence.",
+		"# TYPE vectis_retention_evidence_storage_warnings gauge",
+	}
+
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+}
+
+func writeRetentionEvidenceGeneratedMetric(b *strings.Builder, kind, name, value string) error {
+	timestamp, err := retentionEvidenceMetricTimestamp(kind, "generated_at", value)
+	if err != nil {
+		return err
+	}
+
+	writeRetentionPrometheusGauge(b, "vectis_retention_evidence_generated_timestamp_seconds", retentionEvidenceMetricLabels(kind, name), float64(timestamp.Unix()))
+	return nil
+}
+
+func writeRetentionEvidenceCheckedMetric(b *strings.Builder, kind, name, value string) error {
+	timestamp, err := retentionEvidenceMetricTimestamp(kind, "checked_at", value)
+	if err != nil {
+		return err
+	}
+
+	writeRetentionPrometheusGauge(b, "vectis_retention_evidence_checked_timestamp_seconds", retentionEvidenceMetricLabels(kind, name), float64(timestamp.Unix()))
+	return nil
+}
+
+func writeRetentionEvidenceStatusMetric(b *strings.Builder, kind, name, status string) {
+	status = retentionEvidenceMetricToken(status, "unknown")
+	writeRetentionPrometheusGauge(b, "vectis_retention_evidence_status", append(retentionEvidenceMetricLabels(kind, name), retentionPrometheusLabel{Name: "status", Value: status}), 1)
+}
+
+func writeRetentionEvidenceBoolMetric(b *strings.Builder, metric, kind, name string, value bool) {
+	if value {
+		writeRetentionPrometheusGauge(b, metric, retentionEvidenceMetricLabels(kind, name), 1)
+		return
+	}
+
+	writeRetentionPrometheusGauge(b, metric, retentionEvidenceMetricLabels(kind, name), 0)
+}
+
+func writeRetentionPrometheusGauge(b *strings.Builder, metric string, labels []retentionPrometheusLabel, value float64) {
+	b.WriteString(metric)
+	if len(labels) > 0 {
+		b.WriteByte('{')
+		for i, label := range labels {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+
+			b.WriteString(label.Name)
+			b.WriteString("=\"")
+			b.WriteString(retentionPrometheusEscapeLabelValue(label.Value))
+			b.WriteByte('"')
+		}
+
+		b.WriteByte('}')
+	}
+
+	b.WriteByte(' ')
+	b.WriteString(strconv.FormatFloat(value, 'f', -1, 64))
+	b.WriteByte('\n')
+}
+
+func retentionEvidenceMetricLabels(kind, name string) []retentionPrometheusLabel {
+	return []retentionPrometheusLabel{
+		{Name: "kind", Value: retentionEvidenceMetricToken(kind, "unknown")},
+		{Name: "name", Value: retentionEvidenceMetricToken(name, "default")},
+	}
+}
+
+func retentionEvidenceMetricTimestamp(kind, field, value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("%s evidence missing %s", kind, field)
+	}
+
+	timestamp, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse %s evidence %s %q: %w", kind, field, value, err)
+	}
+
+	return timestamp.UTC(), nil
+}
+
+func retentionEvidenceStorageMetricName(surface, path string, seen map[string]int) string {
+	name := retentionEvidenceMetricToken(surface, "")
+	if name == "" {
+		name = retentionEvidenceMetricToken(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)), "storage")
+	}
+
+	seen[name]++
+	if seen[name] == 1 {
+		return name
+	}
+
+	return fmt.Sprintf("%s_%d", name, seen[name])
+}
+
+func retentionEvidenceMetricToken(value, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+
+	token := strings.Trim(b.String(), "_")
+	if token == "" {
+		return strings.Trim(strings.ToLower(fallback), "_")
+	}
+
+	return token
+}
+
+func retentionPrometheusEscapeLabelValue(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '"':
+			b.WriteString(`\"`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+
+	return b.String()
 }
 
 func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions, evidenceManifest *retentionCleanupEvidenceManifestEvidence) error {
@@ -2559,6 +2961,17 @@ and required-gate evidence. Use --promote to atomically update the stable path
 that recurring cleanup jobs consume with --evidence-manifest.`,
 	Args: cobra.NoArgs,
 	Run:  runRetentionEvidenceManifest,
+}
+
+var retentionEvidenceMetricsCmd = &cobra.Command{
+	Use:   "metrics",
+	Short: "Export retained evidence as Prometheus text metrics",
+	Long: `Export retained backup, restore-validation, storage, audit, hold-review,
+waiver, and scheduled-cleanup evidence JSON as Prometheus textfile metrics.
+Use the output with node_exporter textfile collection or an equivalent
+operator-owned scrape path.`,
+	Args: cobra.NoArgs,
+	Run:  runRetentionEvidenceMetrics,
 }
 
 var retentionScheduledCleanupCmd = &cobra.Command{

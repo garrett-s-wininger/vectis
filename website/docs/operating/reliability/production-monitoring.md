@@ -13,11 +13,11 @@ installing alert rules in the production telemetry system.
 
 | Owner | Must cover |
 | --- | --- |
-| Vectis | Health checks, service metrics, run/dispatch visibility, audit durability signals, queue/log/artifact/reconciler/worker metrics, and CLI triage commands. |
+| Vectis | Health checks, service metrics, run/dispatch visibility, audit durability signals, queue/log/artifact/reconciler/worker metrics, retained-evidence textfile metric generation, and CLI triage commands. |
 | Platform telemetry | Host CPU, memory, disk, inodes, filesystem latency, process supervision, service restarts, network reachability, TLS expiry, and log shipping. |
 | PostgreSQL platform | Database availability, replication/failover if used, backups, restore status, slow queries, connection pressure, locks, and storage growth. |
 | Secret and identity platform | Secret rotation, secret-store availability, SPIFFE authority health, certificate expiry, and unauthorized access attempts. |
-| Operators | Threshold tuning, alert routing, runbook links, escalation policy, smoke checks, and periodic backup/restore drill evidence. |
+| Operators | Threshold tuning, alert routing, runbook links, escalation policy, smoke checks, retained-evidence textfile collection, and periodic backup/restore drill evidence. |
 
 `vectis-cli health check --strict` is the first operator command, not a complete
 monitoring system. Production monitoring must combine Vectis metrics with host,
@@ -44,7 +44,7 @@ For exact metric names, labels, and interpretation, see the
 | Cron | Due schedule backlog, schedule-to-run latency where available, cron claim failures through service logs, and repeated dispatch attempts. |
 | Catalog | Per-cell fan-in read/copy/backfill counts, pending/failed inbox counts, and global catalog apply progress. |
 | Secrets | Resolve request totals/duration by outcome/reason/provider, encryptedfs storage health, and worker SVID gate failures. |
-| Retention | SQL storage record gauges, oldest retained record age, dry-run cleanup evidence, and database/storage growth. |
+| Retention | SQL storage record gauges, oldest retained record age, scheduled cleanup evidence freshness, backup manifest freshness, restore-validation freshness, storage verification evidence status, retained waiver expiry, dry-run cleanup evidence, and database/storage growth. |
 
 ## Required Platform Signals
 
@@ -84,6 +84,7 @@ Production v1 should have alerts for:
 | Retry exhaustion | A dependency or repair loop is failing past its retry policy. |
 | Database pool saturation | DB-backed API, workers, cron, catalog, audit, or retention may slow or fail. |
 | API security rejection spikes | Edge/proxy/client behavior changed or hostile traffic increased. |
+| Retention evidence freshness | Backup, restore-validation, hold-review, audit export, or scheduled cleanup evidence is missing, stale, or unverified. |
 | Retention/storage growth | SQL state or local storage is exceeding the retention plan. |
 
 Every production alert should carry a runbook annotation that points to
@@ -101,7 +102,7 @@ At handoff, dashboards should show:
 - log append failures, drops, route failures, and forwarder spool backlog;
 - artifact storage bytes, free bytes/inodes, blob count, and writable state;
 - PostgreSQL pool pressure from Vectis plus database-platform health;
-- retention surfaces and oldest retained record age;
+- retention surfaces, oldest retained record age, retained evidence age, storage verification status, and waiver expiry;
 - host disk and inode pressure for all configured durable paths.
 
 Bundled dashboards in the reference deployment are useful for demos and smoke
@@ -116,6 +117,7 @@ with thresholds, ownership, and runbook links tuned for the environment.
 | Non-API dispatch failure counters are partial. | Correlate API enqueue outcomes, reconciler metrics, per-run dispatch events, and service logs. |
 | No rate-limit accepted metric yet. | Use rejection metrics for denied traffic, plus edge/API access logs and HTTP status monitoring for accepted traffic. |
 | File-backed queue/log/artifact/spool pressure needs host telemetry. | Monitor the configured paths directly for free bytes, inodes, and latency. |
+| Retained evidence freshness is textfile-collected. | Run `vectis-cli retention evidence metrics` after scheduled cleanup, backup verification, restore-validation, audit export, hold review, or waiver changes, then scrape the generated `.prom` file through platform telemetry. |
 | Dashboard panels are not yet annotated with runbook links by default. | Put runbook URLs in production alert annotations and dashboard panel descriptions. |
 | Orchestrator hot-state pressure is mostly indirect. | Watch worker claim/renew/complete failures, retry exhaustion, worker orchestrator recoveries, queue backlog after task completions, and orchestrator process health. |
 
@@ -130,9 +132,10 @@ Before declaring monitoring production-ready:
 5. Alert annotations point to runbooks.
 6. Host disk and inode telemetry covers every durable Vectis path.
 7. PostgreSQL backup freshness and restore status are monitored.
-8. TLS and SPIFFE certificate expiry are monitored.
-9. A known-safe smoke run is exercised after deployment and restore drills.
-10. Known monitoring gaps are accepted or tracked as production-readiness follow-ups.
+8. Retained backup, restore-validation, scheduled cleanup, audit export, hold-review, storage-report, and waiver evidence metrics are generated and scraped.
+9. TLS and SPIFFE certificate expiry are monitored.
+10. A known-safe smoke run is exercised after deployment and restore drills.
+11. Known monitoring gaps are accepted or tracked as production-readiness follow-ups.
 
 ## Related Documentation
 

@@ -30,8 +30,10 @@ orchestrator, queue, reconciler, registry, secrets, SPIFFE authority, worker,
 and worker-core units. It also includes a static
 `vectis-retention-scheduled-cleanup.service` plus
 `vectis-retention-scheduled-cleanup.timer` for the retained backup/audit/hold
-evidence cleanup workflow; operators still own the backup manifest, expected
-topology, API token, and timer enablement.
+evidence cleanup workflow. The service also emits
+`/var/lib/vectis/ops/retention-evidence.prom` for Prometheus textfile scraping;
+operators still own the backup manifest, expected topology, API token, textfile
+collector wiring, and timer enablement.
 The `vectis-local` DEB/RPM package is intentionally separate from this
 TOML-driven service inventory and does not install systemd units.
 

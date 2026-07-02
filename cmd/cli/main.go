@@ -232,6 +232,14 @@ var (
 	retentionEvidenceRequireAuditExport  bool
 	retentionEvidenceRequireHoldReview   bool
 	retentionEvidenceWaiver              string
+	retentionEvidenceMetricsOutput       string
+	retentionEvidenceMetricsCleanup      string
+	retentionEvidenceMetricsBackup       string
+	retentionEvidenceMetricsRestore      string
+	retentionEvidenceMetricsStorage      []string
+	retentionEvidenceMetricsAudit        string
+	retentionEvidenceMetricsHoldReview   string
+	retentionEvidenceMetricsWaiver       string
 )
 
 var (
@@ -524,6 +532,14 @@ func init() {
 	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Write a manifest gate requiring audit export evidence before deleting audit rows unless waived")
 	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Write a manifest gate requiring hold review evidence unless waived")
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceWaiver, "waiver", "", "Retention waiver JSON path to retain for cleanup validation")
+	retentionEvidenceMetricsCmd.Flags().StringVarP(&retentionEvidenceMetricsOutput, "output", "o", "-", "Prometheus textfile output path, or '-' for stdout")
+	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsCleanup, "scheduled-cleanup", "", "Scheduled retention cleanup workflow JSON receipt")
+	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsBackup, "backup-manifest", "", "Backup manifest JSON evidence")
+	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsRestore, "restore-validation", "", "Backup restore-validation JSON evidence")
+	retentionEvidenceMetricsCmd.Flags().StringArrayVar(&retentionEvidenceMetricsStorage, "storage-report", nil, "Storage verification report JSON evidence (repeatable)")
+	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsAudit, "audit-export", "", "Audit export evidence JSON")
+	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsHoldReview, "hold-review", "", "Active hold review evidence JSON")
+	retentionEvidenceMetricsCmd.Flags().StringVar(&retentionEvidenceMetricsWaiver, "waiver", "", "Retention waiver JSON evidence")
 	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionYes, "yes", false, "Confirm deletion of retention-eligible records")
 	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionDryRun, "dry-run", false, "Print the records that would be deleted")
 	retentionScheduledCleanupCmd.Flags().DurationVar(&retentionRunAge, "terminal-run-age", defaultRetention.Policy.TerminalRuns, "Delete terminal runs older than this duration (0 disables)")
@@ -554,7 +570,7 @@ func init() {
 	retentionScheduledCleanupCmd.Flags().BoolVar(&retentionEvidenceRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Require hold review evidence unless waived")
 	retentionScheduledCleanupCmd.Flags().StringVar(&retentionEvidenceWaiver, "waiver", "", "Retention waiver JSON path to retain for cleanup validation")
 	retentionHoldsCmd.AddCommand(retentionHoldCreateCmd, retentionHoldListCmd, retentionHoldReleaseCmd, retentionHoldReviewCmd)
-	retentionEvidenceCmd.AddCommand(retentionEvidenceManifestCmd)
+	retentionEvidenceCmd.AddCommand(retentionEvidenceManifestCmd, retentionEvidenceMetricsCmd)
 	retentionCmd.AddCommand(retentionCleanupCmd)
 	retentionCmd.AddCommand(retentionEvidenceCmd)
 	retentionCmd.AddCommand(retentionHoldsCmd)

@@ -47,10 +47,19 @@ func TestRenderGrafanaConfigMapsProducesYAMLConfigMaps(t *testing.T) {
 		t.Fatalf("generated %d ConfigMaps, want 2", len(seen))
 	}
 	requireConfigMapDataKey(t, seen, "vectis-grafana-dashboard-provider", "dashboards.yaml")
-	requireConfigMapDataKey(t, seen, "vectis-grafana-dashboards", "vectis-overview.json")
+	overview := requireConfigMapDataKey(t, seen, "vectis-grafana-dashboards", "vectis-overview.json")
+	for _, want := range []string{
+		`"title": "Backup / Retention Evidence"`,
+		"vectis_retention_evidence_generated_timestamp_seconds",
+		"vectis_retention_evidence_storage_errors",
+	} {
+		if !strings.Contains(overview, want) {
+			t.Fatalf("vectis-overview.json missing %q", want)
+		}
+	}
 }
 
-func requireConfigMapDataKey(t *testing.T, docs map[string]map[string]any, name, key string) {
+func requireConfigMapDataKey(t *testing.T, docs map[string]map[string]any, name, key string) string {
 	t.Helper()
 
 	doc, ok := docs[name]
@@ -63,5 +72,8 @@ func requireConfigMapDataKey(t *testing.T, docs map[string]map[string]any, name,
 	}
 	if value, ok := data[key].(string); !ok || value == "" {
 		t.Fatalf("%s data[%s] = %#v", name, key, data[key])
+	} else {
+		return value
 	}
+	return ""
 }

@@ -265,6 +265,24 @@ vectis-cli retention cleanup --yes \
   --evidence-manifest /var/lib/vectis/ops/retention-cleanup-evidence.json
 ```
 
+To publish the retained evidence as Prometheus textfile metrics, run the metrics
+export after evidence files are written or promoted:
+
+```sh
+vectis-cli retention evidence metrics \
+  --scheduled-cleanup /var/lib/vectis/ops/retention-scheduled-cleanup.json \
+  --backup-manifest /var/lib/vectis/ops/backup-manifest.json \
+  --restore-validation /var/lib/vectis/ops/restore-validation.json \
+  --storage-report /var/lib/vectis/ops/queue.storage-report.json \
+  --audit-export /var/lib/vectis/ops/audit-export.json \
+  --hold-review /var/lib/vectis/ops/hold-review.json \
+  --output /var/lib/vectis/ops/retention-evidence.prom
+```
+
+The metrics output intentionally uses bounded `kind`, `name`, and `status`
+labels and does not include raw file paths. Scrape it through node_exporter
+textfile collection or an equivalent site-owned telemetry path.
+
 Use a waiver only for an approved exception where the gate is intentionally
 being bypassed. Waivers are retained JSON files with an expiry, an approver,
 and the gate names being waived:
@@ -364,7 +382,8 @@ The Linux service artifacts and `vectis-common` package include
 `vectis-retention-scheduled-cleanup.service` and
 `vectis-retention-scheduled-cleanup.timer`. The reference timer applies cleanup
 weekly, writes the JSON workflow receipt to
-`/var/lib/vectis/ops/retention-scheduled-cleanup.json`, and expects retained
+`/var/lib/vectis/ops/retention-scheduled-cleanup.json`, writes retained evidence
+metrics to `/var/lib/vectis/ops/retention-evidence.prom`, and expects retained
 backup evidence at `/var/lib/vectis/ops/backup-manifest.json`.
 
 This example adds a site-owned daily dry-run beside the packaged apply timer.
@@ -406,7 +425,7 @@ Description=Run Vectis scheduled retention cleanup
 Type=oneshot
 EnvironmentFile=-/etc/vectis/vectis.env
 EnvironmentFile=-/etc/vectis/vectis-retention-scheduled-cleanup.env
-ExecStart=/bin/sh -c 'umask 077; /usr/bin/vectis-cli --format json retention scheduled-cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h --audit-export-output /var/lib/vectis/ops/audit-export.json --audit-export-max-age 24h --hold-review-output /var/lib/vectis/ops/hold-review.json --hold-review-max-age 24h --generated-by systemd:vectis-retention-scheduled-cleanup.timer --reviewed-by retention-scheduler --reason scheduled-retention-cleanup-review --external-ref systemd:vectis-retention-scheduled-cleanup.timer --require-backup-manifest --require-audit-export --require-hold-review --evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json > /var/lib/vectis/ops/retention-scheduled-cleanup.json'
+ExecStart=/bin/sh -c 'umask 077; /usr/bin/vectis-cli --format json retention scheduled-cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h --audit-export-output /var/lib/vectis/ops/audit-export.json --audit-export-max-age 24h --hold-review-output /var/lib/vectis/ops/hold-review.json --hold-review-max-age 24h --generated-by systemd:vectis-retention-scheduled-cleanup.timer --reviewed-by retention-scheduler --reason scheduled-retention-cleanup-review --external-ref systemd:vectis-retention-scheduled-cleanup.timer --require-backup-manifest --require-audit-export --require-hold-review --evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json > /var/lib/vectis/ops/retention-scheduled-cleanup.json && /usr/bin/vectis-cli retention evidence metrics --scheduled-cleanup /var/lib/vectis/ops/retention-scheduled-cleanup.json --backup-manifest /var/lib/vectis/ops/backup-manifest.json --audit-export /var/lib/vectis/ops/audit-export.json --hold-review /var/lib/vectis/ops/hold-review.json --output /var/lib/vectis/ops/retention-evidence.prom'
 ```
 
 Generated `/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.timer`:
@@ -618,6 +637,15 @@ The API registers SQL storage pressure gauges on `/metrics`:
 | `vectis_storage_oldest_record_age_seconds` | `surface` | Age of the oldest record for retention-managed SQL surfaces. |
 
 Use these with disk/database capacity signals to decide whether cleanup cadence or retention windows need adjustment.
+
+Operators can also publish retained evidence metrics with
+`vectis-cli retention evidence metrics`. The reference Linux timer writes
+`/var/lib/vectis/ops/retention-evidence.prom`; site automation can add
+`--restore-validation`, `--storage-report`, and `--waiver` inputs when those
+evidence files are produced outside the scheduled cleanup unit. Starter alerts
+consume `vectis_retention_evidence_generated_timestamp_seconds`,
+`vectis_retention_evidence_verified`, `vectis_retention_evidence_status`, and
+`vectis_retention_evidence_expires_timestamp_seconds`.
 
 ## When To Run Cleanup
 

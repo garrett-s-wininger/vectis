@@ -1,8 +1,11 @@
 # Metrics Catalog
 
-This page catalogs Vectis-owned Prometheus metrics emitted through the OpenTelemetry Prometheus exporter. It is for dashboard authors, alert maintainers, and operators debugging production incidents.
+This page catalogs Vectis-owned Prometheus metrics emitted through the
+OpenTelemetry Prometheus exporter, plus the operator-published retained evidence
+textfile metrics produced by `vectis-cli`. It is for dashboard authors, alert
+maintainers, and operators debugging production incidents.
 
-Use this alongside the [Production Monitoring Contract](../reliability/production-monitoring.md) and the starter [Prometheus alert examples](../../alerts/prometheus-examples.yml). This catalog covers Vectis application metrics; it does not list Go runtime, process, HTTP server, gRPC, host, database-native, or platform metrics.
+Use this alongside the [Production Monitoring Contract](../reliability/production-monitoring.md) and the starter [Prometheus alert examples](../../alerts/prometheus-examples.yml). This catalog covers Vectis application metrics and Vectis evidence textfile metrics; it does not list Go runtime, process, HTTP server, gRPC, host, database-native, or other platform metrics.
 
 ## Scrape Surfaces
 
@@ -22,6 +25,7 @@ Scrape only from trusted monitoring networks. Metrics expose operational shape a
 | `vectis-secrets` | Dedicated metrics listener | Secret resolution counters and latency |
 | `vectis-cron`, `vectis-cell-ingress` | Dedicated metrics listener when configured | Retry metrics |
 | `vectis-orchestrator`, `vectis-registry` | Dedicated metrics listener when configured | No Vectis-specific families yet; use gRPC health, process/runtime metrics, and dependent worker/queue signals |
+| Operator textfile collector | Site-owned Prometheus textfile scrape path populated by `vectis-cli retention evidence metrics` | Retained backup, restore-validation, storage, audit export, hold-review, waiver, and scheduled-cleanup evidence metrics |
 
 ## Reading The Tables
 
@@ -46,6 +50,33 @@ Label values are intentionally low-cardinality unless noted. Do not add raw run 
 | `db_client_connections_in_use` | Gauge | none | Connections currently executing a query. | Sustained high values plus pool waits/readiness failures indicate DB pressure. |
 | `vectis_storage_records` | Gauge | `surface` | Durable SQL row counts by retention surface. Surfaces include `active_runs`, `terminal_runs`, `run_dispatch_events`, `run_artifacts`, `run_tasks`, `task_attempts`, `run_segments`, `segment_executions`, `job_definitions`, `idempotency_keys`, and `audit_log`. | Use for retention sizing and task graph growth. |
 | `vectis_storage_oldest_record_age_seconds` | Gauge | `surface` | Age of the oldest retained record for surfaces with age tracking: `terminal_runs`, `job_definitions`, `idempotency_keys`, and `audit_log`. | Alert when retained data exceeds policy or backup/cleanup expectations. |
+
+## Retained Evidence Textfile Metrics
+
+These metrics are not emitted by a long-running service. Operators generate them
+from retained JSON evidence with `vectis-cli retention evidence metrics` and
+scrape the resulting `.prom` file with node_exporter textfile collection or an
+equivalent platform-owned path. Labels are bounded to evidence kind/status and a
+stable name such as `default`, `queue`, `logs`, or `artifact`; raw filesystem
+paths are intentionally omitted.
+
+| Metric | Type | Labels | Meaning | Operator use |
+| --- | --- | --- | --- | --- |
+| `vectis_retention_evidence_generated_timestamp_seconds` | Gauge | `kind`, `name` | Unix timestamp for when retained evidence was generated. `kind` includes `scheduled_cleanup`, `backup_manifest`, `restore_validation`, `audit_export`, and `hold_review`. | Alert on missing or stale scheduled cleanup, backup, restore-validation, audit, or hold-review evidence. |
+| `vectis_retention_evidence_checked_timestamp_seconds` | Gauge | `kind`, `name` | Unix timestamp for when retained evidence was checked. Used by scheduled cleanup, restore-validation, and storage reports. | Confirm verification happened recently enough for cleanup or restore drills. |
+| `vectis_retention_evidence_expires_timestamp_seconds` | Gauge | `kind`, `name` | Unix timestamp for retained evidence expiry. Currently used for `kind="waiver"`. | Warn before cleanup waivers expire or linger past approval windows. |
+| `vectis_retention_evidence_status` | Gauge | `kind`, `name`, `status` | Status label for retained evidence; the active status has value `1`. | Alert on scheduled cleanup failure or storage reports with `status!="ok"`. |
+| `vectis_retention_evidence_verified` | Gauge | `kind`, `name` | `1` when retained evidence verification succeeded, otherwise `0`. | Require scheduled cleanup and restore-validation evidence to be verified before treating retention as healthy. |
+| `vectis_retention_evidence_applied` | Gauge | `kind`, `name` | `1` when scheduled cleanup applied deletions, `0` when it did not. | Distinguish dry-run evidence from apply evidence. |
+| `vectis_retention_evidence_dry_run` | Gauge | `kind`, `name` | `1` when scheduled cleanup ran in dry-run mode. | Confirm preview-only jobs are not being mistaken for apply jobs. |
+| `vectis_retention_evidence_rows` | Gauge | `kind`, `name` | Row count covered by retained evidence, currently audit exports. | Trend audit export coverage before audit retention deletes eligible rows. |
+| `vectis_retention_evidence_holds` | Gauge | `kind`, `name` | Active hold count captured in retained hold-review evidence. | Track compliance hold review inventory. |
+| `vectis_retention_evidence_storage_checked_files` | Gauge | `kind`, `name` | Files checked by retained storage verification evidence. | Confirm storage reports cover the expected file-backed surfaces. |
+| `vectis_retention_evidence_storage_checked_bytes` | Gauge | `kind`, `name` | Bytes checked by retained storage verification evidence. | Trend backup and restore verification coverage. |
+| `vectis_retention_evidence_storage_records` | Gauge | `kind`, `name` | Records checked by retained storage verification evidence. | Trend queue/log/spool record verification volume. |
+| `vectis_retention_evidence_storage_batches` | Gauge | `kind`, `name` | Batches checked by retained storage verification evidence. | Inspect log-forwarder and worker spool validation. |
+| `vectis_retention_evidence_storage_errors` | Gauge | `kind`, `name` | Error count in retained storage verification evidence. | Alert when storage reports are not clean. |
+| `vectis_retention_evidence_storage_warnings` | Gauge | `kind`, `name` | Warning count in retained storage verification evidence. | Investigate unusual files or recoverable verifier findings. |
 
 ## Source Repository Sync
 
