@@ -18,6 +18,7 @@ func TestPolicy_DurabilityFor_Defaults(t *testing.T) {
 		EventSourceRepositorySyncRequested: DurabilityDurableBestEffort,
 		EventSourceScheduleUpdated:         DurabilityDurableBestEffort,
 		EventSourceScheduleOverrideSet:     DurabilityDurableBestEffort,
+		EventNamespaceUpdated:              DurabilityDurableBestEffort,
 		EventAuthLogout:                    DurabilityBestEffort,
 	}
 

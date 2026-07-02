@@ -123,7 +123,7 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	}
 
 	if resp.GetOutcome() != api.RunOutcome_RUN_OUTCOME_SUCCESS {
-		t.Fatalf("outcome = %s", resp.GetOutcome())
+		t.Fatalf("outcome = %s message=%q reason=%q", resp.GetOutcome(), resp.GetMessage(), resp.GetReasonCode())
 	}
 
 	chunks := logClient.GetChunks()
@@ -185,7 +185,7 @@ func TestServiceExecuteTaskFlushesCallbackLogsBeforeCleanup(t *testing.T) {
 	writeID := "write"
 	uploadID := "upload"
 	sequenceUses := "builtins/sequence"
-	shellUses := "builtins/shell"
+	scriptUses := "builtins/script"
 	uploadUses := "builtins/upload-artifact"
 	service := NewService(NewExecutorCore(job.NewExecutor()), ServiceOptions{Logger: mocks.NewMockLogger()})
 
@@ -202,8 +202,8 @@ func TestServiceExecuteTaskFlushesCallbackLogsBeforeCleanup(t *testing.T) {
 				Steps: []*api.Node{
 					{
 						Id:   &writeID,
-						Uses: &shellUses,
-						With: map[string]string{"command": "mkdir -p reports && printf payload > reports/restore.txt"},
+						Uses: &scriptUses,
+						With: map[string]string{"script": "mkdir -p reports && printf payload > reports/restore.txt"},
 					},
 					{
 						Id:   &uploadID,
@@ -230,7 +230,7 @@ func TestServiceExecuteTaskFlushesCallbackLogsBeforeCleanup(t *testing.T) {
 	}
 
 	if resp.GetOutcome() != api.RunOutcome_RUN_OUTCOME_SUCCESS {
-		t.Fatalf("outcome = %s", resp.GetOutcome())
+		t.Fatalf("outcome = %s message=%q reason=%q", resp.GetOutcome(), resp.GetMessage(), resp.GetReasonCode())
 	}
 
 	chunks := logClient.GetChunks()

@@ -197,6 +197,7 @@ func TestAPIRouteInventory_mutationAuditCoverage(t *testing.T) {
 		"PUT /api/v1/users/{id}":                                        {audit.EventUserUpdated},
 		"DELETE /api/v1/users/{id}":                                     {audit.EventUserDeleted},
 		"POST /api/v1/namespaces":                                       {audit.EventNamespaceCreated},
+		"PUT /api/v1/namespaces/{id}":                                   {audit.EventNamespaceUpdated},
 		"DELETE /api/v1/namespaces/{id}":                                {audit.EventNamespaceDeleted},
 		"POST /api/v1/namespaces/{id}/bindings":                         {audit.EventBindingCreated},
 		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}":             {audit.EventBindingDeleted},

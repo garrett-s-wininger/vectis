@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,13 +20,21 @@ func TestListAuditEventsFiltersAndResponds(t *testing.T) {
 
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)
+	actorID, err := s.authRepo.CreateLocalUser(context.Background(), "audit-actor", "hash")
+	if err != nil {
+		t.Fatalf("CreateLocalUser actor: %v", err)
+	}
+	targetID, err := s.authRepo.CreateLocalUser(context.Background(), "audit-target", "hash")
+	if err != nil {
+		t.Fatalf("CreateLocalUser target: %v", err)
+	}
 
 	base := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
 	if err := s.authRepo.InsertAuditEvents(context.Background(), []*dal.AuditEventRecord{
 		{
 			Type:          "auth.success",
-			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
-			TargetID:      sql.NullInt64{Int64: 2, Valid: true},
+			ActorID:       sql.NullInt64{Int64: actorID, Valid: true},
+			TargetID:      sql.NullInt64{Int64: targetID, Valid: true},
 			Metadata:      []byte(`{"username":"root"}`),
 			IPAddress:     "127.0.0.1",
 			CorrelationID: "corr-1",
@@ -33,7 +42,7 @@ func TestListAuditEventsFiltersAndResponds(t *testing.T) {
 		},
 		{
 			Type:          "auth.failure",
-			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+			ActorID:       sql.NullInt64{Int64: actorID, Valid: true},
 			CorrelationID: "corr-2",
 			CreatedAt:     sql.NullTime{Time: base.Add(time.Minute), Valid: true},
 		},
@@ -42,7 +51,7 @@ func TestListAuditEventsFiltersAndResponds(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?event_type=auth.success&actor_id=1&target_id=2&correlation_id=corr-1&since=2026-06-29T11:00:00Z&until=2026-06-29T13:00:00Z&limit=5", nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/audit/events?event_type=auth.success&actor_id=%d&target_id=%d&correlation_id=corr-1&since=2026-06-29T11:00:00Z&until=2026-06-29T13:00:00Z&limit=5", actorID, targetID), nil)
 	s.ListAuditEvents(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -71,11 +80,11 @@ func TestListAuditEventsFiltersAndResponds(t *testing.T) {
 		t.Fatalf("event_type=%s", event.EventType)
 	}
 
-	if event.ActorID == nil || *event.ActorID != 1 {
+	if event.ActorID == nil || *event.ActorID != actorID {
 		t.Fatalf("actor_id=%v", event.ActorID)
 	}
 
-	if event.TargetID == nil || *event.TargetID != 2 {
+	if event.TargetID == nil || *event.TargetID != targetID {
 		t.Fatalf("target_id=%v", event.TargetID)
 	}
 

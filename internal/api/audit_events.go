@@ -50,7 +50,7 @@ func (s *APIServer) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	events, err := s.authRepo.ListAuditEvents(ctx, filter)

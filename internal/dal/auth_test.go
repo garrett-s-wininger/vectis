@@ -251,11 +251,20 @@ func TestAuthRepository_ListAuditEventsFiltersAndOrders(t *testing.T) {
 	repo := NewSQLAuthRepository(db)
 	ctx := context.Background()
 
+	actorID, err := repo.CreateLocalUser(ctx, "audit-primary", "hash")
+	if err != nil {
+		t.Fatalf("CreateLocalUser primary: %v", err)
+	}
+	otherActorID, err := repo.CreateLocalUser(ctx, "audit-other", "hash")
+	if err != nil {
+		t.Fatalf("CreateLocalUser other: %v", err)
+	}
+
 	base := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
 	events := []*AuditEventRecord{
 		{
 			Type:          "auth.success",
-			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+			ActorID:       sql.NullInt64{Int64: actorID, Valid: true},
 			TargetID:      sql.NullInt64{Int64: 10, Valid: true},
 			Metadata:      []byte(`{"old":true}`),
 			IPAddress:     "127.0.0.1",
@@ -264,7 +273,7 @@ func TestAuthRepository_ListAuditEventsFiltersAndOrders(t *testing.T) {
 		},
 		{
 			Type:          "token.created",
-			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+			ActorID:       sql.NullInt64{Int64: actorID, Valid: true},
 			TargetID:      sql.NullInt64{Int64: 20, Valid: true},
 			Metadata:      []byte(`{"label":"first"}`),
 			IPAddress:     "127.0.0.2",
@@ -273,7 +282,7 @@ func TestAuthRepository_ListAuditEventsFiltersAndOrders(t *testing.T) {
 		},
 		{
 			Type:          "token.created",
-			ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+			ActorID:       sql.NullInt64{Int64: actorID, Valid: true},
 			TargetID:      sql.NullInt64{Int64: 20, Valid: true},
 			Metadata:      []byte(`{"label":"second"}`),
 			IPAddress:     "127.0.0.3",
@@ -282,7 +291,7 @@ func TestAuthRepository_ListAuditEventsFiltersAndOrders(t *testing.T) {
 		},
 		{
 			Type:          "token.created",
-			ActorID:       sql.NullInt64{Int64: 2, Valid: true},
+			ActorID:       sql.NullInt64{Int64: otherActorID, Valid: true},
 			TargetID:      sql.NullInt64{Int64: 20, Valid: true},
 			Metadata:      []byte(`{"label":"other-actor"}`),
 			CorrelationID: "corr-match",
@@ -297,7 +306,7 @@ func TestAuthRepository_ListAuditEventsFiltersAndOrders(t *testing.T) {
 	until := base.Add(30 * time.Minute)
 	got, err := repo.ListAuditEvents(ctx, AuditEventListFilter{
 		EventType:     "token.created",
-		ActorID:       sql.NullInt64{Int64: 1, Valid: true},
+		ActorID:       sql.NullInt64{Int64: actorID, Valid: true},
 		TargetID:      sql.NullInt64{Int64: 20, Valid: true},
 		CorrelationID: "corr-match",
 		Since:         &since,

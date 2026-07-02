@@ -2750,7 +2750,7 @@ func TestDeployPodmanRender_HAProfileAddsReplicaTopology(t *testing.T) {
 
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081", "127.0.0.1:9181"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089", "127.0.0.1:9189"})
-	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9087"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-worker-core"), []string{"127.0.0.1:9092"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-secrets"), []string{"127.0.0.1:9091"})
 }
@@ -2807,7 +2807,7 @@ func TestDeployPodmanRender_SimpleProfileKeepsSingleReplicaTopology(t *testing.T
 	assertEnv(t, findContainer(t, pod, "worker"), "VECTIS_WORKER_SECRETS_ADDRESS", "127.0.0.1:8090")
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-queue"), []string{"127.0.0.1:9081"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-artifact"), []string{"127.0.0.1:9089"})
-	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9090"})
+	assertStringSlice(t, prometheusTargets(t, docs, "vectis-orchestrator"), []string{"127.0.0.1:9087"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-worker-core"), []string{"127.0.0.1:9092"})
 	assertStringSlice(t, prometheusTargets(t, docs, "vectis-secrets"), []string{"127.0.0.1:9091"})
 }

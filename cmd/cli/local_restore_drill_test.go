@@ -221,7 +221,7 @@ func seedLocalRestoreDrillState(t *testing.T, ctx context.Context, paths localRe
 
 	repos := dal.NewSQLRepositories(db)
 	jobID := "restore-drill-job"
-	definition := `{"id":"restore-drill-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo restore-drill"}}}`
+	definition := `{"id":"restore-drill-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo restore-drill"}}}`
 	runID, _, err := repos.CreateDefinitionAndRun(ctx, jobID, definition, nil)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = fmt.Errorf("close source database: %w", closeErr)
@@ -251,8 +251,8 @@ func seedLocalRestoreDrillQueue(t *testing.T, dir, jobID, runID string) {
 			RunId: proto.String(runID),
 			Root: &api.Node{
 				Id:   proto.String("root"),
-				Uses: proto.String("builtins/shell"),
-				With: map[string]string{"command": "echo restore-drill"},
+				Uses: proto.String("builtins/script"),
+				With: map[string]string{"script": "echo restore-drill"},
 			},
 		},
 	})

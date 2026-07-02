@@ -89,6 +89,7 @@ Known `auth.failure` reasons include `invalid_session`, `invalid_token`, `token_
 | `user.updated` | `fail_closed` | A local user's enabled state changes. | `target_id` is the affected user. Metadata includes `enabled`. |
 | `user.deleted` | `fail_closed` | A local user is deleted. | `target_id` is the deleted user. No metadata is emitted. |
 | `namespace.created` | `durable_best_effort` | A namespace is created. | `target_id` is the namespace row. Metadata includes `name`, `parent_id`, and `path`. |
+| `namespace.updated` | `durable_best_effort` | A namespace description changes. | `target_id` is the namespace row. Metadata includes `name`, `path`, and `description`. |
 | `namespace.deleted` | `durable_best_effort` | A namespace is deleted. | `target_id` is the namespace row. Metadata includes `name` and `path`. |
 | `binding.created` | `fail_closed` | A namespace role binding is created. | `target_id` is the local user receiving the role. Metadata includes `namespace_id` and `role`. |
 | `binding.deleted` | `fail_closed` | A namespace role binding is deleted. | `target_id` is the local user losing the role. Metadata includes `namespace_id` and `role`. |

@@ -159,16 +159,16 @@ func writePodmanRestoreDrillJob(t *testing.T) string {
 					"nodes": []map[string]any{
 						{
 							"id":   "secret-check",
-							"uses": "builtins/shell",
+							"uses": "builtins/script",
 							"with": map[string]string{
-								"command": `test -n "$VECTIS_SECRETS_DIR" && test "$(cksum < "$VECTIS_SECRETS_DIR/smoke/token")" = "2931055294 13" && echo podman-restore-secret-ok`,
+								"script": `test -n "$VECTIS_SECRETS_DIR" && test "$(cksum < "$VECTIS_SECRETS_DIR/smoke/token")" = "2931055294 13" && echo podman-restore-secret-ok`,
 							},
 						},
 						{
 							"id":   "artifact-write",
-							"uses": "builtins/shell",
+							"uses": "builtins/script",
 							"with": map[string]string{
-								"command": "mkdir -p reports; printf 'podman-restore-artifact-ok\\n' > reports/restore.txt; echo podman-restore-artifact-written",
+								"script": "mkdir -p reports; printf 'podman-restore-artifact-ok\\n' > reports/restore.txt; echo podman-restore-artifact-written",
 							},
 						},
 						{

@@ -279,6 +279,7 @@ func (s *APIServer) UpdateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	previousDescription := rec.Description
 	rec, err = s.namespaces.UpdateDescription(ctx, id, req.Description)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
@@ -296,6 +297,18 @@ func (s *APIServer) UpdateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventNamespaceUpdated, actorID, id, map[string]any{
+		"name":                 rec.Name,
+		"path":                 rec.Path,
+		"description":          rec.Description,
+		"previous_description": previousDescription,
+	})
 
 	resp := namespaceRecordToResponse(rec)
 	w.Header().Set("Content-Type", "application/json")

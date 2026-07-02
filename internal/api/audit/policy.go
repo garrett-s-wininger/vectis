@@ -47,6 +47,7 @@ var EventDefinitions = []EventDefinition{
 	{Type: EventSetupCompleted, DefaultDurability: DurabilityFailClosed},
 	{Type: EventSetupBootstrapFailed, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventNamespaceCreated, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventNamespaceUpdated, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventNamespaceDeleted, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventJobCreated, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventJobDeleted, DefaultDurability: DurabilityDurableBestEffort},

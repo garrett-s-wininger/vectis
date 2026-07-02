@@ -37,6 +37,7 @@ const (
 	EventAuthFailure                   = "auth.failure"
 	EventAuthLogout                    = "auth.logout"
 	EventNamespaceCreated              = "namespace.created"
+	EventNamespaceUpdated              = "namespace.updated"
 	EventNamespaceDeleted              = "namespace.deleted"
 	EventBindingCreated                = "binding.created"
 	EventBindingDeleted                = "binding.deleted"
