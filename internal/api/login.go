@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"vectis/internal/api/audit"
+	"vectis/internal/api/authn"
 	"vectis/internal/cache"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -236,7 +237,7 @@ func (s *APIServer) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, _, ok := requestCredential(r)
+	raw, source, ok := requestCredential(r)
 	if !ok || len(raw) > maxBearerTokenBytes {
 		writeAPIErrorCode(w, http.StatusUnauthorized, apiErrAuthenticationRequired)
 		return
@@ -263,6 +264,15 @@ func (s *APIServer) Logout(w http.ResponseWriter, r *http.Request) {
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
 	}
+
+	actorID := int64(0)
+	if p, ok := authn.PrincipalFromContext(r.Context()); ok {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(r.Context(), audit.EventAuthLogout, actorID, 0, map[string]any{
+		"credential_source": string(source),
+	})
 
 	clearSessionCookies(w, r)
 	clearLogoutSiteData(w)

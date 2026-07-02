@@ -127,10 +127,12 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventBindingCreated, actorID, req.LocalUserID, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventBindingCreated, actorID, req.LocalUserID, map[string]any{
 		"namespace_id": nsID,
 		"role":         req.Role,
-	})
+	}) {
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -286,10 +288,12 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventBindingDeleted, actorID, userID, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventBindingDeleted, actorID, userID, map[string]any{
 		"namespace_id": nsID,
 		"role":         role,
-	})
+	}) {
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

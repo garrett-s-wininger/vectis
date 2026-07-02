@@ -345,6 +345,46 @@ func sourceDefinitionAuditMetadata(jobID, namespace, repositoryID, operation str
 	}
 }
 
+func sourceScheduleAuditMetadata(rec dal.CronScheduleRecord, namespace, operation string) map[string]any {
+	metadata := map[string]any{
+		"schedule_id":   rec.ScheduleID,
+		"job_id":        rec.JobID,
+		"namespace":     namespace,
+		"repository_id": rec.SourceRepositoryID,
+		"operation":     operation,
+		"enabled":       rec.Enabled,
+		"source_ref":    rec.SourceRef,
+		"source_path":   rec.SourcePath,
+	}
+
+	if sourceCronScheduleHasOverride(rec) {
+		metadata["override_ref"] = rec.SourceOverrideRef
+		metadata["override_path"] = rec.SourceOverridePath
+		metadata["override_reason"] = rec.SourceOverrideReason
+	}
+
+	return metadata
+}
+
+func sourceRepositorySyncAuditMetadata(rec dal.SourceRepositoryRecord, namespace, outcome, reason, syncRef string) map[string]any {
+	metadata := map[string]any{
+		"repository_id": rec.RepositoryID,
+		"namespace":     namespace,
+		"source_kind":   rec.SourceKind,
+		"outcome":       outcome,
+		"reason":        reason,
+		"sync_status":   rec.SyncStatus,
+		"sync_ref":      firstNonEmpty(syncRef, rec.LastSyncRef),
+		"sync_commit":   rec.LastSyncCommit,
+	}
+
+	if rec.LastSyncError != "" {
+		metadata["sync_error"] = rec.LastSyncError
+	}
+
+	return metadata
+}
+
 type sourceJobTriggerRequest struct {
 	Ref          string `json:"ref"`
 	Path         string `json:"path"`
@@ -866,6 +906,8 @@ func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 	s.markDBRecovered()
 
+	s.auditLog(ctx, audit.EventSourceScheduleUpdated, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(updated, namespacePath, "update"))
+
 	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(updated, namespacePath, declared))
 }
 
@@ -883,7 +925,7 @@ func (s *APIServer) DeleteSourceSchedule(w http.ResponseWriter, r *http.Request)
 	}
 
 	scheduleID := r.PathValue("schedule_id")
-	rec, _, ok := s.getAuthorizedSourceSchedule(ctx, w, p, scheduleID, authz.ActionJobWrite)
+	rec, namespacePath, ok := s.getAuthorizedSourceSchedule(ctx, w, p, scheduleID, authz.ActionJobWrite)
 	if !ok {
 		return
 	}
@@ -925,6 +967,8 @@ func (s *APIServer) DeleteSourceSchedule(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.markDBRecovered()
+
+	s.auditLog(ctx, audit.EventSourceScheduleDeleted, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(rec, namespacePath, "delete"))
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1024,6 +1068,8 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 	}
 	s.markDBRecovered()
 
+	s.auditLog(ctx, audit.EventSourceScheduleOverrideSet, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(rec, namespacePath, "override_set"))
+
 	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
 }
 
@@ -1068,6 +1114,8 @@ func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.
 		return
 	}
 	s.markDBRecovered()
+
+	s.auditLog(ctx, audit.EventSourceScheduleOverrideCleared, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(rec, namespacePath, "override_cleared"))
 
 	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
 }
@@ -2021,6 +2069,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	actorID := actorIDFromPrincipal(p)
 
 	declared, ok := s.sourceRepositoryDeclarationIDsForResponse(w, "syncing")
 	if !ok {
@@ -2036,6 +2085,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
 	if !syncStarted {
 		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock)
+		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(rec, nsPath, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock, syncRef))
 		s.writeRunningSourceRepositorySync(w, rec, nsPath, syncRef, declared)
 		return
 	}
@@ -2072,6 +2122,7 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 
 	if !began {
 		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock)
+		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(running, nsPath, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock, syncRef))
 		s.writeRunningSourceRepositorySync(w, running, nsPath, syncRef, declared)
 		return
 	}
@@ -2123,9 +2174,12 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	s.markDBRecovered()
 
 	if syncRecord.Status == dal.SourceSyncStatusFailed {
-		recordSync(observability.SourceSyncOutcomeFailed, sourceRepositorySyncMetricReason(syncRecord.Error))
+		reason := sourceRepositorySyncMetricReason(syncRecord.Error)
+		recordSync(observability.SourceSyncOutcomeFailed, reason)
+		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(updated, nsPath, observability.SourceSyncOutcomeFailed, reason, syncRef))
 	} else {
 		recordSync(observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone)
+		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(updated, nsPath, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone, syncRef))
 	}
 
 	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath, declared))

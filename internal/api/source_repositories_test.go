@@ -680,12 +680,40 @@ func sourceJobAuditEvents(events []audit.Event, jobID string) []audit.Event {
 	return out
 }
 
+func sourceScheduleAuditEvents(events []audit.Event, scheduleID string) []audit.Event {
+	out := make([]audit.Event, 0, len(events))
+	for _, event := range events {
+		if event.Metadata == nil || event.Metadata["schedule_id"] != scheduleID {
+			continue
+		}
+
+		out = append(out, event)
+	}
+
+	return out
+}
+
+func sourceRepositoryAuditEvents(events []audit.Event, eventType, repositoryID string) []audit.Event {
+	out := make([]audit.Event, 0, len(events))
+	for _, event := range events {
+		if event.Type != eventType || event.Metadata == nil || event.Metadata["repository_id"] != repositoryID {
+			continue
+		}
+
+		out = append(out, event)
+	}
+
+	return out
+}
+
 func TestAPIServer_ListSourceSchedules(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 	t.Setenv("VECTIS_SOURCE_SCHEDULES", `[{"schedule_id":"nightly-build","repository_id":"vectis-local","job_id":"build","cron_spec":"30 8 * * *","ref":"main","enabled":true}]`)
 	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
 
 	server, _, _, db := setupTestServer(t)
+	auditor := &sourceJobAuditCapturer{}
+	server.SetAuditor(auditor)
 	repos := dal.NewSQLRepositories(db)
 	handler := server.Handler()
 	ctx := context.Background()
@@ -973,6 +1001,45 @@ func TestAPIServer_ListSourceSchedules(t *testing.T) {
 		!clearResp.Declared ||
 		clearResp.Override != nil {
 		t.Fatalf("clear response mismatch: %+v", clearResp)
+	}
+
+	events := sourceScheduleAuditEvents(auditor.events, "nightly-build")
+	wantTypes := []string{
+		audit.EventSourceScheduleUpdated,
+		audit.EventSourceScheduleUpdated,
+		audit.EventSourceScheduleOverrideSet,
+		audit.EventSourceScheduleOverrideCleared,
+	}
+
+	if len(events) != len(wantTypes) {
+		t.Fatalf("source schedule audit event count: got %d want %d events=%+v", len(events), len(wantTypes), events)
+	}
+
+	for i, event := range events {
+		if event.Type != wantTypes[i] {
+			t.Fatalf("source schedule audit event %d type: got %s want %s", i, event.Type, wantTypes[i])
+		}
+
+		metadata := event.Metadata
+		if metadata["schedule_id"] != "nightly-build" ||
+			metadata["job_id"] != "build" ||
+			metadata["namespace"] != "/" ||
+			metadata["repository_id"] != "vectis-local" {
+			t.Fatalf("source schedule audit event %d metadata mismatch: %+v", i, metadata)
+		}
+	}
+
+	if got := events[0].Metadata["enabled"]; got != false {
+		t.Fatalf("disable audit enabled metadata: got %v", got)
+	}
+	if got := events[1].Metadata["enabled"]; got != true {
+		t.Fatalf("enable audit enabled metadata: got %v", got)
+	}
+	if got := events[2].Metadata["override_ref"]; got != "hotfix/build" {
+		t.Fatalf("override audit ref metadata: got %v", got)
+	}
+	if _, ok := events[3].Metadata["override_ref"]; ok {
+		t.Fatalf("clear override audit should not include override_ref metadata: %+v", events[3].Metadata)
 	}
 }
 
@@ -2103,6 +2170,8 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
 
 	server, _, _, _ := setupTestServer(t)
+	auditor := &sourceJobAuditCapturer{}
+	server.SetAuditor(auditor)
 	handler := server.Handler()
 	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
@@ -2135,6 +2204,20 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 		syncResp.Sync.LastStartedAtUnix <= 0 ||
 		syncResp.Sync.LastFinishedAtUnix < syncResp.Sync.LastStartedAtUnix {
 		t.Fatalf("sync response mismatch: %+v", syncResp)
+	}
+
+	syncEvents := sourceRepositoryAuditEvents(auditor.events, audit.EventSourceRepositorySyncRequested, "vectis-local")
+	if len(syncEvents) != 1 {
+		t.Fatalf("source sync audit event count: got %d want 1 events=%+v", len(syncEvents), syncEvents)
+	}
+
+	if metadata := syncEvents[0].Metadata; metadata["outcome"] != "succeeded" ||
+		metadata["reason"] != "none" ||
+		metadata["sync_status"] != dal.SourceSyncStatusSucceeded ||
+		metadata["sync_ref"] != "HEAD" ||
+		metadata["sync_commit"] != commit ||
+		metadata["namespace"] != "/" {
+		t.Fatalf("source sync audit metadata mismatch: %+v", metadata)
 	}
 
 	statusRec := httptest.NewRecorder()
@@ -2179,6 +2262,19 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 		syncResp.Sync.LastStartedAtUnix <= 0 ||
 		syncResp.Sync.LastFinishedAtUnix < syncResp.Sync.LastStartedAtUnix {
 		t.Fatalf("failed sync response mismatch: %+v", syncResp)
+	}
+
+	failedSyncEvents := sourceRepositoryAuditEvents(auditor.events, audit.EventSourceRepositorySyncRequested, "not-git")
+	if len(failedSyncEvents) != 1 {
+		t.Fatalf("failed source sync audit event count: got %d want 1 events=%+v", len(failedSyncEvents), failedSyncEvents)
+	}
+	metadata := failedSyncEvents[0].Metadata
+	syncError, _ := metadata["sync_error"].(string)
+	if metadata["outcome"] != "failed" ||
+		metadata["sync_status"] != dal.SourceSyncStatusFailed ||
+		metadata["sync_ref"] != "HEAD" ||
+		!strings.Contains(syncError, "not_git_checkout") {
+		t.Fatalf("failed source sync audit metadata mismatch: %+v", metadata)
 	}
 }
 

@@ -6,6 +6,8 @@ Audit events are emitted by `vectis-api`. They are separate from run dispatch hi
 
 For storage fields and indexes, see [Database Schema Reference](./database-schema.md#audit_log). For audit configuration keys, see [Configuration Key Reference](./configuration-key-reference.md#api). For alerting signals, see [Metrics Catalog](./metrics-catalog.md#api-audit-sql-and-retention) and [Health Check Catalog](./health-check-catalog.md).
 
+The API route inventory has a static audit coverage test for non-GET routes. A mutation route must either name its expected `audit_log` event type(s) or carry an explicit unaudited rationale. Current unaudited exceptions are catalog fan-in ingestion and definition-resolution preview.
+
 ## Storage And Access
 
 Audit emission is enabled by default through `api.audit.enabled`. When enabled, the API writes events to the application-owned SQL database through `audit_log`.
@@ -48,7 +50,7 @@ Unknown event names and unknown durability values are rejected during override p
 | `disabled` | Do not emit the event. This also applies globally when `api.audit.enabled=false`. |
 | `best_effort` | Enqueue asynchronously. If the audit buffer is unavailable or full, drop the event, log a warning, and increment the dropped-event metric. |
 | `durable_best_effort` | Enqueue asynchronously when possible. If the event cannot be queued, attempt a synchronous insert before returning success to the API caller. Synchronous insert failures are logged and counted as audit flush failures. A failed async enqueue can still increment the API process-local dropped count before the synchronous fallback runs. |
-| `fail_closed` | Attempt a synchronous insert and return any persistence error to the API audit caller. The API wrapper logs the error; current route handlers generally continue after that logged audit failure. |
+| `fail_closed` | Attempt a synchronous insert and return any persistence error to the API audit caller. Identity, setup, token, password, and namespace-binding mutations return an API error instead of a success response when their fail-closed audit row cannot be persisted. These handlers currently perform the domain mutation before emitting the audit event, so a failed audit insert can still leave the mutation applied; treat that as a repairable operator incident rather than a successful audited change. |
 
 The async auditor flushes batches in the background. Its default batch size is `100`, default flush interval is `1s`, and default in-memory buffer size is `1000` events.
 
@@ -67,6 +69,7 @@ The async auditor flushes batches in the background. Its default batch size is `
 | --- | --- | --- | --- |
 | `auth.success` | `best_effort` | Login succeeds, or a protected route authenticates through a session or API token. | `actor_id` is the authenticated user. Metadata may include `credential_type`, `credential_source`, `token_id`, `method`, and `username`. |
 | `auth.failure` | `best_effort` | Login, session, API token, or token-scope authentication fails. | `actor_id` is set only when the user was resolved. Metadata may include `reason`, `username`, `credential_source`, and `token_id`. |
+| `auth.logout` | `best_effort` | Logout revokes a caller session. | `actor_id` is the authenticated user when available. Metadata includes `credential_source`. Token and session plaintext are not stored. |
 | `setup.bootstrap_failed` | `durable_best_effort` | Initial setup receives an invalid bootstrap token. | Metadata includes `reason=invalid_bootstrap_token`. |
 | `setup.completed` | `fail_closed` | Initial auth setup creates the first local user and records setup completion. | `actor_id` and `target_id` are the new local user. Metadata includes `username`. |
 
@@ -107,6 +110,16 @@ Known `auth.failure` reasons include `invalid_session`, `invalid_token`, `token_
 | `source_repository.created` | `durable_best_effort` | A source repository registration is created. | `target_id` is empty. Metadata includes `repository_id`, `namespace`, and `source_kind`. |
 | `source_repository.updated` | `durable_best_effort` | A source repository registration is updated. | `target_id` is empty. Metadata includes `repository_id`, `namespace`, `source_kind`, and `enabled`. |
 | `source_repository.deleted` | `durable_best_effort` | A source repository registration is deleted. | `target_id` is empty. Metadata includes `repository_id`, `namespace`, and `source_kind`. |
+| `source_repository.sync_requested` | `durable_best_effort` | A manual source repository sync command returns an accepted outcome, including duplicate already-running responses. | `target_id` is empty. Metadata includes `repository_id`, `namespace`, `source_kind`, `outcome`, `reason`, `sync_status`, `sync_ref`, `sync_commit`, and optional `sync_error`. |
+
+## Source Schedule Events
+
+| Event | Default durability | Emitted when | Target and metadata |
+| --- | --- | --- | --- |
+| `source_schedule.updated` | `durable_best_effort` | A source-backed cron schedule is enabled or disabled. | `target_id` is empty. Metadata includes `schedule_id`, `job_id`, `namespace`, `repository_id`, `operation`, `enabled`, `source_ref`, `source_path`, and active override fields when present. |
+| `source_schedule.deleted` | `durable_best_effort` | A stale source-backed cron schedule is deleted. | `target_id` is empty. Metadata includes `schedule_id`, `job_id`, `namespace`, `repository_id`, `operation`, `enabled`, `source_ref`, and `source_path`. |
+| `source_schedule.override_set` | `durable_best_effort` | A source schedule override is set. | `target_id` is empty. Metadata includes schedule fields plus `override_ref`, `override_path`, and `override_reason`. |
+| `source_schedule.override_cleared` | `durable_best_effort` | A source schedule override is cleared. | `target_id` is empty. Metadata includes schedule fields after the override has been cleared. |
 
 ## Related Docs
 

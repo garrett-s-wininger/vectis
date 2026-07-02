@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/api/authz"
 )
 
@@ -154,6 +155,111 @@ func TestAPIRouteInventory(t *testing.T) {
 
 		if err := spec.Headers.validate(); err != nil {
 			t.Fatalf("route[%d] %q has invalid header policy: %v", i, spec.Pattern, err)
+		}
+	}
+}
+
+func TestAPIRouteInventory_mutationAuditCoverage(t *testing.T) {
+	s := &APIServer{}
+
+	audited := map[string][]string{
+		"POST /api/v1/source-repositories":                              {audit.EventSourceRepositoryCreated},
+		"PUT /api/v1/source-repositories/{id}":                          {audit.EventSourceRepositoryUpdated},
+		"DELETE /api/v1/source-repositories/{id}":                       {audit.EventSourceRepositoryDeleted},
+		"POST /api/v1/source-repositories/{id}/sync":                    {audit.EventSourceRepositorySyncRequested},
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition": {audit.EventJobCreated, audit.EventJobUpdated},
+		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger":   {audit.EventRunTriggered},
+		"PATCH /api/v1/source-schedules/{schedule_id}":                  {audit.EventSourceScheduleUpdated},
+		"DELETE /api/v1/source-schedules/{schedule_id}":                 {audit.EventSourceScheduleDeleted},
+		"PUT /api/v1/source-schedules/{schedule_id}/override":           {audit.EventSourceScheduleOverrideSet},
+		"DELETE /api/v1/source-schedules/{schedule_id}/override":        {audit.EventSourceScheduleOverrideCleared},
+		"POST /api/v1/jobs":                                             {audit.EventJobCreated},
+		"POST /api/v1/jobs/run":                                         {audit.EventRunTriggered},
+		"DELETE /api/v1/jobs/{id}":                                      {audit.EventJobDeleted},
+		"PUT /api/v1/jobs/{id}":                                         {audit.EventJobUpdated},
+		"POST /api/v1/jobs/trigger/{id}":                                {audit.EventRunTriggered},
+		"POST /api/v1/runs/{id}/replay":                                 {audit.EventRunTriggered},
+		"POST /api/v1/runs/{id}/cancel":                                 {audit.EventRunCancelled},
+		"POST /api/v1/runs/{id}/repair/mark-succeeded":                  {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-failed":                     {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-cancelled":                  {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-abandoned":                  {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-queued":                     {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/force-fail":                             {audit.EventRunForceFailed},
+		"POST /api/v1/runs/{id}/force-requeue":                          {audit.EventRunForceRequeued},
+		"POST /api/v1/setup/complete":                                   {audit.EventSetupCompleted, audit.EventSetupBootstrapFailed},
+		"POST /api/v1/login":                                            {audit.EventAuthSuccess, audit.EventAuthFailure},
+		"POST /api/v1/logout":                                           {audit.EventAuthLogout},
+		"POST /api/v1/tokens":                                           {audit.EventTokenCreated},
+		"DELETE /api/v1/tokens/{id}":                                    {audit.EventTokenDeleted},
+		"POST /api/v1/users/change-password":                            {audit.EventPasswordChanged},
+		"POST /api/v1/users":                                            {audit.EventUserCreated},
+		"PUT /api/v1/users/{id}":                                        {audit.EventUserUpdated},
+		"DELETE /api/v1/users/{id}":                                     {audit.EventUserDeleted},
+		"POST /api/v1/namespaces":                                       {audit.EventNamespaceCreated},
+		"DELETE /api/v1/namespaces/{id}":                                {audit.EventNamespaceDeleted},
+		"POST /api/v1/namespaces/{id}/bindings":                         {audit.EventBindingCreated},
+		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}":             {audit.EventBindingDeleted},
+	}
+
+	explicitlyUnaudited := map[string]string{
+		"POST /api/v1/cells/{cell_id}/catalog-events":               "catalog fan-in writes durable cell_catalog_events records instead of audit_log rows",
+		"POST /api/v1/source-repositories/{id}/definitions/resolve": "definition resolution is a read-style preview operation that uses POST for request-body size",
+	}
+
+	registered := map[string]bool{}
+	for _, eventType := range audit.RegisteredEventTypes() {
+		registered[eventType] = true
+	}
+
+	seenAudited := make(map[string]bool, len(audited))
+	seenUnaudited := make(map[string]bool, len(explicitlyUnaudited))
+	for _, spec := range s.routeSpecs(false) {
+		method, _, ok := strings.Cut(spec.Pattern, " ")
+		if !ok {
+			t.Fatalf("route pattern %q does not contain method and path", spec.Pattern)
+		}
+
+		if method == http.MethodGet {
+			continue
+		}
+
+		if eventTypes, ok := audited[spec.Pattern]; ok {
+			if len(eventTypes) == 0 {
+				t.Fatalf("route %q has empty audit coverage", spec.Pattern)
+			}
+
+			for _, eventType := range eventTypes {
+				if !registered[eventType] {
+					t.Fatalf("route %q expects unregistered audit event %q", spec.Pattern, eventType)
+				}
+			}
+
+			seenAudited[spec.Pattern] = true
+			continue
+		}
+
+		if reason, ok := explicitlyUnaudited[spec.Pattern]; ok {
+			if strings.TrimSpace(reason) == "" {
+				t.Fatalf("route %q has an empty unaudited rationale", spec.Pattern)
+			}
+
+			seenUnaudited[spec.Pattern] = true
+			continue
+		}
+
+		t.Fatalf("mutation route %q lacks audit coverage or explicit unaudited rationale", spec.Pattern)
+	}
+
+	for pattern := range audited {
+		if !seenAudited[pattern] {
+			t.Fatalf("audit coverage references missing route %q", pattern)
+		}
+	}
+
+	for pattern := range explicitlyUnaudited {
+		if !seenUnaudited[pattern] {
+			t.Fatalf("unaudited route rationale references missing route %q", pattern)
 		}
 	}
 }

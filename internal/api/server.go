@@ -308,6 +308,14 @@ func principalIdempotencyScope(prefix string, p *authn.Principal) string {
 	return prefix + ":user:" + strconv.FormatInt(p.LocalUserID, 10)
 }
 
+func actorIDFromPrincipal(p *authn.Principal) int64 {
+	if p == nil {
+		return 0
+	}
+
+	return p.LocalUserID
+}
+
 func (s *APIServer) reserveIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, ok bool) {
 	record, reserved, _, ok = s.reserveIdempotencyState(w, ctx, scope, key, requestHash, false)
 	return record, reserved, ok
@@ -821,6 +829,15 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 	}
 
 	return err
+}
+
+func (s *APIServer) auditLogOrFail(w http.ResponseWriter, ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) bool {
+	if err := s.auditLog(ctx, eventType, actorID, targetID, metadata); err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return false
+	}
+
+	return true
 }
 
 type httpRequestKey struct{}

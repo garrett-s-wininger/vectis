@@ -318,12 +318,14 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventTokenCreated, actorID, id, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventTokenCreated, actorID, id, map[string]any{
 		"label":       req.Label,
 		"expires_in":  req.ExpiresIn,
 		"target_user": targetUserID,
 		"scoped":      len(req.Scopes) > 0,
-	})
+	}) {
+		return
+	}
 
 	resp := createTokenResponse{
 		ID:        id,
@@ -408,9 +410,11 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventTokenDeleted, actorID, id, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventTokenDeleted, actorID, id, map[string]any{
 		"owner_id": ownerID,
-	})
+	}) {
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -158,10 +158,12 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventUserCreated, actorID, id, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventUserCreated, actorID, id, map[string]any{
 		"username":           req.Username,
 		"generated_password": generated,
-	})
+	}) {
+		return
+	}
 
 	resp := createUserResponse{
 		ID:        id,
@@ -381,9 +383,11 @@ func (s *APIServer) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventUserUpdated, actorID, id, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventUserUpdated, actorID, id, map[string]any{
 		"enabled": *req.Enabled,
-	})
+	}) {
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -480,7 +484,9 @@ func (s *APIServer) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventUserDeleted, actorID, id, nil)
+	if !s.auditLogOrFail(w, ctx, audit.EventUserDeleted, actorID, id, nil) {
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -633,8 +639,10 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventPasswordChanged, actorID, targetUserID, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventPasswordChanged, actorID, targetUserID, map[string]any{
 		"admin_override": isAdmin,
-	})
+	}) {
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

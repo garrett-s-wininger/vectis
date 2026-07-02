@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 )
@@ -394,6 +395,8 @@ func TestLogout_deletesSession(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 	s.SetQueueClient(mocks.NewMockQueueService())
+	events := []audit.Event{}
+	s.SetAuditor(&testAuditCapturer{events: &events})
 	h := s.Handler()
 
 	setupBody := map[string]string{
@@ -444,6 +447,21 @@ func TestLogout_deletesSession(t *testing.T) {
 	}
 	if got := rec.Header().Get("Clear-Site-Data"); got != logoutClearSiteData {
 		t.Fatalf("Clear-Site-Data=%q, want %q", got, logoutClearSiteData)
+	}
+
+	var logoutEvent *audit.Event
+	for i := range events {
+		if events[i].Type == audit.EventAuthLogout {
+			logoutEvent = &events[i]
+			break
+		}
+	}
+
+	if logoutEvent == nil {
+		t.Fatalf("missing %s audit event in %+v", audit.EventAuthLogout, events)
+	}
+	if logoutEvent.ActorID != out.UserID || logoutEvent.Metadata["credential_source"] != "bearer" {
+		t.Fatalf("logout audit event mismatch: %+v", logoutEvent)
 	}
 
 	rec = httptest.NewRecorder()

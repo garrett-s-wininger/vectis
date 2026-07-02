@@ -184,9 +184,11 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.auditLog(ctx, audit.EventSetupCompleted, localUserID, localUserID, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventSetupCompleted, localUserID, localUserID, map[string]any{
 		"username": username,
-	})
+	}) {
+		return
+	}
 
 	setNoStore(w)
 	writeJSON(w, http.StatusOK, setupCompleteResponse{
