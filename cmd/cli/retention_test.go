@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestRetentionCleanupRequiresBackupManifestForBackupExpect(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{ExpectPath: "expected-topology.json"}, retentionAuditExportCheckOptions{}, retentionPolicyGateOptions{})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{ExpectPath: "expected-topology.json"}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{})
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -23,7 +24,7 @@ func TestRetentionCleanupRequiresBackupManifestForBackupExpect(t *testing.T) {
 }
 
 func TestRetentionCleanupRequiresBackupManifestForBackupStorageReport(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{StorageReportPaths: []string{"queue.report.json"}}, retentionAuditExportCheckOptions{}, retentionPolicyGateOptions{})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{StorageReportPaths: []string{"queue.report.json"}}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{})
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -33,7 +34,7 @@ func TestRetentionCleanupRequiresBackupManifestForBackupStorageReport(t *testing
 }
 
 func TestRetentionCleanupRequiresBackupManifestWhenPolicyRequires(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{}, retentionPolicyGateOptions{RequireBackupManifest: true})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{RequireBackupManifest: true})
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -43,7 +44,7 @@ func TestRetentionCleanupRequiresBackupManifestWhenPolicyRequires(t *testing.T) 
 }
 
 func TestRetentionCleanupRequiresAuditExportForAuditExportMaxAge(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{MaxAge: time.Hour}, retentionPolicyGateOptions{})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{MaxAge: time.Hour}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{})
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -57,7 +58,7 @@ func TestCheckRetentionWaiverAcceptsFreshKnownGates(t *testing.T) {
 	root := t.TempDir()
 	waiverPath := writeBackupJSONFile(t, root, "retention-waiver.json", retentionWaiverFile{
 		SchemaVersion: retentionWaiverSchemaVersion,
-		Waives:        []string{" Backup_Manifest ", "audit_export"},
+		Waives:        []string{" Backup_Manifest ", "audit_export", "hold_review"},
 		Reason:        "emergency storage pressure while export service is down",
 		ApprovedBy:    "security-oncall",
 		ExternalRef:   "INC-1234",
@@ -74,8 +75,18 @@ func TestCheckRetentionWaiverAcceptsFreshKnownGates(t *testing.T) {
 	if evidence.WaiverPath != waiverPath || evidence.ExternalRef != "INC-1234" {
 		t.Fatalf("waiver evidence = %+v", evidence)
 	}
-	if len(evidence.Waives) != 2 || evidence.Waives[0] != retentionWaiverBackup || evidence.Waives[1] != retentionWaiverAuditExport {
+	if len(evidence.Waives) != 3 || evidence.Waives[0] != retentionWaiverBackup || evidence.Waives[1] != retentionWaiverAuditExport || evidence.Waives[2] != retentionWaiverHoldReview {
 		t.Fatalf("waived gates = %#v", evidence.Waives)
+	}
+}
+
+func TestRetentionCleanupRequiresHoldReviewForHoldReviewMaxAge(t *testing.T) {
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{MaxAge: time.Hour}, retentionPolicyGateOptions{})
+	if err == nil {
+		t.Fatalf("retention cleanup succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "--hold-review") {
+		t.Fatalf("retention cleanup error = %v, want --hold-review", err)
 	}
 }
 
@@ -195,9 +206,202 @@ func TestEnforceRetentionAuditExportGateAllowsWaiver(t *testing.T) {
 	}
 }
 
+func TestEnforceRetentionHoldReviewGateRequiresEvidence(t *testing.T) {
+	err := enforceRetentionHoldReviewGate(retentionPolicyGateOptions{RequireHoldReview: true}, nil, nil)
+	if err == nil {
+		t.Fatalf("hold review gate succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "--require-hold-review") {
+		t.Fatalf("hold review gate error = %v, want --require-hold-review", err)
+	}
+}
+
+func TestEnforceRetentionHoldReviewGateAllowsWaiver(t *testing.T) {
+	err := enforceRetentionHoldReviewGate(retentionPolicyGateOptions{RequireHoldReview: true}, nil, &retentionWaiverEvidence{
+		Verified: true,
+		Waives:   []string{retentionWaiverHoldReview},
+	})
+	if err != nil {
+		t.Fatalf("hold review gate with waiver: %v", err)
+	}
+}
+
+func TestBuildRetentionHoldReviewFileHashesActiveHolds(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	holds := []retention.Hold{
+		retentionHoldForTest("hold-run", retention.HoldScopeRun, "run-123", now.Add(-2*time.Hour)),
+		retentionHoldForTest("hold-audit", retention.HoldScopeAuditRange, "2026-06-01T00:00:00Z..2026-07-01T00:00:00Z", now.Add(-time.Hour)),
+	}
+
+	review, err := buildRetentionHoldReviewFile(holds, now, " compliance-oncall ", " weekly review ", " GRC-123 ")
+	if err != nil {
+		t.Fatalf("build hold review: %v", err)
+	}
+	if review.SchemaVersion != retentionHoldReviewSchemaVersion {
+		t.Fatalf("schema version = %q", review.SchemaVersion)
+	}
+	if review.ActiveHolds != 2 || len(review.Holds) != 2 {
+		t.Fatalf("hold counts = active %d records %d", review.ActiveHolds, len(review.Holds))
+	}
+	if review.ReviewedBy != "compliance-oncall" || review.Reason != "weekly review" || review.ExternalRef != "GRC-123" {
+		t.Fatalf("review metadata = %+v", review)
+	}
+
+	holdsSHA256, err := retentionHoldReviewRecordsSHA256(review.Holds)
+	if err != nil {
+		t.Fatalf("hold review hash: %v", err)
+	}
+	if review.HoldsSHA256 != holdsSHA256 {
+		t.Fatalf("holds_sha256 = %q, want %q", review.HoldsSHA256, holdsSHA256)
+	}
+}
+
+func TestCheckRetentionHoldReviewAcceptsFreshMatchingInventory(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	holds := []retention.Hold{
+		retentionHoldForTest("hold-run", retention.HoldScopeRun, "run-123", now.Add(-2*time.Hour)),
+		retentionHoldForTest("hold-audit", retention.HoldScopeAuditRange, "2026-06-01T00:00:00Z..2026-07-01T00:00:00Z", now.Add(-time.Hour)),
+	}
+	review, err := buildRetentionHoldReviewFile(holds, now.Add(-30*time.Minute), "compliance", "weekly review", "GRC-123")
+	if err != nil {
+		t.Fatalf("build hold review: %v", err)
+	}
+
+	root := t.TempDir()
+	reviewPath := writeBackupJSONFile(t, root, "hold-review.json", review)
+	evidence, err := checkRetentionHoldReview(retentionHoldReviewCheckOptions{ReviewPath: reviewPath, MaxAge: time.Hour}, holds, now)
+	if err != nil {
+		t.Fatalf("check hold review: %v", err)
+	}
+	if evidence == nil || !evidence.Verified {
+		t.Fatalf("hold review evidence = %+v, want verified", evidence)
+	}
+	if evidence.Age != "30m0s" || evidence.MaxAge != "1h0m0s" {
+		t.Fatalf("freshness evidence = age %q max %q", evidence.Age, evidence.MaxAge)
+	}
+	if evidence.ActiveHolds != 2 || evidence.HoldsSHA256 != review.HoldsSHA256 {
+		t.Fatalf("hold review evidence = %+v", evidence)
+	}
+}
+
+func TestCheckRetentionHoldReviewRejectsChangedInventory(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	holds := []retention.Hold{
+		retentionHoldForTest("hold-run", retention.HoldScopeRun, "run-123", now.Add(-2*time.Hour)),
+	}
+	review, err := buildRetentionHoldReviewFile(holds, now.Add(-30*time.Minute), "compliance", "weekly review", "")
+	if err != nil {
+		t.Fatalf("build hold review: %v", err)
+	}
+
+	root := t.TempDir()
+	reviewPath := writeBackupJSONFile(t, root, "hold-review.json", review)
+	currentHolds := append([]retention.Hold(nil), holds...)
+	currentHolds = append(currentHolds, retentionHoldForTest("hold-new", retention.HoldScopeRun, "run-456", now.Add(-time.Minute)))
+
+	evidence, err := checkRetentionHoldReview(retentionHoldReviewCheckOptions{ReviewPath: reviewPath}, currentHolds, now)
+	if err == nil {
+		t.Fatalf("hold review check succeeded unexpectedly")
+	}
+	if evidence == nil || evidence.Verified {
+		t.Fatalf("hold review evidence = %+v, want unverified", evidence)
+	}
+	if !strings.Contains(err.Error(), "current active holds") {
+		t.Fatalf("hold review error = %v, want current active holds", err)
+	}
+}
+
+func TestCheckRetentionHoldReviewRejectsStaleReview(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	holds := []retention.Hold{
+		retentionHoldForTest("hold-run", retention.HoldScopeRun, "run-123", now.Add(-3*time.Hour)),
+	}
+	review, err := buildRetentionHoldReviewFile(holds, now.Add(-2*time.Hour), "compliance", "weekly review", "")
+	if err != nil {
+		t.Fatalf("build hold review: %v", err)
+	}
+
+	root := t.TempDir()
+	reviewPath := writeBackupJSONFile(t, root, "hold-review.json", review)
+	evidence, err := checkRetentionHoldReview(retentionHoldReviewCheckOptions{ReviewPath: reviewPath, MaxAge: time.Hour}, holds, now)
+	if err == nil {
+		t.Fatalf("hold review check succeeded unexpectedly")
+	}
+	if evidence == nil || evidence.Age != "2h0m0s" {
+		t.Fatalf("hold review evidence = %+v, want 2h age", evidence)
+	}
+	if !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("hold review error = %v, want stale", err)
+	}
+}
+
+func TestPrintRetentionReportIncludesHoldReviewEvidence(t *testing.T) {
+	var buf bytes.Buffer
+	printRetentionReport(&buf, retention.Report{DryRun: true}, retention.FileReport{}, nil, nil, &retentionHoldReviewEvidence{
+		ReviewPath: "hold-review.json",
+		Verified:   true,
+		CheckedAt:  "2026-07-02T12:00:00Z",
+		retentionHoldReviewFile: retentionHoldReviewFile{
+			GeneratedAt: "2026-07-02T11:30:00Z",
+			ReviewedBy:  "compliance",
+			Reason:      "weekly review",
+			ExternalRef: "GRC-123",
+			ActiveHolds: 2,
+			HoldsSHA256: "abc123",
+		},
+		MaxAge: "1h0m0s",
+		Age:    "30m0s",
+	}, nil)
+
+	out := buf.String()
+	for _, want := range []string{
+		"hold_review_verified=true",
+		"hold_review_path=hold-review.json",
+		"hold_review_reviewed_by=compliance",
+		"hold_review_external_ref=GRC-123",
+		"hold_review_active_holds=2",
+		"hold_review_holds_sha256=abc123",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("retention report missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestRetentionHoldReviewEvidenceJSONIncludesReviewFields(t *testing.T) {
+	raw, err := json.Marshal(retentionHoldReviewEvidence{
+		ReviewPath: "hold-review.json",
+		Verified:   true,
+		CheckedAt:  "2026-07-02T12:00:00Z",
+		retentionHoldReviewFile: retentionHoldReviewFile{
+			SchemaVersion: retentionHoldReviewSchemaVersion,
+			GeneratedAt:   "2026-07-02T11:30:00Z",
+			ReviewedBy:    "compliance",
+			Reason:        "weekly review",
+			ActiveHolds:   1,
+			HoldsSHA256:   "abc123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal hold review evidence: %v", err)
+	}
+
+	for _, want := range []string{
+		`"review_path":"hold-review.json"`,
+		`"schema_version":"vectis.retention_hold_review.v1"`,
+		`"generated_at":"2026-07-02T11:30:00Z"`,
+		`"reviewed_by":"compliance"`,
+		`"holds_sha256":"abc123"`,
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("hold review evidence JSON missing %s in %s", want, raw)
+		}
+	}
+}
+
 func TestPrintRetentionReportIncludesWaiverEvidence(t *testing.T) {
 	var buf bytes.Buffer
-	printRetentionReport(&buf, retention.Report{DryRun: true}, retention.FileReport{}, nil, nil, &retentionWaiverEvidence{
+	printRetentionReport(&buf, retention.Report{DryRun: true}, retention.FileReport{}, nil, nil, nil, &retentionWaiverEvidence{
 		WaiverPath:  "retention-waiver.json",
 		Verified:    true,
 		CheckedAt:   "2026-07-02T12:00:00Z",
@@ -218,6 +422,19 @@ func TestPrintRetentionReportIncludesWaiverEvidence(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("retention report missing %q in:\n%s", want, out)
 		}
+	}
+}
+
+func retentionHoldForTest(holdID, scope, targetID string, createdAt time.Time) retention.Hold {
+	return retention.Hold{
+		HoldID:    holdID,
+		Scope:     scope,
+		TargetID:  targetID,
+		Status:    retention.HoldStatusActive,
+		Owner:     "compliance",
+		Reason:    "preserve evidence",
+		CreatedBy: "security-oncall",
+		CreatedAt: createdAt,
 	}
 }
 

@@ -17,8 +17,11 @@ Cleanup is intentionally explicit today:
 - `--backup-max-age` rejects stale manifest evidence, based on `generated_at`.
 - `--audit-export` verifies retained audit export evidence before deleting old audit rows.
 - `--audit-export-max-age` rejects stale audit export evidence, based on `generated_at`.
+- `--hold-review` verifies retained active hold review evidence before cleanup.
+- `--hold-review-max-age` rejects stale hold review evidence, based on `generated_at`.
 - `--require-backup-manifest` makes backup-manifest evidence mandatory unless an approved waiver is supplied.
 - `--require-audit-export` makes audit-export evidence mandatory when audit rows are eligible for deletion unless an approved waiver is supplied.
+- `--require-hold-review` makes active hold review evidence mandatory unless an approved waiver is supplied.
 - `--waiver` verifies retained waiver JSON for policy-required gates.
 - Running without `--dry-run` or `--yes` fails.
 
@@ -56,8 +59,8 @@ Durations can be overridden per run. Use `0` to disable a surface. Artifact mani
 Deployment defaults can be set with `VECTIS_RETENTION_CLEANUP_*` environment
 variables or the matching `retention.cleanup.*` config keys. These defaults
 cover cleanup windows, evidence freshness limits, and whether backup-manifest
-or audit-export evidence is mandatory. Command-line flags still override the
-configured defaults for one cleanup invocation.
+audit-export, or hold-review evidence is mandatory. Command-line flags still
+override the configured defaults for one cleanup invocation.
 
 ## Choose A Policy
 
@@ -106,6 +109,20 @@ List active holds before applying cleanup:
 vectis-cli retention holds list
 ```
 
+Generate retained hold-review evidence after the active hold list has been
+reviewed. The review file records the active hold inventory, reviewer, reason,
+optional external reference, and a SHA-256 hash over the canonical hold list.
+Cleanup verifies that the retained file still matches the current active holds,
+including the zero-active-holds case:
+
+```sh
+vectis-cli retention holds review \
+  --reviewed-by compliance-oncall \
+  --reason "weekly retention cleanup review" \
+  --external-ref GRC-123 \
+  --output hold-review.json
+```
+
 Release a hold only after the preservation requirement has ended:
 
 ```sh
@@ -151,6 +168,16 @@ vectis-cli retention cleanup --yes \
   --audit-age 8760h \
   --audit-export audit-export.json \
   --audit-export-max-age 24h
+```
+
+For environments where retention holds are part of the compliance process, make
+hold review a cleanup gate:
+
+```sh
+vectis-cli retention cleanup --yes \
+  --require-hold-review \
+  --hold-review hold-review.json \
+  --hold-review-max-age 24h
 ```
 
 Use a waiver only for an approved exception where the gate is intentionally
@@ -361,7 +388,9 @@ apply CronJob, then pass `--require-backup-manifest`, `--backup-manifest`,
 `--backup-expect`, and `--backup-max-age` so a missing, stale, or incomplete
 backup set stops cleanup. If the job prunes audit rows, also mount the retained
 audit export and pass `--require-audit-export`, `--audit-export`, and
-`--audit-export-max-age`.
+`--audit-export-max-age`. If compliance requires active-hold signoff, mount the
+retained hold review and pass `--require-hold-review`, `--hold-review`, and
+`--hold-review-max-age`.
 
 ## Safety Guarantees
 
@@ -380,6 +409,7 @@ Cleanup also protects:
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
 | Backup evidence gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. `--require-backup-manifest` fails cleanup if that evidence is missing unless a verified waiver covers `backup_manifest`. |
 | Audit export evidence gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, fully exhausted across cursor pages, and broad enough to cover the audit cleanup cutoff and eligible row count. `--require-audit-export` fails cleanup when audit rows are eligible and export evidence is missing unless a verified waiver covers `audit_export`. |
+| Hold review evidence gate | When `--hold-review` is provided, cleanup verifies a retained `vectis-cli retention holds review` envelope against the current active hold inventory before deletion. The review must be fresh when `--hold-review-max-age` is set and hash-valid. `--require-hold-review` fails cleanup if this evidence is missing unless a verified waiver covers `hold_review`. |
 | Waiver evidence | `--waiver` accepts only a retained file path. The waiver must use schema `vectis.retention_waiver.v1`, list known gates, include `reason`, `approved_by`, and a future RFC3339 `expires_at`, and is reported in cleanup output. |
 | Active retention holds | Active run-scoped holds skip matching terminal runs, related SQL child rows, local run log deletion, and artifact reference removal. Active audit-range holds skip matching `audit_log` rows. |
 | Audit trail of cleanup | Applied SQL cleanup inserts a `retention.cleanup` audit event. |
@@ -401,6 +431,17 @@ backup_manifest_expectation_source=expected-topology.json
 backup_manifest_max_age=24h0m0s
 backup_manifest_age=30m0s
 backup_manifest_warnings=0
+hold_review_verified=true
+hold_review_path=hold-review.json
+hold_review_checked_at=2026-06-28T16:00:00Z
+hold_review_generated_at=2026-06-28T15:45:00Z
+hold_review_reviewed_by=compliance-oncall
+hold_review_reason=weekly retention cleanup review
+hold_review_external_ref=GRC-123
+hold_review_active_holds=3
+hold_review_holds_sha256=8ce4...
+hold_review_max_age=24h0m0s
+hold_review_age=15m0s
 retention_waiver_verified=true
 retention_waiver_path=retention-waiver.json
 retention_waiver_checked_at=2026-06-28T16:00:00Z

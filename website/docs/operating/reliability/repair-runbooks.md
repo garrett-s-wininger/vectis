@@ -199,7 +199,17 @@ vectis-cli retention cleanup --dry-run
 4. Include `--log-storage-dir` only when pruning local durable run log files for the same deployment.
 5. Include `--artifact-storage-dir` only when pruning local artifact CAS blobs for the same deployment. Apply-time artifact blob pruning requires the artifact storage directory lock, so stop that shard or use a maintenance window.
 6. Review delete counts, `held.*` counts, cutoffs, backup manifest evidence, audit export evidence for audit-row deletion, and any incident/restore holds before applying. Use `--waiver` only for an approved, retained, expiring exception.
-7. Apply during a maintenance window:
+7. When compliance requires hold signoff, record the reviewed active hold inventory:
+
+```sh
+vectis-cli retention holds review \
+  --reviewed-by <operator-or-team> \
+  --reason "<cleanup review reason>" \
+  --external-ref <ticket-or-case-id> \
+  --output hold-review.json
+```
+
+8. Apply during a maintenance window:
 
 ```sh
 vectis-cli retention cleanup --yes \
@@ -219,11 +229,14 @@ vectis-cli retention cleanup --yes \
   --backup-max-age 24h \
   --require-audit-export \
   --audit-export audit-export.json \
-  --audit-export-max-age 24h
+  --audit-export-max-age 24h \
+  --require-hold-review \
+  --hold-review hold-review.json \
+  --hold-review-max-age 24h
 ```
 
-8. Run `vectis-cli health check --strict`.
-9. Check storage pressure metrics after cleanup.
+9. Run `vectis-cli health check --strict`.
+10. Check storage pressure metrics after cleanup.
 
 ## Manual Run Intervention
 

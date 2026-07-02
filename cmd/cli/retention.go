@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,9 +48,15 @@ type retentionAuditExportCheckOptions struct {
 	MaxAge     time.Duration
 }
 
+type retentionHoldReviewCheckOptions struct {
+	ReviewPath string
+	MaxAge     time.Duration
+}
+
 type retentionPolicyGateOptions struct {
 	RequireBackupManifest bool
 	RequireAuditExport    bool
+	RequireHoldReview     bool
 	WaiverPath            string
 }
 
@@ -66,6 +75,39 @@ type retentionAuditExportEvidence struct {
 	OldestEventAt  string `json:"oldest_event_at,omitempty"`
 	NewestEventAt  string `json:"newest_event_at,omitempty"`
 	MayBeTruncated bool   `json:"may_be_truncated"`
+}
+
+type retentionHoldReviewRecord struct {
+	HoldID      string `json:"hold_id"`
+	Scope       string `json:"scope"`
+	TargetID    string `json:"target_id"`
+	Status      string `json:"status"`
+	Owner       string `json:"owner"`
+	Reason      string `json:"reason"`
+	ExternalRef string `json:"external_ref,omitempty"`
+	CreatedBy   string `json:"created_by,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+}
+
+type retentionHoldReviewFile struct {
+	SchemaVersion string                      `json:"schema_version"`
+	GeneratedAt   string                      `json:"generated_at"`
+	ReviewedBy    string                      `json:"reviewed_by"`
+	Reason        string                      `json:"reason"`
+	ExternalRef   string                      `json:"external_ref,omitempty"`
+	ActiveHolds   int                         `json:"active_holds"`
+	HoldsSHA256   string                      `json:"holds_sha256"`
+	Holds         []retentionHoldReviewRecord `json:"holds"`
+}
+
+type retentionHoldReviewEvidence struct {
+	ReviewPath string `json:"review_path,omitempty"`
+	Verified   bool   `json:"verified"`
+	CheckedAt  string `json:"checked_at,omitempty"`
+	retentionHoldReviewFile
+	MaxAge string `json:"max_age,omitempty"`
+	Age    string `json:"age,omitempty"`
 }
 
 type retentionWaiverEvidence struct {
@@ -90,9 +132,11 @@ type retentionWaiverFile struct {
 }
 
 const (
-	retentionWaiverSchemaVersion = "vectis.retention_waiver.v1"
-	retentionWaiverBackup        = "backup_manifest"
-	retentionWaiverAuditExport   = "audit_export"
+	retentionWaiverSchemaVersion     = "vectis.retention_waiver.v1"
+	retentionHoldReviewSchemaVersion = "vectis.retention_hold_review.v1"
+	retentionWaiverBackup            = "backup_manifest"
+	retentionWaiverAuditExport       = "audit_export"
+	retentionWaiverHoldReview        = "hold_review"
 )
 
 func runRetentionCleanup(cmd *cobra.Command, args []string) {
@@ -117,16 +161,22 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 		MaxAge:     retentionAuditExportMaxAge,
 	}
 
+	holdReviewOptions := retentionHoldReviewCheckOptions{
+		ReviewPath: retentionHoldReview,
+		MaxAge:     retentionHoldReviewMaxAge,
+	}
+
 	gateOptions := retentionPolicyGateOptions{
 		RequireBackupManifest: retentionRequireBackupManifest,
 		RequireAuditExport:    retentionRequireAuditExport,
+		RequireHoldReview:     retentionRequireHoldReview,
 		WaiverPath:            retentionWaiver,
 	}
 
-	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions, gateOptions))
+	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions))
 }
 
-func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, gateOptions retentionPolicyGateOptions) error {
+func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions) error {
 	if !dryRun && !yes {
 		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
 	}
@@ -150,6 +200,10 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 		return fmt.Errorf("--audit-export-max-age requires --audit-export")
 	}
 
+	if strings.TrimSpace(holdReviewOptions.ReviewPath) == "" && holdReviewOptions.MaxAge > 0 {
+		return fmt.Errorf("--hold-review-max-age requires --hold-review")
+	}
+
 	db, err := openRetentionDatabase()
 	if err != nil {
 		return err
@@ -161,6 +215,24 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 	}
 
 	cleaner := retention.NewSQLCleaner(db)
+	holdStore := retention.NewSQLHoldStore(db)
+
+	var holdReviewEvidence *retentionHoldReviewEvidence
+	if strings.TrimSpace(holdReviewOptions.ReviewPath) != "" {
+		activeHolds, err := holdStore.List(ctx, retention.ListHoldOptions{}, now)
+		if err != nil {
+			return fmt.Errorf("list active retention holds: %w", err)
+		}
+
+		holdReviewEvidence, err = checkRetentionHoldReview(holdReviewOptions, activeHolds, now)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := enforceRetentionHoldReviewGate(gateOptions, holdReviewEvidence, waiverEvidence); err != nil {
+		return err
+	}
 
 	var auditExportEvidence *retentionAuditExportEvidence
 	var precheckedReport *retention.Report
@@ -305,6 +377,10 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 			payload["audit_export"] = auditExportEvidence
 		}
 
+		if holdReviewEvidence != nil {
+			payload["hold_review"] = holdReviewEvidence
+		}
+
 		if waiverEvidence != nil {
 			payload["waiver"] = waiverEvidence
 		}
@@ -312,7 +388,7 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 		return writeJSON(w, payload)
 	}
 
-	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence, waiverEvidence)
+	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence, holdReviewEvidence, waiverEvidence)
 	if dryRun {
 		fmt.Fprintln(w, "Cleanup not applied.")
 		return nil
@@ -441,6 +517,189 @@ func checkRetentionAuditExport(options retentionAuditExportCheckOptions, cutoff 
 	return evidence, nil
 }
 
+func buildRetentionHoldReviewFile(holds []retention.Hold, generatedAt time.Time, reviewedBy, reason, externalRef string) (retentionHoldReviewFile, error) {
+	reviewedBy = strings.TrimSpace(reviewedBy)
+	reason = strings.TrimSpace(reason)
+	externalRef = strings.TrimSpace(externalRef)
+	if reviewedBy == "" {
+		return retentionHoldReviewFile{}, fmt.Errorf("--reviewed-by is required")
+	}
+
+	if reason == "" {
+		return retentionHoldReviewFile{}, fmt.Errorf("--reason is required")
+	}
+
+	records := retentionHoldReviewRecords(holds)
+	holdsSHA256, err := retentionHoldReviewRecordsSHA256(records)
+	if err != nil {
+		return retentionHoldReviewFile{}, err
+	}
+
+	return retentionHoldReviewFile{
+		SchemaVersion: retentionHoldReviewSchemaVersion,
+		GeneratedAt:   generatedAt.UTC().Format(time.RFC3339),
+		ReviewedBy:    reviewedBy,
+		Reason:        reason,
+		ExternalRef:   externalRef,
+		ActiveHolds:   len(records),
+		HoldsSHA256:   holdsSHA256,
+		Holds:         records,
+	}, nil
+}
+
+func checkRetentionHoldReview(options retentionHoldReviewCheckOptions, currentHolds []retention.Hold, checkedAt time.Time) (*retentionHoldReviewEvidence, error) {
+	options.ReviewPath = strings.TrimSpace(options.ReviewPath)
+	if options.ReviewPath == "" {
+		if options.MaxAge > 0 {
+			return nil, fmt.Errorf("--hold-review-max-age requires --hold-review")
+		}
+
+		return nil, nil
+	}
+
+	if options.ReviewPath == "-" {
+		return nil, fmt.Errorf("--hold-review must be a retained file path")
+	}
+
+	raw, err := os.ReadFile(options.ReviewPath)
+	if err != nil {
+		return nil, fmt.Errorf("read retention hold review: %w", err)
+	}
+
+	var review retentionHoldReviewFile
+	if err := json.Unmarshal(raw, &review); err != nil {
+		return nil, fmt.Errorf("parse retention hold review: %w", err)
+	}
+
+	evidence := &retentionHoldReviewEvidence{
+		ReviewPath: options.ReviewPath,
+		CheckedAt:  checkedAt.UTC().Format(time.RFC3339),
+		retentionHoldReviewFile: retentionHoldReviewFile{
+			SchemaVersion: strings.TrimSpace(review.SchemaVersion),
+			GeneratedAt:   strings.TrimSpace(review.GeneratedAt),
+			ReviewedBy:    strings.TrimSpace(review.ReviewedBy),
+			Reason:        strings.TrimSpace(review.Reason),
+			ExternalRef:   strings.TrimSpace(review.ExternalRef),
+			ActiveHolds:   review.ActiveHolds,
+			HoldsSHA256:   strings.TrimSpace(review.HoldsSHA256),
+			Holds:         normalizeRetentionHoldReviewRecords(review.Holds),
+		},
+	}
+
+	if options.MaxAge > 0 {
+		evidence.MaxAge = options.MaxAge.String()
+	}
+
+	if evidence.SchemaVersion != retentionHoldReviewSchemaVersion {
+		return evidence, fmt.Errorf("retention hold review schema_version = %q, want %q", evidence.SchemaVersion, retentionHoldReviewSchemaVersion)
+	}
+
+	if evidence.GeneratedAt == "" {
+		return evidence, fmt.Errorf("retention hold review generated_at is required")
+	}
+
+	generatedAt, err := time.Parse(time.RFC3339, evidence.GeneratedAt)
+	if err != nil {
+		return evidence, fmt.Errorf("retention hold review generated_at is not RFC3339: %w", err)
+	}
+
+	if evidence.ReviewedBy == "" {
+		return evidence, fmt.Errorf("retention hold review reviewed_by is required")
+	}
+
+	if evidence.Reason == "" {
+		return evidence, fmt.Errorf("retention hold review reason is required")
+	}
+
+	if evidence.ActiveHolds != len(evidence.Holds) {
+		return evidence, fmt.Errorf("retention hold review active_holds=%d does not match holds length %d", evidence.ActiveHolds, len(evidence.Holds))
+	}
+
+	holdsSHA256, err := retentionHoldReviewRecordsSHA256(evidence.Holds)
+	if err != nil {
+		return evidence, err
+	}
+	if evidence.HoldsSHA256 != holdsSHA256 {
+		return evidence, fmt.Errorf("retention hold review holds_sha256 mismatch")
+	}
+
+	currentRecords := retentionHoldReviewRecords(currentHolds)
+	currentSHA256, err := retentionHoldReviewRecordsSHA256(currentRecords)
+	if err != nil {
+		return evidence, err
+	}
+
+	if evidence.ActiveHolds != len(currentRecords) || evidence.HoldsSHA256 != currentSHA256 {
+		return evidence, fmt.Errorf("retention hold review does not match current active holds")
+	}
+
+	age := checkedAt.Sub(generatedAt)
+	evidence.Age = age.String()
+	if age < 0 {
+		return evidence, fmt.Errorf("retention hold review generated_at %s is after check time %s", evidence.GeneratedAt, checkedAt.Format(time.RFC3339))
+	}
+
+	if options.MaxAge > 0 && age > options.MaxAge {
+		return evidence, fmt.Errorf("retention hold review is stale: generated_at=%s age=%s max_age=%s", evidence.GeneratedAt, age, options.MaxAge)
+	}
+
+	evidence.Verified = true
+	return evidence, nil
+}
+
+func retentionHoldReviewRecords(holds []retention.Hold) []retentionHoldReviewRecord {
+	records := make([]retentionHoldReviewRecord, 0, len(holds))
+	for _, hold := range holds {
+		record := retentionHoldReviewRecord{
+			HoldID:      hold.HoldID,
+			Scope:       hold.Scope,
+			TargetID:    hold.TargetID,
+			Status:      hold.Status,
+			Owner:       hold.Owner,
+			Reason:      hold.Reason,
+			ExternalRef: hold.ExternalRef,
+			CreatedBy:   hold.CreatedBy,
+			CreatedAt:   hold.CreatedAt.UTC().Format(time.RFC3339),
+		}
+
+		if hold.ExpiresAt != nil {
+			record.ExpiresAt = hold.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+
+		records = append(records, record)
+	}
+
+	return normalizeRetentionHoldReviewRecords(records)
+}
+
+func normalizeRetentionHoldReviewRecords(records []retentionHoldReviewRecord) []retentionHoldReviewRecord {
+	out := append([]retentionHoldReviewRecord(nil), records...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Scope != out[j].Scope {
+			return out[i].Scope < out[j].Scope
+		}
+		if out[i].TargetID != out[j].TargetID {
+			return out[i].TargetID < out[j].TargetID
+		}
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
+		}
+		return out[i].HoldID < out[j].HoldID
+	})
+
+	return out
+}
+
+func retentionHoldReviewRecordsSHA256(records []retentionHoldReviewRecord) (string, error) {
+	payload, err := json.Marshal(normalizeRetentionHoldReviewRecords(records))
+	if err != nil {
+		return "", fmt.Errorf("encode retention hold review inventory: %w", err)
+	}
+
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func checkRetentionWaiver(path string, checkedAt time.Time) (*retentionWaiverEvidence, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -483,7 +742,7 @@ func checkRetentionWaiver(path string, checkedAt time.Time) (*retentionWaiverEvi
 	seen := map[string]bool{}
 	for _, name := range evidence.Waives {
 		switch name {
-		case retentionWaiverBackup, retentionWaiverAuditExport:
+		case retentionWaiverBackup, retentionWaiverAuditExport, retentionWaiverHoldReview:
 		default:
 			return evidence, fmt.Errorf("retention waiver references unknown gate %q", name)
 		}
@@ -491,6 +750,7 @@ func checkRetentionWaiver(path string, checkedAt time.Time) (*retentionWaiverEvi
 		if seen[name] {
 			return evidence, fmt.Errorf("retention waiver references duplicate gate %q", name)
 		}
+
 		seen[name] = true
 	}
 
@@ -565,6 +825,22 @@ func enforceRetentionAuditExportGate(options retentionPolicyGateOptions, auditEx
 	}
 
 	return fmt.Errorf("--require-audit-export requires --audit-export or a retention waiver for %s before deleting %d audit row(s)", retentionWaiverAuditExport, report.Counts.AuditLog)
+}
+
+func enforceRetentionHoldReviewGate(options retentionPolicyGateOptions, holdReviewEvidence *retentionHoldReviewEvidence, waiverEvidence *retentionWaiverEvidence) error {
+	if !options.RequireHoldReview {
+		return nil
+	}
+
+	if holdReviewEvidence != nil && holdReviewEvidence.Verified {
+		return nil
+	}
+
+	if retentionWaiverAllows(waiverEvidence, retentionWaiverHoldReview) {
+		return nil
+	}
+
+	return fmt.Errorf("--require-hold-review requires --hold-review or a retention waiver for %s", retentionWaiverHoldReview)
 }
 
 func retentionWaiverAllows(evidence *retentionWaiverEvidence, gate string) bool {
@@ -692,7 +968,7 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 	return evidence, nil
 }
 
-func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence, waiverEvidence *retentionWaiverEvidence) {
+func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence, holdReviewEvidence *retentionHoldReviewEvidence, waiverEvidence *retentionWaiverEvidence) {
 	prefix := "deleted"
 	if report.DryRun {
 		prefix = "would_delete"
@@ -723,6 +999,7 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 			}
 		}
 	}
+
 	if auditExportEvidence != nil {
 		fmt.Fprintf(w, "audit_export_verified=%t\n", auditExportEvidence.Verified)
 		fmt.Fprintf(w, "audit_export_path=%s\n", auditExportEvidence.ExportPath)
@@ -743,6 +1020,24 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 		fmt.Fprintf(w, "audit_export_may_be_truncated=%t\n", auditExportEvidence.MayBeTruncated)
 		if auditExportEvidence.EventsSHA256 != "" {
 			fmt.Fprintf(w, "audit_export_events_sha256=%s\n", auditExportEvidence.EventsSHA256)
+		}
+	}
+	if holdReviewEvidence != nil {
+		fmt.Fprintf(w, "hold_review_verified=%t\n", holdReviewEvidence.Verified)
+		fmt.Fprintf(w, "hold_review_path=%s\n", holdReviewEvidence.ReviewPath)
+		fmt.Fprintf(w, "hold_review_checked_at=%s\n", holdReviewEvidence.CheckedAt)
+		fmt.Fprintf(w, "hold_review_generated_at=%s\n", holdReviewEvidence.GeneratedAt)
+		fmt.Fprintf(w, "hold_review_reviewed_by=%s\n", holdReviewEvidence.ReviewedBy)
+		fmt.Fprintf(w, "hold_review_reason=%s\n", holdReviewEvidence.Reason)
+		if holdReviewEvidence.ExternalRef != "" {
+			fmt.Fprintf(w, "hold_review_external_ref=%s\n", holdReviewEvidence.ExternalRef)
+		}
+
+		fmt.Fprintf(w, "hold_review_active_holds=%d\n", holdReviewEvidence.ActiveHolds)
+		fmt.Fprintf(w, "hold_review_holds_sha256=%s\n", holdReviewEvidence.HoldsSHA256)
+		if holdReviewEvidence.MaxAge != "" {
+			fmt.Fprintf(w, "hold_review_max_age=%s\n", holdReviewEvidence.MaxAge)
+			fmt.Fprintf(w, "hold_review_age=%s\n", holdReviewEvidence.Age)
 		}
 	}
 	if waiverEvidence != nil {
@@ -873,6 +1168,32 @@ func runRetentionHoldRelease(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(writeRetentionHold(os.Stdout, hold))
+}
+
+func runRetentionHoldReview(cmd *cobra.Command, args []string) {
+	db, err := openRetentionDatabase()
+	if err != nil {
+		runCLIError(err)
+	}
+	defer db.Close()
+
+	reviewedBy := strings.TrimSpace(retentionHoldReviewReviewedBy)
+	if reviewedBy == "" {
+		reviewedBy = defaultRetentionHoldActor()
+	}
+
+	now := time.Now().UTC()
+	holds, err := retention.NewSQLHoldStore(db).List(cmd.Context(), retention.ListHoldOptions{}, now)
+	if err != nil {
+		runCLIError(err)
+	}
+
+	review, err := buildRetentionHoldReviewFile(holds, now, reviewedBy, retentionHoldReviewReason, retentionHoldReviewExternalRef)
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(writeRetentionHoldReview(os.Stdout, retentionHoldReviewOutput, review))
 }
 
 func retentionHoldCreateScopeAndTarget(runID, auditSince, auditUntil string) (scope, targetID string, err error) {
@@ -1012,6 +1333,42 @@ func writeRetentionHoldList(w io.Writer, holds []retention.Hold) error {
 	return nil
 }
 
+func writeRetentionHoldReview(w io.Writer, outputPath string, review retentionHoldReviewFile) error {
+	outputPath = strings.TrimSpace(outputPath)
+	if outputPath == "" || outputPath == "-" {
+		return writeJSON(w, review)
+	}
+
+	payload, err := json.MarshalIndent(review, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode retention hold review: %w", err)
+	}
+
+	payload = append(payload, '\n')
+	if err := os.WriteFile(outputPath, payload, 0o600); err != nil {
+		return fmt.Errorf("write retention hold review: %w", err)
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, map[string]any{
+			"status":       "reviewed",
+			"path":         outputPath,
+			"active_holds": review.ActiveHolds,
+			"holds_sha256": review.HoldsSHA256,
+			"generated_at": review.GeneratedAt,
+			"reviewed_by":  review.ReviewedBy,
+			"external_ref": review.ExternalRef,
+		})
+	}
+
+	fmt.Fprintf(w, "hold_review_path=%s\n", outputPath)
+	fmt.Fprintf(w, "hold_review_generated_at=%s\n", review.GeneratedAt)
+	fmt.Fprintf(w, "hold_review_reviewed_by=%s\n", review.ReviewedBy)
+	fmt.Fprintf(w, "hold_review_active_holds=%d\n", review.ActiveHolds)
+	fmt.Fprintf(w, "hold_review_holds_sha256=%s\n", review.HoldsSHA256)
+	return nil
+}
+
 func parseRetentionHoldExpiresAt(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1080,7 +1437,8 @@ The command is destructive. Use --dry-run first, then pass --yes to apply.
 Pass --backup-manifest to require backup manifest verification before cleanup.
 Use --backup-expect to enforce a topology file and --backup-max-age to require
 fresh manifest evidence. Use --backup-storage-report to also require byte-level
-storage verifier evidence for the manifest's file-backed state.`,
+storage verifier evidence for the manifest's file-backed state. Use
+--hold-review to require retained active-hold review evidence.`,
 	Args: cobra.NoArgs,
 	Run:  runRetentionCleanup,
 }
@@ -1116,4 +1474,14 @@ var retentionHoldReleaseCmd = &cobra.Command{
 	Short: "Release a retention hold",
 	Args:  cobra.ExactArgs(1),
 	Run:   runRetentionHoldRelease,
+}
+
+var retentionHoldReviewCmd = &cobra.Command{
+	Use:   "review",
+	Short: "Generate active hold review evidence",
+	Long: `Generate a retained evidence envelope for the current active retention
+hold inventory. Cleanup can verify this file with --hold-review and require it
+with --require-hold-review.`,
+	Args: cobra.NoArgs,
+	Run:  runRetentionHoldReview,
 }

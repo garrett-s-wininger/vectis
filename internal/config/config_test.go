@@ -265,11 +265,17 @@ func TestRetentionCleanupPolicyDefaultsAndOverrides(t *testing.T) {
 	if got := RetentionCleanupAuditExportMaxAge(); got != 0 {
 		t.Fatalf("RetentionCleanupAuditExportMaxAge() default = %v, want 0", got)
 	}
+	if got := RetentionCleanupHoldReviewMaxAge(); got != 0 {
+		t.Fatalf("RetentionCleanupHoldReviewMaxAge() default = %v, want 0", got)
+	}
 	if RetentionCleanupRequireBackupManifest() {
 		t.Fatal("RetentionCleanupRequireBackupManifest() default = true, want false")
 	}
 	if RetentionCleanupRequireAuditExport() {
 		t.Fatal("RetentionCleanupRequireAuditExport() default = true, want false")
+	}
+	if RetentionCleanupRequireHoldReview() {
+		t.Fatal("RetentionCleanupRequireHoldReview() default = true, want false")
 	}
 
 	viper.Set("retention.cleanup.terminal_run_age", 2*time.Hour)
@@ -280,8 +286,10 @@ func TestRetentionCleanupPolicyDefaultsAndOverrides(t *testing.T) {
 	viper.Set("retention.cleanup.backup_max_age", time.Hour)
 	viper.Set("retention.cleanup.backup_storage_max_age", 30*time.Minute)
 	viper.Set("retention.cleanup.audit_export_max_age", 45*time.Minute)
+	viper.Set("retention.cleanup.hold_review_max_age", 15*time.Minute)
 	viper.Set("retention.cleanup.require_backup_manifest", true)
 	viper.Set("retention.cleanup.require_audit_export", true)
+	viper.Set("retention.cleanup.require_hold_review", true)
 
 	got := RetentionCleanupPolicy()
 	want := RetentionCleanupPolicyDefaults{
@@ -303,11 +311,17 @@ func TestRetentionCleanupPolicyDefaultsAndOverrides(t *testing.T) {
 	if got := RetentionCleanupAuditExportMaxAge(); got != 45*time.Minute {
 		t.Fatalf("RetentionCleanupAuditExportMaxAge() override = %v, want 45m", got)
 	}
+	if got := RetentionCleanupHoldReviewMaxAge(); got != 15*time.Minute {
+		t.Fatalf("RetentionCleanupHoldReviewMaxAge() override = %v, want 15m", got)
+	}
 	if !RetentionCleanupRequireBackupManifest() {
 		t.Fatal("RetentionCleanupRequireBackupManifest() override = false, want true")
 	}
 	if !RetentionCleanupRequireAuditExport() {
 		t.Fatal("RetentionCleanupRequireAuditExport() override = false, want true")
+	}
+	if !RetentionCleanupRequireHoldReview() {
+		t.Fatal("RetentionCleanupRequireHoldReview() override = false, want true")
 	}
 }
 

@@ -298,8 +298,10 @@ type RetentionCleanupDefaults struct {
 	BackupMaxAge          tomlDuration `toml:"backup_max_age"`
 	BackupStorageMaxAge   tomlDuration `toml:"backup_storage_max_age"`
 	AuditExportMaxAge     tomlDuration `toml:"audit_export_max_age"`
+	HoldReviewMaxAge      tomlDuration `toml:"hold_review_max_age"`
 	RequireBackupManifest bool         `toml:"require_backup_manifest"`
 	RequireAuditExport    bool         `toml:"require_audit_export"`
+	RequireHoldReview     bool         `toml:"require_hold_review"`
 }
 
 type RetentionCleanupPolicyDefaults struct {
@@ -478,8 +480,10 @@ func init() {
 	_ = viper.BindEnv("retention.cleanup.backup_max_age", "VECTIS_RETENTION_CLEANUP_BACKUP_MAX_AGE")
 	_ = viper.BindEnv("retention.cleanup.backup_storage_max_age", "VECTIS_RETENTION_CLEANUP_BACKUP_STORAGE_MAX_AGE")
 	_ = viper.BindEnv("retention.cleanup.audit_export_max_age", "VECTIS_RETENTION_CLEANUP_AUDIT_EXPORT_MAX_AGE")
+	_ = viper.BindEnv("retention.cleanup.hold_review_max_age", "VECTIS_RETENTION_CLEANUP_HOLD_REVIEW_MAX_AGE")
 	_ = viper.BindEnv("retention.cleanup.require_backup_manifest", "VECTIS_RETENTION_CLEANUP_REQUIRE_BACKUP_MANIFEST")
 	_ = viper.BindEnv("retention.cleanup.require_audit_export", "VECTIS_RETENTION_CLEANUP_REQUIRE_AUDIT_EXPORT")
+	_ = viper.BindEnv("retention.cleanup.require_hold_review", "VECTIS_RETENTION_CLEANUP_REQUIRE_HOLD_REVIEW")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_base_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_BASE_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_jitter_ratio", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_JITTER_RATIO")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
@@ -609,6 +613,7 @@ func validateDefaults(d Defaults) {
 		"retention.cleanup.backup_max_age":         time.Duration(d.Retention.Cleanup.BackupMaxAge),
 		"retention.cleanup.backup_storage_max_age": time.Duration(d.Retention.Cleanup.BackupStorageMaxAge),
 		"retention.cleanup.audit_export_max_age":   time.Duration(d.Retention.Cleanup.AuditExportMaxAge),
+		"retention.cleanup.hold_review_max_age":    time.Duration(d.Retention.Cleanup.HoldReviewMaxAge),
 	} {
 		if duration < 0 {
 			panic("config defaults: " + name + " must be >= 0")
@@ -1445,6 +1450,10 @@ func RetentionCleanupAuditExportMaxAge() time.Duration {
 	return retentionCleanupDuration("retention.cleanup.audit_export_max_age", MustDefaults().Retention.Cleanup.AuditExportMaxAge)
 }
 
+func RetentionCleanupHoldReviewMaxAge() time.Duration {
+	return retentionCleanupDuration("retention.cleanup.hold_review_max_age", MustDefaults().Retention.Cleanup.HoldReviewMaxAge)
+}
+
 func RetentionCleanupRequireBackupManifest() bool {
 	if viper.IsSet("retention.cleanup.require_backup_manifest") {
 		return viper.GetBool("retention.cleanup.require_backup_manifest")
@@ -1459,6 +1468,14 @@ func RetentionCleanupRequireAuditExport() bool {
 	}
 
 	return MustDefaults().Retention.Cleanup.RequireAuditExport
+}
+
+func RetentionCleanupRequireHoldReview() bool {
+	if viper.IsSet("retention.cleanup.require_hold_review") {
+		return viper.GetBool("retention.cleanup.require_hold_review")
+	}
+
+	return MustDefaults().Retention.Cleanup.RequireHoldReview
 }
 
 func retentionCleanupDuration(key string, fallback tomlDuration) time.Duration {

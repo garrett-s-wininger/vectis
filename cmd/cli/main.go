@@ -199,8 +199,15 @@ var (
 	retentionBackupStorageMaxAge   time.Duration
 	retentionAuditExport           string
 	retentionAuditExportMaxAge     time.Duration
+	retentionHoldReview            string
+	retentionHoldReviewOutput      string
+	retentionHoldReviewReviewedBy  string
+	retentionHoldReviewReason      string
+	retentionHoldReviewExternalRef string
+	retentionHoldReviewMaxAge      time.Duration
 	retentionRequireBackupManifest bool
 	retentionRequireAuditExport    bool
+	retentionRequireHoldReview     bool
 	retentionWaiver                string
 )
 
@@ -240,8 +247,10 @@ type retentionCleanupDefaults struct {
 	BackupMaxAge        time.Duration
 	BackupStorageMaxAge time.Duration
 	AuditExportMaxAge   time.Duration
+	HoldReviewMaxAge    time.Duration
 	RequireBackup       bool
 	RequireAuditExport  bool
+	RequireHoldReview   bool
 }
 
 func retentionCleanupDefaultsFromConfig() retentionCleanupDefaults {
@@ -251,8 +260,10 @@ func retentionCleanupDefaultsFromConfig() retentionCleanupDefaults {
 		BackupMaxAge:        config.RetentionCleanupBackupMaxAge(),
 		BackupStorageMaxAge: config.RetentionCleanupBackupStorageMaxAge(),
 		AuditExportMaxAge:   config.RetentionCleanupAuditExportMaxAge(),
+		HoldReviewMaxAge:    config.RetentionCleanupHoldReviewMaxAge(),
 		RequireBackup:       config.RetentionCleanupRequireBackupManifest(),
 		RequireAuditExport:  config.RetentionCleanupRequireAuditExport(),
+		RequireHoldReview:   config.RetentionCleanupRequireHoldReview(),
 	}
 }
 
@@ -437,8 +448,11 @@ func init() {
 	retentionCleanupCmd.Flags().DurationVar(&retentionBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionAuditExport, "audit-export", "", "Optional audit export evidence JSON to verify before deleting audit rows")
 	retentionCleanupCmd.Flags().DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted audit export evidence age before cleanup (0 disables)")
+	retentionCleanupCmd.Flags().StringVar(&retentionHoldReview, "hold-review", "", "Optional active hold review evidence JSON to verify before cleanup")
+	retentionCleanupCmd.Flags().DurationVar(&retentionHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted hold review evidence age before cleanup (0 disables)")
 	retentionCleanupCmd.Flags().BoolVar(&retentionRequireBackupManifest, "require-backup-manifest", defaultRetention.RequireBackup, "Require --backup-manifest unless waived by --waiver")
 	retentionCleanupCmd.Flags().BoolVar(&retentionRequireAuditExport, "require-audit-export", defaultRetention.RequireAuditExport, "Require --audit-export before deleting audit rows unless waived by --waiver")
+	retentionCleanupCmd.Flags().BoolVar(&retentionRequireHoldReview, "require-hold-review", defaultRetention.RequireHoldReview, "Require --hold-review unless waived by --waiver")
 	retentionCleanupCmd.Flags().StringVar(&retentionWaiver, "waiver", "", "Optional retention waiver JSON for required cleanup gates")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditSince, "audit-since", "", "Start of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
@@ -453,7 +467,11 @@ func init() {
 	retentionHoldListCmd.Flags().BoolVar(&retentionHoldListAll, "all", false, "Include released and expired holds")
 	retentionHoldReleaseCmd.Flags().StringVar(&retentionHoldReleaseReason, "reason", "", "Reason for releasing the hold")
 	retentionHoldReleaseCmd.Flags().StringVar(&retentionHoldReleasedBy, "released-by", "", "Operator releasing the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
-	retentionHoldsCmd.AddCommand(retentionHoldCreateCmd, retentionHoldListCmd, retentionHoldReleaseCmd)
+	retentionHoldReviewCmd.Flags().StringVarP(&retentionHoldReviewOutput, "output", "o", "-", "Hold review evidence JSON output path, or '-' for stdout")
+	retentionHoldReviewCmd.Flags().StringVar(&retentionHoldReviewReviewedBy, "reviewed-by", "", "Operator reviewing active holds (default: VECTIS_OPERATOR, USER, or USERNAME)")
+	retentionHoldReviewCmd.Flags().StringVar(&retentionHoldReviewReason, "reason", "", "Reason for the active hold review")
+	retentionHoldReviewCmd.Flags().StringVar(&retentionHoldReviewExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference")
+	retentionHoldsCmd.AddCommand(retentionHoldCreateCmd, retentionHoldListCmd, retentionHoldReleaseCmd, retentionHoldReviewCmd)
 	retentionCmd.AddCommand(retentionCleanupCmd)
 	retentionCmd.AddCommand(retentionHoldsCmd)
 	rootCmd.AddCommand(retentionCmd)

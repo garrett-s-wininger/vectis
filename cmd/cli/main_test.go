@@ -135,7 +135,7 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17}, nil, nil, nil)
+	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17}, nil, nil, nil, nil)
 
 	out := buf.String()
 	for _, want := range []string{
@@ -179,8 +179,10 @@ func TestRetentionCleanupDefaultsFromConfig(t *testing.T) {
 	viper.Set("retention.cleanup.backup_max_age", time.Hour)
 	viper.Set("retention.cleanup.backup_storage_max_age", 30*time.Minute)
 	viper.Set("retention.cleanup.audit_export_max_age", 45*time.Minute)
+	viper.Set("retention.cleanup.hold_review_max_age", 15*time.Minute)
 	viper.Set("retention.cleanup.require_backup_manifest", true)
 	viper.Set("retention.cleanup.require_audit_export", true)
+	viper.Set("retention.cleanup.require_hold_review", true)
 
 	got := retentionCleanupDefaultsFromConfig()
 	if got.Policy.TerminalRuns != 2*time.Hour ||
@@ -192,11 +194,12 @@ func TestRetentionCleanupDefaultsFromConfig(t *testing.T) {
 	}
 	if got.BackupMaxAge != time.Hour ||
 		got.BackupStorageMaxAge != 30*time.Minute ||
-		got.AuditExportMaxAge != 45*time.Minute {
-		t.Fatalf("retention evidence freshness defaults = backup %s storage %s audit %s", got.BackupMaxAge, got.BackupStorageMaxAge, got.AuditExportMaxAge)
+		got.AuditExportMaxAge != 45*time.Minute ||
+		got.HoldReviewMaxAge != 15*time.Minute {
+		t.Fatalf("retention evidence freshness defaults = backup %s storage %s audit %s hold %s", got.BackupMaxAge, got.BackupStorageMaxAge, got.AuditExportMaxAge, got.HoldReviewMaxAge)
 	}
-	if !got.RequireBackup || !got.RequireAuditExport {
-		t.Fatalf("retention required gates = backup %t audit %t, want true true", got.RequireBackup, got.RequireAuditExport)
+	if !got.RequireBackup || !got.RequireAuditExport || !got.RequireHoldReview {
+		t.Fatalf("retention required gates = backup %t audit %t hold %t, want true true true", got.RequireBackup, got.RequireAuditExport, got.RequireHoldReview)
 	}
 }
 

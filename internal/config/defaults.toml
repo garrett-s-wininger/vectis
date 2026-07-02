@@ -149,8 +149,10 @@ artifact_blob_age = "720h"
 backup_max_age = "0s"
 backup_storage_max_age = "0s"
 audit_export_max_age = "0s"
+hold_review_max_age = "0s"
 require_backup_manifest = false
 require_audit_export = false
+require_hold_review = false
 
 [cron]
 claim_ttl = "5m"

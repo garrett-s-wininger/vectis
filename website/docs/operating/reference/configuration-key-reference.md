@@ -35,8 +35,10 @@ Environment variables are described in [Configuration](../configuration.md#servi
 | `retention.cleanup.backup_max_age` | `0s` | Default maximum accepted backup manifest age before cleanup; `0s` disables freshness enforcement. |
 | `retention.cleanup.backup_storage_max_age` | `0s` | Default maximum accepted storage verification report age before cleanup; `0s` disables freshness enforcement. |
 | `retention.cleanup.audit_export_max_age` | `0s` | Default maximum accepted audit export evidence age before cleanup; `0s` disables freshness enforcement. |
+| `retention.cleanup.hold_review_max_age` | `0s` | Default maximum accepted active hold review evidence age before cleanup; `0s` disables freshness enforcement. |
 | `retention.cleanup.require_backup_manifest` | `false` | Makes `vectis-cli retention cleanup` require backup manifest evidence unless a verified waiver covers `backup_manifest`. |
 | `retention.cleanup.require_audit_export` | `false` | Makes `vectis-cli retention cleanup` require audit export evidence when audit rows are eligible unless a verified waiver covers `audit_export`. |
+| `retention.cleanup.require_hold_review` | `false` | Makes `vectis-cli retention cleanup` require active hold review evidence unless a verified waiver covers `hold_review`. |
 
 ## API
 
