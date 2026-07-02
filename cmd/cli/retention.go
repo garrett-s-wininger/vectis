@@ -236,6 +236,7 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 				"task_attempts":       report.HeldCounts.TaskAttempts,
 				"run_segments":        report.HeldCounts.RunSegments,
 				"segment_executions":  report.HeldCounts.SegmentExecutions,
+				"audit_log":           report.HeldCounts.AuditLog,
 			},
 			"audit": map[string]bool{"event_inserted": report.AuditEventInserted},
 		}
@@ -571,11 +572,17 @@ func printRetentionReport(w io.Writer, report retention.Report, fileReport reten
 	fmt.Fprintf(w, "held.task_attempts=%d\n", report.HeldCounts.TaskAttempts)
 	fmt.Fprintf(w, "held.run_segments=%d\n", report.HeldCounts.RunSegments)
 	fmt.Fprintf(w, "held.segment_executions=%d\n", report.HeldCounts.SegmentExecutions)
+	fmt.Fprintf(w, "held.audit_log=%d\n", report.HeldCounts.AuditLog)
 	fmt.Fprintf(w, "audit_event_inserted=%t\n", report.AuditEventInserted)
 }
 
 func runRetentionHoldCreate(cmd *cobra.Command, args []string) {
 	expiresAt, err := parseRetentionHoldExpiresAt(retentionHoldExpiresAt)
+	if err != nil {
+		runCLIError(err)
+	}
+
+	scope, targetID, err := retentionHoldCreateScopeAndTarget(retentionHoldRunID, retentionHoldAuditSince, retentionHoldAuditUntil)
 	if err != nil {
 		runCLIError(err)
 	}
@@ -592,14 +599,15 @@ func runRetentionHoldCreate(cmd *cobra.Command, args []string) {
 	}
 
 	hold, err := retention.NewSQLHoldStore(db).Create(cmd.Context(), retention.CreateHoldOptions{
-		Scope:       retention.HoldScopeRun,
-		TargetID:    retentionHoldRunID,
+		Scope:       scope,
+		TargetID:    targetID,
 		Reason:      retentionHoldReason,
 		Owner:       retentionHoldOwner,
 		ExternalRef: retentionHoldExternalRef,
 		CreatedBy:   createdBy,
 		ExpiresAt:   expiresAt,
 	}, time.Now().UTC())
+
 	if err != nil {
 		runCLIError(err)
 	}
@@ -608,6 +616,11 @@ func runRetentionHoldCreate(cmd *cobra.Command, args []string) {
 }
 
 func runRetentionHoldList(cmd *cobra.Command, args []string) {
+	scope, targetID, err := retentionHoldListScopeAndTarget(retentionHoldListScope, retentionHoldListRunID)
+	if err != nil {
+		runCLIError(err)
+	}
+
 	db, err := openRetentionDatabase()
 	if err != nil {
 		runCLIError(err)
@@ -615,8 +628,8 @@ func runRetentionHoldList(cmd *cobra.Command, args []string) {
 	defer db.Close()
 
 	holds, err := retention.NewSQLHoldStore(db).List(cmd.Context(), retention.ListHoldOptions{
-		Scope:         retention.HoldScopeRun,
-		TargetID:      retentionHoldListRunID,
+		Scope:         scope,
+		TargetID:      targetID,
 		IncludeClosed: retentionHoldListAll,
 	}, time.Now().UTC())
 	if err != nil {
@@ -648,6 +661,65 @@ func runRetentionHoldRelease(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(writeRetentionHold(os.Stdout, hold))
+}
+
+func retentionHoldCreateScopeAndTarget(runID, auditSince, auditUntil string) (scope, targetID string, err error) {
+	runID = strings.TrimSpace(runID)
+	auditSince = strings.TrimSpace(auditSince)
+	auditUntil = strings.TrimSpace(auditUntil)
+
+	if runID != "" {
+		if auditSince != "" || auditUntil != "" {
+			return "", "", fmt.Errorf("retention hold target must be either --run or --audit-since/--audit-until, not both")
+		}
+
+		return retention.HoldScopeRun, runID, nil
+	}
+
+	if auditSince == "" && auditUntil == "" {
+		return "", "", fmt.Errorf("retention holds create requires --run or --audit-since/--audit-until")
+	}
+
+	if auditSince == "" || auditUntil == "" {
+		return "", "", fmt.Errorf("audit range holds require both --audit-since and --audit-until")
+	}
+
+	since, err := parseRetentionHoldAuditTime("--audit-since", auditSince)
+	if err != nil {
+		return "", "", err
+	}
+
+	until, err := parseRetentionHoldAuditTime("--audit-until", auditUntil)
+	if err != nil {
+		return "", "", err
+	}
+
+	targetID, err = retention.AuditRangeHoldTarget(since, until)
+	if err != nil {
+		return "", "", err
+	}
+
+	return retention.HoldScopeAuditRange, targetID, nil
+}
+
+func retentionHoldListScopeAndTarget(scope, runID string) (string, string, error) {
+	scope = strings.TrimSpace(scope)
+	runID = strings.TrimSpace(runID)
+
+	if runID != "" {
+		if scope != "" && scope != retention.HoldScopeRun {
+			return "", "", fmt.Errorf("--run can only be used with --scope %s", retention.HoldScopeRun)
+		}
+
+		return retention.HoldScopeRun, runID, nil
+	}
+
+	switch scope {
+	case "", retention.HoldScopeRun, retention.HoldScopeAuditRange:
+		return scope, "", nil
+	default:
+		return "", "", fmt.Errorf("--scope must be %s or %s", retention.HoldScopeRun, retention.HoldScopeAuditRange)
+	}
 }
 
 func writeRetentionHold(w io.Writer, hold retention.Hold) error {
@@ -743,6 +815,23 @@ func parseRetentionHoldExpiresAt(value string) (*time.Time, error) {
 	return &t, nil
 }
 
+func parseRetentionHoldAuditTime(flagName, value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("%s is required", flagName)
+	}
+
+	if t, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return t.UTC(), nil
+	}
+
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return t.UTC(), nil
+	}
+
+	return time.Time{}, fmt.Errorf("%s must be RFC3339 or YYYY-MM-DD", flagName)
+}
+
 func defaultRetentionHoldActor() string {
 	for _, key := range []string{"VECTIS_OPERATOR", "USER", "USERNAME"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
@@ -787,19 +876,18 @@ storage verifier evidence for the manifest's file-backed state.`,
 var retentionHoldsCmd = &cobra.Command{
 	Use:   "holds",
 	Short: "Manage retention compliance holds",
-	Long: `Manage run-scoped compliance holds that prevent retention cleanup from
-deleting protected run state, task graph rows, dispatch events, artifact
-manifests, and matching local run log files while the hold is active.`,
+	Long: `Manage compliance holds that prevent retention cleanup from deleting
+protected run evidence or audit_log ranges while the hold is active.`,
 	Args: cobra.NoArgs,
 	Run:  showCommandHelp,
 }
 
 var retentionHoldCreateCmd = &cobra.Command{
 	Use:   "create",
-	Short: "Create a run retention hold",
-	Long: `Create a run-scoped retention hold. Active holds protect retention-eligible
-terminal runs and their related durable state from cleanup until released or
-expired.`,
+	Short: "Create a retention hold",
+	Long: `Create a retention hold. Use --run to protect a terminal run and related
+durable state, or --audit-since and --audit-until to protect an audit_log time
+range until the hold is released or expired.`,
 	Args: cobra.NoArgs,
 	Run:  runRetentionHoldCreate,
 }

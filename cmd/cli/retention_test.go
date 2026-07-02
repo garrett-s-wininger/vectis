@@ -41,6 +41,59 @@ func TestRetentionCleanupRequiresAuditExportForAuditExportMaxAge(t *testing.T) {
 	}
 }
 
+func TestRetentionHoldCreateScopeAndTarget(t *testing.T) {
+	scope, targetID, err := retentionHoldCreateScopeAndTarget("run-123", "", "")
+	if err != nil {
+		t.Fatalf("run target: %v", err)
+	}
+	if scope != retention.HoldScopeRun || targetID != "run-123" {
+		t.Fatalf("run target = %q %q", scope, targetID)
+	}
+
+	scope, targetID, err = retentionHoldCreateScopeAndTarget("", "2026-07-01T00:00:00Z", "2026-07-02")
+	if err != nil {
+		t.Fatalf("audit range target: %v", err)
+	}
+	if scope != retention.HoldScopeAuditRange {
+		t.Fatalf("audit range scope = %q", scope)
+	}
+	since, until, err := retention.ParseAuditRangeHoldTarget(targetID)
+	if err != nil {
+		t.Fatalf("parse audit range target: %v", err)
+	}
+	if !since.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) ||
+		!until.Equal(time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("audit range bounds = %s %s", since, until)
+	}
+}
+
+func TestRetentionHoldCreateScopeAndTargetRejectsAmbiguousTargets(t *testing.T) {
+	tests := []struct {
+		name       string
+		runID      string
+		auditSince string
+		auditUntil string
+		want       string
+	}{
+		{name: "missing", want: "--run"},
+		{name: "mixed", runID: "run-123", auditSince: "2026-07-01", auditUntil: "2026-07-02", want: "not both"},
+		{name: "partial", auditSince: "2026-07-01", want: "both"},
+		{name: "reversed", auditSince: "2026-07-02", auditUntil: "2026-07-01", want: "after since"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := retentionHoldCreateScopeAndTarget(tt.runID, tt.auditSince, tt.auditUntil)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckRetentionAuditExportAcceptsFreshFullRange(t *testing.T) {
 	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
 	cutoff := now.Add(-365 * 24 * time.Hour)

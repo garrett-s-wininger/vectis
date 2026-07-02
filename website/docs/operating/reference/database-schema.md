@@ -233,14 +233,14 @@ For the current event names, metadata keys, and default durability policy, see [
 ### `retention_holds`
 
 Stores compliance, incident, legal, or audit holds that exempt selected durable
-evidence from retention cleanup. The first supported scope is `run`.
+evidence from retention cleanup. Supported scopes are `run` and `audit_range`.
 
 | Field | Meaning |
 | --- | --- |
 | `id` | Local hold row key. |
 | `hold_id` | Stable CLI-facing hold identifier. |
-| `scope` | Hold scope. Currently `run`. |
-| `target_id` | Target identifier for the scope, currently a `job_runs.run_id`. |
+| `scope` | Hold scope: `run` or `audit_range`. |
+| `target_id` | Target identifier for the scope. For `run`, this is a `job_runs.run_id`. For `audit_range`, this is a UTC `since..until` timestamp range encoded by the CLI. |
 | `reason` | Operator-supplied preservation reason. |
 | `owner` | Accountable person, team, or control owner. |
 | `external_ref` | Optional ticket, case, legal matter, or audit reference. |
@@ -251,7 +251,7 @@ evidence from retention cleanup. The first supported scope is `run`.
 | `release_reason` | Operator-supplied release reason. |
 | `released_at` | Release timestamp. Null while unreleased. |
 
-Constraints and indexes: `hold_id` unique; indexes on `(scope, target_id)`, `(scope, target_id, released_at, expires_at)`, and `expires_at`. Run-scoped holds are logical references to `job_runs.run_id`; they intentionally do not cascade so released/expired hold records remain available for review.
+Constraints and indexes: `hold_id` unique; indexes on `(scope, target_id)`, `(scope, target_id, released_at, expires_at)`, and `expires_at`. Run-scoped holds are logical references to `job_runs.run_id`; they intentionally do not cascade so released/expired hold records remain available for review. Audit-range holds are logical references to an `audit_log.created_at` interval and protect rows whose timestamp falls inside that range while the hold is active.
 
 ### `api_rate_limit_buckets`
 

@@ -201,6 +201,67 @@ func TestSQLCleanerActiveHoldProtectsTerminalRunState(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.hold.created'`, 1)
 }
 
+func TestSQLCleanerActiveAuditRangeHoldProtectsAuditRows(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	ctx := context.Background()
+	now := fixedNow()
+	seedRetentionRows(t, db, now)
+
+	if _, err := db.Exec(`
+		INSERT INTO audit_log (event_type, metadata, created_at)
+		VALUES ('old.unheld', '{}', ?)
+	`, sqlStamp(now.Add(-50*24*time.Hour))); err != nil {
+		t.Fatalf("insert unheld audit row: %v", err)
+	}
+
+	targetID, err := AuditRangeHoldTarget(now.Add(-45*24*time.Hour), now.Add(-35*24*time.Hour))
+	if err != nil {
+		t.Fatalf("audit range target: %v", err)
+	}
+
+	hold, err := NewSQLHoldStore(db).Create(ctx, CreateHoldOptions{
+		Scope:       HoldScopeAuditRange,
+		TargetID:    targetID,
+		Reason:      "audit review",
+		Owner:       "compliance",
+		ExternalRef: "AUD-77",
+		CreatedBy:   "operator",
+	}, now.Add(-time.Hour))
+
+	if err != nil {
+		t.Fatalf("create audit range hold: %v", err)
+	}
+
+	if hold.Scope != HoldScopeAuditRange || hold.Status != HoldStatusActive {
+		t.Fatalf("hold = %+v", hold)
+	}
+
+	cleaner := NewSQLCleaner(db)
+	preview, err := cleaner.Preview(ctx, testPolicy(), now)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	if preview.Counts.AuditLog != 1 || preview.HeldCounts.AuditLog != 1 {
+		t.Fatalf("preview audit counts = delete %+v held %+v", preview.Counts, preview.HeldCounts)
+	}
+
+	report, err := cleaner.Apply(ctx, testPolicy(), now)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if report.Counts.AuditLog != 1 || report.HeldCounts.AuditLog != 1 {
+		t.Fatalf("apply audit counts = delete %+v held %+v", report.Counts, report.HeldCounts)
+	}
+
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'old.event'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'old.unheld'`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'new.event'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.cleanup'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM audit_log WHERE event_type = 'retention.hold.created'`, 1)
+}
+
 func TestSQLHoldStoreListAndRelease(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	ctx := context.Background()

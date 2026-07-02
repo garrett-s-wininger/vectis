@@ -6,7 +6,7 @@ Vectis keeps durable SQL state for runs, artifact manifests, dispatch visibility
 
 ## What Cleanup Does
 
-`vectis-cli retention cleanup` deletes retention-eligible records from the configured Vectis database. It can also delete matching local durable run log files when you pass `--log-storage-dir`, and unreferenced local artifact CAS blobs when you pass `--artifact-storage-dir`. Active run-scoped retention holds protect matching terminal runs and their related run state from cleanup.
+`vectis-cli retention cleanup` deletes retention-eligible records from the configured Vectis database. It can also delete matching local durable run log files when you pass `--log-storage-dir`, and unreferenced local artifact CAS blobs when you pass `--artifact-storage-dir`. Active retention holds protect matching terminal runs, related run state, and held audit-log time ranges from cleanup.
 
 Cleanup is intentionally explicit today:
 
@@ -19,10 +19,12 @@ Cleanup is intentionally explicit today:
 - `--audit-export-max-age` rejects stale audit export evidence, based on `generated_at`.
 - Running without `--dry-run` or `--yes` fails.
 
-`vectis-cli retention holds` creates, lists, and releases run-scoped compliance
-holds. Use holds for incident response, legal discovery, customer evidence
+`vectis-cli retention holds` creates, lists, and releases compliance holds.
+Use run holds for incident response, legal discovery, customer evidence
 preservation, or other cases where a specific run must survive automated
-cleanup while the normal policy continues elsewhere.
+cleanup. Use audit-range holds when a security review, audit request, legal
+matter, or policy exception requires `audit_log` rows for a time range to stay
+queryable while the normal policy continues elsewhere.
 
 The command prints `key=value` output so it can be captured in runbooks, incident notes, or automation logs.
 
@@ -42,7 +44,7 @@ By default, cleanup uses these windows:
 | Task graph rows | follows terminal runs | Deletes task nodes, task attempts, run segments, and segment executions for runs being deleted. |
 | Unreferenced job definition snapshots | 30 days | Deletes `job_definitions` rows older than the cutoff when no run or source provenance still references them. |
 | Idempotency keys | 24 hours | Deletes old idempotency records; retry deduplication is no longer guaranteed after the window. |
-| Audit log | 365 days | Deletes old audit rows and inserts a fresh `retention.cleanup` audit event when cleanup is applied. |
+| Audit log | 365 days | Deletes old audit rows outside active audit-range holds and inserts a fresh `retention.cleanup` audit event when cleanup is applied. |
 | Durable run log files | disabled by default | Pass `--log-storage-dir` to prune local run log files for the terminal runs being deleted. |
 | Durable artifact blobs | 30 days when enabled | Pass `--artifact-storage-dir` to prune local CAS blobs with no remaining SQL references and a file mtime older than the cutoff. |
 
@@ -60,7 +62,7 @@ Before applying cleanup in production, decide:
 | Whether local run log files should be pruned | SQL cleanup and log file cleanup are separate; logs may contain sensitive output. |
 | Whether local artifact blobs should be pruned | Artifact metadata cleanup and CAS garbage collection are separate; shared blobs must stay while any manifest references them. |
 | Whether backups have already captured the data | Cleanup should normally happen after a successful backup or accepted retention window. |
-| Whether any runs are under compliance hold | Active holds preserve selected run rows, task graph rows, dispatch events, artifact manifests, and local run logs. |
+| Whether any evidence is under compliance hold | Active run holds preserve selected run rows, task graph rows, dispatch events, artifact manifests, and local run logs. Active audit-range holds preserve matching `audit_log` rows. |
 
 Keep the production idempotency window longer than the longest realistic client retry window. Keep audit retention aligned with your security policy, not just disk capacity.
 
@@ -75,6 +77,18 @@ vectis-cli retention holds create \
   --owner security \
   --reason "INC-1234 evidence preservation" \
   --external-ref INC-1234
+```
+
+Create an audit-range hold when audit rows for a specific review window must
+stay queryable even after the normal audit retention cutoff:
+
+```sh
+vectis-cli retention holds create \
+  --audit-since 2026-06-01T00:00:00Z \
+  --audit-until 2026-07-01T00:00:00Z \
+  --owner compliance \
+  --reason "Q2 access review evidence" \
+  --external-ref AUD-2026-Q2
 ```
 
 List active holds before applying cleanup:
@@ -331,7 +345,7 @@ Cleanup also protects:
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
 | Optional backup gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. |
 | Optional audit export gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, fully exhausted across cursor pages, and broad enough to cover the audit cleanup cutoff and eligible row count. |
-| Active retention holds | Active run-scoped holds skip matching terminal runs, related SQL child rows, local run log deletion, and artifact reference removal. |
+| Active retention holds | Active run-scoped holds skip matching terminal runs, related SQL child rows, local run log deletion, and artifact reference removal. Active audit-range holds skip matching `audit_log` rows. |
 | Audit trail of cleanup | Applied SQL cleanup inserts a `retention.cleanup` audit event. |
 | Audit trail of holds | Creating or releasing a hold inserts `retention.hold.created` or `retention.hold.released` in `audit_log`. |
 

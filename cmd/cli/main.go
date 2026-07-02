@@ -77,11 +77,14 @@ var (
 	retentionBackupExpect       string
 	retentionBackupMaxAge       time.Duration
 	retentionHoldRunID          string
+	retentionHoldAuditSince     string
+	retentionHoldAuditUntil     string
 	retentionHoldReason         string
 	retentionHoldOwner          string
 	retentionHoldExternalRef    string
 	retentionHoldCreatedBy      string
 	retentionHoldExpiresAt      string
+	retentionHoldListScope      string
 	retentionHoldListRunID      string
 	retentionHoldListAll        bool
 	retentionHoldReleasedBy     string
@@ -412,11 +415,14 @@ func init() {
 	retentionCleanupCmd.Flags().StringVar(&retentionAuditExport, "audit-export", "", "Optional audit export evidence JSON to verify before deleting audit rows")
 	retentionCleanupCmd.Flags().DurationVar(&retentionAuditExportMaxAge, "audit-export-max-age", 0, "Maximum accepted audit export evidence age before cleanup (0 disables)")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldRunID, "run", "", "Run ID to protect")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditSince, "audit-since", "", "Start of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
+	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldAuditUntil, "audit-until", "", "End of audit_log range to protect (RFC3339 or YYYY-MM-DD)")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldReason, "reason", "", "Compliance or incident reason for the hold")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldOwner, "owner", "", "Accountable owner for the hold")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldExternalRef, "external-ref", "", "Optional ticket, case, or legal matter reference")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldCreatedBy, "created-by", "", "Operator creating the hold (default: VECTIS_OPERATOR, USER, or USERNAME)")
 	retentionHoldCreateCmd.Flags().StringVar(&retentionHoldExpiresAt, "expires-at", "", "Optional RFC3339 expiry time for the hold")
+	retentionHoldListCmd.Flags().StringVar(&retentionHoldListScope, "scope", "", "Only list holds for this scope: run or audit_range")
 	retentionHoldListCmd.Flags().StringVar(&retentionHoldListRunID, "run", "", "Only list holds for this run ID")
 	retentionHoldListCmd.Flags().BoolVar(&retentionHoldListAll, "all", false, "Include released and expired holds")
 	retentionHoldReleaseCmd.Flags().StringVar(&retentionHoldReleaseReason, "reason", "", "Reason for releasing the hold")

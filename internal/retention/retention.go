@@ -37,7 +37,8 @@ const (
 	artifactStorageLockFile    = "artifact.lock"
 	sqlTimeLayout              = "2006-01-02 15:04:05"
 
-	HoldScopeRun = "run"
+	HoldScopeRun        = "run"
+	HoldScopeAuditRange = "audit_range"
 
 	HoldStatusActive   = "active"
 	HoldStatusExpired  = "expired"
@@ -165,12 +166,12 @@ func (s *SQLHoldStore) Create(ctx context.Context, options CreateHoldOptions, no
 		options.Scope = HoldScopeRun
 	}
 
-	if options.Scope != HoldScopeRun {
-		return Hold{}, fmt.Errorf("unsupported retention hold scope %q", options.Scope)
+	if err := validateHoldScope(options.Scope); err != nil {
+		return Hold{}, err
 	}
 
-	if options.TargetID == "" {
-		return Hold{}, fmt.Errorf("retention hold run id is required")
+	if err := validateHoldTarget(options.Scope, options.TargetID); err != nil {
+		return Hold{}, err
 	}
 
 	if options.Reason == "" {
@@ -211,7 +212,7 @@ func (s *SQLHoldStore) Create(ctx context.Context, options CreateHoldOptions, no
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := requireRunExists(ctx, tx, options.TargetID); err != nil {
+	if err := requireHoldTarget(ctx, tx, options.Scope, options.TargetID); err != nil {
 		return Hold{}, err
 	}
 
@@ -252,11 +253,13 @@ func (s *SQLHoldStore) List(ctx context.Context, options ListHoldOptions, now ti
 	options.Scope = strings.TrimSpace(options.Scope)
 	options.TargetID = strings.TrimSpace(options.TargetID)
 	if options.Scope == "" {
-		options.Scope = HoldScopeRun
+		options.Scope = ""
 	}
 
-	if options.Scope != HoldScopeRun {
-		return nil, fmt.Errorf("unsupported retention hold scope %q", options.Scope)
+	if options.Scope != "" {
+		if err := validateHoldScope(options.Scope); err != nil {
+			return nil, err
+		}
 	}
 
 	query := `
@@ -274,9 +277,13 @@ func (s *SQLHoldStore) List(ctx context.Context, options ListHoldOptions, now ti
 			release_reason,
 			released_at
 		FROM retention_holds
-		WHERE scope = ?
+		WHERE 1 = 1
 	`
-	args := []any{options.Scope}
+	args := []any{}
+	if options.Scope != "" {
+		query += ` AND scope = ?`
+		args = append(args, options.Scope)
+	}
 	if options.TargetID != "" {
 		query += ` AND target_id = ?`
 		args = append(args, options.TargetID)
@@ -500,7 +507,7 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 	}
 
 	if report.Cutoffs.AuditLog != nil {
-		deleted, err := execRows(ctx, tx, `DELETE FROM audit_log WHERE created_at < ?`, sqlTimeParam(*report.Cutoffs.AuditLog))
+		deleted, err := execRows(ctx, tx, `DELETE FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded), auditLogPredicateArgs(*report.Cutoffs.AuditLog, now)...)
 		if err != nil {
 			return Report{}, fmt.Errorf("delete audit log: %w", err)
 		}
@@ -759,9 +766,14 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs, no
 	}
 
 	if cutoffs.AuditLog != nil {
-		out.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE created_at < ?`, sqlTimeParam(*cutoffs.AuditLog))
+		out.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded), auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
 		if err != nil {
 			return Counts{}, Counts{}, fmt.Errorf("count audit log: %w", err)
+		}
+
+		held.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldRequired), auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held audit log: %w", err)
 		}
 	}
 
@@ -800,6 +812,13 @@ const (
 	terminalRunHoldRequired
 )
 
+type auditLogHoldMatch int
+
+const (
+	auditLogHoldExcluded auditLogHoldMatch = iota
+	auditLogHoldRequired
+)
+
 func terminalRunPredicate(alias string, holdMatch terminalRunHoldMatch) string {
 	runID := alias + ".run_id"
 	predicate := alias + `.status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
@@ -834,6 +853,140 @@ func activeRunHoldExistsSQL(runIDExpr string) string {
 
 func terminalRunPredicateArgs(cutoff, now time.Time) []any {
 	return []any{sqlTimeParam(cutoff), sqlTimeParam(now.UTC())}
+}
+
+func auditLogPredicate(alias string, holdMatch auditLogHoldMatch) string {
+	createdAt := alias + ".created_at"
+	predicate := createdAt + ` < ?`
+
+	switch holdMatch {
+	case auditLogHoldRequired:
+		predicate += `
+				AND ` + activeAuditRangeHoldExistsSQL(createdAt)
+	default:
+		predicate += `
+				AND NOT ` + activeAuditRangeHoldExistsSQL(createdAt)
+	}
+
+	return predicate
+}
+
+func activeAuditRangeHoldExistsSQL(createdAtExpr string) string {
+	sinceExpr, untilExpr := auditRangeHoldBoundSQL("retention_holds_active.target_id")
+	return `EXISTS (
+					SELECT 1
+					FROM retention_holds AS retention_holds_active
+					WHERE retention_holds_active.scope = '` + HoldScopeAuditRange + `'
+						AND retention_holds_active.released_at IS NULL
+						AND (
+							retention_holds_active.expires_at IS NULL
+							OR retention_holds_active.expires_at > ?
+						)
+						AND ` + createdAtExpr + ` >= ` + sinceExpr + `
+						AND ` + createdAtExpr + ` < ` + untilExpr + `
+				)`
+}
+
+func auditRangeHoldBoundSQL(targetExpr string) (sinceExpr, untilExpr string) {
+	const sinceStart = 1
+	const boundLength = len("2006-01-02 15:04:05")
+	const untilStart = boundLength + len("..") + 1
+	if os.Getenv(database.EnvDatabaseDriver) == "pgx" {
+		since := `((substring(` + targetExpr + ` from ` + strconv.Itoa(sinceStart) + ` for ` + strconv.Itoa(boundLength) + `))::timestamp AT TIME ZONE 'UTC')`
+		until := `((substring(` + targetExpr + ` from ` + strconv.Itoa(untilStart) + ` for ` + strconv.Itoa(boundLength) + `))::timestamp AT TIME ZONE 'UTC')`
+		return since, until
+	}
+
+	since := `substr(` + targetExpr + `, ` + strconv.Itoa(sinceStart) + `, ` + strconv.Itoa(boundLength) + `)`
+	until := `substr(` + targetExpr + `, ` + strconv.Itoa(untilStart) + `, ` + strconv.Itoa(boundLength) + `)`
+	return since, until
+}
+
+func auditLogPredicateArgs(cutoff, now time.Time) []any {
+	return []any{sqlTimeParam(cutoff), sqlTimeParam(now.UTC())}
+}
+
+func AuditRangeHoldTarget(since, until time.Time) (string, error) {
+	since = since.UTC().Truncate(time.Second)
+	until = until.UTC().Truncate(time.Second)
+	if since.IsZero() {
+		return "", fmt.Errorf("audit range hold since time is required")
+	}
+
+	if until.IsZero() {
+		return "", fmt.Errorf("audit range hold until time is required")
+	}
+
+	if !until.After(since) {
+		return "", fmt.Errorf("audit range hold until must be after since")
+	}
+
+	return since.Format(sqlTimeLayout) + ".." + until.Format(sqlTimeLayout), nil
+}
+
+func ParseAuditRangeHoldTarget(targetID string) (since, until time.Time, err error) {
+	sinceRaw, untilRaw, ok := strings.Cut(strings.TrimSpace(targetID), "..")
+	if !ok || strings.TrimSpace(sinceRaw) == "" || strings.TrimSpace(untilRaw) == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("audit range hold target must be since..until")
+	}
+
+	since, err = time.ParseInLocation(sqlTimeLayout, strings.TrimSpace(sinceRaw), time.UTC)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse audit range hold since: %w", err)
+	}
+
+	until, err = time.ParseInLocation(sqlTimeLayout, strings.TrimSpace(untilRaw), time.UTC)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse audit range hold until: %w", err)
+	}
+
+	if !until.After(since) {
+		return time.Time{}, time.Time{}, fmt.Errorf("audit range hold until must be after since")
+	}
+
+	return since.UTC(), until.UTC(), nil
+}
+
+func validateHoldScope(scope string) error {
+	switch scope {
+	case HoldScopeRun, HoldScopeAuditRange:
+		return nil
+	default:
+		return fmt.Errorf("unsupported retention hold scope %q", scope)
+	}
+}
+
+func validateHoldTarget(scope, targetID string) error {
+	if targetID == "" {
+		switch scope {
+		case HoldScopeRun:
+			return fmt.Errorf("retention hold run id is required")
+		case HoldScopeAuditRange:
+			return fmt.Errorf("retention hold audit range is required")
+		default:
+			return fmt.Errorf("retention hold target id is required")
+		}
+	}
+
+	if scope == HoldScopeAuditRange {
+		if _, _, err := ParseAuditRangeHoldTarget(targetID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func requireHoldTarget(ctx context.Context, tx *sql.Tx, scope, targetID string) error {
+	switch scope {
+	case HoldScopeRun:
+		return requireRunExists(ctx, tx, targetID)
+	case HoldScopeAuditRange:
+		_, _, err := ParseAuditRangeHoldTarget(targetID)
+		return err
+	default:
+		return validateHoldScope(scope)
+	}
 }
 
 func requireRunExists(ctx context.Context, tx *sql.Tx, runID string) error {
@@ -1204,6 +1357,7 @@ func insertCleanupAuditEvent(ctx context.Context, tx *sql.Tx, report Report) err
 			"task_attempts":       report.HeldCounts.TaskAttempts,
 			"run_segments":        report.HeldCounts.RunSegments,
 			"segment_executions":  report.HeldCounts.SegmentExecutions,
+			"audit_log":           report.HeldCounts.AuditLog,
 		},
 		"cutoffs": map[string]string{
 			"terminal_runs":    formatCutoff(report.Cutoffs.TerminalRuns),
@@ -1228,7 +1382,7 @@ func insertCleanupAuditEvent(ctx context.Context, tx *sql.Tx, report Report) err
 }
 
 func insertHoldAuditEvent(ctx context.Context, tx *sql.Tx, eventType string, hold Hold) error {
-	metadata, err := json.Marshal(map[string]any{
+	metadataFields := map[string]any{
 		"hold_id":        hold.HoldID,
 		"scope":          hold.Scope,
 		"target_id":      hold.TargetID,
@@ -1242,7 +1396,15 @@ func insertHoldAuditEvent(ctx context.Context, tx *sql.Tx, eventType string, hol
 		"release_reason": hold.ReleaseReason,
 		"released_at":    formatTimePtr(hold.ReleasedAt),
 		"status":         hold.Status,
-	})
+	}
+	if hold.Scope == HoldScopeAuditRange {
+		if since, until, err := ParseAuditRangeHoldTarget(hold.TargetID); err == nil {
+			metadataFields["audit_since"] = since.UTC().Format(time.RFC3339)
+			metadataFields["audit_until"] = until.UTC().Format(time.RFC3339)
+		}
+	}
+
+	metadata, err := json.Marshal(metadataFields)
 
 	if err != nil {
 		return fmt.Errorf("marshal retention hold audit metadata: %w", err)
