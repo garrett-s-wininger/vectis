@@ -35,6 +35,13 @@ func TestCheckoutCacheMetrics_appearsOnScrape(t *testing.T) {
 
 	metrics.RecordCheckoutCacheClone(ctx, CheckoutCacheCloneModeHardlink, CheckoutCacheCloneReasonOK)
 	metrics.RecordCheckoutCacheClone(ctx, CheckoutCacheCloneModeCopy, CheckoutCacheCloneReasonProbe)
+	metrics.RecordCheckoutCacheDemandHydration(ctx, CheckoutCacheDemandHydrationOutcomeSuccess)
+	metrics.RecordCheckoutCacheDemandHydration(ctx, CheckoutCacheDemandHydrationOutcomeFailed)
+	metrics.RecordCheckoutCacheGenerationEviction(ctx, CheckoutCacheEvictionReasonRetention)
+	metrics.RecordCheckoutCacheGenerationEviction(ctx, CheckoutCacheEvictionReasonBudget)
+	metrics.RecordCheckoutCacheGenerationEviction(ctx, CheckoutCacheEvictionReasonCorrupt)
+	metrics.RecordCheckoutCacheSelfHeal(ctx, CheckoutCacheSelfHealOperationCheckout, CheckoutCacheSelfHealOutcomeSuccess)
+	metrics.RecordCheckoutCacheSelfHeal(ctx, CheckoutCacheSelfHealOperationFetchRefspec, CheckoutCacheSelfHealOutcomeFailed)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
@@ -56,6 +63,9 @@ func TestCheckoutCacheMetrics_appearsOnScrape(t *testing.T) {
 		"vectis_checkout_cache_pack_bytes",
 		"vectis_checkout_cache_active_leases",
 		"vectis_checkout_cache_clones_total",
+		"vectis_checkout_cache_demand_hydrations_total",
+		"vectis_checkout_cache_generation_evictions_total",
+		"vectis_checkout_cache_self_heals_total",
 	} {
 		if families[family] == nil {
 			t.Fatalf("missing metric family %q", family)
@@ -74,5 +84,49 @@ func TestCheckoutCacheMetrics_appearsOnScrape(t *testing.T) {
 		"reason": CheckoutCacheCloneReasonProbe,
 	}) {
 		t.Fatalf("checkout cache clone metric missing copy/probe labels: %v", families["vectis_checkout_cache_clones_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_demand_hydrations_total"], map[string]string{
+		"outcome": CheckoutCacheDemandHydrationOutcomeSuccess,
+	}) {
+		t.Fatalf("checkout cache demand hydration metric missing success labels: %v", families["vectis_checkout_cache_demand_hydrations_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_demand_hydrations_total"], map[string]string{
+		"outcome": CheckoutCacheDemandHydrationOutcomeFailed,
+	}) {
+		t.Fatalf("checkout cache demand hydration metric missing failed labels: %v", families["vectis_checkout_cache_demand_hydrations_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_generation_evictions_total"], map[string]string{
+		"reason": CheckoutCacheEvictionReasonRetention,
+	}) {
+		t.Fatalf("checkout cache generation eviction metric missing retention labels: %v", families["vectis_checkout_cache_generation_evictions_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_generation_evictions_total"], map[string]string{
+		"reason": CheckoutCacheEvictionReasonBudget,
+	}) {
+		t.Fatalf("checkout cache generation eviction metric missing budget labels: %v", families["vectis_checkout_cache_generation_evictions_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_generation_evictions_total"], map[string]string{
+		"reason": CheckoutCacheEvictionReasonCorrupt,
+	}) {
+		t.Fatalf("checkout cache generation eviction metric missing corrupt labels: %v", families["vectis_checkout_cache_generation_evictions_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_self_heals_total"], map[string]string{
+		"operation": CheckoutCacheSelfHealOperationCheckout,
+		"outcome":   CheckoutCacheSelfHealOutcomeSuccess,
+	}) {
+		t.Fatalf("checkout cache self-heal metric missing checkout labels: %v", families["vectis_checkout_cache_self_heals_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_checkout_cache_self_heals_total"], map[string]string{
+		"operation": CheckoutCacheSelfHealOperationFetchRefspec,
+		"outcome":   CheckoutCacheSelfHealOutcomeFailed,
+	}) {
+		t.Fatalf("checkout cache self-heal metric missing fetch-refspec labels: %v", families["vectis_checkout_cache_self_heals_total"])
 	}
 }

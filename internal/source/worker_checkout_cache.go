@@ -32,6 +32,9 @@ const (
 
 type WorkerCheckoutCacheOption func(*WorkerCheckoutCache)
 type WorkerCheckoutCacheCloneRecorder func(context.Context, string, string)
+type WorkerCheckoutCacheDemandHydrationRecorder func(context.Context, string)
+type WorkerCheckoutCacheGenerationEvictionRecorder func(context.Context, string)
+type WorkerCheckoutCacheSelfHealRecorder func(context.Context, string, string)
 
 type WorkerCheckoutCacheRemote struct {
 	RemoteURL          string
@@ -41,13 +44,16 @@ type WorkerCheckoutCacheRemote struct {
 }
 
 type WorkerCheckoutCache struct {
-	root                string
-	persistentRemoteURL map[string]WorkerCheckoutCacheRemote
-	generationsToKeep   int
-	leaseTTL            time.Duration
-	maxBytes            int64
-	cloneRecorder       WorkerCheckoutCacheCloneRecorder
-	hardlinkProbe       workerCheckoutCacheHardlinkProbe
+	root                       string
+	persistentRemoteURL        map[string]WorkerCheckoutCacheRemote
+	generationsToKeep          int
+	leaseTTL                   time.Duration
+	maxBytes                   int64
+	cloneRecorder              WorkerCheckoutCacheCloneRecorder
+	demandHydrationRecorder    WorkerCheckoutCacheDemandHydrationRecorder
+	generationEvictionRecorder WorkerCheckoutCacheGenerationEvictionRecorder
+	selfHealRecorder           WorkerCheckoutCacheSelfHealRecorder
+	hardlinkProbe              workerCheckoutCacheHardlinkProbe
 }
 
 type WorkerCheckoutCacheStats struct {
@@ -92,6 +98,24 @@ func WithWorkerCheckoutCacheMaxBytes(maxBytes int64) WorkerCheckoutCacheOption {
 func WithWorkerCheckoutCacheCloneRecorder(recorder WorkerCheckoutCacheCloneRecorder) WorkerCheckoutCacheOption {
 	return func(c *WorkerCheckoutCache) {
 		c.cloneRecorder = recorder
+	}
+}
+
+func WithWorkerCheckoutCacheDemandHydrationRecorder(recorder WorkerCheckoutCacheDemandHydrationRecorder) WorkerCheckoutCacheOption {
+	return func(c *WorkerCheckoutCache) {
+		c.demandHydrationRecorder = recorder
+	}
+}
+
+func WithWorkerCheckoutCacheGenerationEvictionRecorder(recorder WorkerCheckoutCacheGenerationEvictionRecorder) WorkerCheckoutCacheOption {
+	return func(c *WorkerCheckoutCache) {
+		c.generationEvictionRecorder = recorder
+	}
+}
+
+func WithWorkerCheckoutCacheSelfHealRecorder(recorder WorkerCheckoutCacheSelfHealRecorder) WorkerCheckoutCacheOption {
+	return func(c *WorkerCheckoutCache) {
+		c.selfHealRecorder = recorder
 	}
 }
 
@@ -320,9 +344,11 @@ func (c *WorkerCheckoutCache) checkout(ctx context.Context, remoteURL, workspace
 				_ = cleanupWorkerCheckoutCachePartialClone(workspace)
 				if healErr := c.retireCurrentMirrorGeneration(ctx, normalizedRemoteURL, mirrorPath); healErr == nil {
 					if _, _, warmErr := c.WarmRemote(ctx, normalizedRemoteURL, logger); warmErr == nil {
+						c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationCheckout, observability.CheckoutCacheSelfHealOutcomeSuccess)
 						continue
 					}
 				}
+				c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationCheckout, observability.CheckoutCacheSelfHealOutcomeFailed)
 			}
 
 			return true, fmt.Errorf("clone from worker checkout cache: %w", err)
@@ -435,6 +461,12 @@ func (c *WorkerCheckoutCache) FetchRefspecs(ctx context.Context, remoteURL, work
 	}
 
 	_, _, _, warmErr := c.warmRemoteStatus(ctx, persistentRemote.RemoteURL, logger, mirrorRefspecs)
+	if warmErr != nil {
+		c.recordDemandHydration(ctx, observability.CheckoutCacheDemandHydrationOutcomeFailed)
+	} else {
+		c.recordDemandHydration(ctx, observability.CheckoutCacheDemandHydrationOutcomeSuccess)
+	}
+
 	if warmErr != nil && logger != nil {
 		logger.Warn("Worker checkout cache mirror refresh failed before auxiliary ref fetch for %s: %v", persistentRemote.RemoteURL, warmErr)
 	}
@@ -445,11 +477,13 @@ func (c *WorkerCheckoutCache) FetchRefspecs(ctx context.Context, remoteURL, work
 				if retireErr := c.retireCurrentMirrorGeneration(ctx, persistentRemote.RemoteURL, mirrorPath); retireErr == nil {
 					if _, _, _, rewarmErr := c.warmRemoteStatus(ctx, persistentRemote.RemoteURL, logger, mirrorRefspecs); rewarmErr == nil {
 						if retryErr := fetchWorkerCheckoutCacheWorkspaceRefspecs(ctx, workspace, workerCheckoutCacheRemoteName, refspecs); retryErr == nil {
+							c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationFetchRefspec, observability.CheckoutCacheSelfHealOutcomeSuccess)
 							return true, nil
 						}
 					}
 				}
 			}
+			c.recordSelfHeal(ctx, observability.CheckoutCacheSelfHealOperationFetchRefspec, observability.CheckoutCacheSelfHealOutcomeFailed)
 		}
 
 		if warmErr != nil {
@@ -470,6 +504,30 @@ func (c *WorkerCheckoutCache) recordClone(ctx context.Context, mode, reason stri
 	}
 
 	c.cloneRecorder(ctx, mode, reason)
+}
+
+func (c *WorkerCheckoutCache) recordDemandHydration(ctx context.Context, outcome string) {
+	if c == nil || c.demandHydrationRecorder == nil {
+		return
+	}
+
+	c.demandHydrationRecorder(ctx, outcome)
+}
+
+func (c *WorkerCheckoutCache) recordGenerationEviction(ctx context.Context, reason string) {
+	if c == nil || c.generationEvictionRecorder == nil {
+		return
+	}
+
+	c.generationEvictionRecorder(ctx, reason)
+}
+
+func (c *WorkerCheckoutCache) recordSelfHeal(ctx context.Context, operation, outcome string) {
+	if c == nil || c.selfHealRecorder == nil {
+		return
+	}
+
+	c.selfHealRecorder(ctx, operation, outcome)
 }
 
 func cloneWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, mirrorPath string) (string, string, error) {
@@ -1485,6 +1543,7 @@ func (c *WorkerCheckoutCache) retireCurrentMirrorGeneration(ctx context.Context,
 		if err := os.RemoveAll(mirrorPath); err != nil {
 			return fmt.Errorf("remove corrupt worker checkout cache generation: %w", err)
 		}
+		c.recordGenerationEviction(ctx, observability.CheckoutCacheEvictionReasonCorrupt)
 	}
 
 	return nil
@@ -1545,6 +1604,7 @@ func (c *WorkerCheckoutCache) cleanupOldGenerations(ctx context.Context, repoPat
 		if err := os.RemoveAll(generationPath); err != nil {
 			return fmt.Errorf("remove worker checkout cache old generation: %w", err)
 		}
+		c.recordGenerationEviction(ctx, observability.CheckoutCacheEvictionReasonRetention)
 	}
 
 	if c.maxBytes > 0 {
@@ -1607,6 +1667,7 @@ func (c *WorkerCheckoutCache) cleanupGenerationsOverBudget(ctx context.Context, 
 		if err := os.RemoveAll(entry.path); err != nil {
 			return fmt.Errorf("remove worker checkout cache generation over budget: %w", err)
 		}
+		c.recordGenerationEviction(ctx, observability.CheckoutCacheEvictionReasonBudget)
 		total -= entry.bytes
 	}
 

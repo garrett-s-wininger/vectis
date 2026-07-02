@@ -38,6 +38,33 @@ func recordCheckoutCacheClone(ctx context.Context, mode, reason string) {
 	metrics.RecordCheckoutCacheClone(ctx, mode, reason)
 }
 
+func recordCheckoutCacheDemandHydration(ctx context.Context, outcome string) {
+	metrics := workerCheckoutCacheMetrics()
+	if metrics == nil {
+		return
+	}
+
+	metrics.RecordCheckoutCacheDemandHydration(ctx, outcome)
+}
+
+func recordCheckoutCacheGenerationEviction(ctx context.Context, reason string) {
+	metrics := workerCheckoutCacheMetrics()
+	if metrics == nil {
+		return
+	}
+
+	metrics.RecordCheckoutCacheGenerationEviction(ctx, reason)
+}
+
+func recordCheckoutCacheSelfHeal(ctx context.Context, operation, outcome string) {
+	metrics := workerCheckoutCacheMetrics()
+	if metrics == nil {
+		return
+	}
+
+	metrics.RecordCheckoutCacheSelfHeal(ctx, operation, outcome)
+}
+
 func workerCheckoutCacheMetrics() *observability.CheckoutCacheMetrics {
 	checkoutCacheMetricsOnce.Do(func() {
 		checkoutCacheMetrics, checkoutCacheMetricsErr = observability.NewCheckoutCacheMetrics()

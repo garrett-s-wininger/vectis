@@ -249,6 +249,12 @@ For a Vectis-managed checkout, omit the checkout path and provide the canonical 
 ./bin/vectis-cli sources register vectis-local --checkout-mode managed --canonical-url https://git.example.com/acme/vectis.git --default-ref main
 ```
 
+For a large repository that workers should keep warm without mirroring every provider ref up front, use persistent cache mode with explicit warm refspecs:
+
+```sh
+./bin/vectis-cli sources update vectis-local --worker-cache-mode persistent --worker-cache-warm-refspec '+refs/heads/*:refs/heads/*'
+```
+
 Inspect or update the repository registration:
 
 ```sh

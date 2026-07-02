@@ -611,12 +611,15 @@ func TestWorkerCheckoutCacheFetchRefspecsHydratesOutsideWarmPolicy(t *testing.T)
 	git(t, remote, "update-ref", "refs/pull/456/head", reviewCommit)
 	git(t, remote, "checkout", defaultBranch)
 
+	var hydrations []string
 	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
 		{
 			RemoteURL:    remote,
 			WarmRefspecs: []string{"+refs/heads/*:refs/heads/*"},
 		},
-	})
+	}, WithWorkerCheckoutCacheDemandHydrationRecorder(func(_ context.Context, outcome string) {
+		hydrations = append(hydrations, outcome)
+	}))
 
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
@@ -660,6 +663,112 @@ func TestWorkerCheckoutCacheFetchRefspecsHydratesOutsideWarmPolicy(t *testing.T)
 	if got := gitOutput(t, currentPath, "rev-parse", "refs/pull/456/head"); got != reviewCommit {
 		t.Fatalf("cache provider ref = %q, want %q", got, reviewCommit)
 	}
+
+	assertStringSliceContains(t, hydrations, observability.CheckoutCacheDemandHydrationOutcomeSuccess)
+}
+
+func TestWorkerCheckoutCacheLargeRepoWorkflowKeepsWarmSetNarrowAndHydratesDynamicRefs(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	for i := 0; i < 4; i++ {
+		writeAndCommit(t, remote, filepath.Join("packages", "service", "file-"+string(rune('a'+i))+".txt"), string(bytes.Repeat([]byte{'a' + byte(i)}, 4096)), "large shard")
+	}
+
+	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+	git(t, remote, "notes", "--ref=commits", "add", "-m", "late analysis payload", mainCommit)
+
+	git(t, remote, "checkout", "-b", "review/large-dynamic")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "update-ref", "refs/pull/900/head", reviewCommit)
+	git(t, remote, "update-ref", "refs/changes/00/900/1", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	var hydrations []string
+	var evictions []string
+	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+		{
+			RemoteURL:    remote,
+			WarmRefspecs: []string{"+refs/heads/*:refs/heads/*"},
+		},
+	},
+		WithWorkerCheckoutCacheGenerationsToKeep(2),
+		WithWorkerCheckoutCacheDemandHydrationRecorder(func(_ context.Context, outcome string) {
+			hydrations = append(hydrations, outcome)
+		}),
+		WithWorkerCheckoutCacheGenerationEvictionRecorder(func(_ context.Context, reason string) {
+			evictions = append(evictions, reason)
+		}),
+	)
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
+	}
+
+	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || !changed {
+		t.Fatalf("WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
+	}
+
+	currentPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	if got := gitOutput(t, currentPath, "rev-parse", "refs/heads/"+defaultBranch); got != mainCommit {
+		t.Fatalf("warm head = %q, want %q", got, mainCommit)
+	}
+
+	for _, ref := range []string{"refs/notes/commits", "refs/pull/900/head", "refs/changes/00/900/1"} {
+		if err := gitErr(currentPath, "show-ref", "--verify", ref); err == nil {
+			t.Fatalf("%s was warmed despite heads-only policy", ref)
+		}
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := cache.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("Checkout: handled=%v err=%v", handled, err)
+	}
+
+	handled, err := cache.FetchRefspecs(context.Background(), remote, workspace, []string{
+		"+refs/notes/*:refs/notes/*",
+		"+refs/pull/900/head:refs/vectis/test/pull-900",
+		"+refs/changes/00/900/1:refs/vectis/test/change-900",
+	}, nil)
+
+	if err != nil || !handled {
+		t.Fatalf("FetchRefspecs: handled=%v err=%v", handled, err)
+	}
+
+	if got := gitOutput(t, workspace, "notes", "--ref=commits", "show", mainCommit); got != "late analysis payload" {
+		t.Fatalf("fetched note = %q, want late analysis payload", got)
+	}
+
+	if got := gitOutput(t, workspace, "rev-parse", "refs/vectis/test/pull-900"); got != reviewCommit {
+		t.Fatalf("fetched pull ref = %q, want %q", got, reviewCommit)
+	}
+
+	if got := gitOutput(t, workspace, "rev-parse", "refs/vectis/test/change-900"); got != reviewCommit {
+		t.Fatalf("fetched change ref = %q, want %q", got, reviewCommit)
+	}
+
+	assertStringSliceContains(t, hydrations, observability.CheckoutCacheDemandHydrationOutcomeSuccess)
+	hydratedGeneration := currentWorkerCheckoutGeneration(t, cache, remote)
+	writeAndCommit(t, remote, "README.md", "main-2\n", "main 2")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("second WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	writeAndCommit(t, remote, "README.md", "main-3\n", "main 3")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("third WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	if _, err := os.Stat(hydratedGeneration); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("hydrated generation still exists after churn retention cleanup: err=%v", err)
+	}
+
+	assertStringSliceContains(t, evictions, observability.CheckoutCacheEvictionReasonRetention)
 }
 
 func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing.T) {
@@ -667,7 +776,17 @@ func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing
 	writeAndCommit(t, remote, "README.md", "healthy\n", "healthy")
 	git(t, remote, "gc", "--aggressive")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	var evictions []string
+	var selfHeals []string
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote},
+		WithWorkerCheckoutCacheGenerationEvictionRecorder(func(_ context.Context, reason string) {
+			evictions = append(evictions, reason)
+		}),
+		WithWorkerCheckoutCacheSelfHealRecorder(func(_ context.Context, operation, outcome string) {
+			selfHeals = append(selfHeals, operation+":"+outcome)
+		}),
+	)
+
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -712,15 +831,23 @@ func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing
 	if _, err := os.Stat(corruptGeneration); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("corrupt generation still exists after self-heal: err=%v", err)
 	}
+
+	assertStringSliceContains(t, evictions, observability.CheckoutCacheEvictionReasonCorrupt)
+	assertStringSliceContains(t, selfHeals, observability.CheckoutCacheSelfHealOperationCheckout+":"+observability.CheckoutCacheSelfHealOutcomeSuccess)
 }
 
 func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 	remote := "https://example.invalid/large.git"
+	var evictions []string
 	cache, err := NewWorkerCheckoutCache(
 		filepath.Join(t.TempDir(), "cache"),
 		[]string{remote},
 		WithWorkerCheckoutCacheGenerationsToKeep(3),
+		WithWorkerCheckoutCacheGenerationEvictionRecorder(func(_ context.Context, reason string) {
+			evictions = append(evictions, reason)
+		}),
 	)
+
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -753,15 +880,20 @@ func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 			t.Fatalf("kept generation %s: info=%v err=%v", name, info, err)
 		}
 	}
+	assertStringSliceContains(t, evictions, observability.CheckoutCacheEvictionReasonRetention)
 }
 
 func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
 	remote := "https://example.invalid/large.git"
+	var evictions []string
 	cache, err := NewWorkerCheckoutCache(
 		filepath.Join(t.TempDir(), "cache"),
 		[]string{remote},
 		WithWorkerCheckoutCacheGenerationsToKeep(10),
 		WithWorkerCheckoutCacheMaxBytes(20),
+		WithWorkerCheckoutCacheGenerationEvictionRecorder(func(_ context.Context, reason string) {
+			evictions = append(evictions, reason)
+		}),
 	)
 
 	if err != nil {
@@ -814,6 +946,7 @@ func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(repoPath, "generations", generationNames[2])); err != nil || !info.IsDir() {
 		t.Fatalf("current generation was removed: info=%v err=%v", info, err)
 	}
+	assertStringSliceContains(t, evictions, observability.CheckoutCacheEvictionReasonBudget)
 }
 
 func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
@@ -1420,4 +1553,16 @@ func assertStringSliceEqual(t *testing.T, got, want []string) {
 			t.Fatalf("slice[%d] = %q, want %q; got=%v want=%v", i, got[i], want[i], got, want)
 		}
 	}
+}
+
+func assertStringSliceContains(t *testing.T, got []string, want string) {
+	t.Helper()
+
+	for _, value := range got {
+		if value == want {
+			return
+		}
+	}
+
+	t.Fatalf("slice %v does not contain %q", got, want)
 }

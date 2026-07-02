@@ -334,6 +334,9 @@ func sourceWorkerCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []source.Wo
 func workerCheckoutCacheOptions(generationsToKeep int, leaseTTL time.Duration, maxBytes int64) []source.WorkerCheckoutCacheOption {
 	options := []source.WorkerCheckoutCacheOption{
 		source.WithWorkerCheckoutCacheCloneRecorder(recordCheckoutCacheClone),
+		source.WithWorkerCheckoutCacheDemandHydrationRecorder(recordCheckoutCacheDemandHydration),
+		source.WithWorkerCheckoutCacheGenerationEvictionRecorder(recordCheckoutCacheGenerationEviction),
+		source.WithWorkerCheckoutCacheSelfHealRecorder(recordCheckoutCacheSelfHeal),
 	}
 
 	if generationsToKeep > 0 {

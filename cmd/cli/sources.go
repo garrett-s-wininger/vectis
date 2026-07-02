@@ -16,21 +16,22 @@ import (
 )
 
 type sourceRepositorySummary struct {
-	RepositoryID       string                   `json:"repository_id"`
-	Namespace          string                   `json:"namespace"`
-	SourceKind         string                   `json:"source_kind"`
-	CheckoutPath       string                   `json:"checkout_path,omitempty"`
-	CheckoutMode       string                   `json:"checkout_mode"`
-	AuthoringMode      string                   `json:"authoring_mode"`
-	WorkerCacheMode    string                   `json:"worker_cache_mode"`
-	Authoring          sourceAuthoringSummary   `json:"authoring"`
-	CanonicalURL       string                   `json:"canonical_url,omitempty"`
-	FallbackRemoteURLs []string                 `json:"fallback_remote_urls,omitempty"`
-	DefaultRef         string                   `json:"default_ref,omitempty"`
-	CredentialRef      string                   `json:"credential_ref,omitempty"`
-	Declared           bool                     `json:"declared"`
-	Enabled            bool                     `json:"enabled"`
-	Sync               sourceRepositorySyncInfo `json:"sync"`
+	RepositoryID            string                   `json:"repository_id"`
+	Namespace               string                   `json:"namespace"`
+	SourceKind              string                   `json:"source_kind"`
+	CheckoutPath            string                   `json:"checkout_path,omitempty"`
+	CheckoutMode            string                   `json:"checkout_mode"`
+	AuthoringMode           string                   `json:"authoring_mode"`
+	WorkerCacheMode         string                   `json:"worker_cache_mode"`
+	Authoring               sourceAuthoringSummary   `json:"authoring"`
+	CanonicalURL            string                   `json:"canonical_url,omitempty"`
+	FallbackRemoteURLs      []string                 `json:"fallback_remote_urls,omitempty"`
+	WorkerCacheWarmRefspecs []string                 `json:"worker_cache_warm_refspecs,omitempty"`
+	DefaultRef              string                   `json:"default_ref,omitempty"`
+	CredentialRef           string                   `json:"credential_ref,omitempty"`
+	Declared                bool                     `json:"declared"`
+	Enabled                 bool                     `json:"enabled"`
+	Sync                    sourceRepositorySyncInfo `json:"sync"`
 }
 
 type sourceAuthoringSummary struct {
@@ -83,28 +84,29 @@ type sourceOverviewScheduleInfo struct {
 }
 
 type sourceRepositoryStatusResult struct {
-	RepositoryID       string                     `json:"repository_id"`
-	Namespace          string                     `json:"namespace"`
-	SourceKind         string                     `json:"source_kind"`
-	Declared           bool                       `json:"declared"`
-	Enabled            bool                       `json:"enabled"`
-	Status             string                     `json:"status"`
-	CheckoutMode       string                     `json:"checkout_mode"`
-	AuthoringMode      string                     `json:"authoring_mode"`
-	WorkerCacheMode    string                     `json:"worker_cache_mode"`
-	Authoring          sourceAuthoringSummary     `json:"authoring"`
-	CredentialRef      string                     `json:"credential_ref,omitempty"`
-	CheckoutPath       string                     `json:"checkout_path,omitempty"`
-	PathExists         bool                       `json:"path_exists"`
-	PathIsDirectory    bool                       `json:"path_is_directory"`
-	GitRepository      bool                       `json:"git_repository"`
-	WorkTreePath       string                     `json:"work_tree_path,omitempty"`
-	HeadRef            string                     `json:"head_ref,omitempty"`
-	DefaultRef         string                     `json:"default_ref,omitempty"`
-	DefaultRefResolved bool                       `json:"default_ref_resolved"`
-	ResolvedCommit     string                     `json:"resolved_commit,omitempty"`
-	Sync               sourceRepositorySyncInfo   `json:"sync"`
-	Error              *sourceRepositoryErrorInfo `json:"error,omitempty"`
+	RepositoryID            string                     `json:"repository_id"`
+	Namespace               string                     `json:"namespace"`
+	SourceKind              string                     `json:"source_kind"`
+	Declared                bool                       `json:"declared"`
+	Enabled                 bool                       `json:"enabled"`
+	Status                  string                     `json:"status"`
+	CheckoutMode            string                     `json:"checkout_mode"`
+	AuthoringMode           string                     `json:"authoring_mode"`
+	WorkerCacheMode         string                     `json:"worker_cache_mode"`
+	WorkerCacheWarmRefspecs []string                   `json:"worker_cache_warm_refspecs,omitempty"`
+	Authoring               sourceAuthoringSummary     `json:"authoring"`
+	CredentialRef           string                     `json:"credential_ref,omitempty"`
+	CheckoutPath            string                     `json:"checkout_path,omitempty"`
+	PathExists              bool                       `json:"path_exists"`
+	PathIsDirectory         bool                       `json:"path_is_directory"`
+	GitRepository           bool                       `json:"git_repository"`
+	WorkTreePath            string                     `json:"work_tree_path,omitempty"`
+	HeadRef                 string                     `json:"head_ref,omitempty"`
+	DefaultRef              string                     `json:"default_ref,omitempty"`
+	DefaultRefResolved      bool                       `json:"default_ref_resolved"`
+	ResolvedCommit          string                     `json:"resolved_commit,omitempty"`
+	Sync                    sourceRepositorySyncInfo   `json:"sync"`
+	Error                   *sourceRepositoryErrorInfo `json:"error,omitempty"`
 }
 
 type sourceRepositoryErrorInfo struct {
@@ -468,6 +470,9 @@ func registerSourceWithOutput(out io.Writer, args []string) error {
 	if flags := trimmedNonEmptyStrings(sourceRegisterFallbackURLs); len(flags) > 0 {
 		payload["fallback_remote_urls"] = flags
 	}
+	if flags := trimmedNonEmptyStrings(sourceRegisterWarmRefspecs); len(flags) > 0 {
+		payload["worker_cache_warm_refspecs"] = flags
+	}
 	if v := strings.TrimSpace(sourceRegisterDefaultRef); v != "" {
 		payload["default_ref"] = v
 	}
@@ -573,6 +578,9 @@ func updateSourceWithOutput(cmd *cobra.Command, out io.Writer, repositoryID stri
 	}
 	if flags.Changed("fallback-remote-url") {
 		payload["fallback_remote_urls"] = trimmedNonEmptyStrings(sourceUpdateFallbackURLs)
+	}
+	if flags.Changed("worker-cache-warm-refspec") {
+		payload["worker_cache_warm_refspecs"] = trimmedNonEmptyStrings(sourceUpdateWarmRefspecs)
 	}
 	if flags.Changed("default-ref") {
 		payload["default_ref"] = strings.TrimSpace(sourceUpdateDefaultRef)
@@ -696,6 +704,9 @@ func writeSourceRepositoryDetailResult(out io.Writer, repo sourceRepositorySumma
 	for i, remoteURL := range trimmedNonEmptyStrings(repo.FallbackRemoteURLs) {
 		fmt.Fprintf(out, "fallback_remote_url_%d=%s\n", i+1, remoteURL)
 	}
+	for i, refspec := range trimmedNonEmptyStrings(repo.WorkerCacheWarmRefspecs) {
+		fmt.Fprintf(out, "worker_cache_warm_refspec_%d=%s\n", i+1, refspec)
+	}
 	if strings.TrimSpace(repo.DefaultRef) != "" {
 		fmt.Fprintf(out, "default_ref=%s\n", repo.DefaultRef)
 	}
@@ -796,6 +807,9 @@ func writeSourceStatusResult(out io.Writer, result sourceRepositoryStatusResult)
 	fmt.Fprintf(out, "checkout_mode=%s\n", emptyAsDash(result.CheckoutMode))
 	fmt.Fprintf(out, "authoring_mode=%s\n", emptyAsDash(result.AuthoringMode))
 	fmt.Fprintf(out, "worker_cache_mode=%s\n", emptyAsDash(result.WorkerCacheMode))
+	for i, refspec := range trimmedNonEmptyStrings(result.WorkerCacheWarmRefspecs) {
+		fmt.Fprintf(out, "worker_cache_warm_refspec_%d=%s\n", i+1, refspec)
+	}
 	fmt.Fprintf(out, "write_definitions=%t\n", result.Authoring.WriteDefinitions)
 
 	if strings.TrimSpace(result.Authoring.Reason) != "" {
@@ -2263,6 +2277,7 @@ func configureSourcesRegisterFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceRegisterCacheMode, "worker-cache-mode", "", "Worker cache mode: ephemeral or persistent")
 	cmd.Flags().StringVar(&sourceRegisterCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
 	cmd.Flags().StringSliceVar(&sourceRegisterFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
+	cmd.Flags().StringSliceVar(&sourceRegisterWarmRefspecs, "worker-cache-warm-refspec", nil, "Refspec to keep warm in worker persistent checkout caches; repeat for narrow large-repo warming")
 	cmd.Flags().StringVar(&sourceRegisterDefaultRef, "default-ref", "", "Default git ref for source operations")
 	cmd.Flags().StringVar(&sourceRegisterCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
 	cmd.Flags().BoolVar(&sourceRegisterDisabled, "disabled", false, "Register the repository disabled")
@@ -2276,6 +2291,7 @@ func configureSourcesUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceUpdateCacheMode, "worker-cache-mode", "", "Worker cache mode: ephemeral or persistent")
 	cmd.Flags().StringVar(&sourceUpdateCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
 	cmd.Flags().StringSliceVar(&sourceUpdateFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
+	cmd.Flags().StringSliceVar(&sourceUpdateWarmRefspecs, "worker-cache-warm-refspec", nil, "Refspec to keep warm in worker persistent checkout caches; repeat for narrow large-repo warming")
 	cmd.Flags().StringVar(&sourceUpdateDefaultRef, "default-ref", "", "Default git ref for source operations")
 	cmd.Flags().StringVar(&sourceUpdateCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
 	cmd.Flags().BoolVar(&sourceUpdateEnable, "enable", false, "Enable the source repository")

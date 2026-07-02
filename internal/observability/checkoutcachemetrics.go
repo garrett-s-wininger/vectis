@@ -18,6 +18,18 @@ const (
 	CheckoutCacheCloneReasonOK    = "ok"
 	CheckoutCacheCloneReasonProbe = "probe"
 	CheckoutCacheCloneReasonRetry = "retry"
+
+	CheckoutCacheDemandHydrationOutcomeSuccess = "success"
+	CheckoutCacheDemandHydrationOutcomeFailed  = "failed"
+
+	CheckoutCacheEvictionReasonRetention = "retention"
+	CheckoutCacheEvictionReasonBudget    = "budget"
+	CheckoutCacheEvictionReasonCorrupt   = "corrupt"
+
+	CheckoutCacheSelfHealOperationCheckout     = "checkout"
+	CheckoutCacheSelfHealOperationFetchRefspec = "fetch_refspec"
+	CheckoutCacheSelfHealOutcomeSuccess        = "success"
+	CheckoutCacheSelfHealOutcomeFailed         = "failed"
 )
 
 type CheckoutCacheStats struct {
@@ -29,14 +41,17 @@ type CheckoutCacheStats struct {
 }
 
 type CheckoutCacheMetrics struct {
-	repositories metric.Int64ObservableGauge
-	generations  metric.Int64ObservableGauge
-	packFiles    metric.Int64ObservableGauge
-	packBytes    metric.Int64ObservableGauge
-	activeLeases metric.Int64ObservableGauge
-	clones       metric.Int64Counter
-	mu           sync.RWMutex
-	stats        CheckoutCacheStats
+	repositories        metric.Int64ObservableGauge
+	generations         metric.Int64ObservableGauge
+	packFiles           metric.Int64ObservableGauge
+	packBytes           metric.Int64ObservableGauge
+	activeLeases        metric.Int64ObservableGauge
+	clones              metric.Int64Counter
+	demandHydrations    metric.Int64Counter
+	generationEvictions metric.Int64Counter
+	selfHeals           metric.Int64Counter
+	mu                  sync.RWMutex
+	stats               CheckoutCacheStats
 }
 
 func NewCheckoutCacheMetrics() (*CheckoutCacheMetrics, error) {
@@ -84,13 +99,37 @@ func NewCheckoutCacheMetrics() (*CheckoutCacheMetrics, error) {
 		return nil, fmt.Errorf("vectis_checkout_cache_clones_total: %w", err)
 	}
 
+	demandHydrations, err := m.Int64Counter("vectis_checkout_cache_demand_hydrations_total",
+		metric.WithDescription("Worker-core checkout cache demand hydrations for auxiliary refs requested by checkout actions"),
+		metric.WithUnit("{hydration}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_checkout_cache_demand_hydrations_total: %w", err)
+	}
+
+	generationEvictions, err := m.Int64Counter("vectis_checkout_cache_generation_evictions_total",
+		metric.WithDescription("Worker-core checkout cache mirror generation evictions by cleanup reason"),
+		metric.WithUnit("{generation}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_checkout_cache_generation_evictions_total: %w", err)
+	}
+
+	selfHeals, err := m.Int64Counter("vectis_checkout_cache_self_heals_total",
+		metric.WithDescription("Worker-core checkout cache self-heal attempts after corrupt or missing cached objects"),
+		metric.WithUnit("{attempt}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_checkout_cache_self_heals_total: %w", err)
+	}
+
 	metrics := &CheckoutCacheMetrics{
-		repositories: repositories,
-		generations:  generations,
-		packFiles:    packFiles,
-		packBytes:    packBytes,
-		activeLeases: activeLeases,
-		clones:       clones,
+		repositories:        repositories,
+		generations:         generations,
+		packFiles:           packFiles,
+		packBytes:           packBytes,
+		activeLeases:        activeLeases,
+		clones:              clones,
+		demandHydrations:    demandHydrations,
+		generationEvictions: generationEvictions,
+		selfHeals:           selfHeals,
 	}
 
 	_, err = m.RegisterCallback(metrics.observeCheckoutCacheStats,
@@ -100,6 +139,7 @@ func NewCheckoutCacheMetrics() (*CheckoutCacheMetrics, error) {
 		packBytes,
 		activeLeases,
 	)
+
 	if err != nil {
 		return nil, fmt.Errorf("checkout cache metrics callback: %w", err)
 	}
@@ -123,6 +163,49 @@ func (m *CheckoutCacheMetrics) RecordCheckoutCacheClone(ctx context.Context, mod
 	m.clones.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("mode", mode),
 		attribute.String("reason", reason),
+	))
+}
+
+func (m *CheckoutCacheMetrics) RecordCheckoutCacheDemandHydration(ctx context.Context, outcome string) {
+	if m == nil {
+		return
+	}
+
+	if outcome == "" {
+		outcome = CheckoutCacheDemandHydrationOutcomeFailed
+	}
+
+	m.demandHydrations.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
+}
+
+func (m *CheckoutCacheMetrics) RecordCheckoutCacheGenerationEviction(ctx context.Context, reason string) {
+	if m == nil {
+		return
+	}
+
+	if reason == "" {
+		reason = CheckoutCacheEvictionReasonRetention
+	}
+
+	m.generationEvictions.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
+func (m *CheckoutCacheMetrics) RecordCheckoutCacheSelfHeal(ctx context.Context, operation, outcome string) {
+	if m == nil {
+		return
+	}
+
+	if operation == "" {
+		operation = CheckoutCacheSelfHealOperationCheckout
+	}
+
+	if outcome == "" {
+		outcome = CheckoutCacheSelfHealOutcomeFailed
+	}
+
+	m.selfHeals.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("operation", operation),
+		attribute.String("outcome", outcome),
 	))
 }
 

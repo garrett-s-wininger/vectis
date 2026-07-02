@@ -108,6 +108,7 @@ var (
 	sourceRegisterCacheMode     string
 	sourceRegisterCanonicalURL  string
 	sourceRegisterFallbackURLs  []string
+	sourceRegisterWarmRefspecs  []string
 	sourceRegisterDefaultRef    string
 	sourceRegisterCredentialRef string
 	sourceRegisterDisabled      bool
@@ -118,6 +119,7 @@ var (
 	sourceUpdateCacheMode       string
 	sourceUpdateCanonicalURL    string
 	sourceUpdateFallbackURLs    []string
+	sourceUpdateWarmRefspecs    []string
 	sourceUpdateDefaultRef      string
 	sourceUpdateCredentialRef   string
 	sourceUpdateEnable          bool
