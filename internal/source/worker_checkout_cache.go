@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"vectis/internal/action"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 )
@@ -40,6 +42,7 @@ type WorkerCheckoutCache struct {
 	generationsToKeep   int
 	leaseTTL            time.Duration
 	cloneRecorder       WorkerCheckoutCacheCloneRecorder
+	hardlinkProbe       workerCheckoutCacheHardlinkProbe
 }
 
 type WorkerCheckoutCacheStats struct {
@@ -54,6 +57,13 @@ type workerCheckoutGenerationLease struct {
 	path          string
 	stopHeartbeat func()
 	heartbeatDone <-chan struct{}
+}
+
+type WorkerCheckoutCacheScope struct {
+	cache  *WorkerCheckoutCache
+	mu     sync.Mutex
+	leases []*workerCheckoutGenerationLease
+	closed bool
 }
 
 func WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep int) WorkerCheckoutCacheOption {
@@ -94,6 +104,7 @@ func NewWorkerCheckoutCacheWithRemotes(root string, persistentRemotes []WorkerCh
 		persistentRemoteURL: make(map[string]WorkerCheckoutCacheRemote, len(persistentRemotes)),
 		generationsToKeep:   defaultWorkerCheckoutGenerationsToKeep,
 		leaseTTL:            defaultWorkerCheckoutLeaseTTL,
+		hardlinkProbe:       workerCheckoutCacheHardlinksAvailable,
 	}
 
 	for _, option := range options {
@@ -143,6 +154,14 @@ func NewWorkerCheckoutCacheWithRemotes(root string, persistentRemotes []WorkerCh
 	return cache, nil
 }
 
+func (c *WorkerCheckoutCache) NewCheckoutCacheScope() (action.CheckoutCache, error) {
+	if c == nil {
+		return nil, nil
+	}
+
+	return &WorkerCheckoutCacheScope{cache: c}, nil
+}
+
 func workerCheckoutCacheRemotesFromURLs(remoteURLs []string) []WorkerCheckoutCacheRemote {
 	if len(remoteURLs) == 0 {
 		return nil
@@ -190,6 +209,10 @@ func normalizeWorkerCheckoutCacheFallbackRemoteURLs(primaryRemoteURL string, fal
 }
 
 func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger) (bool, error) {
+	return c.checkout(ctx, remoteURL, workspace, logger, false, nil)
+}
+
+func (c *WorkerCheckoutCache) checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger, allowBorrowedObjects bool, retainLease func(*workerCheckoutGenerationLease) error) (bool, error) {
 	if c == nil {
 		return false, nil
 	}
@@ -221,13 +244,18 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 			return true, err
 		}
 	}
-	defer lease.Close()
+	releaseLease := true
+	defer func() {
+		if releaseLease && lease != nil {
+			_ = lease.Close()
+		}
+	}()
 
 	if logger != nil {
 		logger.Info("Cloning repository from worker checkout cache: %s", normalizedRemoteURL)
 	}
 
-	mode, reason, err := cloneWorkerCheckoutCacheWorkspace(ctx, workspace, mirrorPath)
+	mode, reason, borrowedObjects, err := cloneWorkerCheckoutCacheWorkspaceForLease(ctx, workspace, mirrorPath, c.hardlinkProbe, allowBorrowedObjects)
 	if err != nil {
 		return true, fmt.Errorf("clone from worker checkout cache: %w", err)
 	}
@@ -238,7 +266,70 @@ func (c *WorkerCheckoutCache) Checkout(ctx context.Context, remoteURL, workspace
 		return true, err
 	}
 
+	if borrowedObjects && retainLease != nil && lease != nil {
+		if err := retainLease(lease); err != nil {
+			return true, err
+		}
+
+		releaseLease = false
+	}
+
 	return true, nil
+}
+
+func (s *WorkerCheckoutCacheScope) Checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger) (bool, error) {
+	if s == nil || s.cache == nil {
+		return false, nil
+	}
+
+	return s.cache.checkout(ctx, remoteURL, workspace, logger, true, s.retainLease)
+}
+
+func (s *WorkerCheckoutCacheScope) FetchRefspecs(ctx context.Context, remoteURL, workspace string, refspecs []string, logger interfaces.Logger) (bool, error) {
+	if s == nil || s.cache == nil {
+		return false, nil
+	}
+
+	return s.cache.FetchRefspecs(ctx, remoteURL, workspace, refspecs, logger)
+}
+
+func (s *WorkerCheckoutCacheScope) Close() error {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	leases := append([]*workerCheckoutGenerationLease(nil), s.leases...)
+	s.leases = nil
+	s.closed = true
+	s.mu.Unlock()
+
+	var errs []error
+	for i := len(leases) - 1; i >= 0; i-- {
+		if leases[i] == nil {
+			continue
+		}
+		if err := leases[i].Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func (s *WorkerCheckoutCacheScope) retainLease(lease *workerCheckoutGenerationLease) error {
+	if s == nil || lease == nil {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return fmt.Errorf("worker checkout cache scope is closed")
+	}
+
+	s.leases = append(s.leases, lease)
+	return nil
 }
 
 func (c *WorkerCheckoutCache) FetchRefspecs(ctx context.Context, remoteURL, workspace string, refspecs []string, logger interfaces.Logger) (bool, error) {
@@ -302,38 +393,57 @@ func cloneWorkerCheckoutCacheWorkspaceWithRunner(ctx context.Context, workspace,
 }
 
 func cloneWorkerCheckoutCacheWorkspaceWithRunnerAndProbe(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner, canHardlink workerCheckoutCacheHardlinkProbe) (string, string, error) {
+	mode, reason, _, err := cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(ctx, workspace, mirrorPath, run, canHardlink, false)
+	return mode, reason, err
+}
+
+func cloneWorkerCheckoutCacheWorkspaceForLease(ctx context.Context, workspace, mirrorPath string, canHardlink workerCheckoutCacheHardlinkProbe, allowBorrowedObjects bool) (string, string, bool, error) {
+	return cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(ctx, workspace, mirrorPath, runWorkerCacheGit, canHardlink, allowBorrowedObjects)
+}
+
+func cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(ctx context.Context, workspace, mirrorPath string, run workerCheckoutCacheGitRunner, canHardlink workerCheckoutCacheHardlinkProbe, allowBorrowedObjects bool) (string, string, bool, error) {
 	if run == nil {
-		return "", "", fmt.Errorf("%w: worker checkout cache git runner is required", ErrInvalidReference)
+		return "", "", false, fmt.Errorf("%w: worker checkout cache git runner is required", ErrInvalidReference)
 	}
 
 	cloneArgs := []string{"clone", "--local"}
 	mode := observability.CheckoutCacheCloneModeHardlink
 	reason := observability.CheckoutCacheCloneReasonOK
+	borrowedObjects := false
 	if canHardlink != nil && !canHardlink(mirrorPath, workspace) {
-		cloneArgs = append(cloneArgs, "--no-hardlinks")
-		mode = observability.CheckoutCacheCloneModeCopy
+		cloneArgs, mode, borrowedObjects = workerCheckoutCacheNoHardlinkCloneArgs(allowBorrowedObjects)
 		reason = observability.CheckoutCacheCloneReasonProbe
 	}
 
 	cloneArgs = append(cloneArgs, "--", mirrorPath, ".")
 	err := run(ctx, workspace, cloneArgs...)
 	if err == nil {
-		return mode, reason, nil
+		return mode, reason, borrowedObjects, nil
 	}
 
 	if mode != observability.CheckoutCacheCloneModeHardlink || !workerCheckoutCacheCloneNeedsNoHardlinksRetry(err) {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if cleanupErr := cleanupWorkerCheckoutCachePartialClone(workspace); cleanupErr != nil {
-		return "", "", fmt.Errorf("%w; cleanup partial worker checkout cache clone: %v", err, cleanupErr)
+		return "", "", false, fmt.Errorf("%w; cleanup partial worker checkout cache clone: %v", err, cleanupErr)
 	}
 
-	if retryErr := run(ctx, workspace, "clone", "--local", "--no-hardlinks", "--", mirrorPath, "."); retryErr != nil {
-		return "", "", fmt.Errorf("%w; retry without hardlinks: %v", err, retryErr)
+	retryArgs, mode, borrowedObjects := workerCheckoutCacheNoHardlinkCloneArgs(allowBorrowedObjects)
+	retryArgs = append(retryArgs, "--", mirrorPath, ".")
+	if retryErr := run(ctx, workspace, retryArgs...); retryErr != nil {
+		return "", "", false, fmt.Errorf("%w; retry without hardlinks: %v", err, retryErr)
 	}
 
-	return observability.CheckoutCacheCloneModeCopy, observability.CheckoutCacheCloneReasonRetry, nil
+	return mode, observability.CheckoutCacheCloneReasonRetry, borrowedObjects, nil
+}
+
+func workerCheckoutCacheNoHardlinkCloneArgs(allowBorrowedObjects bool) ([]string, string, bool) {
+	if allowBorrowedObjects {
+		return []string{"clone", "--shared", "--no-hardlinks"}, observability.CheckoutCacheCloneModeBorrowed, true
+	}
+
+	return []string{"clone", "--local", "--no-hardlinks"}, observability.CheckoutCacheCloneModeCopy, false
 }
 
 func workerCheckoutCacheHardlinksAvailable(mirrorPath, workspace string) bool {

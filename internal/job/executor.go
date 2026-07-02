@@ -352,6 +352,17 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	if checkoutCache == nil {
 		checkoutCache = e.checkoutCache
 	}
+	checkoutCache, closeCheckoutCache, err := scopedCheckoutCache(checkoutCache)
+	if err != nil {
+		return err
+	}
+	if closeCheckoutCache != nil {
+		defer func() {
+			if closeErr := closeCheckoutCache(); closeErr != nil {
+				logger.Warn("Failed to release checkout cache scope for run %s: %v", job.GetRunId(), closeErr)
+			}
+		}()
+	}
 
 	state := &action.ExecutionState{
 		JobID:                   job.GetId(),
@@ -400,6 +411,30 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 
 	sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"success"}`, api.RunOutcome_RUN_OUTCOME_SUCCESS)
 	return nil
+}
+
+func scopedCheckoutCache(cache action.CheckoutCache) (action.CheckoutCache, func() error, error) {
+	if cache == nil {
+		return nil, nil, nil
+	}
+
+	if provider, ok := cache.(action.CheckoutCacheScopeProvider); ok {
+		scoped, err := provider.NewCheckoutCacheScope()
+		if err != nil {
+			return nil, nil, fmt.Errorf("initialize checkout cache scope: %w", err)
+		}
+		if scoped == nil {
+			return nil, nil, nil
+		}
+		cache = scoped
+	}
+
+	closer, _ := cache.(action.CheckoutCacheCloser)
+	if closer == nil {
+		return cache, nil, nil
+	}
+
+	return cache, closer.Close, nil
 }
 
 func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *action.ExecutionState) action.Result {

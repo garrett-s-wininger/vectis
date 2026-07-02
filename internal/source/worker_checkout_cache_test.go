@@ -129,6 +129,47 @@ func TestWorkerCheckoutCacheCloneSkipsHardlinksWhenProbeFails(t *testing.T) {
 	assertStringSliceEqual(t, calls[0], []string{"clone", "--local", "--no-hardlinks", "--", mirrorPath, "."})
 }
 
+func TestWorkerCheckoutCacheCloneBorrowsObjectsWhenScopedProbeFails(t *testing.T) {
+	workspace := t.TempDir()
+	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
+	var calls [][]string
+
+	mode, reason, borrowed, err := cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow(
+		context.Background(),
+		workspace,
+		mirrorPath,
+		func(_ context.Context, dir string, args ...string) error {
+			if dir != workspace {
+				t.Fatalf("clone dir = %q, want %q", dir, workspace)
+			}
+
+			calls = append(calls, append([]string(nil), args...))
+			return nil
+		},
+		func(probeMirrorPath, probeWorkspace string) bool {
+			if probeMirrorPath != mirrorPath || probeWorkspace != workspace {
+				t.Fatalf("probe got mirror=%q workspace=%q, want mirror=%q workspace=%q", probeMirrorPath, probeWorkspace, mirrorPath, workspace)
+			}
+
+			return false
+		},
+		true,
+	)
+
+	if err != nil {
+		t.Fatalf("cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow: %v", err)
+	}
+	if mode != observability.CheckoutCacheCloneModeBorrowed || reason != observability.CheckoutCacheCloneReasonProbe || !borrowed {
+		t.Fatalf("clone mode=%q reason=%q borrowed=%v, want borrowed/probe/true", mode, reason, borrowed)
+	}
+
+	if len(calls) != 1 {
+		t.Fatalf("clone calls = %d, want 1", len(calls))
+	}
+
+	assertStringSliceEqual(t, calls[0], []string{"clone", "--shared", "--no-hardlinks", "--", mirrorPath, "."})
+}
+
 func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
 	workspace := t.TempDir()
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
@@ -693,6 +734,72 @@ func TestWorkerCheckoutCacheCleanupKeepsLeasedGeneration(t *testing.T) {
 
 	if _, err := os.Stat(firstPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("released generation still exists after cleanup: err=%v", err)
+	}
+}
+
+func TestWorkerCheckoutCacheScopedCheckoutKeepsBorrowedGeneration(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "first\n", "first")
+
+	cache, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{remote},
+		WithWorkerCheckoutCacheGenerationsToKeep(1),
+	)
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	cache.hardlinkProbe = func(_, _ string) bool { return false }
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("initial WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	firstGeneration := currentWorkerCheckoutGeneration(t, cache, remote)
+	scoped, err := cache.NewCheckoutCacheScope()
+	if err != nil {
+		t.Fatalf("NewCheckoutCacheScope: %v", err)
+	}
+
+	scope, ok := scoped.(*WorkerCheckoutCacheScope)
+	if !ok {
+		t.Fatalf("checkout cache scope type = %T, want *WorkerCheckoutCacheScope", scoped)
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := scoped.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("scoped Checkout: handled=%v err=%v", handled, err)
+	}
+
+	if _, err := os.Stat(filepath.Join(workspace, ".git", "objects", "info", "alternates")); err != nil {
+		t.Fatalf("borrowed checkout alternates: %v", err)
+	}
+
+	writeAndCommit(t, remote, "README.md", "second\n", "second")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("second WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	if info, err := os.Stat(firstGeneration); err != nil || !info.IsDir() {
+		t.Fatalf("borrowed generation was removed while scope open: info=%v err=%v", info, err)
+	}
+
+	if err := scope.Close(); err != nil {
+		t.Fatalf("close checkout cache scope: %v", err)
+	}
+
+	writeAndCommit(t, remote, "README.md", "third\n", "third")
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("third WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	if _, err := os.Stat(firstGeneration); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("borrowed generation still exists after scope close: err=%v", err)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 const (
 	CheckoutCacheCloneModeHardlink = "hardlink"
 	CheckoutCacheCloneModeCopy     = "copy"
+	CheckoutCacheCloneModeBorrowed = "borrowed"
 
 	CheckoutCacheCloneReasonOK    = "ok"
 	CheckoutCacheCloneReasonProbe = "probe"

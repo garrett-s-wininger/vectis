@@ -773,6 +773,10 @@ func cloneGitRepo(t *testing.T, source, dest string) {
 	if err != nil {
 		t.Fatalf("git clone %s %s: %v\n%s", source, dest, err, out)
 	}
+
+	git(t, dest, "config", "user.name", "Vectis Test")
+	git(t, dest, "config", "user.email", "vectis@example.invalid")
+	git(t, dest, "config", "commit.gpgsign", "false")
 }
 
 func writeAndCommit(t *testing.T, repo, name, content, message string) {

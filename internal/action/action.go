@@ -67,8 +67,16 @@ type CheckoutCache interface {
 	Checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger) (bool, error)
 }
 
+type CheckoutCacheScopeProvider interface {
+	NewCheckoutCacheScope() (CheckoutCache, error)
+}
+
 type CheckoutCacheRefFetcher interface {
 	FetchRefspecs(ctx context.Context, remoteURL, workspace string, refspecs []string, logger interfaces.Logger) (bool, error)
+}
+
+type CheckoutCacheCloser interface {
+	Close() error
 }
 
 func (s *ExecutionState) NextSequence() int64 {
