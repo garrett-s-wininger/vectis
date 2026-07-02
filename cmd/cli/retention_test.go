@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestRetentionCleanupRequiresBackupManifestForBackupExpect(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{ExpectPath: "expected-topology.json"}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{ExpectPath: "expected-topology.json"}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{}, nil)
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -24,7 +25,7 @@ func TestRetentionCleanupRequiresBackupManifestForBackupExpect(t *testing.T) {
 }
 
 func TestRetentionCleanupRequiresBackupManifestForBackupStorageReport(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{StorageReportPaths: []string{"queue.report.json"}}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{StorageReportPaths: []string{"queue.report.json"}}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{}, nil)
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -34,7 +35,7 @@ func TestRetentionCleanupRequiresBackupManifestForBackupStorageReport(t *testing
 }
 
 func TestRetentionCleanupRequiresBackupManifestWhenPolicyRequires(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{RequireBackupManifest: true})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{RequireBackupManifest: true}, nil)
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -44,7 +45,7 @@ func TestRetentionCleanupRequiresBackupManifestWhenPolicyRequires(t *testing.T) 
 }
 
 func TestRetentionCleanupRequiresAuditExportForAuditExportMaxAge(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{MaxAge: time.Hour}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{MaxAge: time.Hour}, retentionHoldReviewCheckOptions{}, retentionPolicyGateOptions{}, nil)
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
@@ -81,12 +82,127 @@ func TestCheckRetentionWaiverAcceptsFreshKnownGates(t *testing.T) {
 }
 
 func TestRetentionCleanupRequiresHoldReviewForHoldReviewMaxAge(t *testing.T) {
-	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{MaxAge: time.Hour}, retentionPolicyGateOptions{})
+	err := retentionCleanup(context.Background(), io.Discard, retention.Policy{}, true, false, "", "", retentionBackupCheckOptions{}, retentionAuditExportCheckOptions{}, retentionHoldReviewCheckOptions{MaxAge: time.Hour}, retentionPolicyGateOptions{}, nil)
 	if err == nil {
 		t.Fatalf("retention cleanup succeeded unexpectedly")
 	}
 	if !strings.Contains(err.Error(), "--hold-review") {
 		t.Fatalf("retention cleanup error = %v, want --hold-review", err)
+	}
+}
+
+func TestApplyRetentionCleanupEvidenceManifestSetsMissingOptions(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "cleanup-evidence.json", retentionCleanupEvidenceManifestFile{
+		SchemaVersion:         retentionCleanupEvidenceManifestSchemaVersion,
+		GeneratedAt:           now.Add(-time.Hour).Format(time.RFC3339),
+		GeneratedBy:           "retention-scheduler",
+		ExternalRef:           "CHG-123",
+		BackupManifest:        "backup-manifest.json",
+		BackupExpect:          "expected-topology.json",
+		BackupStorageReports:  []string{"queue.storage.json", "logs.storage.json"},
+		BackupMaxAge:          "24h",
+		BackupStorageMaxAge:   "1h",
+		AuditExport:           "audit-export.json",
+		AuditExportMaxAge:     "2h",
+		HoldReview:            "hold-review.json",
+		HoldReviewMaxAge:      "3h",
+		RequireBackupManifest: boolPtr(true),
+		RequireAuditExport:    boolPtr(true),
+		RequireHoldReview:     boolPtr(true),
+		Waiver:                "retention-waiver.json",
+	})
+
+	var backupOptions retentionBackupCheckOptions
+	var auditExportOptions retentionAuditExportCheckOptions
+	var holdReviewOptions retentionHoldReviewCheckOptions
+	var gateOptions retentionPolicyGateOptions
+	evidence, err := applyRetentionCleanupEvidenceManifest(manifestPath, retentionCleanupFlagChanges{}, &backupOptions, &auditExportOptions, &holdReviewOptions, &gateOptions, now)
+	if err != nil {
+		t.Fatalf("apply evidence manifest: %v", err)
+	}
+	if evidence == nil || !evidence.Verified {
+		t.Fatalf("evidence manifest = %+v, want verified", evidence)
+	}
+
+	wantBackupManifest := filepath.Join(root, "backup-manifest.json")
+	if backupOptions.ManifestPath != wantBackupManifest ||
+		backupOptions.ExpectPath != filepath.Join(root, "expected-topology.json") ||
+		backupOptions.MaxAge != 24*time.Hour ||
+		backupOptions.StorageReportMaxAge != time.Hour {
+		t.Fatalf("backup options = %+v", backupOptions)
+	}
+	if len(backupOptions.StorageReportPaths) != 2 ||
+		backupOptions.StorageReportPaths[0] != filepath.Join(root, "queue.storage.json") ||
+		backupOptions.StorageReportPaths[1] != filepath.Join(root, "logs.storage.json") {
+		t.Fatalf("storage reports = %#v", backupOptions.StorageReportPaths)
+	}
+	if auditExportOptions.ExportPath != filepath.Join(root, "audit-export.json") || auditExportOptions.MaxAge != 2*time.Hour {
+		t.Fatalf("audit export options = %+v", auditExportOptions)
+	}
+	if holdReviewOptions.ReviewPath != filepath.Join(root, "hold-review.json") || holdReviewOptions.MaxAge != 3*time.Hour {
+		t.Fatalf("hold review options = %+v", holdReviewOptions)
+	}
+	if !gateOptions.RequireBackupManifest || !gateOptions.RequireAuditExport || !gateOptions.RequireHoldReview || gateOptions.WaiverPath != filepath.Join(root, "retention-waiver.json") {
+		t.Fatalf("gate options = %+v", gateOptions)
+	}
+	if evidence.BackupManifest != wantBackupManifest || evidence.GeneratedBy != "retention-scheduler" || evidence.ExternalRef != "CHG-123" {
+		t.Fatalf("evidence manifest = %+v", evidence)
+	}
+}
+
+func TestApplyRetentionCleanupEvidenceManifestKeepsExplicitFlags(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "cleanup-evidence.json", retentionCleanupEvidenceManifestFile{
+		SchemaVersion:         retentionCleanupEvidenceManifestSchemaVersion,
+		BackupManifest:        "manifest-backup.json",
+		BackupMaxAge:          "24h",
+		RequireBackupManifest: boolPtr(true),
+	})
+
+	backupOptions := retentionBackupCheckOptions{
+		ManifestPath: "explicit-backup.json",
+		MaxAge:       time.Minute,
+	}
+	var auditExportOptions retentionAuditExportCheckOptions
+	var holdReviewOptions retentionHoldReviewCheckOptions
+	gateOptions := retentionPolicyGateOptions{RequireBackupManifest: false}
+	_, err := applyRetentionCleanupEvidenceManifest(manifestPath, retentionCleanupFlagChanges{
+		BackupManifest:        true,
+		BackupMaxAge:          true,
+		RequireBackupManifest: true,
+	}, &backupOptions, &auditExportOptions, &holdReviewOptions, &gateOptions, now)
+	if err != nil {
+		t.Fatalf("apply evidence manifest: %v", err)
+	}
+
+	if backupOptions.ManifestPath != "explicit-backup.json" || backupOptions.MaxAge != time.Minute {
+		t.Fatalf("explicit backup options were overwritten: %+v", backupOptions)
+	}
+	if gateOptions.RequireBackupManifest {
+		t.Fatalf("explicit require-backup-manifest=false was overwritten")
+	}
+}
+
+func TestApplyRetentionCleanupEvidenceManifestRejectsInvalidSchema(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "cleanup-evidence.json", retentionCleanupEvidenceManifestFile{
+		SchemaVersion: "vectis.retention_cleanup_evidence.v0",
+	})
+
+	var backupOptions retentionBackupCheckOptions
+	var auditExportOptions retentionAuditExportCheckOptions
+	var holdReviewOptions retentionHoldReviewCheckOptions
+	var gateOptions retentionPolicyGateOptions
+	evidence, err := applyRetentionCleanupEvidenceManifest(manifestPath, retentionCleanupFlagChanges{}, &backupOptions, &auditExportOptions, &holdReviewOptions, &gateOptions, now)
+	if err == nil {
+		t.Fatalf("apply evidence manifest succeeded unexpectedly with evidence %+v", evidence)
+	}
+	if !strings.Contains(err.Error(), "schema_version") {
+		t.Fatalf("evidence manifest error = %v, want schema_version", err)
 	}
 }
 
@@ -351,7 +467,7 @@ func TestPrintRetentionReportIncludesHoldReviewEvidence(t *testing.T) {
 		},
 		MaxAge: "1h0m0s",
 		Age:    "30m0s",
-	}, nil)
+	}, nil, nil)
 
 	out := buf.String()
 	for _, want := range []string{
@@ -361,6 +477,42 @@ func TestPrintRetentionReportIncludesHoldReviewEvidence(t *testing.T) {
 		"hold_review_external_ref=GRC-123",
 		"hold_review_active_holds=2",
 		"hold_review_holds_sha256=abc123",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("retention report missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintRetentionReportIncludesEvidenceManifest(t *testing.T) {
+	var buf bytes.Buffer
+	printRetentionReport(&buf, retention.Report{DryRun: true}, retention.FileReport{}, nil, nil, nil, &retentionCleanupEvidenceManifestEvidence{
+		ManifestPath:          "cleanup-evidence.json",
+		Verified:              true,
+		CheckedAt:             "2026-07-02T12:00:00Z",
+		GeneratedAt:           "2026-07-02T11:30:00Z",
+		GeneratedBy:           "retention-scheduler",
+		ExternalRef:           "CHG-123",
+		BackupManifest:        "backup-manifest.json",
+		AuditExport:           "audit-export.json",
+		HoldReview:            "hold-review.json",
+		RequireBackupManifest: true,
+		RequireAuditExport:    true,
+		RequireHoldReview:     true,
+	}, nil)
+
+	out := buf.String()
+	for _, want := range []string{
+		"evidence_manifest_verified=true",
+		"evidence_manifest_path=cleanup-evidence.json",
+		"evidence_manifest_generated_by=retention-scheduler",
+		"evidence_manifest_external_ref=CHG-123",
+		"evidence_manifest_backup_manifest=backup-manifest.json",
+		"evidence_manifest_audit_export=audit-export.json",
+		"evidence_manifest_hold_review=hold-review.json",
+		"evidence_manifest_require_backup_manifest=true",
+		"evidence_manifest_require_audit_export=true",
+		"evidence_manifest_require_hold_review=true",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("retention report missing %q in:\n%s", want, out)
@@ -401,7 +553,7 @@ func TestRetentionHoldReviewEvidenceJSONIncludesReviewFields(t *testing.T) {
 
 func TestPrintRetentionReportIncludesWaiverEvidence(t *testing.T) {
 	var buf bytes.Buffer
-	printRetentionReport(&buf, retention.Report{DryRun: true}, retention.FileReport{}, nil, nil, nil, &retentionWaiverEvidence{
+	printRetentionReport(&buf, retention.Report{DryRun: true}, retention.FileReport{}, nil, nil, nil, nil, &retentionWaiverEvidence{
 		WaiverPath:  "retention-waiver.json",
 		Verified:    true,
 		CheckedAt:   "2026-07-02T12:00:00Z",
@@ -436,6 +588,10 @@ func retentionHoldForTest(holdID, scope, targetID string, createdAt time.Time) r
 		CreatedBy: "security-oncall",
 		CreatedAt: createdAt,
 	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func TestRetentionHoldCreateScopeAndTarget(t *testing.T) {

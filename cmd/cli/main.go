@@ -195,20 +195,21 @@ var (
 )
 
 var (
-	retentionBackupStorageReports  []string
-	retentionBackupStorageMaxAge   time.Duration
-	retentionAuditExport           string
-	retentionAuditExportMaxAge     time.Duration
-	retentionHoldReview            string
-	retentionHoldReviewOutput      string
-	retentionHoldReviewReviewedBy  string
-	retentionHoldReviewReason      string
-	retentionHoldReviewExternalRef string
-	retentionHoldReviewMaxAge      time.Duration
-	retentionRequireBackupManifest bool
-	retentionRequireAuditExport    bool
-	retentionRequireHoldReview     bool
-	retentionWaiver                string
+	retentionBackupStorageReports    []string
+	retentionBackupStorageMaxAge     time.Duration
+	retentionCleanupEvidenceManifest string
+	retentionAuditExport             string
+	retentionAuditExportMaxAge       time.Duration
+	retentionHoldReview              string
+	retentionHoldReviewOutput        string
+	retentionHoldReviewReviewedBy    string
+	retentionHoldReviewReason        string
+	retentionHoldReviewExternalRef   string
+	retentionHoldReviewMaxAge        time.Duration
+	retentionRequireBackupManifest   bool
+	retentionRequireAuditExport      bool
+	retentionRequireHoldReview       bool
+	retentionWaiver                  string
 )
 
 var rootCmd = &cobra.Command{
@@ -244,6 +245,7 @@ Commands are grouped around the thing you want to work with:
 
 type retentionCleanupDefaults struct {
 	Policy              config.RetentionCleanupPolicyDefaults
+	EvidenceManifest    string
 	BackupMaxAge        time.Duration
 	BackupStorageMaxAge time.Duration
 	AuditExportMaxAge   time.Duration
@@ -257,6 +259,7 @@ func retentionCleanupDefaultsFromConfig() retentionCleanupDefaults {
 	policy := config.RetentionCleanupPolicy()
 	return retentionCleanupDefaults{
 		Policy:              policy,
+		EvidenceManifest:    config.RetentionCleanupEvidenceManifest(),
 		BackupMaxAge:        config.RetentionCleanupBackupMaxAge(),
 		BackupStorageMaxAge: config.RetentionCleanupBackupStorageMaxAge(),
 		AuditExportMaxAge:   config.RetentionCleanupAuditExportMaxAge(),
@@ -441,6 +444,7 @@ func init() {
 	retentionCleanupCmd.Flags().StringVar(&retentionLogDir, "log-storage-dir", "", "Optional durable run log directory to prune for deleted terminal runs")
 	retentionCleanupCmd.Flags().DurationVar(&retentionArtifactAge, "artifact-blob-age", defaultRetention.Policy.ArtifactBlobs, "Delete unreferenced artifact blobs older than this duration when --artifact-storage-dir is set (0 disables)")
 	retentionCleanupCmd.Flags().StringVar(&retentionArtifactDir, "artifact-storage-dir", "", "Optional durable artifact storage directory to prune unreferenced blobs")
+	retentionCleanupCmd.Flags().StringVar(&retentionCleanupEvidenceManifest, "evidence-manifest", defaultRetention.EvidenceManifest, "Optional retention cleanup evidence manifest JSON that names retained evidence paths")
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupManifest, "backup-manifest", "", "Optional backup manifest JSON to verify before cleanup")
 	retentionCleanupCmd.Flags().StringVar(&retentionBackupExpect, "backup-expect", "", "Optional expected topology JSON for backup manifest verification")
 	retentionCleanupCmd.Flags().DurationVar(&retentionBackupMaxAge, "backup-max-age", defaultRetention.BackupMaxAge, "Maximum accepted backup manifest age before cleanup (0 disables)")

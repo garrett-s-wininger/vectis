@@ -27,6 +27,7 @@ Environment variables are described in [Configuration](../configuration.md#servi
 
 | Key | Default | Operator note |
 | --- | --- | --- |
+| `retention.cleanup.evidence_manifest` | `""` | Optional default `vectis.retention_cleanup_evidence.v1` file for recurring `vectis-cli retention cleanup` jobs; command flags override individual manifest fields. |
 | `retention.cleanup.terminal_run_age` | `720h` | Default terminal-run cleanup window for `vectis-cli retention cleanup`; `0s` disables terminal-run cleanup. |
 | `retention.cleanup.job_definition_age` | `720h` | Default unreferenced job-definition cleanup window; `0s` disables this surface. |
 | `retention.cleanup.idempotency_age` | `24h` | Default idempotency-key cleanup window; keep longer than realistic client retry windows. |

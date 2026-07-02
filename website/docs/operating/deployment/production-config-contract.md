@@ -280,7 +280,8 @@ Backups must include:
 
 Retention must be an explicit operator policy. Set
 `VECTIS_RETENTION_CLEANUP_*` defaults for cleanup windows, evidence freshness,
-and required backup/audit/hold-review gates, then either schedule
+required backup/audit/hold-review gates, and the cleanup evidence manifest path
+if recurring jobs use one, then either schedule
 `vectis-cli retention cleanup` or assign it to a recurring runbook. Use
 [Retention And Storage Pressure](../reliability/retention.md#production-scheduling)
 for dry-run/apply scheduling patterns. Keep audit retention aligned with

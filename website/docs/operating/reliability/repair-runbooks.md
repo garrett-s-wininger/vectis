@@ -235,6 +235,14 @@ vectis-cli retention cleanup --yes \
   --hold-review-max-age 24h
 ```
 
+For scheduled jobs, keep those accepted evidence paths in a retained cleanup
+evidence manifest and pass the manifest instead:
+
+```sh
+vectis-cli retention cleanup --yes \
+  --evidence-manifest /var/lib/vectis/ops/retention-cleanup-evidence.json
+```
+
 9. Run `vectis-cli health check --strict`.
 10. Check storage pressure metrics after cleanup.
 

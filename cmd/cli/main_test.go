@@ -135,7 +135,7 @@ func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17}, nil, nil, nil, nil)
+	printRetentionReport(&buf, report, retention.FileReport{RunLogFiles: 14, RunLogBytes: 15, ArtifactBlobFiles: 16, ArtifactBlobBytes: 17}, nil, nil, nil, nil, nil)
 
 	out := buf.String()
 	for _, want := range []string{
@@ -176,6 +176,7 @@ func TestRetentionCleanupDefaultsFromConfig(t *testing.T) {
 	viper.Set("retention.cleanup.idempotency_age", 4*time.Hour)
 	viper.Set("retention.cleanup.audit_age", 5*time.Hour)
 	viper.Set("retention.cleanup.artifact_blob_age", 6*time.Hour)
+	viper.Set("retention.cleanup.evidence_manifest", "/var/lib/vectis/ops/retention-cleanup-evidence.json")
 	viper.Set("retention.cleanup.backup_max_age", time.Hour)
 	viper.Set("retention.cleanup.backup_storage_max_age", 30*time.Minute)
 	viper.Set("retention.cleanup.audit_export_max_age", 45*time.Minute)
@@ -191,6 +192,9 @@ func TestRetentionCleanupDefaultsFromConfig(t *testing.T) {
 		got.Policy.AuditLog != 5*time.Hour ||
 		got.Policy.ArtifactBlobs != 6*time.Hour {
 		t.Fatalf("retention policy defaults = %+v", got.Policy)
+	}
+	if got.EvidenceManifest != "/var/lib/vectis/ops/retention-cleanup-evidence.json" {
+		t.Fatalf("retention evidence manifest default = %q", got.EvidenceManifest)
 	}
 	if got.BackupMaxAge != time.Hour ||
 		got.BackupStorageMaxAge != 30*time.Minute ||

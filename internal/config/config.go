@@ -290,6 +290,7 @@ type RetentionDefaults struct {
 }
 
 type RetentionCleanupDefaults struct {
+	EvidenceManifest      string       `toml:"evidence_manifest"`
 	TerminalRunAge        tomlDuration `toml:"terminal_run_age"`
 	JobDefinitionAge      tomlDuration `toml:"job_definition_age"`
 	IdempotencyAge        tomlDuration `toml:"idempotency_age"`
@@ -473,6 +474,7 @@ func init() {
 	_ = viper.BindEnv("discovery.registry.addresses", "VECTIS_DISCOVERY_REGISTRY_ADDRESSES")
 	_ = viper.BindEnv("dispatch.start_ttl", "VECTIS_DISPATCH_START_TTL")
 	_ = viper.BindEnv("retention.cleanup.terminal_run_age", "VECTIS_RETENTION_CLEANUP_TERMINAL_RUN_AGE")
+	_ = viper.BindEnv("retention.cleanup.evidence_manifest", "VECTIS_RETENTION_CLEANUP_EVIDENCE_MANIFEST")
 	_ = viper.BindEnv("retention.cleanup.job_definition_age", "VECTIS_RETENTION_CLEANUP_JOB_DEFINITION_AGE")
 	_ = viper.BindEnv("retention.cleanup.idempotency_age", "VECTIS_RETENTION_CLEANUP_IDEMPOTENCY_AGE")
 	_ = viper.BindEnv("retention.cleanup.audit_age", "VECTIS_RETENTION_CLEANUP_AUDIT_AGE")
@@ -1436,6 +1438,14 @@ func RetentionCleanupPolicy() RetentionCleanupPolicyDefaults {
 		AuditLog:        retentionCleanupDuration("retention.cleanup.audit_age", d.AuditAge),
 		ArtifactBlobs:   retentionCleanupDuration("retention.cleanup.artifact_blob_age", d.ArtifactBlobAge),
 	}
+}
+
+func RetentionCleanupEvidenceManifest() string {
+	if viper.IsSet("retention.cleanup.evidence_manifest") {
+		return strings.TrimSpace(viper.GetString("retention.cleanup.evidence_manifest"))
+	}
+
+	return strings.TrimSpace(MustDefaults().Retention.Cleanup.EvidenceManifest)
 }
 
 func RetentionCleanupBackupMaxAge() time.Duration {

@@ -12,6 +12,7 @@ Cleanup is intentionally explicit today:
 
 - `--dry-run` previews cutoffs and counts without changing the database.
 - `--yes` applies the same policy.
+- `--evidence-manifest` loads a retained cleanup evidence manifest that names the backup, audit export, hold review, waiver, requirement, and freshness inputs for scheduled cleanup.
 - `--backup-manifest` verifies backup manifest evidence before preview or apply.
 - `--backup-expect` makes the manifest match an expected topology file.
 - `--backup-max-age` rejects stale manifest evidence, based on `generated_at`.
@@ -59,7 +60,8 @@ Durations can be overridden per run. Use `0` to disable a surface. Artifact mani
 Deployment defaults can be set with `VECTIS_RETENTION_CLEANUP_*` environment
 variables or the matching `retention.cleanup.*` config keys. These defaults
 cover cleanup windows, evidence freshness limits, and whether backup-manifest
-audit-export, or hold-review evidence is mandatory. Command-line flags still
+audit-export, or hold-review evidence is mandatory. They can also name a
+default cleanup evidence manifest for scheduled jobs. Command-line flags still
 override the configured defaults for one cleanup invocation.
 
 ## Choose A Policy
@@ -178,6 +180,37 @@ vectis-cli retention cleanup --yes \
   --require-hold-review \
   --hold-review hold-review.json \
   --hold-review-max-age 24h
+```
+
+Scheduled cleanup jobs can keep the latest accepted evidence paths in one
+retained cleanup evidence manifest. Paths inside the manifest can be absolute or
+relative to the manifest file, and explicit CLI flags override individual
+manifest fields when an operator needs a one-off apply:
+
+```json
+{
+  "schema_version": "vectis.retention_cleanup_evidence.v1",
+  "generated_at": "2026-07-02T02:45:00Z",
+  "generated_by": "retention-scheduler",
+  "external_ref": "CHG-123",
+  "backup_manifest": "backup-manifest.json",
+  "backup_expect": "/etc/vectis/expected-topology.json",
+  "backup_storage_reports": ["queue.storage.json", "logs.storage.json"],
+  "backup_max_age": "24h",
+  "backup_storage_max_age": "24h",
+  "audit_export": "audit-export.json",
+  "audit_export_max_age": "24h",
+  "hold_review": "hold-review.json",
+  "hold_review_max_age": "24h",
+  "require_backup_manifest": true,
+  "require_audit_export": true,
+  "require_hold_review": true
+}
+```
+
+```sh
+vectis-cli retention cleanup --yes \
+  --evidence-manifest /var/lib/vectis/ops/retention-cleanup-evidence.json
 ```
 
 Use a waiver only for an approved exception where the gate is intentionally
@@ -390,7 +423,9 @@ backup set stops cleanup. If the job prunes audit rows, also mount the retained
 audit export and pass `--require-audit-export`, `--audit-export`, and
 `--audit-export-max-age`. If compliance requires active-hold signoff, mount the
 retained hold review and pass `--require-hold-review`, `--hold-review`, and
-`--hold-review-max-age`.
+`--hold-review-max-age`. For recurring jobs, mount one retained cleanup evidence
+manifest and pass `--evidence-manifest` instead of repeating every evidence path
+as command-line flags.
 
 ## Safety Guarantees
 
@@ -407,6 +442,7 @@ Cleanup also protects:
 | Active artifact storage | Apply-time blob pruning takes `artifact.lock` and refuses to delete while the artifact service owns the directory. |
 | Recently orphaned blobs | Unreferenced blobs are skipped until their file mtime is older than the artifact blob cutoff. |
 | Disabled surfaces | A duration of `0` disables cleanup for that surface. |
+| Cleanup evidence manifest | `--evidence-manifest` accepts only a retained file path using schema `vectis.retention_cleanup_evidence.v1`. It can name backup, audit export, hold review, waiver, freshness, and required-gate inputs for scheduled cleanup. Relative evidence paths resolve next to the manifest file. Explicit CLI flags override individual manifest fields. |
 | Backup evidence gate | When `--backup-manifest` is provided, cleanup verifies the manifest and optional expected topology before deletion. `--backup-max-age` also rejects stale manifest evidence. `--require-backup-manifest` fails cleanup if that evidence is missing unless a verified waiver covers `backup_manifest`. |
 | Audit export evidence gate | When `--audit-export` is provided, cleanup verifies a retained `vectis-cli audit export` envelope before deleting audit rows. The export must be unfiltered, fresh when `--audit-export-max-age` is set, hash-valid, fully exhausted across cursor pages, and broad enough to cover the audit cleanup cutoff and eligible row count. `--require-audit-export` fails cleanup when audit rows are eligible and export evidence is missing unless a verified waiver covers `audit_export`. |
 | Hold review evidence gate | When `--hold-review` is provided, cleanup verifies a retained `vectis-cli retention holds review` envelope against the current active hold inventory before deletion. The review must be fresh when `--hold-review-max-age` is set and hash-valid. `--require-hold-review` fails cleanup if this evidence is missing unless a verified waiver covers `hold_review`. |
@@ -423,6 +459,18 @@ Preview output uses `would_delete.*` keys:
 
 ```text
 dry_run=true
+evidence_manifest_verified=true
+evidence_manifest_path=/var/lib/vectis/ops/retention-cleanup-evidence.json
+evidence_manifest_checked_at=2026-06-28T16:00:00Z
+evidence_manifest_generated_at=2026-06-28T15:45:00Z
+evidence_manifest_generated_by=retention-scheduler
+evidence_manifest_external_ref=CHG-123
+evidence_manifest_backup_manifest=/var/lib/vectis/ops/backup-manifest.json
+evidence_manifest_backup_expect=/etc/vectis/expected-topology.json
+evidence_manifest_backup_storage_reports=2
+evidence_manifest_require_backup_manifest=true
+evidence_manifest_require_audit_export=true
+evidence_manifest_require_hold_review=true
 backup_manifest_verified=true
 backup_manifest_path=backup-manifest.json
 backup_manifest_checked_at=2026-06-28T16:00:00Z

@@ -256,6 +256,9 @@ func TestRetentionCleanupPolicyDefaultsAndOverrides(t *testing.T) {
 	if got, want := RetentionCleanupPolicy(), wantDefault; got != want {
 		t.Fatalf("RetentionCleanupPolicy() defaults = %+v, want %+v", got, want)
 	}
+	if got := RetentionCleanupEvidenceManifest(); got != "" {
+		t.Fatalf("RetentionCleanupEvidenceManifest() default = %q, want empty", got)
+	}
 	if got := RetentionCleanupBackupMaxAge(); got != 0 {
 		t.Fatalf("RetentionCleanupBackupMaxAge() default = %v, want 0", got)
 	}
@@ -283,6 +286,7 @@ func TestRetentionCleanupPolicyDefaultsAndOverrides(t *testing.T) {
 	viper.Set("retention.cleanup.idempotency_age", 4*time.Hour)
 	viper.Set("retention.cleanup.audit_age", 5*time.Hour)
 	viper.Set("retention.cleanup.artifact_blob_age", 6*time.Hour)
+	viper.Set("retention.cleanup.evidence_manifest", "/var/lib/vectis/ops/retention-cleanup-evidence.json")
 	viper.Set("retention.cleanup.backup_max_age", time.Hour)
 	viper.Set("retention.cleanup.backup_storage_max_age", 30*time.Minute)
 	viper.Set("retention.cleanup.audit_export_max_age", 45*time.Minute)
@@ -301,6 +305,9 @@ func TestRetentionCleanupPolicyDefaultsAndOverrides(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("RetentionCleanupPolicy() override = %+v, want %+v", got, want)
+	}
+	if got := RetentionCleanupEvidenceManifest(); got != "/var/lib/vectis/ops/retention-cleanup-evidence.json" {
+		t.Fatalf("RetentionCleanupEvidenceManifest() override = %q", got)
 	}
 	if got := RetentionCleanupBackupMaxAge(); got != time.Hour {
 		t.Fatalf("RetentionCleanupBackupMaxAge() override = %v, want 1h", got)

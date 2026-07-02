@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -58,6 +59,65 @@ type retentionPolicyGateOptions struct {
 	RequireAuditExport    bool
 	RequireHoldReview     bool
 	WaiverPath            string
+}
+
+type retentionCleanupEvidenceManifestFile struct {
+	SchemaVersion         string   `json:"schema_version"`
+	GeneratedAt           string   `json:"generated_at,omitempty"`
+	GeneratedBy           string   `json:"generated_by,omitempty"`
+	ExternalRef           string   `json:"external_ref,omitempty"`
+	BackupManifest        string   `json:"backup_manifest,omitempty"`
+	BackupExpect          string   `json:"backup_expect,omitempty"`
+	BackupStorageReports  []string `json:"backup_storage_reports,omitempty"`
+	BackupMaxAge          string   `json:"backup_max_age,omitempty"`
+	BackupStorageMaxAge   string   `json:"backup_storage_max_age,omitempty"`
+	AuditExport           string   `json:"audit_export,omitempty"`
+	AuditExportMaxAge     string   `json:"audit_export_max_age,omitempty"`
+	HoldReview            string   `json:"hold_review,omitempty"`
+	HoldReviewMaxAge      string   `json:"hold_review_max_age,omitempty"`
+	RequireBackupManifest *bool    `json:"require_backup_manifest,omitempty"`
+	RequireAuditExport    *bool    `json:"require_audit_export,omitempty"`
+	RequireHoldReview     *bool    `json:"require_hold_review,omitempty"`
+	Waiver                string   `json:"waiver,omitempty"`
+}
+
+type retentionCleanupEvidenceManifestEvidence struct {
+	ManifestPath          string   `json:"manifest_path"`
+	Verified              bool     `json:"verified"`
+	CheckedAt             string   `json:"checked_at"`
+	SchemaVersion         string   `json:"schema_version"`
+	GeneratedAt           string   `json:"generated_at,omitempty"`
+	GeneratedBy           string   `json:"generated_by,omitempty"`
+	ExternalRef           string   `json:"external_ref,omitempty"`
+	BackupManifest        string   `json:"backup_manifest,omitempty"`
+	BackupExpect          string   `json:"backup_expect,omitempty"`
+	BackupStorageReports  []string `json:"backup_storage_reports,omitempty"`
+	BackupMaxAge          string   `json:"backup_max_age,omitempty"`
+	BackupStorageMaxAge   string   `json:"backup_storage_max_age,omitempty"`
+	AuditExport           string   `json:"audit_export,omitempty"`
+	AuditExportMaxAge     string   `json:"audit_export_max_age,omitempty"`
+	HoldReview            string   `json:"hold_review,omitempty"`
+	HoldReviewMaxAge      string   `json:"hold_review_max_age,omitempty"`
+	RequireBackupManifest bool     `json:"require_backup_manifest"`
+	RequireAuditExport    bool     `json:"require_audit_export"`
+	RequireHoldReview     bool     `json:"require_hold_review"`
+	Waiver                string   `json:"waiver,omitempty"`
+}
+
+type retentionCleanupFlagChanges struct {
+	BackupManifest        bool
+	BackupExpect          bool
+	BackupStorageReports  bool
+	BackupMaxAge          bool
+	BackupStorageMaxAge   bool
+	AuditExport           bool
+	AuditExportMaxAge     bool
+	HoldReview            bool
+	HoldReviewMaxAge      bool
+	RequireBackupManifest bool
+	RequireAuditExport    bool
+	RequireHoldReview     bool
+	Waiver                bool
 }
 
 type retentionAuditExportEvidence struct {
@@ -132,11 +192,12 @@ type retentionWaiverFile struct {
 }
 
 const (
-	retentionWaiverSchemaVersion     = "vectis.retention_waiver.v1"
-	retentionHoldReviewSchemaVersion = "vectis.retention_hold_review.v1"
-	retentionWaiverBackup            = "backup_manifest"
-	retentionWaiverAuditExport       = "audit_export"
-	retentionWaiverHoldReview        = "hold_review"
+	retentionWaiverSchemaVersion                  = "vectis.retention_waiver.v1"
+	retentionHoldReviewSchemaVersion              = "vectis.retention_hold_review.v1"
+	retentionCleanupEvidenceManifestSchemaVersion = "vectis.retention_cleanup_evidence.v1"
+	retentionWaiverBackup                         = "backup_manifest"
+	retentionWaiverAuditExport                    = "audit_export"
+	retentionWaiverHoldReview                     = "hold_review"
 )
 
 func runRetentionCleanup(cmd *cobra.Command, args []string) {
@@ -173,10 +234,15 @@ func runRetentionCleanup(cmd *cobra.Command, args []string) {
 		WaiverPath:            retentionWaiver,
 	}
 
-	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions))
+	evidenceManifest, err := applyRetentionCleanupEvidenceManifest(retentionCleanupEvidenceManifest, retentionCleanupFlagChangesFromCommand(cmd), &backupOptions, &auditExportOptions, &holdReviewOptions, &gateOptions, time.Now().UTC())
+	if err != nil {
+		runCLIError(err)
+	}
+
+	runCLIError(retentionCleanup(cmd.Context(), os.Stdout, policy, retentionDryRun, retentionYes, retentionLogDir, retentionArtifactDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest))
 }
 
-func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions) error {
+func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions, evidenceManifest *retentionCleanupEvidenceManifestEvidence) error {
 	if !dryRun && !yes {
 		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
 	}
@@ -381,6 +447,10 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 			payload["hold_review"] = holdReviewEvidence
 		}
 
+		if evidenceManifest != nil {
+			payload["evidence_manifest"] = evidenceManifest
+		}
+
 		if waiverEvidence != nil {
 			payload["waiver"] = waiverEvidence
 		}
@@ -388,7 +458,7 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 		return writeJSON(w, payload)
 	}
 
-	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence, holdReviewEvidence, waiverEvidence)
+	printRetentionReport(w, report, fileReport, backupEvidence, auditExportEvidence, holdReviewEvidence, evidenceManifest, waiverEvidence)
 	if dryRun {
 		fmt.Fprintln(w, "Cleanup not applied.")
 		return nil
@@ -396,6 +466,219 @@ func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy,
 
 	fmt.Fprintln(w, "Cleanup applied.")
 	return nil
+}
+
+func retentionCleanupFlagChangesFromCommand(cmd *cobra.Command) retentionCleanupFlagChanges {
+	flags := cmd.Flags()
+	return retentionCleanupFlagChanges{
+		BackupManifest:        flags.Changed("backup-manifest"),
+		BackupExpect:          flags.Changed("backup-expect"),
+		BackupStorageReports:  flags.Changed("backup-storage-report"),
+		BackupMaxAge:          flags.Changed("backup-max-age"),
+		BackupStorageMaxAge:   flags.Changed("backup-storage-max-age"),
+		AuditExport:           flags.Changed("audit-export"),
+		AuditExportMaxAge:     flags.Changed("audit-export-max-age"),
+		HoldReview:            flags.Changed("hold-review"),
+		HoldReviewMaxAge:      flags.Changed("hold-review-max-age"),
+		RequireBackupManifest: flags.Changed("require-backup-manifest"),
+		RequireAuditExport:    flags.Changed("require-audit-export"),
+		RequireHoldReview:     flags.Changed("require-hold-review"),
+		Waiver:                flags.Changed("waiver"),
+	}
+}
+
+func applyRetentionCleanupEvidenceManifest(path string, changes retentionCleanupFlagChanges, backupOptions *retentionBackupCheckOptions, auditExportOptions *retentionAuditExportCheckOptions, holdReviewOptions *retentionHoldReviewCheckOptions, gateOptions *retentionPolicyGateOptions, checkedAt time.Time) (*retentionCleanupEvidenceManifestEvidence, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+
+	if path == "-" {
+		return nil, fmt.Errorf("--evidence-manifest must be a retained file path")
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read retention cleanup evidence manifest: %w", err)
+	}
+
+	var manifest retentionCleanupEvidenceManifestFile
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, fmt.Errorf("parse retention cleanup evidence manifest: %w", err)
+	}
+
+	manifest.SchemaVersion = strings.TrimSpace(manifest.SchemaVersion)
+	if manifest.SchemaVersion != retentionCleanupEvidenceManifestSchemaVersion {
+		return nil, fmt.Errorf("retention cleanup evidence manifest schema_version = %q, want %q", manifest.SchemaVersion, retentionCleanupEvidenceManifestSchemaVersion)
+	}
+
+	baseDir := filepath.Dir(path)
+	resolvePath := func(fieldName, value string) (string, error) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return "", nil
+		}
+
+		if value == "-" {
+			return "", fmt.Errorf("retention cleanup evidence manifest %s must be a retained file path", fieldName)
+		}
+
+		if filepath.IsAbs(value) {
+			return filepath.Clean(value), nil
+		}
+
+		return filepath.Clean(filepath.Join(baseDir, value)), nil
+	}
+
+	parseDuration := func(fieldName, value string) (time.Duration, string, error) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return 0, "", nil
+		}
+
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return 0, "", fmt.Errorf("retention cleanup evidence manifest %s must be a duration: %w", fieldName, err)
+		}
+
+		if duration < 0 {
+			return 0, "", fmt.Errorf("retention cleanup evidence manifest %s must be >= 0", fieldName)
+		}
+
+		return duration, duration.String(), nil
+	}
+
+	backupManifest, err := resolvePath("backup_manifest", manifest.BackupManifest)
+	if err != nil {
+		return nil, err
+	}
+
+	backupExpect, err := resolvePath("backup_expect", manifest.BackupExpect)
+	if err != nil {
+		return nil, err
+	}
+
+	var backupStorageReports []string
+	for _, value := range manifest.BackupStorageReports {
+		resolved, err := resolvePath("backup_storage_reports", value)
+		if err != nil {
+			return nil, err
+		}
+
+		if resolved != "" {
+			backupStorageReports = append(backupStorageReports, resolved)
+		}
+	}
+
+	backupMaxAge, backupMaxAgeText, err := parseDuration("backup_max_age", manifest.BackupMaxAge)
+	if err != nil {
+		return nil, err
+	}
+
+	backupStorageMaxAge, backupStorageMaxAgeText, err := parseDuration("backup_storage_max_age", manifest.BackupStorageMaxAge)
+	if err != nil {
+		return nil, err
+	}
+
+	auditExport, err := resolvePath("audit_export", manifest.AuditExport)
+	if err != nil {
+		return nil, err
+	}
+
+	auditExportMaxAge, auditExportMaxAgeText, err := parseDuration("audit_export_max_age", manifest.AuditExportMaxAge)
+	if err != nil {
+		return nil, err
+	}
+
+	holdReview, err := resolvePath("hold_review", manifest.HoldReview)
+	if err != nil {
+		return nil, err
+	}
+
+	holdReviewMaxAge, holdReviewMaxAgeText, err := parseDuration("hold_review_max_age", manifest.HoldReviewMaxAge)
+	if err != nil {
+		return nil, err
+	}
+
+	waiver, err := resolvePath("waiver", manifest.Waiver)
+	if err != nil {
+		return nil, err
+	}
+
+	if !changes.BackupManifest && backupManifest != "" {
+		backupOptions.ManifestPath = backupManifest
+	}
+
+	if !changes.BackupExpect && backupExpect != "" {
+		backupOptions.ExpectPath = backupExpect
+	}
+
+	if !changes.BackupStorageReports && len(backupStorageReports) > 0 {
+		backupOptions.StorageReportPaths = backupStorageReports
+	}
+
+	if !changes.BackupMaxAge && backupMaxAgeText != "" {
+		backupOptions.MaxAge = backupMaxAge
+	}
+
+	if !changes.BackupStorageMaxAge && backupStorageMaxAgeText != "" {
+		backupOptions.StorageReportMaxAge = backupStorageMaxAge
+	}
+
+	if !changes.AuditExport && auditExport != "" {
+		auditExportOptions.ExportPath = auditExport
+	}
+
+	if !changes.AuditExportMaxAge && auditExportMaxAgeText != "" {
+		auditExportOptions.MaxAge = auditExportMaxAge
+	}
+
+	if !changes.HoldReview && holdReview != "" {
+		holdReviewOptions.ReviewPath = holdReview
+	}
+
+	if !changes.HoldReviewMaxAge && holdReviewMaxAgeText != "" {
+		holdReviewOptions.MaxAge = holdReviewMaxAge
+	}
+
+	if !changes.Waiver && waiver != "" {
+		gateOptions.WaiverPath = waiver
+	}
+
+	if !changes.RequireBackupManifest && manifest.RequireBackupManifest != nil && *manifest.RequireBackupManifest {
+		gateOptions.RequireBackupManifest = true
+	}
+
+	if !changes.RequireAuditExport && manifest.RequireAuditExport != nil && *manifest.RequireAuditExport {
+		gateOptions.RequireAuditExport = true
+	}
+
+	if !changes.RequireHoldReview && manifest.RequireHoldReview != nil && *manifest.RequireHoldReview {
+		gateOptions.RequireHoldReview = true
+	}
+
+	return &retentionCleanupEvidenceManifestEvidence{
+		ManifestPath:          path,
+		Verified:              true,
+		CheckedAt:             checkedAt.UTC().Format(time.RFC3339),
+		SchemaVersion:         manifest.SchemaVersion,
+		GeneratedAt:           strings.TrimSpace(manifest.GeneratedAt),
+		GeneratedBy:           strings.TrimSpace(manifest.GeneratedBy),
+		ExternalRef:           strings.TrimSpace(manifest.ExternalRef),
+		BackupManifest:        backupManifest,
+		BackupExpect:          backupExpect,
+		BackupStorageReports:  backupStorageReports,
+		BackupMaxAge:          backupMaxAgeText,
+		BackupStorageMaxAge:   backupStorageMaxAgeText,
+		AuditExport:           auditExport,
+		AuditExportMaxAge:     auditExportMaxAgeText,
+		HoldReview:            holdReview,
+		HoldReviewMaxAge:      holdReviewMaxAgeText,
+		RequireBackupManifest: manifest.RequireBackupManifest != nil && *manifest.RequireBackupManifest,
+		RequireAuditExport:    manifest.RequireAuditExport != nil && *manifest.RequireAuditExport,
+		RequireHoldReview:     manifest.RequireHoldReview != nil && *manifest.RequireHoldReview,
+		Waiver:                waiver,
+	}, nil
 }
 
 func openRetentionDatabase() (*sql.DB, error) {
@@ -968,13 +1251,74 @@ func checkRetentionBackupManifest(options retentionBackupCheckOptions, checkedAt
 	return evidence, nil
 }
 
-func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence, holdReviewEvidence *retentionHoldReviewEvidence, waiverEvidence *retentionWaiverEvidence) {
+func printRetentionReport(w io.Writer, report retention.Report, fileReport retention.FileReport, backupEvidence *retentionBackupEvidence, auditExportEvidence *retentionAuditExportEvidence, holdReviewEvidence *retentionHoldReviewEvidence, evidenceManifest *retentionCleanupEvidenceManifestEvidence, waiverEvidence *retentionWaiverEvidence) {
 	prefix := "deleted"
 	if report.DryRun {
 		prefix = "would_delete"
 	}
 
 	fmt.Fprintf(w, "dry_run=%t\n", report.DryRun)
+	if evidenceManifest != nil {
+		fmt.Fprintf(w, "evidence_manifest_verified=%t\n", evidenceManifest.Verified)
+		fmt.Fprintf(w, "evidence_manifest_path=%s\n", evidenceManifest.ManifestPath)
+		fmt.Fprintf(w, "evidence_manifest_checked_at=%s\n", evidenceManifest.CheckedAt)
+		if evidenceManifest.GeneratedAt != "" {
+			fmt.Fprintf(w, "evidence_manifest_generated_at=%s\n", evidenceManifest.GeneratedAt)
+		}
+
+		if evidenceManifest.GeneratedBy != "" {
+			fmt.Fprintf(w, "evidence_manifest_generated_by=%s\n", evidenceManifest.GeneratedBy)
+		}
+
+		if evidenceManifest.ExternalRef != "" {
+			fmt.Fprintf(w, "evidence_manifest_external_ref=%s\n", evidenceManifest.ExternalRef)
+		}
+
+		if evidenceManifest.BackupManifest != "" {
+			fmt.Fprintf(w, "evidence_manifest_backup_manifest=%s\n", evidenceManifest.BackupManifest)
+		}
+
+		if evidenceManifest.BackupExpect != "" {
+			fmt.Fprintf(w, "evidence_manifest_backup_expect=%s\n", evidenceManifest.BackupExpect)
+		}
+
+		if len(evidenceManifest.BackupStorageReports) > 0 {
+			fmt.Fprintf(w, "evidence_manifest_backup_storage_reports=%d\n", len(evidenceManifest.BackupStorageReports))
+		}
+
+		if evidenceManifest.BackupMaxAge != "" {
+			fmt.Fprintf(w, "evidence_manifest_backup_max_age=%s\n", evidenceManifest.BackupMaxAge)
+		}
+
+		if evidenceManifest.BackupStorageMaxAge != "" {
+			fmt.Fprintf(w, "evidence_manifest_backup_storage_max_age=%s\n", evidenceManifest.BackupStorageMaxAge)
+		}
+
+		if evidenceManifest.AuditExport != "" {
+			fmt.Fprintf(w, "evidence_manifest_audit_export=%s\n", evidenceManifest.AuditExport)
+		}
+
+		if evidenceManifest.AuditExportMaxAge != "" {
+			fmt.Fprintf(w, "evidence_manifest_audit_export_max_age=%s\n", evidenceManifest.AuditExportMaxAge)
+		}
+
+		if evidenceManifest.HoldReview != "" {
+			fmt.Fprintf(w, "evidence_manifest_hold_review=%s\n", evidenceManifest.HoldReview)
+		}
+
+		if evidenceManifest.HoldReviewMaxAge != "" {
+			fmt.Fprintf(w, "evidence_manifest_hold_review_max_age=%s\n", evidenceManifest.HoldReviewMaxAge)
+		}
+
+		if evidenceManifest.Waiver != "" {
+			fmt.Fprintf(w, "evidence_manifest_waiver=%s\n", evidenceManifest.Waiver)
+		}
+
+		fmt.Fprintf(w, "evidence_manifest_require_backup_manifest=%t\n", evidenceManifest.RequireBackupManifest)
+		fmt.Fprintf(w, "evidence_manifest_require_audit_export=%t\n", evidenceManifest.RequireAuditExport)
+		fmt.Fprintf(w, "evidence_manifest_require_hold_review=%t\n", evidenceManifest.RequireHoldReview)
+	}
+
 	if backupEvidence != nil {
 		fmt.Fprintf(w, "backup_manifest_verified=%t\n", backupEvidence.Verified)
 		fmt.Fprintf(w, "backup_manifest_path=%s\n", backupEvidence.ManifestPath)
