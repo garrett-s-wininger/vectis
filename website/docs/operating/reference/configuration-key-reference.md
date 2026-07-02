@@ -197,6 +197,7 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.execution.checkout_cache_warm_interval` | `5m` | Worker cadence for warming persistent checkout mirrors. |
 | `worker.execution.checkout_cache_warm_timeout` | `30m` | Per-pass timeout for worker-driven checkout cache warming. |
 | `worker.execution.checkout_cache_warm_jitter_ratio` | `0.2` | Stable per-worker jitter ratio applied to checkout cache warm scheduling. |
+| `worker.execution.checkout_cache_warm_parallelism` | `1` | Worker-core remotes to warm concurrently during one checkout cache warm pass. |
 | `worker.execution.lima.path` | `limactl` | Lima CLI path for VM-backed execution. |
 | `worker.execution.lima.instance` | `""` | Lima instance name. |
 | `worker.execution.lima.guest_workspace_root` | `""` | Guest-visible workspace root for Lima execution. |

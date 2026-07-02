@@ -23,6 +23,7 @@ type ExecutorConfig struct {
 	CheckoutCacheRoot              string
 	CheckoutCacheGenerationsToKeep int
 	CheckoutCacheLeaseTTL          time.Duration
+	CheckoutCacheWarmParallelism   int
 	CheckoutCacheRemoteURLs        []string
 	CheckoutCacheRemotes           []CheckoutCacheRemote
 	Lima                           platform.VirtualMachineConfig

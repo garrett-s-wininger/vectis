@@ -300,6 +300,7 @@ type WorkerExecutionDefaults struct {
 	CheckoutCacheWarmInterval      tomlDuration                `toml:"checkout_cache_warm_interval"`
 	CheckoutCacheWarmTimeout       tomlDuration                `toml:"checkout_cache_warm_timeout"`
 	CheckoutCacheWarmJitterRatio   float64                     `toml:"checkout_cache_warm_jitter_ratio"`
+	CheckoutCacheWarmParallelism   int                         `toml:"checkout_cache_warm_parallelism"`
 	Lima                           WorkerExecutionLimaDefaults `toml:"lima"`
 }
 
@@ -453,6 +454,7 @@ func init() {
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_interval", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL")
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_timeout", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT")
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_jitter_ratio", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO")
+	_ = viper.BindEnv("worker.execution.checkout_cache_warm_parallelism", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_PARALLELISM", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_WARM_PARALLELISM")
 }
 
 func MustDefaults() Defaults {
@@ -691,6 +693,10 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.Execution.CheckoutCacheWarmJitterRatio < 0 || d.Worker.Execution.CheckoutCacheWarmJitterRatio > 1 {
 		panic("config defaults: worker.execution.checkout_cache_warm_jitter_ratio must be between 0 and 1")
+	}
+
+	if d.Worker.Execution.CheckoutCacheWarmParallelism <= 0 {
+		panic("config defaults: worker.execution.checkout_cache_warm_parallelism must be > 0")
 	}
 
 	if d.Worker.MetricsPort == d.Queue.MetricsPort {
@@ -1288,6 +1294,16 @@ func WorkerExecutionCheckoutCacheWarmJitterRatio() float64 {
 	}
 
 	return MustDefaults().Worker.Execution.CheckoutCacheWarmJitterRatio
+}
+
+func WorkerExecutionCheckoutCacheWarmParallelism() int {
+	if viper.IsSet("worker.execution.checkout_cache_warm_parallelism") {
+		if value := viper.GetInt("worker.execution.checkout_cache_warm_parallelism"); value > 0 {
+			return value
+		}
+	}
+
+	return MustDefaults().Worker.Execution.CheckoutCacheWarmParallelism
 }
 
 func WorkerExecutionLimaPath() string {

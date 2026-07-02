@@ -228,6 +228,7 @@ checkout_cache_lease_ttl = "1h"
 checkout_cache_warm_interval = "5m"
 checkout_cache_warm_timeout = "30m"
 checkout_cache_warm_jitter_ratio = 0.2
+checkout_cache_warm_parallelism = 1
 
 [worker.execution.lima]
 path = "limactl"

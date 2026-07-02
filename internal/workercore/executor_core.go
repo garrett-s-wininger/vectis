@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"vectis/internal/action"
@@ -16,6 +17,7 @@ type ExecutorCore struct {
 	checkoutCacheRoot              string
 	checkoutCacheGenerationsToKeep int
 	checkoutCacheLeaseTTL          time.Duration
+	checkoutCacheWarmParallelism   int
 }
 
 type ExecutorCoreOption func(*ExecutorCore)
@@ -35,6 +37,12 @@ func WithExecutorCheckoutCacheGenerationsToKeep(generationsToKeep int) ExecutorC
 func WithExecutorCheckoutCacheLeaseTTL(ttl time.Duration) ExecutorCoreOption {
 	return func(c *ExecutorCore) {
 		c.checkoutCacheLeaseTTL = ttl
+	}
+}
+
+func WithExecutorCheckoutCacheWarmParallelism(parallelism int) ExecutorCoreOption {
+	return func(c *ExecutorCore) {
+		c.checkoutCacheWarmParallelism = parallelism
 	}
 }
 
@@ -120,42 +128,133 @@ func (c *ExecutorCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCa
 		remotes = checkoutCacheRemotesFromURLs(req.RemoteURLs)
 	}
 
-	for _, remote := range uniqueCheckoutCacheRemotes(remotes) {
-		cache, err := c.checkoutCacheForRemotes([]CheckoutCacheRemote{remote})
-		if err != nil {
-			result.Failures = append(result.Failures, CheckoutCacheWarmFailure{
-				RemoteURL: remote.RemoteURL,
-				Message:   err.Error(),
-			})
+	return c.warmCheckoutCacheRemotes(ctx, remotes, c.checkoutCacheWarmParallelism)
+}
 
-			continue
+func (c *ExecutorCore) warmCheckoutCacheRemotes(ctx context.Context, remotes []CheckoutCacheRemote, parallelism int) (WarmCheckoutCacheResult, error) {
+	result := WarmCheckoutCacheResult{}
+	remotes = uniqueCheckoutCacheRemotes(remotes)
+	if len(remotes) == 0 {
+		return result, nil
+	}
+
+	if parallelism <= 1 || len(remotes) == 1 {
+		for _, remote := range remotes {
+			remoteResult, err := c.warmCheckoutCacheRemote(ctx, remote)
+			if err != nil {
+				return result, err
+			}
+
+			result.add(remoteResult)
 		}
 
-		handled, normalizedRemoteURL, changed, err := cache.WarmRemoteStatus(ctx, remote.RemoteURL, nil)
-		if err != nil {
-			if ctx.Err() != nil {
-				return result, ctx.Err()
+		return result, nil
+	}
+
+	if parallelism > len(remotes) {
+		parallelism = len(remotes)
+	}
+
+	jobs := make(chan CheckoutCacheRemote)
+	results := make(chan warmCheckoutCacheRemoteResult, len(remotes))
+	var wg sync.WaitGroup
+	wg.Add(parallelism)
+	for range parallelism {
+		go func() {
+			defer wg.Done()
+			for remote := range jobs {
+				remoteResult, err := c.warmCheckoutCacheRemote(ctx, remote)
+				if err != nil {
+					remoteResult.err = err
+				}
+
+				results <- remoteResult
 			}
+		}()
+	}
 
-			if normalizedRemoteURL == "" {
-				normalizedRemoteURL = remote.RemoteURL
-			}
-
-			result.Failures = append(result.Failures, CheckoutCacheWarmFailure{
-				RemoteURL: normalizedRemoteURL,
-				Message:   err.Error(),
-			})
-
-			continue
+	sent := 0
+	for _, remote := range remotes {
+		if err := ctx.Err(); err != nil {
+			break
 		}
 
-		if handled {
-			result.Warmed++
-			if changed {
-				result.Changed++
-			} else {
-				result.Unchanged++
-			}
+		select {
+		case <-ctx.Done():
+		case jobs <- remote:
+			sent++
+		}
+	}
+	close(jobs)
+
+	for range sent {
+		remoteResult := <-results
+		if remoteResult.err != nil {
+			return result, remoteResult.err
+		}
+
+		result.add(remoteResult)
+	}
+
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
+type warmCheckoutCacheRemoteResult struct {
+	warmed    int
+	changed   int
+	unchanged int
+	failures  []CheckoutCacheWarmFailure
+	err       error
+}
+
+func (r *WarmCheckoutCacheResult) add(remoteResult warmCheckoutCacheRemoteResult) {
+	r.Warmed += remoteResult.warmed
+	r.Changed += remoteResult.changed
+	r.Unchanged += remoteResult.unchanged
+	r.Failures = append(r.Failures, remoteResult.failures...)
+}
+
+func (c *ExecutorCore) warmCheckoutCacheRemote(ctx context.Context, remote CheckoutCacheRemote) (warmCheckoutCacheRemoteResult, error) {
+	result := warmCheckoutCacheRemoteResult{}
+	cache, err := c.checkoutCacheForRemotes([]CheckoutCacheRemote{remote})
+	if err != nil {
+		result.failures = append(result.failures, CheckoutCacheWarmFailure{
+			RemoteURL: remote.RemoteURL,
+			Message:   err.Error(),
+		})
+
+		return result, nil
+	}
+
+	handled, normalizedRemoteURL, changed, err := cache.WarmRemoteStatus(ctx, remote.RemoteURL, nil)
+	if err != nil {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
+		if normalizedRemoteURL == "" {
+			normalizedRemoteURL = remote.RemoteURL
+		}
+
+		result.failures = append(result.failures, CheckoutCacheWarmFailure{
+			RemoteURL: normalizedRemoteURL,
+			Message:   err.Error(),
+		})
+
+		return result, nil
+	}
+
+	if handled {
+		result.warmed = 1
+		if changed {
+			result.changed = 1
+		} else {
+			result.unchanged = 1
 		}
 	}
 

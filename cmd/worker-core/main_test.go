@@ -176,6 +176,7 @@ func TestWorkerCoreExecutorConfigUsesCheckoutCacheGenerationRetention(t *testing
 	viper.Set("checkout_cache_root", "/tmp/vectis-cache")
 	viper.Set("checkout_cache_generations_to_keep", 7)
 	viper.Set("checkout_cache_lease_ttl", 45*time.Minute)
+	viper.Set("checkout_cache_warm_parallelism", 4)
 
 	cfg, err := workerCoreExecutorConfig()
 	if err != nil {
@@ -192,6 +193,10 @@ func TestWorkerCoreExecutorConfigUsesCheckoutCacheGenerationRetention(t *testing
 
 	if cfg.CheckoutCacheLeaseTTL != 45*time.Minute {
 		t.Fatalf("checkout cache lease TTL = %v, want 45m", cfg.CheckoutCacheLeaseTTL)
+	}
+
+	if cfg.CheckoutCacheWarmParallelism != 4 {
+		t.Fatalf("checkout cache warm parallelism = %d, want 4", cfg.CheckoutCacheWarmParallelism)
 	}
 }
 

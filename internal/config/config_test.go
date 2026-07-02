@@ -1181,6 +1181,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	if got := WorkerExecutionCheckoutCacheWarmJitterRatio(); got != 0.2 {
 		t.Fatalf("default checkout cache warm jitter ratio = %v, want 0.2", got)
 	}
+	if got := WorkerExecutionCheckoutCacheWarmParallelism(); got != 1 {
+		t.Fatalf("default checkout cache warm parallelism = %d, want 1", got)
+	}
 	if got := WorkerExecutionLimaInstance(); got != "" {
 		t.Fatalf("default lima instance = %q, want empty", got)
 	}
@@ -1202,6 +1205,7 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	viper.Set("worker.execution.checkout_cache_warm_interval", 10*time.Minute)
 	viper.Set("worker.execution.checkout_cache_warm_timeout", 45*time.Minute)
 	viper.Set("worker.execution.checkout_cache_warm_jitter_ratio", 0.5)
+	viper.Set("worker.execution.checkout_cache_warm_parallelism", 4)
 	viper.Set("worker.execution.lima.path", "/opt/homebrew/bin/limactl")
 	viper.Set("worker.execution.lima.instance", "vectis-worker")
 	viper.Set("worker.execution.lima.guest_workspace_root", "/tmp/vectis-workspaces")
@@ -1231,6 +1235,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	}
 	if got := WorkerExecutionCheckoutCacheWarmJitterRatio(); got != 0.5 {
 		t.Fatalf("override checkout cache warm jitter ratio = %v", got)
+	}
+	if got := WorkerExecutionCheckoutCacheWarmParallelism(); got != 4 {
+		t.Fatalf("override checkout cache warm parallelism = %d, want 4", got)
 	}
 	if got := WorkerExecutionLimaPath(); got != "/opt/homebrew/bin/limactl" {
 		t.Fatalf("override lima path = %q", got)
@@ -1267,6 +1274,10 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	viper.Set("worker.execution.checkout_cache_warm_jitter_ratio", 2.0)
 	if got := WorkerExecutionCheckoutCacheWarmJitterRatio(); got != 0.2 {
 		t.Fatalf("invalid checkout cache warm jitter ratio should use default: got %v", got)
+	}
+	viper.Set("worker.execution.checkout_cache_warm_parallelism", 0)
+	if got := WorkerExecutionCheckoutCacheWarmParallelism(); got != 1 {
+		t.Fatalf("invalid checkout cache warm parallelism should use default: got %d", got)
 	}
 }
 
