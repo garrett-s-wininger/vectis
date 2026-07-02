@@ -194,6 +194,7 @@ Production deployments normally set `VECTIS_DATABASE_DRIVER=pgx` and either one 
 | `worker.execution.checkout_cache_root` | `""` | Worker-core checkout cache root; `VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT` enables persistent mirrors and worker-driven warming for source repositories with `worker_cache_mode=persistent`. |
 | `worker.execution.checkout_cache_generations_to_keep` | `2` | Number of immutable worker-core checkout cache mirror generations retained per persistent remote. Active checkout leases can temporarily keep older generations. |
 | `worker.execution.checkout_cache_lease_ttl` | `1h` | Maximum age for an unrefreshed worker-core checkout cache generation lease or abandoned receive directory before cleanup treats it as stale. Active cache-backed checkouts refresh their lease markers while in flight. |
+| `worker.execution.checkout_cache_max_bytes` | `0` | Per-remote worker-core checkout cache pack-byte budget across retained mirror generations. `0` disables byte-budget eviction; current and leased generations are retained even when the budget is exceeded. |
 | `worker.execution.checkout_cache_warm_interval` | `5m` | Worker cadence for warming persistent checkout mirrors. |
 | `worker.execution.checkout_cache_warm_timeout` | `30m` | Per-pass timeout for worker-driven checkout cache warming. |
 | `worker.execution.checkout_cache_warm_jitter_ratio` | `0.2` | Stable per-worker jitter ratio applied to checkout cache warm scheduling. |

@@ -64,6 +64,7 @@ func TestSQLiteMigrations_UpDownRoundTrip(t *testing.T) {
 		"checkout_mode",
 		"authoring_mode",
 		"fallback_remote_urls",
+		"worker_cache_warm_refspecs",
 		"sync_status",
 		"last_sync_started_at_unix",
 		"last_sync_finished_at_unix",

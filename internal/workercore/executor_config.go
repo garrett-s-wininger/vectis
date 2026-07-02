@@ -23,6 +23,7 @@ type ExecutorConfig struct {
 	CheckoutCacheRoot              string
 	CheckoutCacheGenerationsToKeep int
 	CheckoutCacheLeaseTTL          time.Duration
+	CheckoutCacheMaxBytes          int64
 	CheckoutCacheWarmParallelism   int
 	CheckoutCacheRemoteURLs        []string
 	CheckoutCacheRemotes           []CheckoutCacheRemote
@@ -46,7 +47,7 @@ func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
 	}
 
 	if checkoutCacheRoot := strings.TrimSpace(cfg.CheckoutCacheRoot); checkoutCacheRoot != "" && len(checkoutCacheRemotes) > 0 {
-		checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(checkoutCacheRoot, sourceWorkerCheckoutCacheRemotes(checkoutCacheRemotes), workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep, cfg.CheckoutCacheLeaseTTL)...)
+		checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(checkoutCacheRoot, sourceWorkerCheckoutCacheRemotes(checkoutCacheRemotes), workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep, cfg.CheckoutCacheLeaseTTL, cfg.CheckoutCacheMaxBytes)...)
 		if err != nil {
 			return nil, "", err
 		}

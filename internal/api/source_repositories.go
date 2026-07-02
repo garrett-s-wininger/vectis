@@ -23,6 +23,7 @@ import (
 	jobvalidation "vectis/internal/job/validation"
 	"vectis/internal/observability"
 	sourcepkg "vectis/internal/source"
+	"vectis/internal/source/refspec"
 	"vectis/internal/utils"
 )
 
@@ -48,49 +49,52 @@ func (e sourceRefHydrationPendingError) Error() string {
 }
 
 type sourceRepositoryRequest struct {
-	RepositoryID       string   `json:"repository_id"`
-	Namespace          string   `json:"namespace"`
-	SourceKind         string   `json:"source_kind"`
-	CheckoutPath       string   `json:"checkout_path"`
-	CheckoutMode       string   `json:"checkout_mode"`
-	AuthoringMode      string   `json:"authoring_mode"`
-	WorkerCacheMode    string   `json:"worker_cache_mode"`
-	CanonicalURL       string   `json:"canonical_url"`
-	FallbackRemoteURLs []string `json:"fallback_remote_urls,omitempty"`
-	DefaultRef         string   `json:"default_ref"`
-	CredentialRef      string   `json:"credential_ref"`
-	Enabled            *bool    `json:"enabled"`
+	RepositoryID            string   `json:"repository_id"`
+	Namespace               string   `json:"namespace"`
+	SourceKind              string   `json:"source_kind"`
+	CheckoutPath            string   `json:"checkout_path"`
+	CheckoutMode            string   `json:"checkout_mode"`
+	AuthoringMode           string   `json:"authoring_mode"`
+	WorkerCacheMode         string   `json:"worker_cache_mode"`
+	CanonicalURL            string   `json:"canonical_url"`
+	FallbackRemoteURLs      []string `json:"fallback_remote_urls,omitempty"`
+	WorkerCacheWarmRefspecs []string `json:"worker_cache_warm_refspecs,omitempty"`
+	DefaultRef              string   `json:"default_ref"`
+	CredentialRef           string   `json:"credential_ref"`
+	Enabled                 *bool    `json:"enabled"`
 }
 
 type sourceRepositoryUpdateRequest struct {
-	SourceKind         *string   `json:"source_kind"`
-	CheckoutPath       *string   `json:"checkout_path"`
-	CheckoutMode       *string   `json:"checkout_mode"`
-	AuthoringMode      *string   `json:"authoring_mode"`
-	WorkerCacheMode    *string   `json:"worker_cache_mode"`
-	CanonicalURL       *string   `json:"canonical_url"`
-	FallbackRemoteURLs *[]string `json:"fallback_remote_urls"`
-	DefaultRef         *string   `json:"default_ref"`
-	CredentialRef      *string   `json:"credential_ref"`
-	Enabled            *bool     `json:"enabled"`
+	SourceKind              *string   `json:"source_kind"`
+	CheckoutPath            *string   `json:"checkout_path"`
+	CheckoutMode            *string   `json:"checkout_mode"`
+	AuthoringMode           *string   `json:"authoring_mode"`
+	WorkerCacheMode         *string   `json:"worker_cache_mode"`
+	CanonicalURL            *string   `json:"canonical_url"`
+	FallbackRemoteURLs      *[]string `json:"fallback_remote_urls"`
+	WorkerCacheWarmRefspecs *[]string `json:"worker_cache_warm_refspecs"`
+	DefaultRef              *string   `json:"default_ref"`
+	CredentialRef           *string   `json:"credential_ref"`
+	Enabled                 *bool     `json:"enabled"`
 }
 
 type sourceRepositoryResponse struct {
-	RepositoryID       string                       `json:"repository_id"`
-	Namespace          string                       `json:"namespace"`
-	SourceKind         string                       `json:"source_kind"`
-	CheckoutPath       string                       `json:"checkout_path,omitempty"`
-	CheckoutMode       string                       `json:"checkout_mode"`
-	AuthoringMode      string                       `json:"authoring_mode"`
-	WorkerCacheMode    string                       `json:"worker_cache_mode"`
-	Authoring          sourceRepositoryAuthoring    `json:"authoring"`
-	CanonicalURL       string                       `json:"canonical_url,omitempty"`
-	FallbackRemoteURLs []string                     `json:"fallback_remote_urls,omitempty"`
-	DefaultRef         string                       `json:"default_ref,omitempty"`
-	CredentialRef      string                       `json:"credential_ref,omitempty"`
-	Declared           bool                         `json:"declared"`
-	Enabled            bool                         `json:"enabled"`
-	Sync               sourceRepositorySyncResponse `json:"sync"`
+	RepositoryID            string                       `json:"repository_id"`
+	Namespace               string                       `json:"namespace"`
+	SourceKind              string                       `json:"source_kind"`
+	CheckoutPath            string                       `json:"checkout_path,omitempty"`
+	CheckoutMode            string                       `json:"checkout_mode"`
+	AuthoringMode           string                       `json:"authoring_mode"`
+	WorkerCacheMode         string                       `json:"worker_cache_mode"`
+	Authoring               sourceRepositoryAuthoring    `json:"authoring"`
+	CanonicalURL            string                       `json:"canonical_url,omitempty"`
+	FallbackRemoteURLs      []string                     `json:"fallback_remote_urls,omitempty"`
+	WorkerCacheWarmRefspecs []string                     `json:"worker_cache_warm_refspecs,omitempty"`
+	DefaultRef              string                       `json:"default_ref,omitempty"`
+	CredentialRef           string                       `json:"credential_ref,omitempty"`
+	Declared                bool                         `json:"declared"`
+	Enabled                 bool                         `json:"enabled"`
+	Sync                    sourceRepositorySyncResponse `json:"sync"`
 }
 
 type sourceRepositorySyncResponse struct {
@@ -406,6 +410,13 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	req.FallbackRemoteURLs = fallbackRemoteURLs
+	workerCacheWarmRefspecs, err := normalizeSourceRepositoryWarmRefspecs(req.WorkerCacheWarmRefspecs)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_worker_cache_warm_refspec", "worker_cache_warm_refspecs contains an unsafe Git fetch refspec", nil)
+		return
+	}
+
+	req.WorkerCacheWarmRefspecs = workerCacheWarmRefspecs
 	req.DefaultRef = strings.TrimSpace(req.DefaultRef)
 	req.CredentialRef = strings.TrimSpace(req.CredentialRef)
 
@@ -532,18 +543,19 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	rec, err := s.sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
-		RepositoryID:       req.RepositoryID,
-		NamespaceID:        ns.ID,
-		SourceKind:         req.SourceKind,
-		CheckoutPath:       req.CheckoutPath,
-		CheckoutMode:       req.CheckoutMode,
-		AuthoringMode:      req.AuthoringMode,
-		WorkerCacheMode:    req.WorkerCacheMode,
-		CanonicalURL:       req.CanonicalURL,
-		FallbackRemoteURLs: req.FallbackRemoteURLs,
-		DefaultRef:         req.DefaultRef,
-		CredentialRef:      req.CredentialRef,
-		Enabled:            enabled,
+		RepositoryID:            req.RepositoryID,
+		NamespaceID:             ns.ID,
+		SourceKind:              req.SourceKind,
+		CheckoutPath:            req.CheckoutPath,
+		CheckoutMode:            req.CheckoutMode,
+		AuthoringMode:           req.AuthoringMode,
+		WorkerCacheMode:         req.WorkerCacheMode,
+		CanonicalURL:            req.CanonicalURL,
+		FallbackRemoteURLs:      req.FallbackRemoteURLs,
+		WorkerCacheWarmRefspecs: req.WorkerCacheWarmRefspecs,
+		DefaultRef:              req.DefaultRef,
+		CredentialRef:           req.CredentialRef,
+		Enabled:                 enabled,
 	})
 
 	if err != nil {
@@ -2198,6 +2210,16 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 		updated.FallbackRemoteURLs = fallbackRemoteURLs
 	}
 
+	if req.WorkerCacheWarmRefspecs != nil {
+		workerCacheWarmRefspecs, err := normalizeSourceRepositoryWarmRefspecs(*req.WorkerCacheWarmRefspecs)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_worker_cache_warm_refspec", "worker_cache_warm_refspecs contains an unsafe Git fetch refspec", nil)
+			return
+		}
+
+		updated.WorkerCacheWarmRefspecs = workerCacheWarmRefspecs
+	}
+
 	if req.DefaultRef != nil {
 		updated.DefaultRef = strings.TrimSpace(*req.DefaultRef)
 	}
@@ -2503,21 +2525,22 @@ func (s *APIServer) sourceRepositoryDeclarationIDsForResponse(w http.ResponseWri
 
 func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string, declared map[string]struct{}) sourceRepositoryResponse {
 	return sourceRepositoryResponse{
-		RepositoryID:       rec.RepositoryID,
-		Namespace:          namespacePath,
-		SourceKind:         rec.SourceKind,
-		CheckoutPath:       rec.CheckoutPath,
-		CheckoutMode:       rec.CheckoutMode,
-		AuthoringMode:      rec.AuthoringMode,
-		WorkerCacheMode:    rec.WorkerCacheMode,
-		Authoring:          s.sourceRepositoryAuthoringFromRecord(rec),
-		CanonicalURL:       rec.CanonicalURL,
-		FallbackRemoteURLs: rec.FallbackRemoteURLs,
-		DefaultRef:         rec.DefaultRef,
-		CredentialRef:      rec.CredentialRef,
-		Declared:           sourceRepositoryIsDeclared(rec.RepositoryID, declared),
-		Enabled:            rec.Enabled,
-		Sync:               sourceRepositorySyncRecordToResponse(rec),
+		RepositoryID:            rec.RepositoryID,
+		Namespace:               namespacePath,
+		SourceKind:              rec.SourceKind,
+		CheckoutPath:            rec.CheckoutPath,
+		CheckoutMode:            rec.CheckoutMode,
+		AuthoringMode:           rec.AuthoringMode,
+		WorkerCacheMode:         rec.WorkerCacheMode,
+		Authoring:               s.sourceRepositoryAuthoringFromRecord(rec),
+		CanonicalURL:            rec.CanonicalURL,
+		FallbackRemoteURLs:      rec.FallbackRemoteURLs,
+		WorkerCacheWarmRefspecs: rec.WorkerCacheWarmRefspecs,
+		DefaultRef:              rec.DefaultRef,
+		CredentialRef:           rec.CredentialRef,
+		Declared:                sourceRepositoryIsDeclared(rec.RepositoryID, declared),
+		Enabled:                 rec.Enabled,
+		Sync:                    sourceRepositorySyncRecordToResponse(rec),
 	}
 }
 
@@ -2830,6 +2853,10 @@ func normalizeSourceRepositoryFallbackRemoteURLs(in []string) ([]string, error) 
 	}
 
 	return out, nil
+}
+
+func normalizeSourceRepositoryWarmRefspecs(in []string) ([]string, error) {
+	return refspec.NormalizeFetchRefspecs(in)
 }
 
 func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string {

@@ -297,6 +297,7 @@ type WorkerExecutionDefaults struct {
 	CheckoutCacheRoot              string                      `toml:"checkout_cache_root"`
 	CheckoutCacheGenerationsToKeep int                         `toml:"checkout_cache_generations_to_keep"`
 	CheckoutCacheLeaseTTL          tomlDuration                `toml:"checkout_cache_lease_ttl"`
+	CheckoutCacheMaxBytes          int64                       `toml:"checkout_cache_max_bytes"`
 	CheckoutCacheWarmInterval      tomlDuration                `toml:"checkout_cache_warm_interval"`
 	CheckoutCacheWarmTimeout       tomlDuration                `toml:"checkout_cache_warm_timeout"`
 	CheckoutCacheWarmJitterRatio   float64                     `toml:"checkout_cache_warm_jitter_ratio"`
@@ -451,6 +452,7 @@ func init() {
 	_ = viper.BindEnv("worker.execution.checkout_cache_root", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_ROOT", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT")
 	_ = viper.BindEnv("worker.execution.checkout_cache_generations_to_keep", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_GENERATIONS_TO_KEEP", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_GENERATIONS_TO_KEEP")
 	_ = viper.BindEnv("worker.execution.checkout_cache_lease_ttl", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_LEASE_TTL", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_LEASE_TTL")
+	_ = viper.BindEnv("worker.execution.checkout_cache_max_bytes", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_MAX_BYTES", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_MAX_BYTES")
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_interval", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL")
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_timeout", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT")
 	_ = viper.BindEnv("worker.execution.checkout_cache_warm_jitter_ratio", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO")
@@ -685,6 +687,10 @@ func validateDefaults(d Defaults) {
 
 	if d.Worker.Execution.CheckoutCacheLeaseTTL <= 0 {
 		panic("config defaults: worker.execution.checkout_cache_lease_ttl must be > 0")
+	}
+
+	if d.Worker.Execution.CheckoutCacheMaxBytes < 0 {
+		panic("config defaults: worker.execution.checkout_cache_max_bytes must be >= 0")
 	}
 
 	if d.Worker.Execution.CheckoutCacheWarmTimeout <= 0 {
@@ -1264,6 +1270,16 @@ func WorkerExecutionCheckoutCacheLeaseTTL() time.Duration {
 	}
 
 	return time.Duration(MustDefaults().Worker.Execution.CheckoutCacheLeaseTTL)
+}
+
+func WorkerExecutionCheckoutCacheMaxBytes() int64 {
+	if viper.IsSet("worker.execution.checkout_cache_max_bytes") {
+		if value := viper.GetInt64("worker.execution.checkout_cache_max_bytes"); value >= 0 {
+			return value
+		}
+	}
+
+	return MustDefaults().Worker.Execution.CheckoutCacheMaxBytes
 }
 
 func WorkerExecutionCheckoutCacheWarmInterval() time.Duration {

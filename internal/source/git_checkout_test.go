@@ -811,3 +811,9 @@ func git(t *testing.T, repo string, args ...string) {
 	t.Helper()
 	_ = gitOutput(t, repo, args...)
 }
+
+func gitErr(repo string, args ...string) error {
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	_, err := cmd.CombinedOutput()
+	return err
+}

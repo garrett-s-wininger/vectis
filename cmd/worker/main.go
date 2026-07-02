@@ -919,6 +919,7 @@ func sourceRepositoryCheckoutCacheRemotes(ctx context.Context, repositories []da
 		fallbackRemoteURLs := checkoutCacheUniqueRemoteURLs(repository.FallbackRemoteURLs, remoteURL)
 		if existing, ok := seen[remoteURL]; ok {
 			out[existing].FallbackRemoteURLs = checkoutCacheUniqueRemoteURLs(append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...), remoteURL)
+			out[existing].WarmRefspecs = mergeWorkerCheckoutCacheWarmRefspecs(out[existing].WarmRefspecs, repository.WorkerCacheWarmRefspecs)
 			if out[existing].Credentials.IsZero() && !credentials.IsZero() {
 				out[existing].Credentials = credentials
 			}
@@ -929,11 +930,44 @@ func sourceRepositoryCheckoutCacheRemotes(ctx context.Context, repositories []da
 		out = append(out, workercore.CheckoutCacheRemote{
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: fallbackRemoteURLs,
+			WarmRefspecs:       checkoutCacheUniqueWarmRefspecs(repository.WorkerCacheWarmRefspecs),
 			Credentials:        credentials,
 		})
 	}
 
 	return out, failures
+}
+
+func mergeWorkerCheckoutCacheWarmRefspecs(existing, incoming []string) []string {
+	if len(existing) == 0 || len(incoming) == 0 {
+		return nil
+	}
+
+	return checkoutCacheUniqueWarmRefspecs(append(append([]string(nil), existing...), incoming...))
+}
+
+func checkoutCacheUniqueWarmRefspecs(refspecs []string) []string {
+	if len(refspecs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(refspecs))
+	out := make([]string, 0, len(refspecs))
+	for _, refspec := range refspecs {
+		refspec = strings.TrimSpace(refspec)
+		if refspec == "" {
+			continue
+		}
+
+		if _, ok := seen[refspec]; ok {
+			continue
+		}
+
+		seen[refspec] = struct{}{}
+		out = append(out, refspec)
+	}
+
+	return out
 }
 
 func checkoutCacheRemoteURLsFromWorkerRemotes(remotes []workercore.CheckoutCacheRemote) []string {

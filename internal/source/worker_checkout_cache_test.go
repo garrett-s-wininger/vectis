@@ -547,6 +547,173 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightOverlaysFallbackRefs(t *testin
 	}
 }
 
+func TestWorkerCheckoutCacheWarmRefspecsLimitInitialMirror(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+	git(t, remote, "notes", "--ref=commits", "add", "-m", "not warmed", mainCommit)
+	git(t, remote, "checkout", "-b", "review/not-warmed")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "update-ref", "refs/pull/789/head", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+		{
+			RemoteURL:    remote,
+			WarmRefspecs: []string{"+refs/heads/*:refs/heads/*"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
+	}
+
+	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || !changed {
+		t.Fatalf("WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
+	}
+
+	currentPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	if got := gitOutput(t, currentPath, "show-ref", "--verify", "refs/heads/"+defaultBranch); got == "" {
+		t.Fatalf("expected default branch ref in warm mirror")
+	}
+
+	if err := gitErr(currentPath, "show-ref", "--verify", "refs/notes/commits"); err == nil {
+		t.Fatal("notes ref was warmed despite heads-only policy")
+	}
+
+	if err := gitErr(currentPath, "show-ref", "--verify", "refs/pull/789/head"); err == nil {
+		t.Fatal("provider ref was warmed despite heads-only policy")
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := cache.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("Checkout: handled=%v err=%v", handled, err)
+	}
+
+	if got := gitOutput(t, workspace, "rev-parse", "HEAD"); got != mainCommit {
+		t.Fatalf("workspace HEAD = %q, want %q", got, mainCommit)
+	}
+}
+
+func TestWorkerCheckoutCacheFetchRefspecsHydratesOutsideWarmPolicy(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "main\n", "main")
+	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
+	git(t, remote, "checkout", "-b", "review/demand")
+	writeAndCommit(t, remote, "README.md", "review\n", "review")
+	reviewCommit := gitOutput(t, remote, "rev-parse", "HEAD")
+	git(t, remote, "update-ref", "refs/pull/456/head", reviewCommit)
+	git(t, remote, "checkout", defaultBranch)
+
+	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+		{
+			RemoteURL:    remote,
+			WarmRefspecs: []string{"+refs/heads/*:refs/heads/*"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	firstGeneration := currentWorkerCheckoutGeneration(t, cache, remote)
+	if err := gitErr(firstGeneration, "show-ref", "--verify", "refs/pull/456/head"); err == nil {
+		t.Fatal("provider ref was unexpectedly present before demand hydration")
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := cache.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("Checkout: handled=%v err=%v", handled, err)
+	}
+
+	handled, err := cache.FetchRefspecs(context.Background(), remote, workspace, []string{
+		"+refs/pull/456/head:refs/vectis/test/pull-456",
+	}, nil)
+
+	if err != nil || !handled {
+		t.Fatalf("FetchRefspecs: handled=%v err=%v", handled, err)
+	}
+
+	if got := gitOutput(t, workspace, "rev-parse", "refs/vectis/test/pull-456"); got != reviewCommit {
+		t.Fatalf("demand hydrated ref = %q, want %q", got, reviewCommit)
+	}
+
+	currentPath := currentWorkerCheckoutGeneration(t, cache, remote)
+	if currentPath == firstGeneration {
+		t.Fatal("demand hydration did not install a new generation")
+	}
+
+	if got := gitOutput(t, currentPath, "rev-parse", "refs/pull/456/head"); got != reviewCommit {
+		t.Fatalf("cache provider ref = %q, want %q", got, reviewCommit)
+	}
+}
+
+func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "healthy\n", "healthy")
+	git(t, remote, "gc", "--aggressive")
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	corruptGeneration := currentWorkerCheckoutGeneration(t, cache, remote)
+	packFiles, err := filepath.Glob(filepath.Join(corruptGeneration, "objects", "pack", "*.pack"))
+	if err != nil {
+		t.Fatalf("glob pack files: %v", err)
+	}
+
+	if len(packFiles) == 0 {
+		t.Fatal("expected pack files to corrupt")
+	}
+
+	for _, packFile := range packFiles {
+		if err := os.Remove(packFile); err != nil {
+			t.Fatalf("remove pack file %s: %v", packFile, err)
+		}
+	}
+
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	if handled, err := cache.Checkout(context.Background(), remote, workspace, nil); err != nil || !handled {
+		t.Fatalf("Checkout self-heal: handled=%v err=%v", handled, err)
+	}
+
+	if got, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(got) != "healthy\n" {
+		t.Fatalf("workspace README = %q, %v", got, err)
+	}
+
+	if healedGeneration := currentWorkerCheckoutGeneration(t, cache, remote); healedGeneration == corruptGeneration {
+		t.Fatal("checkout self-heal did not replace corrupt generation")
+	}
+
+	if _, err := os.Stat(corruptGeneration); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("corrupt generation still exists after self-heal: err=%v", err)
+	}
+}
+
 func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	cache, err := NewWorkerCheckoutCache(
@@ -585,6 +752,67 @@ func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 		if info, err := os.Stat(filepath.Join(repoPath, "generations", name)); err != nil || !info.IsDir() {
 			t.Fatalf("kept generation %s: info=%v err=%v", name, info, err)
 		}
+	}
+}
+
+func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
+	remote := "https://example.invalid/large.git"
+	cache, err := NewWorkerCheckoutCache(
+		filepath.Join(t.TempDir(), "cache"),
+		[]string{remote},
+		WithWorkerCheckoutCacheGenerationsToKeep(10),
+		WithWorkerCheckoutCacheMaxBytes(20),
+	)
+
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	repoPath := cache.repositoryPath(remote)
+	generationNames := []string{
+		"generation-00000000000000000001-1.git",
+		"generation-00000000000000000002-1.git",
+		"generation-00000000000000000003-1.git",
+	}
+
+	for _, name := range generationNames {
+		packPath := filepath.Join(repoPath, "generations", name, "objects", "pack")
+		if err := os.MkdirAll(packPath, 0o755); err != nil {
+			t.Fatalf("create pack dir %s: %v", packPath, err)
+		}
+
+		if err := os.WriteFile(filepath.Join(packPath, "pack-test.pack"), bytes.Repeat([]byte{'x'}, 10), 0o644); err != nil {
+			t.Fatalf("write pack file: %v", err)
+		}
+	}
+
+	if err := os.Symlink(filepath.Join("generations", generationNames[2]), filepath.Join(repoPath, "current")); err != nil {
+		t.Fatalf("create current generation link: %v", err)
+	}
+
+	leaseDir := filepath.Join(repoPath, "leases", generationNames[0])
+	if err := os.MkdirAll(leaseDir, 0o755); err != nil {
+		t.Fatalf("create lease dir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(leaseDir, "active"), []byte("leased"), 0o644); err != nil {
+		t.Fatalf("write active lease: %v", err)
+	}
+
+	if err := cache.cleanupOldGenerations(context.Background(), repoPath); err != nil {
+		t.Fatalf("cleanupOldGenerations: %v", err)
+	}
+
+	if info, err := os.Stat(filepath.Join(repoPath, "generations", generationNames[0])); err != nil || !info.IsDir() {
+		t.Fatalf("leased generation was removed: info=%v err=%v", info, err)
+	}
+
+	if _, err := os.Stat(filepath.Join(repoPath, "generations", generationNames[1])); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unleased generation still exists after budget cleanup: err=%v", err)
+	}
+
+	if info, err := os.Stat(filepath.Join(repoPath, "generations", generationNames[2])); err != nil || !info.IsDir() {
+		t.Fatalf("current generation was removed: info=%v err=%v", info, err)
 	}
 }
 

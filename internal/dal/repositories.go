@@ -159,26 +159,27 @@ type JobRecord struct {
 }
 
 type SourceRepositoryRecord struct {
-	ID                     int64
-	GlobalID               string
-	RepositoryID           string
-	NamespaceID            int64
-	SourceKind             string
-	CheckoutPath           string
-	CheckoutMode           string
-	AuthoringMode          string
-	WorkerCacheMode        string
-	CanonicalURL           string
-	FallbackRemoteURLs     []string
-	DefaultRef             string
-	CredentialRef          string
-	Enabled                bool
-	SyncStatus             string
-	LastSyncStartedAtUnix  int64
-	LastSyncFinishedAtUnix int64
-	LastSyncRef            string
-	LastSyncCommit         string
-	LastSyncError          string
+	ID                      int64
+	GlobalID                string
+	RepositoryID            string
+	NamespaceID             int64
+	SourceKind              string
+	CheckoutPath            string
+	CheckoutMode            string
+	AuthoringMode           string
+	WorkerCacheMode         string
+	CanonicalURL            string
+	FallbackRemoteURLs      []string
+	WorkerCacheWarmRefspecs []string
+	DefaultRef              string
+	CredentialRef           string
+	Enabled                 bool
+	SyncStatus              string
+	LastSyncStartedAtUnix   int64
+	LastSyncFinishedAtUnix  int64
+	LastSyncRef             string
+	LastSyncCommit          string
+	LastSyncError           string
 }
 
 type SourceRepositorySyncRecord struct {

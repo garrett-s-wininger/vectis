@@ -58,6 +58,7 @@ type WarmCheckoutCacheResult struct {
 type CheckoutCacheRemote struct {
 	RemoteURL          string
 	FallbackRemoteURLs []string
+	WarmRefspecs       []string
 	Credentials        source.GitCredentials
 }
 
@@ -281,6 +282,7 @@ func cloneCheckoutCacheRemotes(in []CheckoutCacheRemote) []CheckoutCacheRemote {
 	for _, remote := range in {
 		remote.RemoteURL = strings.TrimSpace(remote.RemoteURL)
 		remote.FallbackRemoteURLs = cloneStringSlice(remote.FallbackRemoteURLs)
+		remote.WarmRefspecs = cloneStringSlice(remote.WarmRefspecs)
 		if remote.RemoteURL == "" && len(remote.FallbackRemoteURLs) == 0 {
 			continue
 		}

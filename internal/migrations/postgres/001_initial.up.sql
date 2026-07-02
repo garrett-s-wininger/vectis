@@ -502,6 +502,7 @@ CREATE TABLE source_repositories (
     worker_cache_mode TEXT NOT NULL DEFAULT 'ephemeral' CHECK (worker_cache_mode IN ('ephemeral', 'persistent')),
     canonical_url TEXT NOT NULL DEFAULT '',
     fallback_remote_urls TEXT NOT NULL DEFAULT '',
+    worker_cache_warm_refspecs TEXT NOT NULL DEFAULT '',
     default_ref TEXT NOT NULL DEFAULT '',
     credential_ref TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT true,

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"vectis/internal/source/refspec"
 )
 
 type SQLSourcesRepository struct {
@@ -33,11 +35,12 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 			worker_cache_mode,
 			canonical_url,
 			fallback_remote_urls,
+			worker_cache_warm_refspecs,
 			default_ref,
 			credential_ref,
 			enabled
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`),
 		newGlobalID(),
@@ -50,6 +53,7 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 		rec.WorkerCacheMode,
 		rec.CanonicalURL,
 		encodeSourceRepositoryFallbackRemoteURLs(rec.FallbackRemoteURLs),
+		encodeSourceRepositoryWorkerCacheWarmRefspecs(rec.WorkerCacheWarmRefspecs),
 		rec.DefaultRef,
 		rec.CredentialRef,
 		rec.Enabled,
@@ -76,6 +80,7 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 			worker_cache_mode = ?,
 			canonical_url = ?,
 			fallback_remote_urls = ?,
+			worker_cache_warm_refspecs = ?,
 			default_ref = ?,
 			credential_ref = ?,
 			enabled = ?,
@@ -89,6 +94,7 @@ func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceR
 		rec.WorkerCacheMode,
 		rec.CanonicalURL,
 		encodeSourceRepositoryFallbackRemoteURLs(rec.FallbackRemoteURLs),
+		encodeSourceRepositoryWorkerCacheWarmRefspecs(rec.WorkerCacheWarmRefspecs),
 		rec.DefaultRef,
 		rec.CredentialRef,
 		rec.Enabled,
@@ -269,6 +275,7 @@ func (r *SQLSourcesRepository) GetRepository(ctx context.Context, repositoryID s
 			COALESCE(worker_cache_mode, ''),
 			canonical_url,
 			COALESCE(fallback_remote_urls, ''),
+			COALESCE(worker_cache_warm_refspecs, ''),
 			default_ref,
 			credential_ref,
 			enabled,
@@ -307,6 +314,7 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 			COALESCE(worker_cache_mode, ''),
 			canonical_url,
 			COALESCE(fallback_remote_urls, ''),
+			COALESCE(worker_cache_warm_refspecs, ''),
 			default_ref,
 			credential_ref,
 			enabled,
@@ -361,6 +369,7 @@ func (r *SQLSourcesRepository) ListRepositoriesByWorkerCacheMode(ctx context.Con
 			COALESCE(worker_cache_mode, ''),
 			canonical_url,
 			COALESCE(fallback_remote_urls, ''),
+			COALESCE(worker_cache_warm_refspecs, ''),
 			default_ref,
 			credential_ref,
 			enabled,
@@ -453,6 +462,11 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	rec.WorkerCacheMode = strings.TrimSpace(rec.WorkerCacheMode)
 	rec.CanonicalURL = strings.TrimSpace(rec.CanonicalURL)
 	rec.FallbackRemoteURLs = normalizeSourceRepositoryFallbackRemoteURLs(rec.FallbackRemoteURLs)
+	workerCacheWarmRefspecs, err := refspec.NormalizeFetchRefspecs(rec.WorkerCacheWarmRefspecs)
+	if err != nil {
+		return SourceRepositoryRecord{}, fmt.Errorf("%w: worker_cache_warm_refspecs: %v", ErrConflict, err)
+	}
+	rec.WorkerCacheWarmRefspecs = workerCacheWarmRefspecs
 	rec.DefaultRef = strings.TrimSpace(rec.DefaultRef)
 	rec.CredentialRef = strings.TrimSpace(rec.CredentialRef)
 	rec.SyncStatus = strings.TrimSpace(rec.SyncStatus)
@@ -573,6 +587,39 @@ func decodeSourceRepositoryFallbackRemoteURLs(raw string) ([]string, error) {
 	}
 
 	return normalizeSourceRepositoryFallbackRemoteURLs(out), nil
+}
+
+func encodeSourceRepositoryWorkerCacheWarmRefspecs(in []string) string {
+	in, err := refspec.NormalizeFetchRefspecs(in)
+	if err != nil || len(in) == 0 {
+		return ""
+	}
+
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return ""
+	}
+
+	return string(raw)
+}
+
+func decodeSourceRepositoryWorkerCacheWarmRefspecs(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	normalized, err := refspec.NormalizeFetchRefspecs(out)
+	if err != nil {
+		return nil, normalizeSQLError(err)
+	}
+
+	return normalized, nil
 }
 
 func normalizeSourceRepositorySyncRecord(rec SourceRepositorySyncRecord) (SourceRepositorySyncRecord, error) {
@@ -969,6 +1016,7 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 	var rec SourceRepositoryRecord
 	var enabledRaw any
 	var fallbackRemoteURLsRaw string
+	var workerCacheWarmRefspecsRaw string
 	err := row.Scan(
 		&rec.ID,
 		&rec.GlobalID,
@@ -981,6 +1029,7 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 		&rec.WorkerCacheMode,
 		&rec.CanonicalURL,
 		&fallbackRemoteURLsRaw,
+		&workerCacheWarmRefspecsRaw,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
 		&enabledRaw,
@@ -1008,6 +1057,12 @@ func (r *SQLSourcesRepository) scanRepositoryRow(row *sql.Row) (SourceRepository
 	}
 
 	rec.FallbackRemoteURLs = fallbackRemoteURLs
+	workerCacheWarmRefspecs, err := decodeSourceRepositoryWorkerCacheWarmRefspecs(workerCacheWarmRefspecsRaw)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
+	}
+
+	rec.WorkerCacheWarmRefspecs = workerCacheWarmRefspecs
 
 	if rec.CheckoutMode == "" {
 		rec.CheckoutMode = SourceCheckoutModeExternal
@@ -1032,6 +1087,7 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 	var rec SourceRepositoryRecord
 	var enabledRaw any
 	var fallbackRemoteURLsRaw string
+	var workerCacheWarmRefspecsRaw string
 	if err := rows.Scan(
 		&rec.ID,
 		&rec.GlobalID,
@@ -1044,6 +1100,7 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 		&rec.WorkerCacheMode,
 		&rec.CanonicalURL,
 		&fallbackRemoteURLsRaw,
+		&workerCacheWarmRefspecsRaw,
 		&rec.DefaultRef,
 		&rec.CredentialRef,
 		&enabledRaw,
@@ -1069,6 +1126,12 @@ func (r *SQLSourcesRepository) scanRepositoryRows(rows *sql.Rows) (SourceReposit
 	}
 
 	rec.FallbackRemoteURLs = fallbackRemoteURLs
+	workerCacheWarmRefspecs, err := decodeSourceRepositoryWorkerCacheWarmRefspecs(workerCacheWarmRefspecsRaw)
+	if err != nil {
+		return SourceRepositoryRecord{}, err
+	}
+
+	rec.WorkerCacheWarmRefspecs = workerCacheWarmRefspecs
 
 	if rec.CheckoutMode == "" {
 		rec.CheckoutMode = SourceCheckoutModeExternal

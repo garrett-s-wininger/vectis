@@ -78,6 +78,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 		workercore.WithExecutorCheckoutCacheRoot(executorConfig.CheckoutCacheRoot),
 		workercore.WithExecutorCheckoutCacheGenerationsToKeep(executorConfig.CheckoutCacheGenerationsToKeep),
 		workercore.WithExecutorCheckoutCacheLeaseTTL(executorConfig.CheckoutCacheLeaseTTL),
+		workercore.WithExecutorCheckoutCacheMaxBytes(executorConfig.CheckoutCacheMaxBytes),
 		workercore.WithExecutorCheckoutCacheWarmParallelism(executorConfig.CheckoutCacheWarmParallelism),
 	), workercore.ServiceOptions{
 		Logger:         logger,
@@ -108,7 +109,7 @@ func runWorkerCore(cmd *cobra.Command, args []string) {
 	logger.Info("Worker core listening on %s", socketPath)
 	logger.Info("Worker core execution backend: %s", backend)
 	if strings.TrimSpace(executorConfig.CheckoutCacheRoot) != "" && len(executorConfig.CheckoutCacheRemoteURLs) > 0 {
-		logger.Info("Worker core checkout cache enabled: root=%s persistent_remotes=%d generations_to_keep=%d lease_ttl=%s warm_parallelism=%d", executorConfig.CheckoutCacheRoot, len(executorConfig.CheckoutCacheRemoteURLs), executorConfig.CheckoutCacheGenerationsToKeep, executorConfig.CheckoutCacheLeaseTTL, executorConfig.CheckoutCacheWarmParallelism)
+		logger.Info("Worker core checkout cache enabled: root=%s persistent_remotes=%d generations_to_keep=%d lease_ttl=%s max_bytes=%d warm_parallelism=%d", executorConfig.CheckoutCacheRoot, len(executorConfig.CheckoutCacheRemoteURLs), executorConfig.CheckoutCacheGenerationsToKeep, executorConfig.CheckoutCacheLeaseTTL, executorConfig.CheckoutCacheMaxBytes, executorConfig.CheckoutCacheWarmParallelism)
 	}
 
 	if err := grpcServer.Serve(listener); err != nil && ctx.Err() == nil {
@@ -152,6 +153,11 @@ func workerCoreExecutorConfig() (workercore.ExecutorConfig, error) {
 		checkoutCacheLeaseTTL = config.WorkerExecutionCheckoutCacheLeaseTTL()
 	}
 
+	checkoutCacheMaxBytes := viper.GetInt64("checkout_cache_max_bytes")
+	if checkoutCacheMaxBytes <= 0 {
+		checkoutCacheMaxBytes = config.WorkerExecutionCheckoutCacheMaxBytes()
+	}
+
 	checkoutCacheWarmParallelism := viper.GetInt("checkout_cache_warm_parallelism")
 	if checkoutCacheWarmParallelism <= 0 {
 		checkoutCacheWarmParallelism = config.WorkerExecutionCheckoutCacheWarmParallelism()
@@ -163,6 +169,7 @@ func workerCoreExecutorConfig() (workercore.ExecutorConfig, error) {
 		CheckoutCacheRoot:              checkoutCacheRoot,
 		CheckoutCacheGenerationsToKeep: checkoutCacheGenerationsToKeep,
 		CheckoutCacheLeaseTTL:          checkoutCacheLeaseTTL,
+		CheckoutCacheMaxBytes:          checkoutCacheMaxBytes,
 		CheckoutCacheWarmParallelism:   checkoutCacheWarmParallelism,
 		CheckoutCacheRemoteURLs:        workerCoreCheckoutCacheRemoteURLs(persistentRemotes),
 		CheckoutCacheRemotes:           persistentRemotes,
@@ -223,6 +230,7 @@ func workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(credentialRe
 		fallbackRemoteURLs := workerCoreUniqueRemoteURLs(decl.FallbackRemoteURLs, remoteURL)
 		if existing, ok := seen[remoteURL]; ok {
 			out[existing].FallbackRemoteURLs = workerCoreUniqueRemoteURLs(append(out[existing].FallbackRemoteURLs, fallbackRemoteURLs...), remoteURL)
+			out[existing].WarmRefspecs = mergeWorkerCoreCheckoutCacheWarmRefspecs(out[existing].WarmRefspecs, decl.WorkerCacheWarmRefspecs)
 			if out[existing].Credentials.IsZero() && !credentials.IsZero() {
 				out[existing].Credentials = credentials
 			}
@@ -234,11 +242,44 @@ func workerCorePersistentCheckoutCacheRemotesWithCredentialResolver(credentialRe
 		out = append(out, workercore.CheckoutCacheRemote{
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: fallbackRemoteURLs,
+			WarmRefspecs:       workerCoreUniqueWarmRefspecs(decl.WorkerCacheWarmRefspecs),
 			Credentials:        credentials,
 		})
 	}
 
 	return out, nil
+}
+
+func mergeWorkerCoreCheckoutCacheWarmRefspecs(existing, incoming []string) []string {
+	if len(existing) == 0 || len(incoming) == 0 {
+		return nil
+	}
+
+	return workerCoreUniqueWarmRefspecs(append(append([]string(nil), existing...), incoming...))
+}
+
+func workerCoreUniqueWarmRefspecs(refspecs []string) []string {
+	if len(refspecs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(refspecs))
+	out := make([]string, 0, len(refspecs))
+	for _, refspec := range refspecs {
+		refspec = strings.TrimSpace(refspec)
+		if refspec == "" {
+			continue
+		}
+
+		if _, ok := seen[refspec]; ok {
+			continue
+		}
+
+		seen[refspec] = struct{}{}
+		out = append(out, refspec)
+	}
+
+	return out
 }
 
 func workerCoreSourceRepositoryCredentials(ctx context.Context, decl config.SourceRepositoryDeclaration, credentialResolver sourcepkg.RepositoryCredentialResolver) (sourcepkg.GitCredentials, error) {
@@ -343,6 +384,7 @@ func init() {
 	rootCmd.PersistentFlags().String("checkout-cache-root", "", "Persistent worker checkout cache root for source repositories with worker_cache_mode=persistent")
 	rootCmd.PersistentFlags().Int("checkout-cache-generations-to-keep", 0, "Persistent checkout cache mirror generations to keep per remote; 0 uses worker execution config")
 	rootCmd.PersistentFlags().Duration("checkout-cache-lease-ttl", 0, "Persistent checkout cache generation lease TTL; 0 uses worker execution config")
+	rootCmd.PersistentFlags().Int64("checkout-cache-max-bytes", 0, "Persistent checkout cache pack-byte budget per remote; 0 uses worker execution config")
 	rootCmd.PersistentFlags().Int("checkout-cache-warm-parallelism", 0, "Persistent checkout cache remotes to warm concurrently; 0 uses worker execution config")
 	rootCmd.PersistentFlags().String("lima-path", "", "Path to limactl when --execution-backend=lima")
 	rootCmd.PersistentFlags().String("lima-instance", "", "Lima instance name when --execution-backend=lima")
@@ -358,6 +400,7 @@ func init() {
 	_ = viper.BindPFlag("checkout_cache_root", rootCmd.PersistentFlags().Lookup("checkout-cache-root"))
 	_ = viper.BindPFlag("checkout_cache_generations_to_keep", rootCmd.PersistentFlags().Lookup("checkout-cache-generations-to-keep"))
 	_ = viper.BindPFlag("checkout_cache_lease_ttl", rootCmd.PersistentFlags().Lookup("checkout-cache-lease-ttl"))
+	_ = viper.BindPFlag("checkout_cache_max_bytes", rootCmd.PersistentFlags().Lookup("checkout-cache-max-bytes"))
 	_ = viper.BindPFlag("checkout_cache_warm_parallelism", rootCmd.PersistentFlags().Lookup("checkout-cache-warm-parallelism"))
 	_ = viper.BindPFlag("lima_path", rootCmd.PersistentFlags().Lookup("lima-path"))
 	_ = viper.BindPFlag("lima_instance", rootCmd.PersistentFlags().Lookup("lima-instance"))

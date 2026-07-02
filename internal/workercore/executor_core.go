@@ -17,6 +17,7 @@ type ExecutorCore struct {
 	checkoutCacheRoot              string
 	checkoutCacheGenerationsToKeep int
 	checkoutCacheLeaseTTL          time.Duration
+	checkoutCacheMaxBytes          int64
 	checkoutCacheWarmParallelism   int
 }
 
@@ -37,6 +38,12 @@ func WithExecutorCheckoutCacheGenerationsToKeep(generationsToKeep int) ExecutorC
 func WithExecutorCheckoutCacheLeaseTTL(ttl time.Duration) ExecutorCoreOption {
 	return func(c *ExecutorCore) {
 		c.checkoutCacheLeaseTTL = ttl
+	}
+}
+
+func WithExecutorCheckoutCacheMaxBytes(maxBytes int64) ExecutorCoreOption {
+	return func(c *ExecutorCore) {
+		c.checkoutCacheMaxBytes = maxBytes
 	}
 }
 
@@ -271,7 +278,7 @@ func (c *ExecutorCore) recordCheckoutCacheRootStats(ctx context.Context) {
 		return
 	}
 
-	cache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, nil, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL)...)
+	cache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, nil, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL, c.checkoutCacheMaxBytes)...)
 	if err != nil {
 		return
 	}
@@ -298,7 +305,7 @@ func (c *ExecutorCore) checkoutCacheForRemotes(remotes []CheckoutCacheRemote) (*
 		return nil, nil
 	}
 
-	checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(c.checkoutCacheRoot, sourceWorkerCheckoutCacheRemotes(remotes), workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL)...)
+	checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(c.checkoutCacheRoot, sourceWorkerCheckoutCacheRemotes(remotes), workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL, c.checkoutCacheMaxBytes)...)
 	if err != nil {
 		return nil, fmt.Errorf("initialize task checkout cache: %w", err)
 	}
@@ -316,6 +323,7 @@ func sourceWorkerCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []source.Wo
 		out = append(out, source.WorkerCheckoutCacheRemote{
 			RemoteURL:          remote.RemoteURL,
 			FallbackRemoteURLs: cloneStringSlice(remote.FallbackRemoteURLs),
+			WarmRefspecs:       cloneStringSlice(remote.WarmRefspecs),
 			Credentials:        remote.Credentials,
 		})
 	}
@@ -323,15 +331,21 @@ func sourceWorkerCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []source.Wo
 	return out
 }
 
-func workerCheckoutCacheOptions(generationsToKeep int, leaseTTL time.Duration) []source.WorkerCheckoutCacheOption {
+func workerCheckoutCacheOptions(generationsToKeep int, leaseTTL time.Duration, maxBytes int64) []source.WorkerCheckoutCacheOption {
 	options := []source.WorkerCheckoutCacheOption{
 		source.WithWorkerCheckoutCacheCloneRecorder(recordCheckoutCacheClone),
 	}
+
 	if generationsToKeep > 0 {
 		options = append(options, source.WithWorkerCheckoutCacheGenerationsToKeep(generationsToKeep))
 	}
+
 	if leaseTTL > 0 {
 		options = append(options, source.WithWorkerCheckoutCacheLeaseTTL(leaseTTL))
+	}
+
+	if maxBytes > 0 {
+		options = append(options, source.WithWorkerCheckoutCacheMaxBytes(maxBytes))
 	}
 
 	return options
@@ -376,6 +390,7 @@ func uniqueCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []CheckoutCacheRe
 
 		if existing, ok := seen[remoteURL]; ok {
 			out[existing].FallbackRemoteURLs = uniqueCheckoutCacheRemoteURLs(append(out[existing].FallbackRemoteURLs, remote.FallbackRemoteURLs...))
+			out[existing].WarmRefspecs = mergeCheckoutCacheWarmRefspecs(out[existing].WarmRefspecs, remote.WarmRefspecs)
 			if out[existing].Credentials.IsZero() && !remote.Credentials.IsZero() {
 				out[existing].Credentials = remote.Credentials
 			}
@@ -387,7 +402,41 @@ func uniqueCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []CheckoutCacheRe
 		out = append(out, CheckoutCacheRemote{
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: uniqueCheckoutCacheRemoteURLs(remote.FallbackRemoteURLs),
+			WarmRefspecs:       uniqueCheckoutCacheWarmRefspecs(remote.WarmRefspecs),
+			Credentials:        remote.Credentials,
 		})
+	}
+
+	return out
+}
+
+func mergeCheckoutCacheWarmRefspecs(existing, incoming []string) []string {
+	if len(existing) == 0 || len(incoming) == 0 {
+		return nil
+	}
+
+	return uniqueCheckoutCacheWarmRefspecs(append(append([]string(nil), existing...), incoming...))
+}
+
+func uniqueCheckoutCacheWarmRefspecs(refspecs []string) []string {
+	if len(refspecs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(refspecs))
+	out := make([]string, 0, len(refspecs))
+	for _, refspec := range refspecs {
+		refspec = strings.TrimSpace(refspec)
+		if refspec == "" {
+			continue
+		}
+
+		if _, ok := seen[refspec]; ok {
+			continue
+		}
+
+		seen[refspec] = struct{}{}
+		out = append(out, refspec)
 	}
 
 	return out

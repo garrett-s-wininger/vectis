@@ -1172,6 +1172,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	if got := WorkerExecutionCheckoutCacheLeaseTTL(); got != time.Hour {
 		t.Fatalf("default checkout cache lease TTL = %v, want 1h", got)
 	}
+	if got := WorkerExecutionCheckoutCacheMaxBytes(); got != 0 {
+		t.Fatalf("default checkout cache max bytes = %d, want 0", got)
+	}
 	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 5*time.Minute {
 		t.Fatalf("default checkout cache warm interval = %v, want 5m", got)
 	}
@@ -1202,6 +1205,7 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	viper.Set("worker.execution.checkout_cache_root", "/Users/me/vectis-cache")
 	viper.Set("worker.execution.checkout_cache_generations_to_keep", 5)
 	viper.Set("worker.execution.checkout_cache_lease_ttl", 90*time.Minute)
+	viper.Set("worker.execution.checkout_cache_max_bytes", int64(1<<30))
 	viper.Set("worker.execution.checkout_cache_warm_interval", 10*time.Minute)
 	viper.Set("worker.execution.checkout_cache_warm_timeout", 45*time.Minute)
 	viper.Set("worker.execution.checkout_cache_warm_jitter_ratio", 0.5)
@@ -1226,6 +1230,9 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	}
 	if got := WorkerExecutionCheckoutCacheLeaseTTL(); got != 90*time.Minute {
 		t.Fatalf("override checkout cache lease TTL = %v", got)
+	}
+	if got := WorkerExecutionCheckoutCacheMaxBytes(); got != 1<<30 {
+		t.Fatalf("override checkout cache max bytes = %d", got)
 	}
 	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 10*time.Minute {
 		t.Fatalf("override checkout cache warm interval = %v", got)
@@ -1262,6 +1269,10 @@ func TestWorkerExecutionDefaultsAndOverrides(t *testing.T) {
 	viper.Set("worker.execution.checkout_cache_lease_ttl", time.Duration(0))
 	if got := WorkerExecutionCheckoutCacheLeaseTTL(); got != time.Hour {
 		t.Fatalf("invalid checkout cache lease TTL should use default: got %v", got)
+	}
+	viper.Set("worker.execution.checkout_cache_max_bytes", int64(-1))
+	if got := WorkerExecutionCheckoutCacheMaxBytes(); got != 0 {
+		t.Fatalf("invalid checkout cache max bytes should use default: got %d", got)
 	}
 	viper.Set("worker.execution.checkout_cache_warm_interval", time.Duration(0))
 	if got := WorkerExecutionCheckoutCacheWarmInterval(); got != 5*time.Minute {

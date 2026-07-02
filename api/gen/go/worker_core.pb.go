@@ -658,6 +658,7 @@ type WorkerCoreCheckoutCacheRemote struct {
 	RemoteUrl          *string                   `protobuf:"bytes,1,opt,name=remote_url,json=remoteUrl" json:"remote_url,omitempty"`
 	FallbackRemoteUrls []string                  `protobuf:"bytes,2,rep,name=fallback_remote_urls,json=fallbackRemoteUrls" json:"fallback_remote_urls,omitempty"`
 	Credentials        *WorkerCoreGitCredentials `protobuf:"bytes,3,opt,name=credentials" json:"credentials,omitempty"`
+	WarmRefspecs       []string                  `protobuf:"bytes,4,rep,name=warm_refspecs,json=warmRefspecs" json:"warm_refspecs,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -709,6 +710,13 @@ func (x *WorkerCoreCheckoutCacheRemote) GetFallbackRemoteUrls() []string {
 func (x *WorkerCoreCheckoutCacheRemote) GetCredentials() *WorkerCoreGitCredentials {
 	if x != nil {
 		return x.Credentials
+	}
+	return nil
+}
+
+func (x *WorkerCoreCheckoutCacheRemote) GetWarmRefspecs() []string {
+	if x != nil {
+		return x.WarmRefspecs
 	}
 	return nil
 }
@@ -1648,12 +1656,13 @@ const file_worker_core_proto_rawDesc = "" +
 	"\x11artifacts_enabled\x18\x06 \x01(\bR\x10artifactsEnabled\x12>\n" +
 	"\fsecret_files\x18\a \x03(\v2\x1b.secrets.SecretFileMaterialR\vsecretFiles\x12;\n" +
 	"\x1acheckout_cache_remote_urls\x18\b \x03(\tR\x17checkoutCacheRemoteUrls\x12T\n" +
-	"\x16checkout_cache_remotes\x18\t \x03(\v2\x1e.WorkerCoreCheckoutCacheRemoteR\x14checkoutCacheRemotes\"\xad\x01\n" +
+	"\x16checkout_cache_remotes\x18\t \x03(\v2\x1e.WorkerCoreCheckoutCacheRemoteR\x14checkoutCacheRemotes\"\xd2\x01\n" +
 	"\x1dWorkerCoreCheckoutCacheRemote\x12\x1d\n" +
 	"\n" +
 	"remote_url\x18\x01 \x01(\tR\tremoteUrl\x120\n" +
 	"\x14fallback_remote_urls\x18\x02 \x03(\tR\x12fallbackRemoteUrls\x12;\n" +
-	"\vcredentials\x18\x03 \x01(\v2\x19.WorkerCoreGitCredentialsR\vcredentials\"\xa2\x01\n" +
+	"\vcredentials\x18\x03 \x01(\v2\x19.WorkerCoreGitCredentialsR\vcredentials\x12#\n" +
+	"\rwarm_refspecs\x18\x04 \x03(\tR\fwarmRefspecs\"\xa2\x01\n" +
 	"\x18WorkerCoreGitCredentials\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12&\n" +

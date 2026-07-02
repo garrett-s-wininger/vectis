@@ -225,6 +225,7 @@ workspace_root = ""
 checkout_cache_root = ""
 checkout_cache_generations_to_keep = 2
 checkout_cache_lease_ttl = "1h"
+checkout_cache_max_bytes = 0
 checkout_cache_warm_interval = "5m"
 checkout_cache_warm_timeout = "30m"
 checkout_cache_warm_jitter_ratio = 0.2

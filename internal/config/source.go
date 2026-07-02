@@ -52,18 +52,19 @@ const (
 )
 
 type SourceRepositoryDeclaration struct {
-	RepositoryID       string   `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
-	Namespace          string   `json:"namespace" mapstructure:"namespace" toml:"namespace"`
-	SourceKind         string   `json:"source_kind" mapstructure:"source_kind" toml:"source_kind"`
-	CheckoutPath       string   `json:"checkout_path" mapstructure:"checkout_path" toml:"checkout_path"`
-	CheckoutMode       string   `json:"checkout_mode" mapstructure:"checkout_mode" toml:"checkout_mode"`
-	AuthoringMode      string   `json:"authoring_mode" mapstructure:"authoring_mode" toml:"authoring_mode"`
-	WorkerCacheMode    string   `json:"worker_cache_mode" mapstructure:"worker_cache_mode" toml:"worker_cache_mode"`
-	CanonicalURL       string   `json:"canonical_url" mapstructure:"canonical_url" toml:"canonical_url"`
-	FallbackRemoteURLs []string `json:"fallback_remote_urls" mapstructure:"fallback_remote_urls" toml:"fallback_remote_urls"`
-	DefaultRef         string   `json:"default_ref" mapstructure:"default_ref" toml:"default_ref"`
-	CredentialRef      string   `json:"credential_ref" mapstructure:"credential_ref" toml:"credential_ref"`
-	Enabled            *bool    `json:"enabled" mapstructure:"enabled" toml:"enabled"`
+	RepositoryID            string   `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
+	Namespace               string   `json:"namespace" mapstructure:"namespace" toml:"namespace"`
+	SourceKind              string   `json:"source_kind" mapstructure:"source_kind" toml:"source_kind"`
+	CheckoutPath            string   `json:"checkout_path" mapstructure:"checkout_path" toml:"checkout_path"`
+	CheckoutMode            string   `json:"checkout_mode" mapstructure:"checkout_mode" toml:"checkout_mode"`
+	AuthoringMode           string   `json:"authoring_mode" mapstructure:"authoring_mode" toml:"authoring_mode"`
+	WorkerCacheMode         string   `json:"worker_cache_mode" mapstructure:"worker_cache_mode" toml:"worker_cache_mode"`
+	CanonicalURL            string   `json:"canonical_url" mapstructure:"canonical_url" toml:"canonical_url"`
+	FallbackRemoteURLs      []string `json:"fallback_remote_urls" mapstructure:"fallback_remote_urls" toml:"fallback_remote_urls"`
+	WorkerCacheWarmRefspecs []string `json:"worker_cache_warm_refspecs" mapstructure:"worker_cache_warm_refspecs" toml:"worker_cache_warm_refspecs"`
+	DefaultRef              string   `json:"default_ref" mapstructure:"default_ref" toml:"default_ref"`
+	CredentialRef           string   `json:"credential_ref" mapstructure:"credential_ref" toml:"credential_ref"`
+	Enabled                 *bool    `json:"enabled" mapstructure:"enabled" toml:"enabled"`
 }
 
 type SourceScheduleDeclaration struct {
@@ -281,6 +282,11 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 			return nil, fmt.Errorf("source.repositories[%d].fallback_remote_urls: %w", i, err)
 		}
 		repo.FallbackRemoteURLs = fallbackRemoteURLs
+		workerCacheWarmRefspecs, err := refspec.NormalizeFetchRefspecs(repo.WorkerCacheWarmRefspecs)
+		if err != nil {
+			return nil, fmt.Errorf("source.repositories[%d].worker_cache_warm_refspecs: %w", i, err)
+		}
+		repo.WorkerCacheWarmRefspecs = workerCacheWarmRefspecs
 		repo.DefaultRef = strings.TrimSpace(repo.DefaultRef)
 		repo.CredentialRef = strings.TrimSpace(repo.CredentialRef)
 

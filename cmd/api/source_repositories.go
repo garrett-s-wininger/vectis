@@ -14,6 +14,7 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/secrets"
 	sourcepkg "vectis/internal/source"
+	"vectis/internal/source/refspec"
 	"vectis/internal/utils"
 )
 
@@ -525,18 +526,19 @@ func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLReposit
 	}
 
 	return dal.SourceRepositoryRecord{
-		RepositoryID:       decl.RepositoryID,
-		NamespaceID:        ns.ID,
-		SourceKind:         sourceKind,
-		CheckoutPath:       checkoutPath,
-		CheckoutMode:       checkoutMode,
-		AuthoringMode:      authoringMode,
-		WorkerCacheMode:    workerCacheMode,
-		CanonicalURL:       strings.TrimSpace(decl.CanonicalURL),
-		FallbackRemoteURLs: normalizeConfiguredSourceRepositoryFallbackRemoteURLs(decl.FallbackRemoteURLs),
-		DefaultRef:         strings.TrimSpace(decl.DefaultRef),
-		CredentialRef:      strings.TrimSpace(decl.CredentialRef),
-		Enabled:            enabled,
+		RepositoryID:            decl.RepositoryID,
+		NamespaceID:             ns.ID,
+		SourceKind:              sourceKind,
+		CheckoutPath:            checkoutPath,
+		CheckoutMode:            checkoutMode,
+		AuthoringMode:           authoringMode,
+		WorkerCacheMode:         workerCacheMode,
+		CanonicalURL:            strings.TrimSpace(decl.CanonicalURL),
+		FallbackRemoteURLs:      normalizeConfiguredSourceRepositoryFallbackRemoteURLs(decl.FallbackRemoteURLs),
+		WorkerCacheWarmRefspecs: normalizeConfiguredSourceRepositoryWarmRefspecs(decl.WorkerCacheWarmRefspecs),
+		DefaultRef:              strings.TrimSpace(decl.DefaultRef),
+		CredentialRef:           strings.TrimSpace(decl.CredentialRef),
+		Enabled:                 enabled,
 	}, namespacePath, nil
 }
 
@@ -548,6 +550,7 @@ func configuredSourceRepositoryEqual(existing, desired dal.SourceRepositoryRecor
 		existing.WorkerCacheMode == desired.WorkerCacheMode &&
 		existing.CanonicalURL == desired.CanonicalURL &&
 		sameConfiguredSourceRepositoryFallbackRemoteURLs(existing.FallbackRemoteURLs, desired.FallbackRemoteURLs) &&
+		sameConfiguredSourceRepositoryWarmRefspecs(existing.WorkerCacheWarmRefspecs, desired.WorkerCacheWarmRefspecs) &&
 		existing.DefaultRef == desired.DefaultRef &&
 		existing.CredentialRef == desired.CredentialRef &&
 		existing.Enabled == desired.Enabled
@@ -584,6 +587,31 @@ func normalizeConfiguredSourceRepositoryFallbackRemoteURLs(in []string) []string
 func sameConfiguredSourceRepositoryFallbackRemoteURLs(a, b []string) bool {
 	a = normalizeConfiguredSourceRepositoryFallbackRemoteURLs(a)
 	b = normalizeConfiguredSourceRepositoryFallbackRemoteURLs(b)
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func normalizeConfiguredSourceRepositoryWarmRefspecs(in []string) []string {
+	out, err := refspec.NormalizeFetchRefspecs(in)
+	if err != nil {
+		return nil
+	}
+
+	return out
+}
+
+func sameConfiguredSourceRepositoryWarmRefspecs(a, b []string) bool {
+	a = normalizeConfiguredSourceRepositoryWarmRefspecs(a)
+	b = normalizeConfiguredSourceRepositoryWarmRefspecs(b)
 	if len(a) != len(b) {
 		return false
 	}

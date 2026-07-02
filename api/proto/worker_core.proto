@@ -84,6 +84,7 @@ message WorkerCoreCheckoutCacheRemote {
     string remote_url = 1;
     repeated string fallback_remote_urls = 2;
     WorkerCoreGitCredentials credentials = 3;
+    repeated string warm_refspecs = 4;
 }
 
 message WorkerCoreGitCredentials {

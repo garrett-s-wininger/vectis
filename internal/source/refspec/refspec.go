@@ -42,6 +42,79 @@ func NormalizeRef(ref string) (string, error) {
 	return ref, nil
 }
 
+func NormalizeFetchRefspecs(refspecs []string) ([]string, error) {
+	if len(refspecs) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(refspecs))
+	out := make([]string, 0, len(refspecs))
+	for _, raw := range refspecs {
+		refspec, err := NormalizeFetchRefspec(raw)
+		if err != nil {
+			return nil, err
+		}
+
+		if refspec == "" {
+			continue
+		}
+
+		if _, ok := seen[refspec]; ok {
+			continue
+		}
+
+		seen[refspec] = struct{}{}
+		out = append(out, refspec)
+	}
+
+	return out, nil
+}
+
+func NormalizeFetchRefspec(raw string) (string, error) {
+	refspec := strings.TrimSpace(raw)
+	if refspec == "" {
+		return "", nil
+	}
+
+	if strings.HasPrefix(refspec, "-") || strings.ContainsAny(refspec, "\x00\n\r\t ") {
+		return "", fmt.Errorf("unsafe fetch refspec %q", raw)
+	}
+
+	trimmed := strings.TrimPrefix(refspec, "+")
+	parts := strings.Split(trimmed, ":")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("fetch refspec %q must be source:destination", raw)
+	}
+
+	sourceHasWildcard := strings.Contains(parts[0], "*")
+	destHasWildcard := strings.Contains(parts[1], "*")
+	if sourceHasWildcard != destHasWildcard {
+		return "", fmt.Errorf("fetch refspec %q wildcard must appear on both sides", raw)
+	}
+
+	for _, ref := range parts {
+		if !strings.HasPrefix(ref, "refs/") ||
+			strings.HasPrefix(ref, "refs/../") ||
+			strings.Contains(ref, "//") ||
+			strings.Contains(ref, "..") ||
+			strings.Contains(ref, "@{") ||
+			strings.ContainsAny(ref, "~^:?[\\") {
+			return "", fmt.Errorf("unsafe fetch refspec %q", raw)
+		}
+
+		for _, part := range strings.Split(ref, "/") {
+			if part == "" ||
+				strings.HasPrefix(part, ".") ||
+				strings.HasSuffix(part, ".") ||
+				strings.HasSuffix(part, ".lock") {
+				return "", fmt.Errorf("unsafe fetch refspec %q", raw)
+			}
+		}
+	}
+
+	return refspec, nil
+}
+
 func NormalizeTreeListPath(filePath string) (string, error) {
 	filePath = strings.TrimSpace(filepath.ToSlash(filePath))
 	if filePath == "" || filePath == "." {

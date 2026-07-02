@@ -17,7 +17,7 @@ For the public HTTP API, see [API Reference](../../using/api-reference.md) and [
 | `OrchestratorService` | `vectis-orchestrator` | `api/proto/orchestrator.proto` | `LoadRun`, `ListPending`, `ClaimExecution`, `RenewExecutionLease`, `CompleteExecution`, `GetRunTaskCompletion`, `GetRunTaskSnapshot`, `ExecutionStream` | `orchestrator.port` (`8087`) | Workers claiming, leasing, completing, and reducing task executions |
 | `SecretsService` | `vectis-secrets` | `api/proto/secrets.proto` | `ResolveSecrets` | `secrets.port` (`8090`) | Workers resolving task-scoped job secret files |
 | `WorkerControlService` | `vectis-worker` | `api/proto/worker_control.proto` | `CancelRun` | `worker.control.port` (`9084`) or `worker.control.port_min` to `worker.control.port_max` | API cancellation path through worker-control discovery |
-| `WorkerCoreService` | `vectis-worker-core` | `api/proto/worker_core.proto` | `DescribeCore`, `ExecuteTask`, `CancelTask` | `worker.core.socket` Unix socket | Worker execution manager |
+| `WorkerCoreService` | `vectis-worker-core` | `api/proto/worker_core.proto` | `DescribeCore`, `ExecuteTask`, `CancelTask`, `WarmCheckoutCache` | `worker.core.socket` Unix socket | Worker execution manager |
 | `WorkerCoreShellService` | `vectis-worker` shell callback listener | `api/proto/worker_core.proto` | `StreamLogs`, `PublishArtifact` | `worker.core.shell_socket` Unix socket | Worker-core callbacks for durable logs and artifact publication |
 
 `vectis-cell-ingress` is a private HTTP ingress, not a protobuf service. It accepts cell-local execution submissions on `cell_ingress.port` (`8085`) and uses the queue internally.
@@ -60,7 +60,7 @@ See [Secrets Reference](../../using/secrets-reference.md) for the full file deli
 
 ### `WorkerCoreService`
 
-`WorkerCoreService` is the local worker-to-worker-core contract. The worker asks the core to describe supported execution isolation, execute a task, and cancel a task. The default transport is a Unix-domain socket rather than a network listener.
+`WorkerCoreService` is the local worker-to-worker-core contract. The worker asks the core to describe supported execution isolation, execute a task, cancel a task, and warm persistent checkout cache remotes. The default transport is a Unix-domain socket rather than a network listener.
 
 ### `WorkerCoreShellService`
 

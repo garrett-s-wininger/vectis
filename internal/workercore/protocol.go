@@ -300,6 +300,7 @@ func checkoutCacheRemotesProto(remotes []CheckoutCacheRemote) []*api.WorkerCoreC
 			RemoteUrl:          proto.String(remoteURL),
 			FallbackRemoteUrls: cloneStringSlice(remote.FallbackRemoteURLs),
 			Credentials:        gitCredentialsProto(remote.Credentials),
+			WarmRefspecs:       cloneStringSlice(remote.WarmRefspecs),
 		})
 	}
 
@@ -326,6 +327,7 @@ func checkoutCacheRemotesFromProto(remotes []*api.WorkerCoreCheckoutCacheRemote)
 			RemoteURL:          remoteURL,
 			FallbackRemoteURLs: cloneStringSlice(remote.GetFallbackRemoteUrls()),
 			Credentials:        gitCredentialsFromProto(remote.GetCredentials()),
+			WarmRefspecs:       cloneStringSlice(remote.GetWarmRefspecs()),
 		})
 	}
 
