@@ -197,16 +197,23 @@ vectis-cli retention evidence manifest \
   --backup-storage-max-age 24h \
   --audit-export /var/lib/vectis/ops/audit-export.json \
   --audit-export-max-age 24h \
+  --audit-age 8760h \
   --hold-review /var/lib/vectis/ops/hold-review.json \
   --hold-review-max-age 24h \
   --require-backup-manifest \
   --require-audit-export \
   --require-hold-review \
+  --verify \
   --generated-by retention-scheduler \
   --external-ref CHG-123 \
   --output /var/lib/vectis/ops/retention-cleanup-evidence-20260702.json \
   --promote /var/lib/vectis/ops/retention-cleanup-evidence.json
 ```
+
+`--verify` runs the same retained-evidence checks that cleanup uses before the
+manifest is written or promoted. When audit export evidence is present or
+required, `--audit-age` must match the audit cleanup window the scheduled cleanup
+job will use so export coverage is checked against the same cutoff.
 
 ```json
 {

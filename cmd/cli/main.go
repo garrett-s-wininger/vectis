@@ -217,6 +217,7 @@ var (
 	retentionEvidenceManifestPromote     string
 	retentionEvidenceManifestGeneratedBy string
 	retentionEvidenceManifestExternalRef string
+	retentionEvidenceManifestVerify      bool
 	retentionEvidenceBackupManifest      string
 	retentionEvidenceBackupExpect        string
 	retentionEvidenceBackupStorageReport []string
@@ -224,6 +225,7 @@ var (
 	retentionEvidenceBackupStorageMaxAge time.Duration
 	retentionEvidenceAuditExport         string
 	retentionEvidenceAuditExportMaxAge   time.Duration
+	retentionEvidenceAuditAge            time.Duration
 	retentionEvidenceHoldReview          string
 	retentionEvidenceHoldReviewMaxAge    time.Duration
 	retentionEvidenceRequireBackup       bool
@@ -499,6 +501,7 @@ func init() {
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceManifestPromote, "promote", "", "Optional stable manifest path to atomically promote after generation")
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceManifestGeneratedBy, "generated-by", "", "Operator or automation generating the manifest (default: VECTIS_OPERATOR, USER, or USERNAME)")
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceManifestExternalRef, "external-ref", "", "Optional ticket, case, or compliance reference")
+	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceManifestVerify, "verify", false, "Verify referenced evidence and required gates before writing or promoting")
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceBackupManifest, "backup-manifest", "", "Backup manifest JSON path to retain for cleanup validation")
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceBackupExpect, "backup-expect", "", "Expected topology JSON path for backup manifest verification")
 	retentionEvidenceManifestCmd.Flags().StringArrayVar(&retentionEvidenceBackupStorageReport, "backup-storage-report", nil, "Storage verification report JSON path to retain for cleanup validation (repeatable)")
@@ -506,6 +509,7 @@ func init() {
 	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceBackupStorageMaxAge, "backup-storage-max-age", defaultRetention.BackupStorageMaxAge, "Maximum accepted storage verification report age before cleanup (0 omits)")
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceAuditExport, "audit-export", "", "Audit export evidence JSON path to retain for cleanup validation")
 	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceAuditExportMaxAge, "audit-export-max-age", defaultRetention.AuditExportMaxAge, "Maximum accepted audit export evidence age before cleanup (0 omits)")
+	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceAuditAge, "audit-age", defaultRetention.Policy.AuditLog, "Audit retention age used by --verify to check audit export coverage (0 disables)")
 	retentionEvidenceManifestCmd.Flags().StringVar(&retentionEvidenceHoldReview, "hold-review", "", "Active hold review evidence JSON path to retain for cleanup validation")
 	retentionEvidenceManifestCmd.Flags().DurationVar(&retentionEvidenceHoldReviewMaxAge, "hold-review-max-age", defaultRetention.HoldReviewMaxAge, "Maximum accepted hold review evidence age before cleanup (0 omits)")
 	retentionEvidenceManifestCmd.Flags().BoolVar(&retentionEvidenceRequireBackup, "require-backup-manifest", defaultRetention.RequireBackup, "Write a manifest gate requiring backup evidence unless waived")

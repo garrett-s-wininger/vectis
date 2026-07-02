@@ -284,6 +284,51 @@ func TestBuildRetentionCleanupEvidenceManifestRejectsIncompleteBackupOptions(t *
 	}
 }
 
+func TestVerifyRetentionCleanupEvidenceManifestChecksBackupGate(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "backup-manifest.json", retentionBackupManifestForTest(now.Add(-30*time.Minute).Format(time.RFC3339)))
+
+	verification, err := verifyRetentionCleanupEvidenceManifest(context.Background(), retention.Policy{}, retentionCleanupEvidenceManifestBuildOptions{
+		BackupManifest:        manifestPath,
+		BackupMaxAge:          time.Hour,
+		RequireBackupManifest: true,
+	}, now)
+	if err != nil {
+		t.Fatalf("verify evidence manifest: %v", err)
+	}
+	if verification == nil || !verification.Verified {
+		t.Fatalf("verification = %+v, want verified", verification)
+	}
+	if verification.Backup == nil || !verification.Backup.Verified || verification.Backup.Age != "30m0s" {
+		t.Fatalf("backup verification = %+v", verification.Backup)
+	}
+}
+
+func TestVerifyRetentionCleanupEvidenceManifestRejectsStaleBackupBeforePromotion(t *testing.T) {
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	manifestPath := writeBackupJSONFile(t, root, "backup-manifest.json", retentionBackupManifestForTest(now.Add(-2*time.Hour).Format(time.RFC3339)))
+
+	verification, err := verifyRetentionCleanupEvidenceManifest(context.Background(), retention.Policy{}, retentionCleanupEvidenceManifestBuildOptions{
+		BackupManifest:        manifestPath,
+		BackupMaxAge:          time.Hour,
+		RequireBackupManifest: true,
+	}, now)
+	if err == nil {
+		t.Fatalf("verify evidence manifest succeeded unexpectedly")
+	}
+	if verification == nil || verification.Verified {
+		t.Fatalf("verification = %+v, want unverified", verification)
+	}
+	if verification.Backup == nil || verification.Backup.Age != "2h0m0s" {
+		t.Fatalf("backup verification = %+v, want stale age", verification.Backup)
+	}
+	if !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("verify error = %v, want stale", err)
+	}
+}
+
 func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
 	withOutputFormat(t, outputJSON)
 
@@ -307,7 +352,12 @@ func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := writeRetentionCleanupEvidenceManifest(&buf, outputPath, promotePath, manifest); err != nil {
+	verification := &retentionCleanupEvidenceManifestVerification{
+		Verified:  true,
+		CheckedAt: "2026-07-02T12:00:00Z",
+		Backup:    &retentionBackupEvidence{ManifestPath: "backup-manifest.json", Verified: true},
+	}
+	if err := writeRetentionCleanupEvidenceManifest(&buf, outputPath, promotePath, manifest, verification); err != nil {
 		t.Fatalf("write evidence manifest: %v", err)
 	}
 
@@ -315,8 +365,11 @@ func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &receipt); err != nil {
 		t.Fatalf("parse receipt: %v\n%s", err, buf.String())
 	}
-	if receipt.Status != "generated" || receipt.Path != outputPath || receipt.PromotedTo != promotePath {
+	if receipt.Status != "generated" || receipt.Path != outputPath || receipt.PromotedTo != promotePath || !receipt.Verified {
 		t.Fatalf("receipt = %+v", receipt)
+	}
+	if receipt.Verification == nil || receipt.Verification.Backup == nil || !receipt.Verification.Backup.Verified {
+		t.Fatalf("receipt verification = %+v", receipt.Verification)
 	}
 
 	outputPayload, err := os.ReadFile(outputPath)
