@@ -391,7 +391,9 @@ func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
 		warm: func(_ context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
 			captured = req
 			return &api.WarmWorkerCoreCheckoutCacheResponse{
-				Warmed: proto.Int32(1),
+				Warmed:    proto.Int32(2),
+				Changed:   proto.Int32(1),
+				Unchanged: proto.Int32(1),
 				Failures: []*api.WorkerCoreCheckoutCacheWarmFailure{
 					{
 						RemoteUrl: proto.String("https://mirror.invalid/fail.git"),
@@ -425,7 +427,9 @@ func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
 		t.Fatalf("captured warm request = %+v", captured)
 	}
 
-	if result.Warmed != 1 ||
+	if result.Warmed != 2 ||
+		result.Changed != 1 ||
+		result.Unchanged != 1 ||
 		len(result.Failures) != 1 ||
 		result.Failures[0].RemoteURL != "https://mirror.invalid/fail.git" ||
 		result.Failures[0].Message != "fetch failed" {

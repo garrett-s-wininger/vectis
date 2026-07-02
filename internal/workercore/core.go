@@ -49,8 +49,10 @@ type WarmCheckoutCacheRequest struct {
 }
 
 type WarmCheckoutCacheResult struct {
-	Warmed   int
-	Failures []CheckoutCacheWarmFailure
+	Warmed    int
+	Changed   int
+	Unchanged int
+	Failures  []CheckoutCacheWarmFailure
 }
 
 type CheckoutCacheRemote struct {

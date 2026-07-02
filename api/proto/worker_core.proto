@@ -59,6 +59,8 @@ message WarmWorkerCoreCheckoutCacheRequest {
 message WarmWorkerCoreCheckoutCacheResponse {
     int32 warmed = 1;
     repeated WorkerCoreCheckoutCacheWarmFailure failures = 2;
+    int32 changed = 3;
+    int32 unchanged = 4;
 }
 
 message WorkerCoreCheckoutCacheWarmFailure {

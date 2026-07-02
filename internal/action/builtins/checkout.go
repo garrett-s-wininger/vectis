@@ -126,7 +126,7 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 
 	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
 	cloneStarted := time.Now()
-	process, err := c.processExecutor(state).Start(ctx, "git", gitcmd.NoAutoMaintenanceArgs("clone", url, "."), state.Workspace, env)
+	process, err := c.processExecutor(state).Start(ctx, "git", gitcmd.NoAutoMaintenanceCloneArgs(url, "."), state.Workspace, env)
 	if err != nil {
 		recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(cloneStarted))
 		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(started))

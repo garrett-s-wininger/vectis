@@ -305,7 +305,9 @@ func TestServiceExecuteTaskMapsCoreFailureReasonCode(t *testing.T) {
 func TestServiceWarmCheckoutCache(t *testing.T) {
 	core := &recordingWarmCore{
 		result: WarmCheckoutCacheResult{
-			Warmed: 1,
+			Warmed:    2,
+			Changed:   1,
+			Unchanged: 1,
 			Failures: []CheckoutCacheWarmFailure{
 				{RemoteURL: "https://mirror.invalid/fail.git", Message: "fetch failed"},
 			},
@@ -343,7 +345,9 @@ func TestServiceWarmCheckoutCache(t *testing.T) {
 		t.Fatalf("structured warm request = %+v", core.req.Remotes)
 	}
 
-	if resp.GetWarmed() != 1 ||
+	if resp.GetWarmed() != 2 ||
+		resp.GetChanged() != 1 ||
+		resp.GetUnchanged() != 1 ||
 		len(resp.GetFailures()) != 1 ||
 		resp.GetFailures()[0].GetRemoteUrl() != "https://mirror.invalid/fail.git" ||
 		resp.GetFailures()[0].GetMessage() != "fetch failed" {

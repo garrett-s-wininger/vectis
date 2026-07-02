@@ -513,28 +513,34 @@ func cleanupWorkerCheckoutCachePartialClone(workspace string) error {
 }
 
 func (c *WorkerCheckoutCache) WarmRemote(ctx context.Context, remoteURL string, logger interfaces.Logger) (bool, string, error) {
+	handled, normalizedRemoteURL, _, err := c.WarmRemoteStatus(ctx, remoteURL, logger)
+	return handled, normalizedRemoteURL, err
+}
+
+func (c *WorkerCheckoutCache) WarmRemoteStatus(ctx context.Context, remoteURL string, logger interfaces.Logger) (bool, string, bool, error) {
 	if c == nil {
-		return false, "", nil
+		return false, "", false, nil
 	}
 
 	handled, persistentRemote, err := c.lookupPersistentRemote(remoteURL)
 	if err != nil || !handled {
-		return handled, "", err
+		return handled, "", false, err
 	}
 	remoteURL = persistentRemote.RemoteURL
 
 	repoPath := c.repositoryPath(remoteURL)
 	lock, err := acquireManagedGitWriterLock(ctx, repoPath)
 	if err != nil {
-		return true, remoteURL, err
+		return true, remoteURL, false, err
 	}
 	defer lock.Close()
 
-	if err := c.ensureMirror(ctx, persistentRemote, repoPath, logger); err != nil {
-		return true, remoteURL, err
+	changed, err := c.ensureMirror(ctx, persistentRemote, repoPath, logger)
+	if err != nil {
+		return true, remoteURL, false, err
 	}
 
-	return true, remoteURL, nil
+	return true, remoteURL, changed, nil
 }
 
 func (c *WorkerCheckoutCache) lookupPersistentRemote(remoteURL string) (bool, WorkerCheckoutCacheRemote, error) {
@@ -551,7 +557,7 @@ func (c *WorkerCheckoutCache) lookupPersistentRemote(remoteURL string) (bool, Wo
 	return true, persistentRemote, nil
 }
 
-func (c *WorkerCheckoutCache) ensureMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, repoPath string, logger interfaces.Logger) error {
+func (c *WorkerCheckoutCache) ensureMirror(ctx context.Context, remote WorkerCheckoutCacheRemote, repoPath string, logger interfaces.Logger) (bool, error) {
 	currentPath, err := c.currentMirrorPath(remote.RemoteURL)
 	switch {
 	case err == nil:
@@ -563,21 +569,21 @@ func (c *WorkerCheckoutCache) ensureMirror(ctx context.Context, remote WorkerChe
 			logger.Info("Creating worker checkout cache mirror: %s", remote.RemoteURL)
 		}
 	default:
-		return err
+		return false, err
 	}
 
 	generationPath, changed, err := c.buildMirrorGeneration(ctx, remote, repoPath, currentPath)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if changed {
 		if err := c.flipCurrentGeneration(repoPath, generationPath); err != nil {
-			return err
+			return false, err
 		}
 	}
 
-	return c.cleanupOldGenerations(ctx, repoPath)
+	return changed, c.cleanupOldGenerations(ctx, repoPath)
 }
 
 func (c *WorkerCheckoutCache) buildMirrorGeneration(ctx context.Context, remote WorkerCheckoutCacheRemote, repoPath, currentPath string) (string, bool, error) {

@@ -738,9 +738,9 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 	}
 
 	started := time.Now()
-	record := func(outcome, reason string, warmed, failed int) {
+	record := func(outcome, reason string, warmed, changed, unchanged, failed int) {
 		if w.metrics != nil {
-			w.metrics.RecordCheckoutCacheWarm(ctx, outcome, reason, warmed, failed, time.Since(started))
+			w.metrics.RecordCheckoutCacheWarm(ctx, outcome, reason, warmed, changed, unchanged, failed, time.Since(started))
 		}
 	}
 
@@ -752,18 +752,18 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 
 	remotes, credentialFailures := w.checkoutCacheRemotesWithFailures(ctx)
 	if err := ctx.Err(); err != nil {
-		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0)
+		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0, 0, 0)
 		return
 	}
 
 	if len(remotes) == 0 {
 		if len(credentialFailures) > 0 {
-			record(observability.WorkerCheckoutCacheWarmOutcomeFailed, observability.WorkerCheckoutCacheWarmReasonRemoteFailures, 0, len(credentialFailures))
+			record(observability.WorkerCheckoutCacheWarmOutcomeFailed, observability.WorkerCheckoutCacheWarmReasonRemoteFailures, 0, 0, 0, len(credentialFailures))
 			w.logCheckoutCacheWarmFailures(credentialFailures, 0)
 			return
 		}
 
-		record(observability.WorkerCheckoutCacheWarmOutcomeSkipped, observability.WorkerCheckoutCacheWarmReasonNoRemotes, 0, 0)
+		record(observability.WorkerCheckoutCacheWarmOutcomeSkipped, observability.WorkerCheckoutCacheWarmReasonNoRemotes, 0, 0, 0, 0)
 		return
 	}
 
@@ -772,7 +772,7 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		Remotes:    remotes,
 	})
 	if err != nil {
-		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0)
+		record(observability.WorkerCheckoutCacheWarmOutcomeFailed, checkoutCacheWarmFailureReason(err), 0, 0, 0, 0)
 		if w.logger != nil {
 			w.logger.Warn("Worker checkout cache warm failed: %v", err)
 		}
@@ -793,7 +793,7 @@ func (w *worker) warmCheckoutCache(ctx context.Context, warmer workercore.Checko
 		}
 	}
 
-	record(outcome, reason, result.Warmed, failed)
+	record(outcome, reason, result.Warmed, result.Changed, result.Unchanged, failed)
 
 	if w.logger == nil {
 		return

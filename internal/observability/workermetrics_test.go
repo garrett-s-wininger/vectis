@@ -30,7 +30,8 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 	wm.RecordJobFinished(ctx, WorkerOutcomeSuccess, 50*time.Millisecond)
 	wm.RecordSPIFFESVIDCheck(ctx, WorkerSPIFFESVIDOutcomeSuccess, WorkerSPIFFESVIDReasonMatched)
 	wm.RecordSPIFFESVIDCheck(ctx, WorkerSPIFFESVIDOutcomeFailed, WorkerSPIFFESVIDReasonMismatch)
-	wm.RecordCheckoutCacheWarm(ctx, WorkerCheckoutCacheWarmOutcomePartial, WorkerCheckoutCacheWarmReasonRemoteFailures, 2, 1, 125*time.Millisecond)
+	wm.RecordCheckoutCacheWarm(ctx, WorkerCheckoutCacheWarmOutcomePartial, WorkerCheckoutCacheWarmReasonRemoteFailures, 3, 2, 1, 1, 125*time.Millisecond)
+	wm.RecordCheckoutCacheWarm(ctx, WorkerCheckoutCacheWarmOutcomeSuccess, WorkerCheckoutCacheWarmReasonOK, 1, 0, 0, 0, 25*time.Millisecond)
 	wm.RecordOrchestratorRecovery(ctx, "complete")
 	wm.SetLifecyclePhase(WorkerPhaseExecuting)
 	wm.SetDraining(true)
@@ -101,9 +102,21 @@ func TestNewWorkerMetrics_appearsOnScrape(t *testing.T) {
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{
+		"outcome": WorkerCheckoutCacheWarmRemoteOutcomeChanged,
+	}) {
+		t.Fatalf("checkout cache warm remotes metric missing changed label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{
+		"outcome": WorkerCheckoutCacheWarmRemoteOutcomeUnchanged,
+	}) {
+		t.Fatalf("checkout cache warm remotes metric missing unchanged label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
+	}
+
+	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{
 		"outcome": WorkerCheckoutCacheWarmRemoteOutcomeWarmed,
 	}) {
-		t.Fatalf("checkout cache warm remotes metric missing warmed label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
+		t.Fatalf("checkout cache warm remotes metric missing warmed fallback label: %v", families["vectis_worker_checkout_cache_warm_remotes_total"])
 	}
 
 	if !metricFamilyHasLabels(families["vectis_worker_checkout_cache_warm_remotes_total"], map[string]string{

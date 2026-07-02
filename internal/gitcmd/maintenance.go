@@ -24,3 +24,14 @@ func NoAutoMaintenanceArgs(args ...string) []string {
 	out = append(out, args...)
 	return out
 }
+
+func NoAutoMaintenanceCloneArgs(args ...string) []string {
+	cloneArgs := make([]string, 0, 1+len(noAutoMaintenanceSettings)*2+len(args))
+	cloneArgs = append(cloneArgs, "clone")
+	for _, setting := range noAutoMaintenanceSettings {
+		cloneArgs = append(cloneArgs, "-c", setting[0]+"="+setting[1])
+	}
+
+	cloneArgs = append(cloneArgs, args...)
+	return NoAutoMaintenanceArgs(cloneArgs...)
+}

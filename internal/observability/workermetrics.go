@@ -43,8 +43,10 @@ const (
 	WorkerCheckoutCacheWarmOutcomeFailed  = "failed"
 	WorkerCheckoutCacheWarmOutcomeSkipped = "skipped"
 
-	WorkerCheckoutCacheWarmRemoteOutcomeWarmed = "warmed"
-	WorkerCheckoutCacheWarmRemoteOutcomeFailed = "failed"
+	WorkerCheckoutCacheWarmRemoteOutcomeWarmed    = "warmed"
+	WorkerCheckoutCacheWarmRemoteOutcomeChanged   = "changed"
+	WorkerCheckoutCacheWarmRemoteOutcomeUnchanged = "unchanged"
+	WorkerCheckoutCacheWarmRemoteOutcomeFailed    = "failed"
 
 	WorkerCheckoutCacheWarmReasonOK              = "ok"
 	WorkerCheckoutCacheWarmReasonNoRemotes       = "no_remotes"
@@ -237,7 +239,7 @@ func (wm *WorkerMetrics) RecordSPIFFESVIDCheck(ctx context.Context, outcome, rea
 	))
 }
 
-func (wm *WorkerMetrics) RecordCheckoutCacheWarm(ctx context.Context, outcome, reason string, warmed, failed int, d time.Duration) {
+func (wm *WorkerMetrics) RecordCheckoutCacheWarm(ctx context.Context, outcome, reason string, warmed, changed, unchanged, failed int, d time.Duration) {
 	if wm == nil {
 		return
 	}
@@ -257,8 +259,16 @@ func (wm *WorkerMetrics) RecordCheckoutCacheWarm(ctx context.Context, outcome, r
 	wm.checkoutCacheWarm.Add(ctx, 1, attrs)
 	wm.checkoutCacheWarmTime.Record(ctx, max(d.Seconds(), 0), attrs)
 
-	if warmed > 0 {
-		wm.checkoutCacheRemotes.Add(ctx, int64(warmed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeWarmed)))
+	if changed > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(changed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeChanged)))
+	}
+
+	if unchanged > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(unchanged), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeUnchanged)))
+	}
+
+	if unknownWarmed := warmed - changed - unchanged; unknownWarmed > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(unknownWarmed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeWarmed)))
 	}
 
 	if failed > 0 {

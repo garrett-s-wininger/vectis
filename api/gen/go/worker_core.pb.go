@@ -429,6 +429,8 @@ type WarmWorkerCoreCheckoutCacheResponse struct {
 	state         protoimpl.MessageState                `protogen:"open.v1"`
 	Warmed        *int32                                `protobuf:"varint,1,opt,name=warmed" json:"warmed,omitempty"`
 	Failures      []*WorkerCoreCheckoutCacheWarmFailure `protobuf:"bytes,2,rep,name=failures" json:"failures,omitempty"`
+	Changed       *int32                                `protobuf:"varint,3,opt,name=changed" json:"changed,omitempty"`
+	Unchanged     *int32                                `protobuf:"varint,4,opt,name=unchanged" json:"unchanged,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -475,6 +477,20 @@ func (x *WarmWorkerCoreCheckoutCacheResponse) GetFailures() []*WorkerCoreCheckou
 		return x.Failures
 	}
 	return nil
+}
+
+func (x *WarmWorkerCoreCheckoutCacheResponse) GetChanged() int32 {
+	if x != nil && x.Changed != nil {
+		return *x.Changed
+	}
+	return 0
+}
+
+func (x *WarmWorkerCoreCheckoutCacheResponse) GetUnchanged() int32 {
+	if x != nil && x.Unchanged != nil {
+		return *x.Unchanged
+	}
+	return 0
 }
 
 type WorkerCoreCheckoutCacheWarmFailure struct {
@@ -1612,10 +1628,12 @@ const file_worker_core_proto_rawDesc = "" +
 	"\"WarmWorkerCoreCheckoutCacheRequest\x12\x1f\n" +
 	"\vremote_urls\x18\x01 \x03(\tR\n" +
 	"remoteUrls\x128\n" +
-	"\aremotes\x18\x02 \x03(\v2\x1e.WorkerCoreCheckoutCacheRemoteR\aremotes\"~\n" +
+	"\aremotes\x18\x02 \x03(\v2\x1e.WorkerCoreCheckoutCacheRemoteR\aremotes\"\xb6\x01\n" +
 	"#WarmWorkerCoreCheckoutCacheResponse\x12\x16\n" +
 	"\x06warmed\x18\x01 \x01(\x05R\x06warmed\x12?\n" +
-	"\bfailures\x18\x02 \x03(\v2#.WorkerCoreCheckoutCacheWarmFailureR\bfailures\"]\n" +
+	"\bfailures\x18\x02 \x03(\v2#.WorkerCoreCheckoutCacheWarmFailureR\bfailures\x12\x18\n" +
+	"\achanged\x18\x03 \x01(\x05R\achanged\x12\x1c\n" +
+	"\tunchanged\x18\x04 \x01(\x05R\tunchanged\"]\n" +
 	"\"WorkerCoreCheckoutCacheWarmFailure\x12\x1d\n" +
 	"\n" +
 	"remote_url\x18\x01 \x01(\tR\tremoteUrl\x12\x18\n" +

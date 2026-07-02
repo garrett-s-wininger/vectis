@@ -131,7 +131,7 @@ func (c *ExecutorCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCa
 			continue
 		}
 
-		handled, normalizedRemoteURL, err := cache.WarmRemote(ctx, remote.RemoteURL, nil)
+		handled, normalizedRemoteURL, changed, err := cache.WarmRemoteStatus(ctx, remote.RemoteURL, nil)
 		if err != nil {
 			if ctx.Err() != nil {
 				return result, ctx.Err()
@@ -151,6 +151,11 @@ func (c *ExecutorCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCa
 
 		if handled {
 			result.Warmed++
+			if changed {
+				result.Changed++
+			} else {
+				result.Unchanged++
+			}
 		}
 	}
 

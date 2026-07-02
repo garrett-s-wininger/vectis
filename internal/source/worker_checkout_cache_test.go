@@ -367,8 +367,8 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
 
-	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
-		t.Fatalf("initial WarmRemote: handled=%v err=%v", handled, err)
+	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || !changed {
+		t.Fatalf("initial WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
 	}
 
 	currentLink := filepath.Join(cache.repositoryPath(remote), "current")
@@ -430,8 +430,8 @@ func TestWorkerCheckoutCacheWarmRemoteSkipsUnchangedGeneration(t *testing.T) {
 		t.Fatalf("read first current generation: %v", err)
 	}
 
-	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
-		t.Fatalf("unchanged WarmRemote: handled=%v err=%v", handled, err)
+	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || changed {
+		t.Fatalf("unchanged WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
 	}
 
 	secondTarget, err := os.Readlink(currentLink)

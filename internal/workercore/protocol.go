@@ -248,8 +248,10 @@ func WarmCheckoutCacheRequestProto(req WarmCheckoutCacheRequest) *api.WarmWorker
 
 func WarmCheckoutCacheResultProto(result WarmCheckoutCacheResult) *api.WarmWorkerCoreCheckoutCacheResponse {
 	return &api.WarmWorkerCoreCheckoutCacheResponse{
-		Warmed:   proto.Int32(int32(result.Warmed)),
-		Failures: checkoutCacheWarmFailuresProto(result.Failures),
+		Warmed:    proto.Int32(int32(result.Warmed)),
+		Failures:  checkoutCacheWarmFailuresProto(result.Failures),
+		Changed:   proto.Int32(int32(result.Changed)),
+		Unchanged: proto.Int32(int32(result.Unchanged)),
 	}
 }
 
@@ -259,8 +261,10 @@ func WarmCheckoutCacheResultFromProto(in *api.WarmWorkerCoreCheckoutCacheRespons
 	}
 
 	return WarmCheckoutCacheResult{
-		Warmed:   int(in.GetWarmed()),
-		Failures: checkoutCacheWarmFailuresFromProto(in.GetFailures()),
+		Warmed:    int(in.GetWarmed()),
+		Changed:   int(in.GetChanged()),
+		Unchanged: int(in.GetUnchanged()),
+		Failures:  checkoutCacheWarmFailuresFromProto(in.GetFailures()),
 	}
 }
 

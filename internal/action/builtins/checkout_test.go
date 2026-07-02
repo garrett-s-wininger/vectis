@@ -84,7 +84,7 @@ func TestCheckoutAction_Execute_UsesStateProcessExecutor(t *testing.T) {
 		t.Fatalf("expected one git execution, got paths=%v", paths)
 	}
 
-	wantArgs := gitcmd.NoAutoMaintenanceArgs("clone", url, ".")
+	wantArgs := gitcmd.NoAutoMaintenanceCloneArgs(url, ".")
 	if len(args) != 1 || !reflect.DeepEqual(args[0], wantArgs) {
 		t.Fatalf("expected checkout args %+v, got %v", wantArgs, args)
 	}
@@ -236,7 +236,7 @@ func TestCheckoutAction_Execute_DirectCloneFetchesRefspecsFromOrigin(t *testing.
 
 	args := mockExecutor.GetArgs()
 	wantArgs := [][]string{
-		gitcmd.NoAutoMaintenanceArgs("clone", url, "."),
+		gitcmd.NoAutoMaintenanceCloneArgs(url, "."),
 		gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", "origin", "+refs/pull/*/head:refs/remotes/origin/pr/*"),
 	}
 
@@ -343,10 +343,12 @@ func TestCheckoutAction_Execute_Success(t *testing.T) {
 	if len(paths) != 1 || len(args) != 1 {
 		t.Errorf("expected 1 Start call, got paths=%d args=%d", len(paths), len(args))
 	}
+
 	if paths[0] != "git" {
 		t.Errorf("expected path 'git', got '%s'", paths[0])
 	}
-	wantArgs := gitcmd.NoAutoMaintenanceArgs("clone", url, ".")
+
+	wantArgs := gitcmd.NoAutoMaintenanceCloneArgs(url, ".")
 	if !reflect.DeepEqual(args[0], wantArgs) {
 		t.Errorf("expected args %+v, got %v", wantArgs, args[0])
 	}
