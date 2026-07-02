@@ -10,6 +10,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/gitcmd"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 )
@@ -125,7 +126,7 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 
 	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
 	cloneStarted := time.Now()
-	process, err := c.processExecutor(state).Start(ctx, "git", []string{"clone", url, "."}, state.Workspace, env)
+	process, err := c.processExecutor(state).Start(ctx, "git", gitcmd.NoAutoMaintenanceArgs("clone", url, "."), state.Workspace, env)
 	if err != nil {
 		recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(cloneStarted))
 		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(started))
@@ -250,7 +251,7 @@ func (c *CheckoutAction) fetchCheckoutRefspecs(ctx context.Context, state *actio
 
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Fetching %d additional checkout refspec(s) from %s...", len(refspecs), remote))
 
-	args := []string{"fetch", "--no-auto-gc", "--no-tags", "--", remote}
+	args := gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", remote)
 	args = append(args, refspecs...)
 	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
 	process, err := c.processExecutor(state).Start(ctx, "git", args, state.Workspace, env)

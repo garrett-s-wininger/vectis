@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"vectis/internal/gitcmd"
 )
 
 func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
@@ -71,20 +73,9 @@ func TestSyncManagedGitCheckoutDisablesAutomaticMaintenanceAndBroadTags(t *testi
 		t.Fatalf("sync clone failed: %+v", status)
 	}
 
-	for key, want := range map[string]string{
-		"gc.auto":                "0",
-		"gc.autoDetach":          "false",
-		"gc.autoPackLimit":       "0",
-		"gc.writeCommitGraph":    "false",
-		"maintenance.auto":       "false",
-		"maintenance.strategy":   "none",
-		"fetch.writeCommitGraph": "false",
-		"fetch.unpackLimit":      "1",
-		"remote.origin.tagOpt":   "--no-tags",
-	} {
-		if got := gitOutput(t, checkoutPath, "config", "--get", key); got != want {
-			t.Fatalf("managed checkout config %s: got %q, want %q", key, got, want)
-		}
+	assertNoAutoGitMaintenanceConfig(t, checkoutPath)
+	if got := gitOutput(t, checkoutPath, "config", "--get", "remote.origin.tagOpt"); got != "--no-tags" {
+		t.Fatalf("managed checkout config remote.origin.tagOpt: got %q, want --no-tags", got)
 	}
 
 	if got := strings.TrimSpace(gitOutput(t, checkoutPath, "tag", "--list")); got != "" {
@@ -109,13 +100,24 @@ func TestSyncManagedGitCheckoutDisablesAutomaticMaintenanceAndBroadTags(t *testi
 	}
 }
 
+func assertNoAutoGitMaintenanceConfig(t *testing.T, checkoutPath string) {
+	t.Helper()
+
+	for _, setting := range gitcmd.NoAutoMaintenanceSettings() {
+		if got := gitOutput(t, checkoutPath, "config", "--get", setting[0]); got != setting[1] {
+			t.Fatalf("git config %s: got %q, want %q", setting[0], got, setting[1])
+		}
+	}
+}
+
 func TestManagedGitCommandArgsDisableImplicitMaintenance(t *testing.T) {
 	args := managedGitCommandArgs("fetch", "origin")
-	if len(args) < len(managedGitMaintenanceSettings)*2+2 {
+	settings := gitcmd.NoAutoMaintenanceSettings()
+	if len(args) < len(settings)*2+2 {
 		t.Fatalf("managed git args too short: %+v", args)
 	}
 
-	for i, setting := range managedGitMaintenanceSettings {
+	for i, setting := range settings {
 		if got, want := args[i*2], "-c"; got != want {
 			t.Fatalf("managed git args[%d]=%q, want %q; args=%+v", i*2, got, want, args)
 		}
@@ -125,7 +127,7 @@ func TestManagedGitCommandArgsDisableImplicitMaintenance(t *testing.T) {
 		}
 	}
 
-	if got := strings.Join(args[len(managedGitMaintenanceSettings)*2:], " "); got != "fetch origin" {
+	if got := strings.Join(args[len(settings)*2:], " "); got != "fetch origin" {
 		t.Fatalf("managed git command tail=%q, want fetch origin; args=%+v", got, args)
 	}
 }

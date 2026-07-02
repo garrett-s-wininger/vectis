@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"vectis/internal/gitcmd"
 )
 
 type ManagedGitCheckoutRequest struct {
@@ -32,17 +34,6 @@ type ManagedGitRefHydrationRequest struct {
 	FallbackRemoteURLs []string
 	AuxiliaryRefs      []string
 	Credentials        GitCredentials
-}
-
-var managedGitMaintenanceSettings = [][2]string{
-	{"gc.auto", "0"},
-	{"gc.autoDetach", "false"},
-	{"gc.autoPackLimit", "0"},
-	{"gc.writeCommitGraph", "false"},
-	{"maintenance.auto", "false"},
-	{"maintenance.strategy", "none"},
-	{"fetch.writeCommitGraph", "false"},
-	{"fetch.unpackLimit", "1"},
 }
 
 // SyncManagedGitCheckout materializes or refreshes a Vectis-owned Git checkout.
@@ -712,7 +703,7 @@ func managedGitHydratedRef(ref string) string {
 }
 
 func configureManagedGitCheckout(ctx context.Context, checkoutPath string, fallbackRemoteURLs []string) error {
-	settings := append([][2]string(nil), managedGitMaintenanceSettings...)
+	settings := gitcmd.NoAutoMaintenanceSettings()
 	settings = append(settings, [2]string{"remote.origin.tagOpt", "--no-tags"})
 
 	for _, setting := range settings {
@@ -786,13 +777,7 @@ func managedGitHydrationTier(remote string) string {
 }
 
 func managedGitCommandArgs(args ...string) []string {
-	out := make([]string, 0, len(managedGitMaintenanceSettings)*2+len(args))
-	for _, setting := range managedGitMaintenanceSettings {
-		out = append(out, "-c", setting[0]+"="+setting[1])
-	}
-
-	out = append(out, args...)
-	return out
+	return gitcmd.NoAutoMaintenanceArgs(args...)
 }
 
 func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef string) error {

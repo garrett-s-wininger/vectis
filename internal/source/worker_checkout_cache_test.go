@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"vectis/internal/gitcmd"
 	"vectis/internal/observability"
 )
 
@@ -51,6 +52,7 @@ func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 	if got, want := gitOutput(t, workspace, "remote", "get-url", workerCheckoutCacheRemoteName), filepath.Join(cache.repositoryPath(remote), "current"); got != want {
 		t.Fatalf("cache remote url = %q, want %q", got, want)
 	}
+	assertNoAutoGitMaintenanceConfig(t, workspace)
 }
 
 func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testing.T) {
@@ -221,6 +223,26 @@ func TestWorkerCheckoutCacheGitRunnerAppliesCredentialEnv(t *testing.T) {
 	}
 }
 
+func TestWorkerCacheMirrorGitArgsDisableImplicitMaintenance(t *testing.T) {
+	args := workerCacheMirrorGitArgs("/cache/repo.git", "fetch", "origin")
+	settings := gitcmd.NoAutoMaintenanceSettings()
+	if len(args) < len(settings)*2+4 {
+		t.Fatalf("worker cache mirror git args too short: %+v", args)
+	}
+
+	for i, setting := range settings {
+		if got, want := args[i*2], "-c"; got != want {
+			t.Fatalf("worker cache mirror git args[%d]=%q, want %q; args=%+v", i*2, got, want, args)
+		}
+
+		if got, want := args[i*2+1], setting[0]+"="+setting[1]; got != want {
+			t.Fatalf("worker cache mirror git args[%d]=%q, want %q; args=%+v", i*2+1, got, want, args)
+		}
+	}
+
+	assertStringSliceEqual(t, args[len(settings)*2:], []string{"--git-dir", "/cache/repo.git", "fetch", "origin"})
+}
+
 func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "warmed\n", "warmed")
@@ -385,6 +407,58 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 
 	if got, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(got) != "second\n" {
 		t.Fatalf("workspace README = %q, %v", got, err)
+	}
+}
+
+func TestWorkerCheckoutCacheWarmRemoteSkipsUnchangedGeneration(t *testing.T) {
+	remote := initGitRepo(t)
+	writeAndCommit(t, remote, "README.md", "first\n", "first")
+
+	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	if err != nil {
+		t.Fatalf("NewWorkerCheckoutCache: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("initial WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	repoPath := cache.repositoryPath(remote)
+	currentLink := filepath.Join(repoPath, "current")
+	firstTarget, err := os.Readlink(currentLink)
+	if err != nil {
+		t.Fatalf("read first current generation: %v", err)
+	}
+
+	if handled, _, err := cache.WarmRemote(context.Background(), remote, nil); err != nil || !handled {
+		t.Fatalf("unchanged WarmRemote: handled=%v err=%v", handled, err)
+	}
+
+	secondTarget, err := os.Readlink(currentLink)
+	if err != nil {
+		t.Fatalf("read second current generation: %v", err)
+	}
+
+	if secondTarget != firstTarget {
+		t.Fatalf("unchanged warm flipped current generation: got %q, want %q", secondTarget, firstTarget)
+	}
+
+	generations, err := workerCheckoutGenerationPaths(repoPath)
+	if err != nil {
+		t.Fatalf("workerCheckoutGenerationPaths: %v", err)
+	}
+
+	if len(generations) != 1 {
+		t.Fatalf("generation count after unchanged warm = %d, want 1: %v", len(generations), generations)
+	}
+
+	receiving, err := filepath.Glob(filepath.Join(repoPath, "generations", "*"+workerCheckoutReceivingSuffix))
+	if err != nil {
+		t.Fatalf("glob receiving generations: %v", err)
+	}
+
+	if len(receiving) != 0 {
+		t.Fatalf("unchanged warm left receiving generations: %v", receiving)
 	}
 }
 

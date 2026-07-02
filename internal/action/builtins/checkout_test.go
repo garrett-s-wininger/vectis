@@ -10,6 +10,7 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/gitcmd"
 	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 )
@@ -83,8 +84,9 @@ func TestCheckoutAction_Execute_UsesStateProcessExecutor(t *testing.T) {
 		t.Fatalf("expected one git execution, got paths=%v", paths)
 	}
 
-	if len(args) != 1 || len(args[0]) != 3 || args[0][0] != "clone" || args[0][1] != url || args[0][2] != "." {
-		t.Fatalf("expected checkout args [clone %s .], got %v", url, args)
+	wantArgs := gitcmd.NoAutoMaintenanceArgs("clone", url, ".")
+	if len(args) != 1 || !reflect.DeepEqual(args[0], wantArgs) {
+		t.Fatalf("expected checkout args %+v, got %v", wantArgs, args)
 	}
 
 	if len(workDirs) != 1 || workDirs[0] != "/tmp/vectis-state-checkout" {
@@ -148,7 +150,7 @@ func TestCheckoutAction_Execute_UsesCheckoutCacheForFetchRefspecs(t *testing.T) 
 		t.Fatalf("expected one git fetch execution, got paths=%v", paths)
 	}
 
-	wantArgs := []string{"fetch", "--no-auto-gc", "--no-tags", "--", "vectis-cache", "+refs/notes/*:refs/notes/*", "+refs/changes/*:refs/changes/*"}
+	wantArgs := gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", "vectis-cache", "+refs/notes/*:refs/notes/*", "+refs/changes/*:refs/changes/*")
 	if len(args) != 1 || !reflect.DeepEqual(args[0], wantArgs) {
 		t.Fatalf("fetch args = %+v, want %+v", args, wantArgs)
 	}
@@ -234,8 +236,8 @@ func TestCheckoutAction_Execute_DirectCloneFetchesRefspecsFromOrigin(t *testing.
 
 	args := mockExecutor.GetArgs()
 	wantArgs := [][]string{
-		{"clone", url, "."},
-		{"fetch", "--no-auto-gc", "--no-tags", "--", "origin", "+refs/pull/*/head:refs/remotes/origin/pr/*"},
+		gitcmd.NoAutoMaintenanceArgs("clone", url, "."),
+		gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", "origin", "+refs/pull/*/head:refs/remotes/origin/pr/*"),
 	}
 
 	if !reflect.DeepEqual(args, wantArgs) {
@@ -344,8 +346,9 @@ func TestCheckoutAction_Execute_Success(t *testing.T) {
 	if paths[0] != "git" {
 		t.Errorf("expected path 'git', got '%s'", paths[0])
 	}
-	if len(args[0]) != 3 || args[0][0] != "clone" || args[0][1] != url || args[0][2] != "." {
-		t.Errorf("expected args [clone %s .], got %v", url, args[0])
+	wantArgs := gitcmd.NoAutoMaintenanceArgs("clone", url, ".")
+	if !reflect.DeepEqual(args[0], wantArgs) {
+		t.Errorf("expected args %+v, got %v", wantArgs, args[0])
 	}
 
 	envs := mockExecutor.GetEnvs()
