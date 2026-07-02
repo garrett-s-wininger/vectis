@@ -31,6 +31,7 @@ make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
 make k8s-kind-run-gerrit-stream-smoke
 make k8s-kind-run-s3-artifact-smoke
+make k8s-kind-run-knox-secrets-smoke
 ```
 
 The generic `k8s-*` aliases dispatch through `K8S_PROVIDER`, which defaults to
@@ -73,6 +74,12 @@ container tooling already uses Podman:
 | `K8S_S3_PREFIX` | `kubernetes-smoke` | Object prefix used by the S3 artifact smoke. |
 | `K8S_S3_TEMP_DIR` | `/data/vectis/artifact/s3-tmp` | Writable directory used by `vectis-artifact` while hashing S3 uploads during the smoke. |
 | `K8S_S3_KEEP_FIXTURE` | `false` | Keep the S3 fixture after the optional artifact smoke for local inspection. |
+| `K8S_KNOX_API_LOCAL_PORT` | `18090` | Local port used by the Knox secrets smoke API port-forward. |
+| `K8S_KNOX_LOCAL_PORT` | `19001` | Local port used by the Knox fixture port-forward. |
+| `K8S_KNOX_IMAGE` | `localhost/vectis-knox-smoke:dev-local` | Knox smoke image built from the pinned Knox source and loaded into kind by the optional Knox smoke. |
+| `K8S_KNOX_CLUSTER_URL` | `https://vectis-knox:9000` | In-cluster Knox URL passed to `vectis-secrets`. |
+| `K8S_KNOX_REF` | `knox://team/smoke_token` | Secret ref used by the Knox-backed Kubernetes job. |
+| `K8S_KNOX_KEEP_FIXTURE` | `false` | Keep the Knox fixture after the optional secrets smoke for local inspection. |
 | `CONTAINER_CMD` | `podman` | Runtime command used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; set `auto` for kind autodetection. |
@@ -100,6 +107,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orph
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --s3-artifact-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --knox-secrets-only
 ```
 
 The first manifest is a single-cell deployment. It includes Postgres, registry,
@@ -150,6 +158,14 @@ claim production security posture yet:
   through the deployed API path, and then rolls `vectis-artifact` back. It
   deletes the S3 fixture when the run ends unless `K8S_S3_KEEP_FIXTURE=true` or
   `--s3-keep-fixture=true` is set;
+- the optional Knox secrets smoke builds and loads a smoke image from the pinned
+  Knox source, starts an mTLS Knox fixture in-cluster, verifies it directly
+  through a port-forward, mounts the generated CA and client certificate bundle
+  into `statefulset/vectis-secrets`, enables the Knox provider plus `knox://*`
+  policy, submits `examples/e2e-kubernetes-knox.json`, and verifies the worker
+  resolves `knox://team/smoke_token` through the deployed secrets service. It
+  restores `vectis-secrets` and deletes the fixture when the run ends unless
+  `K8S_KNOX_KEEP_FIXTURE=true` or `--knox-keep-fixture=true` is set;
 - `vectis-cell-ingress` is not exposed yet;
 - default Secret values are placeholders and must be overridden before shared use.
 
@@ -174,7 +190,9 @@ explicit orphan repair. The optional Gerrit stream smoke validates the deployed
 Gerrit `stream-events` trigger path when the cluster can pull or has loaded the
 configured Gerrit image. The optional S3 artifact smoke validates
 `vectis-artifact` against an in-cluster S3-compatible backend with access-key
-auth and real artifact upload/download.
+auth and real artifact upload/download. The optional Knox secrets smoke
+validates `vectis-secrets` against an in-cluster Knox provider with mTLS and
+real worker secret materialization.
 The next useful checks are:
 
 1. Expose cell ingress once the mTLS edge contract is ready.

@@ -22,6 +22,11 @@ environment overrides cannot go stale between runs. Use `make knox-smoke-down`,
 `make knox-smoke-status`, and `make knox-smoke-logs` to manage the local
 container after a run.
 
+The smoke server normally generates `ca.crt`, `server.crt`, `server.key`,
+`client.crt`, and `client.key` in `KNOX_SMOKE_CERT_DIR`. If all five files are
+already present, it loads them instead. The Kubernetes smoke uses that path to
+mount a short-lived Secret into both the Knox fixture and `vectis-secrets`.
+
 To run the provider check against an already-running Knox-compatible endpoint,
 point `knox-smoke-check` at a known secret:
 

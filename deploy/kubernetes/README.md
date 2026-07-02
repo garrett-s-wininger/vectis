@@ -41,6 +41,7 @@ make k8s-kind-run-orphan-smoke
 make k8s-kind-run-repair-smoke
 make k8s-kind-run-gerrit-stream-smoke
 make k8s-kind-run-s3-artifact-smoke
+make k8s-kind-run-knox-secrets-smoke
 ```
 
 Or run the full local lifecycle, image-load step, and smoke matrix:
@@ -109,6 +110,15 @@ The local contract is:
 | `K8S_S3_SECRET_ACCESS_KEY` | `vectis-smoke-secret` | Secret key accepted by the SeaweedFS auth fixture. |
 | `K8S_S3_TEMP_DIR` | `/data/vectis/artifact/s3-tmp` | Writable directory used by `vectis-artifact` while hashing S3 uploads during the smoke. |
 | `K8S_S3_KEEP_FIXTURE` | `false` | Keep `deployment/vectis-s3-artifact`, `service/vectis-s3-artifact`, and the auth ConfigMap after the optional S3 artifact smoke for local inspection. |
+| `K8S_KNOX_API_LOCAL_PORT` | `18090` | Local port used by the Knox secrets smoke API port-forward. |
+| `K8S_KNOX_LOCAL_PORT` | `19001` | Local port used by the Knox fixture port-forward. |
+| `K8S_KNOX_IMAGE` | `localhost/vectis-knox-smoke:dev-local` | Knox smoke image built from the pinned Knox source and loaded into kind by the optional Knox smoke. |
+| `K8S_KNOX_CLUSTER_URL` | `https://vectis-knox:9000` | In-cluster Knox URL passed to `vectis-secrets`. |
+| `K8S_KNOX_CERT_MOUNT_PATH` | `/run/vectis/knox-smoke` | Mount path for the Knox CA and client certificate bundle on `vectis-secrets`. |
+| `K8S_KNOX_REF` | `knox://team/smoke_token` | Secret ref used by the Knox-backed Kubernetes job. |
+| `K8S_KNOX_SMOKE_JOB` | `examples/e2e-kubernetes-knox.json` | Job submitted while `vectis-secrets` is patched to the Knox provider. |
+| `K8S_KNOX_KEEP_FIXTURE` | `false` | Keep `deployment/vectis-knox`, `service/vectis-knox`, and the cert Secret after the optional Knox smoke for local inspection. |
+| `K8S_KNOX_SEED_SECRET` | `false` | Whether to also seed the default encryptedfs secret during the Knox smoke. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -231,6 +241,18 @@ smoke, verifies artifact upload/download through the deployed API path, then
 rolls `vectis-artifact` back. It deletes the S3 fixture when the run ends
 unless `K8S_S3_KEEP_FIXTURE=true` or `--s3-keep-fixture=true` is set.
 
+`make k8s-kind-run-knox-secrets-smoke` is optional and intentionally kept out of
+`K8S_KIND_VALIDATE_STEPS` because it builds and loads a Knox smoke image, starts
+an mTLS Knox fixture, and temporarily patches `statefulset/vectis-secrets`. It
+creates a short-lived CA plus server/client certificates, applies
+`deployment/vectis-knox`, verifies the fixture directly through a local
+port-forward, mounts the same cert bundle into `vectis-secrets`, enables the
+Knox provider and `knox://*` secret policy, submits
+`examples/e2e-kubernetes-knox.json`, and verifies the run succeeds through the
+deployed worker secret-resolution path. The harness restores `vectis-secrets`
+and deletes the Knox fixture when the run ends unless
+`K8S_KNOX_KEEP_FIXTURE=true` or `--knox-keep-fixture=true` is set.
+
 The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
@@ -242,6 +264,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --orph
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repair-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --s3-artifact-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --knox-secrets-only
 ```
 
 Build local component images before loading or pushing them to a cluster:

@@ -25,6 +25,7 @@ const (
 	DefaultSmokeJobPath              = "examples/e2e-canonical.json"
 	DefaultSmokeWorkerCoreJobPath    = "examples/e2e-kubernetes-worker-core.json"
 	DefaultSmokeCancelJobPath        = "examples/e2e-kubernetes-cancel.json"
+	DefaultSmokeKnoxJobPath          = "examples/e2e-kubernetes-knox.json"
 	DefaultSmokeScaleJobPath         = "examples/e2e-kubernetes-scale.json"
 	DefaultSmokeOrphanJobPath        = "examples/e2e-kubernetes-orphan.json"
 	DefaultSmokeRepairJobPath        = "examples/e2e-kubernetes-repair.json"
@@ -57,6 +58,16 @@ const (
 	DefaultSmokeS3AccessKeyID        = "vectis-smoke"
 	DefaultSmokeS3SecretAccessKey    = "vectis-smoke-secret"
 	DefaultSmokeS3TempDir            = "/data/vectis/artifact/s3-tmp"
+	DefaultSmokeKnoxImage            = "localhost/vectis-knox-smoke:dev-local"
+	DefaultSmokeKnoxLocalPort        = 19001
+	DefaultSmokeKnoxClusterURL       = "https://vectis-knox:9000"
+	DefaultSmokeKnoxCertMountPath    = "/run/vectis/knox-smoke"
+	DefaultSmokeKnoxAuthToken        = "0tknox-smoke"
+	DefaultSmokeKnoxWrongAuthToken   = "0twrong-knox-smoke"
+	DefaultSmokeKnoxKeyID            = "team:smoke_token"
+	DefaultSmokeKnoxRef              = "knox://team/smoke_token"
+	DefaultSmokeKnoxMissingRef       = "knox://team/missing_token"
+	DefaultSmokeKnoxSecret           = "knox-smoke-secret"
 	DefaultSmokeWait                 = 180 * time.Second
 	smokeAPIServiceName              = "service/vectis-api"
 	smokeAPIRemotePort               = 8080
@@ -93,6 +104,7 @@ type SmokeOptions struct {
 	RepairOnly          bool
 	GerritStreamOnly    bool
 	S3ArtifactOnly      bool
+	KnoxSecretsOnly     bool
 	ScaleWorkerReplicas int
 	ScaleMinWorkers     int
 	OrphanLeaseTTL      time.Duration
@@ -123,6 +135,17 @@ type SmokeOptions struct {
 	S3SecretAccessKey   string
 	S3TempDir           string
 	S3KeepFixture       bool
+	KnoxImage           string
+	KnoxLocalPort       int
+	KnoxClusterURL      string
+	KnoxCertMountPath   string
+	KnoxAuthToken       string
+	KnoxWrongAuthToken  string
+	KnoxKeyID           string
+	KnoxRef             string
+	KnoxMissingRef      string
+	KnoxExpectedData    string
+	KnoxKeepFixture     bool
 	SeedSecret          *bool
 	APILocalPort        int
 	Wait                time.Duration
@@ -148,6 +171,8 @@ type SmokeResult struct {
 	S3Endpoint            string               `json:"s3_endpoint,omitempty"`
 	S3Bucket              string               `json:"s3_bucket,omitempty"`
 	S3Prefix              string               `json:"s3_prefix,omitempty"`
+	KnoxURL               string               `json:"knox_url,omitempty"`
+	KnoxRef               string               `json:"knox_ref,omitempty"`
 	Artifacts             []SmokeArtifactCheck `json:"artifacts"`
 }
 
@@ -314,6 +339,9 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 
 	if opts.S3ArtifactOnly {
 		return runS3ArtifactSmoke(ctx, opts)
+	}
+	if opts.KnoxSecretsOnly {
+		return runKnoxSecretsSmoke(ctx, opts)
 	}
 
 	return runCanonicalSmoke(ctx, opts)
@@ -1020,6 +1048,10 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	}
 
 	opts.JobPath = strings.TrimSpace(opts.JobPath)
+	if opts.JobPath == "" && opts.KnoxSecretsOnly {
+		opts.JobPath = DefaultSmokeKnoxJobPath
+	}
+
 	if opts.JobPath == "" {
 		opts.JobPath = DefaultSmokeJobPath
 	}
@@ -1173,6 +1205,55 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.S3TempDir = strings.TrimSpace(opts.S3TempDir)
 	if opts.S3TempDir == "" {
 		opts.S3TempDir = DefaultSmokeS3TempDir
+	}
+
+	opts.KnoxImage = strings.TrimSpace(opts.KnoxImage)
+	if opts.KnoxImage == "" {
+		opts.KnoxImage = DefaultSmokeKnoxImage
+	}
+
+	if opts.KnoxLocalPort == 0 {
+		opts.KnoxLocalPort = DefaultSmokeKnoxLocalPort
+	}
+
+	opts.KnoxClusterURL = strings.TrimRight(strings.TrimSpace(opts.KnoxClusterURL), "/")
+	if opts.KnoxClusterURL == "" {
+		opts.KnoxClusterURL = DefaultSmokeKnoxClusterURL
+	}
+
+	opts.KnoxCertMountPath = strings.TrimRight(strings.TrimSpace(opts.KnoxCertMountPath), "/")
+	if opts.KnoxCertMountPath == "" {
+		opts.KnoxCertMountPath = DefaultSmokeKnoxCertMountPath
+	}
+
+	opts.KnoxAuthToken = strings.TrimSpace(opts.KnoxAuthToken)
+	if opts.KnoxAuthToken == "" {
+		opts.KnoxAuthToken = DefaultSmokeKnoxAuthToken
+	}
+
+	opts.KnoxWrongAuthToken = strings.TrimSpace(opts.KnoxWrongAuthToken)
+	if opts.KnoxWrongAuthToken == "" {
+		opts.KnoxWrongAuthToken = DefaultSmokeKnoxWrongAuthToken
+	}
+
+	opts.KnoxKeyID = strings.TrimSpace(opts.KnoxKeyID)
+	if opts.KnoxKeyID == "" {
+		opts.KnoxKeyID = DefaultSmokeKnoxKeyID
+	}
+
+	opts.KnoxRef = strings.TrimSpace(opts.KnoxRef)
+	if opts.KnoxRef == "" {
+		opts.KnoxRef = DefaultSmokeKnoxRef
+	}
+
+	opts.KnoxMissingRef = strings.TrimSpace(opts.KnoxMissingRef)
+	if opts.KnoxMissingRef == "" {
+		opts.KnoxMissingRef = DefaultSmokeKnoxMissingRef
+	}
+
+	opts.KnoxExpectedData = strings.TrimSpace(opts.KnoxExpectedData)
+	if opts.KnoxExpectedData == "" {
+		opts.KnoxExpectedData = DefaultSmokeKnoxSecret
 	}
 
 	if opts.SeedSecret == nil {

@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -126,6 +127,28 @@ func TestKubernetesSmokeJobContract(t *testing.T) {
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke job missing %q", want)
+		}
+	}
+}
+
+func TestKubernetesKnoxSmokeJobContract(t *testing.T) {
+	b, err := os.ReadFile("../../examples/e2e-kubernetes-knox.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text := string(b)
+	for _, want := range []string{
+		`"id": "e2e-kubernetes-knox-smoke"`,
+		`"ref": "knox://team/smoke_token"`,
+		`"uses": "examples/flaky-once@v1"`,
+		"342534541 17",
+		"canonical-secret-%s",
+		"canonical-artifact-%s",
+		"canonical-fanout-%s",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Knox smoke job missing %q", want)
 		}
 	}
 }
@@ -373,6 +396,55 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatal("S3 keep fixture should be disabled by default")
 	}
 
+	if opts.KnoxImage != DefaultSmokeKnoxImage {
+		t.Fatalf("Knox image = %q", opts.KnoxImage)
+	}
+
+	if opts.KnoxLocalPort != DefaultSmokeKnoxLocalPort {
+		t.Fatalf("Knox local port = %d", opts.KnoxLocalPort)
+	}
+
+	if opts.KnoxClusterURL != DefaultSmokeKnoxClusterURL {
+		t.Fatalf("Knox cluster URL = %q", opts.KnoxClusterURL)
+	}
+
+	if opts.KnoxCertMountPath != DefaultSmokeKnoxCertMountPath {
+		t.Fatalf("Knox cert mount path = %q", opts.KnoxCertMountPath)
+	}
+
+	if opts.KnoxAuthToken != DefaultSmokeKnoxAuthToken {
+		t.Fatalf("Knox auth token = %q", opts.KnoxAuthToken)
+	}
+
+	if opts.KnoxWrongAuthToken != DefaultSmokeKnoxWrongAuthToken {
+		t.Fatalf("Knox wrong auth token = %q", opts.KnoxWrongAuthToken)
+	}
+
+	if opts.KnoxKeyID != DefaultSmokeKnoxKeyID {
+		t.Fatalf("Knox key id = %q", opts.KnoxKeyID)
+	}
+
+	if opts.KnoxRef != DefaultSmokeKnoxRef {
+		t.Fatalf("Knox ref = %q", opts.KnoxRef)
+	}
+
+	if opts.KnoxMissingRef != DefaultSmokeKnoxMissingRef {
+		t.Fatalf("Knox missing ref = %q", opts.KnoxMissingRef)
+	}
+
+	if opts.KnoxExpectedData != DefaultSmokeKnoxSecret {
+		t.Fatalf("Knox expected data = %q", opts.KnoxExpectedData)
+	}
+
+	if opts.KnoxKeepFixture {
+		t.Fatal("Knox keep fixture should be disabled by default")
+	}
+
+	knoxOpts := normalizeSmokeOptions(SmokeOptions{KnoxSecretsOnly: true})
+	if knoxOpts.JobPath != DefaultSmokeKnoxJobPath {
+		t.Fatalf("Knox job path = %q", knoxOpts.JobPath)
+	}
+
 	if !smokeSeedSecretEnabled(opts) {
 		t.Fatal("secret seeding should be enabled by default")
 	}
@@ -478,6 +550,18 @@ func TestKubernetesValidationEntrypointContract(t *testing.T) {
 		`"s3-secret-access-key"`,
 		`"s3-temp-dir"`,
 		`"s3-keep-fixture"`,
+		`"knox-secrets-only"`,
+		`"knox-image"`,
+		`"knox-local-port"`,
+		`"knox-cluster-url"`,
+		`"knox-cert-mount-path"`,
+		`"knox-auth-token"`,
+		`"knox-wrong-auth-token"`,
+		`"knox-key-id"`,
+		`"knox-ref"`,
+		`"knox-missing-ref"`,
+		`"knox-expected-data"`,
+		`"knox-keep-fixture"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke entrypoint missing %q", want)
@@ -646,6 +730,90 @@ func TestSmokeArtifactS3EnvContract(t *testing.T) {
 		if env[key] != value {
 			t.Fatalf("%s = %q, want %q", key, env[key], value)
 		}
+	}
+}
+
+func TestSmokeKnoxFixtureManifestContract(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{
+		KnoxImage:        "registry.example.com/knox:test",
+		KnoxKeyID:        "team:ci_token",
+		KnoxExpectedData: "secret value",
+		KnoxAuthToken:    "0tci-principal",
+	})
+
+	certs := smokeKnoxCertBundle{
+		CA:         []byte("ca"),
+		ServerCert: []byte("server-cert"),
+		ServerKey:  []byte("server-key"),
+		ClientCert: []byte("client-cert"),
+		ClientKey:  []byte("client-key"),
+	}
+
+	manifest := smokeKnoxFixtureManifest(opts, certs)
+	for _, want := range []string{
+		"kind: Secret",
+		"name: \"vectis-knox-smoke-certs\"",
+		"ca.crt: " + yamlQuote(base64.StdEncoding.EncodeToString([]byte("ca"))),
+		"kind: Deployment",
+		"name: vectis-knox",
+		"image: \"registry.example.com/knox:test\"",
+		"name: KNOX_SMOKE_KEY_ID",
+		"value: \"team:ci_token\"",
+		"name: KNOX_SMOKE_AUTH_TOKEN",
+		"value: \"0tci-principal\"",
+		"mountPath: /certs",
+		"kind: Service",
+		"targetPort: 9000",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q: %s", want, manifest)
+		}
+	}
+}
+
+func TestSmokeKnoxSecretsEnvContract(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{
+		KnoxClusterURL:    "https://vectis-knox:9000/",
+		KnoxAuthToken:     "0tci-principal",
+		KnoxCertMountPath: "/run/vectis/knox-ci/",
+	})
+
+	env := smokeKnoxSecretsEnv(opts)
+	want := map[string]string{
+		"VECTIS_SECRETS_PROVIDERS_KNOX_URL":              "https://vectis-knox:9000",
+		"VECTIS_SECRETS_PROVIDERS_KNOX_AUTH_TOKEN":       "0tci-principal",
+		"VECTIS_SECRETS_PROVIDERS_KNOX_CA_FILE":          "/run/vectis/knox-ci/ca.crt",
+		"VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_CERT_FILE": "/run/vectis/knox-ci/client.crt",
+		"VECTIS_SECRETS_PROVIDERS_KNOX_CLIENT_KEY_FILE":  "/run/vectis/knox-ci/client.key",
+		"VECTIS_SECRETS_POLICY_ALLOW":                    "namespace=*;job=*;task=*;ref=encryptedfs://*,namespace=*;job=*;task=*;ref=knox://*",
+	}
+
+	if len(env) != len(want) {
+		t.Fatalf("env len = %d, want %d: %+v", len(env), len(want), env)
+	}
+
+	for key, value := range want {
+		if env[key] != value {
+			t.Fatalf("%s = %q, want %q", key, env[key], value)
+		}
+	}
+}
+
+func TestValidateKnoxSecretsSmokeOptions(t *testing.T) {
+	if err := validateKnoxSecretsSmokeOptions(normalizeSmokeOptions(SmokeOptions{})); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := normalizeSmokeOptions(SmokeOptions{})
+	opts.KnoxClusterURL = "http://vectis-knox:9000"
+	if err := validateKnoxSecretsSmokeOptions(opts); err == nil {
+		t.Fatal("expected non-https Knox cluster URL to fail")
+	}
+
+	opts = normalizeSmokeOptions(SmokeOptions{})
+	opts.KnoxAuthToken = "token"
+	if err := validateKnoxSecretsSmokeOptions(opts); err == nil {
+		t.Fatal("expected invalid Knox auth token to fail")
 	}
 }
 
