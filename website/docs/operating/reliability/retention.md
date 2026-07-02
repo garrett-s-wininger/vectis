@@ -215,6 +215,30 @@ manifest is written or promoted. When audit export evidence is present or
 required, `--audit-age` must match the audit cleanup window the scheduled cleanup
 job will use so export coverage is checked against the same cutoff.
 
+For recurring jobs, `retention scheduled-cleanup` runs the evidence sequence and
+cleanup preview/apply as one command. It exports audit evidence, records active
+hold review evidence, verifies backup/audit/hold/waiver gates, promotes the
+cleanup evidence manifest, and then runs cleanup through that promoted manifest:
+
+```sh
+vectis-cli retention scheduled-cleanup --yes \
+  --terminal-run-age 720h \
+  --idempotency-age 48h \
+  --audit-age 8760h \
+  --backup-manifest /var/lib/vectis/ops/backup-manifest.json \
+  --backup-expect /etc/vectis/expected-topology.json \
+  --backup-max-age 24h \
+  --audit-export-output /var/lib/vectis/ops/audit-export.json \
+  --audit-export-max-age 24h \
+  --hold-review-output /var/lib/vectis/ops/hold-review.json \
+  --hold-review-max-age 24h \
+  --reason "weekly retention cleanup review" \
+  --require-backup-manifest \
+  --require-audit-export \
+  --require-hold-review \
+  --evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json
+```
+
 ```json
 {
   "schema_version": "vectis.retention_cleanup_evidence.v1",
@@ -370,12 +394,12 @@ WantedBy=timers.target
 ```ini
 [Unit]
 Description=Apply Vectis retention cleanup
-ConditionPathExists=/var/lib/vectis/ops/retention-cleanup-evidence.json
+ConditionPathExists=/var/lib/vectis/ops/backup-manifest.json
 
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/vectis/vectis.env
-ExecStart=/usr/bin/vectis-cli retention cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --evidence-manifest /var/lib/vectis/ops/retention-cleanup-evidence.json
+ExecStart=/usr/bin/vectis-cli retention scheduled-cleanup --yes --terminal-run-age 720h --idempotency-age 48h --audit-age 8760h --backup-manifest /var/lib/vectis/ops/backup-manifest.json --backup-expect /etc/vectis/expected-topology.json --backup-max-age 24h --audit-export-output /var/lib/vectis/ops/audit-export.json --audit-export-max-age 24h --hold-review-output /var/lib/vectis/ops/hold-review.json --hold-review-max-age 24h --reason "weekly retention cleanup review" --require-backup-manifest --require-audit-export --require-hold-review --evidence-manifest-promote /var/lib/vectis/ops/retention-cleanup-evidence.json
 ```
 
 `/etc/systemd/system/vectis-retention-apply.timer`:

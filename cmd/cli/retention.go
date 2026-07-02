@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -142,6 +143,38 @@ type retentionCleanupEvidenceManifestVerification struct {
 	Waiver            *retentionWaiverEvidence      `json:"waiver,omitempty"`
 	AuditRowsEligible int64                         `json:"audit_rows_eligible,omitempty"`
 	AuditCutoff       string                        `json:"audit_cutoff,omitempty"`
+}
+
+type retentionScheduledCleanupOptions struct {
+	Policy                      retention.Policy
+	DryRun                      bool
+	Yes                         bool
+	LogStorageDir               string
+	ArtifactStorageDir          string
+	AuditExportOutputPath       string
+	AuditExportLimit            int
+	HoldReviewOutputPath        string
+	HoldReviewReviewedBy        string
+	HoldReviewReason            string
+	GeneratedBy                 string
+	ExternalRef                 string
+	EvidenceManifestOutputPath  string
+	EvidenceManifestPromotePath string
+	Evidence                    retentionCleanupEvidenceManifestBuildOptions
+	Now                         time.Time
+}
+
+type retentionScheduledCleanupResult struct {
+	Status                     string                                        `json:"status"`
+	DryRun                     bool                                          `json:"dry_run"`
+	Applied                    bool                                          `json:"applied"`
+	GeneratedAt                string                                        `json:"generated_at"`
+	AuditExportPath            string                                        `json:"audit_export_path,omitempty"`
+	HoldReviewPath             string                                        `json:"hold_review_path,omitempty"`
+	EvidenceManifestPath       string                                        `json:"evidence_manifest_path"`
+	EvidenceManifestPromotedTo string                                        `json:"evidence_manifest_promoted_to,omitempty"`
+	Verification               *retentionCleanupEvidenceManifestVerification `json:"verification"`
+	Cleanup                    any                                           `json:"cleanup,omitempty"`
 }
 
 type retentionCleanupFlagChanges struct {
@@ -319,6 +352,230 @@ func runRetentionEvidenceManifest(cmd *cobra.Command, args []string) {
 	}
 
 	runCLIError(writeRetentionCleanupEvidenceManifest(os.Stdout, retentionEvidenceManifestOutput, retentionEvidenceManifestPromote, manifest, verification))
+}
+
+func runRetentionScheduledCleanup(cmd *cobra.Command, args []string) {
+	generatedBy := strings.TrimSpace(retentionEvidenceManifestGeneratedBy)
+	if generatedBy == "" {
+		generatedBy = defaultRetentionOperator()
+	}
+
+	reviewedBy := strings.TrimSpace(retentionHoldReviewReviewedBy)
+	if reviewedBy == "" {
+		reviewedBy = defaultRetentionOperator()
+	}
+
+	runCLIError(retentionScheduledCleanup(cmd.Context(), os.Stdout, retentionScheduledCleanupOptions{
+		Policy: retention.Policy{
+			TerminalRuns:    retentionRunAge,
+			JobDefinitions:  retentionDefAge,
+			IdempotencyKeys: retentionIdemAge,
+			AuditLog:        retentionAuditAge,
+			ArtifactBlobs:   retentionArtifactAge,
+		},
+		DryRun:                      retentionDryRun,
+		Yes:                         retentionYes,
+		LogStorageDir:               retentionLogDir,
+		ArtifactStorageDir:          retentionArtifactDir,
+		AuditExportOutputPath:       retentionScheduledAuditExportOutput,
+		AuditExportLimit:            retentionScheduledAuditExportLimit,
+		HoldReviewOutputPath:        retentionScheduledHoldReviewOutput,
+		HoldReviewReviewedBy:        reviewedBy,
+		HoldReviewReason:            retentionHoldReviewReason,
+		GeneratedBy:                 generatedBy,
+		ExternalRef:                 retentionEvidenceManifestExternalRef,
+		EvidenceManifestOutputPath:  retentionScheduledEvidenceManifestOutput,
+		EvidenceManifestPromotePath: retentionScheduledEvidenceManifestPromote,
+		Evidence: retentionCleanupEvidenceManifestBuildOptions{
+			BackupManifest:        retentionEvidenceBackupManifest,
+			BackupExpect:          retentionEvidenceBackupExpect,
+			BackupStorageReports:  retentionEvidenceBackupStorageReport,
+			BackupMaxAge:          retentionEvidenceBackupMaxAge,
+			BackupStorageMaxAge:   retentionEvidenceBackupStorageMaxAge,
+			AuditExportMaxAge:     retentionEvidenceAuditExportMaxAge,
+			HoldReviewMaxAge:      retentionEvidenceHoldReviewMaxAge,
+			RequireBackupManifest: retentionEvidenceRequireBackup,
+			RequireAuditExport:    retentionEvidenceRequireAuditExport,
+			RequireHoldReview:     retentionEvidenceRequireHoldReview,
+			Waiver:                retentionEvidenceWaiver,
+		},
+	}))
+}
+
+func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionScheduledCleanupOptions) error {
+	if !opts.DryRun && !opts.Yes {
+		return fmt.Errorf("retention scheduled-cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
+	}
+
+	now := opts.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	now = now.UTC()
+
+	outputPath, err := retentionScheduledRetainedPath("--evidence-manifest-output", opts.EvidenceManifestOutputPath)
+	if err != nil {
+		return err
+	}
+
+	promotePath, err := retentionScheduledRetainedPath("--evidence-manifest-promote", opts.EvidenceManifestPromotePath)
+	if err != nil {
+		return err
+	}
+
+	manifestPath := outputPath
+	if promotePath != "" {
+		manifestPath = promotePath
+	}
+	if manifestPath == "" {
+		return fmt.Errorf("retention scheduled-cleanup requires --evidence-manifest-output or --evidence-manifest-promote")
+	}
+
+	auditExportPath, err := retentionScheduledRetainedPath("--audit-export-output", opts.AuditExportOutputPath)
+	if err != nil {
+		return err
+	}
+
+	holdReviewPath, err := retentionScheduledRetainedPath("--hold-review-output", opts.HoldReviewOutputPath)
+	if err != nil {
+		return err
+	}
+
+	buildOptions := opts.Evidence
+	if auditExportPath != "" {
+		if err := auditExport(io.Discard, auditExportOptions{
+			auditListOptions: auditListOptions{
+				Until: now.Format(time.RFC3339),
+				Limit: opts.AuditExportLimit,
+			},
+			OutputPath:  auditExportPath,
+			GeneratedAt: now,
+		}); err != nil {
+			return err
+		}
+		buildOptions.AuditExport = auditExportPath
+	}
+
+	if holdReviewPath != "" {
+		if err := writeScheduledRetentionHoldReview(ctx, holdReviewPath, now, opts.HoldReviewReviewedBy, opts.HoldReviewReason, opts.ExternalRef); err != nil {
+			return err
+		}
+		buildOptions.HoldReview = holdReviewPath
+	}
+
+	manifest, err := buildRetentionCleanupEvidenceManifest(now, opts.GeneratedBy, opts.ExternalRef, buildOptions)
+	if err != nil {
+		return err
+	}
+
+	verification, err := verifyRetentionCleanupEvidenceManifest(ctx, opts.Policy, buildOptions, now)
+	if err != nil {
+		return err
+	}
+
+	if err := writeRetentionCleanupEvidenceManifest(io.Discard, outputPath, promotePath, manifest, verification); err != nil {
+		return err
+	}
+
+	var backupOptions retentionBackupCheckOptions
+	var auditExportOptions retentionAuditExportCheckOptions
+	var holdReviewOptions retentionHoldReviewCheckOptions
+	var gateOptions retentionPolicyGateOptions
+	evidenceManifest, err := applyRetentionCleanupEvidenceManifest(manifestPath, retentionCleanupFlagChanges{}, &backupOptions, &auditExportOptions, &holdReviewOptions, &gateOptions, now)
+	if err != nil {
+		return err
+	}
+
+	result := retentionScheduledCleanupResult{
+		Status:                     "completed",
+		DryRun:                     opts.DryRun,
+		Applied:                    !opts.DryRun,
+		GeneratedAt:                now.Format(time.RFC3339),
+		AuditExportPath:            auditExportPath,
+		HoldReviewPath:             holdReviewPath,
+		EvidenceManifestPath:       manifestPath,
+		EvidenceManifestPromotedTo: promotePath,
+		Verification:               verification,
+	}
+
+	cleanupWriter := w
+	var cleanupBuf bytes.Buffer
+	if outputIsJSON() {
+		cleanupWriter = &cleanupBuf
+	} else {
+		printRetentionScheduledCleanupReceipt(w, result)
+	}
+
+	if err := retentionCleanup(ctx, cleanupWriter, opts.Policy, opts.DryRun, opts.Yes, opts.LogStorageDir, opts.ArtifactStorageDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest); err != nil {
+		return err
+	}
+
+	if outputIsJSON() {
+		var cleanupPayload any
+		if err := json.Unmarshal(cleanupBuf.Bytes(), &cleanupPayload); err != nil {
+			return fmt.Errorf("parse retention cleanup workflow output: %w", err)
+		}
+
+		result.Cleanup = cleanupPayload
+		return writeJSON(w, result)
+	}
+
+	return nil
+}
+
+func retentionScheduledRetainedPath(flagName, path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+
+	if path == "-" {
+		return "", fmt.Errorf("%s must be a retained file path", flagName)
+	}
+
+	return path, nil
+}
+
+func writeScheduledRetentionHoldReview(ctx context.Context, outputPath string, generatedAt time.Time, reviewedBy, reason, externalRef string) error {
+	db, err := openRetentionDatabase()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	holds, err := retention.NewSQLHoldStore(db).List(ctx, retention.ListHoldOptions{}, generatedAt)
+	if err != nil {
+		return err
+	}
+
+	review, err := buildRetentionHoldReviewFile(holds, generatedAt, reviewedBy, reason, externalRef)
+	if err != nil {
+		return err
+	}
+
+	return writeRetentionHoldReview(io.Discard, outputPath, review)
+}
+
+func printRetentionScheduledCleanupReceipt(w io.Writer, result retentionScheduledCleanupResult) {
+	fmt.Fprintf(w, "scheduled_cleanup_generated_at=%s\n", result.GeneratedAt)
+	fmt.Fprintf(w, "scheduled_cleanup_dry_run=%t\n", result.DryRun)
+	fmt.Fprintf(w, "scheduled_cleanup_applied=%t\n", result.Applied)
+	if result.AuditExportPath != "" {
+		fmt.Fprintf(w, "scheduled_cleanup_audit_export=%s\n", result.AuditExportPath)
+	}
+
+	if result.HoldReviewPath != "" {
+		fmt.Fprintf(w, "scheduled_cleanup_hold_review=%s\n", result.HoldReviewPath)
+	}
+
+	fmt.Fprintf(w, "scheduled_cleanup_evidence_manifest=%s\n", result.EvidenceManifestPath)
+	if result.EvidenceManifestPromotedTo != "" {
+		fmt.Fprintf(w, "scheduled_cleanup_evidence_manifest_promoted_to=%s\n", result.EvidenceManifestPromotedTo)
+	}
+
+	if result.Verification != nil {
+		fmt.Fprintf(w, "scheduled_cleanup_verified=%t\n", result.Verification.Verified)
+	}
 }
 
 func retentionEvidenceManifestPolicy() retention.Policy {
@@ -2302,6 +2559,17 @@ and required-gate evidence. Use --promote to atomically update the stable path
 that recurring cleanup jobs consume with --evidence-manifest.`,
 	Args: cobra.NoArgs,
 	Run:  runRetentionEvidenceManifest,
+}
+
+var retentionScheduledCleanupCmd = &cobra.Command{
+	Use:   "scheduled-cleanup",
+	Short: "Run the scheduled retention cleanup workflow",
+	Long: `Run the scheduled retention cleanup workflow: generate retained audit
+export and hold-review evidence when requested, verify retained backup, audit,
+hold-review, waiver, and required-gate evidence, atomically promote the cleanup
+evidence manifest, then run retention cleanup using that promoted manifest.`,
+	Args: cobra.NoArgs,
+	Run:  runRetentionScheduledCleanup,
 }
 
 var retentionHoldsCmd = &cobra.Command{

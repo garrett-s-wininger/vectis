@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"vectis/internal/database"
 	"vectis/internal/retention"
 	"vectis/internal/storageverify"
 )
@@ -398,6 +400,118 @@ func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
 	}
 	if got.SchemaVersion != retentionCleanupEvidenceManifestSchemaVersion || got.BackupManifest != "backup-manifest.json" {
 		t.Fatalf("promoted manifest = %+v", got)
+	}
+}
+
+func TestRetentionScheduledCleanupGeneratesVerifiesAndDryRuns(t *testing.T) {
+	withOutputFormat(t, outputJSON)
+
+	now := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	requests := 0
+	setupTestAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/api/v1/audit/events" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("until"); got != now.Format(time.RFC3339) {
+			t.Errorf("until = %q, want %q", got, now.Format(time.RFC3339))
+		}
+		if got := r.URL.Query().Get("limit"); got != "10" {
+			t.Errorf("limit = %q, want 10", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"limit":  10,
+			"events": []map[string]any{},
+		})
+	})
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "vectis.db")
+	t.Setenv(database.EnvDatabaseDriver, "sqlite3")
+	t.Setenv(database.EnvDatabaseDSN, dbPath)
+	if err := database.Migrate(dbPath); err != nil {
+		t.Fatalf("migrate test db: %v", err)
+	}
+
+	auditPath := filepath.Join(root, "audit-export.json")
+	holdReviewPath := filepath.Join(root, "hold-review.json")
+	evidencePath := filepath.Join(root, "retention-cleanup-evidence-20260702.json")
+	promotePath := filepath.Join(root, "retention-cleanup-evidence.json")
+
+	var buf bytes.Buffer
+	if err := retentionScheduledCleanup(context.Background(), &buf, retentionScheduledCleanupOptions{
+		Policy:                      retention.Policy{AuditLog: 24 * time.Hour},
+		DryRun:                      true,
+		AuditExportOutputPath:       auditPath,
+		AuditExportLimit:            10,
+		HoldReviewOutputPath:        holdReviewPath,
+		HoldReviewReviewedBy:        "compliance",
+		HoldReviewReason:            "scheduled retention review",
+		GeneratedBy:                 "retention-scheduler",
+		ExternalRef:                 "CHG-123",
+		EvidenceManifestOutputPath:  evidencePath,
+		EvidenceManifestPromotePath: promotePath,
+		Evidence: retentionCleanupEvidenceManifestBuildOptions{
+			RequireAuditExport: true,
+			RequireHoldReview:  true,
+		},
+		Now: now,
+	}); err != nil {
+		t.Fatalf("scheduled cleanup: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("audit export requests = %d, want 1", requests)
+	}
+
+	var result retentionScheduledCleanupResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("parse scheduled cleanup result: %v\n%s", err, buf.String())
+	}
+	if result.Status != "completed" || !result.DryRun || result.Applied {
+		t.Fatalf("scheduled cleanup result = %+v", result)
+	}
+	if result.AuditExportPath != auditPath || result.HoldReviewPath != holdReviewPath || result.EvidenceManifestPath != promotePath || result.EvidenceManifestPromotedTo != promotePath {
+		t.Fatalf("scheduled cleanup evidence paths = %+v", result)
+	}
+	if result.Verification == nil || !result.Verification.Verified || result.Verification.AuditExport == nil || !result.Verification.AuditExport.Verified || result.Verification.HoldReview == nil || !result.Verification.HoldReview.Verified {
+		t.Fatalf("scheduled cleanup verification = %+v", result.Verification)
+	}
+	if result.Cleanup == nil {
+		t.Fatalf("scheduled cleanup result missing cleanup payload: %+v", result)
+	}
+
+	var manifest retentionCleanupEvidenceManifestFile
+	raw, err := os.ReadFile(promotePath)
+	if err != nil {
+		t.Fatalf("read promoted manifest: %v", err)
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatalf("parse promoted manifest: %v", err)
+	}
+	if manifest.AuditExport != auditPath || manifest.HoldReview != holdReviewPath || manifest.GeneratedBy != "retention-scheduler" || manifest.ExternalRef != "CHG-123" {
+		t.Fatalf("promoted manifest = %+v", manifest)
+	}
+	if _, err := os.Stat(evidencePath); err != nil {
+		t.Fatalf("stat timestamped manifest: %v", err)
+	}
+	if _, err := os.Stat(auditPath); err != nil {
+		t.Fatalf("stat audit export: %v", err)
+	}
+	if _, err := os.Stat(holdReviewPath); err != nil {
+		t.Fatalf("stat hold review: %v", err)
+	}
+}
+
+func TestRetentionScheduledCleanupRequiresRetainedManifestPath(t *testing.T) {
+	err := retentionScheduledCleanup(context.Background(), io.Discard, retentionScheduledCleanupOptions{DryRun: true})
+	if err == nil {
+		t.Fatalf("scheduled cleanup succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "--evidence-manifest-output") {
+		t.Fatalf("scheduled cleanup error = %v, want evidence manifest output", err)
 	}
 }
 
