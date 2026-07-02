@@ -254,20 +254,13 @@ func (s *SQLService) ResolveSession(ctx context.Context, tokenHash string, now t
 	var sess Session
 	var expiresUnix int64
 	var lastUsedUnix int64
-	idleCutoffUnix := int64(0)
+	query := resolveSessionQuery(idleTTL)
+	args := []any{tokenHash, now.UTC().UnixNano()}
 	if idleTTL > 0 {
-		idleCutoffUnix = now.UTC().Add(-idleTTL).UnixNano()
+		args = append(args, now.UTC().Add(-idleTTL).UnixNano())
 	}
 
-	err := s.db.QueryRowContext(ctx, rebindQuery(`
-		SELECT s.session_hash, s.csrf_token_hash, s.local_user_id, u.username, s.expires_at_unix_nano, s.last_used_unix_nano
-		FROM api_sessions s
-		JOIN local_users u ON u.id = s.local_user_id
-		WHERE s.session_hash = ?
-		  AND u.enabled
-		  AND s.expires_at_unix_nano > ?
-		  AND (? = 0 OR s.last_used_unix_nano > ?)
-	`, s.driver), tokenHash, now.UTC().UnixNano(), idleCutoffUnix, idleCutoffUnix).Scan(&sess.TokenHash, &sess.CSRFTokenHash, &sess.LocalUserID, &sess.Username, &expiresUnix, &lastUsedUnix)
+	err := s.db.QueryRowContext(ctx, rebindQuery(query, s.driver), args...).Scan(&sess.TokenHash, &sess.CSRFTokenHash, &sess.LocalUserID, &sess.Username, &expiresUnix, &lastUsedUnix)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -280,6 +273,23 @@ func (s *SQLService) ResolveSession(ctx context.Context, tokenHash string, now t
 	sess.ExpiresAt = time.Unix(0, expiresUnix).UTC()
 	sess.LastUsedAt = time.Unix(0, lastUsedUnix).UTC()
 	return sess, nil
+}
+
+func resolveSessionQuery(idleTTL time.Duration) string {
+	query := `
+		SELECT s.session_hash, s.csrf_token_hash, s.local_user_id, u.username, s.expires_at_unix_nano, s.last_used_unix_nano
+		FROM api_sessions s
+		JOIN local_users u ON u.id = s.local_user_id
+		WHERE s.session_hash = ?
+		  AND u.enabled
+		  AND s.expires_at_unix_nano > ?
+	`
+
+	if idleTTL > 0 {
+		query += ` AND s.last_used_unix_nano > ?`
+	}
+
+	return query
 }
 
 func (s *SQLService) TouchSession(ctx context.Context, tokenHash string, now time.Time) error {

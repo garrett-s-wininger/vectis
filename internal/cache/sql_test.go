@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,6 +139,17 @@ func TestSQLService_Sessions(t *testing.T) {
 
 	if _, err := cache.ResolveSession(ctx, "hash", time.Now().UTC(), time.Hour); !IsNotFound(err) {
 		t.Fatalf("ResolveSession after delete err = %v, want not found", err)
+	}
+}
+
+func TestSQLService_ResolveSessionPGXQueryDoesNotInferIdleCutoffAsInt4(t *testing.T) {
+	query := rebindQuery(resolveSessionQuery(time.Hour), "pgx")
+	if strings.Contains(query, "$3 = 0") {
+		t.Fatalf("resolve session query must not compare the idle cutoff parameter to int4 literal 0: %s", query)
+	}
+
+	if !strings.Contains(query, "s.last_used_unix_nano > $3") {
+		t.Fatalf("resolve session query missing pgx idle cutoff predicate: %s", query)
 	}
 }
 

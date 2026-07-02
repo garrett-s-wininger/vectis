@@ -30,7 +30,8 @@ func main() {
 	flag.StringVar(&opts.LDAP.Username, "username", ldapauth.DefaultSmokeUsername, "Username to authenticate through the API login path")
 	flag.StringVar(&opts.LDAP.Password, "password", ldapauth.DefaultSmokePassword, "Password for the smoke username")
 	flag.StringVar(&opts.LDAP.WrongPassword, "wrong-password", ldapauth.DefaultSmokeWrongPassword, "Password expected to fail through the API login path")
-	flag.StringVar(&opts.BootstrapToken, "bootstrap-token", ldapsmoke.DefaultAPISmokeBootstrapToken, "API bootstrap token used for in-memory smoke setup")
+	flag.StringVar(&opts.APIURL, "api-url", "", "Optional Vectis API base URL; when set, the smoke validates that deployed API instead of an in-memory API")
+	flag.StringVar(&opts.BootstrapToken, "bootstrap-token", ldapsmoke.DefaultAPISmokeBootstrapToken, "API bootstrap token used to complete setup when the target API is not yet initialized")
 	flag.StringVar(&opts.AdminUsername, "admin-username", ldapsmoke.DefaultAPISmokeAdminUsername, "API setup admin username")
 	flag.StringVar(&opts.AdminPassword, "admin-password", ldapsmoke.DefaultAPISmokeAdminPassword, "API setup admin password")
 	flag.DurationVar(&opts.Timeout, "timeout", ldapauth.DefaultSmokeTimeout, "Maximum time to wait for the LDAP API smoke")
@@ -62,7 +63,7 @@ func main() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "LDAP API smoke succeeded: username=%s user_id=%d token_returned=%t api_probe=%s setup_external_identity_linked=%t password_login_denied=%t external_login_matched_setup=%t wrong_password_denied=%t\n", result.Username, result.UserID, result.TokenReturned, result.AuthenticatedAPIProbePath, result.SetupExternalIdentityLinked, result.PasswordLoginDenied, result.ExternalLoginMatchedSetup, result.WrongPasswordDenied)
+	fmt.Fprintf(os.Stdout, "LDAP API smoke succeeded: username=%s user_id=%d token_returned=%t api_probe=%s setup_performed=%t setup_already_complete=%t setup_external_identity_linked=%t password_login_denied=%t external_login_matched_setup=%t wrong_password_denied=%t\n", result.Username, result.UserID, result.TokenReturned, result.AuthenticatedAPIProbePath, result.SetupPerformed, result.SetupAlreadyComplete, result.SetupExternalIdentityLinked, result.PasswordLoginDenied, result.ExternalLoginMatchedSetup, result.WrongPasswordDenied)
 }
 
 func envDefault(key, fallback string) string {

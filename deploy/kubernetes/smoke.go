@@ -68,6 +68,20 @@ const (
 	DefaultSmokeKnoxRef              = "knox://team/smoke_token"
 	DefaultSmokeKnoxMissingRef       = "knox://team/missing_token"
 	DefaultSmokeKnoxSecret           = "knox-smoke-secret"
+	DefaultSmokeLDAPImage            = "docker.io/osixia/openldap:1.5.0"
+	DefaultSmokeLDAPLocalPort        = 18389
+	DefaultSmokeLDAPClusterURL       = "ldap://vectis-ldap:389"
+	DefaultSmokeLDAPBootstrapLDIF    = "extensions/auth/ldap/testdata/bootstrap/001-vectis-smoke.ldif"
+	DefaultSmokeLDAPBaseDN           = "ou=people,dc=example,dc=org"
+	DefaultSmokeLDAPBindDN           = "cn=vectis,dc=example,dc=org"
+	DefaultSmokeLDAPBindPassword     = "service-secret"
+	DefaultSmokeLDAPUserFilter       = "(uid={username})"
+	DefaultSmokeLDAPUsername         = "alice"
+	DefaultSmokeLDAPPassword         = "alice-secret"
+	DefaultSmokeLDAPWrongPassword    = "wrong-secret"
+	DefaultSmokeLDAPExpectedSubject  = "uid=alice,ou=people,dc=example,dc=org"
+	DefaultSmokeLDAPExpectedName     = "Alice Example"
+	DefaultSmokeLDAPBootstrapToken   = "change-me-vectis-bootstrap-token"
 	DefaultSmokeWait                 = 180 * time.Second
 	smokeAPIServiceName              = "service/vectis-api"
 	smokeAPIRemotePort               = 8080
@@ -105,6 +119,7 @@ type SmokeOptions struct {
 	GerritStreamOnly    bool
 	S3ArtifactOnly      bool
 	KnoxSecretsOnly     bool
+	LDAPAuthOnly        bool
 	ScaleWorkerReplicas int
 	ScaleMinWorkers     int
 	OrphanLeaseTTL      time.Duration
@@ -146,6 +161,26 @@ type SmokeOptions struct {
 	KnoxMissingRef      string
 	KnoxExpectedData    string
 	KnoxKeepFixture     bool
+	LDAPImage           string
+	LDAPLocalPort       int
+	LDAPClusterURL      string
+	LDAPBootstrapLDIF   string
+	LDAPBaseDN          string
+	LDAPBindDN          string
+	LDAPBindPassword    string
+	LDAPUserFilter      string
+	LDAPSubjectAttr     string
+	LDAPUsernameAttr    string
+	LDAPDisplayNameAttr string
+	LDAPUsername        string
+	LDAPPassword        string
+	LDAPWrongPassword   string
+	LDAPExpectedSubject string
+	LDAPExpectedName    string
+	LDAPBootstrapToken  string
+	LDAPAdminUsername   string
+	LDAPAdminPassword   string
+	LDAPKeepFixture     bool
 	SeedSecret          *bool
 	APILocalPort        int
 	Wait                time.Duration
@@ -173,6 +208,11 @@ type SmokeResult struct {
 	S3Prefix              string               `json:"s3_prefix,omitempty"`
 	KnoxURL               string               `json:"knox_url,omitempty"`
 	KnoxRef               string               `json:"knox_ref,omitempty"`
+	LDAPURL               string               `json:"ldap_url,omitempty"`
+	LDAPUsername          string               `json:"ldap_username,omitempty"`
+	LDAPUserID            int64                `json:"ldap_user_id,omitempty"`
+	LDAPSetupPerformed    bool                 `json:"ldap_setup_performed,omitempty"`
+	LDAPSetupPreexisting  bool                 `json:"ldap_setup_preexisting,omitempty"`
 	Artifacts             []SmokeArtifactCheck `json:"artifacts"`
 }
 
@@ -340,8 +380,13 @@ func RunSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	if opts.S3ArtifactOnly {
 		return runS3ArtifactSmoke(ctx, opts)
 	}
+
 	if opts.KnoxSecretsOnly {
 		return runKnoxSecretsSmoke(ctx, opts)
+	}
+
+	if opts.LDAPAuthOnly {
+		return runLDAPAuthSmoke(ctx, opts)
 	}
 
 	return runCanonicalSmoke(ctx, opts)
@@ -1254,6 +1299,96 @@ func normalizeSmokeOptions(opts SmokeOptions) SmokeOptions {
 	opts.KnoxExpectedData = strings.TrimSpace(opts.KnoxExpectedData)
 	if opts.KnoxExpectedData == "" {
 		opts.KnoxExpectedData = DefaultSmokeKnoxSecret
+	}
+
+	opts.LDAPImage = strings.TrimSpace(opts.LDAPImage)
+	if opts.LDAPImage == "" {
+		opts.LDAPImage = DefaultSmokeLDAPImage
+	}
+
+	if opts.LDAPLocalPort == 0 {
+		opts.LDAPLocalPort = DefaultSmokeLDAPLocalPort
+	}
+
+	opts.LDAPClusterURL = strings.TrimRight(strings.TrimSpace(opts.LDAPClusterURL), "/")
+	if opts.LDAPClusterURL == "" {
+		opts.LDAPClusterURL = DefaultSmokeLDAPClusterURL
+	}
+
+	opts.LDAPBootstrapLDIF = strings.TrimSpace(opts.LDAPBootstrapLDIF)
+	if opts.LDAPBootstrapLDIF == "" {
+		opts.LDAPBootstrapLDIF = DefaultSmokeLDAPBootstrapLDIF
+	}
+
+	opts.LDAPBaseDN = strings.TrimSpace(opts.LDAPBaseDN)
+	if opts.LDAPBaseDN == "" {
+		opts.LDAPBaseDN = DefaultSmokeLDAPBaseDN
+	}
+
+	opts.LDAPBindDN = strings.TrimSpace(opts.LDAPBindDN)
+	if opts.LDAPBindDN == "" {
+		opts.LDAPBindDN = DefaultSmokeLDAPBindDN
+	}
+
+	opts.LDAPBindPassword = strings.TrimSpace(opts.LDAPBindPassword)
+	if opts.LDAPBindPassword == "" {
+		opts.LDAPBindPassword = DefaultSmokeLDAPBindPassword
+	}
+
+	opts.LDAPUserFilter = strings.TrimSpace(opts.LDAPUserFilter)
+	if opts.LDAPUserFilter == "" {
+		opts.LDAPUserFilter = DefaultSmokeLDAPUserFilter
+	}
+
+	opts.LDAPSubjectAttr = strings.TrimSpace(opts.LDAPSubjectAttr)
+
+	opts.LDAPUsernameAttr = strings.TrimSpace(opts.LDAPUsernameAttr)
+	if opts.LDAPUsernameAttr == "" {
+		opts.LDAPUsernameAttr = "uid"
+	}
+
+	opts.LDAPDisplayNameAttr = strings.TrimSpace(opts.LDAPDisplayNameAttr)
+	if opts.LDAPDisplayNameAttr == "" {
+		opts.LDAPDisplayNameAttr = "cn"
+	}
+
+	opts.LDAPUsername = strings.TrimSpace(opts.LDAPUsername)
+	if opts.LDAPUsername == "" {
+		opts.LDAPUsername = DefaultSmokeLDAPUsername
+	}
+
+	opts.LDAPPassword = strings.TrimSpace(opts.LDAPPassword)
+	if opts.LDAPPassword == "" {
+		opts.LDAPPassword = DefaultSmokeLDAPPassword
+	}
+
+	opts.LDAPWrongPassword = strings.TrimSpace(opts.LDAPWrongPassword)
+	if opts.LDAPWrongPassword == "" {
+		opts.LDAPWrongPassword = DefaultSmokeLDAPWrongPassword
+	}
+
+	opts.LDAPExpectedSubject = strings.TrimSpace(opts.LDAPExpectedSubject)
+	if opts.LDAPExpectedSubject == "" {
+		opts.LDAPExpectedSubject = DefaultSmokeLDAPExpectedSubject
+	}
+
+	opts.LDAPExpectedName = strings.TrimSpace(opts.LDAPExpectedName)
+	if opts.LDAPExpectedName == "" {
+		opts.LDAPExpectedName = DefaultSmokeLDAPExpectedName
+	}
+
+	opts.LDAPBootstrapToken = strings.TrimSpace(opts.LDAPBootstrapToken)
+	if opts.LDAPBootstrapToken == "" {
+		opts.LDAPBootstrapToken = DefaultSmokeLDAPBootstrapToken
+	}
+
+	opts.LDAPAdminUsername = strings.TrimSpace(opts.LDAPAdminUsername)
+	if opts.LDAPAdminUsername == "" {
+		opts.LDAPAdminUsername = "root"
+	}
+
+	if opts.LDAPAdminPassword == "" {
+		opts.LDAPAdminPassword = "longenough"
 	}
 
 	if opts.SeedSecret == nil {

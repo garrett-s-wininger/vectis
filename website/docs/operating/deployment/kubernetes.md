@@ -32,6 +32,7 @@ make k8s-kind-run-repair-smoke
 make k8s-kind-run-gerrit-stream-smoke
 make k8s-kind-run-s3-artifact-smoke
 make k8s-kind-run-knox-secrets-smoke
+make k8s-kind-run-ldap-auth-smoke
 ```
 
 The generic `k8s-*` aliases dispatch through `K8S_PROVIDER`, which defaults to
@@ -80,6 +81,12 @@ container tooling already uses Podman:
 | `K8S_KNOX_CLUSTER_URL` | `https://vectis-knox:9000` | In-cluster Knox URL passed to `vectis-secrets`. |
 | `K8S_KNOX_REF` | `knox://team/smoke_token` | Secret ref used by the Knox-backed Kubernetes job. |
 | `K8S_KNOX_KEEP_FIXTURE` | `false` | Keep the Knox fixture after the optional secrets smoke for local inspection. |
+| `K8S_LDAP_API_LOCAL_PORT` | `18091` | Local port used by the LDAP auth smoke API port-forward. |
+| `K8S_LDAP_LOCAL_PORT` | `18389` | Local port used by the LDAP fixture port-forward. |
+| `K8S_LDAP_IMAGE` | `docker.io/osixia/openldap:1.5.0` | OpenLDAP image applied inside the namespace by the optional LDAP auth smoke. |
+| `K8S_LDAP_CLUSTER_URL` | `ldap://vectis-ldap:389` | In-cluster LDAP URL passed to `vectis-api`. |
+| `K8S_LDAP_BOOTSTRAP_TOKEN` | `change-me-vectis-bootstrap-token` | API bootstrap token used if setup is pending; keep it aligned with the rendered Secret. |
+| `K8S_LDAP_KEEP_FIXTURE` | `false` | Keep the LDAP fixture after the optional auth smoke for local inspection. |
 | `CONTAINER_CMD` | `podman` | Runtime command used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; set `auto` for kind autodetection. |
@@ -108,6 +115,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repa
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --s3-artifact-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --knox-secrets-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --ldap-auth-only
 ```
 
 The first manifest is a single-cell deployment. It includes Postgres, registry,
@@ -166,6 +174,14 @@ claim production security posture yet:
   resolves `knox://team/smoke_token` through the deployed secrets service. It
   restores `vectis-secrets` and deletes the fixture when the run ends unless
   `K8S_KNOX_KEEP_FIXTURE=true` or `--knox-keep-fixture=true` is set;
+- the optional LDAP auth smoke starts an OpenLDAP fixture in-cluster, verifies
+  the fixture directly through a port-forward, temporarily patches
+  `deployment/vectis-api` to enable API auth plus the LDAP login provider,
+  completes first setup with password auth disabled when setup is pending,
+  checks the created local password cannot log in, validates the LDAP user can
+  log in through the deployed API, and rejects a wrong LDAP password. It
+  restores the API env and deletes the fixture when the run ends unless
+  `K8S_LDAP_KEEP_FIXTURE=true` or `--ldap-keep-fixture=true` is set;
 - `vectis-cell-ingress` is not exposed yet;
 - default Secret values are placeholders and must be overridden before shared use.
 
@@ -192,7 +208,9 @@ configured Gerrit image. The optional S3 artifact smoke validates
 `vectis-artifact` against an in-cluster S3-compatible backend with access-key
 auth and real artifact upload/download. The optional Knox secrets smoke
 validates `vectis-secrets` against an in-cluster Knox provider with mTLS and
-real worker secret materialization.
+real worker secret materialization. The optional LDAP auth smoke validates the
+deployed API against an in-cluster LDAP provider and the first-setup external
+identity flow.
 The next useful checks are:
 
 1. Expose cell ingress once the mTLS edge contract is ready.

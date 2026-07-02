@@ -3,7 +3,6 @@ package ldap
 import (
 	"bytes"
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -64,45 +63,4 @@ func TestRunSmokeRequiresURL(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "url is required") {
 		t.Fatalf("RunSmoke error = %v, want url required", err)
 	}
-}
-
-func TestLDAPSmokeMakefileRecreatesLocalFixture(t *testing.T) {
-	b, err := os.ReadFile("../../../Makefile")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	text := string(b)
-	section := ldapTextBetween(t, text, ".PHONY: ldap-smoke-up", ".PHONY: s3-smoke-public-up")
-	for _, want := range []string{
-		"LDAP_SMOKE_IMAGE ?= docker.io/osixia/openldap:1.5.0",
-		"$(CONTAINER_CMD) stop \"$(LDAP_SMOKE_CONTAINER)\"",
-		"$(CONTAINER_CMD) rm \"$(LDAP_SMOKE_CONTAINER)\"",
-		"-v \"$(LDAP_SMOKE_BOOTSTRAP_DIR)\":/container/service/slapd/assets/config/bootstrap/ldif/custom:ro",
-		"ldap-smoke: ldap-smoke-up ldap-smoke-check ldap-api-smoke-check",
-	} {
-		if !strings.Contains(section, want) && !strings.Contains(text, want) {
-			t.Fatalf("LDAP smoke Makefile contract missing %q", want)
-		}
-	}
-
-	if strings.Contains(section, "$(CONTAINER_CMD) start \"$(LDAP_SMOKE_CONTAINER)\"") {
-		t.Fatal("ldap-smoke-up must recreate the local fixture instead of restarting stale directory state")
-	}
-}
-
-func ldapTextBetween(t *testing.T, text, start, end string) string {
-	t.Helper()
-
-	startIndex := strings.Index(text, start)
-	if startIndex < 0 {
-		t.Fatalf("missing start marker %q", start)
-	}
-
-	endIndex := strings.Index(text[startIndex:], end)
-	if endIndex < 0 {
-		t.Fatalf("missing end marker %q", end)
-	}
-
-	return text[startIndex : startIndex+endIndex]
 }

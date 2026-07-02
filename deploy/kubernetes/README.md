@@ -42,6 +42,7 @@ make k8s-kind-run-repair-smoke
 make k8s-kind-run-gerrit-stream-smoke
 make k8s-kind-run-s3-artifact-smoke
 make k8s-kind-run-knox-secrets-smoke
+make k8s-kind-run-ldap-auth-smoke
 ```
 
 Or run the full local lifecycle, image-load step, and smoke matrix:
@@ -119,6 +120,16 @@ The local contract is:
 | `K8S_KNOX_SMOKE_JOB` | `examples/e2e-kubernetes-knox.json` | Job submitted while `vectis-secrets` is patched to the Knox provider. |
 | `K8S_KNOX_KEEP_FIXTURE` | `false` | Keep `deployment/vectis-knox`, `service/vectis-knox`, and the cert Secret after the optional Knox smoke for local inspection. |
 | `K8S_KNOX_SEED_SECRET` | `false` | Whether to also seed the default encryptedfs secret during the Knox smoke. |
+| `K8S_LDAP_API_LOCAL_PORT` | `18091` | Local port used by the LDAP auth smoke API port-forward. |
+| `K8S_LDAP_LOCAL_PORT` | `18389` | Local port used by the LDAP fixture port-forward. |
+| `K8S_LDAP_IMAGE` | `docker.io/osixia/openldap:1.5.0` | OpenLDAP image applied inside the namespace by the optional LDAP auth smoke. |
+| `K8S_LDAP_CLUSTER_URL` | `ldap://vectis-ldap:389` | In-cluster LDAP URL passed to `vectis-api`. |
+| `K8S_LDAP_BOOTSTRAP_LDIF` | `extensions/auth/ldap/testdata/bootstrap/001-vectis-smoke.ldif` | LDIF mounted into the LDAP fixture to create the smoke user. |
+| `K8S_LDAP_BASE_DN` | `ou=people,dc=example,dc=org` | LDAP user-search base DN used by the provider. |
+| `K8S_LDAP_BIND_DN` | `cn=vectis,dc=example,dc=org` | LDAP read-only service-account bind DN. |
+| `K8S_LDAP_USERNAME` | `alice` | LDAP user validated through direct bind and deployed API login. |
+| `K8S_LDAP_BOOTSTRAP_TOKEN` | `change-me-vectis-bootstrap-token` | API bootstrap token used if the deployed API setup is pending; keep it aligned with the rendered Secret. |
+| `K8S_LDAP_KEEP_FIXTURE` | `false` | Keep `deployment/vectis-ldap`, `service/vectis-ldap`, and the bootstrap ConfigMap after the optional LDAP smoke for local inspection. |
 | `CONTAINER_CMD` | `podman` | Runtime used to build and save images. |
 | `IMAGE_REGISTRY` | unset | General image-build prefix; the kind target sets it from `K8S_IMAGE_REGISTRY`. |
 | `KIND_PROVIDER` | `podman` | Provider passed to kind as `KIND_EXPERIMENTAL_PROVIDER`; use `auto` to let kind detect. |
@@ -253,6 +264,17 @@ deployed worker secret-resolution path. The harness restores `vectis-secrets`
 and deletes the Knox fixture when the run ends unless
 `K8S_KNOX_KEEP_FIXTURE=true` or `--knox-keep-fixture=true` is set.
 
+`make k8s-kind-run-ldap-auth-smoke` is optional and intentionally kept out of
+`K8S_KIND_VALIDATE_STEPS` because it starts an LDAP fixture and may complete
+initial API setup in a fresh cluster. It applies `deployment/vectis-ldap`,
+verifies the fixture directly through a local port-forward, temporarily patches
+`deployment/vectis-api` to enable API auth plus the LDAP login provider,
+completes first setup with password auth disabled when setup is pending, checks
+the created local password cannot log in, validates the LDAP user can log in
+through the deployed API, and verifies a wrong LDAP password is rejected. The
+harness restores the API env and deletes the LDAP fixture when the run ends
+unless `K8S_LDAP_KEEP_FIXTURE=true` or `--ldap-keep-fixture=true` is set.
+
 The smoke harness is a Go entrypoint and can also be run directly:
 
 ```sh
@@ -265,6 +287,7 @@ go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --repa
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --gerrit-stream-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --s3-artifact-only
 go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --knox-secrets-only
+go run ./deploy/kubernetes/smoke --context kind-vectis --namespace vectis --ldap-auth-only
 ```
 
 Build local component images before loading or pushing them to a cluster:

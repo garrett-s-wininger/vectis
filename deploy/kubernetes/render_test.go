@@ -440,6 +440,54 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatal("Knox keep fixture should be disabled by default")
 	}
 
+	if opts.LDAPImage != DefaultSmokeLDAPImage {
+		t.Fatalf("LDAP image = %q", opts.LDAPImage)
+	}
+
+	if opts.LDAPLocalPort != DefaultSmokeLDAPLocalPort {
+		t.Fatalf("LDAP local port = %d", opts.LDAPLocalPort)
+	}
+
+	if opts.LDAPClusterURL != DefaultSmokeLDAPClusterURL {
+		t.Fatalf("LDAP cluster URL = %q", opts.LDAPClusterURL)
+	}
+
+	if opts.LDAPBootstrapLDIF != DefaultSmokeLDAPBootstrapLDIF {
+		t.Fatalf("LDAP bootstrap LDIF = %q", opts.LDAPBootstrapLDIF)
+	}
+
+	if opts.LDAPBaseDN != DefaultSmokeLDAPBaseDN {
+		t.Fatalf("LDAP base DN = %q", opts.LDAPBaseDN)
+	}
+
+	if opts.LDAPBindDN != DefaultSmokeLDAPBindDN {
+		t.Fatalf("LDAP bind DN = %q", opts.LDAPBindDN)
+	}
+
+	if opts.LDAPBindPassword != DefaultSmokeLDAPBindPassword {
+		t.Fatalf("LDAP bind password = %q", opts.LDAPBindPassword)
+	}
+
+	if opts.LDAPUserFilter != DefaultSmokeLDAPUserFilter {
+		t.Fatalf("LDAP user filter = %q", opts.LDAPUserFilter)
+	}
+
+	if opts.LDAPUsername != DefaultSmokeLDAPUsername || opts.LDAPPassword != DefaultSmokeLDAPPassword || opts.LDAPWrongPassword != DefaultSmokeLDAPWrongPassword {
+		t.Fatalf("unexpected LDAP credentials: username=%q password=%q wrong=%q", opts.LDAPUsername, opts.LDAPPassword, opts.LDAPWrongPassword)
+	}
+
+	if opts.LDAPExpectedSubject != DefaultSmokeLDAPExpectedSubject || opts.LDAPExpectedName != DefaultSmokeLDAPExpectedName {
+		t.Fatalf("unexpected LDAP expected identity: subject=%q display=%q", opts.LDAPExpectedSubject, opts.LDAPExpectedName)
+	}
+
+	if opts.LDAPBootstrapToken != DefaultSmokeLDAPBootstrapToken {
+		t.Fatalf("LDAP bootstrap token = %q", opts.LDAPBootstrapToken)
+	}
+
+	if opts.LDAPKeepFixture {
+		t.Fatal("LDAP keep fixture should be disabled by default")
+	}
+
 	knoxOpts := normalizeSmokeOptions(SmokeOptions{KnoxSecretsOnly: true})
 	if knoxOpts.JobPath != DefaultSmokeKnoxJobPath {
 		t.Fatalf("Knox job path = %q", knoxOpts.JobPath)
@@ -562,6 +610,27 @@ func TestKubernetesValidationEntrypointContract(t *testing.T) {
 		`"knox-missing-ref"`,
 		`"knox-expected-data"`,
 		`"knox-keep-fixture"`,
+		`"ldap-auth-only"`,
+		`"ldap-image"`,
+		`"ldap-local-port"`,
+		`"ldap-cluster-url"`,
+		`"ldap-bootstrap-ldif"`,
+		`"ldap-base-dn"`,
+		`"ldap-bind-dn"`,
+		`"ldap-bind-password"`,
+		`"ldap-user-filter"`,
+		`"ldap-subject-attribute"`,
+		`"ldap-username-attribute"`,
+		`"ldap-display-name-attribute"`,
+		`"ldap-username"`,
+		`"ldap-password"`,
+		`"ldap-wrong-password"`,
+		`"ldap-expected-subject"`,
+		`"ldap-expected-display-name"`,
+		`"ldap-bootstrap-token"`,
+		`"ldap-admin-username"`,
+		`"ldap-admin-password"`,
+		`"ldap-keep-fixture"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("smoke entrypoint missing %q", want)
@@ -796,6 +865,100 @@ func TestSmokeKnoxSecretsEnvContract(t *testing.T) {
 		if env[key] != value {
 			t.Fatalf("%s = %q, want %q", key, env[key], value)
 		}
+	}
+}
+
+func TestSmokeLDAPFixtureManifestContract(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{
+		LDAPImage:        "registry.example.com/openldap:test",
+		LDAPBindPassword: "bind secret",
+	})
+
+	manifest := smokeLDAPFixtureManifest(opts, "dn: ou=people,dc=example,dc=org\nobjectClass: organizationalUnit\n")
+	for _, want := range []string{
+		"kind: ConfigMap",
+		"name: vectis-ldap-bootstrap",
+		"001-vectis-smoke.ldif:",
+		"kind: Deployment",
+		"name: vectis-ldap",
+		"image: \"registry.example.com/openldap:test\"",
+		"- --copy-service",
+		"name: LDAP_READONLY_USER",
+		"value: \"true\"",
+		"name: LDAP_READONLY_USER_USERNAME",
+		"value: \"vectis\"",
+		"name: LDAP_READONLY_USER_PASSWORD",
+		"value: \"bind secret\"",
+		"name: LDAP_TLS",
+		"mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom/001-vectis-smoke.ldif",
+		"subPath: 001-vectis-smoke.ldif",
+		"kind: Service",
+		"targetPort: 389",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("manifest missing %q: %s", want, manifest)
+		}
+	}
+}
+
+func TestSmokeLDAPAPIEnvContract(t *testing.T) {
+	opts := normalizeSmokeOptions(SmokeOptions{
+		LDAPClusterURL:      "ldap://vectis-ldap:389/",
+		LDAPBindDN:          "cn=svc,dc=example,dc=org",
+		LDAPBindPassword:    "bind-secret",
+		LDAPBaseDN:          "ou=users,dc=example,dc=org",
+		LDAPUserFilter:      "(mail={username})",
+		LDAPSubjectAttr:     "entryUUID",
+		LDAPUsernameAttr:    "mail",
+		LDAPDisplayNameAttr: "displayName",
+	})
+
+	env := smokeLDAPAPIEnv(opts)
+	want := map[string]string{
+		"VECTIS_API_AUTH_ENABLED":                     "true",
+		"VECTIS_API_AUTHZ_ENGINE":                     "authenticated_full",
+		"VECTIS_API_SESSION_ALLOW_INSECURE_COOKIES":   "true",
+		"VECTIS_API_AUTH_LDAP_PROVIDER_ID":            "ldap",
+		"VECTIS_API_AUTH_LDAP_URL":                    "ldap://vectis-ldap:389",
+		"VECTIS_API_AUTH_LDAP_BIND_DN":                "cn=svc,dc=example,dc=org",
+		"VECTIS_API_AUTH_LDAP_BIND_PASSWORD":          "bind-secret",
+		"VECTIS_API_AUTH_LDAP_BASE_DN":                "ou=users,dc=example,dc=org",
+		"VECTIS_API_AUTH_LDAP_USER_FILTER":            "(mail={username})",
+		"VECTIS_API_AUTH_LDAP_SUBJECT_ATTRIBUTE":      "entryUUID",
+		"VECTIS_API_AUTH_LDAP_USERNAME_ATTRIBUTE":     "mail",
+		"VECTIS_API_AUTH_LDAP_DISPLAY_NAME_ATTRIBUTE": "displayName",
+		"VECTIS_API_AUTH_LDAP_START_TLS":              "false",
+		"VECTIS_API_AUTH_LDAP_TIMEOUT":                "30s",
+		"VECTIS_API_AUTH_LDAP_AUTO_LINK_USERS":        "false",
+		"VECTIS_API_AUTH_LDAP_AUTO_CREATE_USERS":      "false",
+	}
+
+	if len(env) != len(want) {
+		t.Fatalf("env len = %d, want %d: %+v", len(env), len(want), env)
+	}
+
+	for key, value := range want {
+		if env[key] != value {
+			t.Fatalf("%s = %q, want %q", key, env[key], value)
+		}
+	}
+}
+
+func TestValidateLDAPAuthSmokeOptions(t *testing.T) {
+	if err := validateLDAPAuthSmokeOptions(normalizeSmokeOptions(SmokeOptions{})); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := normalizeSmokeOptions(SmokeOptions{})
+	opts.LDAPClusterURL = "http://vectis-ldap:389"
+	if err := validateLDAPAuthSmokeOptions(opts); err == nil {
+		t.Fatal("expected non-LDAP cluster URL to fail")
+	}
+
+	opts = normalizeSmokeOptions(SmokeOptions{})
+	opts.LDAPBindPassword = ""
+	if err := validateLDAPAuthSmokeOptions(opts); err == nil {
+		t.Fatal("expected empty LDAP bind password to fail")
 	}
 }
 
