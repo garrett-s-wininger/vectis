@@ -241,7 +241,8 @@ VECTIS_SECRETS_POLICY_ALLOW=namespace=/teams/build;job=release;ref=encryptedfs:/
 ```
 
 For Knox compatibility validation, run `make knox-smoke` to clone/build a local
-Knox smoke image and resolve a seeded secret through a live Knox server process.
+Knox smoke image, recreate the local Knox fixture container, and resolve a
+seeded secret through a live Knox server process.
 For a managed endpoint, point `make knox-smoke-check` at a known `knox://` ref
 and the expected secret SHA-256 digest. The smoke resolves the primary key
 version and can also verify wrong-token denial and missing-key behavior.

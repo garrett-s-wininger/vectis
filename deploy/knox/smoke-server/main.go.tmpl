@@ -29,6 +29,7 @@ const (
 	defaultAddr      = ":9000"
 	defaultAuthToken = "0tknox-smoke"
 	defaultCertDir   = "/certs"
+	defaultCertTTL   = 168 * time.Hour
 	defaultKeyID     = "team:smoke_token"
 	defaultSecret    = "knox-smoke-secret"
 )
@@ -36,13 +37,18 @@ const (
 func main() {
 	addr := envDefault("KNOX_SMOKE_ADDR", defaultAddr)
 	certDir := envDefault("KNOX_SMOKE_CERT_DIR", defaultCertDir)
+	certTTL, err := envDuration("KNOX_SMOKE_CERT_TTL", defaultCertTTL)
+	if err != nil {
+		panic(err)
+	}
+
 	authHeader := envDefault("KNOX_SMOKE_AUTH_TOKEN", defaultAuthToken)
 	principalID, err := machinePrincipalID(authHeader)
 	if err != nil {
 		panic(err)
 	}
 
-	certs, err := writeSmokeCertificates(certDir, principalID)
+	certs, err := writeSmokeCertificates(certDir, principalID, certTTL)
 	if err != nil {
 		panic(err)
 	}
@@ -118,12 +124,12 @@ type smokeCertificates struct {
 	serverCert tls.Certificate
 }
 
-func writeSmokeCertificates(dir, principalID string) (smokeCertificates, error) {
+func writeSmokeCertificates(dir, principalID string, ttl time.Duration) (smokeCertificates, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return smokeCertificates{}, err
 	}
 
-	caPEM, caKey, err := newCertificateAuthority()
+	caPEM, caKey, err := newCertificateAuthority(ttl)
 	if err != nil {
 		return smokeCertificates{}, err
 	}
@@ -136,6 +142,7 @@ func writeSmokeCertificates(dir, principalID string) (smokeCertificates, error) 
 			net.ParseIP("::1"),
 		},
 		keyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ttl:       ttl,
 	})
 	if err != nil {
 		return smokeCertificates{}, err
@@ -145,6 +152,7 @@ func writeSmokeCertificates(dir, principalID string) (smokeCertificates, error) 
 		commonName: principalID,
 		dnsNames:   []string{principalID},
 		keyUsages:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		ttl:        ttl,
 	})
 	if err != nil {
 		return smokeCertificates{}, err
@@ -182,13 +190,13 @@ func writeSmokeCertificates(dir, principalID string) (smokeCertificates, error) 
 	}, nil
 }
 
-func newCertificateAuthority() ([]byte, *ecdsa.PrivateKey, error) {
+func newCertificateAuthority(ttl time.Duration) ([]byte, *ecdsa.PrivateKey, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), crypto_rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	template := baseCertificateTemplate("vectis-knox-smoke-ca")
+	template := baseCertificateTemplate("vectis-knox-smoke-ca", ttl)
 	template.IsCA = true
 	template.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature
 	template.BasicConstraintsValid = true
@@ -206,6 +214,7 @@ type leafCertificateOptions struct {
 	dnsNames    []string
 	ipAddresses []net.IP
 	keyUsages   []x509.ExtKeyUsage
+	ttl         time.Duration
 }
 
 func newLeafCertificate(caPEM []byte, caKey *ecdsa.PrivateKey, opts leafCertificateOptions) ([]byte, []byte, error) {
@@ -224,7 +233,7 @@ func newLeafCertificate(caPEM []byte, caKey *ecdsa.PrivateKey, opts leafCertific
 		return nil, nil, err
 	}
 
-	template := baseCertificateTemplate(opts.commonName)
+	template := baseCertificateTemplate(opts.commonName, opts.ttl)
 	template.KeyUsage = x509.KeyUsageDigitalSignature
 	template.ExtKeyUsage = opts.keyUsages
 	template.DNSNames = opts.dnsNames
@@ -245,9 +254,9 @@ func newLeafCertificate(caPEM []byte, caKey *ecdsa.PrivateKey, opts leafCertific
 		nil
 }
 
-func baseCertificateTemplate(commonName string) x509.Certificate {
+func baseCertificateTemplate(commonName string, ttl time.Duration) x509.Certificate {
 	notBefore := time.Now().Add(-time.Minute)
-	notAfter := notBefore.Add(24 * time.Hour)
+	notAfter := time.Now().Add(ttl)
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := crypto_rand.Int(crypto_rand.Reader, serialNumberLimit)
 	if err != nil {
@@ -268,4 +277,21 @@ func envDefault(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func envDuration(key string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", key, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s must be > 0", key)
+	}
+
+	return duration, nil
 }

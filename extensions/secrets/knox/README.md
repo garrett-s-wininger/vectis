@@ -17,8 +17,10 @@ Knox-compatible process, and resolves a seeded key through the Vectis provider:
 make knox-smoke
 ```
 
-Use `make knox-smoke-down`, `make knox-smoke-status`, and
-`make knox-smoke-logs` to manage the local container.
+`knox-smoke-up` recreates the local fixture container so certs, seeded keys, and
+environment overrides cannot go stale between runs. Use `make knox-smoke-down`,
+`make knox-smoke-status`, and `make knox-smoke-logs` to manage the local
+container after a run.
 
 To run the provider check against an already-running Knox-compatible endpoint,
 point `knox-smoke-check` at a known secret:
@@ -47,6 +49,7 @@ Useful knobs:
 | `KNOX_SMOKE_CONTAINER` | `vectis-knox` | Local Knox smoke container name. |
 | `KNOX_SMOKE_PORT` | `19000` | Local Knox smoke host port. |
 | `KNOX_SMOKE_CERT_DIR` | `artifacts/integrations/knox/certs` | Generated local CA and client/server certificates. |
+| `KNOX_SMOKE_CERT_TTL` | `168h` | Validity window for generated local smoke certificates. |
 | `KNOX_SMOKE_URL` | `https://127.0.0.1:19000` | Knox base URL. |
 | `KNOX_SMOKE_KEY_ID` | `team:smoke_token` | Key seeded into the local Knox smoke server. |
 | `KNOX_SMOKE_SECRET` | `knox-smoke-secret` | Local smoke secret data. |
