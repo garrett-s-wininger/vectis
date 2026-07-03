@@ -13,9 +13,9 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/platform"
 	"vectis/internal/queue"
 	"vectis/internal/registry"
-	"vectis/internal/utils"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -209,7 +209,7 @@ func defaultQueueInstanceIDForHost(hostname string, port int) string {
 }
 
 func defaultQueuePersistenceDir(pool, instanceID string) string {
-	return filepath.Join(utils.DataHome(), "vectis", "queue", sanitizeQueuePathComponent(pool), sanitizeQueuePathComponent(instanceID))
+	return filepath.Join(platform.DataHome(), "vectis", "queue", sanitizeQueuePathComponent(pool), sanitizeQueuePathComponent(instanceID))
 }
 
 func sanitizeQueuePathComponent(value string) string {

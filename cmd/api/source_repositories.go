@@ -14,10 +14,10 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/platform"
 	"vectis/internal/secrets"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/source/refspec"
-	"vectis/internal/utils"
 )
 
 type sourceRepositorySyncStatusFunc func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
@@ -511,7 +511,7 @@ func configuredSourceRepositoryRecord(ctx context.Context, repos *dal.SQLReposit
 
 	checkoutPath := strings.TrimSpace(decl.CheckoutPath)
 	if checkoutPath == "" && checkoutMode == dal.SourceCheckoutModeManaged {
-		store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(utils.DataHome()))
+		store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(platform.DataHome()))
 		if err != nil {
 			return dal.SourceRepositoryRecord{}, "", fmt.Errorf("configured source repository %q checkout root: %w", decl.RepositoryID, err)
 		}

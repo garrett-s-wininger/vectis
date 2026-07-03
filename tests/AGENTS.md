@@ -5,7 +5,7 @@
 | Target | Scope | Notes |
 |--------|-------|-------|
 | `test` | All packages | No timeout, no race |
-| `testQuick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1 -timeout=60s` — fast feedback |
+| `testQuick` | `internal/...` `cmd/...` `api/...` `sdk/...` `examples/...` `tools/...` | `-count=1`; timeout defaults to `60s` on Unix and `600s` on Windows |
 | `testIntegration` | Packages with `//go:build integration` | Requires Postgres (see `VECTIS_DATABASE_DSN`) |
 | `testE2E` | Packages with `//go:build e2e` | Starts live binaries/stacks such as the Podman reference deployment |
 | `vmValidate` | Prepared VM static validation | Runs Packer script regression tests and `packer validate`; does not boot guests |
@@ -13,8 +13,8 @@
 | `vmDoctor` | Prepared VM health check | Starts stopped prepared guests long enough to verify markers and tooling, then stops any VM it started |
 | `vmCheck` | Prepared VM health check | Umbrella target for `vmDoctor`; individual VM check targets select one lane |
 | `testPostgresIntegration` | `tests/integration/postgres` | Starts `postgres:18-alpine` with testcontainers |
-| `testWindowsCompile` | All packages | Cross-compiles the `nosqlite` Windows package graph with `-exec=true` |
-| `testWindowsSQLiteCompile` | All packages | Cross-compiles the Windows CGO/SQLite package graph with `-exec=true`; needs native Windows CGO or a cross C compiler such as Zig |
+| `testWindowsCompile` | All packages | Cross-compiles the `nosqlite` Windows package graph with a no-op test executor |
+| `testWindowsSQLiteCompile` | All packages | Compile-checks the Windows CGO/SQLite package graph with a no-op test executor; needs native Windows CGO with a GCC-compatible compiler or a cross C compiler such as Zig |
 | `testRace` | All packages | `-race` flag |
 | `fuzzAPIAuth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
 
@@ -25,6 +25,7 @@
 - **`t.Helper()`** on helper functions.
 - **`t.Parallel()`** when safe (not sharing state).
 - **Test files** live next to the code they test (`xxx_test.go` in the same package).
+- **Windows symlinks:** checkout-cache tests exercise directory symlinks when Windows Developer Mode or an elevated shell grants symlink creation; otherwise they skip the symlink-dependent cases.
 
 ## Integration tests
 

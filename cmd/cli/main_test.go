@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -43,9 +44,7 @@ func TestEffectiveToken_envOverridesFile(t *testing.T) {
 func TestEffectiveToken_fallbackToFile(t *testing.T) {
 	t.Setenv("VECTIS_API_TOKEN", "")
 
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	isolateCLIConfigDir(t)
 
 	path, err := cliTokenFilePath()
 	if err != nil {
@@ -67,9 +66,7 @@ func TestEffectiveToken_fallbackToFile(t *testing.T) {
 
 func TestEffectiveToken_empty(t *testing.T) {
 	t.Setenv("VECTIS_API_TOKEN", "")
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	isolateCLIConfigDir(t)
 
 	if got := effectiveToken(); got != "" {
 		t.Fatalf("expected empty, got %s", got)
@@ -77,9 +74,7 @@ func TestEffectiveToken_empty(t *testing.T) {
 }
 
 func TestTokenPersistence(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	isolateCLIConfigDir(t)
 
 	// Write
 	if err := writePersistedToken("secret"); err != nil {
@@ -99,6 +94,17 @@ func TestTokenPersistence(t *testing.T) {
 	if got := readPersistedToken(); got != "" {
 		t.Fatalf("expected empty after delete, got %s", got)
 	}
+}
+
+func isolateCLIConfigDir(t *testing.T) string {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	t.Setenv("APPDATA", tmpDir)
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmpDir, "local"))
+	return tmpDir
 }
 
 func TestPrintRetentionReport_includesTaskCascadeCounts(t *testing.T) {
@@ -2278,9 +2284,7 @@ func TestRunJob_sendsTargetCell(t *testing.T) {
 }
 
 func TestWritePersistedToken_createsDirectory(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	isolateCLIConfigDir(t)
 
 	path, _ := cliTokenFilePath()
 	_ = os.RemoveAll(filepath.Dir(path))
@@ -2308,6 +2312,8 @@ func TestResetTargets(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
 	t.Setenv("XDG_DATA_HOME", dataDir)
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
+	t.Setenv("APPDATA", filepath.Join(tmpDir, "config"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmpDir, "local"))
 	t.Setenv(envDeployConfigDir, deployDir)
 	t.Setenv("VECTIS_QUEUE_PERSISTENCE_DIR", queueDir)
 	t.Setenv("VECTIS_LOG_STORAGE_DIR", logDir)
@@ -2353,6 +2359,8 @@ func TestResetTargetsSkipsCoveredAndDisabledStoragePaths(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "config"))
 	t.Setenv("XDG_DATA_HOME", dataDir)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmpDir, "cache"))
+	t.Setenv("APPDATA", filepath.Join(tmpDir, "config"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmpDir, "local"))
 	t.Setenv("VECTIS_QUEUE_PERSISTENCE_DIR", "")
 	t.Setenv("VECTIS_LOG_FORWARDER_SPOOL_DIR", filepath.Join(dataDir, "vectis", "log-forwarder", "spool"))
 
@@ -5753,9 +5761,7 @@ func TestDoctor_warnsForIncompleteSetupAndMissingToken(t *testing.T) {
 	})
 
 	t.Setenv("VECTIS_API_TOKEN", "")
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	isolateCLIConfigDir(t)
 
 	var buf bytes.Buffer
 	if err := doctor(&buf); err != nil {
@@ -5815,9 +5821,7 @@ func TestDoctor_setupAndTokenPassWhenAuthDisabled(t *testing.T) {
 	})
 
 	t.Setenv("VECTIS_API_TOKEN", "")
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	isolateCLIConfigDir(t)
 
 	var buf bytes.Buffer
 	if err := doctor(&buf); err != nil {
@@ -6258,6 +6262,10 @@ func TestDoctorWorkerCoreSockets_warnsForMissingSocket(t *testing.T) {
 }
 
 func TestDoctorWorkerSPIFFEConfig_validEnabledConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("worker SPIFFE registration doctor fixtures use Unix socket addresses")
+	}
+
 	workload := listenTestUnixSocket(t, "spiffe-workload.sock")
 	registration := listenTestUnixSocket(t, "spiffe-registration.sock")
 
@@ -6283,6 +6291,10 @@ func TestDoctorWorkerSPIFFEConfig_validEnabledConfig(t *testing.T) {
 }
 
 func TestDoctorWorkerSPIFFEConfig_warnsForMissingWorkloadSocket(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("worker SPIFFE registration doctor fixtures use Unix socket addresses")
+	}
+
 	missing := socktest.ShortPath(t, "missing-spiffe-workload.sock")
 	t.Setenv("VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED", "true")
 	t.Setenv("VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN", "prod.example")
@@ -6300,6 +6312,10 @@ func TestDoctorWorkerSPIFFEConfig_warnsForMissingWorkloadSocket(t *testing.T) {
 }
 
 func TestDoctorWorkerSPIFFEConfig_warnsWhenEnabledWithoutExecutionIdentity(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("worker SPIFFE registration doctor fixtures use Unix socket addresses")
+	}
+
 	workload := listenTestUnixSocket(t, "spiffe-workload.sock")
 	t.Setenv("VECTIS_WORKER_SPIFFE_ENABLED", "true")
 	t.Setenv("VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS", "unix://"+workload)

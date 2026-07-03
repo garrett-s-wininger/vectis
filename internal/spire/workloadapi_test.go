@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -25,8 +26,15 @@ func (s fakeX509SVIDSource) FetchX509SVIDs(context.Context) ([]X509SVID, error) 
 }
 
 func TestValidateWorkloadAPIAddress(t *testing.T) {
-	if err := ValidateWorkloadAPIAddress("unix:///tmp/spire-agent.sock"); err != nil {
-		t.Fatalf("ValidateWorkloadAPIAddress unix: %v", err)
+	validAddress := "unix:///tmp/spire-agent.sock"
+	validLabel := "unix"
+	if runtime.GOOS == "windows" {
+		validAddress = "npipe:pipe/spire-agent"
+		validLabel = "npipe"
+	}
+
+	if err := ValidateWorkloadAPIAddress(validAddress); err != nil {
+		t.Fatalf("ValidateWorkloadAPIAddress %s: %v", validLabel, err)
 	}
 
 	if err := ValidateWorkloadAPIAddress(""); err == nil {

@@ -86,7 +86,7 @@ func TestEnsureLocalSecretsKeys(t *testing.T) {
 		t.Fatalf("stat key file: %v", err)
 	}
 
-	if info.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("key file permissions = %o, want no group/other bits", info.Mode().Perm())
 	}
 
@@ -275,6 +275,10 @@ func TestLocalBrowserTLSOffUsesHTTP(t *testing.T) {
 }
 
 func TestLocalSPIFFEBuildsEnvAndCombinedClientCA(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local SPIFFE registration config uses Unix socket server API addresses")
+	}
+
 	resetLocalTestConfig(t)
 	tlsDir := t.TempDir()
 	m, err := localpki.Ensure(tlsDir)
@@ -644,7 +648,7 @@ func TestLocalBootstrapTokenPersistsGeneratedToken(t *testing.T) {
 		t.Fatalf("stat bootstrap token: %v", err)
 	}
 
-	if got := info.Mode().Perm(); got != 0o600 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("mode = %v, want 0600", got)
 	}
 

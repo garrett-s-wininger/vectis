@@ -3,6 +3,7 @@ package secrets
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -42,8 +43,10 @@ func TestMaterializeFilesWritesUnderWorkspaceSecretsDir(t *testing.T) {
 		t.Fatalf("stat materialized secret: %v", err)
 	}
 
-	if gotMode := info.Mode().Perm(); gotMode != DefaultFileMode {
-		t.Fatalf("secret mode = %v, want %v", gotMode, DefaultFileMode)
+	if runtime.GOOS != "windows" {
+		if gotMode := info.Mode().Perm(); gotMode != DefaultFileMode {
+			t.Fatalf("secret mode = %v, want %v", gotMode, DefaultFileMode)
+		}
 	}
 
 	parentInfo, err := os.Stat(filepath.Join(wantDir, "npm"))
@@ -51,8 +54,10 @@ func TestMaterializeFilesWritesUnderWorkspaceSecretsDir(t *testing.T) {
 		t.Fatalf("stat materialized secret parent: %v", err)
 	}
 
-	if gotMode := parentInfo.Mode().Perm(); gotMode != 0o700 {
-		t.Fatalf("secret parent mode = %v, want %v", gotMode, os.FileMode(0o700))
+	if runtime.GOOS != "windows" {
+		if gotMode := parentInfo.Mode().Perm(); gotMode != 0o700 {
+			t.Fatalf("secret parent mode = %v, want %v", gotMode, os.FileMode(0o700))
+		}
 	}
 
 	if err := CleanupMaterialized(workspace); err != nil {
@@ -87,9 +92,7 @@ func TestMaterializeFilesRejectsSymlinkParent(t *testing.T) {
 	}
 
 	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(root, "npm")); err != nil {
-		t.Fatalf("symlink secret parent: %v", err)
-	}
+	symlinkOrSkip(t, outside, filepath.Join(root, "npm"))
 
 	if _, err := MaterializeFiles(workspace, []FileMaterial{{
 		ID:   "npm-token",
@@ -109,9 +112,7 @@ func TestMaterializeFilesRejectsSymlinkVectisDirectory(t *testing.T) {
 
 	workspace := t.TempDir()
 	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(workspace, ".vectis")); err != nil {
-		t.Fatalf("symlink .vectis: %v", err)
-	}
+	symlinkOrSkip(t, outside, filepath.Join(workspace, ".vectis"))
 
 	if _, err := MaterializeFiles(workspace, []FileMaterial{{
 		ID:   "npm-token",
@@ -135,9 +136,7 @@ func TestCleanupMaterializedRejectsSymlinkComponent(t *testing.T) {
 		t.Fatalf("write outside marker: %v", err)
 	}
 
-	if err := os.Symlink(outside, filepath.Join(workspace, ".vectis")); err != nil {
-		t.Fatalf("symlink .vectis: %v", err)
-	}
+	symlinkOrSkip(t, outside, filepath.Join(workspace, ".vectis"))
 
 	if err := CleanupMaterialized(workspace); err == nil {
 		t.Fatal("CleanupMaterialized accepted symlink component")
@@ -145,6 +144,18 @@ func TestCleanupMaterializedRejectsSymlinkComponent(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(outside, "keep.txt")); err != nil {
 		t.Fatalf("outside marker removed: %v", err)
+	}
+}
+
+func symlinkOrSkip(t *testing.T, oldname, newname string) {
+	t.Helper()
+
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("skipping symlink test; Windows refused symlink creation: %v", err)
+		}
+
+		t.Fatalf("symlink %s: %v", filepath.Base(newname), err)
 	}
 }
 

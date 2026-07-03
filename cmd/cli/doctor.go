@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +24,6 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/platform"
 	"vectis/internal/serviceidentity"
-	"vectis/internal/utils"
 	"vectis/internal/workercore"
 )
 
@@ -1911,7 +1911,7 @@ func doctorEncryptedFSFiles() doctorCheck {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: "encryptedfs key file is not a regular file", Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: action, DocLink: doc}
 	}
 
-	if info.Mode().Perm()&0o077 != 0 {
+	if doctorChecksPOSIXModeBits() && info.Mode().Perm()&0o077 != 0 {
 		return doctorCheck{ID: id, Title: title, Status: doctorWarn, Severity: severityWarning, Summary: fmt.Sprintf("encryptedfs key file permissions are too broad: %s", info.Mode().Perm()), Evidence: formatDoctorEncryptedFSEvidence(root, keyFile), SuggestedAction: "Restrict encryptedfs key file permissions to the service owner", DocLink: doc}
 	}
 
@@ -2140,7 +2140,7 @@ func doctorProtectedUnixSocketProblem(label, path string) string {
 		return fmt.Sprintf("%s socket path is not a Unix socket", label)
 	}
 
-	if socketInfo.Mode().Perm()&0o007 != 0 {
+	if doctorChecksPOSIXModeBits() && socketInfo.Mode().Perm()&0o007 != 0 {
 		return fmt.Sprintf("%s socket permissions are world-accessible: %s", label, socketInfo.Mode().Perm())
 	}
 
@@ -2181,11 +2181,15 @@ func doctorUnixSocketProblem(label, path string) string {
 		return fmt.Sprintf("%s socket path is not a Unix socket", label)
 	}
 
-	if socketInfo.Mode().Perm()&0o077 != 0 {
+	if doctorChecksPOSIXModeBits() && socketInfo.Mode().Perm()&0o077 != 0 {
 		return fmt.Sprintf("%s socket permissions are too broad: %s", label, socketInfo.Mode().Perm())
 	}
 
 	return ""
+}
+
+func doctorChecksPOSIXModeBits() bool {
+	return runtime.GOOS != "windows"
 }
 
 func formatDoctorWorkerCoreSocketEvidence(paths map[string]string) string {
@@ -3101,15 +3105,15 @@ func defaultDoctorForwarderSpoolDir() string {
 }
 
 func defaultDoctorLogStorageDir() string {
-	return filepath.Join(utils.DataHome(), "vectis", "log")
+	return filepath.Join(platform.DataHome(), "vectis", "log")
 }
 
 func defaultDoctorArtifactStorageDir() string {
-	return filepath.Join(utils.DataHome(), "vectis", "artifact")
+	return filepath.Join(platform.DataHome(), "vectis", "artifact")
 }
 
 func defaultDoctorSourceCheckoutRoot() string {
-	return config.SourceCheckoutRoot(utils.DataHome())
+	return config.SourceCheckoutRoot(platform.DataHome())
 }
 
 func defaultDoctorQueuePersistenceDir() string {
@@ -3139,7 +3143,7 @@ func defaultDoctorQueuePersistenceDir() string {
 		instanceID = fmt.Sprintf("%s-%d", sanitizeDoctorQueuePathComponent(hostname), port)
 	}
 
-	return filepath.Join(utils.DataHome(), "vectis", "queue", sanitizeDoctorQueuePathComponent(pool), sanitizeDoctorQueuePathComponent(instanceID))
+	return filepath.Join(platform.DataHome(), "vectis", "queue", sanitizeDoctorQueuePathComponent(pool), sanitizeDoctorQueuePathComponent(instanceID))
 }
 
 func sanitizeDoctorQueuePathComponent(value string) string {

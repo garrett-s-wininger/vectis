@@ -120,8 +120,13 @@ func TestWorkerArtifactPublisherPublishesWithExecutionAttribution(t *testing.T) 
 		t.Fatalf("cell id = %q, want iad-a", rec.CellID)
 	}
 
-	if _, _, err := store.Open(ctx, rec.BlobKey); err != nil {
+	_, rc, err := store.Open(ctx, rec.BlobKey)
+	if err != nil {
 		t.Fatalf("expected blob in artifact store: %v", err)
+	}
+	
+	if err := rc.Close(); err != nil {
+		t.Fatalf("close artifact blob: %v", err)
 	}
 
 	events, err := repos.CatalogEvents().ListPending(ctx, 10)

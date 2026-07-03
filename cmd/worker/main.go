@@ -42,6 +42,7 @@ import (
 	"vectis/internal/multidial"
 	"vectis/internal/observability"
 	"vectis/internal/orchestrator"
+	"vectis/internal/platform"
 	"vectis/internal/queueclient"
 	"vectis/internal/registry"
 	"vectis/internal/resolver"
@@ -51,7 +52,6 @@ import (
 	"vectis/internal/spire"
 	"vectis/internal/taskfinalize"
 	"vectis/internal/taskreduce"
-	"vectis/internal/utils"
 	"vectis/internal/workercore"
 	"vectis/internal/workloadidentity"
 	workersdk "vectis/sdk/workercore"
@@ -380,7 +380,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 }
 
 func forwarderSocketPath() string {
-	return filepath.Join(utils.RuntimeDir(), "log-forwarder.sock")
+	return filepath.Join(platform.RuntimeDir(), "log-forwarder.sock")
 }
 
 func configuredWorkerCore(ctx context.Context, logger interfaces.Logger) (workercore.Core, workercore.CoreDescription, func(), error) {

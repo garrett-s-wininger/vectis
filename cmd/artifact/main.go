@@ -16,7 +16,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 )
 
 func runArtifact(cmd *cobra.Command, args []string) {
@@ -83,7 +83,7 @@ func newArtifactStorage(instanceID string, logger interfaces.Logger) (artifactSt
 	case "local":
 		storageDir := viper.GetString("storage_dir")
 		if storageDir == "" {
-			storageDir = filepath.Join(utils.DataHome(), "vectis", "artifact", instanceID)
+			storageDir = filepath.Join(platform.DataHome(), "vectis", "artifact", instanceID)
 		}
 
 		readOnlyMinFreeBytes := config.ArtifactStorageReadOnlyMinFreeBytes()

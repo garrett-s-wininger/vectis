@@ -15,7 +15,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/logforwarder"
 	"vectis/internal/observability"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 )
 
 const (
@@ -24,11 +24,11 @@ const (
 )
 
 func socketPath() string {
-	return filepath.Join(utils.RuntimeDir(), defaultSocketName)
+	return filepath.Join(platform.RuntimeDir(), defaultSocketName)
 }
 
 func lockPath() string {
-	return filepath.Join(utils.RuntimeDir(), defaultLockName)
+	return filepath.Join(platform.RuntimeDir(), defaultLockName)
 }
 
 func runLogForwarder(cmd *cobra.Command, args []string) {
@@ -61,7 +61,7 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 
 	spoolDir := viper.GetString("spool_dir")
 	if spoolDir == "" {
-		dataHome := utils.DataHome()
+		dataHome := platform.DataHome()
 		spoolDir = filepath.Join(dataHome, "vectis", "log-forwarder", "spool")
 	}
 

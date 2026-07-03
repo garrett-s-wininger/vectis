@@ -14,7 +14,7 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
 	"vectis/internal/migrations"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 )
 
 const (
@@ -52,7 +52,7 @@ func GetDBPath() string {
 		return dsn
 	}
 
-	dataHome := utils.DataHome()
+	dataHome := platform.DataHome()
 	return config.DBDSN(dataHome)
 }
 
@@ -78,7 +78,12 @@ func GlobalAndCellDatabasesAreSplit() bool {
 
 func expandDSN(dsn string) string {
 	if dsn = strings.TrimSpace(dsn); dsn != "" {
-		return strings.NewReplacer("{{data_home}}", utils.DataHome()).Replace(dsn)
+		expanded := strings.NewReplacer("{{data_home}}", platform.DataHome()).Replace(dsn)
+		if strings.Contains(expanded, "://") || strings.HasPrefix(strings.ToLower(expanded), "file:") {
+			return expanded
+		}
+
+		return filepath.Clean(filepath.FromSlash(expanded))
 	}
 
 	return ""

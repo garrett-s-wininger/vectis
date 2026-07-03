@@ -141,18 +141,25 @@ function Find-CCompiler {
 
     if ($cc) {
         $ccName = ($cc -split '\s+')[0]
+        if (Test-UnsupportedCGOCompiler $ccName) {
+            return [pscustomobject]@{
+                Name        = "go env CC ($cc)"
+                Path        = ""
+                Unsupported = $true
+            }
+        }
+
         $ccPath = Find-CommandPath $ccName
         if ($ccPath) {
             return [pscustomobject]@{
-                Name = "go env CC ($cc)"
-                Path = $ccPath
+                Name        = "go env CC ($cc)"
+                Path        = $ccPath
+                Unsupported = $false
             }
         }
     }
 
     $candidates = @(
-        @{ Name = "MSVC cl.exe"; Commands = @("cl.exe", "cl") },
-        @{ Name = "clang-cl"; Commands = @("clang-cl.exe", "clang-cl") },
         @{ Name = "clang"; Commands = @("clang.exe", "clang") },
         @{ Name = "gcc"; Commands = @("gcc.exe", "gcc") }
     )
@@ -162,14 +169,42 @@ function Find-CCompiler {
             $path = Find-CommandPath $command
             if ($path) {
                 return [pscustomobject]@{
-                    Name = $candidate.Name
-                    Path = $path
+                    Name        = $candidate.Name
+                    Path        = $path
+                    Unsupported = $false
                 }
             }
         }
     }
 
     return $null
+}
+
+function Test-UnsupportedCGOCompiler([string]$Command) {
+    if (-not $Command) {
+        return $false
+    }
+
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($Command).ToLowerInvariant()
+    return $name -eq "cl" -or $name -eq "clang-cl"
+}
+
+function Test-DirectorySymlink {
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) ("vectis-symlink-check-" + [guid]::NewGuid().ToString("N"))
+    $target = Join-Path $root "target"
+    $link = Join-Path $root "link"
+
+    try {
+        New-Item -ItemType Directory -Path $target -Force -ErrorAction Stop | Out-Null
+        New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        return $_.Exception.Message
+    } finally {
+        if (Test-Path -LiteralPath $root) {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Install-GoTool([string]$Module) {
@@ -326,14 +361,29 @@ if ($NoSQLite) {
 
     $compiler = Find-CCompiler
 
-    if ($compiler) {
+    if ($compiler -and $compiler.Unsupported) {
+        Fail ("unsupported C compiler for SQLite CGO builds: {0}" -f $compiler.Name)
+        Note "Go cgo and github.com/mattn/go-sqlite3 use GCC/Clang-style compiler flags."
+        Note "Windows: install MSYS2 (winget install MSYS2.MSYS2), then install a MinGW/UCRT GCC toolchain from an MSYS2 shell."
+        Note "Windows: LLVM clang in GCC-compatible mode is also supported; MSVC cl.exe and clang-cl are not supported for this lane."
+    } elseif ($compiler) {
         Pass ("C compiler found: {0} at {1}" -f $compiler.Name, $compiler.Path)
     } else {
         Fail "no C compiler found for CGO SQLite builds"
-        Note "Windows: install Visual Studio Build Tools with the Desktop development with C++ workload, then run from a Developer PowerShell so cl.exe is on PATH."
         Note "Windows: install MSYS2 (winget install MSYS2.MSYS2), then install a MinGW/UCRT GCC toolchain from an MSYS2 shell."
+        Note "Windows: LLVM clang in GCC-compatible mode is also supported; MSVC cl.exe and clang-cl are not supported for this lane."
         Note "Alternative: use -NoSQLite for nosqlite build lanes until native SQLite CGO is configured."
     }
+}
+
+Section "Windows Filesystem"
+$symlinkCheck = Test-DirectorySymlink
+if ($symlinkCheck -eq $true) {
+    Pass "directory symlinks are available"
+} else {
+    Warn "directory symlinks are not available for this shell"
+    Note "Enable Windows Developer Mode or run from an elevated shell to exercise checkout-cache symlink tests."
+    Note ("Symlink probe error: {0}" -f $symlinkCheck)
 }
 
 Section "Optional Lanes"

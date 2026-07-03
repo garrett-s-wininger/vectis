@@ -12,7 +12,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/logserver"
 	"vectis/internal/observability"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 )
 
 func runLog(cmd *cobra.Command, args []string) {
@@ -36,7 +36,7 @@ func runLog(cmd *cobra.Command, args []string) {
 
 	storageDir := viper.GetString("storage_dir")
 	if storageDir == "" {
-		storageDir = filepath.Join(utils.DataHome(), "vectis", "log", instanceID)
+		storageDir = filepath.Join(platform.DataHome(), "vectis", "log", instanceID)
 	}
 
 	readOnlyMinFreeBytes := viper.GetUint64("storage_read_only_min_free_bytes")

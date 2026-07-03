@@ -24,9 +24,9 @@
         "nodes": [
           {
             "id": "setup-control",
-            "uses": "builtins/shell",
+            "uses": "builtins/script",
             "with": {
-              "command": "printf 'canonical-control-%s\\n' start; sleep 1"
+              "script": "printf 'canonical-control-%s\\n' start; sleep 1"
             }
           },
           {
@@ -40,9 +40,9 @@
                 "nodes": [
                   {
                     "id": "secret-lane",
-                    "uses": "builtins/shell",
+                    "uses": "builtins/script",
                     "with": {
-                      "command": "test -n \"$VECTIS_SECRETS_DIR\"; test \"$(cksum < \"$VECTIS_SECRETS_DIR/smoke/token\")\" = \"342534541 17\"; printf 'canonical-secret-%s\\n' ok"
+                      "script": "test -n \"$VECTIS_SECRETS_DIR\"; test \"$(cksum < \"$VECTIS_SECRETS_DIR/smoke/token\")\" = \"342534541 17\"; printf 'canonical-secret-%s\\n' ok"
                     }
                   },
                   {
@@ -56,9 +56,9 @@
                         "nodes": [
                           {
                             "id": "artifact-write",
-                            "uses": "builtins/shell",
+                            "uses": "builtins/script",
                             "with": {
-                              "command": "mkdir -p reports; printf 'canonical-artifact-ok\\n' > reports/e2e-smoke.txt; printf 'canonical-artifact-%s\\n' written"
+                              "script": "mkdir -p reports; printf 'canonical-artifact-ok\\n' > reports/e2e-smoke.txt; printf 'canonical-artifact-%s\\n' written"
                             }
                           },
                           {
@@ -121,9 +121,9 @@
                   },
                   {
                     "id": "fanout-shell-lane",
-                    "uses": "builtins/shell",
+                    "uses": "builtins/script",
                     "with": {
-                      "command": "printf 'canonical-fanout-%s\\n' ok"
+                      "script": "printf 'canonical-fanout-%s\\n' ok"
                     }
                   }
                 ]

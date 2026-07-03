@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,8 +22,8 @@ import (
 	"vectis/internal/config"
 	"vectis/internal/database"
 	"vectis/internal/logserver"
+	"vectis/internal/platform"
 	"vectis/internal/storageverify"
-	"vectis/internal/utils"
 	"vectis/internal/version"
 )
 
@@ -595,7 +596,7 @@ func collectBackupInventory(generatedAt time.Time) backupInventory {
 		backupPath("log.storage", "directory", backupLogStorageDir(logInstanceID), backupPathSource("VECTIS_LOG_STORAGE_DIR", logInstanceSource), true, "Back up durable run logs for this log shard."),
 		backupPath("artifact.storage", "directory", backupArtifactStorageDir(artifactInstanceID), backupPathSource("VECTIS_ARTIFACT_STORAGE_DIR", artifactInstanceSource), true, "Back up content-addressed artifact blobs for this artifact shard."),
 		backupPath("log_forwarder.spool", "directory", backupEnvOrDefault("VECTIS_LOG_FORWARDER_SPOOL_DIR", defaultDoctorForwarderSpoolDir()), backupPathSource("VECTIS_LOG_FORWARDER_SPOOL_DIR", "default"), true, "Back up pending worker-side log batches when this host owns the spool."),
-		backupPath("source.checkout_root", "directory", config.SourceCheckoutRoot(utils.DataHome()), backupSourceCheckoutRootSource(), true, "Back up managed checkouts only when the deployment relies on local source checkout state."),
+		backupPath("source.checkout_root", "directory", config.SourceCheckoutRoot(platform.DataHome()), backupSourceCheckoutRootSource(), true, "Back up managed checkouts only when the deployment relies on local source checkout state."),
 		backupPath("worker.pending_log_spool", "directory", filepath.Join(os.TempDir(), "vectis-log-spool", "pending"), "derived from os.TempDir", true, "Temp-backed worker pending log spool; treat as best-effort until it becomes configurable."),
 	}
 
@@ -1046,11 +1047,11 @@ func backupLinuxConfigDir(manifest linuxdeploy.Manifest) string {
 	envFile := strings.TrimSpace(manifest.Defaults.CommonEnvFile)
 	envFile = strings.TrimPrefix(envFile, "-")
 	if envFile != "" {
-		return filepath.Dir(envFile)
+		return path.Dir(envFile)
 	}
 
 	if configHome := strings.TrimSpace(manifest.CommonEnvExample["XDG_CONFIG_HOME"]); configHome != "" {
-		return filepath.Join(configHome, "vectis")
+		return path.Join(configHome, "vectis")
 	}
 
 	return ""
@@ -1829,11 +1830,11 @@ func backupQueuePersistenceSource() string {
 }
 
 func backupLogStorageDir(instanceID string) string {
-	return backupEnvOrDefault("VECTIS_LOG_STORAGE_DIR", filepath.Join(utils.DataHome(), "vectis", "log", instanceID))
+	return backupEnvOrDefault("VECTIS_LOG_STORAGE_DIR", filepath.Join(platform.DataHome(), "vectis", "log", instanceID))
 }
 
 func backupArtifactStorageDir(instanceID string) string {
-	return backupEnvOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", filepath.Join(utils.DataHome(), "vectis", "artifact", instanceID))
+	return backupEnvOrDefault("VECTIS_ARTIFACT_STORAGE_DIR", filepath.Join(platform.DataHome(), "vectis", "artifact", instanceID))
 }
 
 func backupListenAddr(portEnv string, fallbackPort int) string {
@@ -1863,7 +1864,7 @@ func backupDefaultQueueInstanceID(port int) string {
 }
 
 func backupDefaultQueuePersistenceDir(pool, instanceID string) string {
-	return filepath.Join(utils.DataHome(), "vectis", "queue", backupSanitizeQueuePathComponent(pool), backupSanitizeQueuePathComponent(instanceID))
+	return filepath.Join(platform.DataHome(), "vectis", "queue", backupSanitizeQueuePathComponent(pool), backupSanitizeQueuePathComponent(instanceID))
 }
 
 func backupSanitizeQueuePathComponent(value string) string {

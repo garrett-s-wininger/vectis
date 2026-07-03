@@ -531,7 +531,7 @@ func retentionScheduledCleanup(ctx context.Context, w io.Writer, opts retentionS
 		printRetentionScheduledCleanupReceipt(w, result)
 	}
 
-	if err := retentionCleanup(ctx, cleanupWriter, opts.Policy, opts.DryRun, opts.Yes, opts.LogStorageDir, opts.ArtifactStorageDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest); err != nil {
+	if err := retentionCleanupAt(ctx, cleanupWriter, opts.Policy, opts.DryRun, opts.Yes, opts.LogStorageDir, opts.ArtifactStorageDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest, now); err != nil {
 		return err
 	}
 
@@ -1394,11 +1394,20 @@ func retentionPrometheusEscapeLabelValue(value string) string {
 }
 
 func retentionCleanup(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions, evidenceManifest *retentionCleanupEvidenceManifestEvidence) error {
+	return retentionCleanupAt(ctx, w, policy, dryRun, yes, logStorageDir, artifactStorageDir, backupOptions, auditExportOptions, holdReviewOptions, gateOptions, evidenceManifest, time.Now().UTC())
+}
+
+func retentionCleanupAt(ctx context.Context, w io.Writer, policy retention.Policy, dryRun, yes bool, logStorageDir, artifactStorageDir string, backupOptions retentionBackupCheckOptions, auditExportOptions retentionAuditExportCheckOptions, holdReviewOptions retentionHoldReviewCheckOptions, gateOptions retentionPolicyGateOptions, evidenceManifest *retentionCleanupEvidenceManifestEvidence, now time.Time) error {
 	if !dryRun && !yes {
 		return fmt.Errorf("retention cleanup deletes durable records; pass --dry-run to inspect or --yes to apply")
 	}
 
-	now := time.Now().UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
+
 	waiverEvidence, err := checkRetentionWaiver(gateOptions.WaiverPath, now)
 	if err != nil {
 		return err

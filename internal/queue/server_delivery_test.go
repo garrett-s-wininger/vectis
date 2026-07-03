@@ -646,6 +646,7 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
+	defer closeQueueService(t, svc2)
 
 	dlq2, err := svc2.ListDeadLetter(ctx, &api.Empty{})
 	if err != nil {

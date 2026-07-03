@@ -2,14 +2,14 @@ package source
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"vectis/internal/platform"
 )
 
 const managedGitWriterLockRetry = 25 * time.Millisecond
@@ -91,7 +91,7 @@ func managedGitWriterLockPath(checkoutPath string) string {
 
 func lockManagedGitWriterFile(ctx context.Context, f *os.File, lockPath string) error {
 	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := platform.TryLockFileExclusive(f)
 		if err == nil {
 			return nil
 		}
@@ -117,7 +117,7 @@ func lockManagedGitWriterFile(ctx context.Context, f *os.File, lockPath string) 
 }
 
 func managedGitWriterLockBlocked(err error) bool {
-	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
+	return platform.IsFileLockUnavailable(err)
 }
 
 func (l *managedGitWriterLock) Close() error {
@@ -127,7 +127,7 @@ func (l *managedGitWriterLock) Close() error {
 
 	var result error
 	if l.file != nil {
-		if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
+		if err := platform.UnlockFile(l.file); err != nil {
 			result = fmt.Errorf("unlock managed checkout %s: %w", l.path, err)
 		}
 

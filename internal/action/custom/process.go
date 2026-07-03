@@ -15,6 +15,7 @@ import (
 	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/scriptrunner"
 	"vectis/internal/interfaces"
+	"vectis/internal/platform"
 )
 
 type ProcessAction struct {
@@ -173,7 +174,7 @@ func processWorkDir(descriptor actionregistry.Descriptor, state *action.Executio
 }
 
 func validateRelativeWorkDir(path string) error {
-	if filepath.IsAbs(path) {
+	if platform.IsCrossPlatformAbsPath(path) {
 		return fmt.Errorf("must be relative")
 	}
 

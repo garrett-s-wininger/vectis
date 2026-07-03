@@ -3,6 +3,7 @@ package workercore
 import (
 	"context"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -62,18 +63,27 @@ func TestExecutorCoreExecutesTaskThroughJobExecutor(t *testing.T) {
 	}
 
 	paths := processExecutor.GetPaths()
-	if len(paths) != 1 || paths[0] != "sh" {
-		t.Fatalf("process paths = %v, want [sh]", paths)
+	wantPath, wantExt := expectedScriptRunnerForTest()
+	if len(paths) != 1 || paths[0] != wantPath {
+		t.Fatalf("process paths = %v, want [%s]", paths, wantPath)
 	}
 
 	args := processExecutor.GetArgs()
-	if len(args) != 1 || len(args[0]) != 1 || filepath.Ext(args[0][0]) != ".sh" {
-		t.Fatalf("process args = %v, want one generated .sh script arg", args)
+	if len(args) != 1 || len(args[0]) == 0 || filepath.Ext(args[0][len(args[0])-1]) != wantExt {
+		t.Fatalf("process args = %v, want one generated %s script arg", args, wantExt)
 	}
 
 	if !process.WaitCalled() {
 		t.Fatal("expected process Wait to be called")
 	}
+}
+
+func expectedScriptRunnerForTest() (string, string) {
+	if runtime.GOOS == "windows" {
+		return "powershell", ".ps1"
+	}
+
+	return "sh", ".sh"
 }
 
 func TestExecutorCoreValidatesShellBoundaryInputs(t *testing.T) {

@@ -50,6 +50,22 @@ func generatedScriptArg(args []string, extension string) string {
 	return ""
 }
 
+func sanitizedEnvironmentScriptForTest() string {
+	if runtime.GOOS == "windows" {
+		return `if ($env:VECTIS_DATABASE_DSN -or $env:SPIFFE_ENDPOINT_SOCKET) { Write-Output "leaked"; exit 1 }; Write-Output "clean"`
+	}
+
+	return `if env | grep -q 'VECTIS_DATABASE_DSN\|SPIFFE_ENDPOINT_SOCKET'; then echo leaked; exit 1; fi; echo clean`
+}
+
+func failingScriptForTest() string {
+	if runtime.GOOS == "windows" {
+		return "exit 1"
+	}
+
+	return "false"
+}
+
 func executeAndWait(t *testing.T, executor *job.Executor, testJob *api.Job, mockLogClient *mocks.MockLogClient, mockLogger *mocks.MockLogger) error {
 	t.Helper()
 	return executeAndWaitWithOptions(t, executor, testJob, mockLogClient, mockLogger, job.ExecuteOptions{})
@@ -354,7 +370,7 @@ func TestExecutor_ExecuteJob_DoesNotInheritWorkerEnvironment(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"script": `if env | grep -q 'VECTIS_DATABASE_DSN\|SPIFFE_ENDPOINT_SOCKET'; then echo leaked; exit 1; fi; echo clean`,
+				"script": sanitizedEnvironmentScriptForTest(),
 			},
 		},
 	}
@@ -995,6 +1011,10 @@ func TestExecutor_ExecuteJob_RevokedFrozenCustomActionIsBlocked(t *testing.T) {
 }
 
 func TestExecutor_ExecuteJob_CustomGreetExample(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("custom greet example uses POSIX shell environment syntax")
+	}
+
 	executor := job.NewExecutor()
 	mockLogClient := mocks.NewMockLogClient()
 	mockLogger := mocks.NewMockLogger()
@@ -1075,7 +1095,7 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 			Id:   &nodeID,
 			Uses: &uses,
 			With: map[string]string{
-				"script": "false", // Always returns exit code 1
+				"script": failingScriptForTest(),
 			},
 		},
 	}

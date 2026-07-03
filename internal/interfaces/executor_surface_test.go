@@ -174,6 +174,7 @@ func rawExecCalls(t *testing.T, root, path string) []string {
 		rel = path
 	}
 
+	rel = filepath.ToSlash(rel)
 	execNames := map[string]struct{}{}
 	var violations []string
 	for _, imp := range file.Imports {
@@ -245,6 +246,7 @@ func destructiveFilesystemCalls(t *testing.T, root, path string, allowed map[str
 		rel = path
 	}
 
+	rel = filepath.ToSlash(rel)
 	osNames := map[string]struct{}{}
 	var violations []string
 	for _, imp := range file.Imports {
@@ -325,7 +327,8 @@ func providerProcessEscapeCalls(t *testing.T, root, path string, allowed map[str
 	if err != nil {
 		rel = path
 	}
-
+	
+	rel = filepath.ToSlash(rel)
 	var violations []string
 	ast.Inspect(file, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)

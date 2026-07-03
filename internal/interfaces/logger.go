@@ -77,7 +77,34 @@ func NewLogOutput(component string) io.Writer {
 		return os.Stderr
 	}
 
-	return io.MultiWriter(os.Stderr, f)
+	return &managedLogOutputWriter{
+		writer: io.MultiWriter(os.Stderr, f),
+		closer: f,
+	}
+}
+
+type managedLogOutput interface {
+	io.Writer
+	closeManagedLogOutput() error
+}
+
+type managedLogOutputWriter struct {
+	writer io.Writer
+	closer io.Closer
+	once   sync.Once
+	err    error
+}
+
+func (w *managedLogOutputWriter) Write(p []byte) (int, error) {
+	return w.writer.Write(p)
+}
+
+func (w *managedLogOutputWriter) closeManagedLogOutput() error {
+	w.once.Do(func() {
+		w.err = w.closer.Close()
+	})
+
+	return w.err
 }
 
 func sanitizeLogComponent(component string) string {
@@ -268,6 +295,17 @@ func (l *StderrLogger) write(level Level, msg string, args ...any) {
 	_, _ = io.WriteString(l.out, l.format(level, msg, args...))
 }
 
+func (l *StderrLogger) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if output, ok := l.out.(managedLogOutput); ok {
+		return output.closeManagedLogOutput()
+	}
+
+	return nil
+}
+
 func (l *StderrLogger) Debug(msg string, args ...any) {
 	l.write(LevelDebug, msg, args...)
 }
@@ -416,7 +454,15 @@ func (l *AsyncLogger) Close() error {
 	if l == nil || l.core == nil {
 		return nil
 	}
-	return l.core.Close()
+	
+	err := l.core.Close()
+	if closer, ok := l.inner.(interface{ Close() error }); ok {
+		if closeErr := closer.Close(); err == nil {
+			err = closeErr
+		}
+	}
+
+	return err
 }
 
 func (l *AsyncLogger) Shutdown(ctx context.Context) error {

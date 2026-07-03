@@ -12,6 +12,7 @@ import (
 
 	"vectis/internal/action"
 	"vectis/internal/action/scriptrunner"
+	"vectis/internal/platform"
 )
 
 const LocalManifestFile = "action.json"
@@ -484,7 +485,7 @@ func validateRuntimeConfigWorkingDirectory(path string) error {
 		return nil
 	}
 
-	if filepath.IsAbs(path) {
+	if platform.IsCrossPlatformAbsPath(path) {
 		return fmt.Errorf("must be relative")
 	}
 

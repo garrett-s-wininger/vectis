@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -1502,7 +1504,7 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 	jobID := "job-worker-finish-orphaned"
 	deliveryID := "delivery-orphaned-finish"
 	commandNodeID := "node-1"
-	command := "sleep 0.08"
+	command := shortDelayScriptForTest()
 	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
@@ -1524,7 +1526,7 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 		close(done)
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(workerRunStartTimeoutForTest())
 	for {
 		var status string
 		if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&status); err != nil {
@@ -1552,7 +1554,7 @@ func TestWorkerRunTaskExecution_CompletesWhileOrphaned_MarksSucceeded(t *testing
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(workerRunTaskTimeoutForTest()):
 		t.Fatal("timed out waiting for worker runTaskExecution")
 	}
 
@@ -2506,7 +2508,8 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 	}
 
 	jobID := "job-worker-task-failure-order"
-	def := `{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`
+	failureScript := failingScriptForTest()
+	def := fmt.Sprintf(`{"id":"job-worker-task-failure-order","root":{"id":"root","uses":"builtins/script","with":{"script":%q}}}`, failureScript)
 	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, def); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -2547,7 +2550,7 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "false"},
+			With: map[string]string{"script": failureScript},
 		},
 	}
 
@@ -4048,7 +4051,7 @@ func TestWorkerRunTaskExecution_LifecyclePhaseShowsFinalizing(t *testing.T) {
 
 	select {
 	case <-store.entered:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for finalization to begin")
 	}
 
@@ -4063,7 +4066,7 @@ func TestWorkerRunTaskExecution_LifecyclePhaseShowsFinalizing(t *testing.T) {
 		if outcome != observability.WorkerOutcomeSuccess {
 			t.Fatalf("expected success, got %q", outcome)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for finalizing run to finish")
 	}
 
@@ -4351,7 +4354,7 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 	jobID := "job-worker-drain"
 	deliveryID := "delivery-drain"
 	commandNodeID := "node-1"
-	command := "sleep 0.08"
+	command := shortDelayScriptForTest()
 	action := "builtins/script"
 	root := &api.Node{
 		Id:   &commandNodeID,
@@ -4407,7 +4410,7 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 		close(done)
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(workerRunStartTimeoutForTest())
 	for {
 		var st string
 		if err := db.QueryRowContext(ctx, `SELECT status FROM job_runs WHERE run_id = ?`, runID).Scan(&st); err != nil {
@@ -4429,7 +4432,7 @@ func TestWorkerDrain_ShutdownDuringRun_StillFinalizesRun(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(workerDrainTimeoutForTest()):
 		t.Fatal("timed out waiting for worker run() after shutdown")
 	}
 
@@ -5094,9 +5097,9 @@ func TestWorker_Run_ExitsWhenDequeueCanceled(t *testing.T) {
 }
 
 func TestForwarderSocketPath_RespectsXDGRuntimeDir(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	t.Setenv("XDG_RUNTIME_DIR", filepath.FromSlash("/run/user/1000"))
 	got := forwarderSocketPath()
-	want := "/run/user/1000/vectis/log-forwarder.sock"
+	want := filepath.Join(filepath.FromSlash("/run/user/1000"), "vectis", "log-forwarder.sock")
 	if got != want {
 		t.Fatalf("forwarderSocketPath() = %q, want %q", got, want)
 	}
@@ -5105,12 +5108,52 @@ func TestForwarderSocketPath_RespectsXDGRuntimeDir(t *testing.T) {
 func TestForwarderSocketPath_FallsBackToTempDir(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	got := forwarderSocketPath()
-	if !strings.HasSuffix(got, "/log-forwarder.sock") {
-		t.Fatalf("forwarderSocketPath() = %q, expected suffix /log-forwarder.sock", got)
+	if !strings.HasSuffix(got, string(filepath.Separator)+"log-forwarder.sock") {
+		t.Fatalf("forwarderSocketPath() = %q, expected suffix %clog-forwarder.sock", got, filepath.Separator)
 	}
 	if !strings.Contains(got, fmt.Sprintf("vectis-%d", os.Getuid())) {
 		t.Fatalf("forwarderSocketPath() = %q, expected user-isolated directory", got)
 	}
+}
+
+func failingScriptForTest() string {
+	if runtime.GOOS == "windows" {
+		return "exit 1"
+	}
+
+	return "false"
+}
+
+func shortDelayScriptForTest() string {
+	if runtime.GOOS == "windows" {
+		return "Start-Sleep -Milliseconds 80"
+	}
+
+	return "sleep 0.08"
+}
+
+func workerRunStartTimeoutForTest() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 15 * time.Second
+	}
+
+	return 2 * time.Second
+}
+
+func workerRunTaskTimeoutForTest() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 20 * time.Second
+	}
+
+	return 3 * time.Second
+}
+
+func workerDrainTimeoutForTest() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 25 * time.Second
+	}
+
+	return 5 * time.Second
 }
 
 type fakeControlAddr string

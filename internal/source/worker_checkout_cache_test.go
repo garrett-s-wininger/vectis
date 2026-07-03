@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +15,57 @@ import (
 	"vectis/internal/observability"
 )
 
+func workerCheckoutCacheRoot(t *testing.T) string {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		skipIfWorkerCheckoutCacheSymlinksUnavailable(t)
+	}
+
+	dir, err := os.MkdirTemp("", "vcc-*")
+	if err != nil {
+		t.Fatalf("create worker checkout cache temp root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	return filepath.Join(dir, "cache")
+}
+
+func skipIfWorkerCheckoutCacheSymlinksUnavailable(t *testing.T) {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "vcc-symlink-*")
+	if err != nil {
+		t.Fatalf("create checkout cache symlink probe dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatalf("create checkout cache symlink probe target: %v", err)
+	}
+
+	if err := os.Symlink("target", filepath.Join(dir, "current")); err != nil {
+		t.Skipf("worker checkout cache uses directory symlinks; this Windows environment cannot create them: %v", err)
+	}
+}
+
+func readCheckoutTextFile(t *testing.T, path string) string {
+	t.Helper()
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read checkout text file %s: %v", path, err)
+	}
+
+	return strings.ReplaceAll(string(got), "\r\n", "\n")
+}
+
 func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "cached\n", "cached")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -41,8 +88,8 @@ func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 		t.Fatalf("origin url = %q, want %q", got, remote)
 	}
 
-	if got, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(got) != "cached\n" {
-		t.Fatalf("workspace README = %q, %v", got, err)
+	if got := readCheckoutTextFile(t, filepath.Join(workspace, "README.md")); got != "cached\n" {
+		t.Fatalf("workspace README = %q, want cached", got)
 	}
 
 	if _, err := os.Stat(filepath.Join(workspace, ".git", "objects", "info", "alternates")); !errors.Is(err, os.ErrNotExist) {
@@ -194,13 +241,24 @@ func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
 func TestWorkerCheckoutCacheGitRunnerAppliesCredentialEnv(t *testing.T) {
 	binDir := t.TempDir()
 	capturePath := filepath.Join(t.TempDir(), "env.txt")
-	gitPath := filepath.Join(binDir, "git")
+	gitName := "git"
 	script := `#!/bin/sh
 {
   printf 'prompt=%s\n' "$GIT_TERMINAL_PROMPT"
   printf 'user=%s\n' "$VECTIS_GIT_USERNAME"
 } > "$VECTIS_CAPTURE"
 `
+	if runtime.GOOS == "windows" {
+		gitName = "git.cmd"
+		script = `@echo off
+(
+  echo prompt=%GIT_TERMINAL_PROMPT%
+  echo user=%VECTIS_GIT_USERNAME%
+) > "%VECTIS_CAPTURE%"
+`
+	}
+
+	gitPath := filepath.Join(binDir, gitName)
 	if err := os.WriteFile(gitPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write git shim: %v", err)
 	}
@@ -218,7 +276,8 @@ func TestWorkerCheckoutCacheGitRunnerAppliesCredentialEnv(t *testing.T) {
 		t.Fatalf("read captured env: %v", err)
 	}
 
-	if !strings.Contains(string(got), "prompt=0\n") || !strings.Contains(string(got), "user=alice\n") {
+	normalized := strings.ReplaceAll(string(got), "\r\n", "\n")
+	if !strings.Contains(normalized, "prompt=0\n") || !strings.Contains(normalized, "user=alice\n") {
 		t.Fatalf("captured env = %q, want prompt and credential env", got)
 	}
 }
@@ -247,7 +306,7 @@ func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "warmed\n", "warmed")
 
-	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	cacheRoot := workerCheckoutCacheRoot(t)
 	cache, err := NewWorkerCheckoutCache(cacheRoot, []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
@@ -272,6 +331,7 @@ func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 		t.Fatalf("read current generation link: %v", err)
 	}
 
+	currentTarget = filepath.ToSlash(currentTarget)
 	if !strings.HasPrefix(currentTarget, "generations/") || !strings.HasSuffix(currentTarget, ".git") {
 		t.Fatalf("current generation link target = %q, want generations/*.git", currentTarget)
 	}
@@ -293,7 +353,7 @@ func TestWorkerCheckoutCacheHydratesCanonicalMirrorFromFallback(t *testing.T) {
 	writeAndCommit(t, upstream, "README.md", "upstream\n", "upstream")
 	upstreamCommit := gitOutput(t, upstream, "rev-parse", "HEAD")
 
-	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+	cache, err := NewWorkerCheckoutCacheWithRemotes(workerCheckoutCacheRoot(t), []WorkerCheckoutCacheRemote{
 		{
 			RemoteURL:          primary,
 			FallbackRemoteURLs: []string{upstream},
@@ -338,7 +398,7 @@ func TestWorkerCheckoutCacheHydratesCanonicalMirrorFromFallback(t *testing.T) {
 
 func TestWorkerCheckoutCacheRejectsInvalidGenerationRetention(t *testing.T) {
 	_, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{"https://example.invalid/repo.git"},
 		WithWorkerCheckoutCacheGenerationsToKeep(0),
 	)
@@ -349,7 +409,7 @@ func TestWorkerCheckoutCacheRejectsInvalidGenerationRetention(t *testing.T) {
 
 func TestWorkerCheckoutCacheRejectsInvalidLeaseTTL(t *testing.T) {
 	_, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{"https://example.invalid/repo.git"},
 		WithWorkerCheckoutCacheLeaseTTL(0),
 	)
@@ -362,7 +422,7 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -405,8 +465,8 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 		t.Fatalf("Checkout: handled=%v err=%v", handled, err)
 	}
 
-	if got, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(got) != "second\n" {
-		t.Fatalf("workspace README = %q, %v", got, err)
+	if got := readCheckoutTextFile(t, filepath.Join(workspace, "README.md")); got != "second\n" {
+		t.Fatalf("workspace README = %q, want second", got)
 	}
 }
 
@@ -414,7 +474,7 @@ func TestWorkerCheckoutCacheWarmRemoteSkipsUnchangedGeneration(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -474,7 +534,7 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightMatchesCurrent(t *testing.T) {
 	git(t, remote, "update-ref", "refs/changes/01/1", reviewCommit)
 	git(t, remote, "checkout", defaultBranch)
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -517,7 +577,7 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightOverlaysFallbackRefs(t *testin
 	fallbackCommit := gitOutput(t, fallback, "rev-parse", "HEAD")
 	git(t, fallback, "update-ref", "refs/pull/456/head", fallbackCommit)
 
-	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+	cache, err := NewWorkerCheckoutCacheWithRemotes(workerCheckoutCacheRoot(t), []WorkerCheckoutCacheRemote{
 		{
 			RemoteURL:          primary,
 			FallbackRemoteURLs: []string{fallback},
@@ -559,7 +619,7 @@ func TestWorkerCheckoutCacheWarmRefspecsLimitInitialMirror(t *testing.T) {
 	git(t, remote, "update-ref", "refs/pull/789/head", reviewCommit)
 	git(t, remote, "checkout", defaultBranch)
 
-	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+	cache, err := NewWorkerCheckoutCacheWithRemotes(workerCheckoutCacheRoot(t), []WorkerCheckoutCacheRemote{
 		{
 			RemoteURL:    remote,
 			WarmRefspecs: []string{"+refs/heads/*:refs/heads/*"},
@@ -612,7 +672,7 @@ func TestWorkerCheckoutCacheFetchRefspecsHydratesOutsideWarmPolicy(t *testing.T)
 	git(t, remote, "checkout", defaultBranch)
 
 	var hydrations []string
-	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+	cache, err := NewWorkerCheckoutCacheWithRemotes(workerCheckoutCacheRoot(t), []WorkerCheckoutCacheRemote{
 		{
 			RemoteURL:    remote,
 			WarmRefspecs: []string{"+refs/heads/*:refs/heads/*"},
@@ -687,7 +747,7 @@ func TestWorkerCheckoutCacheLargeRepoWorkflowKeepsWarmSetNarrowAndHydratesDynami
 
 	var hydrations []string
 	var evictions []string
-	cache, err := NewWorkerCheckoutCacheWithRemotes(filepath.Join(t.TempDir(), "cache"), []WorkerCheckoutCacheRemote{
+	cache, err := NewWorkerCheckoutCacheWithRemotes(workerCheckoutCacheRoot(t), []WorkerCheckoutCacheRemote{
 		{
 			RemoteURL:    remote,
 			WarmRefspecs: []string{"+refs/heads/*:refs/heads/*"},
@@ -778,7 +838,7 @@ func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing
 
 	var evictions []string
 	var selfHeals []string
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote},
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote},
 		WithWorkerCheckoutCacheGenerationEvictionRecorder(func(_ context.Context, reason string) {
 			evictions = append(evictions, reason)
 		}),
@@ -820,8 +880,8 @@ func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing
 		t.Fatalf("Checkout self-heal: handled=%v err=%v", handled, err)
 	}
 
-	if got, err := os.ReadFile(filepath.Join(workspace, "README.md")); err != nil || string(got) != "healthy\n" {
-		t.Fatalf("workspace README = %q, %v", got, err)
+	if got := readCheckoutTextFile(t, filepath.Join(workspace, "README.md")); got != "healthy\n" {
+		t.Fatalf("workspace README = %q, want healthy", got)
 	}
 
 	if healedGeneration := currentWorkerCheckoutGeneration(t, cache, remote); healedGeneration == corruptGeneration {
@@ -840,7 +900,7 @@ func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	var evictions []string
 	cache, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{remote},
 		WithWorkerCheckoutCacheGenerationsToKeep(3),
 		WithWorkerCheckoutCacheGenerationEvictionRecorder(func(_ context.Context, reason string) {
@@ -887,7 +947,7 @@ func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	var evictions []string
 	cache, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{remote},
 		WithWorkerCheckoutCacheGenerationsToKeep(10),
 		WithWorkerCheckoutCacheMaxBytes(20),
@@ -952,7 +1012,7 @@ func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
 func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	cache, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{remote},
 		WithWorkerCheckoutCacheLeaseTTL(time.Hour),
 	)
@@ -1010,7 +1070,7 @@ func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
 func TestWorkerCheckoutCacheCleanupDropsStaleLeases(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	cache, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{remote},
 		WithWorkerCheckoutCacheLeaseTTL(time.Hour),
 	)
@@ -1062,7 +1122,7 @@ func TestWorkerCheckoutCacheCleanupDropsStaleReceivingGenerations(t *testing.T) 
 	remote := "https://example.invalid/large.git"
 	ttl := time.Hour
 	cache, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{remote},
 		WithWorkerCheckoutCacheLeaseTTL(ttl),
 	)
@@ -1115,7 +1175,7 @@ func TestWorkerCheckoutCacheLeaseHeartbeatKeepsActiveLeaseFresh(t *testing.T) {
 	remote := "https://example.invalid/large.git"
 	leaseTTL := 120 * time.Millisecond
 	cache, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{remote},
 		WithWorkerCheckoutCacheLeaseTTL(leaseTTL),
 	)
@@ -1171,7 +1231,7 @@ func TestWorkerCheckoutCacheCleanupRemovesOldUnleasedGenerations(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -1210,7 +1270,7 @@ func TestWorkerCheckoutCacheCleanupKeepsLeasedGeneration(t *testing.T) {
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -1262,7 +1322,7 @@ func TestWorkerCheckoutCacheScopedCheckoutKeepsBorrowedGeneration(t *testing.T) 
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
 	cache, err := NewWorkerCheckoutCache(
-		filepath.Join(t.TempDir(), "cache"),
+		workerCheckoutCacheRoot(t),
 		[]string{remote},
 		WithWorkerCheckoutCacheGenerationsToKeep(1),
 	)
@@ -1328,7 +1388,7 @@ func TestWorkerCheckoutCacheCheckoutSurvivesGenerationCleanup(t *testing.T) {
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 	firstCommit := gitOutput(t, remote, "rev-parse", "HEAD")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -1377,7 +1437,7 @@ func TestWorkerCheckoutCacheCheckoutAddsLocalCacheRemoteForAuxiliaryRefs(t *test
 	git(t, remote, "update-ref", "refs/pull/123/head", reviewCommit)
 	git(t, remote, "checkout", defaultBranch)
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -1414,7 +1474,7 @@ func TestWorkerCheckoutCacheFetchRefspecsRefreshesStaleMirror(t *testing.T) {
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -1451,7 +1511,7 @@ func TestWorkerCheckoutCacheCheckoutUsesCurrentGenerationWhileWarmLocked(t *test
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "cached\n", "cached")
 
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{remote})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{remote})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
@@ -1491,7 +1551,7 @@ func TestWorkerCheckoutCacheCheckoutUsesCurrentGenerationWhileWarmLocked(t *test
 }
 
 func TestWorkerCheckoutCacheIgnoresUnconfiguredRemote(t *testing.T) {
-	cache, err := NewWorkerCheckoutCache(filepath.Join(t.TempDir(), "cache"), []string{"https://example.invalid/persistent.git"})
+	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{"https://example.invalid/persistent.git"})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}

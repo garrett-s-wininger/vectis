@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -1500,7 +1501,20 @@ func (c *WorkerCheckoutCache) flipCurrentGeneration(repoPath, generationPath str
 		return fmt.Errorf("create worker checkout cache generation link: %w", err)
 	}
 
-	if err := os.Rename(tmpLink, filepath.Join(repoPath, "current")); err != nil {
+	currentLink := filepath.Join(repoPath, "current")
+	if err := os.Rename(tmpLink, currentLink); err != nil {
+		if runtime.GOOS == "windows" {
+			if removeErr := os.Remove(currentLink); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				_ = os.Remove(tmpLink)
+				return fmt.Errorf("replace worker checkout cache current generation: %w", removeErr)
+			}
+			
+			if renameErr := os.Rename(tmpLink, currentLink); renameErr == nil {
+				return nil
+			} else {
+				err = renameErr
+			}
+		}
 		_ = os.Remove(tmpLink)
 		return fmt.Errorf("flip worker checkout cache current generation: %w", err)
 	}

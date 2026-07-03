@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	api "vectis/api/gen/go"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -24,11 +24,11 @@ const (
 )
 
 func DefaultCoreSocketPath() string {
-	return filepath.Join(utils.RuntimeDir(), defaultCoreSocketName)
+	return filepath.Join(platform.RuntimeDir(), defaultCoreSocketName)
 }
 
 func DefaultShellSocketPath() string {
-	return filepath.Join(utils.RuntimeDir(), defaultShellSocketName)
+	return filepath.Join(platform.RuntimeDir(), defaultShellSocketName)
 }
 
 func UnixEndpoint(socketPath string) string {

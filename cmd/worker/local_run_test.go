@@ -5,6 +5,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -19,7 +21,7 @@ func writeLocalRunJob(t *testing.T, dir, command string) string {
     "id": "script",
     "uses": "builtins/script",
     "with": {
-      "script": "` + command + `"
+      "script": ` + strconv.Quote(command) + `
     }
   }
 }
@@ -33,7 +35,7 @@ func writeLocalRunJob(t *testing.T, dir, command string) string {
 
 func TestRunLocalJobSuccess(t *testing.T) {
 	workspace := t.TempDir()
-	jobPath := writeLocalRunJob(t, t.TempDir(), "printf local-ok")
+	jobPath := writeLocalRunJob(t, t.TempDir(), localRunSuccessScript())
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -67,7 +69,7 @@ func TestRunLocalJobDecodesFriendlySecretDeliveryType(t *testing.T) {
   "root": {
     "id": "script",
     "uses": "builtins/script",
-    "with": {"script": "printf local-secret-alias-ok"}
+    "with": {"script": ` + strconv.Quote(localRunSecretScript()) + `}
   }
 }`
 
@@ -88,7 +90,7 @@ func TestRunLocalJobDecodesFriendlySecretDeliveryType(t *testing.T) {
 
 func TestRunLocalJobFailure(t *testing.T) {
 	workspace := t.TempDir()
-	jobPath := writeLocalRunJob(t, t.TempDir(), "printf local-fail; exit 7")
+	jobPath := writeLocalRunJob(t, t.TempDir(), localRunFailureScript())
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -126,4 +128,28 @@ func TestRunLocalJobValidation(t *testing.T) {
 	if err := runLocalJob(context.Background(), "missing.json", fileWorkspace, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "workspace is not a directory") {
 		t.Fatalf("expected workspace directory error, got %v", err)
 	}
+}
+
+func localRunSuccessScript() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output local-ok"
+	}
+
+	return "printf local-ok"
+}
+
+func localRunSecretScript() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output local-secret-alias-ok"
+	}
+
+	return "printf local-secret-alias-ok"
+}
+
+func localRunFailureScript() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output local-fail; exit 7"
+	}
+
+	return "printf local-fail; exit 7"
 }

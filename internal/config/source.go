@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -92,9 +93,9 @@ func SourceCheckoutRoot(dataHome string) string {
 		root = strings.TrimSpace(MustDefaults().Source.CheckoutRoot)
 	}
 
-	return strings.NewReplacer(
+	return filepath.Clean(filepath.FromSlash(strings.NewReplacer(
 		"{{data_home}}", dataHome,
-	).Replace(root)
+	).Replace(root)))
 }
 
 // SourceSyncConfiguredRepositoriesOnStartup reports whether vectis-api should

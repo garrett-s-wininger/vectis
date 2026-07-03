@@ -52,8 +52,10 @@ func TestNewPublisherForRun_PinnedAddressPublishesWithPinnedShard(t *testing.T) 
 		t.Fatalf("artifact shard = %q, want artifact-local", got.Manifest.ArtifactShardID)
 	}
 
-	if _, _, err := store.Open(ctx, got.Blob.Key); err != nil {
+	if _, rc, err := store.Open(ctx, got.Blob.Key); err != nil {
 		t.Fatalf("expected blob in pinned store: %v", err)
+	} else if err := rc.Close(); err != nil {
+		t.Fatalf("close pinned blob reader: %v", err)
 	}
 }
 
@@ -100,11 +102,17 @@ func TestNewPublisherForRun_UsesWritableRegistryArtifactShard(t *testing.T) {
 		t.Fatalf("artifact shard = %q, want artifact-writable", got.Manifest.ArtifactShardID)
 	}
 
-	if _, _, err := writableStore.Open(ctx, got.Blob.Key); err != nil {
+	if _, rc, err := writableStore.Open(ctx, got.Blob.Key); err != nil {
 		t.Fatalf("expected blob in writable store: %v", err)
+	} else if err := rc.Close(); err != nil {
+		t.Fatalf("close writable blob reader: %v", err)
 	}
 
-	if _, _, err := readonlyStore.Open(ctx, got.Blob.Key); !errors.Is(err, ErrBlobNotFound) {
+	if _, rc, err := readonlyStore.Open(ctx, got.Blob.Key); !errors.Is(err, ErrBlobNotFound) {
+		if err == nil {
+			_ = rc.Close()
+		}
+		
 		t.Fatalf("expected no blob in read-only store, got %v", err)
 	}
 }

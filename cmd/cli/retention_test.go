@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -360,6 +361,7 @@ func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
 		CheckedAt: "2026-07-02T12:00:00Z",
 		Backup:    &retentionBackupEvidence{ManifestPath: "backup-manifest.json", Verified: true},
 	}
+	
 	if err := writeRetentionCleanupEvidenceManifest(&buf, outputPath, promotePath, manifest, verification); err != nil {
 		t.Fatalf("write evidence manifest: %v", err)
 	}
@@ -391,7 +393,7 @@ func TestWriteRetentionCleanupEvidenceManifestWritesAndPromotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat promoted manifest: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("promoted manifest mode = %v, want 0600", info.Mode().Perm())
 	}
 

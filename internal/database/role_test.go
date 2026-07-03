@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 )
 
 func TestGetDBPathForRoleUsesRoleDSN(t *testing.T) {
@@ -12,11 +12,11 @@ func TestGetDBPathForRoleUsesRoleDSN(t *testing.T) {
 	t.Setenv(EnvGlobalDatabaseDSN, "{{data_home}}/global.db")
 	t.Setenv(EnvCellDatabaseDSN, "{{data_home}}/cell.db")
 
-	if got, want := GetDBPathForRole(RoleGlobal), filepath.Join(utils.DataHome(), "global.db"); got != want {
+	if got, want := GetDBPathForRole(RoleGlobal), filepath.Join(platform.DataHome(), "global.db"); got != want {
 		t.Fatalf("global DB path: got %q, want %q", got, want)
 	}
 
-	if got, want := GetDBPathForRole(RoleCell), filepath.Join(utils.DataHome(), "cell.db"); got != want {
+	if got, want := GetDBPathForRole(RoleCell), filepath.Join(platform.DataHome(), "cell.db"); got != want {
 		t.Fatalf("cell DB path: got %q, want %q", got, want)
 	}
 }
@@ -24,7 +24,7 @@ func TestGetDBPathForRoleUsesRoleDSN(t *testing.T) {
 func TestGetDBPathForRoleFallsBackToSharedDSN(t *testing.T) {
 	t.Setenv(EnvDatabaseDSN, "{{data_home}}/shared.db")
 
-	want := filepath.Join(utils.DataHome(), "shared.db")
+	want := filepath.Join(platform.DataHome(), "shared.db")
 	if got := GetDBPathForRole(RoleGlobal); got != want {
 		t.Fatalf("global fallback DB path: got %q, want %q", got, want)
 	}

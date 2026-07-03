@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -234,7 +235,7 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 		stopWorkerCoreProcess(t, cmd, done, &output)
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), workerCoreProcessSmokeTimeout())
 	defer cancel()
 
 	core, cleanup := dialWorkerCoreProcess(t, ctx, socketPath, done, &output)
@@ -287,6 +288,7 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	sequenceUses := "builtins/sequence"
 	scriptUses := "builtins/script"
 	uploadUses := "builtins/upload-artifact"
+	runner, script := workerCoreSmokeScriptForTest()
 
 	job := &api.Job{
 		Id:    &jobID,
@@ -299,8 +301,8 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 					Id:   &writeID,
 					Uses: &scriptUses,
 					With: map[string]string{
-						"runner": "sh",
-						"script": "printf smoke-log && printf smoke-artifact > artifact.txt",
+						"runner": runner,
+						"script": script,
 					},
 				},
 				{
@@ -351,6 +353,22 @@ func TestWorkerCoreProcessSmoke(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CancelTask: %v", err)
 	}
+}
+
+func workerCoreSmokeScriptForTest() (string, string) {
+	if runtime.GOOS == "windows" {
+		return "powershell", "Write-Output 'smoke-log'; Set-Content -Path artifact.txt -Value 'smoke-artifact' -NoNewline"
+	}
+
+	return "sh", "printf smoke-log && printf smoke-artifact > artifact.txt"
+}
+
+func workerCoreProcessSmokeTimeout() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 30 * time.Second
+	}
+
+	return 5 * time.Second
 }
 
 func TestWorkerCoreProcessHelper(t *testing.T) {

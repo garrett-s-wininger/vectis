@@ -22,9 +22,9 @@ import (
 	"vectis/internal/dal"
 	jobvalidation "vectis/internal/job/validation"
 	"vectis/internal/observability"
+	"vectis/internal/platform"
 	sourcepkg "vectis/internal/source"
 	"vectis/internal/source/refspec"
-	"vectis/internal/utils"
 )
 
 const (
@@ -3149,7 +3149,7 @@ func (s *APIServer) newSourceDefinitionAuthor(rec dal.SourceRepositoryRecord) (s
 }
 
 func managedSourceCheckoutPath(repositoryID string) (string, error) {
-	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(utils.DataHome()))
+	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(platform.DataHome()))
 	if err != nil {
 		return "", err
 	}
@@ -3158,7 +3158,7 @@ func managedSourceCheckoutPath(repositoryID string) (string, error) {
 }
 
 func validateAPISourceCheckoutPath(checkoutPath string) error {
-	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(utils.DataHome()))
+	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(platform.DataHome()))
 	if err != nil {
 		return err
 	}

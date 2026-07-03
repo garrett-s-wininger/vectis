@@ -70,6 +70,7 @@ func TestQueuePersistence_RestorePendingOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
+	defer closeQueueService(t, restarted)
 
 	for _, want := range []string{"job-2", "job-3", "job-4"} {
 		got, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
@@ -186,6 +187,7 @@ func TestQueuePersistence_RestoreFromSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
+	defer closeQueueService(t, restarted)
 
 	got, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
@@ -210,6 +212,7 @@ func TestQueuePersistence_SnapshotTruncatesWAL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create persisted queue: %v", err)
 	}
+	defer closeQueueService(t, svc)
 
 	jobID := "job-1"
 	if _, err := svc.Enqueue(ctx, queueTestJobRequest(t, &api.Job{Id: &jobID})); err != nil {
@@ -266,6 +269,7 @@ func TestQueuePersistence_ExpiredRequeueSurvivesRestartBeforeSnapshot(t *testing
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
+	defer closeQueueService(t, restarted)
 
 	first, err := restarted.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
@@ -327,6 +331,7 @@ func TestQueuePersistence_ExpiredDeadlineDropSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
+	defer closeQueueService(t, restarted)
 
 	got, err = restarted.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
@@ -414,6 +419,7 @@ func TestQueuePersistence_JobAttemptsSurviveSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
+	defer closeQueueService(t, restarted)
 
 	// Dequeue all pending jobs. job-1 should come out with attemptCount=2.
 	// If jobAttempts was lost, it would come out with attemptCount=0.
@@ -501,6 +507,7 @@ func TestQueuePersistence_DLQRequeueRemovesDeadLetterAfterRestart(t *testing.T) 
 	if err != nil {
 		t.Fatalf("restart queue: %v", err)
 	}
+	defer closeQueueService(t, restarted)
 
 	dlqAfter, err := restarted.ListDeadLetter(ctx, &api.Empty{})
 	if err != nil {

@@ -56,6 +56,8 @@ func TestLocalRestoreDrillVerifiesRestoredSQLiteAndFileStores(t *testing.T) {
 	t.Setenv("VECTIS_LOG_FORWARDER_SPOOL_DIR", restored.LogForwarderSpoolDir)
 	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", restored.SourceCheckoutRoot)
 	t.Setenv("TMPDIR", restored.TempDir)
+	t.Setenv("TMP", restored.TempDir)
+	t.Setenv("TEMP", restored.TempDir)
 
 	evidenceDir := filepath.Join(root, "evidence")
 	if err := os.MkdirAll(evidenceDir, 0o755); err != nil {

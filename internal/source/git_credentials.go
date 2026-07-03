@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -141,19 +142,19 @@ func gitCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {
 }
 
 func gitHTTPCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {
-	f, err := os.CreateTemp("", "vectis-git-askpass-*")
+	pattern := "vectis-git-askpass-*"
+	if runtime.GOOS == "windows" {
+		pattern += ".cmd"
+	}
+
+	f, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: create git askpass helper: %w", ErrInvalidReference, err)
 	}
 
 	path := f.Name()
 	cleanup := func() { _ = os.Remove(path) }
-	script := `#!/bin/sh
-case "$1" in
-*Username*) printf '%s\n' "$VECTIS_GIT_USERNAME" ;;
-*) printf '%s\n' "$VECTIS_GIT_PASSWORD" ;;
-esac
-`
+	script := gitAskpassScript()
 	if _, err := f.WriteString(script); err != nil {
 		_ = f.Close()
 		cleanup()
@@ -174,6 +175,26 @@ esac
 		"VECTIS_GIT_USERNAME=" + creds.Username,
 		"VECTIS_GIT_PASSWORD=" + creds.Password,
 	}, cleanup, nil
+}
+
+func gitAskpassScript() string {
+	if runtime.GOOS == "windows" {
+		return `@echo off
+echo %1 | findstr /I "Username" >nul
+if not errorlevel 1 (
+  echo %VECTIS_GIT_USERNAME%
+) else (
+  echo %VECTIS_GIT_PASSWORD%
+)
+`
+	}
+
+	return `#!/bin/sh
+case "$1" in
+*Username*) printf '%s\n' "$VECTIS_GIT_USERNAME" ;;
+*) printf '%s\n' "$VECTIS_GIT_PASSWORD" ;;
+esac
+`
 }
 
 func gitSSHCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {

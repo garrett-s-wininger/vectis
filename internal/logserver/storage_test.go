@@ -12,11 +12,42 @@ import (
 	api "vectis/api/gen/go"
 )
 
-func TestLocalRunLogStore_AppendAndList(t *testing.T) {
+func newLocalRunLogStoreForTest(t *testing.T) *LocalRunLogStore {
+	t.Helper()
+
 	store, err := NewLocalRunLogStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new local run log store: %v", err)
 	}
+	
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close local run log store: %v", err)
+		}
+	})
+
+	return store
+}
+
+func newLocalRunLogStoreWithOptionsForTest(t *testing.T, opts LocalRunLogStoreOptions) *LocalRunLogStore {
+	t.Helper()
+
+	store, err := NewLocalRunLogStoreWithOptions(t.TempDir(), opts)
+	if err != nil {
+		t.Fatalf("new local run log store: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close local run log store: %v", err)
+		}
+	})
+
+	return store
+}
+
+func TestLocalRunLogStore_AppendAndList(t *testing.T) {
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-append-list"
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -48,10 +79,7 @@ func TestLocalRunLogStore_AppendAndList(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ListMissingRun(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	got, err := store.List("missing-run")
 	if err != nil {
@@ -64,10 +92,7 @@ func TestLocalRunLogStore_ListMissingRun(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ListPreservesAppendOrder(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-out-of-order"
 	entries := []LogEntry{
@@ -99,10 +124,7 @@ func TestLocalRunLogStore_ListPreservesAppendOrder(t *testing.T) {
 }
 
 func TestLocalRunLogStore_AppendBatchAndList(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-append-batch"
 	entries := []LogEntry{
@@ -132,10 +154,7 @@ func TestLocalRunLogStore_AppendBatchAndList(t *testing.T) {
 }
 
 func TestLocalRunLogStore_AppendBatchVectoredAndList(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-append-batch-vectored"
 	payload := bytes.Repeat([]byte{'x'}, 1024)
@@ -165,10 +184,7 @@ func TestLocalRunLogStore_AppendBatchVectoredAndList(t *testing.T) {
 }
 
 func TestLocalRunLogStore_AppendBatchPreservesRawDataBytes(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	raw := []byte{'q', '"', '\n', 0, 0xff, '\\'}
 	entry := LogEntry{
@@ -201,10 +217,7 @@ func TestLocalRunLogStore_AppendBatchPreservesRawDataBytes(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ReplayAppliesSinceAndLimit(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-replay-limit"
 	entries := []LogEntry{
@@ -236,10 +249,7 @@ func TestLocalRunLogStore_ReplayAppliesSinceAndLimit(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ReplayDetectsSkippedCompletion(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-replay-terminal"
 	entries := []LogEntry{
@@ -270,10 +280,7 @@ func TestLocalRunLogStore_ReplayDetectsSkippedCompletion(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ReplayTailUsesLengthFooter(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-replay-tail"
 	entries := []LogEntry{
@@ -302,10 +309,7 @@ func TestLocalRunLogStore_ReplayTailUsesLengthFooter(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ReplayTailAppliesSinceBeforeTail(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-replay-tail-since"
 	entries := []LogEntry{
@@ -334,10 +338,7 @@ func TestLocalRunLogStore_ReplayTailAppliesSinceBeforeTail(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ReplayTailDetectsConsumedCompletion(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-replay-tail-terminal"
 	entries := []LogEntry{
@@ -368,10 +369,7 @@ func TestLocalRunLogStore_ReplayTailDetectsConsumedCompletion(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ReplayMissingRun(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	got, err := store.Replay("missing-run", LogReplayOptions{Limit: 10})
 	if err != nil {
@@ -383,10 +381,7 @@ func TestLocalRunLogStore_ReplayMissingRun(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ListRejectsTruncatedRecord(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-truncated"
 	if err := os.WriteFile(store.runPath(runID), []byte{logEntryRecordHeaderSize, 0, 0}, 0o644); err != nil {
@@ -399,10 +394,7 @@ func TestLocalRunLogStore_ListRejectsTruncatedRecord(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ListRejectsMismatchedRecordLengthFooter(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-bad-footer"
 	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: []byte("x")}})
@@ -420,10 +412,7 @@ func TestLocalRunLogStore_ListRejectsMismatchedRecordLengthFooter(t *testing.T) 
 }
 
 func TestLocalRunLogStore_ReplayTailRejectsMismatchedRecordLengthFooter(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "run-bad-tail-footer"
 	record, err := marshalLogEntryRecords([]LogEntry{{Sequence: 1, Data: []byte("x")}})
@@ -441,10 +430,7 @@ func TestLocalRunLogStore_ReplayTailRejectsMismatchedRecordLengthFooter(t *testi
 }
 
 func TestLocalRunLogStore_ConcurrentAppendBatchDifferentRuns(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	const runCount = 16
 	const entriesPerRun = 32
@@ -478,10 +464,7 @@ func TestLocalRunLogStore_ConcurrentAppendBatchDifferentRuns(t *testing.T) {
 }
 
 func TestLocalRunLogStore_SanitizesRunIDInPath(t *testing.T) {
-	store, err := NewLocalRunLogStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
+	store := newLocalRunLogStoreForTest(t)
 
 	runID := "../run/with/slashes"
 	if err := store.Append(runID, LogEntry{Sequence: 1, Data: []byte("x")}); err != nil {
@@ -499,18 +482,14 @@ func TestLocalRunLogStore_SanitizesRunIDInPath(t *testing.T) {
 }
 
 func TestLocalRunLogStore_ReadOnlyThresholdRejectsNewRuns(t *testing.T) {
-	store, err := NewLocalRunLogStoreWithOptions(t.TempDir(), LocalRunLogStoreOptions{
+	store := newLocalRunLogStoreWithOptionsForTest(t, LocalRunLogStoreOptions{
 		NewRunMinFreeBytes: 100,
 		statFS: func(string) (filesystemStats, error) {
 			return filesystemStats{freeBytes: 99, freeInodes: 1}, nil
 		},
 	})
 
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
-
-	err = store.Append("new-run", LogEntry{Sequence: 1, Data: []byte("x")})
+	err := store.Append("new-run", LogEntry{Sequence: 1, Data: []byte("x")})
 	if !errors.Is(err, ErrLogStoreReadOnly) {
 		t.Fatalf("expected ErrLogStoreReadOnly, got %v", err)
 	}
@@ -518,16 +497,12 @@ func TestLocalRunLogStore_ReadOnlyThresholdRejectsNewRuns(t *testing.T) {
 
 func TestLocalRunLogStore_ReadOnlyThresholdAllowsExistingRuns(t *testing.T) {
 	freeBytes := uint64(1000)
-	store, err := NewLocalRunLogStoreWithOptions(t.TempDir(), LocalRunLogStoreOptions{
+	store := newLocalRunLogStoreWithOptionsForTest(t, LocalRunLogStoreOptions{
 		NewRunMinFreeBytes: 100,
 		statFS: func(string) (filesystemStats, error) {
 			return filesystemStats{freeBytes: freeBytes, freeInodes: 1}, nil
 		},
 	})
-
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
 
 	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: []byte("first")}); err != nil {
 		t.Fatalf("append initial entry: %v", err)
@@ -550,16 +525,13 @@ func TestLocalRunLogStore_ReadOnlyThresholdAllowsExistingRuns(t *testing.T) {
 
 func TestLocalRunLogStore_EvictedExistingRunsStayWritableBelowThreshold(t *testing.T) {
 	freeBytes := uint64(1000)
-	store, err := NewLocalRunLogStoreWithOptions(t.TempDir(), LocalRunLogStoreOptions{
+	store := newLocalRunLogStoreWithOptionsForTest(t, LocalRunLogStoreOptions{
 		NewRunMinFreeBytes: 100,
 		OpenFileLimit:      1,
 		statFS: func(string) (filesystemStats, error) {
 			return filesystemStats{freeBytes: freeBytes, freeInodes: 1}, nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("new local run log store: %v", err)
-	}
 
 	if err := store.Append("existing-run", LogEntry{Sequence: 1, Data: []byte("first")}); err != nil {
 		t.Fatalf("append initial existing entry: %v", err)

@@ -1,6 +1,7 @@
 package action
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func TestSanitizedProcessEnvAllowsOnlyStableExecutionVariables(t *testing.T) {
 
 	assertEnvValue(t, got, "PATH", "/custom/bin")
 	assertEnvValue(t, got, "HOME", "/work/run-1")
-	assertEnvValue(t, got, "TMPDIR", "/work/run-1/.tmp")
+	assertEnvValue(t, got, "TMPDIR", filepath.Join("/work/run-1", ".tmp"))
 	assertEnvValue(t, got, "CI", "true")
 	assertEnvValue(t, got, "VECTIS", "true")
 

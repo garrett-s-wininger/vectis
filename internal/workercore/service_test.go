@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -103,7 +104,7 @@ func TestServiceExecuteTaskUsesShellCallbacks(t *testing.T) {
 	})
 
 	service := NewService(core, ServiceOptions{Logger: mocks.NewMockLogger()})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), serviceTestTimeout())
 	defer cancel()
 
 	resp, err := service.ExecuteTask(ctx, &api.ExecuteWorkerCoreTaskRequest{
@@ -189,7 +190,7 @@ func TestServiceExecuteTaskFlushesCallbackLogsBeforeCleanup(t *testing.T) {
 	uploadUses := "builtins/upload-artifact"
 	service := NewService(NewExecutorCore(job.NewExecutor()), ServiceOptions{Logger: mocks.NewMockLogger()})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), serviceTestTimeout())
 	defer cancel()
 
 	resp, err := service.ExecuteTask(ctx, &api.ExecuteWorkerCoreTaskRequest{
@@ -203,7 +204,7 @@ func TestServiceExecuteTaskFlushesCallbackLogsBeforeCleanup(t *testing.T) {
 					{
 						Id:   &writeID,
 						Uses: &scriptUses,
-						With: map[string]string{"script": "mkdir -p reports && printf payload > reports/restore.txt"},
+						With: map[string]string{"script": restoreArtifactScriptForTest()},
 					},
 					{
 						Id:   &uploadID,
@@ -247,6 +248,22 @@ func TestServiceExecuteTaskFlushesCallbackLogsBeforeCleanup(t *testing.T) {
 	}
 }
 
+func restoreArtifactScriptForTest() string {
+	if runtime.GOOS == "windows" {
+		return "New-Item -ItemType Directory -Force -Path reports | Out-Null; Set-Content -Path reports/restore.txt -Value payload -NoNewline"
+	}
+
+	return "mkdir -p reports && printf payload > reports/restore.txt"
+}
+
+func serviceTestTimeout() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 20 * time.Second
+	}
+
+	return 5 * time.Second
+}
+
 func TestShellServerRejectsMismatchedLogChunkRun(t *testing.T) {
 	socketPath := socktest.ShortPath(t, "worker-core-shell.sock")
 	shell := NewShellServer()
@@ -274,7 +291,7 @@ func TestShellServerRejectsMismatchedLogChunkRun(t *testing.T) {
 	}
 	defer unregister()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), serviceTestTimeout())
 	defer cancel()
 
 	conn, err := dialUnixShell(ctx, UnixEndpoint(socketPath))

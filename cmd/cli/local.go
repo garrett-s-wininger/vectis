@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 )
 
 func resetTargets() ([]string, error) {
@@ -25,7 +25,7 @@ func resetTargets() ([]string, error) {
 	}
 
 	add(filepath.Join(configDir, "vectis"))
-	add(filepath.Join(utils.DataHome(), "vectis"))
+	add(filepath.Join(platform.DataHome(), "vectis"))
 
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {

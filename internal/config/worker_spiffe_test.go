@@ -1,6 +1,7 @@
 package config
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +103,7 @@ func TestValidateWorkerSPIFFEAcceptsAddress(t *testing.T) {
 	viper.Set("worker.execution_identity.enabled", true)
 	viper.Set("worker.execution_identity.trust_domain", "prod.example")
 	viper.Set("worker.spiffe.enabled", true)
-	viper.Set("worker.spiffe.workload_api_address", "unix:///tmp/spiffe-workload.sock")
+	viper.Set("worker.spiffe.workload_api_address", workerSPIFFEWorkloadAddressForTest())
 
 	if err := ValidateWorkerExecutionIdentityConfig(); err != nil {
 		t.Fatalf("ValidateWorkerExecutionIdentityConfig: %v", err)
@@ -117,7 +118,7 @@ func TestValidateWorkerSPIFFEEnabledNeedsExecutionIdentity(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	viper.Set("worker.spiffe.enabled", true)
-	viper.Set("worker.spiffe.workload_api_address", "unix:///tmp/spiffe-workload.sock")
+	viper.Set("worker.spiffe.workload_api_address", workerSPIFFEWorkloadAddressForTest())
 
 	err := ValidateWorkerSPIFFEConfig()
 	if err == nil || !strings.Contains(err.Error(), "worker.execution_identity.enabled") {
@@ -145,7 +146,7 @@ func TestValidateWorkerSPIFFERegistrationAcceptsConfig(t *testing.T) {
 	viper.Set("worker.execution_identity.enabled", true)
 	viper.Set("worker.execution_identity.trust_domain", "prod.example")
 	viper.Set("worker.spiffe.enabled", true)
-	viper.Set("worker.spiffe.workload_api_address", "unix:///run/vectis/spiffe/workload.sock")
+	viper.Set("worker.spiffe.workload_api_address", workerSPIFFEWorkloadAddressForTest())
 	viper.Set("worker.spiffe.registration.enabled", true)
 	viper.Set("worker.spiffe.registration.server_address", "unix:///run/vectis/spiffe/registration.sock")
 	viper.Set("worker.spiffe.registration.parent_id", "spiffe://prod.example/vectis-spiffe/agent/worker")
@@ -178,6 +179,14 @@ func TestValidateWorkerSPIFFERegistrationAcceptsConfig(t *testing.T) {
 	if got := WorkerSPIFFERegistrationMaxTTL(); got != 30*time.Minute {
 		t.Fatalf("WorkerSPIFFERegistrationMaxTTL = %v, want 30m", got)
 	}
+}
+
+func workerSPIFFEWorkloadAddressForTest() string {
+	if runtime.GOOS == "windows" {
+		return "npipe:pipe/vectis-spiffe-workload"
+	}
+
+	return "unix:///tmp/spiffe-workload.sock"
 }
 
 func TestValidateWorkerSPIFFERegistrationRejectsMissingEnabledFields(t *testing.T) {

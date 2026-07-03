@@ -222,10 +222,11 @@ func TestProperty() error {
 
 // TestQuick runs the fast feedback test set.
 func TestQuick() error {
+	timeout := envDefault("TESTQUICK_TIMEOUT", defaultTestQuickTimeout())
 	args := []string{
 		"test",
 		"-count=1",
-		"-timeout=60s",
+		"-timeout=" + timeout,
 		"./internal/...",
 		"./cmd/...",
 		"./api/...",
@@ -235,6 +236,14 @@ func TestQuick() error {
 	}
 
 	return run("", nil, goCommand(), args...)
+}
+
+func defaultTestQuickTimeout() string {
+	if runtime.GOOS == "windows" {
+		return "600s"
+	}
+
+	return "60s"
 }
 
 // TestWindowsCompile runs a Windows nosqlite compile-only check for all packages.
@@ -248,9 +257,22 @@ func TestWindowsSQLiteCompile() error {
 }
 
 func testWindowsCompile(cgo, defaultTags string, configureCGO bool) error {
+	execPath := "true"
+	cleanupExec := func() {}
+	if runtime.GOOS == "windows" {
+		path, cleanup, err := windowsNoopTestExec()
+		if err != nil {
+			return err
+		}
+
+		execPath = quoteExecArg(path)
+		cleanupExec = cleanup
+	}
+	defer cleanupExec()
+
 	args := []string{
 		"test",
-		"-exec=true",
+		"-exec=" + execPath,
 	}
 
 	if tags := os.Getenv("WINDOWS_TEST_TAGS"); tags != "" {
@@ -271,6 +293,33 @@ func testWindowsCompile(cgo, defaultTags string, configureCGO bool) error {
 	}
 
 	return run("", env, goCommand(), args...)
+}
+
+func windowsNoopTestExec() (string, func(), error) {
+	dir, err := os.MkdirTemp("", "vectis-go-test-exec-*")
+	if err != nil {
+		return "", nil, err
+	}
+
+	cleanup := func() {
+		_ = os.RemoveAll(dir)
+	}
+
+	path := filepath.Join(dir, "noop.bat")
+	if err := os.WriteFile(path, []byte("@echo off\r\nexit /b 0\r\n"), 0o755); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+
+	return path, cleanup, nil
+}
+
+func quoteExecArg(value string) string {
+	if !strings.ContainsAny(value, " \t\"") {
+		return value
+	}
+
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func configureWindowsCGOEnv(env map[string]string) {

@@ -10,7 +10,7 @@ import (
 	"vectis/internal/cli"
 	"vectis/internal/interfaces"
 	"vectis/internal/localspiffe"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -46,12 +46,12 @@ func spiffeConfig() (localspiffe.Config, bool) {
 
 	dataDir := strings.TrimSpace(viper.GetString("data_dir"))
 	if dataDir == "" {
-		dataDir = filepath.Join(utils.DataHome(), "vectis", "spiffe")
+		dataDir = filepath.Join(platform.DataHome(), "vectis", "spiffe")
 	}
 
 	runtimeDir := strings.TrimSpace(viper.GetString("runtime_dir"))
 	if runtimeDir == "" {
-		runtimeDir = filepath.Join(utils.RuntimeDir(), "spiffe")
+		runtimeDir = filepath.Join(platform.RuntimeDir(), "spiffe")
 	}
 
 	workloadSocket := strings.TrimSpace(viper.GetString("workload_socket"))

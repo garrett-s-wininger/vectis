@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -280,8 +281,10 @@ func TestOpenDB_SqliteCreatesPrivateDatabaseFile(t *testing.T) {
 		t.Fatalf("stat sqlite data dir: %v", err)
 	}
 
-	if got := dirInfo.Mode().Perm(); got != sqliteDataDirPerm {
-		t.Fatalf("sqlite data dir permissions = %o, want %o", got, sqliteDataDirPerm)
+	if runtime.GOOS != "windows" {
+		if got := dirInfo.Mode().Perm(); got != sqliteDataDirPerm {
+			t.Fatalf("sqlite data dir permissions = %o, want %o", got, sqliteDataDirPerm)
+		}
 	}
 
 	fileInfo, err := os.Stat(path)
@@ -289,8 +292,10 @@ func TestOpenDB_SqliteCreatesPrivateDatabaseFile(t *testing.T) {
 		t.Fatalf("stat sqlite database file: %v", err)
 	}
 
-	if got := fileInfo.Mode().Perm(); got != sqliteDataFilePerm {
-		t.Fatalf("sqlite database file permissions = %o, want %o", got, sqliteDataFilePerm)
+	if runtime.GOOS != "windows" {
+		if got := fileInfo.Mode().Perm(); got != sqliteDataFilePerm {
+			t.Fatalf("sqlite database file permissions = %o, want %o", got, sqliteDataFilePerm)
+		}
 	}
 }
 

@@ -33,7 +33,6 @@ import (
 	"vectis/internal/serviceidentity"
 	"vectis/internal/spire"
 	"vectis/internal/supervisor"
-	"vectis/internal/utils"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -666,7 +665,7 @@ func defaultCertInstallDataHome() string {
 		}
 	}
 
-	return utils.DataHome()
+	return platform.DataHome()
 }
 
 type localBrowserTLSConfig struct {
@@ -770,12 +769,12 @@ func embeddedLocalSPIFFEConfig() (localEmbeddedSPIFFEConfig, error) {
 
 	dataDir := strings.TrimSpace(viper.GetString("spiffe_dir"))
 	if dataDir == "" {
-		dataDir = filepath.Join(utils.DataHome(), "vectis", "spiffe")
+		dataDir = filepath.Join(platform.DataHome(), "vectis", "spiffe")
 	}
 
 	runtimeDir := strings.TrimSpace(viper.GetString("spiffe_runtime_dir"))
 	if runtimeDir == "" {
-		runtimeDir = filepath.Join(utils.RuntimeDir(), "spiffe")
+		runtimeDir = filepath.Join(platform.RuntimeDir(), "spiffe")
 	}
 
 	selectors := localSPIFFERegistrationSelectors()
@@ -1185,7 +1184,7 @@ func workerEnv(cell localCell, multiCell bool) []string {
 }
 
 func localWorkerCoreShellSocket(name string) string {
-	return filepath.Join(utils.RuntimeDir(), "worker-core-shell-"+safePathPart(name)+".sock")
+	return filepath.Join(platform.RuntimeDir(), "worker-core-shell-"+safePathPart(name)+".sock")
 }
 
 func localSecretsEnabled() bool {
@@ -1306,23 +1305,23 @@ func localUsesManagedSQLiteDatabases() bool {
 }
 
 func localManagedGlobalDB() string {
-	return filepath.Join(utils.DataHome(), "vectis", "global", "db.sqlite3")
+	return filepath.Join(platform.DataHome(), "vectis", "global", "db.sqlite3")
 }
 
 func localManagedCellDB(cellID string) string {
-	return filepath.Join(utils.DataHome(), "vectis", "cells", safePathPart(cellID), "db.sqlite3")
+	return filepath.Join(platform.DataHome(), "vectis", "cells", safePathPart(cellID), "db.sqlite3")
 }
 
 func localManagedQueueDir(cellID string) string {
-	return filepath.Join(utils.DataHome(), "vectis", "cells", safePathPart(cellID), "queue")
+	return filepath.Join(platform.DataHome(), "vectis", "cells", safePathPart(cellID), "queue")
 }
 
 func localManagedSecretsDir(cellID string) string {
-	return filepath.Join(utils.DataHome(), "vectis", "cells", safePathPart(cellID), "secrets")
+	return filepath.Join(platform.DataHome(), "vectis", "cells", safePathPart(cellID), "secrets")
 }
 
 func localManagedSecretsKeyFile(cellID string) string {
-	return filepath.Join(utils.DataHome(), "vectis", "cells", safePathPart(cellID), "secrets.key")
+	return filepath.Join(platform.DataHome(), "vectis", "cells", safePathPart(cellID), "secrets.key")
 }
 
 func localExtraCellIDs() []string {
@@ -1478,7 +1477,7 @@ func localBootstrapToken() (string, string, error) {
 }
 
 func localBootstrapTokenPath() string {
-	return filepath.Join(utils.DataHome(), "vectis", localBootstrapFile)
+	return filepath.Join(platform.DataHome(), "vectis", localBootstrapFile)
 }
 
 func randomHex(nBytes int) (string, error) {
@@ -1617,7 +1616,7 @@ func runVectis(cmd *cobra.Command, args []string) {
 
 	var tlsEnv []string
 	var material *localpki.Material
-	tlsDir := configuredLocalTLSDir(utils.DataHome())
+	tlsDir := configuredLocalTLSDir(platform.DataHome())
 	needsLocalPKI := !viper.GetBool("grpc_insecure") || httpTLSMode != localHTTPSTLSOff
 	if needsLocalPKI {
 		var err error
@@ -1922,7 +1921,7 @@ func runLocalInit(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewLogger("cli")
 	setLoggerLevel(logger, viper.GetString("log_level"))
 
-	tlsDir := configuredLocalTLSDir(utils.DataHome())
+	tlsDir := configuredLocalTLSDir(platform.DataHome())
 	material, err := localpki.Ensure(tlsDir)
 	if err != nil {
 		logger.Fatal("initialize local TLS material: %v", err)
