@@ -12,6 +12,8 @@ import (
 )
 
 func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 	firstCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -57,6 +59,8 @@ func TestSyncManagedGitCheckoutClonesAndFetches(t *testing.T) {
 }
 
 func TestSyncManagedGitCheckoutDisablesAutomaticMaintenanceAndBroadTags(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 	branch := gitOutput(t, remote, "branch", "--show-current")
@@ -111,6 +115,8 @@ func assertNoAutoGitMaintenanceConfig(t *testing.T, checkoutPath string) {
 }
 
 func TestManagedGitCommandArgsDisableImplicitMaintenance(t *testing.T) {
+	t.Parallel()
+
 	args := managedGitCommandArgs("fetch", "origin")
 	settings := gitcmd.NoAutoMaintenanceSettings()
 	if len(args) < len(settings)*2+2 {
@@ -133,6 +139,8 @@ func TestManagedGitCommandArgsDisableImplicitMaintenance(t *testing.T) {
 }
 
 func TestSyncManagedGitCheckoutFetchesPlainDefaultTagOnDemand(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "release\n", "release")
 	releaseCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -160,6 +168,8 @@ func TestSyncManagedGitCheckoutFetchesPlainDefaultTagOnDemand(t *testing.T) {
 }
 
 func TestSyncManagedGitCheckoutFetchesExplicitDefaultTagOnDemand(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "release\n", "release")
 	releaseCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -187,6 +197,8 @@ func TestSyncManagedGitCheckoutFetchesExplicitDefaultTagOnDemand(t *testing.T) {
 }
 
 func TestHydrateManagedGitRefFetchesOneMissingBranch(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -240,6 +252,8 @@ func TestHydrateManagedGitRefFetchesOneMissingBranch(t *testing.T) {
 }
 
 func TestHydrateManagedGitRefDoesNotPublishFailedCandidate(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -274,6 +288,8 @@ func TestHydrateManagedGitRefDoesNotPublishFailedCandidate(t *testing.T) {
 }
 
 func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
+	t.Parallel()
+
 	mirror := initGitRepo(t)
 	writeAndCommit(t, mirror, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, mirror, "branch", "--show-current")
@@ -358,6 +374,8 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 }
 
 func TestHydrateManagedGitRefFetchesProviderRefs(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -421,6 +439,8 @@ func TestHydrateManagedGitRefFetchesProviderRefs(t *testing.T) {
 }
 
 func TestHydrateManagedGitContextFetchesAuxiliaryNotesRef(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -494,6 +514,8 @@ func TestHydrateManagedGitContextFetchesAuxiliaryNotesRef(t *testing.T) {
 }
 
 func TestHydrateManagedGitContextRejectsUnsupportedAuxiliaryRefs(t *testing.T) {
+	t.Parallel()
+
 	status := HydrateManagedGitContext(context.Background(), ManagedGitRefHydrationRequest{
 		CheckoutPath:  t.TempDir(),
 		Ref:           "main",
@@ -506,6 +528,8 @@ func TestHydrateManagedGitContextRejectsUnsupportedAuxiliaryRefs(t *testing.T) {
 }
 
 func TestHydrateManagedGitContextRequiresAuxiliaryRefs(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -533,6 +557,8 @@ func TestHydrateManagedGitContextRequiresAuxiliaryRefs(t *testing.T) {
 }
 
 func TestSyncManagedGitCheckoutFetchesProviderDefaultRefOnDemand(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -569,6 +595,8 @@ func TestSyncManagedGitCheckoutFetchesProviderDefaultRefOnDemand(t *testing.T) {
 }
 
 func TestManagedGitFetchRemotesSortsFallbacksByNumericSuffix(t *testing.T) {
+	t.Parallel()
+
 	repo := initGitRepo(t)
 	git(t, repo, "remote", "add", "vectis-fallback-10", repo)
 	git(t, repo, "remote", "add", "vectis-fallback-2", repo)
@@ -603,6 +631,8 @@ func TestManagedGitFetchRemotesSortsFallbacksByNumericSuffix(t *testing.T) {
 }
 
 func TestHydrateManagedGitRefWaitsForManagedWriterLock(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -670,6 +700,8 @@ func TestHydrateManagedGitRefWaitsForManagedWriterLock(t *testing.T) {
 }
 
 func TestHydrateManagedGitRefContextExpiresWaitingForManagedWriterLock(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -705,6 +737,8 @@ func TestHydrateManagedGitRefContextExpiresWaitingForManagedWriterLock(t *testin
 }
 
 func TestManagedGitCheckoutCommitFileWaitsForManagedWriterLock(t *testing.T) {
+	t.Parallel()
+
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "main\n", "main")
 	branch := gitOutput(t, repo, "branch", "--show-current")
@@ -758,6 +792,8 @@ func TestManagedGitCheckoutCommitFileWaitsForManagedWriterLock(t *testing.T) {
 }
 
 func TestManagedGitCheckoutCommitFileContextExpiresWaitingForManagedWriterLock(t *testing.T) {
+	t.Parallel()
+
 	repo := initGitRepo(t)
 	writeAndCommit(t, repo, "README.md", "main\n", "main")
 	branch := gitOutput(t, repo, "branch", "--show-current")
@@ -786,6 +822,8 @@ func TestManagedGitCheckoutCommitFileContextExpiresWaitingForManagedWriterLock(t
 }
 
 func TestManagedGitCheckoutResolvesHydratedRemoteBranchByPlainName(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -881,6 +919,8 @@ func TestManagedGitCheckoutResolvesHydratedRemoteBranchByPlainName(t *testing.T)
 }
 
 func TestSyncManagedGitCheckoutRequiresRemoteURLToClone(t *testing.T) {
+	t.Parallel()
+
 	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{
 		CheckoutPath: filepath.Join(t.TempDir(), "managed"),
 		DefaultRef:   "HEAD",
@@ -892,6 +932,8 @@ func TestSyncManagedGitCheckoutRequiresRemoteURLToClone(t *testing.T) {
 }
 
 func TestNormalizeGitRemoteURLRejectsUnsafeValues(t *testing.T) {
+	t.Parallel()
+
 	for _, remoteURL := range []string{"", "-config", "https://example.invalid/repo.git\n"} {
 		t.Run(remoteURL, func(t *testing.T) {
 			_, err := normalizeGitRemoteURL(remoteURL)

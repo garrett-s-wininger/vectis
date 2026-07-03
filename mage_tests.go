@@ -235,7 +235,12 @@ func TestQuick() error {
 		"./tools/...",
 	}
 
-	return run("", nil, goCommand(), args...)
+	env, err := goTestEnv()
+	if err != nil {
+		return err
+	}
+
+	return run("", env, goCommand(), args...)
 }
 
 func defaultTestQuickTimeout() string {
@@ -244,6 +249,50 @@ func defaultTestQuickTimeout() string {
 	}
 
 	return "60s"
+}
+
+func goTestEnv() (map[string]string, error) {
+	env := map[string]string{}
+
+	tmpDir, err := goTestTempDir()
+	if err != nil {
+		return nil, err
+	}
+	
+	if tmpDir != "" {
+		env["GOTMPDIR"] = tmpDir
+		env["TEMP"] = tmpDir
+		env["TMP"] = tmpDir
+		env["TMPDIR"] = tmpDir
+	}
+
+	if len(env) == 0 {
+		return nil, nil
+	}
+
+	return env, nil
+}
+
+func goTestTempDir() (string, error) {
+	value := strings.TrimSpace(os.Getenv("VECTIS_TEST_TEMPDIR"))
+	if value == "" || strings.EqualFold(value, "0") || strings.EqualFold(value, "off") || strings.EqualFold(value, "false") {
+		return "", nil
+	}
+
+	return ensureGoTestTempDir(value)
+}
+
+func ensureGoTestTempDir(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(absPath, 0o755); err != nil {
+		return "", err
+	}
+
+	return absPath, nil
 }
 
 // TestWindowsCompile runs a Windows nosqlite compile-only check for all packages.

@@ -62,6 +62,8 @@ func readCheckoutTextFile(t *testing.T, path string) string {
 }
 
 func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "cached\n", "cached")
 
@@ -103,6 +105,8 @@ func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testing.T) {
+	t.Parallel()
+
 	workspace := t.TempDir()
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	var calls [][]string
@@ -139,6 +143,8 @@ func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testin
 }
 
 func TestWorkerCheckoutCacheCloneSkipsHardlinksWhenProbeFails(t *testing.T) {
+	t.Parallel()
+
 	workspace := t.TempDir()
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	var calls [][]string
@@ -179,6 +185,8 @@ func TestWorkerCheckoutCacheCloneSkipsHardlinksWhenProbeFails(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCloneBorrowsObjectsWhenScopedProbeFails(t *testing.T) {
+	t.Parallel()
+
 	workspace := t.TempDir()
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	var calls [][]string
@@ -220,6 +228,8 @@ func TestWorkerCheckoutCacheCloneBorrowsObjectsWhenScopedProbeFails(t *testing.T
 }
 
 func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
+	t.Parallel()
+
 	workspace := t.TempDir()
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	calls := 0
@@ -283,6 +293,8 @@ func TestWorkerCheckoutCacheGitRunnerAppliesCredentialEnv(t *testing.T) {
 }
 
 func TestWorkerCacheMirrorGitArgsDisableImplicitMaintenance(t *testing.T) {
+	t.Parallel()
+
 	args := workerCacheMirrorGitArgs("/cache/repo.git", "fetch", "origin")
 	settings := gitcmd.NoAutoMaintenanceSettings()
 	if len(args) < len(settings)*2+4 {
@@ -303,6 +315,8 @@ func TestWorkerCacheMirrorGitArgsDisableImplicitMaintenance(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "warmed\n", "warmed")
 
@@ -343,6 +357,8 @@ func TestWorkerCheckoutCacheWarmRemote(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheHydratesCanonicalMirrorFromFallback(t *testing.T) {
+	t.Parallel()
+
 	primary := initGitRepo(t)
 	writeAndCommit(t, primary, "README.md", "primary\n", "primary")
 
@@ -397,6 +413,8 @@ func TestWorkerCheckoutCacheHydratesCanonicalMirrorFromFallback(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheRejectsInvalidGenerationRetention(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewWorkerCheckoutCache(
 		workerCheckoutCacheRoot(t),
 		[]string{"https://example.invalid/repo.git"},
@@ -408,6 +426,8 @@ func TestWorkerCheckoutCacheRejectsInvalidGenerationRetention(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheRejectsInvalidLeaseTTL(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewWorkerCheckoutCache(
 		workerCheckoutCacheRoot(t),
 		[]string{"https://example.invalid/repo.git"},
@@ -419,6 +439,8 @@ func TestWorkerCheckoutCacheRejectsInvalidLeaseTTL(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
@@ -471,6 +493,8 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheWarmRemoteSkipsUnchangedGeneration(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
@@ -523,6 +547,8 @@ func TestWorkerCheckoutCacheWarmRemoteSkipsUnchangedGeneration(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheAdvertisedRefPreflightMatchesCurrent(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -565,6 +591,8 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightMatchesCurrent(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheAdvertisedRefPreflightOverlaysFallbackRefs(t *testing.T) {
+	t.Parallel()
+
 	primary := initGitRepo(t)
 	writeAndCommit(t, primary, "README.md", "primary\n", "primary")
 
@@ -608,6 +636,8 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightOverlaysFallbackRefs(t *testin
 }
 
 func TestWorkerCheckoutCacheWarmRefspecsLimitInitialMirror(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -662,6 +692,8 @@ func TestWorkerCheckoutCacheWarmRefspecsLimitInitialMirror(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheFetchRefspecsHydratesOutsideWarmPolicy(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	defaultBranch := gitOutput(t, remote, "branch", "--show-current")
@@ -728,6 +760,8 @@ func TestWorkerCheckoutCacheFetchRefspecsHydratesOutsideWarmPolicy(t *testing.T)
 }
 
 func TestWorkerCheckoutCacheLargeRepoWorkflowKeepsWarmSetNarrowAndHydratesDynamicRefs(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	for i := 0; i < 4; i++ {
@@ -832,6 +866,8 @@ func TestWorkerCheckoutCacheLargeRepoWorkflowKeepsWarmSetNarrowAndHydratesDynami
 }
 
 func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "healthy\n", "healthy")
 	git(t, remote, "gc", "--aggressive")
@@ -897,6 +933,8 @@ func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing
 }
 
 func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
+	t.Parallel()
+
 	remote := "https://example.invalid/large.git"
 	var evictions []string
 	cache, err := NewWorkerCheckoutCache(
@@ -944,6 +982,8 @@ func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
+	t.Parallel()
+
 	remote := "https://example.invalid/large.git"
 	var evictions []string
 	cache, err := NewWorkerCheckoutCache(
@@ -1010,6 +1050,8 @@ func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
+	t.Parallel()
+
 	remote := "https://example.invalid/large.git"
 	cache, err := NewWorkerCheckoutCache(
 		workerCheckoutCacheRoot(t),
@@ -1068,6 +1110,8 @@ func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCleanupDropsStaleLeases(t *testing.T) {
+	t.Parallel()
+
 	remote := "https://example.invalid/large.git"
 	cache, err := NewWorkerCheckoutCache(
 		workerCheckoutCacheRoot(t),
@@ -1119,6 +1163,8 @@ func TestWorkerCheckoutCacheCleanupDropsStaleLeases(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCleanupDropsStaleReceivingGenerations(t *testing.T) {
+	t.Parallel()
+
 	remote := "https://example.invalid/large.git"
 	ttl := time.Hour
 	cache, err := NewWorkerCheckoutCache(
@@ -1172,6 +1218,8 @@ func TestWorkerCheckoutCacheCleanupDropsStaleReceivingGenerations(t *testing.T) 
 }
 
 func TestWorkerCheckoutCacheLeaseHeartbeatKeepsActiveLeaseFresh(t *testing.T) {
+	t.Parallel()
+
 	remote := "https://example.invalid/large.git"
 	leaseTTL := 120 * time.Millisecond
 	cache, err := NewWorkerCheckoutCache(
@@ -1228,6 +1276,8 @@ func TestWorkerCheckoutCacheLeaseHeartbeatKeepsActiveLeaseFresh(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCleanupRemovesOldUnleasedGenerations(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
@@ -1267,6 +1317,8 @@ func TestWorkerCheckoutCacheCleanupRemovesOldUnleasedGenerations(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCleanupKeepsLeasedGeneration(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
@@ -1318,6 +1370,8 @@ func TestWorkerCheckoutCacheCleanupKeepsLeasedGeneration(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheScopedCheckoutKeepsBorrowedGeneration(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 
@@ -1384,6 +1438,8 @@ func TestWorkerCheckoutCacheScopedCheckoutKeepsBorrowedGeneration(t *testing.T) 
 }
 
 func TestWorkerCheckoutCacheCheckoutSurvivesGenerationCleanup(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "first\n", "first")
 	firstCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -1425,6 +1481,8 @@ func TestWorkerCheckoutCacheCheckoutSurvivesGenerationCleanup(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCheckoutAddsLocalCacheRemoteForAuxiliaryRefs(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -1470,6 +1528,8 @@ func TestWorkerCheckoutCacheCheckoutAddsLocalCacheRemoteForAuxiliaryRefs(t *test
 }
 
 func TestWorkerCheckoutCacheFetchRefspecsRefreshesStaleMirror(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -1508,6 +1568,8 @@ func TestWorkerCheckoutCacheFetchRefspecsRefreshesStaleMirror(t *testing.T) {
 }
 
 func TestWorkerCheckoutCacheCheckoutUsesCurrentGenerationWhileWarmLocked(t *testing.T) {
+	t.Parallel()
+
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "cached\n", "cached")
 
@@ -1551,6 +1613,8 @@ func TestWorkerCheckoutCacheCheckoutUsesCurrentGenerationWhileWarmLocked(t *test
 }
 
 func TestWorkerCheckoutCacheIgnoresUnconfiguredRemote(t *testing.T) {
+	t.Parallel()
+
 	cache, err := NewWorkerCheckoutCache(workerCheckoutCacheRoot(t), []string{"https://example.invalid/persistent.git"})
 	if err != nil {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
