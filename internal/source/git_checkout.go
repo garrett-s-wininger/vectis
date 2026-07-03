@@ -1065,6 +1065,10 @@ func normalizeGitNotesRef(notesRef string) (string, error) {
 
 func (g *GitCheckout) resolveCommit(ctx context.Context, ref string) (string, error) {
 	for _, candidate := range g.refCandidates(ref) {
+		if commit, ok := g.resolveCommitFromFiles(candidate); ok {
+			return commit, nil
+		}
+
 		out, err := g.run(ctx, "rev-parse", "--verify", candidate+"^{commit}")
 		if err != nil {
 			continue
@@ -1077,6 +1081,39 @@ func (g *GitCheckout) resolveCommit(ctx context.Context, ref string) (string, er
 	}
 
 	return "", fmt.Errorf("%w: revision %q", ErrNotFound, ref)
+}
+
+func (g *GitCheckout) resolveCommitFromFiles(ref string) (string, bool) {
+	if looksLikeFullObjectID(ref) || strings.HasPrefix(ref, "refs/tags/") {
+		return "", false
+	}
+
+	for _, candidate := range fileRefCandidates(ref) {
+		commit, ok, err := gitcmd.ResolveWorkTreeRef(g.checkoutPath, candidate)
+		if err != nil || !ok || !looksLikeFullObjectID(commit) {
+			continue
+		}
+
+		return commit, true
+	}
+
+	return "", false
+}
+
+func fileRefCandidates(ref string) []string {
+	ref = strings.TrimSpace(ref)
+	switch {
+	case ref == "":
+		return nil
+	case ref == "HEAD":
+		return []string{"HEAD"}
+	case strings.HasPrefix(ref, "refs/"):
+		return []string{ref}
+	case strings.HasPrefix(ref, "origin/"):
+		return []string{"refs/remotes/" + ref}
+	default:
+		return []string{"refs/heads/" + ref}
+	}
 }
 
 func (g *GitCheckout) refCandidates(ref string) []string {

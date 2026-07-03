@@ -316,12 +316,18 @@ func managedGitSyncFetchRef(ctx context.Context, checkoutPath, defaultRef string
 }
 
 func managedGitOriginHEADBranch(ctx context.Context, checkoutPath string) (string, bool) {
-	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-	if err != nil {
-		return "", false
+	var branch string
+	if target, ok := managedGitSymbolicRefTarget(checkoutPath, "refs/remotes/origin/HEAD"); ok {
+		branch = strings.TrimSpace(strings.TrimPrefix(target, "refs/remotes/origin/"))
+	} else {
+		out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+		if err != nil {
+			return "", false
+		}
+
+		branch = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"))
 	}
 
-	branch := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"))
 	if branch == "" || !validManagedBranchName(ctx, checkoutPath, branch) {
 		return "", false
 	}
@@ -381,7 +387,6 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	var hydrationRemote string
 	allFetchErrorsMissing := true
 	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath, preferredRemote) {
-		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
 		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
 			if !managedGitFetchErrorIsMissingRef(err) {
@@ -405,12 +410,16 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 		return "", err
 	}
 
-	objectOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef)
-	if err != nil {
-		return "", fmt.Errorf("%w: candidate ref %s did not resolve: %v", ErrNotFound, candidateRef, err)
-	}
+	objectID, ok := managedGitResolveRef(checkoutPath, candidateRef)
+	if !ok {
+		objectOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef)
+		if err != nil {
+			return "", fmt.Errorf("%w: candidate ref %s did not resolve: %v", ErrNotFound, candidateRef, err)
+		}
 
-	objectID := strings.TrimSpace(string(objectOut))
+		objectID = strings.TrimSpace(string(objectOut))
+	}
+	
 	if objectID == "" {
 		return "", fmt.Errorf("%w: candidate ref %s resolved to an empty object", ErrInvalidReference, candidateRef)
 	}
@@ -464,7 +473,6 @@ func fetchManagedGitAuxiliaryRef(ctx context.Context, checkoutPath string, env [
 	var hydrationRemote string
 	allFetchErrorsMissing := true
 	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath, preferredRemote) {
-		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", "-d", candidateRef)
 		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
 			if !managedGitFetchErrorIsMissingRef(err) {
@@ -792,12 +800,16 @@ func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef st
 
 	branch := ""
 	if ref == "HEAD" {
-		out, ok := managedGitCommandOutput(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-		if !ok {
-			return nil
-		}
+		if target, ok := managedGitSymbolicRefTarget(checkoutPath, "refs/remotes/origin/HEAD"); ok {
+			branch = strings.TrimSpace(strings.TrimPrefix(target, "refs/remotes/origin/"))
+		} else {
+			out, ok := managedGitCommandOutput(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+			if !ok {
+				return nil
+			}
 
-		branch = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"))
+			branch = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "origin/"))
+		}
 	} else if b, ok := managedLocalBranchName(ref); ok {
 		branch = b
 	}
@@ -807,12 +819,15 @@ func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef st
 	}
 
 	remoteRef := "refs/remotes/origin/" + branch
-	out, ok := managedGitCommandOutput(ctx, checkoutPath, "rev-parse", "--verify", remoteRef+"^{commit}")
+	commit, ok := managedGitResolveRef(checkoutPath, remoteRef)
 	if !ok {
-		return nil
-	}
+		out, ok := managedGitCommandOutput(ctx, checkoutPath, "rev-parse", "--verify", remoteRef+"^{commit}")
+		if !ok {
+			return nil
+		}
 
-	commit := strings.TrimSpace(string(out))
+		commit = strings.TrimSpace(string(out))
+	}
 	if commit == "" {
 		return fmt.Errorf("remote ref %s resolved to an empty commit", remoteRef)
 	}
@@ -838,6 +853,28 @@ func normalizeManagedGitSyncRef(ref string) (string, bool) {
 func managedGitCommandOutput(ctx context.Context, checkoutPath string, args ...string) ([]byte, bool) {
 	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, args...)
 	return out, err == nil
+}
+
+func managedGitResolveRef(checkoutPath, ref string) (string, bool) {
+	if strings.HasPrefix(ref, "refs/tags/") {
+		return "", false
+	}
+
+	commit, ok, err := gitcmd.ResolveWorkTreeRef(checkoutPath, ref)
+	if err != nil || !ok || !looksLikeFullObjectID(commit) {
+		return "", false
+	}
+
+	return commit, true
+}
+
+func managedGitSymbolicRefTarget(checkoutPath, ref string) (string, bool) {
+	target, ok, err := gitcmd.SymbolicWorkTreeRef(checkoutPath, ref)
+	if err != nil || !ok {
+		return "", false
+	}
+
+	return target, true
 }
 
 func managedLocalBranchName(ref string) (string, bool) {
@@ -872,12 +909,33 @@ func remoteFallbackBranchName(ref string) (string, bool) {
 }
 
 func validManagedBranchName(ctx context.Context, checkoutPath, branch string) bool {
-	if branch == "" || strings.HasPrefix(branch, "-") {
+	_ = ctx
+	_ = checkoutPath
+	return validManagedBranchNameText(branch)
+}
+
+func validManagedBranchNameText(branch string) bool {
+	if branch == "" || strings.TrimSpace(branch) != branch || strings.HasPrefix(branch, "-") {
 		return false
 	}
 
-	_, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "check-ref-format", "--branch", branch)
-	return err == nil
+	if strings.HasPrefix(branch, "/") ||
+		strings.HasSuffix(branch, "/") ||
+		strings.HasSuffix(branch, ".") ||
+		strings.Contains(branch, "//") ||
+		strings.Contains(branch, "..") ||
+		strings.Contains(branch, "@{") ||
+		strings.ContainsAny(branch, "\x00\n\r\\ ~^:?*[") {
+		return false
+	}
+
+	for _, part := range strings.Split(branch, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+
+	return true
 }
 
 func NormalizeGitRemoteURL(remoteURL string) (string, error) {

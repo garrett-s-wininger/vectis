@@ -4104,6 +4104,10 @@ func writeAPIFileAndCommit(t *testing.T, repo, name, content, message string) {
 func apiGitOutput(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 
+	if out, ok := apiGitOutputFromFiles(repo, args...); ok {
+		return out
+	}
+
 	cmd := exec.Command("git", apiGitArgs(repo, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -4111,6 +4115,62 @@ func apiGitOutput(t *testing.T, repo string, args ...string) string {
 	}
 
 	return strings.TrimSpace(string(out))
+}
+
+func apiGitOutputFromFiles(repo string, args ...string) (string, bool) {
+	switch {
+	case len(args) == 2 && args[0] == "branch" && args[1] == "--show-current":
+		target, ok, err := gitcmd.SymbolicWorkTreeRef(repo, "HEAD")
+		if err != nil || !ok || !strings.HasPrefix(target, "refs/heads/") {
+			return "", false
+		}
+
+		return strings.TrimPrefix(target, "refs/heads/"), true
+	case len(args) == 2 && args[0] == "rev-parse":
+		ref := args[1]
+		if strings.ContainsAny(ref, ":^~") {
+			return "", false
+		}
+
+		return resolveAPIGitTestRef(repo, ref)
+	case len(args) == 3 && args[0] == "update-ref":
+		if err := gitcmd.WriteWorkTreeRef(repo, args[1], args[2]); err != nil {
+			return "", false
+		}
+
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func resolveAPIGitTestRef(repo, ref string) (string, bool) {
+	for _, candidate := range apiGitTestRefCandidates(ref) {
+		commit, ok, err := gitcmd.ResolveWorkTreeRef(repo, candidate)
+		if err != nil || !ok {
+			continue
+		}
+
+		return commit, true
+	}
+
+	return "", false
+}
+
+func apiGitTestRefCandidates(ref string) []string {
+	ref = strings.TrimSpace(ref)
+	switch {
+	case ref == "":
+		return nil
+	case ref == "HEAD":
+		return []string{"HEAD"}
+	case strings.HasPrefix(ref, "refs/"):
+		return []string{ref}
+	case strings.HasPrefix(ref, "origin/"):
+		return []string{"refs/remotes/" + ref}
+	default:
+		return []string{"refs/heads/" + ref, "refs/tags/" + ref}
+	}
 }
 
 func apiGit(t *testing.T, repo string, args ...string) {

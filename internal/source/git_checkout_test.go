@@ -727,9 +727,36 @@ func TestGitCheckoutStatusUsesWorkTreeFilesForBasicMetadata(t *testing.T) {
 	if got, want := status.WorkTreePath, filepath.Clean(repo); got != want {
 		t.Fatalf("WorkTreePath got %q, want %q", got, want)
 	}
-	
+
 	if status.HeadRef == "" {
 		t.Fatalf("HeadRef was empty: %+v", status)
+	}
+}
+
+func TestGitCheckoutResolveRevisionUsesWorkTreeRefs(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "first")
+	want := gitOutput(t, repo, "rev-parse", "HEAD")
+
+	checkout := NewGitCheckout(repo)
+	checkout.runner = failingGitRunner{}
+
+	rev, err := checkout.ResolveRevision(context.Background(), "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRevision HEAD: %v", err)
+	}
+
+	if rev.Commit != want {
+		t.Fatalf("ResolveRevision HEAD got %q, want %q", rev.Commit, want)
+	}
+
+	rev, err = checkout.ResolveRevision(context.Background(), "main")
+	if err != nil {
+		t.Fatalf("ResolveRevision branch: %v", err)
+	}
+	
+	if rev.Commit != want {
+		t.Fatalf("ResolveRevision branch got %q, want %q", rev.Commit, want)
 	}
 }
 
@@ -817,6 +844,10 @@ func writeAndCommit(t *testing.T, repo, name, content, message string) {
 func gitOutput(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 
+	if out, ok := gitOutputFromFiles(repo, args...); ok {
+		return out
+	}
+
 	cmd := exec.Command("git", gitTestArgs(repo, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -832,9 +863,87 @@ func git(t *testing.T, repo string, args ...string) {
 }
 
 func gitErr(repo string, args ...string) error {
+	if len(args) == 3 && args[0] == "show-ref" && args[1] == "--verify" {
+		if _, ok := resolveGitTestRef(repo, args[2]); ok {
+			return nil
+		}
+
+		return errors.New("git ref not found")
+	}
+
 	cmd := exec.Command("git", gitTestArgs(repo, args...)...)
 	_, err := cmd.CombinedOutput()
 	return err
+}
+
+func gitOutputFromFiles(repo string, args ...string) (string, bool) {
+	switch {
+	case len(args) == 2 && args[0] == "branch" && args[1] == "--show-current":
+		target, ok, err := gitcmd.SymbolicWorkTreeRef(repo, "HEAD")
+		if err != nil || !ok || !strings.HasPrefix(target, "refs/heads/") {
+			return "", false
+		}
+
+		return strings.TrimPrefix(target, "refs/heads/"), true
+	case len(args) == 2 && args[0] == "rev-parse" && args[1] == "--git-common-dir":
+		gitDir, err := gitcmd.WorkTreeGitDir(repo)
+		if err != nil {
+			return "", false
+		}
+
+		return gitcmd.GitCommonDir(gitDir), true
+	case len(args) == 2 && args[0] == "rev-parse":
+		ref := args[1]
+		if strings.ContainsAny(ref, ":^~") {
+			return "", false
+		}
+
+		return resolveGitTestRef(repo, ref)
+	case len(args) == 3 && args[0] == "show-ref" && args[1] == "--verify":
+		commit, ok := resolveGitTestRef(repo, args[2])
+		if !ok {
+			return "", false
+		}
+
+		return commit + " " + args[2], true
+	case len(args) == 3 && args[0] == "update-ref":
+		if err := gitcmd.WriteWorkTreeRef(repo, args[1], args[2]); err != nil {
+			return "", false
+		}
+
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func resolveGitTestRef(repo, ref string) (string, bool) {
+	for _, candidate := range gitTestRefCandidates(ref) {
+		commit, ok, err := gitcmd.ResolveWorkTreeRef(repo, candidate)
+		if err != nil || !ok {
+			continue
+		}
+
+		return commit, true
+	}
+
+	return "", false
+}
+
+func gitTestRefCandidates(ref string) []string {
+	ref = strings.TrimSpace(ref)
+	switch {
+	case ref == "":
+		return nil
+	case ref == "HEAD":
+		return []string{"HEAD"}
+	case strings.HasPrefix(ref, "refs/"):
+		return []string{ref}
+	case strings.HasPrefix(ref, "origin/"):
+		return []string{"refs/remotes/" + ref}
+	default:
+		return []string{"refs/heads/" + ref, "refs/tags/" + ref}
+	}
 }
 
 func gitTestArgs(repo string, args ...string) []string {
