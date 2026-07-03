@@ -207,7 +207,7 @@ checks.
 2. Run `mage proto` and verify generated files are committed when protos changed.
 3. Run `mage releaseReadinessReport` for the local release lane and keep the generated bundle with the release notes.
 4. Run `mage testPostgresIntegration` for any database, migration, DAL, queue, reconciler, auth, or deploy-sensitive change.
-5. If the local release lane was skipped or failed before the build step, build all binaries with `mage build`; this also embeds the docs site into `vectis-docs`.
+5. If the local release lane was skipped or failed before the build step, build all release binaries with `mage buildFull`; this also embeds the docs site into `vectis-docs` and the browser UI into `vectis-ui`.
 6. Build container images with the release tag.
 7. Verify `vectis-cli --version` and one daemon `--version` show the release version, commit, and build date.
 8. Review [Database Migrations](./migrations.md) requirements for every schema change.

@@ -211,7 +211,7 @@ Keep `component` values from code-controlled constants. Do not include dynamic t
 | API security rejection spike | `sum by (reason, route, status) (increase(vectis_api_security_rejections_total[5m]))` |
 | Dispatch drops | `increase(vectis_queue_expired_dropped_total[10m]) > 0` |
 | Log append failures | `increase(vectis_log_storage_append_failures_total[10m]) > 0` |
-| Checkout cache hit ratio | `sum(rate(vectis_checkout_action_cache_checks_total{outcome="hit"}[15m])) / clamp_min(sum(rate(vectis_checkout_action_cache_checks_total{outcome=~"hit|miss"}[15m])), 1)` |
+| Checkout cache hit ratio | `sum(rate(vectis_checkout_action_cache_checks_total{outcome="hit"}[15m])) / clamp_min(sum(rate(vectis_checkout_action_cache_checks_total{outcome=~"hit\|miss"}[15m])), 1)` |
 | Checkout fallback clone p95 | `histogram_quantile(0.95, sum by (le) (rate(vectis_checkout_action_direct_clone_duration_seconds_bucket{cache_state="miss"}[15m])))` |
 | Checkout cache footprint | `vectis_checkout_cache_pack_bytes` |
 | Artifact read-only shard | `vectis_artifact_storage_new_blob_writable == 0` |

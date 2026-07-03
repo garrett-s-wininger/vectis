@@ -7,8 +7,10 @@ MAGE_VERSION="v1.17.2"
 PROTOC_VERSION="${VECTIS_PROTOC_VERSION:-34.1}"
 MIN_PROTOC_VERSION="25.0"
 MIN_NODE_MAJOR="20"
+MIN_NODE_VERSION="20.19.0"
 
 INSTALL_REQUIRED=0
+INSTALL_FRONTEND=0
 INSTALL_GO_TOOLS=0
 INSTALL_OPTIONAL=0
 NO_SQLITE=0
@@ -16,12 +18,13 @@ YES=0
 
 usage() {
 	cat <<'EOF'
-Usage: scripts/dev-doctor.sh [--install] [--install-go-tools] [--install-optional] [--yes] [--no-sqlite]
+Usage: scripts/dev-doctor.sh [--install] [--install-frontend] [--install-go-tools] [--install-optional] [--yes] [--no-sqlite]
 
 Checks the local Vectis development toolchain with friendly install guidance.
 
 Options:
   --install           Install the required Unix development toolchain.
+  --install-frontend  Install repo-local Node.js for docs/UI frontend lanes.
   --install-go-tools  Install Mage, protoc-gen-go, and protoc-gen-go-grpc with go install.
   --install-optional  Best-effort install for optional lanes such as containers and formal verification.
   --yes, -y           Run supported package managers in non-interactive mode.
@@ -35,6 +38,9 @@ while [ "$#" -gt 0 ]; do
 		--install)
 			INSTALL_REQUIRED=1
 			INSTALL_GO_TOOLS=1
+			;;
+		--install-frontend)
+			INSTALL_FRONTEND=1
 			;;
 		--install-go-tools)
 			INSTALL_GO_TOOLS=1
@@ -399,10 +405,10 @@ install_local_go() {
 install_local_node() {
 	if has_command node; then
 		node_raw=$(node --version 2>/dev/null)
-		node_major=$(printf '%s' "$node_raw" | sed 's/^v//' | sed 's/\..*$//')
+		node_version=$(normalize_version "$node_raw")
 
-		if [ "$node_major" -ge "$MIN_NODE_MAJOR" ] 2>/dev/null; then
-			pass "node $node_raw already satisfies $MIN_NODE_MAJOR+"
+		if version_ge "$node_version" "$MIN_NODE_VERSION"; then
+			pass "node $node_raw already satisfies frontend requirement $MIN_NODE_VERSION+"
 			return
 		fi
 	fi
@@ -412,7 +418,7 @@ install_local_node() {
 
 	if [ "$os" = "unsupported" ] || [ "$arch" = "unsupported" ]; then
 		fail "cannot install Node.js automatically on $(uname -s)/$(uname -m)"
-		note "Install Node.js $MIN_NODE_MAJOR+ from https://nodejs.org/."
+		note "Install Node.js $MIN_NODE_VERSION+ from https://nodejs.org/."
 		return
 	fi
 
@@ -421,7 +427,7 @@ install_local_node() {
 
 	if [ -z "$version" ]; then
 		fail "could not find a Node.js ${MIN_NODE_MAJOR}.x release in $index_url"
-		note "Install Node.js $MIN_NODE_MAJOR+ from https://nodejs.org/."
+		note "Install Node.js $MIN_NODE_VERSION+ from https://nodejs.org/."
 		return
 	fi
 
@@ -433,7 +439,7 @@ install_local_node() {
 
 	if ! download_file "$url" "$archive_path"; then
 		fail "failed to download Node.js $archive"
-		note "Install Node.js $MIN_NODE_MAJOR+ from https://nodejs.org/, or check network access and rerun."
+		note "Install Node.js $MIN_NODE_VERSION+ from https://nodejs.org/, or check network access and rerun."
 		rm -rf "$tmpdir"
 		return
 	fi
@@ -626,9 +632,12 @@ check_optional_command() {
 if [ "$INSTALL_REQUIRED" -eq 1 ]; then
 	install_package_prereqs
 	install_local_go
-	install_local_node
 	install_local_protoc
-	write_env_file
+fi
+
+if [ "$INSTALL_FRONTEND" -eq 1 ]; then
+	section "Installing Frontend Tools"
+	install_local_node
 fi
 
 if [ "$INSTALL_OPTIONAL" -eq 1 ]; then
@@ -640,6 +649,10 @@ if [ "$INSTALL_GO_TOOLS" -eq 1 ]; then
 	install_go_tool "github.com/magefile/mage@$MAGE_VERSION"
 	install_go_tool "google.golang.org/protobuf/cmd/protoc-gen-go@$PROTOC_GEN_GO_VERSION"
 	install_go_tool "google.golang.org/grpc/cmd/protoc-gen-go-grpc@$PROTOC_GEN_GO_GRPC_VERSION"
+fi
+
+if [ "$INSTALL_REQUIRED" -eq 1 ] || [ "$INSTALL_FRONTEND" -eq 1 ]; then
+	write_env_file
 fi
 
 section "Required Tools"
@@ -672,27 +685,6 @@ else
 	note "Run: scripts/dev-doctor.sh --install-go-tools"
 	note "Or: go install github.com/magefile/mage@$MAGE_VERSION"
 fi
-
-if has_command node; then
-	node_raw=$(node --version 2>/dev/null)
-	node_major=$(printf '%s' "$node_raw" | sed 's/^v//' | sed 's/\..*$//')
-
-	if [ "$node_major" -ge "$MIN_NODE_MAJOR" ] 2>/dev/null; then
-		pass "node $node_raw satisfies docs build requirement $MIN_NODE_MAJOR+"
-	else
-		fail "node $node_raw is older than docs build requirement $MIN_NODE_MAJOR+"
-		note "Install Node.js $MIN_NODE_MAJOR+ from https://nodejs.org/."
-		note "Or run: scripts/dev-doctor.sh --install --yes"
-	fi
-else
-	fail "node not found (default build embeds the docs site)"
-	note "Install Node.js $MIN_NODE_MAJOR+ from https://nodejs.org/."
-	note "Or run: scripts/dev-doctor.sh --install --yes"
-	note "Use SKIP_WEB_BUILD=1 only when intentionally skipping vectis-docs assets."
-fi
-
-check_required_command "npm" "website dependency installation and docs build" \
-	"npm ships with Node.js. Install Node.js $MIN_NODE_MAJOR+ or run scripts/dev-doctor.sh --install --yes."
 
 if has_command protoc; then
 	protoc_raw=$(protoc --version 2>/dev/null)
@@ -727,6 +719,27 @@ else
 	note "Run: scripts/dev-doctor.sh --install-go-tools"
 	note "Or: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$PROTOC_GEN_GO_GRPC_VERSION"
 fi
+
+section "Frontend Lane"
+if has_command node; then
+	node_raw=$(node --version 2>/dev/null)
+	node_version=$(normalize_version "$node_raw")
+
+	if version_ge "$node_version" "$MIN_NODE_VERSION"; then
+		pass "node $node_raw satisfies docs/UI build requirement $MIN_NODE_VERSION+"
+	else
+		warn "node $node_raw is older than docs/UI build requirement $MIN_NODE_VERSION+"
+		note "Install Node.js $MIN_NODE_VERSION+ from https://nodejs.org/."
+		note "Or run: scripts/dev-doctor.sh --install-frontend"
+	fi
+else
+	warn "node not found (required only for docs/UI targets such as mage buildFrontend)"
+	note "Install Node.js $MIN_NODE_VERSION+ from https://nodejs.org/."
+	note "Or run: scripts/dev-doctor.sh --install-frontend"
+fi
+
+check_optional_command "npm" "docs/UI dependency installation and frontend builds" \
+	"npm ships with Node.js. Install Node.js $MIN_NODE_VERSION+ or run scripts/dev-doctor.sh --install-frontend."
 
 if [ "$NO_SQLITE" -eq 0 ]; then
 	section "SQLite / CGO"

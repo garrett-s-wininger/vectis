@@ -28,8 +28,11 @@ You need:
 - Go `1.25.11` or newer.
 - CGO enabled, which is the normal Go default, because local SQLite uses `mattn/go-sqlite3`.
 - A shell where you can run `mage`.
+- Node.js `20.19+` and npm only when you want to build the browser UI or docs site locally.
 
 You do not need Postgres, Podman, or Kubernetes for this local path.
+
+Run `scripts/dev-doctor.sh` on Unix-like systems or `.\scripts\dev-doctor.ps1` on Windows PowerShell before the first build. The doctor verifies the local toolchain and prints install guidance. Windows developers should use a GCC-compatible CGO compiler for SQLite, enable Developer Mode for symlink-heavy checkout-cache tests, and consider a Dev Drive for the repository, Go caches, and opt-in `VECTIS_TEST_TEMPDIR` test scratch space. Unix developers can also set `VECTIS_TEST_TEMPDIR` when the default temp directory is slow or restricted. The full maintainer setup is in [Development Environment](./developing/development-environment.md).
 
 ## Build Vectis
 
@@ -39,14 +42,15 @@ From the repository root:
 mage build
 ```
 
-This creates binaries under `bin/`, including `vectis-local`, `vectis-cli`, `vectis-ui`, and `vectis-docs`.
+This creates the local Go-lane binaries under `bin/`, including `vectis-local`, `vectis-cli`, the backend services, SCM trigger services, and workers. It does not run npm.
 
-The default build also builds this docs site and the browser UI, then embeds them into `vectis-docs` and `vectis-ui`.
-If you want a faster development build without local web assets, run:
+If you want the browser UI and docs site available from `vectis-local`, build the full local stack instead:
 
 ```sh
-SKIP_WEB_BUILD=1 mage build
+mage buildFull
 ```
+
+For frontend-only work, `mage buildFrontend` rebuilds just `vectis-ui`, `vectis-docs`, and their embedded assets.
 
 ## Start The Local Stack
 
@@ -93,7 +97,7 @@ http://localhost:8089
 ~/.local/share/vectis/local-bootstrap-token
 ```
 
-Open the UI, enter that bootstrap token, and create the first admin account. `vectis-ui` owns first-load browser routing: it sends unauthenticated browsers to setup or login, then serves the React shell for allowed app routes. The browser receives an HttpOnly UI session cookie; `vectis-ui` keeps the API token server-side when proxying browser API calls. Use `./bin/vectis-local --auth=false` only when you intentionally want an unauthenticated local API.
+If you built the frontend lane with `mage buildFull` or `mage buildFrontend`, open the UI, enter that bootstrap token, and create the first admin account. `vectis-ui` owns first-load browser routing: it sends unauthenticated browsers to setup or login, then serves the React shell for allowed app routes. The browser receives an HttpOnly UI session cookie; `vectis-ui` keeps the API token server-side when proxying browser API calls. Use `./bin/vectis-local --auth=false` only when you intentionally want an unauthenticated local API.
 
 If your browser is on a different machine than the dev shell, start the stack with:
 
@@ -103,7 +107,7 @@ If your browser is on a different machine than the dev shell, start the stack wi
 
 Then open the API, UI, or docs using the dev machine's address. If you open docs with a hostname other than `localhost`, set `VECTIS_DOCS_ALLOWED_HOSTS` to that hostname before starting `vectis-local`; docs Host validation stays strict even when the listener binds to `0.0.0.0`. Use this only on a trusted network or behind your own access controls.
 
-`vectis-local` serves the UI from the `vectis-ui` binary and docs from the `vectis-docs` binary. If you built with `SKIP_WEB_BUILD=1`, `vectis-local` logs a warning and continues without those web servers. You can also start the stack with `./bin/vectis-local --ui=false` or `./bin/vectis-local --docs=false`.
+`vectis-local` serves the UI from the `vectis-ui` binary and docs from the `vectis-docs` binary when those binaries are present. A backend-only `mage build` omits them, so `vectis-local` logs a warning and continues without those web servers. You can also start the stack with `./bin/vectis-local --ui=false` or `./bin/vectis-local --docs=false`.
 
 ### UI Development With Hot Assets
 

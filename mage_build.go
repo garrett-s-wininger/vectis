@@ -27,13 +27,19 @@ var appNames = []string{
 	"queue",
 	"reconciler",
 	"registry",
+	"scm-gerrit-stream",
+	"scm-poller",
 	"secrets",
 	"spiffe",
 	"worker",
 	"worker-core",
 }
 
+var docsAppNames = []string{"docs"}
+var frontendAppNames = []string{"docs", "ui"}
+
 type buildConfig struct {
+	apps      []string
 	args      []string
 	cgo       string
 	env       map[string]string
@@ -98,18 +104,51 @@ func Proto() error {
 	return run("", nil, envDefault("PROTOC", "protoc"), args...)
 }
 
-// Build builds the default local binaries.
+// Build builds the default local Go service and CLI binaries.
 func Build() error {
-	return buildBinaries(buildConfig{
-		args:      strings.Fields(os.Getenv("BUILD_OPTS")),
-		cgo:       envDefault("CGO_ENABLED", "1"),
-		outputExt: targetExecutableExt(),
-	})
+	return buildBinaries(localBuildConfig(appNames))
 }
 
-// BuildContainer builds the container-profile binaries with nosqlite tags.
+// BuildFull builds the default local binaries plus docs and UI assets/binaries.
+func BuildFull() error {
+	if err := FrontendAssets(); err != nil {
+		return err
+	}
+
+	return buildBinaries(localBuildConfig(combineAppNames(appNames, frontendAppNames)))
+}
+
+// BuildDocs rebuilds the docs assets and vectis-docs binary.
+func BuildDocs() error {
+	if err := DocsAssets(); err != nil {
+		return err
+	}
+
+	return buildBinaries(localBuildConfig(docsAppNames))
+}
+
+// BuildUI rebuilds the UI assets and vectis-ui binary.
+func BuildUI() error {
+	if err := UIAssets(); err != nil {
+		return err
+	}
+
+	return buildBinaries(localBuildConfig([]string{"ui"}))
+}
+
+// BuildFrontend rebuilds the docs/UI assets and their serving binaries.
+func BuildFrontend() error {
+	if err := FrontendAssets(); err != nil {
+		return err
+	}
+
+	return buildBinaries(localBuildConfig(frontendAppNames))
+}
+
+// BuildContainer builds the container-profile binary set with nosqlite tags.
 func BuildContainer() error {
 	return buildBinaries(buildConfig{
+		apps:  combineAppNames(appNames, docsAppNames),
 		args:  []string{"-tags=nosqlite"},
 		cgo:   "0",
 		strip: true,
@@ -129,6 +168,7 @@ func BuildWindows() error {
 	}
 
 	return buildBinaries(buildConfig{
+		apps:      appNames,
 		args:      strings.Fields(envDefault("WINDOWS_BUILD_OPTS", "-tags=nosqlite")),
 		cgo:       "0",
 		env:       windowsTargetEnv("0"),
@@ -147,6 +187,7 @@ func Clean() error {
 		"states",
 		filepath.Join("website", ".docusaurus"),
 		filepath.Join("website", "build"),
+		filepath.Join("ui", "dist"),
 	}
 
 	for _, path := range paths {
@@ -166,7 +207,11 @@ func Clean() error {
 		}
 	}
 
-	return cleanDirExcept(filepath.Join("cmd", "docs", "embedded"), ".gitkeep")
+	if err := cleanDirExcept(filepath.Join("cmd", "docs", "embedded"), ".gitkeep"); err != nil {
+		return err
+	}
+
+	return cleanDirExcept(filepath.Join("cmd", "ui", "embedded"), ".gitkeep")
 }
 
 // PodmanGrafanaConfigmaps regenerates Podman Grafana configmaps.
@@ -177,6 +222,20 @@ func PodmanGrafanaConfigmaps() error {
 // DocsAssets rebuilds and embeds the documentation site assets.
 func DocsAssets() error {
 	return buildDocsAssets()
+}
+
+// UIAssets rebuilds and embeds the browser UI assets.
+func UIAssets() error {
+	return buildUIAssets()
+}
+
+// FrontendAssets rebuilds and embeds both docs and browser UI assets.
+func FrontendAssets() error {
+	if err := buildDocsAssets(); err != nil {
+		return err
+	}
+
+	return buildUIAssets()
 }
 
 // DeployArtifactsRender renders Linux deployment artifacts.
@@ -191,15 +250,9 @@ func DeployArtifactsTest() error {
 }
 
 func buildBinaries(cfg buildConfig) error {
-	apps := append([]string(nil), appNames...)
-	if !truthy(os.Getenv("SKIP_WEB_BUILD")) {
-		if !truthy(os.Getenv("SKIP_DOCS_ASSETS")) {
-			if err := buildDocsAssets(); err != nil {
-				return err
-			}
-		}
-
-		apps = append(apps, "docs")
+	apps := append([]string(nil), cfg.apps...)
+	if len(apps) == 0 {
+		apps = append(apps, appNames...)
 	}
 
 	outDir := cfg.outDir
@@ -224,6 +277,24 @@ func buildBinaries(cfg buildConfig) error {
 	}
 
 	return nil
+}
+
+func localBuildConfig(apps []string) buildConfig {
+	return buildConfig{
+		apps:      apps,
+		args:      strings.Fields(os.Getenv("BUILD_OPTS")),
+		cgo:       envDefault("CGO_ENABLED", "1"),
+		outputExt: targetExecutableExt(),
+	}
+}
+
+func combineAppNames(groups ...[]string) []string {
+	var apps []string
+	for _, group := range groups {
+		apps = append(apps, group...)
+	}
+
+	return apps
 }
 
 func buildTargetEnv(cfg buildConfig) map[string]string {
@@ -294,7 +365,7 @@ func buildDocsAssets() error {
 		return err
 	}
 
-	if err := run("website", nil, "npm", "run", "build"); err != nil {
+	if err := run("website", map[string]string{"NO_UPDATE_NOTIFIER": "1"}, "npm", "run", "build"); err != nil {
 		return err
 	}
 
@@ -308,6 +379,32 @@ func buildDocsAssets() error {
 	}
 
 	if err := copyDir(filepath.Join("website", "build"), dest); err != nil {
+		return err
+	}
+
+	stamp := []byte(time.Now().UTC().Format(time.RFC3339) + "\n")
+	return os.WriteFile(filepath.Join(dest, ".stamp"), stamp, 0o644)
+}
+
+func buildUIAssets() error {
+	if err := run("ui", nil, "npm", "ci"); err != nil {
+		return err
+	}
+
+	if err := run("ui", nil, "npm", "run", "build"); err != nil {
+		return err
+	}
+
+	dest := filepath.Join("cmd", "ui", "embedded")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+
+	if err := cleanDirExcept(dest, ".gitkeep"); err != nil {
+		return err
+	}
+
+	if err := copyDir(filepath.Join("ui", "dist"), dest); err != nil {
 		return err
 	}
 

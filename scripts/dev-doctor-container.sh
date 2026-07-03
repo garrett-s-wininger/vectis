@@ -3,7 +3,7 @@ set -eu
 
 IMAGE=${VECTIS_DOCTOR_IMAGE:-ubuntu:24.04}
 ENGINE=${VECTIS_CONTAINER_ENGINE:-}
-TARGETS=${VECTIS_SMOKE_TARGETS:-"scripts/dev-doctor.sh && SKIP_WEB_BUILD=1 mage buildContainer && mage proto && mage testQuick"}
+TARGETS=${VECTIS_SMOKE_TARGETS:-"scripts/dev-doctor.sh && mage buildContainer && mage proto && mage testQuick"}
 
 usage() {
 	cat <<'EOF'
@@ -14,7 +14,7 @@ sources the installed repo-local toolchain, then runs the target chain.
 
 Defaults:
   image   ubuntu:24.04
-  targets scripts/dev-doctor.sh && SKIP_WEB_BUILD=1 mage buildContainer && mage proto && mage testQuick
+  targets scripts/dev-doctor.sh && mage buildContainer && mage proto && mage testQuick
 
 Environment:
   VECTIS_CONTAINER_ENGINE  Container engine override.

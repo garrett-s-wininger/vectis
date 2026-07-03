@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
@@ -21,6 +20,8 @@ var imageComponentNames = []string{
 	"queue",
 	"reconciler",
 	"registry",
+	"scm-gerrit-stream",
+	"scm-poller",
 	"secrets",
 	"spiffe",
 	"worker",
@@ -54,10 +55,6 @@ func ImagesAll() error {
 // ImagesComponents builds the component container images.
 func ImagesComponents() error {
 	for _, component := range imageComponentNames {
-		if component == "docs" && truthy(os.Getenv("SKIP_WEB_BUILD")) {
-			continue
-		}
-
 		if err := Image(component); err != nil {
 			return err
 		}

@@ -96,6 +96,7 @@ const sidebars = {
       label: "Developing Vectis",
       items: [
         "developing/contexts",
+        "developing/development-environment",
         "developing/actions",
         "developing/worker-core-sdk",
         "developing/migrations",

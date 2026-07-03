@@ -10,7 +10,7 @@ $ProtoGenGoVersion = "v1.36.11"
 $ProtoGenGoGrpcVersion = "v1.6.1"
 $MageVersion = "v1.17.2"
 $MinProtocVersion = "25.0"
-$MinNodeMajor = 20
+$MinNodeVersion = "20.19.0"
 
 function Show-Usage {
     @"
@@ -268,35 +268,6 @@ if ($mage) {
     Note "Or: go install github.com/magefile/mage@$MageVersion"
 }
 
-$nodePath = Find-CommandPath "node"
-if ($nodePath) {
-    $nodeRaw = (& node --version 2>$null).Trim()
-    $nodeVersion = Normalize-Version $nodeRaw
-    $nodeMajor = 0
-
-    if ($nodeVersion -match '^(\d+)') {
-        $nodeMajor = [int]$Matches[1]
-    }
-
-    if ($nodeMajor -ge $MinNodeMajor) {
-        Pass "node $nodeRaw satisfies docs build requirement $MinNodeMajor+"
-    } else {
-        Fail "node $nodeRaw is older than docs build requirement $MinNodeMajor+"
-        Note "Install Node.js $MinNodeMajor+ from https://nodejs.org/."
-        Note "Windows: winget install OpenJS.NodeJS.LTS"
-    }
-} else {
-    Fail "node not found (default build embeds the docs site)"
-    Note "Install Node.js $MinNodeMajor+ from https://nodejs.org/."
-    Note "Windows: winget install OpenJS.NodeJS.LTS"
-    Note "Use SKIP_WEB_BUILD=1 only when intentionally skipping vectis-docs assets."
-}
-
-Check-RequiredCommand "npm" "website dependency installation and docs build" @(
-    "npm ships with Node.js. Install Node.js $MinNodeMajor+ from https://nodejs.org/.",
-    "Windows: winget install OpenJS.NodeJS.LTS"
-)
-
 $protocPath = Find-CommandPath "protoc"
 if ($protocPath) {
     $protocRaw = (& protoc --version 2>$null) -join " "
@@ -346,6 +317,29 @@ if ($protocGenGoGrpc) {
     Note "Run: .\scripts\dev-doctor.ps1 -InstallGoTools"
     Note "Or: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$ProtoGenGoGrpcVersion"
 }
+
+Section "Frontend Lane"
+$nodePath = Find-CommandPath "node"
+if ($nodePath) {
+    $nodeRaw = (& node --version 2>$null).Trim()
+
+    if (Test-VersionAtLeast $nodeRaw $MinNodeVersion) {
+        Pass "node $nodeRaw satisfies docs/UI build requirement $MinNodeVersion+"
+    } else {
+        Warn "node $nodeRaw is older than docs/UI build requirement $MinNodeVersion+"
+        Note "Install Node.js $MinNodeVersion+ from https://nodejs.org/."
+        Note "Windows: winget install OpenJS.NodeJS.LTS"
+    }
+} else {
+    Warn "node not found (required only for docs/UI targets such as mage buildFrontend)"
+    Note "Install Node.js $MinNodeVersion+ from https://nodejs.org/."
+    Note "Windows: winget install OpenJS.NodeJS.LTS"
+}
+
+Check-OptionalCommand "npm" "docs/UI dependency installation and frontend builds" @(
+    "npm ships with Node.js. Install Node.js $MinNodeVersion+ from https://nodejs.org/.",
+    "Windows: winget install OpenJS.NodeJS.LTS"
+)
 
 Section "SQLite / CGO"
 if ($NoSQLite) {

@@ -242,7 +242,7 @@ func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs
 		return docsStaticFileServer(http.FS(sub)), "serving embedded docs"
 	}
 
-	logger.Warn("embedded docs build not found; rebuild vectis-docs without SKIP_WEB_BUILD=1")
+	logger.Warn("embedded docs build not found; run mage buildDocs or set VECTIS_DOCS_DIR")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
@@ -256,7 +256,7 @@ func docsHandlerWithFS(configuredDir string, logger interfaces.Logger, docsFS fs
 <body>
   <h1>Vectis Docs</h1>
   <p>The docs server is running, but this binary does not include an embedded docs build.</p>
-  <p>Rebuild with <code>mage build</code>, or set <code>VECTIS_DOCS_DIR</code> to a Docusaurus build directory.</p>
+  <p>Rebuild with <code>mage buildDocs</code>, or set <code>VECTIS_DOCS_DIR</code> to a Docusaurus build directory.</p>
 </body>
 </html>`))
 	}), "embedded docs not available"

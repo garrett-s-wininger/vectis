@@ -125,7 +125,7 @@ func uiHandlerWithFS(configuredDir string, logger interfaces.Logger, uiFS fs.FS)
 		return spaFileServer(http.FS(sub)), "serving embedded UI"
 	}
 
-	logger.Warn("embedded UI build not found; rebuild vectis-ui without SKIP_WEB_BUILD=1")
+	logger.Warn("embedded UI build not found; run mage buildUI or set VECTIS_UI_DIR")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
@@ -142,7 +142,7 @@ func uiHandlerWithFS(configuredDir string, logger interfaces.Logger, uiFS fs.FS)
 <body>
   <h1>Vectis UI</h1>
   <p>The UI server is running, but this binary does not include an embedded UI build.</p>
-  <p>Rebuild with <code>make build</code>, or set <code>VECTIS_UI_DIR</code> to a Vite build directory.</p>
+  <p>Rebuild with <code>mage buildUI</code>, or set <code>VECTIS_UI_DIR</code> to a Vite build directory.</p>
 </body>
 </html>`))
 	}), "embedded UI not available"

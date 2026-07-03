@@ -18,6 +18,8 @@
 | `testRace` | All packages | `-race` flag |
 | `fuzzAPIAuth` | API auth fuzz targets | `FUZZTIME` (default 30s) |
 
+`VECTIS_TEST_TEMPDIR` is an opt-in cross-platform test scratch override. When set, Mage passes it to Go tests as `GOTMPDIR`, `TEMP`, `TMP`, and `TMPDIR`; when unset, tests use the normal OS temp location. This is useful on Windows Dev Drives and on Unix hosts where `/tmp` is slow or restricted.
+
 ## Style
 
 - **Standard `testing` only** — no testify/ginkgo. This avoids external test framework dependency and keeps test output uniform.

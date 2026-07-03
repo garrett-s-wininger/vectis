@@ -346,8 +346,8 @@ func availableChecks() map[string]checkSpec {
 		"build": {
 			ID:          "build",
 			Title:       "Build all binaries",
-			Description: "`mage build` builds the configured Vectis binary set.",
-			Command:     []string{"mage", "build"},
+			Description: "`mage buildFull` builds the release binary set, including embedded docs/UI assets.",
+			Command:     []string{"mage", "buildFull"},
 		},
 		"postgres-integration": {
 			ID:          "postgres-integration",

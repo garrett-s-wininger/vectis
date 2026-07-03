@@ -15,6 +15,10 @@ mage build
 ./bin/vectis-local
 ```
 
+`mage build` is the local Go lane and does not require Node.js or npm. If your
+loop needs the browser UI or docs server, run `mage buildFull` first, or use
+`mage buildFrontend` after the backend binaries already exist.
+
 In another terminal:
 
 ```bash
@@ -26,15 +30,88 @@ That confirms the binaries build, the local stack starts, the API is reachable, 
 
 ## Prerequisites
 
-- Go `1.25.10+`, matching [go.mod](go.mod).
+- Go `1.25.11+`, matching [go.mod](go.mod).
 - Git.
 - CGO enabled for the default local SQLite build. This is the normal Go default on most developer machines.
 
 Optional tools:
 
+- Node.js `20.19+` and npm when working on docs/UI frontend lanes.
 - `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` when editing files under [api/proto/](api/proto/).
 - Podman when using the reference deployment commands.
 - Java and `/opt/tla+/tla2tools.jar` when running formal verification.
+
+## Developer Environment
+
+The docs-site copy of this guide lives in [Development Environment](./website/docs/developing/development-environment.md).
+
+Run the doctor script for your platform before the first build and whenever the local toolchain changes:
+
+```bash
+scripts/dev-doctor.sh
+```
+
+```powershell
+.\scripts\dev-doctor.ps1
+```
+
+The doctor checks Go, Git, Mage, protobuf tooling, SQLite/CGO readiness, optional frontend tooling, optional container/formal tools, and Windows symlink support. Use `scripts/dev-doctor.sh --install --yes` on Unix-like systems to install the standard local Go toolchain, then source `.tools/env.sh`. Add `--install-frontend` when you also want repo-local Node.js for docs/UI work. Use `--install-go-tools` or `-InstallGoTools` when you only need Mage and protobuf Go plugins installed through `go install`.
+
+### Unix
+
+The normal Unix setup is intentionally boring:
+
+```bash
+scripts/dev-doctor.sh --install --yes
+. .tools/env.sh
+mage testQuick
+```
+
+If you are working on docs or the browser UI, add the frontend toolchain:
+
+```bash
+scripts/dev-doctor.sh --install-frontend
+. .tools/env.sh
+mage buildFrontend
+```
+
+Local SQLite tests need CGO and a C compiler. On common Linux distributions the doctor installer pulls in GCC and libc development headers. macOS developers should have Xcode Command Line Tools available.
+
+Most Unix developers can use the system default temp directory. If your `/tmp` is remote, encrypted, very slow, or mounted with restrictions that affect tests, create a fast local temp directory and opt in for test commands:
+
+```bash
+mkdir -p "$HOME/.cache/vectis/tmp"
+export VECTIS_TEST_TEMPDIR="$HOME/.cache/vectis/tmp"
+mage testQuick
+```
+
+### Windows
+
+Use PowerShell for the supported Windows development lane:
+
+```powershell
+.\scripts\dev-doctor.ps1
+```
+
+For local SQLite tests, Go's CGO path needs a GCC-compatible C compiler. Use MinGW/UCRT GCC from MSYS2 or LLVM `clang` in GCC-compatible mode. MSVC `cl.exe` and `clang-cl` are not supported by this SQLite CGO lane. After installing a compiler, open a new PowerShell session or refresh `PATH` before rerunning the doctor.
+
+Enable Windows Developer Mode, or run from an elevated shell, so checkout-cache tests can create directory symlinks. Without symlink permission those tests skip the symlink-dependent path, which is useful for a partial check but not the full Windows development signal.
+
+For best test performance, use a Dev Drive or another fast local filesystem for the repository, Go caches, and optional Vectis test temp directory. Example:
+
+```powershell
+go env -w GOCACHE=D:\Caches\go-build
+go env -w GOMODCACHE=D:\Caches\go-mod
+New-Item -ItemType Directory -Force D:\Caches\tmp | Out-Null
+$env:VECTIS_TEST_TEMPDIR = 'D:\Caches\tmp'
+mage testQuick
+```
+
+`VECTIS_TEST_TEMPDIR` is opt-in and cross-platform. When set, Mage passes it to Go tests as `GOTMPDIR`, `TEMP`, `TMP`, and `TMPDIR`, which keeps Go scratch files and `os.TempDir()` users on the chosen filesystem. When unset, tests use the normal OS temp location. Set it to `0`, `off`, or `false` to disable the override in a shell that inherited it. To persist it for future PowerShell sessions:
+
+```powershell
+[Environment]::SetEnvironmentVariable('VECTIS_TEST_TEMPDIR', 'D:\Caches\tmp', 'User')
+```
 
 ## Build
 
@@ -44,10 +121,20 @@ mage build
 
 This writes the Vectis binaries to `bin/`.
 
-The default build also builds the docs site and embeds it into `vectis-docs`.
-Use `SKIP_WEB_BUILD=1 mage build` for a faster local build without the docs
-binary; `vectis-local` will continue without local docs when that binary is
-absent.
+The default build is Go-only: it builds the backend services, local supervisor,
+SCM trigger services, workers, and CLI without running npm.
+
+Frontend lanes are explicit:
+
+```bash
+mage buildDocs     # docs assets + vectis-docs
+mage buildUI       # browser UI assets + vectis-ui
+mage buildFrontend # docs + UI assets and serving binaries
+mage buildFull     # default Go binaries plus docs/UI assets and binaries
+```
+
+`vectis-local` starts `vectis-ui` and `vectis-docs` when those binaries are
+present, and logs a warning while continuing without them when they are absent.
 
 For container-oriented static builds:
 
@@ -71,6 +158,8 @@ mage testRace        # race detector
 mage lintAPIRoutes   # parser-backed security lint for public API route opt-outs
 mage lint            # route security lint plus golangci-lint
 ```
+
+On Windows, `mage testQuick` defaults to a longer timeout because filesystem and process creation are slower than on Unix. Keep `GOCACHE`, `GOMODCACHE`, and optionally `VECTIS_TEST_TEMPDIR` on a fast local filesystem for the best feedback loop.
 
 For a narrow package loop:
 
@@ -113,6 +202,9 @@ Use `vectis-local` for the normal local stack:
 mage build
 ./bin/vectis-local
 ```
+
+Run `mage buildFull` instead when you want the local browser UI and docs servers
+available from the same stack.
 
 For the Podman reference deployment:
 
