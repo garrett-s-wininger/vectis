@@ -1265,10 +1265,8 @@ func fetchWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string, env 
 }
 
 func configureWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string) error {
-	for _, setting := range gitcmd.NoAutoMaintenanceSettings() {
-		if err := runWorkerCacheGitNoDir(ctx, workerCacheMirrorGitArgs(mirrorPath, "config", "--local", setting[0], setting[1])...); err != nil {
-			return fmt.Errorf("set worker checkout cache git config %s: %w", setting[0], err)
-		}
+	if err := gitcmd.WriteGitDirConfigSettings(mirrorPath, gitcmd.NoAutoMaintenanceSettings()); err != nil {
+		return fmt.Errorf("set worker checkout cache git config: %w", err)
 	}
 
 	return nil
@@ -1291,10 +1289,8 @@ func configureWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, origi
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".skipFetchAll", "true"},
 	)
 
-	for _, setting := range settings {
-		if err := runWorkerCacheGit(ctx, workspace, "config", "--local", setting[0], setting[1]); err != nil {
-			return fmt.Errorf("set worker checkout cache workspace config %s: %w", setting[0], err)
-		}
+	if err := gitcmd.WriteWorkTreeConfigSettings(workspace, settings); err != nil {
+		return fmt.Errorf("set worker checkout cache workspace config: %w", err)
 	}
 
 	return nil
@@ -1508,7 +1504,7 @@ func (c *WorkerCheckoutCache) flipCurrentGeneration(repoPath, generationPath str
 				_ = os.Remove(tmpLink)
 				return fmt.Errorf("replace worker checkout cache current generation: %w", removeErr)
 			}
-			
+
 			if renameErr := os.Rename(tmpLink, currentLink); renameErr == nil {
 				return nil
 			} else {

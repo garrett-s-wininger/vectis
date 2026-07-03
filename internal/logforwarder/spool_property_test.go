@@ -15,6 +15,8 @@ import (
 )
 
 func TestSpoolProperty_RoundTripGeneratedChunkBatches(t *testing.T) {
+	skipSpoolPropertyInShort(t)
+
 	var lastErr error
 	var lastTrace []byte
 	prop := func(raw []byte) bool {
@@ -40,6 +42,13 @@ func TestSpoolProperty_RoundTripGeneratedChunkBatches(t *testing.T) {
 
 	if err := quick.Check(prop, &quick.Config{MaxCount: 100}); err != nil {
 		t.Fatalf("spool roundtrip property failed: %v\ntrace=%v\nreason=%v", err, lastTrace, lastErr)
+	}
+}
+
+func skipSpoolPropertyInShort(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("log forwarder property tests run under mage testProperty")
 	}
 }
 

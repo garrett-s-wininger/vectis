@@ -1607,9 +1607,17 @@ func TestWorkerCheckoutCacheCheckoutUsesCurrentGenerationWhileWarmLocked(t *test
 		if err != nil {
 			t.Fatalf("Checkout while writer lock held: %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(workerCheckoutCacheFastCheckoutDeadline()):
 		t.Fatal("checkout waited behind worker cache writer lock despite current generation")
 	}
+}
+
+func workerCheckoutCacheFastCheckoutDeadline() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 10 * time.Second
+	}
+
+	return 2 * time.Second
 }
 
 func TestWorkerCheckoutCacheIgnoresUnconfiguredRemote(t *testing.T) {

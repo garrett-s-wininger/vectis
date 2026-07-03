@@ -18,6 +18,7 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/api/audit"
 	"vectis/internal/dal"
+	"vectis/internal/gitcmd"
 	"vectis/internal/observability"
 
 	"github.com/spf13/viper"
@@ -4066,9 +4067,6 @@ func initAPIGitRepo(t *testing.T) string {
 	}
 
 	apiGit(t, repo, "init")
-	apiGit(t, repo, "config", "user.name", "Vectis Test")
-	apiGit(t, repo, "config", "user.email", "vectis@example.invalid")
-	apiGit(t, repo, "config", "commit.gpgsign", "false")
 
 	return repo
 }
@@ -4106,7 +4104,7 @@ func writeAPIFileAndCommit(t *testing.T, repo, name, content, message string) {
 func apiGitOutput(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd := exec.Command("git", apiGitArgs(repo, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -4118,4 +4116,15 @@ func apiGitOutput(t *testing.T, repo string, args ...string) string {
 func apiGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 	_ = apiGitOutput(t, repo, args...)
+}
+
+func apiGitArgs(repo string, args ...string) []string {
+	out := gitcmd.NoAutoMaintenanceArgs(
+		"-c", "user.name=Vectis Test",
+		"-c", "user.email=vectis@example.invalid",
+		"-c", "commit.gpgsign=false",
+		"-C", repo,
+	)
+
+	return append(out, args...)
 }

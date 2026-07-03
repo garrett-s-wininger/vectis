@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"vectis/internal/gitcmd"
 	"vectis/internal/source/refspec"
 )
 
@@ -88,6 +90,22 @@ func (g *GitCheckout) Path() string {
 	return g.checkoutPath
 }
 
+func gitHeadRef(gitDir string) string {
+	data, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return ""
+	}
+
+	ref, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "ref:")
+	if !ok {
+		return ""
+	}
+
+	ref = strings.TrimSpace(ref)
+	ref = strings.TrimPrefix(ref, "refs/heads/")
+	return ref
+}
+
 func (g *GitCheckout) Status(ctx context.Context, defaultRef string) GitCheckoutStatus {
 	status := GitCheckoutStatus{
 		CheckoutPath: strings.TrimSpace(g.checkoutPath),
@@ -117,21 +135,28 @@ func (g *GitCheckout) Status(ctx context.Context, defaultRef string) GitCheckout
 		return status
 	}
 
-	out, err := g.run(ctx, "rev-parse", "--is-inside-work-tree")
-	if err != nil || strings.TrimSpace(string(out)) != "true" {
-		status.setError("not_git_checkout", "checkout path is not inside a git work tree")
-		return status
-	}
+	if gitDir, err := gitcmd.WorkTreeGitDir(status.CheckoutPath); err == nil {
+		status.GitRepository = true
+		status.ObjectStore = g.objectStoreStatus(ctx)
+		status.WorkTreePath = filepath.Clean(status.CheckoutPath)
+		status.HeadRef = gitHeadRef(gitDir)
+	} else {
+		out, err := g.run(ctx, "rev-parse", "--is-inside-work-tree")
+		if err != nil || strings.TrimSpace(string(out)) != "true" {
+			status.setError("not_git_checkout", "checkout path is not inside a git work tree")
+			return status
+		}
 
-	status.GitRepository = true
-	status.ObjectStore = g.objectStoreStatus(ctx)
+		status.GitRepository = true
+		status.ObjectStore = g.objectStoreStatus(ctx)
 
-	if out, err := g.run(ctx, "rev-parse", "--show-toplevel"); err == nil {
-		status.WorkTreePath = strings.TrimSpace(string(out))
-	}
+		if out, err := g.run(ctx, "rev-parse", "--show-toplevel"); err == nil {
+			status.WorkTreePath = strings.TrimSpace(string(out))
+		}
 
-	if out, err := g.run(ctx, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
-		status.HeadRef = strings.TrimSpace(string(out))
+		if out, err := g.run(ctx, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+			status.HeadRef = strings.TrimSpace(string(out))
+		}
 	}
 
 	if status.DefaultRef == "" {

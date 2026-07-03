@@ -3,11 +3,13 @@ package source
 import (
 	"bufio"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
+
+	"vectis/internal/gitcmd"
 )
 
 const (
@@ -72,7 +74,7 @@ func (g *GitCheckout) objectStoreStatus(ctx context.Context) GitCheckoutObjectSt
 	objectsDir := filepath.Join(commonDir, "objects")
 	status.scanPackDirectory(filepath.Join(objectsDir, "pack"))
 	status.scanLooseObjects(objectsDir)
-	status.countHydratedRefs(ctx, g)
+	status.countHydratedRefs(commonDir)
 	status.CommitGraph = fileExists(filepath.Join(objectsDir, "info", "commit-graph")) ||
 		fileExists(filepath.Join(objectsDir, "info", "commit-graphs", "commit-graph-chain"))
 
@@ -152,6 +154,10 @@ func severityRank(severity string) int {
 }
 
 func (g *GitCheckout) absoluteGitDir(ctx context.Context) (string, error) {
+	if gitDir, err := gitcmd.WorkTreeGitDir(g.checkoutPath); err == nil {
+		return gitDir, nil
+	}
+
 	out, err := g.run(ctx, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return "", err
@@ -161,20 +167,7 @@ func (g *GitCheckout) absoluteGitDir(ctx context.Context) (string, error) {
 }
 
 func (g *GitCheckout) gitCommonDir(ctx context.Context, gitDir string) string {
-	out, err := g.run(ctx, "rev-parse", "--git-common-dir")
-	if err != nil {
-		return gitDir
-	}
-
-	commonDir := strings.TrimSpace(string(out))
-	if commonDir == "" {
-		return gitDir
-	}
-	if filepath.IsAbs(commonDir) {
-		return filepath.Clean(commonDir)
-	}
-
-	return filepath.Clean(filepath.Join(g.checkoutPath, commonDir))
+	return gitcmd.GitCommonDir(gitDir)
 }
 
 func (s *GitCheckoutObjectStoreStatus) scanPackDirectory(packDir string) {
@@ -233,35 +226,90 @@ func (s *GitCheckoutObjectStoreStatus) scanLooseObjects(objectsDir string) {
 	}
 }
 
-func (s *GitCheckoutObjectStoreStatus) countHydratedRefs(ctx context.Context, g *GitCheckout) {
+var errHydratedRefScanLimit = errors.New("hydrated ref scan limit reached")
+
+func (s *GitCheckoutObjectStoreStatus) countHydratedRefs(commonDir string) {
 	if s.HydratedRefScanLimit <= 0 {
 		s.HydratedRefScanLimit = gitHydratedRefScanLimit
 	}
 
-	out, err := g.run(ctx,
-		"for-each-ref",
-		"--count="+strconv.Itoa(s.HydratedRefScanLimit+1),
-		"--format=%(refname)",
-		"refs/vectis/hydrated",
-	)
-	if err != nil {
+	seen := make(map[string]struct{})
+	if err := s.countLooseHydratedRefs(commonDir, seen); errors.Is(err, errHydratedRefScanLimit) {
 		return
 	}
 
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	s.countPackedHydratedRefs(commonDir, seen)
+}
+
+func (s *GitCheckoutObjectStoreStatus) countLooseHydratedRefs(commonDir string, seen map[string]struct{}) error {
+	root := filepath.Join(commonDir, "refs", "vectis", "hydrated")
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if entry.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+
+		ref := "refs/vectis/hydrated/" + filepath.ToSlash(rel)
+		if !s.recordHydratedRef(ref, seen) {
+			return errHydratedRefScanLimit
+		}
+
+		return nil
+	})
+
+	if os.IsNotExist(err) {
+		return nil
+	}
+
+	return err
+}
+
+func (s *GitCheckoutObjectStoreStatus) countPackedHydratedRefs(commonDir string, seen map[string]struct{}) {
+	file, err := os.Open(filepath.Join(commonDir, "packed-refs"))
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		if strings.TrimSpace(scanner.Text()) == "" {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
 			continue
 		}
 
-		s.HydratedRefs++
-		if s.HydratedRefs >= s.HydratedRefScanLimit {
-			if scanner.Scan() {
-				s.HydratedRefsTruncated = true
-			}
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !strings.HasPrefix(fields[1], "refs/vectis/hydrated/") {
+			continue
+		}
+
+		if !s.recordHydratedRef(fields[1], seen) {
 			return
 		}
 	}
+}
+
+func (s *GitCheckoutObjectStoreStatus) recordHydratedRef(ref string, seen map[string]struct{}) bool {
+	if _, ok := seen[ref]; ok {
+		return true
+	}
+	
+	if s.HydratedRefs >= s.HydratedRefScanLimit {
+		s.HydratedRefsTruncated = true
+		return false
+	}
+
+	seen[ref] = struct{}{}
+	s.HydratedRefs++
+	return true
 }
 
 func gitMaintenanceIndicatorFiles(gitDir, commonDir string) []string {

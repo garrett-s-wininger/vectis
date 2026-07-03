@@ -14,6 +14,8 @@ import (
 )
 
 func TestQueueProperty_PersistedOperationTracesPreservePendingFIFO(t *testing.T) {
+	skipQueuePropertyInShort(t)
+
 	var lastErr error
 	var lastTrace []byte
 	prop := func(raw []byte) bool {
@@ -34,6 +36,8 @@ func TestQueueProperty_PersistedOperationTracesPreservePendingFIFO(t *testing.T)
 }
 
 func TestQueueProperty_TryDequeueReturnsEarliestEligibleIsolation(t *testing.T) {
+	skipQueuePropertyInShort(t)
+
 	var lastErr error
 	var lastTrace []byte
 	prop := func(raw []byte) bool {
@@ -50,6 +54,13 @@ func TestQueueProperty_TryDequeueReturnsEarliestEligibleIsolation(t *testing.T) 
 
 	if err := quick.Check(prop, &quick.Config{MaxCount: 100}); err != nil {
 		t.Fatalf("queue isolation property failed: %v\ntrace=%v\nreason=%v", err, lastTrace, lastErr)
+	}
+}
+
+func skipQueuePropertyInShort(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("queue property tests run under mage testProperty")
 	}
 }
 

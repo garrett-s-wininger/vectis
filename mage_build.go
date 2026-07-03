@@ -264,19 +264,71 @@ func buildBinaries(cfg buildConfig) error {
 		return err
 	}
 
-	ldflags := buildLDFlags(cfg.strip)
-	for _, app := range apps {
-		out := filepath.Join(outDir, "vectis-"+app+cfg.outputExt)
-		pkg := "./" + filepath.ToSlash(filepath.Join("cmd", app))
-		args := append([]string{"build"}, cfg.args...)
-		args = append(args, "-ldflags", ldflags, "-o", out, pkg)
+	return buildBinariesBatch(cfg, apps, outDir)
+}
 
-		if err := run("", buildTargetEnv(cfg), goCommand(), args...); err != nil {
+func buildBinariesBatch(cfg buildConfig, apps []string, outDir string) error {
+	tmpDir, err := os.MkdirTemp(outDir, ".vectis-build-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	ldflags := buildLDFlags(cfg.strip)
+	args := append([]string{"build"}, cfg.args...)
+	args = append(args, "-ldflags", ldflags, "-o", tmpDir)
+	for _, app := range apps {
+		pkg := "./" + filepath.ToSlash(filepath.Join("cmd", app))
+		args = append(args, pkg)
+	}
+
+	if err := run("", buildTargetEnv(cfg), goCommand(), args...); err != nil {
+		return err
+	}
+
+	for _, app := range apps {
+		src, err := builtBinaryPath(tmpDir, app, cfg.outputExt)
+		if err != nil {
 			return err
+		}
+
+		out := filepath.Join(outDir, "vectis-"+app+cfg.outputExt)
+		if err := replaceBuiltBinary(src, out); err != nil {
+			return fmt.Errorf("install built binary %s: %w", app, err)
 		}
 	}
 
 	return nil
+}
+
+func builtBinaryPath(dir, app, outputExt string) (string, error) {
+	candidates := []string{app + outputExt, app + ".exe", app}
+	seen := make(map[string]struct{}, len(candidates))
+	for _, name := range candidates {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		path := filepath.Join(dir, name)
+		info, err := os.Stat(path)
+		if err == nil && !info.IsDir() {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("go build did not produce an executable for %s in %s", app, dir)
+}
+
+func replaceBuiltBinary(src, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	return os.Rename(src, dest)
 }
 
 func localBuildConfig(apps []string) buildConfig {

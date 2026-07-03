@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"vectis/internal/gitcmd"
 )
 
 func TestGitCheckoutResolveRevisionAndReadFile(t *testing.T) {
@@ -337,8 +339,7 @@ func TestGitCheckoutDeleteFileUpdatesBranchWithoutCheckout(t *testing.T) {
 		t.Fatalf("branch head: got %q, want %q", got, deleted.Commit)
 	}
 
-	cmd := exec.Command("git", "-C", repo, "cat-file", "-e", deleted.Commit+":.vectis/jobs/build.json")
-	if err := cmd.Run(); err == nil {
+	if err := gitErr(repo, "cat-file", "-e", deleted.Commit+":.vectis/jobs/build.json"); err == nil {
 		t.Fatalf("deleted definition still exists at %s", deleted.Commit)
 	}
 
@@ -707,6 +708,31 @@ func TestGitCheckoutStatusAllowsMissingDefaultRef(t *testing.T) {
 	}
 }
 
+func TestGitCheckoutStatusUsesWorkTreeFilesForBasicMetadata(t *testing.T) {
+	repo := initGitRepo(t)
+	writeAndCommit(t, repo, "README.md", "hello\n", "first")
+
+	checkout := NewGitCheckout(repo)
+	checkout.runner = failingGitRunner{}
+
+	status := checkout.Status(context.Background(), "")
+	if status.ErrorCode != "" {
+		t.Fatalf("Status returned error: %+v", status)
+	}
+
+	if !status.GitRepository {
+		t.Fatalf("Status did not recognize git repository: %+v", status)
+	}
+
+	if got, want := status.WorkTreePath, filepath.Clean(repo); got != want {
+		t.Fatalf("WorkTreePath got %q, want %q", got, want)
+	}
+	
+	if status.HeadRef == "" {
+		t.Fatalf("HeadRef was empty: %+v", status)
+	}
+}
+
 func TestGitCheckoutStatusReportsMissingPath(t *testing.T) {
 	checkout := NewGitCheckout(filepath.Join(t.TempDir(), "missing"))
 	status := checkout.Status(context.Background(), "HEAD")
@@ -758,9 +784,6 @@ func initGitRepo(t *testing.T) string {
 
 	repo := t.TempDir()
 	git(t, repo, "init")
-	git(t, repo, "config", "user.name", "Vectis Test")
-	git(t, repo, "config", "user.email", "vectis@example.invalid")
-	git(t, repo, "config", "commit.gpgsign", "false")
 
 	return repo
 }
@@ -768,15 +791,11 @@ func initGitRepo(t *testing.T) string {
 func cloneGitRepo(t *testing.T, source, dest string) {
 	t.Helper()
 
-	cmd := exec.Command("git", "clone", source, dest)
+	cmd := exec.Command("git", gitcmd.NoAutoMaintenanceCloneArgs(source, dest)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git clone %s %s: %v\n%s", source, dest, err, out)
 	}
-
-	git(t, dest, "config", "user.name", "Vectis Test")
-	git(t, dest, "config", "user.email", "vectis@example.invalid")
-	git(t, dest, "config", "commit.gpgsign", "false")
 }
 
 func writeAndCommit(t *testing.T, repo, name, content, message string) {
@@ -798,7 +817,7 @@ func writeAndCommit(t *testing.T, repo, name, content, message string) {
 func gitOutput(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd := exec.Command("git", gitTestArgs(repo, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -813,7 +832,32 @@ func git(t *testing.T, repo string, args ...string) {
 }
 
 func gitErr(repo string, args ...string) error {
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd := exec.Command("git", gitTestArgs(repo, args...)...)
 	_, err := cmd.CombinedOutput()
 	return err
+}
+
+func gitTestArgs(repo string, args ...string) []string {
+	out := gitcmd.NoAutoMaintenanceArgs(
+		"-c", "user.name=Vectis Test",
+		"-c", "user.email=vectis@example.invalid",
+		"-c", "commit.gpgsign=false",
+		"-C", repo,
+	)
+
+	return append(out, args...)
+}
+
+type failingGitRunner struct{}
+
+func (failingGitRunner) RunGit(context.Context, string, ...string) ([]byte, error) {
+	return nil, errors.New("git runner should not be called")
+}
+
+func (failingGitRunner) RunGitWithInputEnv(context.Context, string, []byte, []string, ...string) ([]byte, error) {
+	return nil, errors.New("git runner should not be called")
+}
+
+func (failingGitRunner) StreamGitRecords(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("git runner should not be called")
 }

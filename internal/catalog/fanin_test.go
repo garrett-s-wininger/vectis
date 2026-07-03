@@ -396,6 +396,10 @@ func TestFanInProcessorFault_RetryAfterSourceMarkAppliedFailure(t *testing.T) {
 }
 
 func TestFanInProcessorProperty_DrainsUniqueSourceEventsWithoutTargetDuplicates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("catalog property tests run under mage testProperty")
+	}
+
 	prop := func(raw []byte) bool {
 		if err := checkFanInDrainsUniqueSourceEvents(t, raw); err != nil {
 			t.Logf("fan-in property failed for %v: %v", raw, err)

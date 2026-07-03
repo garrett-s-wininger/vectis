@@ -706,10 +706,8 @@ func configureManagedGitCheckout(ctx context.Context, checkoutPath string, fallb
 	settings := gitcmd.NoAutoMaintenanceSettings()
 	settings = append(settings, [2]string{"remote.origin.tagOpt", "--no-tags"})
 
-	for _, setting := range settings {
-		if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "config", "--local", setting[0], setting[1]); err != nil {
-			return fmt.Errorf("set git config %s: %w", setting[0], err)
-		}
+	if err := gitcmd.WriteWorkTreeConfigSettings(checkoutPath, settings); err != nil {
+		return fmt.Errorf("set managed checkout git config: %w", err)
 	}
 
 	if fallbackRemoteURLs != nil {

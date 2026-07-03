@@ -226,6 +226,7 @@ func TestQuick() error {
 	args := []string{
 		"test",
 		"-count=1",
+		"-short",
 		"-timeout=" + timeout,
 		"./internal/...",
 		"./cmd/...",
@@ -258,7 +259,7 @@ func goTestEnv() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if tmpDir != "" {
 		env["GOTMPDIR"] = tmpDir
 		env["TEMP"] = tmpDir
