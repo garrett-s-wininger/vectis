@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"vectis/internal/config"
 	"vectis/internal/version"
 )
 
@@ -10,6 +11,7 @@ type versionResponse struct {
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`
 	BuildDate string `json:"build_date"`
+	CellID    string `json:"cell_id"`
 }
 
 func (s *APIServer) GetVersion(w http.ResponseWriter, _ *http.Request) {
@@ -17,5 +19,6 @@ func (s *APIServer) GetVersion(w http.ResponseWriter, _ *http.Request) {
 		Version:   version.Version,
 		Commit:    version.Commit,
 		BuildDate: version.BuildDate,
+		CellID:    config.CellID(),
 	})
 }

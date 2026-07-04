@@ -4,26 +4,26 @@ Vectis validates a job before it stores it or starts a run. Validation is there 
 
 You will usually see validation while using:
 
-- `./bin/vectis-cli jobs create <file>`
+- `./bin/vectis-cli jobs create <file> --repository <repo>`
 - `./bin/vectis-cli jobs run <file>`
 - `POST /api/v1/jobs`
 - `PUT /api/v1/jobs/{id}`
 - `POST /api/v1/jobs/run`
 
-If you are new to the job format, we suggest you start with [Your First Job](./your-first-job.md). This page is the next stop when Vectis says a job is invalid.
+If you are new to the job format, we suggest you start with [Your First Job](./your-first-job.md). If you need a concise map of every field, use [Job Definition Reference](./job-definition-reference.md). This page is the next stop when Vectis says a job is invalid.
 
 ## The Smallest Valid Shape
 
-A stored job needs an `id` and a `root` node:
+A reusable source-backed job needs an `id` and a `root` node:
 
 ```json
 {
   "id": "hello",
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -35,15 +35,15 @@ An ephemeral run can omit the top-level job `id` because the API creates a run I
 {
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
 ```
 
-The top-level job `id` is the stored job's name. Node `id` values identify steps inside that job. They are different things, even when the names look similar.
+The top-level job `id` is the reusable job's name. Node `id` values identify steps inside that job. They are different things, even when the names look similar.
 
 ## What Vectis Checks
 
@@ -51,11 +51,16 @@ Every job must have:
 
 | Part | Rule |
 | --- | --- |
-| Job `id` | Required for stored jobs. Optional for ephemeral runs. |
+| Job `id` | Required for reusable source-backed jobs unless `--job-id` is supplied. Optional for ephemeral runs. |
+| Job `default_isolation` | Optional. If present, must be `host` or `vm`. |
 | `root` | Required. This is the first node Vectis executes. |
 | Node `id` | Required on every node and unique within the job. |
 | Node `uses` | Required and must name a known action. |
 | Node `with` | Must match the fields accepted by the selected action. |
+| Node `inputs` | Optional bound inputs from earlier node outputs. Input names must match fields accepted by the selected action. |
+| Node `isolation` | Optional. If present, must be `host` or `vm`. |
+| Trigger `id` | Required on every stored-job trigger and unique within the job. |
+| Trigger kind | Optional list entries must set exactly one of `manual`, `cron`, or `scm_poll`. |
 | Tree size | Up to `256` nodes. |
 | Tree depth | Up to `32` levels. |
 
@@ -65,13 +70,179 @@ Vectis reports all validation errors it can find in one response, so fixing one 
 
 These are the built-in actions that the validator knows today:
 
-| Action | Required `with` | Optional `with` | Notes |
+| Action | Required `with` | Ports | Notes |
 | --- | --- | --- | --- |
-| `builtins/shell` | `command` | none | Runs the command with `sh -c`. Empty commands and unknown keys are rejected. |
-| `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. |
-| `builtins/sequence` | none | any key | Runs child `steps` in order. `with` is currently ignored for compatibility. |
+| `builtins/script` | `script` | none | Writes the script body to a temporary workspace file and runs it with `runner`. Supported runners are `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. Optional `outputs` reads a workspace-relative JSON object file after success and returns it as node outputs. |
+| `builtins/test` | `command` | none | Runs the command as a predicate with the selected runner. Optional `runner` uses the same values and OS default as `builtins/script`. Exit `0` returns `outputs.result=true`, exit `1` returns `outputs.result=false`, and other execution errors fail the action. |
+| `builtins/checkout` | `url` | none | Accepts HTTP(S) clone URLs without embedded credentials and SCP-style Git URLs. Optional `ref` fetches a ref from `origin` after clone and checks out `FETCH_HEAD` detached; optional `fetch_refspecs` fetches additional refspecs. Unknown action keys are rejected. |
+| `gerrit/review@v1` | `url`, `change`, `message`, `username`, `password_file` | none | Extension action that posts a Gerrit review message to the authenticated `/a/changes/{change}/revisions/{revision}/review` REST path. Optional `revision` defaults to `current`; optional `label` and integer `value` post a label vote. The password file must be workspace-relative, usually under `.vectis/secrets`. |
+| `builtins/sequence` | none | `steps` | Runs child nodes in order. Defaults to `execution: "local"`, so children run in the same worker workspace unless a distributed boundary is reached. Unknown optional `with` keys are tolerated for compatibility. |
+| `builtins/parallel` | none | `branches` | Runs branch nodes concurrently when local, or fans them out as task executions when distributed. Defaults to `execution: "distributed"`. Unknown optional `with` keys are tolerated for compatibility. |
+| `builtins/if` | none | `condition`, `then`, `else` | Runs exactly one `condition` node, reads its `outputs.result` boolean, then runs the ordered `then` or `else` port. Condition execution failures fail the `if`. Local-only until durable skipped-branch semantics exist. |
+| `builtins/retry` | optional `attempts` | `body` | Runs the ordered `body` port until it succeeds or attempts are exhausted. Defaults to `attempts: "3"`. Local-only until durable retry attempts are modeled. |
+| `builtins/timeout` | `duration` | `body` | Runs the ordered `body` port with a deadline such as `30s`, `5m`, or `1h`. Local-only until durable timeout recovery is modeled. |
+| `builtins/finally` | none | `body`, `always` | Runs `body`, then always runs `always`. Body failure remains the final failure unless cleanup is the only failure. Local-only until durable finalizer semantics are modeled. |
+| `builtins/fallback` | none | `choices` | Runs choice nodes in order and returns the first success. If every choice fails, the final result is the last failure. Local-only until durable fallback attempts are modeled. |
+| `builtins/result` | `success` | none | Returns success when `success` is `true` and failure when `false`; no subprocess is started. |
+| `builtins/upload-artifact` | `name`, `path` | none | Publishes a workspace-relative file as a run artifact. Optional `content_type`, `metadata_json`, and `max_bytes` keys are accepted. Paths must stay inside the workspace. `max_bytes` can lower, but not raise, the worker upload cap. |
 
-The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear.
+The action name can include the `builtins/` prefix. The built-in registry also accepts short names internally, but docs and examples use the full form so job files stay clear. Standard integration actions, such as `gerrit/review@v1`, are resolved through configured action registry roots rather than the builtin registry.
+
+Child nodes can be attached through typed ports:
+
+```json
+{
+  "id": "checks",
+  "uses": "builtins/parallel",
+  "ports": {
+    "branches": {
+      "nodes": [
+        {"id": "unit", "uses": "builtins/script", "with": {"script": "go test ./..."}},
+        {"id": "lint", "uses": "builtins/script", "with": {"script": "go vet ./..."}}
+      ]
+    }
+  }
+}
+```
+
+The legacy `steps` field remains shorthand for a node's primary port. For `builtins/sequence`, `steps` means `ports.steps.nodes`; for `builtins/parallel`, `steps` means `ports.branches.nodes`. Do not set both `steps` and the matching primary port on the same node.
+
+Conditionals are modeled with nodes instead of an expression language:
+
+```json
+{
+  "id": "deploy-gate",
+  "uses": "builtins/if",
+  "ports": {
+    "condition": {
+      "nodes": [
+        {"id": "has-changes", "uses": "builtins/test", "with": {"runner": "sh", "command": "test -f deploy.changed"}}
+      ]
+    },
+    "then": {
+      "nodes": [
+        {"id": "deploy", "uses": "builtins/script", "with": {"script": "make deploy"}}
+      ]
+    },
+    "else": {
+      "nodes": [
+        {"id": "skip-note", "uses": "builtins/script", "with": {"script": "echo no deploy"}}
+      ]
+    }
+  }
+}
+```
+
+Execution policy nodes wrap local child subtrees:
+
+```json
+{
+  "id": "retry-build",
+  "uses": "builtins/retry",
+  "with": {"attempts": "3"},
+  "ports": {
+    "body": {
+      "nodes": [
+        {
+          "id": "timed-build",
+          "uses": "builtins/timeout",
+          "with": {"duration": "5m"},
+          "ports": {
+            "body": {
+              "nodes": [
+                {"id": "build", "uses": "builtins/script", "with": {"script": "mage build"}}
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Script actions can publish structured outputs by writing a JSON object inside the workspace and naming it in `with.outputs`:
+
+```json
+{
+  "id": "publish-image",
+  "uses": "builtins/script",
+  "with": {
+    "runner": "sh",
+    "script": "printf '{\"image\":\"app:dev\"}' > outputs.json",
+    "outputs": "outputs.json"
+  }
+}
+```
+
+Later nodes can bind accepted action inputs from earlier outputs without using an expression language:
+
+```json
+{
+  "id": "gate",
+  "uses": "builtins/test",
+  "inputs": {
+    "command": {
+      "from": {
+        "node": "script-command",
+        "output": "command"
+      }
+    }
+  }
+}
+```
+
+For now, a bound input must reference an earlier node ID in the same local execution scope. Bindings cannot cross distributed task boundaries until durable outputs exist. The worker resolves the value from outputs already produced in the current execution; if the output is unavailable, the node fails before the action starts.
+
+Do not set the same action field in both `with` and `inputs`. For example, `with.command` and `inputs.command` on the same node is invalid.
+
+## Stored-Job Triggers
+
+Stored jobs can declare top-level `triggers`. When present, the list must be
+non-empty; omit `triggers` to use the default `on_demand` manual trigger. Each
+trigger needs a stable `id` that starts with a letter or underscore and contains
+only letters, numbers, underscores, dots, or dashes. `name` is optional display
+text. The trigger kind is one of:
+
+| Kind | Required fields |
+| --- | --- |
+| `manual` | none; `id` must be `on_demand` |
+| `cron` | `spec`, using a five-field cron expression such as `0 2 * * *` |
+| `scm_poll` | `provider`, plus `project` or `base_url`; `interval_seconds` must be non-negative |
+
+Do not embed credentials in SCM `base_url` or `project` values. One-off job runs
+cannot include `triggers`; triggers are persisted with stored jobs so trigger
+processes can claim, dedupe, and advance their own cursors.
+
+`with.execution` is scheduling metadata accepted on any node and is not passed to the action implementation. It controls whether the node runs inside the current task or is materialized as a task boundary:
+
+| Value | Meaning |
+| --- | --- |
+| `local` | The node is eligible to run inside the current task execution and workspace. |
+| `distributed` | The node is inserted as a task execution and may run on another worker. It should not depend on a shared mutable workspace. |
+
+When omitted, `builtins/parallel` defaults to `distributed`; other built-ins default to `local`.
+
+## Node Isolation
+
+Nodes can request an isolation level with `isolation`:
+
+```json
+{
+  "id": "test-in-vm",
+  "uses": "builtins/script",
+  "isolation": "vm",
+  "with": {
+    "script": "go test ./..."
+  }
+}
+```
+
+Allowed values are `host` and `vm`. A job can set `default_isolation` for every node in the action tree. If a node omits `isolation`, it inherits the nearest parent sequence's isolation, then the job default, then the worker backend default. A `builtins/sequence` node can set `isolation` for its child steps, and a child can override it.
+
+Validation only checks that the value is supported by the job format. Workers advertise their supported isolation levels to the queue, and a worker skips queued jobs that require an unsupported level. The worker executor still enforces the boundary before action code runs; a node with `isolation: "vm"` does not fall back to host execution.
+
+Artifacts are explicit in the first version. Add a `builtins/upload-artifact` node after the step that creates the file you want to keep; Vectis does not yet support a top-level `artifacts` stanza, action output declarations, or automatic workspace scanning. Uploaded bytes are preserved exactly, including archives.
 
 ## Reading Validation Errors
 
@@ -94,12 +265,15 @@ Each entry in `details.fields` points to a field path in the job document:
 
 | Field path | Meaning |
 | --- | --- |
-| `id` | The stored job ID is missing or invalid. |
+| `id` | The reusable job ID is missing or invalid. |
 | `root` | The job has no root node. |
 | `root.id` | The root node is missing its node ID. |
 | `root.uses` | The root node is missing or names an unknown action. |
-| `root.with.command` | The root action rejected its `command` input. |
+| `root.with.script` | The root script action rejected its script body. |
+| `root.inputs.command.from.node` | A bound input references a node that cannot provide a value before this node runs. |
+| `root.isolation` | The root node requested an unsupported isolation level. |
 | `root.steps[0].id` | The first child step has an ID problem. |
+| `root.ports.branches.nodes[0].id` | The first node attached to the `branches` port has an ID problem. |
 
 ## Common Fixes
 
@@ -111,9 +285,9 @@ This fails when you store a job:
 {
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -126,9 +300,9 @@ Add a top-level `id`:
   "id": "hello",
   "root": {
     "id": "say-hello",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -147,8 +321,8 @@ This fails because both steps use `id: "test"`:
     "id": "root",
     "uses": "builtins/sequence",
     "steps": [
-      {"id": "test", "uses": "builtins/shell", "with": {"command": "echo one"}},
-      {"id": "test", "uses": "builtins/shell", "with": {"command": "echo two"}}
+      {"id": "test", "uses": "builtins/script", "with": {"script": "echo one"}},
+      {"id": "test", "uses": "builtins/script", "with": {"script": "echo two"}}
     ]
   }
 }
@@ -163,8 +337,8 @@ Give each node its own ID:
     "id": "root",
     "uses": "builtins/sequence",
     "steps": [
-      {"id": "test-one", "uses": "builtins/shell", "with": {"command": "echo one"}},
-      {"id": "test-two", "uses": "builtins/shell", "with": {"command": "echo two"}}
+      {"id": "test-one", "uses": "builtins/script", "with": {"script": "echo one"}},
+      {"id": "test-two", "uses": "builtins/script", "with": {"script": "echo two"}}
     ]
   }
 }
@@ -184,18 +358,18 @@ This fails because Vectis does not know `builtins/not-real`:
 }
 ```
 
-Use one of the supported actions, such as `builtins/shell`, `builtins/checkout`, or `builtins/sequence`.
+Use one of the supported actions, such as `builtins/script`, `builtins/test`, `builtins/checkout`, `builtins/sequence`, `builtins/parallel`, `builtins/result`, `builtins/upload-artifact`, or a configured extension action such as `gerrit/review@v1`.
 
 ### Invalid `with` Fields
 
-This fails because `builtins/shell` needs `command`, not `cmd`:
+This fails because `builtins/script` needs `script`, not `cmd`:
 
 ```json
 {
-  "id": "bad-shell",
+  "id": "bad-script",
   "root": {
     "id": "root",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
       "cmd": "echo hello"
     }
@@ -207,12 +381,12 @@ Use the action's documented field name:
 
 ```json
 {
-  "id": "good-shell",
+  "id": "good-script",
   "root": {
     "id": "root",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "echo hello"
+      "script": "echo hello"
     }
   }
 }
@@ -250,10 +424,10 @@ Use a URL without inline credentials:
 }
 ```
 
-Secrets should come from a secret-aware mechanism, not from the job definition itself.
+Secret values should come through top-level `secrets` references and the cell-local secrets broker, not inline in the job definition. Process-launching actions do not inherit the worker service environment; they run with a minimal Vectis-built environment so deployment secrets such as database DSNs, TLS settings, bootstrap material, and SPIFFE endpoint sockets are not passed as ambient child-process variables.
 
 ## Validation Boundaries
 
 Validation checks the job shape and action inputs. It does not prove that runtime dependencies exist.
 
-For example, Vectis can check that `builtins/checkout` has a URL, but the worker may still fail later if the repository is unreachable. Vectis can check that `builtins/shell` has a command, but it cannot know whether that command will succeed on the worker.
+For example, Vectis can check that `builtins/checkout` has a URL, but the worker may still fail later if the repository is unreachable. Vectis can check that `builtins/script` has a script body, but it cannot know whether that script will succeed on the worker.

@@ -25,7 +25,7 @@ func (denyExceptSetup) Allow(_ context.Context, _ *authn.Principal, a authz.Acti
 }
 
 func wrapTestAccessHandler(s *APIServer, policy routeAuthPolicy, fn http.HandlerFunc) http.Handler {
-	return s.accessControlledHandler(policy, http.HandlerFunc(fn))
+	return s.accessControlledHandler(policy, fn)
 }
 
 func TestAccessControlMiddleware_authDisabled(t *testing.T) {
@@ -265,7 +265,7 @@ func TestAccessControlledHandler_publicRouteBypassesAuth(t *testing.T) {
 	s.SetQueueClient(mocks.NewMockQueueService())
 
 	var hit bool
-	h := wrapTestAccessHandler(s, routeAuthPolicy{Public: true}, func(w http.ResponseWriter, r *http.Request) {
+	h := wrapTestAccessHandler(s, routeAuthPolicy{mode: routeAuthPublic}, func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		w.WriteHeader(http.StatusNoContent)
 	})

@@ -17,7 +17,7 @@ func TestCreateNamespace_Success(t *testing.T) {
 	ctx := context.Background()
 	repos := dal.NewSQLRepositories(db)
 
-	body := []byte(`{"name": "team-a"}`)
+	body := []byte(`{"name": "team-a", "description": "Team A delivery boundary."}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	rec := httptest.NewRecorder()
@@ -41,6 +41,10 @@ func TestCreateNamespace_Success(t *testing.T) {
 		t.Fatalf("expected path /team-a, got %v", resp["path"])
 	}
 
+	if resp["description"] != "Team A delivery boundary." {
+		t.Fatalf("expected description, got %v", resp["description"])
+	}
+
 	// Verify it's in the database
 	ns, err := repos.Namespaces().GetByPath(ctx, "/team-a")
 	if err != nil {
@@ -49,6 +53,10 @@ func TestCreateNamespace_Success(t *testing.T) {
 
 	if ns.Name != "team-a" {
 		t.Fatalf("expected name team-a, got %s", ns.Name)
+	}
+
+	if ns.Description != "Team A delivery boundary." {
+		t.Fatalf("expected description, got %s", ns.Description)
 	}
 }
 
@@ -112,8 +120,8 @@ func TestListNamespaces(t *testing.T) {
 		t.Fatalf("parse response: %v", err)
 	}
 
-	if len(resp) != 3 { // root + team-a + team-b
-		t.Fatalf("expected 3 namespaces, got %d", len(resp))
+	if len(resp) != 4 { // root + ephemeral + team-a + team-b
+		t.Fatalf("expected 4 namespaces, got %d", len(resp))
 	}
 }
 
@@ -158,6 +166,47 @@ func TestGetNamespace_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestUpdateNamespace_Description(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+
+	ns, err := repos.Namespaces().Create(ctx, "team-a", nil)
+	if err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	body := []byte(`{"description": "Updated delivery boundary."}`)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/namespaces/%d", ns.ID), bytes.NewReader(body))
+	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.UpdateNamespace(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("parse response: %v", err)
+	}
+
+	if resp["description"] != "Updated delivery boundary." {
+		t.Fatalf("expected updated description, got %v", resp["description"])
+	}
+
+	got, err := repos.Namespaces().GetByID(ctx, ns.ID)
+	if err != nil {
+		t.Fatalf("get namespace: %v", err)
+	}
+
+	if got.Description != "Updated delivery boundary." {
+		t.Fatalf("expected persisted description, got %q", got.Description)
 	}
 }
 
@@ -217,15 +266,32 @@ func TestDeleteNamespace_HasChildren(t *testing.T) {
 func TestDeleteNamespace_Root(t *testing.T) {
 	server, _, _, _ := setupTestServer(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/namespaces/1", nil)
-	req.SetPathValue("id", "1")
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d", dal.RootNamespaceID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", dal.RootNamespaceID))
 	rec := httptest.NewRecorder()
 
 	server.DeleteNamespace(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for root delete, got %d", rec.Code)
+	assertAPIError(t, rec, http.StatusForbidden, "root_namespace_delete_forbidden")
+}
+
+func TestDeleteNamespace_Ephemeral(t *testing.T) {
+	server, _, _, db := setupTestServer(t)
+	ctx := context.Background()
+	repos := dal.NewSQLRepositories(db)
+
+	ns, err := repos.Namespaces().GetByPath(ctx, dal.EphemeralNamespacePath)
+	if err != nil {
+		t.Fatalf("get ephemeral namespace: %v", err)
 	}
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d", ns.ID), nil)
+	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
+	rec := httptest.NewRecorder()
+
+	server.DeleteNamespace(rec, req)
+
+	assertAPIError(t, rec, http.StatusForbidden, "system_namespace_delete_forbidden")
 }
 
 func TestDeleteNamespace_HasJobs(t *testing.T) {
@@ -238,9 +304,14 @@ func TestDeleteNamespace_HasJobs(t *testing.T) {
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	// Create a job in the namespace
-	if err := repos.Jobs().Create(ctx, "job-in-ns", `{"id":"job-in-ns"}`, ns.ID); err != nil {
-		t.Fatalf("create job: %v", err)
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		NamespaceID:  ns.ID,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d", ns.ID), nil)

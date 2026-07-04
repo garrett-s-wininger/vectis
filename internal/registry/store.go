@@ -193,6 +193,12 @@ func (r *reg) mergeProtoEntries(entries []*api.RegistryEntry, now time.Time) []*
 			continue
 		}
 
+		if !entry.tombstone {
+			if err := ValidateComponentMetadata(entry.component, entry.metadata); err != nil {
+				continue
+			}
+		}
+
 		var applied bool
 		if entry.tombstone {
 			applied = r.applyTombstoneLocked(entry, now)

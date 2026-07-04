@@ -27,6 +27,11 @@ func pinnedAddress(comp api.Component) string {
 		return config.PinnedQueueAddress()
 	case api.Component_COMPONENT_LOG:
 		return config.PinnedLogAddress()
+	case api.Component_COMPONENT_ARTIFACT:
+		return config.PinnedArtifactAddress()
+	case api.Component_COMPONENT_ORCHESTRATOR:
+		return config.PinnedOrchestratorAddress()
+	case api.Component_COMPONENT_UNKNOWN, api.Component_COMPONENT_WORKER:
 	}
 	return ""
 }

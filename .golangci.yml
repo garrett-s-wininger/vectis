@@ -7,12 +7,41 @@ linters:
   default: none
   enable:
     - bodyclose
+    - contextcheck
+    - copyloopvar
+    - errorlint
+    - errcheck
+    - exhaustive
     - govet
+    - ineffassign
+    - loggercheck
+    - misspell
+    - nilerr
+    - nilnil
+    - nilnesserr
+    - noctx
+    - nolintlint
+    - protogetter
     - rowserrcheck
+    - sloglint
     - sqlclosecheck
+    - spancheck
     - staticcheck
+    - unconvert
+    - unqueryvet
+    - usetesting
+    - usestdlibvars
     - gosec
   settings:
+    errcheck:
+      exclude-functions:
+        # NOTE(garrett): CLI/report rendering writes to caller-owned writers; downstream write
+        # errors are surfaced by the command/test harness where they matter.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    exhaustive:
+      default-signifies-exhaustive: true
     gosec:
       excludes:
         # NOTE(garrett):Bounded backoff uses non-crypto bit shifts; values are capped by caller.
@@ -33,10 +62,12 @@ linters:
       - api/gen/go
       - website
     rules:
-      # NOTE(garrett): Tests use short-lived servers, example URLs, and intentional unchecked errors.
+      # NOTE(garrett): Tests use short-lived servers, direct DB probes, example URLs, and intentional unchecked errors.
       - path: _test\.go$
         linters:
+          - errcheck
           - gosec
+          - noctx
 
 issues:
   max-same-issues: 50

@@ -2,6 +2,8 @@
 
 Vectis streams logs while a run is executing and can replay logs that have already been written. Most people should start with the CLI; use the HTTP API when you are building an integration or dashboard.
 
+For the exact SSE payloads, replay limits, reconnect cursors, and proxy notes, see [SSE And Streaming Reference](./streaming-reference.md).
+
 ## Follow One Run
 
 If you already have a run ID, stream its logs with:
@@ -22,10 +24,10 @@ That is useful in shell scripts where one command produces the ID and the next c
 
 ## Follow A Job's Future Runs
 
-To keep a terminal open for the next runs of a stored job:
+To keep a terminal open for the next runs of a reusable source-backed job:
 
 ```sh
-./bin/vectis-cli logs job <job-id>
+./bin/vectis-cli logs job <job-id> --repository <repo> --follow
 ```
 
 `logs job` subscribes to run-created events for that job and follows runs created after the subscription is active. It does not replay old runs.
@@ -34,7 +36,7 @@ For a one-command workflow, `jobs run` and `jobs trigger` both support `--follow
 
 ```sh
 ./bin/vectis-cli jobs run examples/sequenced.json --follow
-./bin/vectis-cli jobs trigger sequenced-job --follow
+./bin/vectis-cli jobs trigger sequenced-job --repository vectis-local --follow
 ```
 
 ## Filter Output
@@ -91,6 +93,8 @@ Each event has a JSON payload:
 
 The `stream` value identifies stdout, stderr, or control events. The `sequence` value is scoped to one run.
 
+For the full route contract, including `Last-Event-ID`, `tail`, `replay_limit`, and completion control messages, see [SSE And Streaming Reference](./streaming-reference.md).
+
 ## Replay And Reconnect
 
 The API can replay historical chunks before continuing live streaming:
@@ -116,10 +120,10 @@ If a replay is too large, the stream sends a control event with `{"event":"repla
 The job run-event API is also SSE:
 
 ```sh
-curl -N http://localhost:8080/api/v1/sse/jobs/<job-id>/runs
+curl -N 'http://localhost:8080/api/v1/sse/jobs/<job-id>/runs?repository_id=<repo>'
 ```
 
-Use it when you are building a dashboard or automation that wants to notice new runs for a stored job, then connect to each run's log stream.
+Use it when you are building a dashboard or automation that wants to notice new runs for a reusable source-backed job, then connect to each run's log stream.
 
 ## How Logs Move Through Vectis
 

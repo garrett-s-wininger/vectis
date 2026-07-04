@@ -1,0 +1,355 @@
+//go:build knox_smoke_server
+
+package main
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	crypto_rand "crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"fmt"
+	"math/big"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/pinterest/knox"
+	"github.com/pinterest/knox/server"
+	"github.com/pinterest/knox/server/auth"
+	"github.com/pinterest/knox/server/keydb"
+)
+
+const (
+	defaultAddr      = ":9000"
+	defaultAuthToken = "0tknox-smoke"
+	defaultCertDir   = "/certs"
+	defaultCertTTL   = 168 * time.Hour
+	defaultKeyID     = "team:smoke_token"
+	defaultSecret    = "knox-smoke-secret"
+)
+
+func main() {
+	addr := envDefault("KNOX_SMOKE_ADDR", defaultAddr)
+	certDir := envDefault("KNOX_SMOKE_CERT_DIR", defaultCertDir)
+	certTTL, err := envDuration("KNOX_SMOKE_CERT_TTL", defaultCertTTL)
+	if err != nil {
+		panic(err)
+	}
+
+	authHeader := envDefault("KNOX_SMOKE_AUTH_TOKEN", defaultAuthToken)
+	principalID, err := machinePrincipalID(authHeader)
+	if err != nil {
+		panic(err)
+	}
+
+	certs, err := smokeCertificatesFromDir(certDir, principalID, certTTL)
+	if err != nil {
+		panic(err)
+	}
+
+	cryptor := keydb.NewAESGCMCryptor(0, []byte("testtesttesttest"))
+	keyManager := server.NewKeyManager(cryptor, keydb.NewTempDB())
+	key := seededKey(
+		envDefault("KNOX_SMOKE_KEY_ID", defaultKeyID),
+		[]byte(envDefault("KNOX_SMOKE_SECRET", defaultSecret)),
+		principalID,
+	)
+	if err := keyManager.AddNewKey(&key); err != nil {
+		panic(err)
+	}
+
+	router, err := server.GetRouterFromKeyManager(
+		cryptor,
+		keyManager,
+		[]func(http.HandlerFunc) http.HandlerFunc{
+			server.AddHeader("Content-Type", "application/json"),
+			server.AddHeader("X-Content-Type-Options", "nosniff"),
+			server.Authentication([]auth.Provider{auth.NewMTLSAuthProvider(certs.clientCAs)}, nil),
+		},
+		nil,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    certs.clientCAs,
+		Certificates: []tls.Certificate{certs.serverCert},
+	}
+
+	fmt.Fprintf(os.Stderr, "knox smoke server listening with mTLS on %s with key %s\n", addr, key.ID)
+	httpServer := &http.Server{Addr: addr, Handler: router, TLSConfig: tlsConfig}
+	if err := httpServer.ListenAndServeTLS("", ""); err != nil {
+		panic(err)
+	}
+}
+
+func seededKey(id string, data []byte, principalID string) knox.Key {
+	versions := knox.KeyVersionList{{
+		ID:           1,
+		Data:         append([]byte(nil), data...),
+		Status:       knox.Primary,
+		CreationTime: time.Now().UnixNano(),
+	}}
+	return knox.Key{
+		ID: id,
+		ACL: knox.ACL{}.Add(knox.Access{
+			Type:       knox.Machine,
+			ID:         principalID,
+			AccessType: knox.Read,
+		}),
+		VersionList: versions,
+		VersionHash: versions.Hash(),
+	}
+}
+
+func machinePrincipalID(authHeader string) (string, error) {
+	authHeader = strings.TrimSpace(authHeader)
+	if len(authHeader) < 3 || authHeader[0] != '0' || authHeader[1] != 't' {
+		return "", fmt.Errorf("KNOX_SMOKE_AUTH_TOKEN must use Knox machine auth form 0t<principal>")
+	}
+	return authHeader[2:], nil
+}
+
+type smokeCertificates struct {
+	clientCAs  *x509.CertPool
+	serverCert tls.Certificate
+}
+
+func smokeCertificatesFromDir(dir, principalID string, ttl time.Duration) (smokeCertificates, error) {
+	if hasAllSmokeCertificateFiles(dir) {
+		return loadSmokeCertificates(dir)
+	}
+
+	if hasAnySmokeCertificateFile(dir) {
+		return smokeCertificates{}, fmt.Errorf("cert dir %s contains a partial smoke certificate set", dir)
+	}
+
+	return writeSmokeCertificates(dir, principalID, ttl)
+}
+
+func hasAllSmokeCertificateFiles(dir string) bool {
+	for _, name := range smokeCertificateFileNames() {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			return false
+		}
+	}
+
+	return true
+}
+
+func hasAnySmokeCertificateFile(dir string) bool {
+	for _, name := range smokeCertificateFileNames() {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+func smokeCertificateFileNames() []string {
+	return []string{"ca.crt", "server.crt", "server.key", "client.crt", "client.key"}
+}
+
+func loadSmokeCertificates(dir string) (smokeCertificates, error) {
+	caPEM, err := os.ReadFile(filepath.Join(dir, "ca.crt"))
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(caPEM) {
+		return smokeCertificates{}, fmt.Errorf("CA certificate %s could not be parsed", filepath.Join(dir, "ca.crt"))
+	}
+
+	serverCert, err := tls.LoadX509KeyPair(filepath.Join(dir, "server.crt"), filepath.Join(dir, "server.key"))
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	return smokeCertificates{
+		clientCAs:  certPool,
+		serverCert: serverCert,
+	}, nil
+}
+
+func writeSmokeCertificates(dir, principalID string, ttl time.Duration) (smokeCertificates, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return smokeCertificates{}, err
+	}
+
+	caPEM, caKey, err := newCertificateAuthority(ttl)
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	serverCertPEM, serverKeyPEM, err := newLeafCertificate(caPEM, caKey, leafCertificateOptions{
+		commonName: "localhost",
+		dnsNames:   []string{"localhost"},
+		ipAddresses: []net.IP{
+			net.ParseIP("127.0.0.1"),
+			net.ParseIP("::1"),
+		},
+		keyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ttl:       ttl,
+	})
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	clientCertPEM, clientKeyPEM, err := newLeafCertificate(caPEM, caKey, leafCertificateOptions{
+		commonName: principalID,
+		dnsNames:   []string{principalID},
+		keyUsages:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		ttl:        ttl,
+	})
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	for _, file := range []struct {
+		name string
+		data []byte
+		mode os.FileMode
+	}{
+		{"ca.crt", caPEM, 0o644},
+		{"server.crt", serverCertPEM, 0o644},
+		{"server.key", serverKeyPEM, 0o600},
+		{"client.crt", clientCertPEM, 0o644},
+		{"client.key", clientKeyPEM, 0o600},
+	} {
+		if err := os.WriteFile(filepath.Join(dir, file.name), file.data, file.mode); err != nil {
+			return smokeCertificates{}, err
+		}
+	}
+
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(caPEM) {
+		return smokeCertificates{}, fmt.Errorf("generated CA certificate could not be parsed")
+	}
+
+	serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	if err != nil {
+		return smokeCertificates{}, err
+	}
+
+	return smokeCertificates{
+		clientCAs:  certPool,
+		serverCert: serverCert,
+	}, nil
+}
+
+func newCertificateAuthority(ttl time.Duration) ([]byte, *ecdsa.PrivateKey, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), crypto_rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	template := baseCertificateTemplate("vectis-knox-smoke-ca", ttl)
+	template.IsCA = true
+	template.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature
+	template.BasicConstraintsValid = true
+
+	der, err := x509.CreateCertificate(crypto_rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), key, nil
+}
+
+type leafCertificateOptions struct {
+	commonName  string
+	dnsNames    []string
+	ipAddresses []net.IP
+	keyUsages   []x509.ExtKeyUsage
+	ttl         time.Duration
+}
+
+func newLeafCertificate(caPEM []byte, caKey *ecdsa.PrivateKey, opts leafCertificateOptions) ([]byte, []byte, error) {
+	block, _ := pem.Decode(caPEM)
+	if block == nil {
+		return nil, nil, fmt.Errorf("generated CA PEM could not be decoded")
+	}
+
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), crypto_rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	template := baseCertificateTemplate(opts.commonName, opts.ttl)
+	template.KeyUsage = x509.KeyUsageDigitalSignature
+	template.ExtKeyUsage = opts.keyUsages
+	template.DNSNames = opts.dnsNames
+	template.IPAddresses = opts.ipAddresses
+
+	der, err := x509.CreateCertificate(crypto_rand.Reader, &template, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keyBytes, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes}),
+		nil
+}
+
+func baseCertificateTemplate(commonName string, ttl time.Duration) x509.Certificate {
+	notBefore := time.Now().Add(-time.Minute)
+	notAfter := time.Now().Add(ttl)
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := crypto_rand.Int(crypto_rand.Reader, serialNumberLimit)
+	if err != nil {
+		panic(err)
+	}
+
+	return x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+	}
+}
+
+func envDefault(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func envDuration(key string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", key, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s must be > 0", key)
+	}
+
+	return duration, nil
+}

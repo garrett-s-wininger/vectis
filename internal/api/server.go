@@ -5,30 +5,38 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
 	"vectis/internal/backoff"
-	"vectis/internal/cli"
+	"vectis/internal/cache"
+	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
 	"vectis/internal/database"
+	"vectis/internal/httpsecurity"
 	"vectis/internal/interfaces"
+	"vectis/internal/logclient"
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
-	"vectis/internal/resolver"
+	sourcepkg "vectis/internal/source"
 	"vectis/internal/version"
+	sdkauth "vectis/sdk/auth"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -50,9 +58,35 @@ type queueClientHolder struct {
 }
 
 type logClientHolder struct {
-	client api.LogServiceClient
-	conn   *grpc.ClientConn
+	client logReaderClient
+	state  func() connectivity.State
 	close  func()
+}
+
+type orchestratorClientHolder struct {
+	client api.OrchestratorServiceClient
+}
+
+type orchestratorOwnerClientResolverHolder struct {
+	resolve func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (api.OrchestratorServiceClient, bool, error)
+}
+
+type sourceRefHydrationCall struct {
+	done   chan struct{}
+	status sourcepkg.GitCheckoutStatus
+}
+
+type sourceRefAvailabilityEntry struct {
+	remote    string
+	expiresAt time.Time
+}
+
+type sourceRefMissEntry struct {
+	expiresAt time.Time
+}
+
+type logReaderClient interface {
+	GetLogs(ctx context.Context, in *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error)
 }
 
 type ctxHolder struct {
@@ -60,31 +94,61 @@ type ctxHolder struct {
 }
 
 type APIServer struct {
-	jobs           dal.JobsRepository
-	runs           dal.RunsRepository
-	ephemeralRuns  dal.EphemeralRunStarter
-	authRepo       dal.AuthRepository
-	namespaces     dal.NamespacesRepository
-	roleBindings   dal.RoleBindingsRepository
-	idempotency    dal.IdempotencyRepository
-	dispatchEvents dal.DispatchEventsRepository
-	schedules      dal.SchedulesRepository
-	logger         interfaces.Logger
-	queueClient    atomic.Pointer[queueClientHolder]
-	logClient      atomic.Pointer[logClientHolder]
-	runBroadcaster *RunBroadcaster
-	dbUnavailable  atomic.Bool
-	healthDB       *sql.DB
-	MetricsHandler http.Handler
+	jobs                     dal.JobsRepository
+	runs                     dal.RunsRepository
+	ephemeralRuns            dal.EphemeralRunStarter
+	artifacts                dal.ArtifactsRepository
+	authRepo                 dal.AuthRepository
+	namespaces               dal.NamespacesRepository
+	roleBindings             dal.RoleBindingsRepository
+	idempotency              dal.IdempotencyRepository
+	dispatchEvents           dal.DispatchEventsRepository
+	triggerEvents            dal.TriggerInvocationsRepository
+	catalogEvents            dal.CatalogEventsRepository
+	schedules                dal.SchedulesRepository
+	serviceLeases            dal.ServiceLeasesRepository
+	sources                  dal.SourcesRepository
+	logger                   interfaces.Logger
+	actionResolver           action.Resolver
+	actionDescriptorResolver actionregistry.Resolver
+	queueClient              atomic.Pointer[queueClientHolder]
+	logClient                atomic.Pointer[logClientHolder]
+	orchestratorClient       atomic.Pointer[orchestratorClientHolder]
+	orchestratorOwnerClient  atomic.Pointer[orchestratorOwnerClientResolverHolder]
+	runBroadcaster           *RunBroadcaster
+	dbUnavailable            atomic.Bool
+	draining                 atomic.Bool
+	healthDB                 *sql.DB
+	MetricsHandler           http.Handler
+
 	// AccessLogger, when set, writes one structured slog record per HTTP request
-	// (typically JSON on stderr). Health and /metrics are excluded.
-	AccessLogger *slog.Logger
+	// (typically JSON on stderr). Health probes are excluded.
+	AccessLogger             *slog.Logger
+	logRoutingMetrics        logclient.RoutingMetrics
+	apiDispatchMetrics       *observability.APIDispatchMetrics
+	apiSecurityMetrics       securityRejectionMetrics
+	sourceSyncMetrics        sourceRepositorySyncMetrics
+	sourceObjectStoreMetrics sourceRepositoryObjectStoreMetrics
 
 	// authzOverride, if non-nil, replaces SelectAuthorizer(complete) in middleware (tests).
 	authzOverride authz.Authorizer
 
 	// rateLimiter, when set, applies rate limiting to API routes.
 	rateLimiter ratelimit.RateLimiter
+
+	// cacheService stores shared API sessions and rate-limit buckets.
+	cacheService cache.Service
+
+	// loginProviders authenticate external username/password login attempts.
+	loginProviders []registeredLoginProvider
+
+	// externalLoginAutoProvision creates local Vectis users for successful
+	// external identities that do not already have a local user row.
+	externalLoginAutoProvision bool
+
+	// externalLoginAutoLinkUsers links a first-seen external identity to an
+	// existing local user with the same mapped username.
+	externalLoginAutoLinkUsers bool
 
 	// auditor, when set, logs audit events for auth operations.
 	auditor audit.Auditor
@@ -94,22 +158,84 @@ type APIServer struct {
 	// retryMetrics, when set, records retry/backoff metrics for gRPC dials.
 	retryMetrics backoff.RetryMetrics
 
+	// dispatchMetrics, when set, records dispatch event counters.
+	dispatchMetrics dispatchMetrics
+
 	// ResolveWorkerAddress, when set, resolves a worker_id to a control address via the registry.
 	ResolveWorkerAddress func(ctx context.Context, workerID string) (string, error)
 
-	mu     sync.RWMutex
-	srvCtx atomic.Pointer[ctxHolder]
+	mu                                  sync.RWMutex
+	executionIngress                    cell.ExecutionIngress
+	sourceSyncMu                        sync.Mutex
+	sourceSyncRunning                   map[string]struct{}
+	sourceSyncCheckoutStatus            func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrator                   func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus
+	sourceRefHydrationMetrics           sourceRefHydrationMetrics
+	sourceRefHydrationMu                sync.Mutex
+	sourceRefHydration                  map[string]*sourceRefHydrationCall
+	sourceRefAvailabilityMu             sync.Mutex
+	sourceRefAvailability               map[string]sourceRefAvailabilityEntry
+	sourceRefAvailabilityTTL            time.Duration
+	sourceRefMissMu                     sync.Mutex
+	sourceRefMiss                       map[string]sourceRefMissEntry
+	sourceRefMissTTL                    time.Duration
+	sourceRefHydrationLeaseTTL          time.Duration
+	sourceRefHydrationLeaseWait         time.Duration
+	sourceRefHydrationLeasePollInterval time.Duration
+	sourceDefinitionAuthor              SourceDefinitionAuthorFactory
+	sourceAuthoring                     SourceAuthoringCapabilityResolver
+	sourceCheckoutRoot                  string
+	srvCtx                              atomic.Pointer[ctxHolder]
 }
+
+type SourceDefinitionAuthorFactory func(dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error)
+
+type SourceAuthoringCapabilityResolver func(dal.SourceRepositoryRecord) sourcepkg.AuthoringCapability
 
 type routeSpec struct {
 	Pattern   string
 	Handler   http.Handler
 	Auth      routeAuthPolicy
+	Cache     routeCachePolicy
+	Body      routeBodyPolicy
+	Accept    routeAcceptPolicy
+	Query     routeQueryPolicy
+	Headers   routeHeaderPolicy
 	RateLimit ratelimit.Rule
 }
 
+// LoginProviderRegistration identifies a configured external login provider
+// instance that the API may accept.
+type LoginProviderRegistration struct {
+	ID       string
+	Kind     string
+	Provider sdkauth.LoginProvider
+}
+
+type registeredLoginProvider struct {
+	id       string
+	kind     string
+	provider sdkauth.LoginProvider
+}
+
+type dispatchMetrics interface {
+	RecordDispatchEvent(ctx context.Context, source, eventType, targetCell string)
+}
+
+type sourceRepositorySyncMetrics interface {
+	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
+}
+
+type sourceRefHydrationMetrics interface {
+	RecordSourceRefHydration(ctx context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, d time.Duration)
+}
+
+type sourceRepositoryObjectStoreMetrics interface {
+	RecordSourceRepositoryObjectStore(ctx context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects, hydratedRefs int, warnings []observability.SourceRepositoryObjectStoreWarning)
+}
+
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
-	repos := dal.NewSQLRepositories(db)
+	repos := dal.NewSQLRepositoriesWithCellID(db, config.CellID())
 	s := NewAPIServerWithRepositories(logger, repos.Jobs(), repos.Runs(), repos)
 	s.healthDB = db
 	s.authRepo = repos.Auth()
@@ -117,7 +243,13 @@ func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
 	s.roleBindings = repos.RoleBindings()
 	s.idempotency = repos.Idempotency()
 	s.dispatchEvents = repos.DispatchEvents()
+	s.triggerEvents = repos.TriggerInvocations()
+	s.catalogEvents = repos.CatalogEvents()
 	s.schedules = repos.Schedules()
+	s.serviceLeases = repos.ServiceLeases()
+	s.sources = repos.Sources()
+	s.artifacts = repos.Artifacts()
+	s.cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
 	return s
 }
 
@@ -127,14 +259,48 @@ func NewAPIServerWithRepositories(
 	runs dal.RunsRepository,
 	ephemeralRuns dal.EphemeralRunStarter,
 ) *APIServer {
-	return &APIServer{
-		jobs:           jobs,
-		runs:           runs,
-		ephemeralRuns:  ephemeralRuns,
-		logger:         logger,
-		runBroadcaster: NewRunBroadcaster(logger),
-		auditPolicy:    audit.DefaultPolicy(),
+	var artifacts dal.ArtifactsRepository
+	if repos, ok := ephemeralRuns.(interface {
+		Artifacts() dal.ArtifactsRepository
+	}); ok {
+		artifacts = repos.Artifacts()
 	}
+
+	var serviceLeases dal.ServiceLeasesRepository
+	if repos, ok := ephemeralRuns.(interface {
+		ServiceLeases() dal.ServiceLeasesRepository
+	}); ok {
+		serviceLeases = repos.ServiceLeases()
+	}
+
+	s := &APIServer{
+		jobs:                       jobs,
+		runs:                       runs,
+		ephemeralRuns:              ephemeralRuns,
+		artifacts:                  artifacts,
+		serviceLeases:              serviceLeases,
+		logger:                     logger,
+		runBroadcaster:             NewRunBroadcaster(logger),
+		auditPolicy:                audit.DefaultPolicy(),
+		externalLoginAutoLinkUsers: true,
+		sourceDefinitionAuthor:     sourcepkg.NewDefinitionAuthorFromRecord,
+		sourceAuthoring:            sourcepkg.AuthoringCapabilityFromRecord,
+	}
+
+	return s
+}
+
+func (s *APIServer) SetSourceDefinitionAuthoring(factory SourceDefinitionAuthorFactory, capabilities SourceAuthoringCapabilityResolver) {
+	if factory == nil {
+		factory = sourcepkg.NewDefinitionAuthorFromRecord
+	}
+
+	if capabilities == nil {
+		capabilities = sourcepkg.AuthoringCapabilityFromRecord
+	}
+
+	s.sourceDefinitionAuthor = factory
+	s.sourceAuthoring = capabilities
 }
 
 func (s *APIServer) markDBUnavailable(err error) {
@@ -150,7 +316,7 @@ func (s *APIServer) markDBRecovered() {
 }
 
 func idempotencyKeyFromRequest(r *http.Request) string {
-	return r.Header.Get("Idempotency-Key")
+	return r.Header.Get(idempotencyKeyHeaderName)
 }
 
 func hashIdempotencyRequest(parts ...string) string {
@@ -171,33 +337,54 @@ func principalIdempotencyScope(prefix string, p *authn.Principal) string {
 	return prefix + ":user:" + strconv.FormatInt(p.LocalUserID, 10)
 }
 
+func actorIDFromPrincipal(p *authn.Principal) int64 {
+	if p == nil {
+		return 0
+	}
+
+	return p.LocalUserID
+}
+
 func (s *APIServer) reserveIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, ok bool) {
+	record, reserved, _, ok = s.reserveIdempotencyState(w, ctx, scope, key, requestHash, false)
+	return record, reserved, ok
+}
+
+func (s *APIServer) reserveRecoverableIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
+	return s.reserveIdempotencyState(w, ctx, scope, key, requestHash, true)
+}
+
+func (s *APIServer) reserveIdempotencyState(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string, allowInProgress bool) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
 	if key == "" || s.idempotency == nil {
-		return dal.IdempotencyRecord{}, false, true
+		return dal.IdempotencyRecord{}, false, false, true
 	}
 
 	record, created, err := s.idempotency.Reserve(ctx, scope, key, requestHash)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
-			return dal.IdempotencyRecord{}, false, false
+			return dal.IdempotencyRecord{}, false, false, false
 		}
 
 		s.logger.Error("Database error reserving idempotency key: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return dal.IdempotencyRecord{}, false, false
+		return dal.IdempotencyRecord{}, false, false, false
 	}
 
 	if !created && record.RequestHash != requestHash {
 		writeAPIError(w, http.StatusConflict, "idempotency_key_reused", "idempotency key reused for different request", nil)
-		return dal.IdempotencyRecord{}, false, false
+		return dal.IdempotencyRecord{}, false, false, false
 	}
 
 	if !created && record.ResponseJSON == nil {
+		if allowInProgress {
+			return record, false, true, true
+		}
+
 		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
-		return dal.IdempotencyRecord{}, false, false
+		return dal.IdempotencyRecord{}, false, false, false
 	}
 
-	return record, created, true
+	return record, created, false, true
 }
 
 func (s *APIServer) completeIdempotency(ctx context.Context, scope, key string, response []byte) {
@@ -220,14 +407,57 @@ func (s *APIServer) releaseIdempotency(ctx context.Context, scope, key string) {
 	}
 }
 
-func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, eventType string, message *string) {
-	if s.dispatchEvents == nil {
+func (s *APIServer) attachIdempotencyResource(ctx context.Context, scope, key, resourceType, resourceID string) error {
+	if key == "" || s.idempotency == nil || resourceID == "" {
+		return nil
+	}
+
+	return s.idempotency.AttachResource(ctx, scope, key, resourceType, resourceID)
+}
+
+func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, eventType, targetCell string, message *string) {
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, source, eventType, targetCell)
+	}
+
+	if s.dispatchEvents != nil {
+		if err := s.dispatchEvents.Record(ctx, runID, source, eventType, message); err != nil {
+			s.logger.Error("Failed to record dispatch event for run %s: %v", runID, err)
+		}
+	}
+}
+
+func (s *APIServer) recordDispatchAttemptOutcome(ctx context.Context, runID, source, outcomeEventType, targetCell string, message *string) error {
+	if s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, source, dal.DispatchEventAttempt, targetCell)
+		if outcomeEventType != dal.DispatchEventSuccess {
+			s.dispatchMetrics.RecordDispatchEvent(ctx, source, outcomeEventType, targetCell)
+		}
+	}
+
+	if s.dispatchEvents != nil {
+		if err := s.dispatchEvents.RecordDispatchAttemptOutcome(ctx, runID, source, outcomeEventType, message); err != nil {
+			return err
+		}
+	} else if outcomeEventType == dal.DispatchEventSuccess && s.runs != nil {
+		if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+			return err
+		}
+	}
+
+	if outcomeEventType == dal.DispatchEventSuccess && s.dispatchMetrics != nil {
+		s.dispatchMetrics.RecordDispatchEvent(ctx, source, dal.DispatchEventSuccess, targetCell)
+	}
+
+	return nil
+}
+
+func (s *APIServer) recordAPIEnqueueMetric(ctx context.Context, runKind, outcome string) {
+	if s.apiDispatchMetrics == nil {
 		return
 	}
 
-	if err := s.dispatchEvents.Record(ctx, runID, source, eventType, message); err != nil {
-		s.logger.Error("Failed to record dispatch event for run %s: %v", runID, err)
-	}
+	s.apiDispatchMetrics.RecordRunEnqueue(ctx, runKind, outcome)
 }
 
 func (s *APIServer) handleDBUnavailableError(w http.ResponseWriter, err error) bool {
@@ -254,11 +484,16 @@ func queueRPCReady(q interfaces.QueueService) bool {
 		return true
 	}
 
-	return wc.GRPCConnectivityState() == connectivity.Ready
+	switch wc.GRPCConnectivityState() {
+	case connectivity.Ready, connectivity.Idle:
+		return true
+	default:
+		return false
+	}
 }
 
-func (s *APIServer) handlerDBCtx(r *http.Request) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(r.Context(), defaultHandlerDBTimeout)
+func (s *APIServer) handlerDBCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, defaultHandlerDBTimeout)
 }
 
 func (s *APIServer) requireNamespaces(w http.ResponseWriter) bool {
@@ -274,6 +509,24 @@ func (s *APIServer) requireRoleBindings(w http.ResponseWriter) bool {
 		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrRoleBindingsNotConfigured)
 		return false
 	}
+	return true
+}
+
+func (s *APIServer) requireSources(w http.ResponseWriter) bool {
+	if s.sources == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "source_repositories_not_configured", "source repositories not configured", nil)
+		return false
+	}
+
+	return true
+}
+
+func (s *APIServer) requireSchedules(w http.ResponseWriter) bool {
+	if s.schedules == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "schedules_not_configured", "schedules not configured", nil)
+		return false
+	}
+
 	return true
 }
 
@@ -336,47 +589,73 @@ func (s *APIServer) checkNamespaceAuth(ctx context.Context, p *authn.Principal, 
 	return z.Allow(ctx, p, action, authz.Resource{NamespacePath: namespacePath})
 }
 
-func (s *APIServer) getJobNamespacePath(ctx context.Context, jobID string) (string, error) {
-	nsID, err := s.jobs.GetNamespaceID(ctx, jobID)
-	if err != nil {
-		return "", err
-	}
-
-	if s.namespaces == nil {
-		return "/", nil
-	}
-
-	ns, err := s.namespaces.GetByID(ctx, nsID)
-	if err != nil {
-		return "", err
-	}
-
-	return ns.Path, nil
-}
-
 func (s *APIServer) getRunJobNamespacePath(ctx context.Context, runID string) (string, error) {
 	jobID, err := s.runs.GetRunJobID(ctx, runID)
 	if err != nil {
 		return "", err
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	nsPath, err := s.getSourceRunNamespacePath(ctx, runID, jobID)
 	if err != nil {
-		if dal.IsNotFound(err) {
-			// Ephemeral runs don't have stored_jobs entries;
-			// they run in the default namespace.
-			return "/", nil
-		}
 		return "", err
 	}
 
-	return nsPath, nil
+	if nsPath != "" {
+		return nsPath, nil
+	}
+
+	return s.runs.GetRunNamespacePath(ctx, runID)
+}
+
+func (s *APIServer) getSourceRunNamespacePath(ctx context.Context, runID, jobID string) (string, error) {
+	if s.sources == nil || s.namespaces == nil {
+		return "", nil
+	}
+
+	rec, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	source, err := s.sources.GetDefinitionSource(ctx, jobID, rec.DefinitionVersion)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	repo, err := s.sources.GetRepository(ctx, source.RepositoryID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	ns, err := s.namespaces.GetByID(ctx, repo.NamespaceID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	return ns.Path, nil
 }
 
 func writeVersionHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Vectis-Build-Version", version.Version)
 	w.Header().Set("X-Vectis-Build-Commit", version.Commit)
 	w.Header().Set("X-Vectis-Build-Date", version.BuildDate)
+	w.Header().Set("X-Vectis-Cell-ID", config.CellID())
 }
 
 func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
@@ -386,6 +665,11 @@ func (s *APIServer) HealthLive(w http.ResponseWriter, _ *http.Request) {
 
 func (s *APIServer) HealthReady(w http.ResponseWriter, r *http.Request) {
 	writeVersionHeaders(w)
+
+	if s.draining.Load() {
+		writeAPIErrorCode(w, http.StatusServiceUnavailable, apiErrServerShuttingDown)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), healthDBPingTimeout)
 	defer cancel()
@@ -418,6 +702,12 @@ func (s *APIServer) SetQueueClient(client interfaces.QueueService) {
 	}
 }
 
+func (s *APIServer) SetExecutionIngress(ingress cell.ExecutionIngress) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executionIngress = ingress
+}
+
 func (s *APIServer) SetLogClient(client api.LogServiceClient) {
 	old := s.logClient.Swap(&logClientHolder{client: client})
 	if old != nil && old.close != nil {
@@ -425,10 +715,113 @@ func (s *APIServer) SetLogClient(client api.LogServiceClient) {
 	}
 }
 
+func (s *APIServer) SetOrchestratorClient(client api.OrchestratorServiceClient) {
+	if client == nil {
+		s.orchestratorClient.Store(nil)
+		return
+	}
+
+	s.orchestratorClient.Store(&orchestratorClientHolder{client: client})
+}
+
+func (s *APIServer) orchestratorReadClient() api.OrchestratorServiceClient {
+	holder := s.orchestratorClient.Load()
+	if holder == nil {
+		return nil
+	}
+
+	return holder.client
+}
+
+func (s *APIServer) SetOrchestratorOwnerClientResolver(resolve func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (api.OrchestratorServiceClient, bool, error)) {
+	if resolve == nil {
+		s.orchestratorOwnerClient.Store(nil)
+		return
+	}
+
+	s.orchestratorOwnerClient.Store(&orchestratorOwnerClientResolverHolder{resolve: resolve})
+}
+
+func (s *APIServer) orchestratorReadClientForOwner(ctx context.Context, owner dal.RunHotStateOwnerRecord) api.OrchestratorServiceClient {
+	holder := s.orchestratorOwnerClient.Load()
+	if holder != nil {
+		client, ok, err := holder.resolve(ctx, owner)
+		if err != nil {
+			s.logger.Warn("Orchestrator owner route %q for run %s failed; falling back to default orchestrator client: %v", owner.OwnerID, owner.RunID, err)
+		} else if ok && client != nil {
+			return client
+		}
+	}
+
+	return s.orchestratorReadClient()
+}
+
+func (s *APIServer) SetCatalogEventsRepository(repo dal.CatalogEventsRepository) {
+	s.catalogEvents = repo
+}
+
 func (s *APIServer) SetRateLimiter(limiter ratelimit.RateLimiter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rateLimiter = limiter
+}
+
+func (s *APIServer) SetCacheService(cacheService cache.Service) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cacheService = cacheService
+}
+
+func (s *APIServer) SetLoginProviders(providers []sdkauth.LoginProvider) {
+	registrations := make([]LoginProviderRegistration, 0, len(providers))
+	for _, provider := range providers {
+		registrations = append(registrations, LoginProviderRegistration{Provider: provider})
+	}
+
+	s.SetLoginProviderRegistrations(registrations)
+}
+
+func (s *APIServer) SetLoginProviderRegistrations(registrations []LoginProviderRegistration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loginProviders = s.loginProviders[:0]
+	for _, registration := range registrations {
+		if registration.Provider == nil {
+			continue
+		}
+
+		id := strings.TrimSpace(registration.ID)
+		kind := strings.TrimSpace(registration.Kind)
+		if kind == "" {
+			kind = id
+		}
+
+		s.loginProviders = append(s.loginProviders, registeredLoginProvider{
+			id:       id,
+			kind:     kind,
+			provider: registration.Provider,
+		})
+	}
+}
+
+func (s *APIServer) SetExternalLoginAutoProvision(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.externalLoginAutoProvision = enabled
+}
+
+func (s *APIServer) SetExternalLoginAutoLinkUsers(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.externalLoginAutoLinkUsers = enabled
+}
+
+func (s *APIServer) SetActionResolver(resolver action.Resolver) {
+	s.actionResolver = resolver
+}
+
+func (s *APIServer) SetActionDescriptorResolver(resolver actionregistry.Resolver) {
+	s.actionDescriptorResolver = resolver
 }
 
 func (s *APIServer) SetAuditor(auditor audit.Auditor) {
@@ -445,6 +838,43 @@ func (s *APIServer) SetAuditPolicy(policy audit.Policy) {
 
 func (s *APIServer) SetRetryMetrics(m backoff.RetryMetrics) {
 	s.retryMetrics = m
+}
+
+func (s *APIServer) SetDispatchMetrics(m dispatchMetrics) {
+	s.dispatchMetrics = m
+}
+
+func (s *APIServer) SetLogRoutingMetrics(m logclient.RoutingMetrics) {
+	s.logRoutingMetrics = m
+}
+
+func (s *APIServer) SetAPIDispatchMetrics(m *observability.APIDispatchMetrics) {
+	s.apiDispatchMetrics = m
+}
+
+func (s *APIServer) SetAPISecurityMetrics(m securityRejectionMetrics) {
+	s.apiSecurityMetrics = m
+}
+
+func (s *APIServer) SetSourceSyncMetrics(m sourceRepositorySyncMetrics) {
+	s.sourceSyncMetrics = m
+	s.sourceRefHydrationMetrics = nil
+	s.sourceObjectStoreMetrics = nil
+	if hydrationMetrics, ok := m.(sourceRefHydrationMetrics); ok {
+		s.sourceRefHydrationMetrics = hydrationMetrics
+	}
+
+	if objectStoreMetrics, ok := m.(sourceRepositoryObjectStoreMetrics); ok {
+		s.sourceObjectStoreMetrics = objectStoreMetrics
+	}
+}
+
+func (s *APIServer) SetSourceSyncCheckoutStatus(fn func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus) {
+	s.sourceSyncCheckoutStatus = fn
+}
+
+func (s *APIServer) SetSourceRefHydrator(fn func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus) {
+	s.sourceRefHydrator = fn
 }
 
 func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
@@ -479,6 +909,15 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 	return err
 }
 
+func (s *APIServer) auditLogOrFail(w http.ResponseWriter, ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) bool {
+	if err := s.auditLog(ctx, eventType, actorID, targetID, metadata); err != nil {
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return false
+	}
+
+	return true
+}
+
 type httpRequestKey struct{}
 
 func (s *APIServer) ConnectToQueue(ctx context.Context) error {
@@ -487,8 +926,10 @@ func (s *APIServer) ConnectToQueue(ctx context.Context) error {
 		old.close()
 	}
 
-	mq, err := queueclient.NewManagingQueueService(ctx, s.logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, s.logger, config.PinnedQueueAddress(), config.APIRegistryDialAddress(), s.retryMetrics)
+	mq, err := queueclient.NewManagingQueuePoolService(ctx, s.logger, queueclient.QueuePoolOptions{
+		PinnedAddress:   config.PinnedQueueAddress(),
+		RegistryAddress: config.APIRegistryDialAddress(),
+		RetryMetrics:    s.retryMetrics,
 	})
 
 	if err != nil {
@@ -505,18 +946,56 @@ func (s *APIServer) ConnectToLog(ctx context.Context) error {
 		old.close()
 	}
 
-	conn, cleanup, err := resolver.DialLog(ctx, s.logger, config.APILogAddress(), config.APIRegistryDialAddress(), s.retryMetrics)
+	client, err := logclient.NewManagingLogClient(ctx, s.logger, logclient.PoolOptions{
+		PinnedAddress:   config.APILogAddress(),
+		RegistryAddress: config.APIRegistryDialAddress(),
+		RetryMetrics:    s.retryMetrics,
+		AssignmentStore: s.runs,
+		Metrics:         s.logRoutingMetrics,
+	})
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to log service: %w", err)
 	}
 
-	client := api.NewLogServiceClient(conn)
-	s.logClient.Store(&logClientHolder{client: client, conn: conn, close: cleanup})
+	s.logClient.Store(&logClientHolder{
+		client: client,
+		state:  client.GRPCConnectivityState,
+		close:  func() { _ = client.Close() },
+	})
+
 	return nil
 }
 
 func (s *APIServer) runHTTPServer(ctx context.Context, srv *http.Server, serve func() error) error {
-	return cli.ServeHTTP(ctx, srv, serve, defaultShutdownTimeout, "API server", s.logger)
+	s.draining.Store(false)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- serve()
+	}()
+
+	select {
+	case <-ctx.Done():
+		s.draining.Store(true)
+		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutCtx); err != nil && s.logger != nil {
+			s.logger.Warn("API server shutdown: %v", err)
+		}
+
+		err := <-errCh
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+
+		return nil
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+
+		return err
+	}
 }
 
 func (s *APIServer) Run(ctx context.Context, addr string) error {
@@ -524,15 +1003,7 @@ func (s *APIServer) Run(ctx context.Context, addr string) error {
 	defer srvCancel()
 	s.srvCtx.Store(&ctxHolder{ctx: srvCtx})
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: defaultReadHeaderTimeout,
-		ReadTimeout:       defaultReadTimeout,
-		WriteTimeout:      defaultWriteTimeout,
-		IdleTimeout:       defaultIdleTimeout,
-	}
-
+	srv := s.newHTTPServer(addr)
 	s.logger.Info("API server listening on %s", addr)
 	return s.runHTTPServer(ctx, srv, srv.ListenAndServe)
 }
@@ -542,14 +1013,19 @@ func (s *APIServer) Serve(ctx context.Context, l net.Listener) error {
 	defer srvCancel()
 	s.srvCtx.Store(&ctxHolder{ctx: srvCtx})
 
-	srv := &http.Server{
+	srv := s.newHTTPServer("")
+	s.logger.Info("API server serving on %s", l.Addr().String())
+	return s.runHTTPServer(ctx, srv, func() error { return srv.Serve(l) })
+}
+
+func (s *APIServer) newHTTPServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       defaultReadTimeout,
 		WriteTimeout:      defaultWriteTimeout,
 		IdleTimeout:       defaultIdleTimeout,
+		MaxHeaderBytes:    httpsecurity.DefaultMaxHeaderBytes,
 	}
-
-	s.logger.Info("API server serving on %s", l.Addr().String())
-	return s.runHTTPServer(ctx, srv, func() error { return srv.Serve(l) })
 }

@@ -31,7 +31,7 @@ Contexts in Vectis express ownership. Before choosing `r.Context()`, a service r
 | Daemon startup check before a server exists | Short `context.WithTimeout(context.Background(), ...)`. |
 | Service loop | Root process context from command/shutdown handling. |
 | Cleanup during shutdown | Fresh bounded timeout so cleanup can finish even if the caller was canceled. |
-| Worker executing a claimed run | Run lifecycle context that survives graceful shutdown until finalization. |
+| Worker executing a task execution | Run lifecycle context that survives graceful shutdown until finalization. |
 | Remote run cancel | Explicit cancellation signal for that run's execution context. |
 
 If a task outlives the request that started it, document what stops it and how operators repair it if it fails.
@@ -79,7 +79,7 @@ For new request-derived work:
 
 Async enqueue after HTTP 202 is intentionally detached from the request. API shutdown does not join these goroutines; the database run row is already durable, enqueue retries are bounded, and `vectis-reconciler` repairs queued runs that missed handoff.
 
-Worker drain is intentionally detached from the shutdown signal for the current run. A graceful worker shutdown stops dequeuing new work but lets the claimed run finalize when possible.
+Worker drain is intentionally detached from the shutdown signal for the current run. A graceful worker shutdown stops dequeuing new work but lets the active task execution finalize when possible.
 
 ## Related Docs
 

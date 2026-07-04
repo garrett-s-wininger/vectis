@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -67,7 +68,7 @@ func startTestRegistryCluster(t *testing.T, optsForNode func(i int, addr string,
 		}
 
 		go func() {
-			if err := grpcServer.Serve(ln); err != nil && err != grpc.ErrServerStopped {
+			if err := grpcServer.Serve(ln); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 				t.Logf("registry test server failed: %v", err)
 			}
 		}()

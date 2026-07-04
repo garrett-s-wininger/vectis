@@ -65,6 +65,10 @@ func (r *Registry) RegisterInstance(ctx context.Context, component api.Component
 
 func (r *Registry) RegisterInstanceWithMetadata(ctx context.Context, component api.Component, instanceID, address string, metadata map[string]string) error {
 	metadata = cloneMetadata(metadata)
+	if err := ValidateComponentMetadata(component, metadata); err != nil {
+		return fmt.Errorf("registry metadata: %w", err)
+	}
+
 	retryer := backoff.NewRetryer(backoff.RetryConfig{
 		MaxTries:  r.maxTries,
 		BaseDelay: r.baseDelay,
@@ -93,6 +97,10 @@ func (r *Registry) RegisterInstanceOnce(ctx context.Context, component api.Compo
 }
 
 func (r *Registry) RegisterInstanceOnceWithMetadata(ctx context.Context, component api.Component, instanceID, address string, metadata map[string]string) error {
+	if err := ValidateComponentMetadata(component, metadata); err != nil {
+		return fmt.Errorf("registry metadata: %w", err)
+	}
+
 	comp := component
 	addr := address
 	req := &api.Registration{

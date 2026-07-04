@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/interfaces"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/logserver"
 	"vectis/internal/testutil/grpctest"
@@ -324,7 +326,7 @@ func TestIntegrationLogServer_ServerClosesStreamAfterCompleted(t *testing.T) {
 
 func TestIntegrationLogServer_WorkerCrashSyntheticCompletion(t *testing.T) {
 	client := setupLogServer(t)
-	ctx := context.Background()
+	ctx := metadata.AppendToOutgoingContext(context.Background(), interfaces.LogSyntheticCompletionMetadata, "true")
 	runID := "test-run-worker-crash"
 
 	stream, err := client.StreamLogs(ctx)

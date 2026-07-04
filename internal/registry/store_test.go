@@ -76,6 +76,25 @@ func TestRegTombstoneAllowsNewSponsorLiveEntry(t *testing.T) {
 	}
 }
 
+func TestRegMergeDropsInvalidMetadata(t *testing.T) {
+	now := time.Unix(100, 0)
+	r := newReg("node-a", time.Minute, 5*time.Minute)
+
+	incoming := registrationEntry{
+		component:      api.Component_COMPONENT_QUEUE,
+		instanceID:     "bad-queue",
+		address:        "queue-bad:1",
+		metadata:       map[string]string{MetadataQueueRole: "banana"},
+		version:        registryVersion{originNodeID: "node-b", counter: 1},
+		leaseExpiresAt: now.Add(time.Minute),
+	}
+
+	r.mergeProtoEntries([]*api.RegistryEntry{registryEntryToProto(incoming)}, now)
+	if _, ok := r.get(api.Component_COMPONENT_QUEUE, "bad-queue", now); ok {
+		t.Fatal("invalid metadata should not be merged from gossip")
+	}
+}
+
 func TestRegEntriesNewerThanDigestsSendsOnlyMissingOrNewer(t *testing.T) {
 	now := time.Unix(100, 0)
 	r := newReg("node-a", time.Minute, 5*time.Minute)

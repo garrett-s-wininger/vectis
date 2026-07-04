@@ -47,16 +47,26 @@ var EventDefinitions = []EventDefinition{
 	{Type: EventSetupCompleted, DefaultDurability: DurabilityFailClosed},
 	{Type: EventSetupBootstrapFailed, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventNamespaceCreated, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventNamespaceUpdated, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventNamespaceDeleted, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventJobCreated, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventJobDeleted, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventJobUpdated, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceRepositoryCreated, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceRepositoryUpdated, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceRepositoryDeleted, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceRepositorySyncRequested, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceScheduleUpdated, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceScheduleDeleted, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceScheduleOverrideSet, DefaultDurability: DurabilityDurableBestEffort},
+	{Type: EventSourceScheduleOverrideCleared, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventRunRepairMarked, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventRunForceFailed, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventRunForceRequeued, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventRunCancelled, DefaultDurability: DurabilityDurableBestEffort},
 	{Type: EventAuthSuccess, DefaultDurability: DurabilityBestEffort},
 	{Type: EventAuthFailure, DefaultDurability: DurabilityBestEffort},
+	{Type: EventAuthLogout, DefaultDurability: DurabilityBestEffort},
 	{Type: EventRunTriggered, DefaultDurability: DurabilityBestEffort},
 }
 
@@ -112,7 +122,7 @@ func ParseDurability(s string) (Durability, error) {
 func ParseDurabilityOverrides(s string) (map[string]Durability, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil, nil
+		return map[string]Durability{}, nil
 	}
 
 	overrides := map[string]Durability{}

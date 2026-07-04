@@ -13,12 +13,14 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+	"vectis/internal/platform"
 
 	"google.golang.org/protobuf/proto"
 )
 
 const (
 	snapshotFileName          = "queue.snapshot"
+	lockFileName              = "queue.lock"
 	walSegmentPrefix          = "queue.wal."
 	defaultSegmentMaxBytes    = 4 * 1024 * 1024
 	defaultRetainTailSegments = 2
@@ -27,12 +29,13 @@ const (
 type walRecordType string
 
 const (
-	walRecordEnqueue    walRecordType = "enqueue"
-	walRecordDeliver    walRecordType = "deliver"
-	walRecordAck        walRecordType = "ack"
-	walRecordRequeue    walRecordType = "requeue_expired"
-	walRecordDLQ        walRecordType = "dlq"
-	walRecordDLQRequeue walRecordType = "dlq_requeue"
+	walRecordEnqueue     walRecordType = "enqueue"
+	walRecordDeliver     walRecordType = "deliver"
+	walRecordAck         walRecordType = "ack"
+	walRecordRequeue     walRecordType = "requeue_expired"
+	walRecordDropExpired walRecordType = "drop_expired"
+	walRecordDLQ         walRecordType = "dlq"
+	walRecordDLQRequeue  walRecordType = "dlq_requeue"
 )
 
 type walRecord struct {
@@ -71,6 +74,20 @@ type inflightDelivery struct {
 	AttemptCount int
 }
 
+func sameJobRequestIdentity(a, b *api.JobRequest) bool {
+	if a == nil || b == nil {
+		return false
+	}
+
+	aj := a.GetJob()
+	bj := b.GetJob()
+	if aj == nil || bj == nil {
+		return false
+	}
+
+	return aj.GetId() == bj.GetId() && aj.GetRunId() == bj.GetRunId()
+}
+
 type persistenceStore struct {
 	dir                string
 	snapshotPath       string
@@ -80,6 +97,7 @@ type persistenceStore struct {
 	segmentMaxBytes    int64
 	retainTailSegments int
 	log                interfaces.Logger
+	lockFile           *os.File
 }
 
 type queueState struct {
@@ -117,6 +135,11 @@ func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, r
 		return nil, nil, fmt.Errorf("create queue persistence dir: %w", err)
 	}
 
+	lockFile, err := acquirePersistenceLock(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	p := &persistenceStore{
 		dir:                dir,
 		snapshotPath:       filepath.Join(dir, snapshotFileName),
@@ -125,14 +148,59 @@ func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, r
 		segmentMaxBytes:    segmentMaxBytes,
 		retainTailSegments: retainTailSegments,
 		log:                log,
+		lockFile:           lockFile,
 	}
 
 	state, err := p.loadState()
+	if err == nil {
+		err = validatePersistedQueueState(state)
+	}
+
 	if err != nil {
+		_ = p.Close()
 		return nil, nil, err
 	}
 
 	return p, state, nil
+}
+
+func acquirePersistenceLock(dir string) (*os.File, error) {
+	lockPath := filepath.Join(dir, lockFileName)
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open queue persistence lock %s: %w", lockPath, err)
+	}
+
+	if err := platform.TryLockFileExclusive(f); err != nil {
+		_ = f.Close()
+		if platform.IsFileLockUnavailable(err) {
+			return nil, fmt.Errorf("queue persistence directory %s is already in use by another queue process; use a distinct persistence directory for each active queue shard: %w", dir, err)
+		}
+
+		return nil, fmt.Errorf("lock queue persistence directory %s: %w", dir, err)
+	}
+
+	return f, nil
+}
+
+func (p *persistenceStore) Close() error {
+	if p == nil || p.lockFile == nil {
+		return nil
+	}
+
+	lockFile := p.lockFile
+	p.lockFile = nil
+
+	var result error
+	if err := platform.UnlockFile(lockFile); err != nil {
+		result = fmt.Errorf("unlock queue persistence directory %s: %w", p.dir, err)
+	}
+
+	if err := lockFile.Close(); err != nil && result == nil {
+		result = fmt.Errorf("close queue persistence lock %s: %w", filepath.Join(p.dir, lockFileName), err)
+	}
+
+	return result
 }
 
 func (p *persistenceStore) loadState() (*queueState, error) {
@@ -180,11 +248,11 @@ func (p *persistenceStore) loadSnapshot() (*queueSnapshot, error) {
 	f, err := os.Open(p.snapshotPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return &queueSnapshot{}, nil
 		}
 		return nil, fmt.Errorf("open snapshot: %w", err)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	var snap queueSnapshot
 	if err := json.NewDecoder(f).Decode(&snap); err != nil {
@@ -259,8 +327,13 @@ func (p *persistenceStore) appendEnqueue(req *api.JobRequest, state snapshotStat
 	return p.appendRecord(walRecord{Type: walRecordEnqueue, Job: payload}, state)
 }
 
-func (p *persistenceStore) appendDeliver(deliveryID string, leaseUntil time.Time, attemptCount int, state snapshotState) error {
-	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, LeaseUntilUTC: leaseUntil.UTC().Unix(), AttemptCount: attemptCount}, state)
+func (p *persistenceStore) appendDeliver(deliveryID string, req *api.JobRequest, leaseUntil time.Time, attemptCount int, state snapshotState) error {
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal deliver job: %w", err)
+	}
+
+	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, Job: payload, LeaseUntilUTC: leaseUntil.UTC().Unix(), AttemptCount: attemptCount}, state)
 }
 
 func (p *persistenceStore) appendDLQ(deliveryID string, req *api.JobRequest, attemptCount int, state snapshotState) error {
@@ -292,6 +365,15 @@ func (p *persistenceStore) appendRequeueExpired(deliveryID string, req *api.JobR
 	}
 
 	return p.appendRecord(walRecord{Type: walRecordRequeue, DeliveryID: deliveryID, Job: payload}, state)
+}
+
+func (p *persistenceStore) appendDropExpired(deliveryID string, req *api.JobRequest, state snapshotState) error {
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal expired job: %w", err)
+	}
+
+	return p.appendRecord(walRecord{Type: walRecordDropExpired, DeliveryID: deliveryID, Job: payload}, state)
 }
 
 func (p *persistenceStore) appendRecord(rec walRecord, state snapshotState) error {
@@ -527,7 +609,7 @@ func (p *persistenceStore) segmentBounds(path string) (uint64, uint64, int, erro
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("open wal segment for bounds %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(f)
 
 	var minIdx uint64
 	var maxIdx uint64
@@ -623,6 +705,7 @@ func decodeInflight(rows []inflightSnapshot) (map[string]inflightDelivery, error
 			return nil, err
 		}
 
+		ensureJobRequestDeliveryID(&req, row.DeliveryID)
 		out[row.DeliveryID] = inflightDelivery{
 			JobRequest:   &req,
 			LeaseUntil:   time.Unix(row.LeaseUntilUTC, 0).UTC(),
@@ -685,7 +768,31 @@ func applyRecord(state *queueState, rec walRecord) error {
 		}
 
 		req := state.jobs[0]
-		state.jobs = state.jobs[1:]
+		if len(rec.Job) > 0 {
+			var delivered api.JobRequest
+			if err := proto.Unmarshal(rec.Job, &delivered); err != nil {
+				return fmt.Errorf("unmarshal deliver payload: %w", err)
+			}
+
+			found := false
+			for i, pending := range state.jobs {
+				if sameJobRequestIdentity(pending, &delivered) {
+					state.jobs = append(state.jobs[:i], state.jobs[i+1:]...)
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				return fmt.Errorf("replay deliver %s references a job not present in pending queue", rec.DeliveryID)
+			}
+
+			req = &delivered
+		} else {
+			state.jobs = state.jobs[1:]
+		}
+
+		ensureJobRequestDeliveryID(req, rec.DeliveryID)
 		state.inflight[rec.DeliveryID] = inflightDelivery{
 			JobRequest:   req,
 			LeaseUntil:   time.Unix(rec.LeaseUntilUTC, 0).UTC(),
@@ -718,6 +825,32 @@ func applyRecord(state *queueState, rec walRecord) error {
 		}
 
 		state.jobAttempts[req.GetJob().GetId()]++
+		return nil
+	case walRecordDropExpired:
+		var req api.JobRequest
+		if err := proto.Unmarshal(rec.Job, &req); err != nil {
+			return fmt.Errorf("unmarshal expired drop payload: %w", err)
+		}
+
+		if rec.DeliveryID != "" {
+			delete(state.inflight, rec.DeliveryID)
+			if state.jobAttempts != nil {
+				delete(state.jobAttempts, req.GetJob().GetId())
+			}
+			return nil
+		}
+
+		for i, pending := range state.jobs {
+			if sameJobRequestIdentity(pending, &req) {
+				state.jobs = append(state.jobs[:i], state.jobs[i+1:]...)
+				break
+			}
+		}
+
+		if state.jobAttempts != nil {
+			delete(state.jobAttempts, req.GetJob().GetId())
+		}
+
 		return nil
 	case walRecordDLQ:
 		var req api.JobRequest

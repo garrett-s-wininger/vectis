@@ -57,18 +57,20 @@ func (c *GRPCQueueClient) Enqueue(ctx context.Context, req *api.JobRequest) erro
 }
 
 func (c *GRPCQueueClient) Dequeue(ctx context.Context) (*api.JobRequest, error) {
-	req, err := c.client.Dequeue(ctx, &api.Empty{})
+	req, err := c.client.Dequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to dequeue job: %w", err)
 	}
+
 	return req, nil
 }
 
 func (c *GRPCQueueClient) TryDequeue(ctx context.Context) (*api.JobRequest, error) {
-	req, err := c.client.TryDequeue(ctx, &api.Empty{})
+	req, err := c.client.TryDequeue(ctx, &api.DequeueRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to try dequeue job: %w", err)
 	}
+
 	return req, nil
 }
 

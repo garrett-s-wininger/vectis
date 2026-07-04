@@ -1,0 +1,117 @@
+{
+  "id": "e2e-kubernetes-smoke",
+  "root": {
+    "id": "root-control",
+    "uses": "builtins/sequence",
+    "with": {
+      "execution": "local"
+    },
+    "ports": {
+      "steps": {
+        "nodes": [
+          {
+            "id": "setup-control",
+            "uses": "builtins/script",
+            "with": {
+              "script": "printf 'canonical-control-%s\\n' start; sleep 1"
+            }
+          },
+          {
+            "id": "fanout-control",
+            "uses": "builtins/parallel",
+            "with": {
+              "execution": "distributed"
+            },
+            "ports": {
+              "branches": {
+                "nodes": [
+                  {
+                    "id": "artifact-lane",
+                    "uses": "builtins/sequence",
+                    "with": {
+                      "execution": "local"
+                    },
+                    "ports": {
+                      "steps": {
+                        "nodes": [
+                          {
+                            "id": "artifact-write",
+                            "uses": "builtins/script",
+                            "with": {
+                              "script": "mkdir -p reports; printf 'canonical-artifact-ok\\n' > reports/e2e-smoke.txt; printf 'canonical-artifact-%s\\n' written"
+                            }
+                          },
+                          {
+                            "id": "artifact-upload",
+                            "uses": "builtins/upload-artifact",
+                            "with": {
+                              "name": "e2e-smoke-report",
+                              "path": "reports/e2e-smoke.txt",
+                              "content_type": "text/plain",
+                              "metadata_json": "{\"suite\":\"kubernetes-e2e\"}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "id": "registry-retry-lane",
+                    "uses": "builtins/sequence",
+                    "with": {
+                      "execution": "local"
+                    },
+                    "ports": {
+                      "steps": {
+                        "nodes": [
+                          {
+                            "id": "registry-retry",
+                            "uses": "builtins/retry",
+                            "with": {
+                              "attempts": "2",
+                              "execution": "local"
+                            },
+                            "ports": {
+                              "body": {
+                                "nodes": [
+                                  {
+                                    "id": "registry-flaky-action",
+                                    "uses": "examples/flaky-once@v1",
+                                    "with": {
+                                      "succeed_on": "2"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          {
+                            "id": "registry-retry-upload",
+                            "uses": "builtins/upload-artifact",
+                            "with": {
+                              "name": "e2e-registry-retry",
+                              "path": "reports/registry-retry.txt",
+                              "content_type": "text/plain",
+                              "metadata_json": "{\"suite\":\"kubernetes-e2e\",\"lane\":\"registry-retry\"}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "id": "fanout-script-lane",
+                    "uses": "builtins/script",
+                    "with": {
+                      "script": "printf 'canonical-fanout-%s\\n' ok"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

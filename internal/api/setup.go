@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -14,8 +13,6 @@ import (
 	"vectis/internal/api/audit"
 	"vectis/internal/config"
 	"vectis/internal/dal"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -30,14 +27,25 @@ type setupStatusResponse struct {
 }
 
 type setupCompleteRequest struct {
-	BootstrapToken string `json:"bootstrap_token"`
-	AdminUsername  string `json:"admin_username"`
-	AdminPassword  string `json:"admin_password"`
+	BootstrapToken      string                        `json:"bootstrap_token"`
+	AdminUsername       string                        `json:"admin_username"`
+	AdminPassword       string                        `json:"admin_password,omitempty"`
+	PasswordAuthEnabled *bool                         `json:"password_auth_enabled,omitempty"`
+	ExternalIdentity    *setupExternalIdentityRequest `json:"external_identity,omitempty"`
+}
+
+type setupExternalIdentityRequest struct {
+	ProviderID  string `json:"provider_id"`
+	Subject     string `json:"subject"`
+	Username    string `json:"username,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 type setupCompleteResponse struct {
-	APIToken string `json:"api_token"`
-	Username string `json:"username"`
+	APIToken            string                    `json:"api_token"`
+	Username            string                    `json:"username"`
+	PasswordAuthEnabled bool                      `json:"password_auth_enabled"`
+	ExternalIdentity    *externalIdentityResponse `json:"external_identity,omitempty"`
 }
 
 func (s *APIServer) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +54,7 @@ func (s *APIServer) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	if s.authRepo == nil {
@@ -76,12 +84,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	if s.authRepo == nil {
@@ -105,14 +108,8 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxSetupCompleteBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
-		return
-	}
-
-	if len(body) > maxSetupCompleteBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxSetupCompleteBodyBytes)
+	if !ok {
 		return
 	}
 
@@ -133,7 +130,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	a := strings.TrimSpace(req.BootstrapToken)
 	if subtle.ConstantTimeCompare([]byte(a), []byte(expected)) != 1 {
-		_ = s.auditLog(r.Context(), audit.EventSetupBootstrapFailed, 0, 0, map[string]any{
+		s.auditLog(r.Context(), audit.EventSetupBootstrapFailed, 0, 0, map[string]any{
 			"reason": "invalid_bootstrap_token",
 		})
 
@@ -152,17 +149,62 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.AdminPassword) < adminPasswordMinLen {
+	passwordAuthEnabled := true
+	if req.PasswordAuthEnabled != nil {
+		passwordAuthEnabled = *req.PasswordAuthEnabled
+	}
+
+	var setupIdentity *dal.InitialSetupExternalIdentity
+	if req.ExternalIdentity != nil {
+		req.ExternalIdentity.ProviderID = strings.TrimSpace(req.ExternalIdentity.ProviderID)
+		req.ExternalIdentity.Subject = strings.TrimSpace(req.ExternalIdentity.Subject)
+		req.ExternalIdentity.Username = strings.TrimSpace(req.ExternalIdentity.Username)
+		req.ExternalIdentity.DisplayName = strings.TrimSpace(req.ExternalIdentity.DisplayName)
+		if req.ExternalIdentity.Username == "" {
+			req.ExternalIdentity.Username = username
+		}
+
+		if !validExternalProviderID(req.ExternalIdentity.ProviderID) ||
+			!validExternalSubject(req.ExternalIdentity.Subject) ||
+			!validExternalLoginUsername(req.ExternalIdentity.Username) {
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidExternalIdentity)
+			return
+		}
+
+		setupIdentity = &dal.InitialSetupExternalIdentity{
+			ProviderID:  req.ExternalIdentity.ProviderID,
+			Subject:     req.ExternalIdentity.Subject,
+			Username:    req.ExternalIdentity.Username,
+			DisplayName: req.ExternalIdentity.DisplayName,
+		}
+	}
+
+	if !passwordAuthEnabled && setupIdentity == nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidExternalIdentity)
+		return
+	}
+
+	password := req.AdminPassword
+	if password == "" && !passwordAuthEnabled {
+		var err error
+		password, err = generateRandomPassword()
+		if err != nil {
+			writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+			return
+		}
+	}
+
+	if len(password) < adminPasswordMinLen {
 		writeAPIErrorCode(w, http.StatusBadRequest, apiErrAdminPasswordTooShort)
 		return
 	}
 
-	if len(req.AdminPassword) > adminPasswordMaxLen || !utf8.ValidString(req.AdminPassword) {
+	if len(password) > adminPasswordMaxLen || !utf8.ValidString(password) {
 		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidAdminPassword)
 		return
 	}
 
-	passHash, err := bcrypt.GenerateFromPassword([]byte(req.AdminPassword), bcrypt.DefaultCost)
+	passHash, err := generatePasswordHash(password)
 	if err != nil {
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return
@@ -176,7 +218,15 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 
 	tokenHash := hashAPIToken(plainToken)
 
-	localUserID, err := s.authRepo.CompleteInitialSetup(ctx, username, string(passHash), tokenHash, "initial-admin")
+	localUserID, err := s.authRepo.CompleteInitialSetupWithOptions(ctx, dal.CompleteInitialSetupOptions{
+		Username:            username,
+		PasswordHash:        string(passHash),
+		PasswordAuthEnabled: passwordAuthEnabled,
+		TokenHash:           tokenHash,
+		TokenLabel:          "initial-admin",
+		ExternalIdentity:    setupIdentity,
+	})
+
 	if err != nil {
 		if errors.Is(err, dal.ErrSetupAlreadyComplete) {
 			writeAPIErrorCode(w, http.StatusConflict, apiErrSetupAlreadyComplete)
@@ -184,7 +234,17 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if dal.IsConflict(err) {
-			writeAPIErrorCode(w, http.StatusConflict, apiErrUsernameAlreadyExists)
+			if setupIdentity != nil {
+				writeAPIErrorCode(w, http.StatusConflict, apiErrExternalIdentityAlreadyExists)
+			} else {
+				writeAPIErrorCode(w, http.StatusConflict, apiErrUsernameAlreadyExists)
+			}
+
+			return
+		}
+
+		if dal.IsNotFound(err) && setupIdentity != nil {
+			writeAPIErrorCode(w, http.StatusBadRequest, apiErrAuthProviderNotFound)
 			return
 		}
 
@@ -196,13 +256,29 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = s.auditLog(ctx, audit.EventSetupCompleted, localUserID, localUserID, map[string]any{
-		"username": username,
-	})
+	if !s.auditLogOrFail(w, ctx, audit.EventSetupCompleted, localUserID, localUserID, map[string]any{
+		"username":              username,
+		"password_auth_enabled": passwordAuthEnabled,
+	}) {
+		return
+	}
 
+	var externalIdentity *externalIdentityResponse
+	if setupIdentity != nil {
+		if identity, err := s.authRepo.GetExternalIdentity(ctx, setupIdentity.ProviderID, setupIdentity.Subject); err == nil {
+			resp := externalIdentityRecordToResponse(identity)
+			externalIdentity = &resp
+		} else {
+			s.logger.Error("Database error loading setup external identity: %v", err)
+		}
+	}
+
+	setNoStore(w)
 	writeJSON(w, http.StatusOK, setupCompleteResponse{
-		APIToken: plainToken,
-		Username: username,
+		APIToken:            plainToken,
+		Username:            username,
+		PasswordAuthEnabled: passwordAuthEnabled,
+		ExternalIdentity:    externalIdentity,
 	})
 }
 

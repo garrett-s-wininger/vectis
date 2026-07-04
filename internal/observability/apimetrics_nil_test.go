@@ -1,6 +1,8 @@
 package observability
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestRegisterSQLDBPoolMetrics_nilDB(t *testing.T) {
 	t.Parallel()

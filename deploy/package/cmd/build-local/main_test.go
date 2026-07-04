@@ -1,0 +1,245 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"io"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestUseNativeBuild(t *testing.T) {
+	tests := []struct {
+		name          string
+		hostOS        string
+		allowCrossCGO bool
+		want          bool
+	}{
+		{name: "linux", hostOS: "linux", want: true},
+		{name: "darwin", hostOS: "darwin", want: false},
+		{name: "darwin cross override", hostOS: "darwin", allowCrossCGO: true, want: true},
+		{name: "windows", hostOS: "windows", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := useNativeBuild(tt.hostOS, tt.allowCrossCGO); got != tt.want {
+				t.Fatalf("useNativeBuild(%q, %v) = %v, want %v", tt.hostOS, tt.allowCrossCGO, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNativeTarget(t *testing.T) {
+	if got, want := nativeTarget("deb"), "packageLocalNativeDebArch"; got != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+}
+
+func TestParseOptions(t *testing.T) {
+	clearPackageLocalEnv(t)
+
+	opts, err := parseOptions([]string{
+		"--format", "rpm",
+		"--arch", "arm64",
+		"--workdir", ".",
+		"--env", "PACKAGE_OUT=artifacts/packages",
+		"--env", "PACKAGE_LOCAL_APPS=local api worker",
+	}, io.Discard)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if opts.Format != "rpm" {
+		t.Fatalf("format = %q, want rpm", opts.Format)
+	}
+
+	if opts.Arch != "arm64" {
+		t.Fatalf("arch = %q, want arm64", opts.Arch)
+	}
+
+	if opts.Provider != "lima" {
+		t.Fatalf("provider = %q, want lima", opts.Provider)
+	}
+
+	if opts.Instance != defaultBuildVMInstance {
+		t.Fatalf("instance = %q, want %q", opts.Instance, defaultBuildVMInstance)
+	}
+
+	if !slices.Contains(opts.Env, "PACKAGE_LOCAL_APPS=local api worker") {
+		t.Fatalf("env did not preserve spaces: %v", opts.Env)
+	}
+}
+
+func TestParseOptionsRejectsInvalidFormat(t *testing.T) {
+	clearPackageLocalEnv(t)
+
+	_, err := parseOptions([]string{"--format", "apk", "--arch", "arm64"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "format must be deb or rpm") {
+		t.Fatalf("expected format error, got %v", err)
+	}
+}
+
+func TestVMBuildEnvDefaultsCanBeOverridden(t *testing.T) {
+	got := vmBuildEnv([]string{"GOCACHE=/custom/cache", "PACKAGE_ARCH=arm64"}, "go", "mage", "/var/tmp/cache")
+	if !slices.Contains(got, "PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin") {
+		t.Fatalf("default path missing: %v", got)
+	}
+
+	if !slices.Contains(got, "VECTIS_PACKAGE_LOCAL_MAGE=mage") {
+		t.Fatalf("mage command missing: %v", got)
+	}
+
+	if got[len(got)-2] != "GOCACHE=/custom/cache" {
+		t.Fatalf("override should be appended after defaults, got %v", got)
+	}
+}
+
+func TestRelativePackageOut(t *testing.T) {
+	opts := options{
+		WorkDir: "/work/vectis",
+		Env:     []string{"PACKAGE_OUT=artifacts/packages"},
+	}
+
+	got, err := relativePackageOut(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != "artifacts/packages" {
+		t.Fatalf("relative output = %q, want artifacts/packages", got)
+	}
+
+	opts.Env = []string{"PACKAGE_OUT=/work/vectis/out/packages"}
+	got, err = relativePackageOut(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != "out/packages" {
+		t.Fatalf("absolute in-worktree output = %q, want out/packages", got)
+	}
+}
+
+func TestRelativePackageOutRejectsOutsideWorktree(t *testing.T) {
+	_, err := relativePackageOut(options{
+		WorkDir: "/work/vectis",
+		Env:     []string{"PACKAGE_OUT=/tmp/packages"},
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "PACKAGE_OUT must be relative") {
+		t.Fatalf("expected outside worktree error, got %v", err)
+	}
+}
+
+func TestVerifyPreparedBuildVMChecksVersionMarker(t *testing.T) {
+	manager := &recordingBuildVMManager{}
+
+	err := verifyPreparedBuildVM(context.Background(), manager, options{Instance: "builder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"sh", "-c", `test "$(cat "$1")" = "$2"`,
+		"vectis-package-builder-check",
+		buildVMPrepVersionPath,
+		expectedBuildVMPrepVersion(),
+	}
+
+	if !reflect.DeepEqual(manager.shellCommands[0], want) {
+		t.Fatalf("version check command = %v, want %v", manager.shellCommands[0], want)
+	}
+}
+
+func TestVerifyPreparedBuildVMReportsPrepTarget(t *testing.T) {
+	manager := &recordingBuildVMManager{shellErr: errors.New("missing marker")}
+
+	err := verifyPreparedBuildVM(context.Background(), manager, options{Instance: "builder"})
+	if err == nil {
+		t.Fatal("expected stale builder error")
+	}
+
+	if !strings.Contains(err.Error(), "mage vmPackageBuilderPrepare") {
+		t.Fatalf("stale builder error = %q, want prep target hint", err)
+	}
+}
+
+func TestSafeGuestName(t *testing.T) {
+	if got, want := safeGuestName("vectis deb/arm64"), "vectis-deb-arm64"; got != want {
+		t.Fatalf("safe guest name = %q, want %q", got, want)
+	}
+}
+
+type recordingBuildVMManager struct {
+	shellErr      error
+	shellCommands [][]string
+}
+
+func (m *recordingBuildVMManager) Provider() string {
+	return "recording"
+}
+
+func (m *recordingBuildVMManager) CheckAvailable() error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) InstanceExists(context.Context, string) (bool, error) {
+	return true, nil
+}
+
+func (m *recordingBuildVMManager) InstanceStatus(context.Context, string) (string, error) {
+	return "Stopped", nil
+}
+
+func (m *recordingBuildVMManager) Create(context.Context, string, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Start(context.Context, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Stop(context.Context, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Delete(context.Context, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) CopyDir(context.Context, string, string, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) CopyDirFrom(context.Context, string, string, string) error {
+	return nil
+}
+
+func (m *recordingBuildVMManager) Shell(_ context.Context, _ string, _ io.Reader, args ...string) error {
+	m.shellCommands = append(m.shellCommands, append([]string{}, args...))
+	return m.shellErr
+}
+
+func clearPackageLocalEnv(t *testing.T) {
+	t.Helper()
+
+	for _, name := range []string{
+		"PACKAGE_LOCAL_ALLOW_CROSS_CGO",
+		"PACKAGE_LOCAL_MAGE",
+		"PACKAGE_LOCAL_VM_CACHE_ROOT",
+		"PACKAGE_LOCAL_VM_GO",
+		"PACKAGE_LOCAL_VM_INSTANCE",
+		"PACKAGE_LOCAL_VM_KEEP",
+		"PACKAGE_LOCAL_VM_PRESERVE_ENV",
+		"PACKAGE_LOCAL_VM_PROVIDER",
+		"PACKAGE_LOCAL_VM_PROVIDER_PATH",
+		"PACKAGE_LOCAL_VM_TIMEOUT",
+		"PACKAGE_LOCAL_VM_WORKSPACE_ROOT",
+	} {
+		t.Setenv(name, "")
+	}
+}

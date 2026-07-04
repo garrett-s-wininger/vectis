@@ -1,0 +1,10 @@
+{
+  "id": "custom-greet-job",
+  "root": {
+    "id": "say-hello",
+    "uses": "examples/greet@v1",
+    "with": {
+      "name": "Vectis"
+    }
+  }
+}

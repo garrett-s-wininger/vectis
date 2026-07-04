@@ -1,6 +1,7 @@
 package logforwarder
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -50,13 +51,14 @@ func NewSocketServer(socketPath string, bufferSize int) (*SocketServer, error) {
 		return nil, fmt.Errorf("create socket directory: %w", err)
 	}
 
-	ln, err := net.Listen("unix", socketPath)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("listen on unix socket: %w", err)
 	}
 
 	if err := os.Chmod(socketPath, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return nil, fmt.Errorf("chmod socket: %w", err)
 	}
 
@@ -106,18 +108,18 @@ func (s *SocketServer) Serve() error {
 func (s *SocketServer) Close() error {
 	s.closeOnce.Do(func() {
 		if s.listener != nil {
-			s.listener.Close()
+			_ = s.listener.Close()
 		}
 
 		s.mu.Lock()
 		for conn := range s.conns {
-			conn.Close()
+			_ = conn.Close()
 		}
 		s.mu.Unlock()
 
 		s.wg.Wait()
 		close(s.chunks)
-		os.Remove(s.socketPath)
+		_ = os.Remove(s.socketPath)
 	})
 	return nil
 }
@@ -128,13 +130,13 @@ func (s *SocketServer) handleConn(conn net.Conn) {
 		s.mu.Lock()
 		delete(s.conns, conn)
 		s.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	for {
 		chunk, err := readChunk(conn)
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return
 			}
 

@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -15,11 +16,72 @@ const (
 	WorkerOutcomeFailed           = "failed"
 	WorkerOutcomeAborted          = "aborted"
 	WorkerOutcomeSkippedUnclaimed = "skipped_unclaimed"
+	WorkerOutcomeMalformed        = "malformed"
+
+	WorkerPhaseIdle       = "idle"
+	WorkerPhaseDequeuing  = "dequeuing"
+	WorkerPhaseClaiming   = "claiming"
+	WorkerPhaseAcking     = "acking"
+	WorkerPhaseExecuting  = "executing"
+	WorkerPhaseFinalizing = "finalizing"
+
+	WorkerSPIFFESVIDOutcomeSuccess = "success"
+	WorkerSPIFFESVIDOutcomeFailed  = "failed"
+
+	WorkerSPIFFESVIDReasonMatched           = "matched"
+	WorkerSPIFFESVIDReasonMissingIdentity   = "missing_identity"
+	WorkerSPIFFESVIDReasonMissingSource     = "missing_source"
+	WorkerSPIFFESVIDReasonInvalidExpectedID = "invalid_expected_id"
+	WorkerSPIFFESVIDReasonMismatch          = "mismatch"
+	WorkerSPIFFESVIDReasonSourceError       = "source_error"
+	WorkerSPIFFESVIDReasonSourceTimeout     = "source_timeout"
+	WorkerSPIFFESVIDReasonCanceled          = "canceled"
+	WorkerSPIFFESVIDReasonUnknown           = "unknown"
+
+	WorkerCheckoutCacheWarmOutcomeSuccess = "success"
+	WorkerCheckoutCacheWarmOutcomePartial = "partial"
+	WorkerCheckoutCacheWarmOutcomeFailed  = "failed"
+	WorkerCheckoutCacheWarmOutcomeSkipped = "skipped"
+
+	WorkerCheckoutCacheWarmRemoteOutcomeWarmed    = "warmed"
+	WorkerCheckoutCacheWarmRemoteOutcomeChanged   = "changed"
+	WorkerCheckoutCacheWarmRemoteOutcomeUnchanged = "unchanged"
+	WorkerCheckoutCacheWarmRemoteOutcomeFailed    = "failed"
+
+	WorkerCheckoutCacheWarmReasonOK              = "ok"
+	WorkerCheckoutCacheWarmReasonNoRemotes       = "no_remotes"
+	WorkerCheckoutCacheWarmReasonRemoteFailures  = "remote_failures"
+	WorkerCheckoutCacheWarmReasonCoreError       = "core_error"
+	WorkerCheckoutCacheWarmReasonContextCanceled = "context_canceled"
+	WorkerCheckoutCacheWarmReasonTimeout         = "timeout"
+	WorkerCheckoutCacheWarmReasonUnknown         = "unknown"
 )
 
+var workerPhases = []string{
+	WorkerPhaseIdle,
+	WorkerPhaseDequeuing,
+	WorkerPhaseClaiming,
+	WorkerPhaseAcking,
+	WorkerPhaseExecuting,
+	WorkerPhaseFinalizing,
+}
+
 type WorkerMetrics struct {
-	received metric.Int64Counter
-	duration metric.Float64Histogram
+	received              metric.Int64Counter
+	orchestratorRecovered metric.Int64Counter
+	duration              metric.Float64Histogram
+	spiffeSVIDChecks      metric.Int64Counter
+	checkoutCacheWarm     metric.Int64Counter
+	checkoutCacheWarmTime metric.Float64Histogram
+	checkoutCacheRemotes  metric.Int64Counter
+	phaseGauge            metric.Int64ObservableGauge
+	drainingGauge         metric.Int64ObservableGauge
+	dbGauge               metric.Int64ObservableGauge
+	callback              metric.Registration
+	mu                    sync.RWMutex
+	phase                 string
+	draining              bool
+	dbUnavailable         bool
 }
 
 func NewWorkerMetrics() (*WorkerMetrics, error) {
@@ -33,6 +95,13 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		return nil, fmt.Errorf("vectis_worker_jobs_received_total: %w", err)
 	}
 
+	orchestratorRecovered, err := m.Int64Counter("vectis_worker_orchestrator_recoveries_total",
+		metric.WithDescription("Worker task claims recovered after missing orchestrator hot state"),
+		metric.WithUnit("{recovery}"))
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_orchestrator_recoveries_total: %w", err)
+	}
+
 	duration, err := m.Float64Histogram("vectis_worker_job_duration_seconds",
 		metric.WithDescription("Wall time from job handler entry to terminal outcome"),
 		metric.WithUnit("s"),
@@ -42,7 +111,96 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		return nil, fmt.Errorf("vectis_worker_job_duration_seconds: %w", err)
 	}
 
-	return &WorkerMetrics{received: received, duration: duration}, nil
+	spiffeSVIDChecks, err := m.Int64Counter("vectis_worker_spiffe_svid_checks_total",
+		metric.WithDescription("Worker SPIFFE execution X.509-SVID checks by outcome and reason"),
+		metric.WithUnit("{check}"))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_spiffe_svid_checks_total: %w", err)
+	}
+
+	checkoutCacheWarm, err := m.Int64Counter("vectis_worker_checkout_cache_warm_passes_total",
+		metric.WithDescription("Worker-driven persistent checkout cache warm passes by outcome and reason"),
+		metric.WithUnit("{pass}"))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_passes_total: %w", err)
+	}
+
+	checkoutCacheWarmTime, err := m.Float64Histogram("vectis_worker_checkout_cache_warm_duration_seconds",
+		metric.WithDescription("Wall time spent in worker-driven persistent checkout cache warm passes"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_duration_seconds: %w", err)
+	}
+
+	checkoutCacheRemotes, err := m.Int64Counter("vectis_worker_checkout_cache_warm_remotes_total",
+		metric.WithDescription("Persistent checkout cache remote warm results"),
+		metric.WithUnit("{remote}"))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_remotes_total: %w", err)
+	}
+
+	phaseGauge, err := m.Int64ObservableGauge("vectis_worker_lifecycle_state",
+		metric.WithDescription("Current worker lifecycle phase. One labelled state is 1 and the remaining states are 0."))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_lifecycle_state: %w", err)
+	}
+
+	drainingGauge, err := m.Int64ObservableGauge("vectis_worker_draining",
+		metric.WithDescription("Whether the worker has received shutdown and stopped accepting new dequeue work."))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_draining: %w", err)
+	}
+
+	dbGauge, err := m.Int64ObservableGauge("vectis_worker_db_unavailable",
+		metric.WithDescription("Whether the worker has observed database unavailability on DB-backed transitions."))
+
+	if err != nil {
+		return nil, fmt.Errorf("vectis_worker_db_unavailable: %w", err)
+	}
+
+	wm := &WorkerMetrics{
+		received:              received,
+		orchestratorRecovered: orchestratorRecovered,
+		duration:              duration,
+		spiffeSVIDChecks:      spiffeSVIDChecks,
+		checkoutCacheWarm:     checkoutCacheWarm,
+		checkoutCacheWarmTime: checkoutCacheWarmTime,
+		checkoutCacheRemotes:  checkoutCacheRemotes,
+		phaseGauge:            phaseGauge,
+		drainingGauge:         drainingGauge,
+		dbGauge:               dbGauge,
+		phase:                 WorkerPhaseIdle,
+	}
+
+	callback, err := m.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		phase, draining, dbUnavailable := wm.snapshot()
+		for _, known := range workerPhases {
+			value := int64(0)
+			if known == phase {
+				value = 1
+			}
+
+			o.ObserveInt64(phaseGauge, value, metric.WithAttributes(attribute.String("state", known)))
+		}
+
+		o.ObserveInt64(drainingGauge, boolInt64(draining))
+		o.ObserveInt64(dbGauge, boolInt64(dbUnavailable))
+		return nil
+	}, phaseGauge, drainingGauge, dbGauge)
+
+	if err != nil {
+		return nil, fmt.Errorf("worker lifecycle callback: %w", err)
+	}
+
+	wm.callback = callback
+	return wm, nil
 }
 
 func (wm *WorkerMetrics) RecordJobReceived(ctx context.Context) {
@@ -60,4 +218,142 @@ func (wm *WorkerMetrics) RecordJobFinished(ctx context.Context, outcome string, 
 
 	attrs := metric.WithAttributes(attribute.String("outcome", outcome))
 	wm.duration.Record(ctx, d.Seconds(), attrs)
+}
+
+func (wm *WorkerMetrics) RecordSPIFFESVIDCheck(ctx context.Context, outcome, reason string) {
+	if wm == nil {
+		return
+	}
+
+	if outcome == "" {
+		outcome = WorkerSPIFFESVIDOutcomeFailed
+	}
+
+	if reason == "" {
+		reason = WorkerSPIFFESVIDReasonUnknown
+	}
+
+	wm.spiffeSVIDChecks.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	))
+}
+
+func (wm *WorkerMetrics) RecordCheckoutCacheWarm(ctx context.Context, outcome, reason string, warmed, changed, unchanged, failed int, d time.Duration) {
+	if wm == nil {
+		return
+	}
+
+	if outcome == "" {
+		outcome = WorkerCheckoutCacheWarmOutcomeFailed
+	}
+
+	if reason == "" {
+		reason = WorkerCheckoutCacheWarmReasonUnknown
+	}
+
+	attrs := metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	)
+	wm.checkoutCacheWarm.Add(ctx, 1, attrs)
+	wm.checkoutCacheWarmTime.Record(ctx, max(d.Seconds(), 0), attrs)
+
+	if changed > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(changed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeChanged)))
+	}
+
+	if unchanged > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(unchanged), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeUnchanged)))
+	}
+
+	if unknownWarmed := warmed - changed - unchanged; unknownWarmed > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(unknownWarmed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeWarmed)))
+	}
+
+	if failed > 0 {
+		wm.checkoutCacheRemotes.Add(ctx, int64(failed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeFailed)))
+	}
+}
+
+func (wm *WorkerMetrics) RecordOrchestratorRecovery(ctx context.Context, stage string) {
+	if wm == nil || stage == "" {
+		return
+	}
+
+	wm.orchestratorRecovered.Add(ctx, 1, metric.WithAttributes(attribute.String("stage", stage)))
+}
+
+func (wm *WorkerMetrics) SetLifecyclePhase(phase string) {
+	if wm == nil || phase == "" {
+		return
+	}
+
+	wm.mu.Lock()
+	wm.phase = phase
+	wm.mu.Unlock()
+}
+
+func (wm *WorkerMetrics) LifecyclePhase() string {
+	if wm == nil {
+		return ""
+	}
+
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.phase
+}
+
+func (wm *WorkerMetrics) SetDraining(draining bool) {
+	if wm == nil {
+		return
+	}
+
+	wm.mu.Lock()
+	wm.draining = draining
+	wm.mu.Unlock()
+}
+
+func (wm *WorkerMetrics) Draining() bool {
+	if wm == nil {
+		return false
+	}
+
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.draining
+}
+
+func (wm *WorkerMetrics) SetDBUnavailable(unavailable bool) {
+	if wm == nil {
+		return
+	}
+
+	wm.mu.Lock()
+	wm.dbUnavailable = unavailable
+	wm.mu.Unlock()
+}
+
+func (wm *WorkerMetrics) DBUnavailable() bool {
+	if wm == nil {
+		return false
+	}
+
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.dbUnavailable
+}
+
+func (wm *WorkerMetrics) snapshot() (string, bool, bool) {
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return wm.phase, wm.draining, wm.dbUnavailable
+}
+
+func boolInt64(v bool) int64 {
+	if v {
+		return 1
+	}
+
+	return 0
 }

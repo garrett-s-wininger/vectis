@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -14,6 +15,32 @@ import (
 
 	"google.golang.org/protobuf/proto"
 )
+
+type assigningFallbackLogClient struct {
+	shardID       string
+	assignedRunID string
+}
+
+func (c *assigningFallbackLogClient) StreamLogs(context.Context) (LogStream, error) {
+	return nil, errors.New("fallback stream not expected")
+}
+
+func (c *assigningFallbackLogClient) StreamLogsForRun(context.Context, string) (LogStream, error) {
+	return nil, errors.New("fallback stream not expected")
+}
+
+func (c *assigningFallbackLogClient) StreamLogsForAssignedRun(context.Context, string, string) (LogStream, error) {
+	return nil, errors.New("fallback stream not expected")
+}
+
+func (c *assigningFallbackLogClient) AssignLogShardForRun(_ context.Context, runID string) (string, error) {
+	c.assignedRunID = runID
+	return c.shardID, nil
+}
+
+func (c *assigningFallbackLogClient) Close() error {
+	return nil
+}
 
 func TestForwarderLogClientRoundtrip(t *testing.T) {
 	sockPath := socktest.ShortPath(t, "fwd.sock")
@@ -107,6 +134,80 @@ func TestForwarderLogClientRoundtrip(t *testing.T) {
 		if string(received[i].GetData()) != string(want[i].GetData()) {
 			t.Errorf("chunk %d data: got %q, want %q", i, received[i].GetData(), want[i].GetData())
 		}
+	}
+}
+
+func TestPreferForwarderLogClientStampsAssignedShard(t *testing.T) {
+	sockPath := socktest.ShortPath(t, "fwd-shard.sock")
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	defer os.Remove(sockPath)
+
+	received := make(chan *api.LogChunk, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			close(received)
+			return
+		}
+		defer conn.Close()
+
+		var length uint32
+		if err := binary.Read(conn, binary.BigEndian, &length); err != nil {
+			close(received)
+			return
+		}
+
+		data := make([]byte, length)
+		if _, err := io.ReadFull(conn, data); err != nil {
+			close(received)
+			return
+		}
+
+		var chunk api.LogChunk
+		if err := proto.Unmarshal(data, &chunk); err != nil {
+			t.Errorf("unmarshal: %v", err)
+			close(received)
+			return
+		}
+
+		received <- &chunk
+	}()
+
+	fallback := &assigningFallbackLogClient{shardID: "log-a"}
+	client := NewPreferForwarderLogClient(sockPath, fallback)
+	stream, err := client.StreamLogsForRun(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("stream logs for run: %v", err)
+	}
+
+	if err := stream.Send(&api.LogChunk{RunId: proto.String("run-1"), Sequence: proto.Int64(1), Data: []byte("hello")}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	if err := stream.CloseSend(); err != nil {
+		t.Fatalf("close send: %v", err)
+	}
+
+	select {
+	case chunk, ok := <-received:
+		if !ok {
+			t.Fatal("socket closed before receiving chunk")
+		}
+
+		if fallback.assignedRunID != "run-1" {
+			t.Fatalf("assigned run id = %q, want run-1", fallback.assignedRunID)
+		}
+
+		if chunk.GetLogShardId() != "log-a" {
+			t.Fatalf("log shard id = %q, want log-a", chunk.GetLogShardId())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for chunk")
 	}
 }
 

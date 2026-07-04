@@ -2,11 +2,11 @@ package logforwarder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,32 +15,51 @@ import (
 	"vectis/internal/backoff"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
-	"vectis/internal/registry"
-	"vectis/internal/resolver"
+	"vectis/internal/logclient"
+	"vectis/internal/logroute"
+	"vectis/internal/logspool"
 )
 
 const (
 	defaultBatchSize       = 100
 	defaultMaxChunksPerSec = 10000
+	defaultFlushInterval   = 10 * time.Millisecond
 	defaultScanInterval    = 5 * time.Second
+
+	maxBatchRPCPayloadBytes = 256 << 10
 )
+
+const (
+	MetricsRouteHinted   = "hinted"
+	MetricsRouteUnhinted = "unhinted"
+
+	MetricsBatchSent    = "sent"
+	MetricsBatchSpooled = "spooled"
+	MetricsBatchLost    = "lost"
+)
+
+type Metrics interface {
+	RecordChunkReceived(ctx context.Context, route string)
+	RecordBatch(ctx context.Context, outcome string)
+}
 
 // Forwarder receives log chunks from local workers over a Unix socket,
 // batches them, and forwards to vectis-log via gRPC.
 // When vectis-log is unavailable it writes to a shared spool directory
 // for later retry.
 type Forwarder struct {
-	logClient       interfaces.LogClient
-	logger          interfaces.Logger
-	chunkCh         <-chan *api.LogChunk
-	spoolDir        string
-	batchSize       int
-	maxChunksPerSec int
-	scanInterval    time.Duration
-	shutdownCh      chan struct{}
-	shutdownOnce    sync.Once
-	spoolCounter    uint64
-	sendMu          sync.Mutex
+	logClient     interfaces.LogClient
+	logger        interfaces.Logger
+	chunkCh       <-chan *api.LogChunk
+	spoolDir      string
+	batchSize     int
+	flushInterval time.Duration
+	scanInterval  time.Duration
+	shutdownCh    chan struct{}
+	shutdownOnce  sync.Once
+	spoolCounter  uint64
+	sendMu        sync.Mutex
+	metrics       Metrics
 }
 
 // NewForwarder creates a forwarder that reads from the provided chunk channel.
@@ -64,19 +83,36 @@ func NewForwarder(
 	}
 
 	return &Forwarder{
-		chunkCh:         chunkCh,
-		logger:          logger,
-		spoolDir:        spoolDir,
-		batchSize:       batchSize,
-		maxChunksPerSec: maxChunksPerSec,
-		scanInterval:    defaultScanInterval,
-		shutdownCh:      make(chan struct{}),
+		chunkCh:       chunkCh,
+		logger:        logger,
+		spoolDir:      spoolDir,
+		batchSize:     batchSize,
+		flushInterval: forwarderFlushInterval(maxChunksPerSec),
+		scanInterval:  defaultScanInterval,
+		shutdownCh:    make(chan struct{}),
 	}
+}
+
+func forwarderFlushInterval(maxChunksPerSec int) time.Duration {
+	if maxChunksPerSec <= 0 {
+		maxChunksPerSec = defaultMaxChunksPerSec
+	}
+
+	interval := time.Second / time.Duration(maxChunksPerSec)
+	if interval < defaultFlushInterval {
+		return defaultFlushInterval
+	}
+
+	return interval
 }
 
 // SetLogClient configures the gRPC client used to reach vectis-log.
 func (f *Forwarder) SetLogClient(client interfaces.LogClient) {
 	f.logClient = client
+}
+
+func (f *Forwarder) SetMetrics(metrics Metrics) {
+	f.metrics = metrics
 }
 
 // SetScanInterval configures how often the spool scanner polls the spool
@@ -96,7 +132,7 @@ func (f *Forwarder) Run(ctx context.Context) {
 	})
 
 	batch := make([]*api.LogChunk, 0, f.batchSize)
-	ticker := time.NewTicker(time.Second / time.Duration(f.maxChunksPerSec))
+	ticker := time.NewTicker(f.flushInterval)
 	defer ticker.Stop()
 
 	for {
@@ -116,6 +152,7 @@ func (f *Forwarder) Run(ctx context.Context) {
 				return
 			}
 
+			f.recordChunkReceived(ctx, chunk)
 			batch = append(batch, chunk)
 			if len(batch) >= f.batchSize {
 				batch = f.flushBatch(ctx, batch)
@@ -137,6 +174,7 @@ func (f *Forwarder) drainAndFlush(ctx context.Context, batch []*api.LogChunk) []
 				return f.flushBatch(ctx, batch)
 			}
 
+			f.recordChunkReceived(ctx, chunk)
 			batch = append(batch, chunk)
 			if len(batch) >= f.batchSize {
 				batch = f.flushBatch(ctx, batch)
@@ -165,6 +203,9 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 			if f.logger != nil {
 				f.logger.Error("Log batch lost: spool backlog present and spool failed: %v", spoolErr)
 			}
+			f.recordBatch(ctx, MetricsBatchLost)
+		} else {
+			f.recordBatch(ctx, MetricsBatchSpooled)
 		}
 
 		return batch[:0]
@@ -175,6 +216,9 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 			if f.logger != nil {
 				f.logger.Error("Log batch lost: log client nil and spool failed: %v", spoolErr)
 			}
+			f.recordBatch(ctx, MetricsBatchLost)
+		} else {
+			f.recordBatch(ctx, MetricsBatchSpooled)
 		}
 
 		return batch[:0]
@@ -189,10 +233,37 @@ func (f *Forwarder) flushBatch(ctx context.Context, batch []*api.LogChunk) []*ap
 			if f.logger != nil {
 				f.logger.Error("Log batch lost: forward failed and spool failed: forward=%v spool=%v", err, spoolErr)
 			}
+			f.recordBatch(ctx, MetricsBatchLost)
+		} else {
+			f.recordBatch(ctx, MetricsBatchSpooled)
 		}
+
+		return batch[:0]
 	}
 
+	f.recordBatch(ctx, MetricsBatchSent)
 	return batch[:0]
+}
+
+func (f *Forwarder) recordChunkReceived(ctx context.Context, chunk *api.LogChunk) {
+	if f.metrics == nil || chunk == nil {
+		return
+	}
+
+	route := MetricsRouteUnhinted
+	if chunk.GetLogShardId() != "" {
+		route = MetricsRouteHinted
+	}
+
+	f.metrics.RecordChunkReceived(ctx, route)
+}
+
+func (f *Forwarder) recordBatch(ctx context.Context, outcome string) {
+	if f.metrics == nil {
+		return
+	}
+
+	f.metrics.RecordBatch(ctx, outcome)
 }
 
 func (f *Forwarder) hasSpoolBacklog() bool {
@@ -214,26 +285,145 @@ func (f *Forwarder) sendBatch(parentCtx context.Context, batch []*api.LogChunk) 
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
-	stream, err := f.logClient.StreamLogs(ctx)
-	if err != nil {
-		return fmt.Errorf("create stream: %w", err)
+	return f.sendChunkGroups(ctx, batch)
+}
+
+func (f *Forwarder) sendChunkGroups(ctx context.Context, chunks []*api.LogChunk) error {
+	if f.preferUnscopedLogStream(chunks) {
+		return f.sendChunkGroup(ctx, "", "", chunks)
 	}
 
-	defer func() {
-		if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
-			_ = s.CloseAndRecv()
-		} else {
-			_ = stream.CloseSend()
-		}
-	}()
-
-	for _, chunk := range batch {
-		if err := stream.Send(chunk); err != nil {
-			return fmt.Errorf("send chunk: %w", err)
+	groups := groupChunksByRoute(chunks)
+	for _, group := range groups {
+		if err := f.sendChunkGroup(ctx, group.runID, group.logShardID, group.chunks); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func (f *Forwarder) preferUnscopedLogStream(chunks []*api.LogChunk) bool {
+	client, ok := f.logClient.(interface{ PreferUnscopedLogStream() bool })
+	if !ok || !client.PreferUnscopedLogStream() {
+		return false
+	}
+
+	for _, chunk := range chunks {
+		if chunk.GetLogShardId() != "" {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (f *Forwarder) sendChunkGroup(ctx context.Context, runID, logShardID string, chunks []*api.LogChunk) error {
+	if preferBatchRPC(chunks) {
+		if sent, err := f.sendChunkBatch(ctx, runID, logShardID, chunks); sent || err != nil {
+			return err
+		}
+	}
+
+	stream, err := f.openLogStream(ctx, runID, logShardID)
+	if err != nil {
+		return fmt.Errorf("create stream: %w", err)
+	}
+
+	for _, chunk := range chunks {
+		if err := stream.Send(chunk); err != nil {
+			_ = closeLogStream(stream)
+			return fmt.Errorf("send chunk: %w", err)
+		}
+	}
+
+	if err := closeLogStream(stream); err != nil {
+		return fmt.Errorf("close log stream: %w", err)
+	}
+
+	return nil
+}
+
+func closeLogStream(stream interfaces.LogStream) error {
+	if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
+		return s.CloseAndRecv()
+	}
+
+	return stream.CloseSend()
+}
+
+func (f *Forwarder) sendChunkBatch(ctx context.Context, runID, logShardID string, chunks []*api.LogChunk) (bool, error) {
+	if assigned, ok := f.logClient.(interfaces.AssignedRunLogBatchClient); ok && runID != "" && logShardID != "" {
+		return true, assigned.SendLogBatchForAssignedRun(ctx, runID, logShardID, chunks)
+	}
+
+	if scoped, ok := f.logClient.(interfaces.RunLogBatchClient); ok && runID != "" {
+		return true, scoped.SendLogBatchForRun(ctx, runID, chunks)
+	}
+
+	if batch, ok := f.logClient.(interfaces.LogBatchClient); ok {
+		return true, batch.SendLogBatch(ctx, chunks)
+	}
+
+	return false, nil
+}
+
+func preferBatchRPC(chunks []*api.LogChunk) bool {
+	var payloadBytes int
+	for _, chunk := range chunks {
+		payloadBytes += len(chunk.GetRunId()) + len(chunk.GetData())
+		if payloadBytes > maxBatchRPCPayloadBytes {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (f *Forwarder) openLogStream(ctx context.Context, runID, logShardID string) (interfaces.LogStream, error) {
+	if assigned, ok := f.logClient.(interfaces.AssignedRunLogClient); ok && runID != "" && logShardID != "" {
+		return assigned.StreamLogsForAssignedRun(ctx, runID, logShardID)
+	}
+
+	if scoped, ok := f.logClient.(interfaces.RunLogClient); ok && runID != "" {
+		return scoped.StreamLogsForRun(ctx, runID)
+	}
+
+	return f.logClient.StreamLogs(ctx)
+}
+
+type chunkGroup struct {
+	runID      string
+	logShardID string
+	chunks     []*api.LogChunk
+}
+
+type chunkGroupKey struct {
+	runID      string
+	logShardID string
+}
+
+func groupChunksByRoute(chunks []*api.LogChunk) []chunkGroup {
+	byRun := make(map[chunkGroupKey]int)
+	groups := make([]chunkGroup, 0)
+	for _, chunk := range chunks {
+		route := logroute.FromChunk(chunk)
+		key := chunkGroupKey{
+			runID:      route.RunID,
+			logShardID: route.LogShardID,
+		}
+
+		idx, ok := byRun[key]
+		if !ok {
+			idx = len(groups)
+			byRun[key] = idx
+			groups = append(groups, chunkGroup{runID: key.runID, logShardID: key.logShardID})
+		}
+
+		groups[idx].chunks = append(groups[idx].chunks, chunk)
+	}
+
+	return groups
 }
 
 func (f *Forwarder) spoolBatch(batch []*api.LogChunk) error {
@@ -268,7 +458,7 @@ func (f *Forwarder) spoolBatch(batch []*api.LogChunk) error {
 			f.logger.Error("Failed to close spool writer: %v", err)
 		}
 
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close spool writer: %w", err)
 	}
 
@@ -277,7 +467,7 @@ func (f *Forwarder) spoolBatch(batch []*api.LogChunk) error {
 			f.logger.Error("Failed to finalize spool file: %v", err)
 		}
 
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename spool file: %w", err)
 	}
 
@@ -335,11 +525,11 @@ func (f *Forwarder) scanSpool(ctx context.Context) error {
 				f.logger.Warn("Failed to forward spool %s: %v", name, err)
 			}
 
-			// Quarantine permanently corrupted files so they are not retried forever.
-			if isPermanentSpoolError(err) {
+			// Quarantine permanently unrecoverable files so they are not retried forever.
+			if logspool.IsPermanentReplayError(err) {
 				quarantinePath := path + ".quarantine"
 				if renameErr := os.Rename(path, quarantinePath); renameErr == nil && f.logger != nil {
-					f.logger.Warn("Quarantined corrupted spool file %s", name)
+					f.logger.Warn("Quarantined unrecoverable spool file %s", name)
 				}
 			}
 
@@ -356,31 +546,12 @@ func (f *Forwarder) scanSpool(ctx context.Context) error {
 	return nil
 }
 
-func isPermanentSpoolError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	s := err.Error()
-	return containsAny(s, []string{"crc mismatch", "unmarshal chunk", "unsupported spool version", "invalid spool magic", "spool batch count", "read magic"})
-}
-
-func containsAny(s string, subs []string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func (f *Forwarder) forwardSpoolFile(parentCtx context.Context, path string) error {
 	reader, err := NewSpoolReader(path)
 	if err != nil {
 		return fmt.Errorf("open spool reader: %w", err)
 	}
-	defer reader.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(reader)
 
 	if f.logClient == nil {
 		return fmt.Errorf("no log client available")
@@ -389,33 +560,18 @@ func (f *Forwarder) forwardSpoolFile(parentCtx context.Context, path string) err
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
-	stream, err := f.logClient.StreamLogs(ctx)
-	if err != nil {
-		return fmt.Errorf("create stream: %w", err)
-	}
-
-	defer func() {
-		if s, ok := stream.(interface{ CloseAndRecv() error }); ok {
-			_ = s.CloseAndRecv()
-		} else {
-			_ = stream.CloseSend()
-		}
-	}()
-
 	for {
 		chunks, err := reader.ReadBatch()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 
 			return fmt.Errorf("read batch: %w", err)
 		}
 
-		for _, chunk := range chunks {
-			if err := stream.Send(chunk); err != nil {
-				return fmt.Errorf("send chunk: %w", err)
-			}
+		if err := f.sendChunkGroups(ctx, chunks); err != nil {
+			return err
 		}
 	}
 
@@ -439,30 +595,17 @@ func defaultSpoolDir() string {
 
 // ResolveLogClient creates a gRPC log client using the same discovery
 // semantics as the worker.
-func ResolveLogClient(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics) (interfaces.LogClient, func(), error) {
-	pin := config.PinnedLogAddress()
-	if pin != "" {
-		conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_LOG, pin, logger, nil, retryMetrics)
-		if err != nil {
-			return nil, nil, fmt.Errorf("pinned log client: %w", err)
-		}
+func ResolveLogClient(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, routingMetrics logclient.RoutingMetrics) (interfaces.LogClient, func(), error) {
+	client, err := logclient.NewManagingLogClient(ctx, logger, logclient.PoolOptions{
+		PinnedAddress:   config.PinnedLogAddress(),
+		RegistryAddress: config.WorkerRegistryDialAddress(),
+		RetryMetrics:    retryMetrics,
+		Metrics:         routingMetrics,
+	})
 
-		return interfaces.NewGRPCLogClient(conn), cleanup, nil
-	}
-
-	regClient, err := registry.New(ctx, config.WorkerRegistryDialAddress(), logger, interfaces.SystemClock{}, retryMetrics)
 	if err != nil {
-		return nil, nil, fmt.Errorf("registry client: %w", err)
+		return nil, nil, fmt.Errorf("log client: %w", err)
 	}
 
-	conn, cleanup, err := resolver.NewClientWithRegistry(ctx, api.Component_COMPONENT_LOG, logger, regClient, retryMetrics)
-	if err != nil {
-		regClient.Close()
-		return nil, nil, fmt.Errorf("registry log client: %w", err)
-	}
-
-	return interfaces.NewGRPCLogClient(conn), func() {
-		cleanup()
-		regClient.Close()
-	}, nil
+	return client, func() { _ = client.Close() }, nil
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,6 +27,8 @@ const (
 	caValidity         = 10 * 365 * 24 * time.Hour
 	caRenewBefore      = 90 * 24 * time.Hour
 )
+
+const LocalServiceIdentity = "spiffe://vectis.internal/service/vectis-local"
 
 type Material struct {
 	CAFile     string
@@ -91,13 +94,13 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		}
 	}
 
-	caPEM, err := os.ReadFile(caCertPath)
-	if err != nil {
+	caPEM, ok := readExistingMaterial(caCertPath)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
-	srvPEM, err := os.ReadFile(srvCertPath)
-	if err != nil {
+	srvPEM, ok := readExistingMaterial(srvCertPath)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
@@ -106,8 +109,8 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		return materialRegenerateFull, nil
 	}
 
-	caCert, err := x509.ParseCertificate(caBlock.Bytes)
-	if err != nil {
+	caCert, ok := parseExistingCertificate(caBlock.Bytes)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
@@ -116,8 +119,8 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		return materialRegenerateFull, nil
 	}
 
-	srvCert, err := x509.ParseCertificate(srvBlock.Bytes)
-	if err != nil {
+	srvCert, ok := parseExistingCertificate(srvBlock.Bytes)
+	if !ok {
 		return materialRegenerateFull, nil
 	}
 
@@ -129,15 +132,33 @@ func classifyMaterial(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) (ma
 		return materialRegenerateFull, nil
 	}
 
+	if !hasLocalServiceIdentity(srvCert) {
+		return materialRenewServer, nil
+	}
+
 	if time.Until(srvCert.NotAfter) < serverRenewBefore {
 		return materialRenewServer, nil
 	}
 
-	if err := verifyChain(srvCert, caCert); err != nil {
+	if !existingServerCertificateVerifies(srvCert, caCert) {
 		return materialRegenerateFull, nil
 	}
 
 	return materialOK, nil
+}
+
+func readExistingMaterial(path string) ([]byte, bool) {
+	data, err := os.ReadFile(path)
+	return data, err == nil
+}
+
+func parseExistingCertificate(der []byte) (*x509.Certificate, bool) {
+	cert, err := x509.ParseCertificate(der)
+	return cert, err == nil
+}
+
+func existingServerCertificateVerifies(srvCert, caCert *x509.Certificate) bool {
+	return verifyChain(srvCert, caCert) == nil
 }
 
 func hasLocalhostSANs(c *x509.Certificate) bool {
@@ -164,16 +185,35 @@ func hasLocalhostSANs(c *x509.Certificate) bool {
 	return hasLocal && has127 && hasV6
 }
 
+func hasLocalServiceIdentity(c *x509.Certificate) bool {
+	for _, u := range c.URIs {
+		if u != nil && u.String() == LocalServiceIdentity {
+			return true
+		}
+	}
+
+	return false
+}
+
 func verifyChain(leaf, ca *x509.Certificate) error {
 	pool := x509.NewCertPool()
 	pool.AddCert(ca)
-	opts := x509.VerifyOptions{
+	serverOpts := x509.VerifyOptions{
 		Roots:     pool,
 		DNSName:   "localhost",
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 
-	_, err := leaf.Verify(opts)
+	if _, err := leaf.Verify(serverOpts); err != nil {
+		return err
+	}
+
+	clientOpts := x509.VerifyOptions{
+		Roots:     pool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+
+	_, err := leaf.Verify(clientOpts)
 	return err
 }
 
@@ -226,9 +266,10 @@ func generateFullChain(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) er
 		NotBefore:    now.Add(-1 * time.Hour),
 		NotAfter:     now.Add(serverCertLifetime),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		DNSNames:     []string{"localhost"},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		URIs:         []*url.URL{mustLocalServiceIdentityURI()},
 	}
 
 	srvDER, err := x509.CreateCertificate(rand.Reader, srvTmpl, caCert, &srvKey.PublicKey, caKey)
@@ -347,9 +388,10 @@ func renewServerCert(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) erro
 		NotBefore:    now.Add(-1 * time.Hour),
 		NotAfter:     now.Add(serverCertLifetime),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		DNSNames:     []string{"localhost"},
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		URIs:         []*url.URL{mustLocalServiceIdentityURI()},
 	}
 
 	srvDER, err := x509.CreateCertificate(rand.Reader, srvTmpl, caCert, &srvKey.PublicKey, caKey)
@@ -374,6 +416,15 @@ func renewServerCert(caCertPath, caKeyPath, srvCertPath, srvKeyPath string) erro
 	}
 
 	return nil
+}
+
+func mustLocalServiceIdentityURI() *url.URL {
+	u, err := url.Parse(LocalServiceIdentity)
+	if err != nil {
+		panic(fmt.Sprintf("localpki: invalid local service identity %q: %v", LocalServiceIdentity, err))
+	}
+
+	return u
 }
 
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
@@ -417,8 +468,18 @@ func (m *Material) EnvVars() []string {
 		"VECTIS_GRPC_TLS_CA_FILE=" + m.CAFile,
 		"VECTIS_GRPC_TLS_CERT_FILE=" + m.ServerCert,
 		"VECTIS_GRPC_TLS_KEY_FILE=" + m.ServerKey,
+		"VECTIS_GRPC_TLS_CLIENT_CA_FILE=" + m.CAFile,
+		"VECTIS_GRPC_TLS_CLIENT_CERT_FILE=" + m.ServerCert,
+		"VECTIS_GRPC_TLS_CLIENT_KEY_FILE=" + m.ServerKey,
 		// Resolver dials use 127.0.0.1:*; leaf SANs include localhost — set SNI/verify name.
 		"VECTIS_GRPC_TLS_SERVER_NAME=localhost",
+		"VECTIS_SERVICE_IDENTITY_REGISTRY_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_QUEUE_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_LOG_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_ARTIFACT_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_ORCHESTRATOR_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_WORKER_CONTROL_ALLOWED_CLIENT_IDENTITIES=" + LocalServiceIdentity,
+		"VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES=" + LocalServiceIdentity,
 	}
 }
 
@@ -431,7 +492,17 @@ func (m *Material) ApplyParentViper(set func(key string, value any)) {
 	set("grpc_tls.ca_file", m.CAFile)
 	set("grpc_tls.cert_file", m.ServerCert)
 	set("grpc_tls.key_file", m.ServerKey)
+	set("grpc_tls.client_ca_file", m.CAFile)
+	set("grpc_tls.client_cert_file", m.ServerCert)
+	set("grpc_tls.client_key_file", m.ServerKey)
 	set("grpc_tls.server_name", "localhost")
+	set("service_identity.registry_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.queue_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.log_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.artifact_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.orchestrator_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.worker_control_allowed_client_identities", []string{LocalServiceIdentity})
+	set("service_identity.cell_ingress_allowed_producer_identities", []string{LocalServiceIdentity})
 }
 
 func ApplyPlaintextParentViper(set func(key string, value any)) {

@@ -1,78 +1,82 @@
 const config = {
-  title: 'Vectis',
-  tagline: 'Self-hosted build/CI system',
-  favicon: 'img/favicon.svg',
-  url: 'https://vectis.dev',
-  baseUrl: '/',
-  organizationName: 'garrett-s-wininger',
-  projectName: 'vectis',
-  onBrokenLinks: 'throw',
+  title: "Vectis",
+  tagline: "Self-hosted build/CI system",
+  favicon: "img/favicon.svg",
+  url: "https://vectis.dev",
+  baseUrl: "/",
+  organizationName: "garrett-s-wininger",
+  projectName: "vectis",
+  onBrokenLinks: "throw",
   i18n: {
-    defaultLocale: 'en',
-    locales: ['en'],
+    defaultLocale: "en",
+    locales: ["en"]
   },
   markdown: {
-    mermaid: true,
+    hooks: {
+      onBrokenMarkdownLinks: "throw",
+      onBrokenMarkdownImages: "throw"
+    },
+    mermaid: true
   },
-  themes: ['@docusaurus/theme-mermaid'],
+  themes: ["@docusaurus/theme-mermaid"],
   presets: [
     [
-      'classic',
+      "classic",
       {
         docs: {
-          sidebarPath: './sidebars.js',
+          sidebarPath: "./sidebars.js",
           editUrl: undefined,
-          showLastUpdateTime: true,
+          showLastUpdateTime: true
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
-        },
-      },
-    ],
+          customCss: "./src/css/custom.css"
+        }
+      }
+    ]
   ],
   themeConfig: {
     navbar: {
-      title: '',
+      title: "",
       logo: {
-        alt: 'Vectis',
-        src: 'img/vectis.png',
-        srcDark: 'img/vectis-dark.png',
+        alt: "Vectis",
+        src: "img/vectis.png",
+        srcDark: "img/vectis-dark.png"
       },
       items: [
         {
-          to: '/',
-          label: 'Home',
-          position: 'left',
-          activeBaseRegex: '^/$',
+          to: "/",
+          label: "Home",
+          position: "left",
+          activeBaseRegex: "^/$"
         },
         {
-          type: 'docSidebar',
-          sidebarId: 'docs',
-          position: 'left',
-          label: 'Docs',
+          type: "docSidebar",
+          sidebarId: "docs",
+          position: "left",
+          label: "Docs"
         },
         {
-          href: 'https://github.com/garrett-s-wininger/vectis',
-          label: 'GitHub',
-          position: 'right',
-        },
-      ],
+          href: "https://github.com/garrett-s-wininger/vectis",
+          label: "GitHub",
+          position: "right"
+        }
+      ]
     },
     footer: {
-      style: 'dark',
-      copyright: `Copyright © ${new Date().getFullYear()} The Vectis Authors.`,
+      style: "dark",
+      copyright: `Copyright © ${new Date().getFullYear()} The Vectis Authors.`
     },
     prism: {
-      additionalLanguages: ['go', 'toml', 'yaml', 'bash', 'json'],
+      additionalLanguages: ["go", "toml", "yaml", "bash", "json"]
     },
     mermaid: {
       theme: {
-        light: 'neutral',
-        dark: 'dark',
-      },
-    },
-  },
+        light: "neutral",
+        dark: "dark"
+      }
+    }
+  }
 };
 
 module.exports = config;

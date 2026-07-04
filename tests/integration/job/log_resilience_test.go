@@ -102,7 +102,7 @@ func waitForStoreContains(t *testing.T, store *logserver.LocalRunLogStore, runID
 		entries, err := store.List(runID)
 		if err == nil {
 			for _, e := range entries {
-				if strings.Contains(e.Data, want) {
+				if strings.Contains(string(e.Data), want) {
 					return
 				}
 			}
@@ -123,7 +123,7 @@ func allEntriesJoined(t *testing.T, store *logserver.LocalRunLogStore, runID str
 
 	parts := make([]string, 0, len(entries))
 	for _, e := range entries {
-		parts = append(parts, e.Data)
+		parts = append(parts, string(e.Data))
 	}
 
 	return strings.Join(parts, "\n")
@@ -165,8 +165,8 @@ func TestIntegrationJob_LogAggregatorDiesMidRunThenRecovers(t *testing.T) {
 
 	jobID := "integration-midrun-log-recovery"
 	runID := "integration-run-midrun-log-recovery"
-	rootID := "root-shell"
-	uses := "builtins/shell"
+	rootID := "root-script"
+	uses := "builtins/script"
 	command := "for i in 1 2 3 4 5 6 7 8; do echo tick-$i; sleep 0.25; done"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -174,7 +174,7 @@ func TestIntegrationJob_LogAggregatorDiesMidRunThenRecovers(t *testing.T) {
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &uses,
-			With: map[string]string{"command": command},
+			With: map[string]string{"script": command},
 		},
 	}
 
@@ -257,8 +257,8 @@ func TestIntegrationJob_LogAggregatorDownAtStartThenRecovers(t *testing.T) {
 
 	jobID := "integration-prerun-log-recovery"
 	runID := "integration-run-prerun-log-recovery"
-	rootID := "root-shell-prerun"
-	uses := "builtins/shell"
+	rootID := "root-script-prerun"
+	uses := "builtins/script"
 	command := "for i in 1 2 3 4 5 6; do echo prerun-$i; sleep 0.25; done"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -266,7 +266,7 @@ func TestIntegrationJob_LogAggregatorDownAtStartThenRecovers(t *testing.T) {
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &uses,
-			With: map[string]string{"command": command},
+			With: map[string]string{"script": command},
 		},
 	}
 
@@ -324,8 +324,8 @@ func TestIntegrationJob_LogAggregatorDownNearCompletionThenRecovers(t *testing.T
 
 	jobID := "integration-postrun-log-recovery"
 	runID := "integration-run-postrun-log-recovery"
-	rootID := "root-shell-postrun"
-	uses := "builtins/shell"
+	rootID := "root-script-postrun"
+	uses := "builtins/script"
 	command := "echo postrun-1; sleep 0.2; echo postrun-2; sleep 0.2; echo postrun-3; sleep 0.4"
 	testJob := &api.Job{
 		Id:    &jobID,
@@ -333,7 +333,7 @@ func TestIntegrationJob_LogAggregatorDownNearCompletionThenRecovers(t *testing.T
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &uses,
-			With: map[string]string{"command": command},
+			With: map[string]string{"script": command},
 		},
 	}
 

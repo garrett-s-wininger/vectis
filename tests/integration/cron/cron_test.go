@@ -6,10 +6,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"vectis/internal/cron"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 )
@@ -29,6 +31,62 @@ func setupCronIntegrationTest(t *testing.T) (*cron.CronService, *sql.DB, *mocks.
 	return service, db, queueService, mockClock
 }
 
+func insertCronIntegrationJob(t *testing.T, db *sql.DB, jobID, definitionJSON string) {
+	t.Helper()
+	if err := dal.NewSQLRepositories(db).Jobs().CreateDefinitionSnapshot(context.Background(), jobID, definitionJSON); err != nil {
+		t.Fatalf("failed to insert job: %v", err)
+	}
+}
+
+func insertCronIntegrationSchedule(t *testing.T, db *sql.DB, jobID, cronSpec string, nextRun time.Time) int64 {
+	t.Helper()
+
+	result, err := db.Exec("INSERT INTO job_triggers (job_id, trigger_type) VALUES (?, ?)", jobID, "cron")
+	if err != nil {
+		t.Fatalf("failed to insert trigger: %v", err)
+	}
+
+	triggerID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("failed to get trigger id: %v", err)
+	}
+
+	result, err = db.Exec("INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
+		triggerID, cronSpec, nextRun.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert schedule: %v", err)
+	}
+
+	specID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("failed to get schedule id: %v", err)
+	}
+
+	return specID
+}
+
+func queryCronIntegrationNextRun(t *testing.T, db *sql.DB, jobID string) time.Time {
+	t.Helper()
+
+	var nextRunStr string
+	err := db.QueryRow(`
+		SELECT cts.next_run_at
+		FROM cron_trigger_specs cts
+		JOIN job_triggers jt ON jt.id = cts.trigger_id
+		WHERE jt.job_id = ?
+	`, jobID).Scan(&nextRunStr)
+	if err != nil {
+		t.Fatalf("failed to query next_run_at: %v", err)
+	}
+
+	nextRun, err := time.Parse(time.RFC3339, nextRunStr)
+	if err != nil {
+		t.Fatalf("failed to parse next_run_at %q: %v", nextRunStr, err)
+	}
+
+	return nextRun
+}
+
 func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 	service, db, queueService, mockClock := setupCronIntegrationTest(t)
 	ctx := context.Background()
@@ -37,19 +95,11 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 	mockClock.SetNow(testTime)
 
 	jobID := "test-cron-job"
-	jobDef := `{"id": "test-cron-job", "root": {"uses": "builtins/shell", "with": {"command": "echo hello"}}}`
-	_, err := db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", jobID, jobDef)
-	if err != nil {
-		t.Fatalf("failed to insert job: %v", err)
-	}
+	jobDef := `{"id": "test-cron-job", "root": {"uses": "builtins/script", "with":{"script": "echo hello"}}}`
+	insertCronIntegrationJob(t, db, jobID, jobDef)
 
 	nextRun := testTime.Add(-1 * time.Minute)
-	_, err = db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		jobID, "* * * * *", nextRun.Format(time.RFC3339))
-
-	if err != nil {
-		t.Fatalf("failed to insert schedule: %v", err)
-	}
+	insertCronIntegrationSchedule(t, db, jobID, "* * * * *", nextRun)
 
 	if err := service.ProcessSchedules(ctx); err != nil {
 		t.Fatalf("process schedules failed: %v", err)
@@ -71,7 +121,8 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 
 	var dbStatus string
 	var runIndex int
-	err = db.QueryRow("SELECT status, run_index FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex)
+	var invocationID, payloadHash string
+	err := db.QueryRow("SELECT status, run_index, trigger_invocation_id, execution_payload_hash FROM job_runs WHERE job_id = ? AND run_id = ?", jobID, runID).Scan(&dbStatus, &runIndex, &invocationID, &payloadHash)
 	if err != nil {
 		t.Fatalf("expected job_runs row for cron-triggered job: %v", err)
 	}
@@ -84,11 +135,37 @@ func TestIntegrationCron_TriggerJob_FullFlow(t *testing.T) {
 		t.Errorf("expected run_index 1, got %d", runIndex)
 	}
 
-	var newNextRun time.Time
-	err = db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE job_id = ?", jobID).Scan(&newNextRun)
-	if err != nil {
-		t.Fatalf("failed to query next_run_at: %v", err)
+	if invocationID == "" {
+		t.Fatal("expected cron trigger invocation id")
 	}
+
+	if payloadHash == "" {
+		t.Fatal("expected cron execution payload hash")
+	}
+
+	var triggerType, payloadJSON string
+	if err := db.QueryRow("SELECT trigger_type, requested_cells FROM trigger_invocations WHERE invocation_id = ?", invocationID).Scan(&triggerType, &payloadJSON); err != nil {
+		t.Fatalf("query trigger invocation: %v", err)
+	}
+
+	if triggerType != dal.TriggerTypeCron {
+		t.Fatalf("trigger type: got %q want %q", triggerType, dal.TriggerTypeCron)
+	}
+
+	if !strings.Contains(payloadJSON, dal.DefaultCellID) {
+		t.Fatalf("expected cron requested cells to include default cell, got %s", payloadJSON)
+	}
+
+	var executionPayload string
+	if err := db.QueryRow("SELECT payload_json FROM execution_payloads WHERE payload_hash = ?", payloadHash).Scan(&executionPayload); err != nil {
+		t.Fatalf("query execution payload: %v", err)
+	}
+
+	if !strings.Contains(executionPayload, runID) || !strings.Contains(executionPayload, jobID) {
+		t.Fatalf("execution payload should contain run/job identity, got %s", executionPayload)
+	}
+
+	newNextRun := queryCronIntegrationNextRun(t, db, jobID)
 
 	if !newNextRun.After(testTime) {
 		t.Errorf("expected next_run_at to be after %v, got %v", testTime, newNextRun)
@@ -104,11 +181,10 @@ func TestIntegrationCron_QueueError_NoUpdate(t *testing.T) {
 
 	jobID := "failing-job"
 	jobDef := `{"id": "failing-job"}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", jobID, jobDef)
+	insertCronIntegrationJob(t, db, jobID, jobDef)
 
 	originalNextRun := testTime.Add(-1 * time.Hour)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		jobID, "* * * * *", originalNextRun.Format(time.RFC3339))
+	insertCronIntegrationSchedule(t, db, jobID, "* * * * *", originalNextRun)
 
 	queueService.SetEnqueueError(fmt.Errorf("queue unavailable"))
 
@@ -117,8 +193,7 @@ func TestIntegrationCron_QueueError_NoUpdate(t *testing.T) {
 		t.Logf("process schedules returned error (expected): %v", err)
 	}
 
-	var currentNextRun time.Time
-	db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE job_id = ?", jobID).Scan(&currentNextRun)
+	currentNextRun := queryCronIntegrationNextRun(t, db, jobID)
 
 	if !currentNextRun.Equal(originalNextRun) {
 		t.Errorf("next_run_at should not be updated on queue error: expected %v, got %v",
@@ -141,11 +216,10 @@ func TestIntegrationCron_MultipleSchedules(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		jobID := fmt.Sprintf("multi-job-%d", i)
 		jobDef := fmt.Sprintf(`{"id": "%s"}`, jobID)
-		db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", jobID, jobDef)
+		insertCronIntegrationJob(t, db, jobID, jobDef)
 
 		nextRun := testTime.Add(-time.Duration(i) * time.Minute)
-		db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-			jobID, "* * * * *", nextRun.Format(time.RFC3339))
+		insertCronIntegrationSchedule(t, db, jobID, "* * * * *", nextRun)
 	}
 
 	if err := service.ProcessSchedules(ctx); err != nil {
@@ -159,12 +233,7 @@ func TestIntegrationCron_MultipleSchedules(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		jobID := fmt.Sprintf("multi-job-%d", i)
-		var newNextRun time.Time
-		err := db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE job_id = ?", jobID).Scan(&newNextRun)
-		if err != nil {
-			t.Errorf("failed to query next_run_at for %s: %v", jobID, err)
-			continue
-		}
+		newNextRun := queryCronIntegrationNextRun(t, db, jobID)
 
 		if !newNextRun.After(testTime) {
 			t.Errorf("job %s: expected next_run_at to be after %v, got %v", jobID, testTime, newNextRun)
@@ -181,11 +250,10 @@ func TestIntegrationCron_InvalidJobDefinition(t *testing.T) {
 
 	jobID := "invalid-json-job"
 	jobDef := `{"id": "invalid-json-job", "root": {broken json}}`
-	db.Exec("INSERT INTO stored_jobs (job_id, definition_json) VALUES (?, ?)", jobID, jobDef)
+	insertCronIntegrationJob(t, db, jobID, jobDef)
 
 	nextRun := testTime.Add(-1 * time.Minute)
-	db.Exec("INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
-		jobID, "* * * * *", nextRun.Format(time.RFC3339))
+	insertCronIntegrationSchedule(t, db, jobID, "* * * * *", nextRun)
 
 	err := service.ProcessSchedules(ctx)
 	if err != nil {
@@ -197,8 +265,7 @@ func TestIntegrationCron_InvalidJobDefinition(t *testing.T) {
 		t.Errorf("expected 0 jobs (invalid JSON), got %d", len(jobs))
 	}
 
-	var currentNextRun time.Time
-	db.QueryRow("SELECT next_run_at FROM job_cron_schedules WHERE job_id = ?", jobID).Scan(&currentNextRun)
+	currentNextRun := queryCronIntegrationNextRun(t, db, jobID)
 
 	expectedNextRun := testTime.Add(-1 * time.Minute)
 	if !currentNextRun.Equal(expectedNextRun) {

@@ -1,0 +1,303 @@
+package custom
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
+	"vectis/internal/interfaces/mocks"
+)
+
+func TestProcessActionExecutesDescriptorCommand(t *testing.T) {
+	executor := mocks.NewMockExecExecutor()
+	process := mocks.NewMockProcess()
+	executor.SetProcess(process)
+
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Source:        actionregistry.SourceLocalFilesystem,
+		SourcePath:    "/opt/vectis/actions/acme/deploy",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command": "./deploy.sh",
+		},
+	}, executor)
+
+	workspace := t.TempDir()
+	state := &action.ExecutionState{
+		Workspace:  workspace,
+		ProcessEnv: action.SanitizedProcessEnv(workspace, []string{"PATH=/bin"}),
+		Logger:     mocks.NewMockLogger(),
+	}
+
+	result := act.Execute(context.Background(), state, map[string]any{
+		"environment": "staging",
+		"dry-run":     true,
+	}, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("Execute status = %s err=%v, want success", result.Status, result.Error)
+	}
+
+	if got := executor.GetPaths(); len(got) != 1 || got[0] != "sh" {
+		t.Fatalf("executor paths = %v, want [sh]", got)
+	}
+
+	args := executor.GetArgs()
+	if len(args) != 1 || len(args[0]) != 2 || args[0][0] != "-c" || args[0][1] != "./deploy.sh" {
+		t.Fatalf("executor args = %v, want [-c ./deploy.sh]", args)
+	}
+
+	if got := executor.GetWorkDirs(); len(got) != 1 || got[0] != "/opt/vectis/actions/acme/deploy" {
+		t.Fatalf("executor workdirs = %v, want action source path", got)
+	}
+
+	env := strings.Join(executor.GetEnvs()[0], "\n")
+	for _, want := range []string{
+		"VECTIS_ACTION_NAME=acme/deploy",
+		"VECTIS_ACTION_VERSION=v1",
+		"VECTIS_ACTION_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"VECTIS_WORKSPACE=" + workspace,
+		"VECTIS_INPUT_ENVIRONMENT=staging",
+		"VECTIS_INPUT_DRY_RUN=true",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("env missing %q in:\n%s", want, env)
+		}
+	}
+}
+
+func TestProcessActionRejectsMissingCommand(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+	}, nil)
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "runtime_config.command") {
+		t.Fatalf("Execute result = %+v, want missing command failure", result)
+	}
+}
+
+func TestProcessActionCreatesWorkspaceTempDir(t *testing.T) {
+	executor := mocks.NewMockExecExecutor()
+	process := mocks.NewMockProcess()
+	executor.SetProcess(process)
+
+	workspace := t.TempDir()
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "true"},
+	}, executor)
+
+	result := act.Execute(context.Background(), &action.ExecutionState{
+		Workspace: workspace,
+		Logger:    mocks.NewMockLogger(),
+	}, nil, nil)
+
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("Execute status = %s err=%v, want success", result.Status, result.Error)
+	}
+
+	info, err := os.Stat(filepath.Join(workspace, ".tmp"))
+	if err != nil {
+		t.Fatalf("stat .tmp: %v", err)
+	}
+
+	if !info.IsDir() {
+		t.Fatal(".tmp is not a directory")
+	}
+}
+
+func TestProcessActionRejectsChildrenWhenUnsupported(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "true"},
+	}, nil)
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, action.Ports{"steps": []*api.Node{{}}})
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "does not support child ports") {
+		t.Fatalf("Execute result = %+v, want child-port failure", result)
+	}
+}
+
+func TestProcessActionRejectsMissingWorkingDirectoryBase(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{"command": "true"},
+	}, mocks.NewMockExecExecutor())
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "base directory is required") {
+		t.Fatalf("Execute result = %+v, want working directory base failure", result)
+	}
+}
+
+func TestProcessActionRejectsAbsoluteWorkingDirectory(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "/tmp",
+		},
+	}, mocks.NewMockExecExecutor())
+
+	state := &action.ExecutionState{
+		Workspace: t.TempDir(),
+		Logger:    mocks.NewMockLogger(),
+	}
+
+	result := act.Execute(context.Background(), state, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must be relative") {
+		t.Fatalf("Execute result = %+v, want relative working directory failure", result)
+	}
+}
+
+func TestProcessActionRejectsEscapingWorkingDirectory(t *testing.T) {
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "../outside",
+		},
+	}, mocks.NewMockExecExecutor())
+
+	state := &action.ExecutionState{
+		Workspace: t.TempDir(),
+		Logger:    mocks.NewMockLogger(),
+	}
+
+	result := act.Execute(context.Background(), state, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must stay within the action base directory") {
+		t.Fatalf("Execute result = %+v, want working directory containment failure", result)
+	}
+}
+
+func TestProcessActionExecutesConfiguredWorkingDirectoryInsideBase(t *testing.T) {
+	root := t.TempDir()
+	actionDir := filepath.Join(root, "action")
+	scriptsDir := filepath.Join(actionDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o700); err != nil {
+		t.Fatalf("mkdir scripts: %v", err)
+	}
+
+	resolvedScriptsDir, err := filepath.EvalSymlinks(scriptsDir)
+	if err != nil {
+		t.Fatalf("resolve scripts dir: %v", err)
+	}
+
+	executor := mocks.NewMockExecExecutor()
+	executor.SetProcess(mocks.NewMockProcess())
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Source:        actionregistry.SourceLocalFilesystem,
+		SourcePath:    actionDir,
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "scripts",
+		},
+	}, executor)
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("Execute status = %s err=%v, want success", result.Status, result.Error)
+	}
+
+	if got := executor.GetWorkDirs(); len(got) != 1 || got[0] != resolvedScriptsDir {
+		t.Fatalf("executor workdirs = %v, want %q", got, resolvedScriptsDir)
+	}
+}
+
+func TestProcessActionExecutesConfiguredRunner(t *testing.T) {
+	executor := mocks.NewMockExecExecutor()
+	executor.SetProcess(mocks.NewMockProcess())
+
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command": "Write-Output hello",
+			"runner":  "pwsh",
+		},
+	}, executor)
+
+	state := &action.ExecutionState{
+		Workspace: t.TempDir(),
+		Logger:    mocks.NewMockLogger(),
+	}
+
+	result := act.Execute(context.Background(), state, nil, nil)
+	if result.Status != action.StatusSuccess {
+		t.Fatalf("Execute status = %s err=%v, want success", result.Status, result.Error)
+	}
+
+	if got := executor.GetPaths(); len(got) != 1 || got[0] != "pwsh" {
+		t.Fatalf("executor paths = %v, want [pwsh]", got)
+	}
+
+	args := executor.GetArgs()
+	want := []string{"-NoProfile", "-NonInteractive", "-Command", "Write-Output hello"}
+	if len(args) != 1 || strings.Join(args[0], "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("executor args = %v, want %v", args, want)
+	}
+}
+
+func TestProcessActionRejectsSymlinkEscapingWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	actionDir := filepath.Join(root, "action")
+	if err := os.Mkdir(actionDir, 0o700); err != nil {
+		t.Fatalf("mkdir action: %v", err)
+	}
+
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(actionDir, "outside-link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	act := NewProcessAction(actionregistry.Descriptor{
+		CanonicalName: "acme/deploy",
+		Version:       "v1",
+		Digest:        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Source:        actionregistry.SourceLocalFilesystem,
+		SourcePath:    actionDir,
+		Runtime:       actionregistry.RuntimeProcess,
+		RuntimeConfig: map[string]string{
+			"command":           "true",
+			"working_directory": "outside-link",
+		},
+	}, mocks.NewMockExecExecutor())
+
+	result := act.Execute(context.Background(), &action.ExecutionState{Logger: mocks.NewMockLogger()}, nil, nil)
+	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "must stay within the action base directory") {
+		t.Fatalf("Execute result = %+v, want symlink working directory containment failure", result)
+	}
+}

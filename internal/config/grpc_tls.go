@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -9,13 +10,17 @@ import (
 	"sync"
 	"time"
 
+	"vectis/internal/serviceidentity"
 	"vectis/internal/tlsconfig"
 
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 )
 
 func init() {
@@ -33,11 +38,14 @@ func init() {
 type GRPCTLSDaemonRole int
 
 const (
-	GRPCTLSDaemonRegistry   GRPCTLSDaemonRole = iota // gRPC server only (vectis-registry)
-	GRPCTLSDaemonQueue                               // server + dials registry
-	GRPCTLSDaemonLog                                 // server + dials registry
-	GRPCTLSDaemonWorker                              // server + dials registry/queue/log
-	GRPCTLSDaemonClientOnly                          // vectis-api, cron, reconciler, log-forwarder (dial-only)
+	GRPCTLSDaemonRegistry     GRPCTLSDaemonRole = iota // gRPC server only (vectis-registry)
+	GRPCTLSDaemonQueue                                 // server + dials registry
+	GRPCTLSDaemonLog                                   // server + dials registry
+	GRPCTLSDaemonArtifact                              // server + dials registry
+	GRPCTLSDaemonWorker                                // server + dials registry/queue/log/artifact/orchestrator
+	GRPCTLSDaemonOrchestrator                          // server + dials registry
+	GRPCTLSDaemonClientOnly                            // vectis-api, cron, reconciler, log-forwarder (dial-only)
+	GRPCTLSDaemonSecrets                               // gRPC server only (vectis-secrets)
 )
 
 func GRPCTLSInsecure() bool {
@@ -90,10 +98,19 @@ func ValidateGRPCTLSForRole(role GRPCTLSDaemonRole) error {
 		if o.ServerCert == "" || o.ServerKey == "" {
 			return errors.New("grpc_tls: cert_file and key_file are required for vectis-registry when grpc_tls.insecure is false")
 		}
-	case GRPCTLSDaemonQueue, GRPCTLSDaemonLog, GRPCTLSDaemonWorker:
+	case GRPCTLSDaemonSecrets:
+		if o.ServerCert == "" || o.ServerKey == "" {
+			return errors.New("grpc_tls: cert_file and key_file are required for vectis-secrets when grpc_tls.insecure is false")
+		}
+
+		if o.ClientCA == "" {
+			return errors.New("grpc_tls: client_ca_file is required for vectis-secrets when grpc_tls.insecure is false so workload client certificates are verified")
+		}
+	case GRPCTLSDaemonQueue, GRPCTLSDaemonLog, GRPCTLSDaemonArtifact, GRPCTLSDaemonWorker, GRPCTLSDaemonOrchestrator:
 		if o.ServerCert == "" || o.ServerKey == "" {
 			return errors.New("grpc_tls: cert_file and key_file are required when grpc_tls.insecure is false")
 		}
+
 		if o.RootCA == "" {
 			return errors.New("grpc_tls: ca_file is required to dial the registry when grpc_tls.insecure is false")
 		}
@@ -120,7 +137,7 @@ var (
 
 func grpcTLSReloader() (*tlsconfig.Reloader, error) {
 	if GRPCTLSInsecure() {
-		return nil, nil
+		return nil, nil //nolint:nilnil // A nil reloader means internal gRPC TLS is disabled.
 	}
 
 	grpcTLSOnce.Do(func() {
@@ -130,9 +147,35 @@ func grpcTLSReloader() (*tlsconfig.Reloader, error) {
 	return grpcTLSRel, grpcTLSErr
 }
 
+// GRPCServerOptions is a compatibility wrapper for tests and role-neutral
+// servers. Internal service listeners should use GRPCServerOptionsForRole.
 func GRPCServerOptions() ([]grpc.ServerOption, error) {
+	return GRPCServerOptionsForRole(ServiceIdentityRoleNone)
+}
+
+func GRPCServerOptionsForRole(role ServiceIdentityRole) ([]grpc.ServerOption, error) {
 	opts := []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	}
+
+	allowedIdentities, err := grpcServiceIdentityAllowlist(role)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(allowedIdentities) > 0 {
+		if GRPCTLSInsecure() {
+			return nil, fmt.Errorf("%s requires grpc_tls.insecure=false", serviceIdentityAllowlistLabel(role))
+		}
+
+		if grpctlsOptionsFromViper().ClientCA == "" {
+			return nil, fmt.Errorf("%s requires grpc_tls.client_ca_file so peer certificates are verified", serviceIdentityAllowlistLabel(role))
+		}
+
+		opts = append(opts,
+			grpc.ChainUnaryInterceptor(serviceIdentityUnaryInterceptor(role, allowedIdentities)),
+			grpc.ChainStreamInterceptor(serviceIdentityStreamInterceptor(role, allowedIdentities)),
+		)
 	}
 
 	if GRPCTLSInsecure() {
@@ -157,11 +200,98 @@ func GRPCServerOptions() ([]grpc.ServerOption, error) {
 	return opts, nil
 }
 
+func grpcServiceIdentityAllowlist(role ServiceIdentityRole) ([]string, error) {
+	switch role {
+	case ServiceIdentityRoleNone:
+		return nil, nil
+	case ServiceIdentityRoleRegistry, ServiceIdentityRoleQueue, ServiceIdentityRoleLog, ServiceIdentityRoleArtifact, ServiceIdentityRoleOrchestrator, ServiceIdentityRoleWorkerControl, ServiceIdentityRoleSecrets:
+	default:
+		return nil, fmt.Errorf("service_identity: unknown gRPC service identity role %d", role)
+	}
+
+	return validateServiceIdentityAllowlist(serviceIdentityAllowlistLabel(role), ServiceIdentityAllowedClientIdentities(role))
+}
+
+func serviceIdentityAllowlistLabel(role ServiceIdentityRole) string {
+	switch role {
+	case ServiceIdentityRoleRegistry:
+		return "service_identity.registry_allowed_client_identities"
+	case ServiceIdentityRoleQueue:
+		return "service_identity.queue_allowed_client_identities"
+	case ServiceIdentityRoleLog:
+		return "service_identity.log_allowed_client_identities"
+	case ServiceIdentityRoleArtifact:
+		return "service_identity.artifact_allowed_client_identities"
+	case ServiceIdentityRoleOrchestrator:
+		return "service_identity.orchestrator_allowed_client_identities"
+	case ServiceIdentityRoleWorkerControl:
+		return "service_identity.worker_control_allowed_client_identities"
+	case ServiceIdentityRoleSecrets:
+		return "service_identity.secrets_allowed_client_identities"
+	default:
+		return "service_identity"
+	}
+}
+
+func serviceIdentityUnaryInterceptor(role ServiceIdentityRole, allowedIdentities []string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if err := authorizeGRPCPeerIdentity(ctx, role, allowedIdentities); err != nil {
+			return nil, err
+		}
+
+		return handler(ctx, req)
+	}
+}
+
+func serviceIdentityStreamInterceptor(role ServiceIdentityRole, allowedIdentities []string) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := authorizeGRPCPeerIdentity(ss.Context(), role, allowedIdentities); err != nil {
+			return err
+		}
+
+		return handler(srv, ss)
+	}
+}
+
+func authorizeGRPCPeerIdentity(ctx context.Context, role ServiceIdentityRole, allowedIdentities []string) error {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "service identity: missing gRPC peer")
+	}
+
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "service identity: verified mTLS peer certificate is required")
+	}
+
+	if _, err := serviceidentity.AuthorizePeerCertificate(tlsInfo.State.PeerCertificates, allowedIdentities); err != nil {
+		switch {
+		case errors.Is(err, serviceidentity.ErrNoPeerCertificate), errors.Is(err, serviceidentity.ErrNoPeerIdentity):
+			return status.Error(codes.Unauthenticated, err.Error())
+		case errors.Is(err, serviceidentity.ErrIdentityDenied):
+			return status.Error(codes.PermissionDenied, err.Error())
+		default:
+			return status.Errorf(codes.PermissionDenied, "service identity: invalid %s policy: %v", role.String(), err)
+		}
+	}
+
+	return nil
+}
+
 func grpcTransportCredsForTarget(directHostPort string) (credentials.TransportCredentials, error) {
 	if GRPCTLSInsecure() {
 		return insecure.NewCredentials(), nil
 	}
 
+	cfg, err := grpcClientTLSConfigForTarget(directHostPort)
+	if err != nil {
+		return nil, err
+	}
+
+	return credentials.NewTLS(cfg), nil
+}
+
+func grpcClientTLSConfigForTarget(directHostPort string) (*tls.Config, error) {
 	r, err := grpcTLSReloader()
 	if err != nil {
 		return nil, err
@@ -180,7 +310,7 @@ func grpcTransportCredsForTarget(directHostPort string) (credentials.TransportCr
 		sn = tlsServerNameFromHostPort(directHostPort)
 	}
 
-	return r.ClientGRPC(sn)
+	return r.ClientTLS(sn)
 }
 
 func GRPCClientDialOptions(directHostPort string) ([]grpc.DialOption, error) {
@@ -193,6 +323,41 @@ func GRPCClientDialOptions(directHostPort string) ([]grpc.DialOption, error) {
 		grpc.WithTransportCredentials(tc),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}, nil
+}
+
+func GRPCClientDialOptionsWithClientCertificate(directHostPort string, cert tls.Certificate) ([]grpc.DialOption, error) {
+	if GRPCTLSInsecure() {
+		return nil, errors.New("grpc_tls: client certificate requires grpc_tls.insecure=false")
+	}
+
+	if len(cert.Certificate) == 0 || cert.PrivateKey == nil {
+		return nil, errors.New("grpc_tls: client certificate and private key are required")
+	}
+
+	cfg, err := grpcClientTLSConfigForTarget(directHostPort)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCert := cloneTLSCertificate(cert)
+	cfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		return &clientCert, nil
+	}
+
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	}, nil
+}
+
+func cloneTLSCertificate(cert tls.Certificate) tls.Certificate {
+	out := cert
+	out.Certificate = make([][]byte, 0, len(cert.Certificate))
+	for _, der := range cert.Certificate {
+		out.Certificate = append(out.Certificate, append([]byte(nil), der...))
+	}
+
+	return out
 }
 
 func GRPCResolverDialOptions() ([]grpc.DialOption, error) {

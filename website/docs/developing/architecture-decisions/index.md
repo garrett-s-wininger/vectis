@@ -17,6 +17,14 @@ New decisions add the next numbered file. Keep older decisions in place; when a 
 | [0003](./0003-database-claims-and-queue-deliveries.md) | Accepted | Database claims and queue deliveries |
 | [0004](./0004-migration-compatibility-and-rollback.md) | Accepted | Migration compatibility and rollback |
 | [0005](./0005-gossip-based-ha-registry.md) | Accepted | Gossip-based HA service registry |
+| [0006](./0006-global-coordination-cell-local-execution.md) | Accepted | Global coordination and cell-local execution |
+| [0007](./0007-queue-pool-shards.md) | Accepted | Queue pool shards |
+| [0008](./0008-api-edge-state-backend-contract.md) | Accepted | API edge-state backend contract |
+| [0009](./0009-worker-execution-containment-providers.md) | Accepted | Worker execution containment providers |
+| [0010](./0010-versioned-action-registry.md) | Accepted | Versioned action registry |
+| [0011](./0011-artifact-service-local-cas.md) | Accepted | Artifact service with local content-addressed storage |
+| [0012](./0012-spiffe-secret-broker.md) | Accepted | SPIFFE-authenticated secret broker |
+| [0013](./0013-durable-event-reactions.md) | Proposed | Durable event reactions |
 
 ## Writing Style
 

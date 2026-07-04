@@ -1,0 +1,230 @@
+# Actions Reference
+
+Actions are the executable nodes in a Vectis job tree. Job nodes select an action with `uses`, pass static values through `with`, optionally bind values through `inputs`, and connect child nodes through ports when the action is a control-flow node.
+
+For the job JSON field layout, see [Job Definition Reference](./job-definition-reference.md). For custom action authoring, see [Adding Actions](../developing/actions.md).
+
+## References
+
+Action references use this shape:
+
+```text
+<namespace>/<name>[@<selector>]
+```
+
+Examples:
+
+```text
+builtins/script
+builtins/script@v1
+examples/greet@sha256:<64-hex-digest>
+```
+
+| Part | Contract |
+| --- | --- |
+| `namespace` | Lowercase namespace segment. Built-ins use `builtins`. |
+| `name` | Lowercase action name segment. |
+| `selector` | Optional version selector such as `v1`, or digest selector such as `sha256:<64-hex-digest>`. |
+| No selector | Resolves according to the configured action registry. Built-in examples prefer unselected canonical names. |
+
+Short built-in names such as `script` can resolve internally, but job files should use canonical names such as `builtins/script` so stored definitions stay clear.
+
+## Built-In Actions
+
+| Action | Required `with` fields | Optional `with` fields | Ports | Local-only | Behavior |
+| --- | --- | --- | --- | --- | --- |
+| `builtins/script` | `script` | `runner`, `outputs` | None | No | Writes `script` to a temporary workspace file and runs it with the selected runner. `runner: "auto"` or an omitted runner defaults to PowerShell on Windows and `sh` elsewhere. |
+| `builtins/test` | `command` | `runner` | None | No | Runs a predicate command with the selected runner. Exit `0` returns `result: true`; exit `1` returns `result: false`; other execution errors fail the action. |
+| `builtins/checkout` | `url` | `fetch_refspecs`, `ref` | None | No | Runs `git clone <url> .` with terminal prompts disabled. HTTP(S) URLs with embedded credentials are rejected. When worker persistent cache handles the URL, `origin` stays on the declared remote and `vectis-cache` exposes the local mirror; `fetch_refspecs` demand-hydrates source refs into the cache when needed, then fetches whitespace-separated refspecs locally on cache hits or from `origin` after direct clones. `ref` fetches a single ref from the active remote and checks out `FETCH_HEAD` detached. |
+| `builtins/upload-artifact` | `name`, `path` | `content_type`, `metadata_json`, `max_bytes` | None | No | Publishes a workspace-relative file as a run artifact and returns an `artifact` object. |
+| `builtins/sequence` | None | `execution` | `steps` | No | Runs child nodes in order and stops on first failure. |
+| `builtins/parallel` | None | `execution` | `branches` | No | Runs branches concurrently when local, or fans out distributed child task executions by default. |
+| `builtins/if` | None | `execution` | `condition`, `then`, `else` | Yes | Runs one condition node, reads its boolean `result`, then runs the matching branch. |
+| `builtins/retry` | None | `attempts` | `body` | Yes | Runs the body until success or attempts are exhausted. Default attempts is `3`. |
+| `builtins/timeout` | `duration` | None | `body` | Yes | Runs the body with a positive Go duration such as `30s`, `5m`, or `1h`. |
+| `builtins/finally` | None | `execution` | `body`, `always` | Yes | Runs `always` after `body`; body failure remains final unless cleanup is the only failure. |
+| `builtins/fallback` | None | `execution` | `choices` | Yes | Runs choices in order and returns the first success. |
+| `builtins/result` | `success` | None | None | No | Returns success when `success` parses as `true`, otherwise failure. |
+
+`execution` is reserved for Vectis execution policy. When omitted, `builtins/parallel` defaults to distributed execution and other built-ins default to local execution.
+
+`builtins/script` and `builtins/test` support `runner` values `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`. Omitted or `auto` runners use PowerShell on Windows and `sh` elsewhere. `builtins/script` writes the script below `.vectis/scripts/` in the workspace, rejects symlinked script directories, runs the file through the worker process executor, and removes the temporary file after execution. `outputs` must point to a workspace-relative JSON object file.
+
+## Extension Actions
+
+Extension actions live outside the worker core and must be made available through the configured action registry.
+
+| Action | Required `with` fields | Optional `with` fields | Ports | Local-only | Behavior |
+| --- | --- | --- | --- | --- | --- |
+| `gerrit/review@v1` | `url`, `change`, `message`, `username`, `password_file` | `revision`, `label`, `value`, `tag` | None | No | Posts a Gerrit review message and optional label vote to `/a/changes/{change}/revisions/{revision}/review` using HTTP basic auth from a workspace-relative password file. |
+
+### Timeout Composition
+
+`builtins/timeout` is an explicit local wrapper, not a job-level default. It cancels its `body` when the duration expires; process-launching children receive the normal worker cancellation behavior, including Unix process-group termination on supported hosts.
+
+Timeout bodies must stay within one local execution scope. A distributed boundary inside the body is rejected during validation. Because `builtins/parallel` defaults to distributed execution, set `with.execution: local` when using parallel branches inside a timeout, or place separate timeout nodes inside each distributed branch.
+
+Ordering matters when combining timeout and retry:
+
+| Shape | Meaning |
+| --- | --- |
+| `timeout { retry { script } }` | One total deadline for all retry attempts. |
+| `retry { timeout { script } }` | Each retry attempt gets its own deadline. |
+
+Use the first shape for a total task budget, and the second when each attempt may legitimately take the full duration.
+
+## Ports
+
+| Port | Action | Cardinality | Ordering |
+| --- | --- | --- | --- |
+| `steps` | `builtins/sequence` | Any number | Ordered |
+| `branches` | `builtins/parallel` | Any number | Concurrent when local, task fan-out when distributed |
+| `condition` | `builtins/if` | Exactly one | Ordered |
+| `then` | `builtins/if` | Any number | Ordered |
+| `else` | `builtins/if` | Any number | Ordered |
+| `body` | `builtins/retry`, `builtins/timeout`, `builtins/finally` | At least one | Ordered |
+| `always` | `builtins/finally` | At least one | Ordered |
+| `choices` | `builtins/fallback` | At least one | Ordered |
+
+`steps` is shorthand for a node's primary port. For `builtins/sequence`, `steps` means `ports.steps.nodes`. For `builtins/parallel`, `steps` means `ports.branches.nodes`. Do not set `steps` and the matching explicit primary port on the same node.
+
+## Descriptor Contract
+
+The action registry resolves `uses` into a descriptor. Descriptor JSON includes:
+
+| Field | Meaning |
+| --- | --- |
+| `canonical_name` | Stable action name, such as `builtins/script` or `examples/greet`. |
+| `display_name` | Optional human-readable name. |
+| `version` | Compatibility selector value, such as `v1`. |
+| `digest` | Immutable descriptor digest, currently `sha256:<64-hex-digest>`. |
+| `source` | Descriptor source: `builtin`, `local_filesystem`, or reserved `oci`. |
+| `runtime` | Runtime kind: `builtin`, `process`, `container`, `wasm`, or `grpc`. |
+| `runtime_config` | Runtime-specific key/value configuration. |
+| `input_schema` | Static `with` field schema. |
+| `port_schema` | Accepted child ports and cardinality. |
+| `local_only` | `true` when the action cannot be a distributed execution boundary. |
+| `capabilities` | Declared capabilities such as `process_launch` or `network`. |
+| `status` | Lifecycle status. Empty status means `active`. |
+| `status_reason` | Optional reason for yanked, revoked, or purged descriptors. |
+
+Descriptor digests are computed from stable descriptor fields. The digest is part of task materialization, so retries and repair can detect action implementation drift.
+
+## Capabilities
+
+Descriptor capabilities are operator-visible metadata. Current capability values are:
+
+| Capability | Meaning |
+| --- | --- |
+| `process_launch` | Action starts local or delegated processes. |
+| `network` | Action may use network access. |
+| `workspace_read` | Action reads files from the workspace. |
+| `workspace_write` | Action writes files in the workspace. |
+| `secrets` | Action may intentionally consume Vectis-provided job secrets. |
+
+Current built-in descriptors report capabilities for process-oriented actions:
+
+| Built-in | Capabilities |
+| --- | --- |
+| `builtins/script` | `process_launch`, `workspace_read`, `workspace_write` |
+| `builtins/test` | `process_launch`, `workspace_read`, `workspace_write` |
+| `builtins/checkout` | `network`, `process_launch`, `workspace_write` |
+
+Other built-ins currently report no explicit capabilities.
+
+Current extension descriptors report capabilities for integration-oriented actions:
+
+| Extension | Capabilities |
+| --- | --- |
+| `gerrit/review@v1` | `network`, `workspace_read` |
+
+## Lifecycle Status
+
+| Status | Resolution behavior |
+| --- | --- |
+| `active` | Listed and usable. Empty status is normalized to `active`. |
+| `yanked` | Hidden from normal listing and rejected for version-selector or unselected references; digest-pinned historical execution can proceed. |
+| `revoked` | Blocks new resolution and frozen descriptor execution. |
+| `purged` | Blocks new resolution and frozen descriptor execution. |
+
+When removing an action for safety, keep a tombstone descriptor with the original name, version, digest, runtime, and status. Absence alone is not a security revocation for historical execution payloads.
+
+## Custom Local Actions
+
+Vectis can resolve descriptor-only custom actions from local filesystem roots configured with `action_registry.local_roots` or `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS`.
+
+Each local action manifest is named `action.json` and uses schema version `1`:
+
+```json
+{
+  "schema_version": 1,
+  "name": "examples/greet",
+  "display_name": "Greet",
+  "version": "v1",
+  "runtime": "process",
+  "runtime_config": {
+    "command": "./greet"
+  },
+  "input_schema": {
+    "fields": [
+      {"name": "name", "type": "string", "required": true}
+    ]
+  },
+  "capabilities": ["process_launch", "workspace_read"]
+}
+```
+
+Manifest rules:
+
+- `name` must match the requested `namespace/name`;
+- `version` is required and must be a valid selector that is not `sha256:...`;
+- `digest` is optional and must be `sha256:<64-hex-digest>` when supplied;
+- local runtime may be `process`, `container`, `wasm`, or `grpc`;
+- local runtime `builtin` is reserved;
+- local `process` actions do not support `port_schema`;
+- local `process` actions run from the manifest directory by default;
+- `runtime_config.runner`, when set for a local `process` action, supports `auto`, `sh`, `bash`, `cmd`, `batch`, `powershell`, `pwsh`, `python`, `python3`, and `node`; omitted runners keep the compatibility default of `sh`;
+- `runtime_config.working_directory`, when set for a local `process` action, must be relative to that action base directory and must not contain parent-directory escapes;
+- input field name `execution` is reserved;
+- input field types currently support `string`, `url`, and `number`;
+- unknown manifest fields are rejected.
+
+The configured resolver loads built-ins automatically and then adds local manifest roots.
+
+## Policy
+
+Operators can restrict custom action use:
+
+| Key | Environment | Meaning |
+| --- | --- | --- |
+| `action_registry.local_roots` | `VECTIS_ACTION_REGISTRY_LOCAL_ROOTS` | Local manifest roots to load. |
+| `action_registry.allowed_namespaces` | `VECTIS_ACTION_REGISTRY_ALLOWED_NAMESPACES` | Optional namespace allowlist for custom actions. |
+| `action_registry.allowed_sources` | `VECTIS_ACTION_REGISTRY_ALLOWED_SOURCES` | Optional source allowlist, such as `local_filesystem`. |
+| `action_registry.require_digest_pins` | `VECTIS_ACTION_REGISTRY_REQUIRE_DIGEST_PINS` | Requires custom action references to use digest selectors. |
+
+Built-ins bypass custom-action namespace, source, and digest-pin policy for compatibility. Custom actions must satisfy policy unless a CLI discovery command uses `--ignore-policy`.
+
+## CLI Discovery
+
+Use the CLI to inspect descriptors and find digest-pinned references. The subcommands are `actions list` and `actions resolve`:
+
+```sh
+vectis-cli actions list
+vectis-cli actions resolve examples/greet@v1
+vectis-cli actions resolve examples/greet@v1 --ignore-policy
+```
+
+`actions resolve` returns `reference`, `resolved_reference`, and `descriptor` in JSON mode. `resolved_reference` is the canonical digest-pinned reference to use when preparing a pinned job definition.
+
+Use `--ignore-policy` only for discovery, for example when `action_registry.require_digest_pins=true` and you need to resolve a version selector to find its digest.
+
+## Related Documentation
+
+| Need | Document |
+| --- | --- |
+| Job JSON field contract | [Job Definition Reference](./job-definition-reference.md) |
+| Built-in artifact action | [Artifacts](./artifacts.md) |
+| Job secrets | [Secrets Reference](./secrets-reference.md) |
+| Custom action development | [Adding Actions](../developing/actions.md) |
+| Action registry ADR | [ADR 0010: Versioned Action Registry](../developing/architecture-decisions/0010-versioned-action-registry.md) |
+| Config keys | [Configuration Key Reference](../operating/reference/configuration-key-reference.md#secrets-and-action-registry) |

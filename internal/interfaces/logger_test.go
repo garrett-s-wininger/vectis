@@ -221,6 +221,10 @@ func TestNewLogOutput_WritesFileWhenDirectoryConfigured(t *testing.T) {
 	t.Setenv("VECTIS_LOG_DIR", logDir)
 
 	logger := interfaces.NewLogger("log aggregator")
+	if closer, ok := logger.(interface{ Close() error }); ok {
+		t.Cleanup(func() { _ = closer.Close() })
+	}
+	
 	logger.Info("persisted")
 
 	b, err := os.ReadFile(filepath.Join(logDir, "log-aggregator.jsonl"))

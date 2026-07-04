@@ -33,6 +33,10 @@ func (m *mockNamespacesRepo) Create(ctx context.Context, name string, parentID *
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockNamespacesRepo) CreateWithDescription(ctx context.Context, name, description string, parentID *int64) (*dal.NamespaceRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m *mockNamespacesRepo) GetByID(ctx context.Context, id int64) (*dal.NamespaceRecord, error) {
 	for _, rec := range m.records {
 		if rec.ID == id {
@@ -56,6 +60,10 @@ func (m *mockNamespacesRepo) List(ctx context.Context) ([]dal.NamespaceRecord, e
 
 func (m *mockNamespacesRepo) ListChildren(ctx context.Context, parentID int64) ([]dal.NamespaceRecord, error) {
 	return nil, nil
+}
+
+func (m *mockNamespacesRepo) UpdateDescription(ctx context.Context, id int64, description string) (*dal.NamespaceRecord, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (m *mockNamespacesRepo) Delete(ctx context.Context, id int64) error { return nil }
@@ -166,7 +174,7 @@ func TestHierarchicalRBAC_RolePermissions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.role)+"_"+string(tt.action), func(t *testing.T) {
+		t.Run(tt.role+"_"+string(tt.action), func(t *testing.T) {
 			t.Parallel()
 			rb := newMockRoleBindingsRepo()
 			rb.add(42, 2, tt.role)
@@ -300,7 +308,7 @@ func TestHierarchicalRBAC_AdminRoleGrantsAllActions(t *testing.T) {
 
 	allActions := allDistinctActions()
 	for _, action := range allActions {
-		if action == ActionSetupStatus || action == ActionSetupComplete || action == ActionUserAdmin {
+		if action == ActionSetupStatus || action == ActionSetupComplete || action == ActionCatalogIngest || action == ActionUserAdmin {
 			continue
 		}
 
@@ -310,7 +318,7 @@ func TestHierarchicalRBAC_AdminRoleGrantsAllActions(t *testing.T) {
 	}
 }
 
-func TestHierarchicalRBAC_UserAdminRequiresRootAdmin(t *testing.T) {
+func TestHierarchicalRBAC_GlobalActionsRequireRootAdmin(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -318,27 +326,29 @@ func TestHierarchicalRBAC_UserAdminRequiresRootAdmin(t *testing.T) {
 	ns.add(1, "root", "/", nil, false)
 	ns.add(2, "team-a", "/team-a", &[]int64{1}[0], false)
 
-	t.Run("root admin allowed", func(t *testing.T) {
-		rb := newMockRoleBindingsRepo()
-		rb.add(42, 1, RoleAdmin)
-		z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
-		p := &authn.Principal{LocalUserID: 42, Username: "root-admin"}
+	for _, action := range []Action{ActionCatalogIngest, ActionUserAdmin} {
+		t.Run(string(action)+" root admin allowed", func(t *testing.T) {
+			rb := newMockRoleBindingsRepo()
+			rb.add(42, 1, RoleAdmin)
+			z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
+			p := &authn.Principal{LocalUserID: 42, Username: "root-admin"}
 
-		if !z.Allow(ctx, p, ActionUserAdmin, Resource{}) {
-			t.Fatal("root admin should be allowed to manage users")
-		}
-	})
+			if !z.Allow(ctx, p, action, Resource{}) {
+				t.Fatalf("root admin should be allowed for %s", action)
+			}
+		})
 
-	t.Run("namespace admin denied", func(t *testing.T) {
-		rb := newMockRoleBindingsRepo()
-		rb.add(42, 2, RoleAdmin)
-		z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
-		p := &authn.Principal{LocalUserID: 42, Username: "team-admin"}
+		t.Run(string(action)+" namespace admin denied", func(t *testing.T) {
+			rb := newMockRoleBindingsRepo()
+			rb.add(42, 2, RoleAdmin)
+			z := &HierarchicalRBAC{Namespaces: ns, RoleBindings: rb}
+			p := &authn.Principal{LocalUserID: 42, Username: "team-admin"}
 
-		if z.Allow(ctx, p, ActionUserAdmin, Resource{}) {
-			t.Fatal("namespace admin should not become global user admin")
-		}
-	})
+			if z.Allow(ctx, p, action, Resource{}) {
+				t.Fatalf("namespace admin should not be allowed for %s", action)
+			}
+		})
+	}
 }
 
 func TestHierarchicalRBAC_TokenScopesCannotExpandPermissions(t *testing.T) {

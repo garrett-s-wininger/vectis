@@ -1,0 +1,43 @@
+{
+  "id": "conditional-job",
+  "root": {
+    "id": "deploy-gate",
+    "uses": "builtins/if",
+    "ports": {
+      "condition": {
+        "nodes": [
+          {
+            "id": "has-deploy-changes",
+            "uses": "builtins/test",
+            "with": {
+              "runner": "sh",
+              "command": "test -f deploy.changed"
+            }
+          }
+        ]
+      },
+      "then": {
+        "nodes": [
+          {
+            "id": "deploy",
+            "uses": "builtins/script",
+            "with": {
+              "script": "echo 'Deploying changes'"
+            }
+          }
+        ]
+      },
+      "else": {
+        "nodes": [
+          {
+            "id": "skip-deploy",
+            "uses": "builtins/script",
+            "with": {
+              "script": "echo 'No deploy changes detected'"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

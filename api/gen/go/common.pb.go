@@ -22,6 +22,52 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type SecretDeliveryType int32
+
+const (
+	SecretDeliveryType_SECRET_DELIVERY_TYPE_UNSPECIFIED SecretDeliveryType = 0
+	SecretDeliveryType_SECRET_DELIVERY_TYPE_FILE        SecretDeliveryType = 1
+)
+
+// Enum value maps for SecretDeliveryType.
+var (
+	SecretDeliveryType_name = map[int32]string{
+		0: "SECRET_DELIVERY_TYPE_UNSPECIFIED",
+		1: "SECRET_DELIVERY_TYPE_FILE",
+	}
+	SecretDeliveryType_value = map[string]int32{
+		"SECRET_DELIVERY_TYPE_UNSPECIFIED": 0,
+		"SECRET_DELIVERY_TYPE_FILE":        1,
+	}
+)
+
+func (x SecretDeliveryType) Enum() *SecretDeliveryType {
+	p := new(SecretDeliveryType)
+	*p = x
+	return p
+}
+
+func (x SecretDeliveryType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SecretDeliveryType) Descriptor() protoreflect.EnumDescriptor {
+	return file_common_proto_enumTypes[0].Descriptor()
+}
+
+func (SecretDeliveryType) Type() protoreflect.EnumType {
+	return &file_common_proto_enumTypes[0]
+}
+
+func (x SecretDeliveryType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SecretDeliveryType.Descriptor instead.
+func (SecretDeliveryType) EnumDescriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{0}
+}
+
 type RunOutcome int32
 
 const (
@@ -58,11 +104,11 @@ func (x RunOutcome) String() string {
 }
 
 func (RunOutcome) Descriptor() protoreflect.EnumDescriptor {
-	return file_common_proto_enumTypes[0].Descriptor()
+	return file_common_proto_enumTypes[1].Descriptor()
 }
 
 func (RunOutcome) Type() protoreflect.EnumType {
-	return &file_common_proto_enumTypes[0]
+	return &file_common_proto_enumTypes[1]
 }
 
 func (x RunOutcome) Number() protoreflect.EnumNumber {
@@ -71,7 +117,7 @@ func (x RunOutcome) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunOutcome.Descriptor instead.
 func (RunOutcome) EnumDescriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{0}
+	return file_common_proto_rawDescGZIP(), []int{1}
 }
 
 type Stream int32
@@ -107,11 +153,11 @@ func (x Stream) String() string {
 }
 
 func (Stream) Descriptor() protoreflect.EnumDescriptor {
-	return file_common_proto_enumTypes[1].Descriptor()
+	return file_common_proto_enumTypes[2].Descriptor()
 }
 
 func (Stream) Type() protoreflect.EnumType {
-	return &file_common_proto_enumTypes[1]
+	return &file_common_proto_enumTypes[2]
 }
 
 func (x Stream) Number() protoreflect.EnumNumber {
@@ -120,7 +166,7 @@ func (x Stream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Stream.Descriptor instead.
 func (Stream) EnumDescriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{1}
+	return file_common_proto_rawDescGZIP(), []int{2}
 }
 
 type Empty struct {
@@ -160,13 +206,16 @@ func (*Empty) Descriptor() ([]byte, []int) {
 }
 
 type Job struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
-	RunId         *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"`
-	Root          *Node                  `protobuf:"bytes,3,opt,name=root" json:"root,omitempty"`
-	DeliveryId    *string                `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	RunId            *string                `protobuf:"bytes,2,opt,name=run_id,json=runId" json:"run_id,omitempty"`
+	Root             *Node                  `protobuf:"bytes,3,opt,name=root" json:"root,omitempty"`
+	DeliveryId       *string                `protobuf:"bytes,4,opt,name=delivery_id,json=deliveryId" json:"delivery_id,omitempty"`
+	DefaultIsolation *string                `protobuf:"bytes,5,opt,name=default_isolation,json=defaultIsolation" json:"default_isolation,omitempty"`
+	Secrets          []*SecretReference     `protobuf:"bytes,6,rep,name=secrets" json:"secrets,omitempty"`
+	Triggers         []*JobTrigger          `protobuf:"bytes,7,rep,name=triggers" json:"triggers,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Job) Reset() {
@@ -227,6 +276,27 @@ func (x *Job) GetDeliveryId() string {
 	return ""
 }
 
+func (x *Job) GetDefaultIsolation() string {
+	if x != nil && x.DefaultIsolation != nil {
+		return *x.DefaultIsolation
+	}
+	return ""
+}
+
+func (x *Job) GetSecrets() []*SecretReference {
+	if x != nil {
+		return x.Secrets
+	}
+	return nil
+}
+
+func (x *Job) GetTriggers() []*JobTrigger {
+	if x != nil {
+		return x.Triggers
+	}
+	return nil
+}
+
 type JobRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Job           *Job                   `protobuf:"bytes,1,opt,name=job" json:"job,omitempty"`
@@ -279,19 +349,300 @@ func (x *JobRequest) GetMetadata() map[string]string {
 	return nil
 }
 
+type JobTrigger struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	Name  *string                `protobuf:"bytes,2,opt,name=name" json:"name,omitempty"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*JobTrigger_Manual
+	//	*JobTrigger_Cron
+	//	*JobTrigger_ScmPoll
+	Kind          isJobTrigger_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JobTrigger) Reset() {
+	*x = JobTrigger{}
+	mi := &file_common_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobTrigger) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobTrigger) ProtoMessage() {}
+
+func (x *JobTrigger) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobTrigger.ProtoReflect.Descriptor instead.
+func (*JobTrigger) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *JobTrigger) GetId() string {
+	if x != nil && x.Id != nil {
+		return *x.Id
+	}
+	return ""
+}
+
+func (x *JobTrigger) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *JobTrigger) GetKind() isJobTrigger_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *JobTrigger) GetManual() *ManualTrigger {
+	if x != nil {
+		if x, ok := x.Kind.(*JobTrigger_Manual); ok {
+			return x.Manual
+		}
+	}
+	return nil
+}
+
+func (x *JobTrigger) GetCron() *CronTrigger {
+	if x != nil {
+		if x, ok := x.Kind.(*JobTrigger_Cron); ok {
+			return x.Cron
+		}
+	}
+	return nil
+}
+
+func (x *JobTrigger) GetScmPoll() *SCMPollTrigger {
+	if x != nil {
+		if x, ok := x.Kind.(*JobTrigger_ScmPoll); ok {
+			return x.ScmPoll
+		}
+	}
+	return nil
+}
+
+type isJobTrigger_Kind interface {
+	isJobTrigger_Kind()
+}
+
+type JobTrigger_Manual struct {
+	Manual *ManualTrigger `protobuf:"bytes,3,opt,name=manual,oneof"`
+}
+
+type JobTrigger_Cron struct {
+	Cron *CronTrigger `protobuf:"bytes,4,opt,name=cron,oneof"`
+}
+
+type JobTrigger_ScmPoll struct {
+	ScmPoll *SCMPollTrigger `protobuf:"bytes,5,opt,name=scm_poll,json=scmPoll,oneof"`
+}
+
+func (*JobTrigger_Manual) isJobTrigger_Kind() {}
+
+func (*JobTrigger_Cron) isJobTrigger_Kind() {}
+
+func (*JobTrigger_ScmPoll) isJobTrigger_Kind() {}
+
+type ManualTrigger struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ManualTrigger) Reset() {
+	*x = ManualTrigger{}
+	mi := &file_common_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ManualTrigger) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ManualTrigger) ProtoMessage() {}
+
+func (x *ManualTrigger) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ManualTrigger.ProtoReflect.Descriptor instead.
+func (*ManualTrigger) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{4}
+}
+
+type CronTrigger struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Spec          *string                `protobuf:"bytes,1,opt,name=spec" json:"spec,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CronTrigger) Reset() {
+	*x = CronTrigger{}
+	mi := &file_common_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CronTrigger) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CronTrigger) ProtoMessage() {}
+
+func (x *CronTrigger) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CronTrigger.ProtoReflect.Descriptor instead.
+func (*CronTrigger) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CronTrigger) GetSpec() string {
+	if x != nil && x.Spec != nil {
+		return *x.Spec
+	}
+	return ""
+}
+
+type SCMPollTrigger struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Provider        *string                `protobuf:"bytes,1,opt,name=provider" json:"provider,omitempty"`
+	BaseUrl         *string                `protobuf:"bytes,2,opt,name=base_url,json=baseUrl" json:"base_url,omitempty"`
+	Project         *string                `protobuf:"bytes,3,opt,name=project" json:"project,omitempty"`
+	Branch          *string                `protobuf:"bytes,4,opt,name=branch" json:"branch,omitempty"`
+	Query           *string                `protobuf:"bytes,5,opt,name=query" json:"query,omitempty"`
+	IntervalSeconds *int64                 `protobuf:"varint,6,opt,name=interval_seconds,json=intervalSeconds" json:"interval_seconds,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SCMPollTrigger) Reset() {
+	*x = SCMPollTrigger{}
+	mi := &file_common_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SCMPollTrigger) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SCMPollTrigger) ProtoMessage() {}
+
+func (x *SCMPollTrigger) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SCMPollTrigger.ProtoReflect.Descriptor instead.
+func (*SCMPollTrigger) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SCMPollTrigger) GetProvider() string {
+	if x != nil && x.Provider != nil {
+		return *x.Provider
+	}
+	return ""
+}
+
+func (x *SCMPollTrigger) GetBaseUrl() string {
+	if x != nil && x.BaseUrl != nil {
+		return *x.BaseUrl
+	}
+	return ""
+}
+
+func (x *SCMPollTrigger) GetProject() string {
+	if x != nil && x.Project != nil {
+		return *x.Project
+	}
+	return ""
+}
+
+func (x *SCMPollTrigger) GetBranch() string {
+	if x != nil && x.Branch != nil {
+		return *x.Branch
+	}
+	return ""
+}
+
+func (x *SCMPollTrigger) GetQuery() string {
+	if x != nil && x.Query != nil {
+		return *x.Query
+	}
+	return ""
+}
+
+func (x *SCMPollTrigger) GetIntervalSeconds() int64 {
+	if x != nil && x.IntervalSeconds != nil {
+		return *x.IntervalSeconds
+	}
+	return 0
+}
+
 type Node struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
 	Uses          *string                `protobuf:"bytes,2,opt,name=uses" json:"uses,omitempty"`
 	With          map[string]string      `protobuf:"bytes,3,rep,name=with" json:"with,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Steps         []*Node                `protobuf:"bytes,4,rep,name=steps" json:"steps,omitempty"`
+	Ports         map[string]*NodePort   `protobuf:"bytes,5,rep,name=ports" json:"ports,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Inputs        map[string]*NodeInput  `protobuf:"bytes,6,rep,name=inputs" json:"inputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Isolation     *string                `protobuf:"bytes,7,opt,name=isolation" json:"isolation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_common_proto_msgTypes[3]
+	mi := &file_common_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -303,7 +654,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[3]
+	mi := &file_common_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -316,7 +667,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{3}
+	return file_common_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Node) GetId() string {
@@ -347,6 +698,287 @@ func (x *Node) GetSteps() []*Node {
 	return nil
 }
 
+func (x *Node) GetPorts() map[string]*NodePort {
+	if x != nil {
+		return x.Ports
+	}
+	return nil
+}
+
+func (x *Node) GetInputs() map[string]*NodeInput {
+	if x != nil {
+		return x.Inputs
+	}
+	return nil
+}
+
+func (x *Node) GetIsolation() string {
+	if x != nil && x.Isolation != nil {
+		return *x.Isolation
+	}
+	return ""
+}
+
+type NodePort struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Nodes         []*Node                `protobuf:"bytes,1,rep,name=nodes" json:"nodes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodePort) Reset() {
+	*x = NodePort{}
+	mi := &file_common_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodePort) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodePort) ProtoMessage() {}
+
+func (x *NodePort) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodePort.ProtoReflect.Descriptor instead.
+func (*NodePort) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *NodePort) GetNodes() []*Node {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
+type NodeInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	From          *NodeOutputRef         `protobuf:"bytes,1,opt,name=from" json:"from,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeInput) Reset() {
+	*x = NodeInput{}
+	mi := &file_common_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeInput) ProtoMessage() {}
+
+func (x *NodeInput) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeInput.ProtoReflect.Descriptor instead.
+func (*NodeInput) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *NodeInput) GetFrom() *NodeOutputRef {
+	if x != nil {
+		return x.From
+	}
+	return nil
+}
+
+type NodeOutputRef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Node          *string                `protobuf:"bytes,1,opt,name=node" json:"node,omitempty"`
+	Output        *string                `protobuf:"bytes,2,opt,name=output" json:"output,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeOutputRef) Reset() {
+	*x = NodeOutputRef{}
+	mi := &file_common_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeOutputRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeOutputRef) ProtoMessage() {}
+
+func (x *NodeOutputRef) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeOutputRef.ProtoReflect.Descriptor instead.
+func (*NodeOutputRef) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *NodeOutputRef) GetNode() string {
+	if x != nil && x.Node != nil {
+		return *x.Node
+	}
+	return ""
+}
+
+func (x *NodeOutputRef) GetOutput() string {
+	if x != nil && x.Output != nil {
+		return *x.Output
+	}
+	return ""
+}
+
+type SecretDelivery struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          *SecretDeliveryType    `protobuf:"varint,1,opt,name=type,enum=common.SecretDeliveryType" json:"type,omitempty"`
+	Path          *string                `protobuf:"bytes,2,opt,name=path" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecretDelivery) Reset() {
+	*x = SecretDelivery{}
+	mi := &file_common_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretDelivery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretDelivery) ProtoMessage() {}
+
+func (x *SecretDelivery) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretDelivery.ProtoReflect.Descriptor instead.
+func (*SecretDelivery) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SecretDelivery) GetType() SecretDeliveryType {
+	if x != nil && x.Type != nil {
+		return *x.Type
+	}
+	return SecretDeliveryType_SECRET_DELIVERY_TYPE_UNSPECIFIED
+}
+
+func (x *SecretDelivery) GetPath() string {
+	if x != nil && x.Path != nil {
+		return *x.Path
+	}
+	return ""
+}
+
+type SecretReference struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
+	Ref           *string                `protobuf:"bytes,2,opt,name=ref" json:"ref,omitempty"`
+	Delivery      *SecretDelivery        `protobuf:"bytes,3,opt,name=delivery" json:"delivery,omitempty"`
+	TaskKeys      []string               `protobuf:"bytes,4,rep,name=task_keys,json=taskKeys" json:"task_keys,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecretReference) Reset() {
+	*x = SecretReference{}
+	mi := &file_common_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretReference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretReference) ProtoMessage() {}
+
+func (x *SecretReference) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretReference.ProtoReflect.Descriptor instead.
+func (*SecretReference) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SecretReference) GetId() string {
+	if x != nil && x.Id != nil {
+		return *x.Id
+	}
+	return ""
+}
+
+func (x *SecretReference) GetRef() string {
+	if x != nil && x.Ref != nil {
+		return *x.Ref
+	}
+	return ""
+}
+
+func (x *SecretReference) GetDelivery() *SecretDelivery {
+	if x != nil {
+		return x.Delivery
+	}
+	return nil
+}
+
+func (x *SecretReference) GetTaskKeys() []string {
+	if x != nil {
+		return x.TaskKeys
+	}
+	return nil
+}
+
 type LogChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         *string                `protobuf:"bytes,1,opt,name=run_id,json=runId" json:"run_id,omitempty"`
@@ -355,13 +987,14 @@ type LogChunk struct {
 	Stream        *Stream                `protobuf:"varint,4,opt,name=stream,enum=common.Stream" json:"stream,omitempty"`
 	Completed     *RunOutcome            `protobuf:"varint,5,opt,name=completed,enum=common.RunOutcome" json:"completed,omitempty"`
 	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=timestamp" json:"timestamp,omitempty"`
+	LogShardId    *string                `protobuf:"bytes,7,opt,name=log_shard_id,json=logShardId" json:"log_shard_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_common_proto_msgTypes[4]
+	mi := &file_common_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -373,7 +1006,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[4]
+	mi := &file_common_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -386,7 +1019,7 @@ func (x *LogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogChunk.ProtoReflect.Descriptor instead.
 func (*LogChunk) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{4}
+	return file_common_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *LogChunk) GetRunId() string {
@@ -431,40 +1064,98 @@ func (x *LogChunk) GetTimestamp() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *LogChunk) GetLogShardId() string {
+	if x != nil && x.LogShardId != nil {
+		return *x.LogShardId
+	}
+	return ""
+}
+
 var File_common_proto protoreflect.FileDescriptor
 
 const file_common_proto_rawDesc = "" +
 	"\n" +
 	"\fcommon.proto\x12\x06common\x1a\x1fgoogle/protobuf/timestamp.proto\"\a\n" +
-	"\x05Empty\"o\n" +
+	"\x05Empty\"\xff\x01\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12 \n" +
 	"\x04root\x18\x03 \x01(\v2\f.common.NodeR\x04root\x12\x1f\n" +
 	"\vdelivery_id\x18\x04 \x01(\tR\n" +
-	"deliveryId\"\xa6\x01\n" +
+	"deliveryId\x12+\n" +
+	"\x11default_isolation\x18\x05 \x01(\tR\x10defaultIsolation\x121\n" +
+	"\asecrets\x18\x06 \x03(\v2\x17.common.SecretReferenceR\asecrets\x12.\n" +
+	"\btriggers\x18\a \x03(\v2\x12.common.JobTriggerR\btriggers\"\xa6\x01\n" +
 	"\n" +
 	"JobRequest\x12\x1d\n" +
 	"\x03job\x18\x01 \x01(\v2\v.common.JobR\x03job\x12<\n" +
 	"\bmetadata\x18\x02 \x03(\v2 .common.JobRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb3\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc9\x01\n" +
+	"\n" +
+	"JobTrigger\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12/\n" +
+	"\x06manual\x18\x03 \x01(\v2\x15.common.ManualTriggerH\x00R\x06manual\x12)\n" +
+	"\x04cron\x18\x04 \x01(\v2\x13.common.CronTriggerH\x00R\x04cron\x123\n" +
+	"\bscm_poll\x18\x05 \x01(\v2\x16.common.SCMPollTriggerH\x00R\ascmPollB\x06\n" +
+	"\x04kind\"\x0f\n" +
+	"\rManualTrigger\"!\n" +
+	"\vCronTrigger\x12\x12\n" +
+	"\x04spec\x18\x01 \x01(\tR\x04spec\"\xba\x01\n" +
+	"\x0eSCMPollTrigger\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x19\n" +
+	"\bbase_url\x18\x02 \x01(\tR\abaseUrl\x12\x18\n" +
+	"\aproject\x18\x03 \x01(\tR\aproject\x12\x16\n" +
+	"\x06branch\x18\x04 \x01(\tR\x06branch\x12\x14\n" +
+	"\x05query\x18\x05 \x01(\tR\x05query\x12)\n" +
+	"\x10interval_seconds\x18\x06 \x01(\x03R\x0fintervalSeconds\"\xcc\x03\n" +
 	"\x04Node\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04uses\x18\x02 \x01(\tR\x04uses\x12*\n" +
 	"\x04with\x18\x03 \x03(\v2\x16.common.Node.WithEntryR\x04with\x12\"\n" +
-	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x1a7\n" +
+	"\x05steps\x18\x04 \x03(\v2\f.common.NodeR\x05steps\x12-\n" +
+	"\x05ports\x18\x05 \x03(\v2\x17.common.Node.PortsEntryR\x05ports\x120\n" +
+	"\x06inputs\x18\x06 \x03(\v2\x18.common.Node.InputsEntryR\x06inputs\x12\x1c\n" +
+	"\tisolation\x18\a \x01(\tR\tisolation\x1a7\n" +
 	"\tWithEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe5\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aJ\n" +
+	"\n" +
+	"PortsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12&\n" +
+	"\x05value\x18\x02 \x01(\v2\x10.common.NodePortR\x05value:\x028\x01\x1aL\n" +
+	"\vInputsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12'\n" +
+	"\x05value\x18\x02 \x01(\v2\x11.common.NodeInputR\x05value:\x028\x01\".\n" +
+	"\bNodePort\x12\"\n" +
+	"\x05nodes\x18\x01 \x03(\v2\f.common.NodeR\x05nodes\"6\n" +
+	"\tNodeInput\x12)\n" +
+	"\x04from\x18\x01 \x01(\v2\x15.common.NodeOutputRefR\x04from\";\n" +
+	"\rNodeOutputRef\x12\x12\n" +
+	"\x04node\x18\x01 \x01(\tR\x04node\x12\x16\n" +
+	"\x06output\x18\x02 \x01(\tR\x06output\"T\n" +
+	"\x0eSecretDelivery\x12.\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x1a.common.SecretDeliveryTypeR\x04type\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"\x84\x01\n" +
+	"\x0fSecretReference\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\x122\n" +
+	"\bdelivery\x18\x03 \x01(\v2\x16.common.SecretDeliveryR\bdelivery\x12\x1b\n" +
+	"\ttask_keys\x18\x04 \x03(\tR\btaskKeys\"\x87\x02\n" +
 	"\bLogChunk\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1a\n" +
 	"\bsequence\x18\x03 \x01(\x03R\bsequence\x12&\n" +
 	"\x06stream\x18\x04 \x01(\x0e2\x0e.common.StreamR\x06stream\x120\n" +
 	"\tcompleted\x18\x05 \x01(\x0e2\x12.common.RunOutcomeR\tcompleted\x128\n" +
-	"\ttimestamp\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp*t\n" +
+	"\ttimestamp\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12 \n" +
+	"\flog_shard_id\x18\a \x01(\tR\n" +
+	"logShardId*Y\n" +
+	"\x12SecretDeliveryType\x12$\n" +
+	" SECRET_DELIVERY_TYPE_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19SECRET_DELIVERY_TYPE_FILE\x10\x01*t\n" +
 	"\n" +
 	"RunOutcome\x12\x1b\n" +
 	"\x17RUN_OUTCOME_UNSPECIFIED\x10\x00\x12\x17\n" +
@@ -488,34 +1179,59 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_common_proto_goTypes = []any{
-	(RunOutcome)(0),               // 0: common.RunOutcome
-	(Stream)(0),                   // 1: common.Stream
-	(*Empty)(nil),                 // 2: common.Empty
-	(*Job)(nil),                   // 3: common.Job
-	(*JobRequest)(nil),            // 4: common.JobRequest
-	(*Node)(nil),                  // 5: common.Node
-	(*LogChunk)(nil),              // 6: common.LogChunk
-	nil,                           // 7: common.JobRequest.MetadataEntry
-	nil,                           // 8: common.Node.WithEntry
-	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(SecretDeliveryType)(0),       // 0: common.SecretDeliveryType
+	(RunOutcome)(0),               // 1: common.RunOutcome
+	(Stream)(0),                   // 2: common.Stream
+	(*Empty)(nil),                 // 3: common.Empty
+	(*Job)(nil),                   // 4: common.Job
+	(*JobRequest)(nil),            // 5: common.JobRequest
+	(*JobTrigger)(nil),            // 6: common.JobTrigger
+	(*ManualTrigger)(nil),         // 7: common.ManualTrigger
+	(*CronTrigger)(nil),           // 8: common.CronTrigger
+	(*SCMPollTrigger)(nil),        // 9: common.SCMPollTrigger
+	(*Node)(nil),                  // 10: common.Node
+	(*NodePort)(nil),              // 11: common.NodePort
+	(*NodeInput)(nil),             // 12: common.NodeInput
+	(*NodeOutputRef)(nil),         // 13: common.NodeOutputRef
+	(*SecretDelivery)(nil),        // 14: common.SecretDelivery
+	(*SecretReference)(nil),       // 15: common.SecretReference
+	(*LogChunk)(nil),              // 16: common.LogChunk
+	nil,                           // 17: common.JobRequest.MetadataEntry
+	nil,                           // 18: common.Node.WithEntry
+	nil,                           // 19: common.Node.PortsEntry
+	nil,                           // 20: common.Node.InputsEntry
+	(*timestamppb.Timestamp)(nil), // 21: google.protobuf.Timestamp
 }
 var file_common_proto_depIdxs = []int32{
-	5, // 0: common.Job.root:type_name -> common.Node
-	3, // 1: common.JobRequest.job:type_name -> common.Job
-	7, // 2: common.JobRequest.metadata:type_name -> common.JobRequest.MetadataEntry
-	8, // 3: common.Node.with:type_name -> common.Node.WithEntry
-	5, // 4: common.Node.steps:type_name -> common.Node
-	1, // 5: common.LogChunk.stream:type_name -> common.Stream
-	0, // 6: common.LogChunk.completed:type_name -> common.RunOutcome
-	9, // 7: common.LogChunk.timestamp:type_name -> google.protobuf.Timestamp
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	10, // 0: common.Job.root:type_name -> common.Node
+	15, // 1: common.Job.secrets:type_name -> common.SecretReference
+	6,  // 2: common.Job.triggers:type_name -> common.JobTrigger
+	4,  // 3: common.JobRequest.job:type_name -> common.Job
+	17, // 4: common.JobRequest.metadata:type_name -> common.JobRequest.MetadataEntry
+	7,  // 5: common.JobTrigger.manual:type_name -> common.ManualTrigger
+	8,  // 6: common.JobTrigger.cron:type_name -> common.CronTrigger
+	9,  // 7: common.JobTrigger.scm_poll:type_name -> common.SCMPollTrigger
+	18, // 8: common.Node.with:type_name -> common.Node.WithEntry
+	10, // 9: common.Node.steps:type_name -> common.Node
+	19, // 10: common.Node.ports:type_name -> common.Node.PortsEntry
+	20, // 11: common.Node.inputs:type_name -> common.Node.InputsEntry
+	10, // 12: common.NodePort.nodes:type_name -> common.Node
+	13, // 13: common.NodeInput.from:type_name -> common.NodeOutputRef
+	0,  // 14: common.SecretDelivery.type:type_name -> common.SecretDeliveryType
+	14, // 15: common.SecretReference.delivery:type_name -> common.SecretDelivery
+	2,  // 16: common.LogChunk.stream:type_name -> common.Stream
+	1,  // 17: common.LogChunk.completed:type_name -> common.RunOutcome
+	21, // 18: common.LogChunk.timestamp:type_name -> google.protobuf.Timestamp
+	11, // 19: common.Node.PortsEntry.value:type_name -> common.NodePort
+	12, // 20: common.Node.InputsEntry.value:type_name -> common.NodeInput
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -523,13 +1239,18 @@ func file_common_proto_init() {
 	if File_common_proto != nil {
 		return
 	}
+	file_common_proto_msgTypes[3].OneofWrappers = []any{
+		(*JobTrigger_Manual)(nil),
+		(*JobTrigger_Cron)(nil),
+		(*JobTrigger_ScmPoll)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   7,
+			NumEnums:      3,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

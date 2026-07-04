@@ -2,7 +2,7 @@
 
 This is the operator entry point for Vectis health checks, alerts, and first triage. Start here when the system is reachable but something looks wrong.
 
-For step-by-step repair procedures, see [Repair Runbooks](./repair-runbooks.md). For check IDs and JSON output shape, see [Health Check Catalog](../reference/health-check-catalog.md).
+For the production monitoring contract, see [Production Monitoring Contract](./production-monitoring.md). For rehearsed upgrade, rollback, and restore procedures, see [Production Drills](./production-drills.md). For step-by-step repair procedures, see [Repair Runbooks](./repair-runbooks.md). For check IDs and JSON output shape, see [Health Check Catalog](../reference/health-check-catalog.md).
 
 ## First Response
 
@@ -15,7 +15,7 @@ vectis-cli health check --strict
 Use JSON when you need evidence, documentation links, or automation-friendly output:
 
 ```sh
-vectis-cli health check --json
+vectis-cli health check --format json
 ```
 
 For a specific run, start with:
@@ -24,7 +24,7 @@ For a specific run, start with:
 vectis-cli runs show <run-id>
 ```
 
-That command shows status and dispatch events without requiring direct database access.
+That command shows status, dispatch events, and the latest failed worker-controlled SVID or secret-resolution gate when one explains a failed run.
 
 ## Triage Map
 
@@ -39,6 +39,8 @@ That command shows status and dispatch events without requiring direct database 
 | Audit drops or flush failures | API health, database health, audit buffer pressure, event volume. | [Audit Durability Repair](./repair-runbooks.md#audit-durability-repair) |
 | Retry exhaustion | Component label, dependency health, TLS mismatch, network policy. | [Repair Runbooks](./repair-runbooks.md#quick-map) |
 | DB pool saturation | Postgres availability, pool sizing, replica count, slow queries. | [Database Pool Pressure](./repair-runbooks.md#database-pool-pressure) |
+| API security rejection spike | `reason`, `route`, `status`, edge proxy logs, recent client or ingress changes. | [API Security Rejections](./repair-runbooks.md#api-security-rejections) |
+| Secret resolution failures | `runs show` latest failed gate, secret broker logs, `outcome`, `reason`, `provider`, SPIFFE SVID checks, policy rules, encryptedfs root/key, Knox URL/token config. | [Secret Resolution](./repair-runbooks.md#secret-resolution) |
 | Old retained records or SQL growth | Retention policy, dry-run cleanup counts, backup status. | [Retention Cleanup](./repair-runbooks.md#retention-cleanup) |
 | A run needs manual action | Run status, dispatch events, worker ownership, automatic repair state. | [Manual Run Intervention](./repair-runbooks.md#manual-run-intervention) |
 
@@ -49,15 +51,20 @@ That command shows status and dispatch events without requiring direct database 
 | Area | Examples |
 | --- | --- |
 | API state | Liveness, readiness, versioned operational endpoints. |
-| Auth setup | Setup status and local CLI token visibility when API auth is enabled. |
+| Auth and edge setup | Setup status, local CLI token visibility when API auth is enabled, and locally visible API edge/session/Host/proxy/CORS/HSTS config posture. |
 | Schema | Database schema status through the API. |
-| Queue and reconciler | Queue backlog, stuck queued runs, reconciler recovery visibility. |
-| Logs | API-to-log-service gRPC reachability. |
+| Queue, cron, and reconciler | Queue backlog, due cron schedules, stuck queued runs, reconciler recovery visibility. |
+| Source control | Config-as-code readiness, managed checkout filesystem pressure, source repository sync status, stale enabled source repositories and schedules, and active schedule overrides. |
+| Logs | API-to-log-service gRPC reachability and log-forwarder socket presence/private permissions when the local socket path is visible. |
+| Worker | Worker-core and worker shell Unix socket presence, private permissions, SPIFFE config/socket checks, and worker-core workspace filesystem health when local paths are visible. |
+| Internal trust | Service identity allowlist syntax and mTLS prerequisite checks when local env is visible. |
+| Metrics | Dedicated metrics listener TLS, bind-host, and Host allowlist posture when local env is visible. |
 | Audit | Dropped audit events and flush failures. |
+| Secrets | Encryptedfs root and key-file pairing, readability, permissions, and key format when local paths are visible. |
 | Database pool | API-visible `database/sql` pool pressure. |
-| Local files | TLS file readability and queue/log/spool filesystem checks where paths are locally visible. |
+| Local files | TLS file readability and queue/log/artifact/spool filesystem checks where paths are locally visible. |
 
-The health check is not a complete production monitoring system. It does not replace host disk telemetry, database monitoring, queue/log capacity dashboards, or workload-specific alerts.
+The health check is not a complete production monitoring system. It does not replace host disk telemetry, database monitoring, queue/log/artifact capacity dashboards, or workload-specific alerts. Use [Production Monitoring Contract](./production-monitoring.md) for the production-v1 handoff checklist.
 
 ## Starter Signals
 
@@ -66,12 +73,16 @@ Use these as starter operating signals, not contractual product SLOs. Production
 | Area | Signal | Starter objective |
 | --- | --- | --- |
 | Trigger acceptance | API request success and low 5xx rate on trigger/run routes. | Dependency failures should be visible quickly. |
-| Queue handoff | Queue pending/in-flight gauges and reconciler reenqueue outcomes. | Queued work should drain within one reconciler interval under normal load. |
-| Worker execution | `vectis_worker_jobs_received_total` and `vectis_worker_job_duration_seconds`. | Workers should keep receiving jobs; terminal outcomes should match workload expectations. |
-| Log availability | `vectis_log_storage_append_failures_total`, log drops, and gRPC chunk rate. | Log append failures should be zero. |
+| Queue handoff | Queue pending/in-flight gauges, cron due schedule count, and reconciler reenqueue outcomes. | Queued work should drain within one reconciler interval under normal load. |
+| Source sync | `vectis_source_repository_syncs_total`, `vectis_source_repository_sync_duration_seconds`, `vectis_source_ref_hydrations_total`, `vectis_source_ref_hydration_duration_seconds`, and `vectis_source_repository_object_store_*` gauges by repository. | Source repository sync failures should match known repository, credential, or network changes; hydration tier/cache labels should reveal mirror lag before scheduled triggers depend on fresh refs. A rising `coalesced` hydration tier means API replicas are suppressing duplicate request-path fetches through the shared service-lease row. Object-store pressure gauges should remain `ok` for ordinary repositories; `warning` or `critical` points at pack fragmentation, loose-object buildup, or in-flight maintenance. |
+| Worker execution | `vectis_worker_jobs_received_total`, `vectis_worker_job_duration_seconds`, and `vectis_worker_spiffe_svid_checks_total` when SPIFFE execution SVID acquisition is enabled. | Workers should keep receiving jobs; terminal outcomes should match workload expectations, and SPIFFE SVID acquisition failures should be investigated. |
+| Secret resolution | `vectis_secrets_resolve_requests_total` and `vectis_secrets_resolve_duration_seconds` by `outcome`, `reason`, and `provider`. | Failed resolves should match known policy/config changes and be investigated when unexpected. |
+| Log availability | `vectis_log_storage_append_failures_total`, `vectis_log_shard_route_failures_total`, log drops, and gRPC chunk rate. | Log append and shard routing failures should be zero. |
+| Log-forwarder backlog | `vectis_log_forwarder_spool_files`, `vectis_log_forwarder_spool_oldest_age_seconds`, and `vectis_log_forwarder_batches_total`. | Spool backlog should drain quickly after log service recovery. |
 | Audit durability | `vectis_audit_events_dropped_total` and `vectis_audit_flush_failures_total`. | Audit drops should be zero. |
 | Retry health | `vectis_retries_exhausted_total` and retry delay histogram. | Retry exhaustion should be rare and investigated. |
 | Database pressure | `database/sql` pool gauges where DB pool metrics are registered. | Connections should not sit at configured limits. |
+| API security posture | `vectis_api_security_rejections_total` by `reason`, `route`, and `status`. | Rejections should match expected noise; sustained changes should be investigated. |
 | Storage pressure | `vectis_storage_records` and `vectis_storage_oldest_record_age_seconds`. | Durable SQL state should stay within the retention and capacity plan. |
 
 ## Alert Examples
@@ -81,10 +92,12 @@ Prometheus examples live in [prometheus-examples.yml](../../alerts/prometheus-ex
 - queue backlog and DLQ growth;
 - reconciler reenqueue failures;
 - worker job failure ratio;
-- log append failures and subscriber drops;
+- secret resolution failures;
+- log append failures, shard routing failures, subscriber drops, and log-forwarder spool backlog;
 - audit drops and flush failures;
 - retry exhaustion;
-- database pool saturation.
+- database pool saturation;
+- API security rejection spikes and sustained rejection rates.
 
 Tune thresholds by environment. The Podman reference deployment is useful for demos and smoke tests, but production alert routing should live in the operator's telemetry system.
 
@@ -110,8 +123,8 @@ These are current monitoring limits operators should cover with external telemet
 | Gap | Practical workaround |
 | --- | --- |
 | No direct queued-run-age metric yet. | Use `vectis-cli health check`, stuck-run checks, dispatch events, and queue backlog alerts. |
-| No direct dispatch failure counter yet. | Inspect dispatch events and reconciler outcomes. |
-| No rate-limit accepted/rejected metric yet. | Use API logs and HTTP status monitoring. |
+| Non-API dispatch failure counters are partial. | Use API enqueue outcomes, reconciler outcomes, and per-run dispatch events together. |
+| No rate-limit accepted metric yet. | Use `vectis_api_security_rejections_total{reason="rate_limit_exceeded"}` for rejects, plus API access logs and HTTP status monitoring for accepted traffic. |
 | File-backed run log and queue persistence pressure need filesystem telemetry. | Monitor the storage paths directly. |
 | Dashboard panels are not yet annotated with runbook links. | Keep alert annotations linked to repair runbooks. |
 
@@ -119,6 +132,8 @@ These are current monitoring limits operators should cover with external telemet
 
 | Topic | Document |
 | --- | --- |
+| Production monitoring | [Production Monitoring Contract](./production-monitoring.md) |
+| Production drills | [Production Drills](./production-drills.md) |
 | Repair steps | [Repair Runbooks](./repair-runbooks.md) |
 | Health check catalog | [Health Check Catalog](../reference/health-check-catalog.md) |
 | Queue handoff triage | [Dispatch Visibility](./dispatch-visibility.md) |

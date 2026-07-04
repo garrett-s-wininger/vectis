@@ -13,6 +13,9 @@ message Job {
     string run_id = 2;
     Node root = 3;
     string delivery_id = 4;
+    string default_isolation = 5;
+    repeated SecretReference secrets = 6;
+    repeated JobTrigger triggers = 7;
 }
 
 message JobRequest {
@@ -20,11 +23,69 @@ message JobRequest {
     map<string, string> metadata = 2;
 }
 
+message JobTrigger {
+    string id = 1;
+    string name = 2;
+    oneof kind {
+        ManualTrigger manual = 3;
+        CronTrigger cron = 4;
+        SCMPollTrigger scm_poll = 5;
+    }
+}
+
+message ManualTrigger {}
+
+message CronTrigger {
+    string spec = 1;
+}
+
+message SCMPollTrigger {
+    string provider = 1;
+    string base_url = 2;
+    string project = 3;
+    string branch = 4;
+    string query = 5;
+    int64 interval_seconds = 6;
+}
+
 message Node {
     string id = 1;
     string uses = 2;
     map<string, string> with = 3;
     repeated Node steps = 4;
+    map<string, NodePort> ports = 5;
+    map<string, NodeInput> inputs = 6;
+    string isolation = 7;
+}
+
+message NodePort {
+    repeated Node nodes = 1;
+}
+
+message NodeInput {
+    NodeOutputRef from = 1;
+}
+
+message NodeOutputRef {
+    string node = 1;
+    string output = 2;
+}
+
+enum SecretDeliveryType {
+    SECRET_DELIVERY_TYPE_UNSPECIFIED = 0;
+    SECRET_DELIVERY_TYPE_FILE        = 1;
+}
+
+message SecretDelivery {
+    SecretDeliveryType type = 1;
+    string path = 2;
+}
+
+message SecretReference {
+    string id = 1;
+    string ref = 2;
+    SecretDelivery delivery = 3;
+    repeated string task_keys = 4;
 }
 
 enum RunOutcome {
@@ -47,4 +108,5 @@ message LogChunk {
     Stream stream = 4;
     RunOutcome completed = 5;
     google.protobuf.Timestamp timestamp = 6;
+    string log_shard_id = 7;
 }

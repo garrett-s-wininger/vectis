@@ -18,14 +18,18 @@ message ListDeadLetterResponse {
     repeated DeadLetterItem items = 1;
 }
 
+message DequeueRequest {
+    repeated string supported_isolation = 1;
+}
+
 message RequeueDeadLetterRequest {
     string delivery_id = 1;
 }
 
 service QueueService {
     rpc Enqueue(common.JobRequest) returns (common.Empty);
-    rpc Dequeue(common.Empty) returns (common.JobRequest);
-    rpc TryDequeue(common.Empty) returns (common.JobRequest);
+    rpc Dequeue(DequeueRequest) returns (common.JobRequest);
+    rpc TryDequeue(DequeueRequest) returns (common.JobRequest);
     rpc Ack(AckRequest) returns (common.Empty);
     rpc ListDeadLetter(common.Empty) returns (ListDeadLetterResponse);
     rpc RequeueDeadLetter(RequeueDeadLetterRequest) returns (common.Empty);

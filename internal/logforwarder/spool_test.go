@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	api "vectis/api/gen/go"
 
@@ -137,6 +138,37 @@ func TestSpoolMultipleFiles(t *testing.T) {
 
 	if len(b2) != 1 || string(b2[0].GetData()) != "b" {
 		t.Fatalf("batch 2 mismatch: %+v", b2)
+	}
+}
+
+func TestSpoolStats(t *testing.T) {
+	tmpDir := t.TempDir()
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	oldPath := filepath.Join(tmpDir, "old.spool")
+	newPath := filepath.Join(tmpDir, "new.spool")
+	tmpPath := filepath.Join(tmpDir, "ignore.spool.tmp")
+
+	for _, path := range []string{oldPath, newPath, tmpPath} {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	if err := os.Chtimes(oldPath, now.Add(-90*time.Second), now.Add(-90*time.Second)); err != nil {
+		t.Fatalf("chtimes old: %v", err)
+	}
+
+	if err := os.Chtimes(newPath, now.Add(-30*time.Second), now.Add(-30*time.Second)); err != nil {
+		t.Fatalf("chtimes new: %v", err)
+	}
+
+	files, oldestAge := SpoolStats(tmpDir, now)
+	if files != 2 {
+		t.Fatalf("files = %d, want 2", files)
+	}
+
+	if oldestAge != 90 {
+		t.Fatalf("oldest age = %d, want 90", oldestAge)
 	}
 }
 

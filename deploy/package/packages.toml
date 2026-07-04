@@ -1,0 +1,291 @@
+[defaults]
+maintainer = "Garrett Wininger <garrett.s.wininger@outlook.com>"
+vendor = "Vectis"
+homepage = "https://github.com/garrett-s-wininger/vectis"
+license = "MIT"
+section = "devel"
+priority = "optional"
+
+[[package]]
+id = "vectis-cli"
+name = "vectis-cli"
+summary = "Command line client for Vectis"
+description = """
+Vectis CLI provides a one-shot command line client for Vectis APIs and operator
+helpers.
+"""
+depends = ["ca-certificates"]
+
+[[package.file]]
+id = "vectis-cli"
+source = "vectis-cli"
+destination = "/usr/bin/vectis-cli"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package]]
+id = "vectis-common"
+name = "vectis-common"
+summary = "Common Linux service integration for Vectis"
+description = """
+Vectis common installs shared systemd, sysusers, tmpfiles, and environment
+examples used by the long-running Linux service packages and reference
+operator automation timers.
+"""
+depends = ["vectis-cli", "ca-certificates", "systemd"]
+
+[[package.file]]
+id = "systemd-target"
+source = "linux-artifacts/systemd/vectis.target"
+destination = "/usr/lib/systemd/system/vectis.target"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "systemd-db-migrate"
+source = "linux-artifacts/systemd/vectis-db-migrate.service"
+destination = "/usr/lib/systemd/system/vectis-db-migrate.service"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "systemd-retention-scheduled-cleanup"
+source = "linux-artifacts/systemd/vectis-retention-scheduled-cleanup.service"
+destination = "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.service"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "systemd-retention-scheduled-cleanup-timer"
+source = "linux-artifacts/systemd/vectis-retention-scheduled-cleanup.timer"
+destination = "/usr/lib/systemd/system/vectis-retention-scheduled-cleanup.timer"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "sysusers"
+source = "linux-artifacts/sysusers.d/vectis.conf"
+destination = "/usr/lib/sysusers.d/vectis.conf"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "tmpfiles"
+source = "linux-artifacts/tmpfiles.d/vectis.conf"
+destination = "/usr/lib/tmpfiles.d/vectis.conf"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "common-env-example"
+source = "linux-artifacts/env/vectis.env.example"
+destination = "/usr/share/doc/vectis-common/examples/vectis.env.example"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "db-migrate-env-example"
+source = "linux-artifacts/env/vectis-db-migrate.env.example"
+destination = "/usr/share/doc/vectis-common/examples/vectis-db-migrate.env.example"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "retention-scheduled-cleanup-env-example"
+source = "linux-artifacts/env/vectis-retention-scheduled-cleanup.env.example"
+destination = "/usr/share/doc/vectis-common/examples/vectis-retention-scheduled-cleanup.env.example"
+mode = "0644"
+owner = "root"
+group = "root"
+
+[[package]]
+id = "vectis-local"
+name = "vectis-local"
+summary = "Self-contained local Vectis stack"
+description = """
+Vectis local installs a SQLite-capable local supervisor and private child
+binaries for running a single-host Vectis stack.
+"""
+depends = ["vectis-cli", "ca-certificates"]
+
+[[package.file]]
+id = "vectis-local-wrapper"
+source = "vectis-local-wrapper"
+destination = "/usr/bin/vectis-local"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package.file]]
+id = "vectis-local-binaries"
+source = "vectis-local-binaries"
+destination = "/usr/lib/vectis-local/bin"
+mode = "0755"
+owner = "root"
+group = "root"
+
+[[package]]
+id = "vectis-api"
+name = "vectis-api"
+summary = "Vectis API service"
+service = "api"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-artifact"
+name = "vectis-artifact"
+summary = "Vectis artifact service"
+service = "artifact"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-catalog"
+name = "vectis-catalog"
+summary = "Vectis catalog service"
+service = "catalog"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-cell-ingress"
+name = "vectis-cell-ingress"
+summary = "Vectis cell ingress service"
+service = "cell-ingress"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-cron"
+name = "vectis-cron"
+summary = "Vectis cron service"
+service = "cron"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-docs"
+name = "vectis-docs"
+summary = "Vectis docs service"
+service = "docs"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-log"
+name = "vectis-log"
+summary = "Vectis log service"
+service = "log"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-log-forwarder"
+name = "vectis-log-forwarder"
+summary = "Vectis log forwarder service"
+service = "log-forwarder"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-orchestrator"
+name = "vectis-orchestrator"
+summary = "Vectis orchestrator service"
+service = "orchestrator"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-queue"
+name = "vectis-queue"
+summary = "Vectis queue service"
+service = "queue"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-reconciler"
+name = "vectis-reconciler"
+summary = "Vectis reconciler service"
+service = "reconciler"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-registry"
+name = "vectis-registry"
+summary = "Vectis registry service"
+service = "registry"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-scm-poller"
+name = "vectis-scm-poller"
+summary = "Vectis SCM poller service"
+service = "scm-poller"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-scm-gerrit-stream"
+name = "vectis-scm-gerrit-stream"
+summary = "Vectis Gerrit SCM stream bridge service"
+service = "scm-gerrit-stream"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-secrets"
+name = "vectis-secrets"
+summary = "Vectis secrets service"
+service = "secrets"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-spiffe"
+name = "vectis-spiffe"
+summary = "Vectis SPIFFE authority"
+service = "spiffe"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-worker"
+name = "vectis-worker"
+summary = "Vectis worker service"
+service = "worker"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-worker-core"
+name = "vectis-worker-core"
+summary = "Vectis worker core service"
+service = "worker-core"
+depends = ["vectis-common"]
+
+[[package]]
+id = "vectis-services"
+name = "vectis-services"
+summary = "Standalone Vectis service stack metapackage"
+description = """
+Vectis services depends on the standard standalone Linux service package set.
+It does not install files directly, enable systemd units, or start services.
+"""
+meta = true
+depends = [
+  "vectis-common",
+  "vectis-api",
+  "vectis-artifact",
+  "vectis-catalog",
+  "vectis-cell-ingress",
+  "vectis-cron",
+  "vectis-docs",
+  "vectis-log",
+  "vectis-log-forwarder",
+  "vectis-orchestrator",
+  "vectis-queue",
+  "vectis-reconciler",
+  "vectis-registry",
+  "vectis-scm-gerrit-stream",
+  "vectis-scm-poller",
+  "vectis-secrets",
+  "vectis-spiffe",
+  "vectis-worker",
+  "vectis-worker-core",
+]

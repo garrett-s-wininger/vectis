@@ -3,7 +3,6 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -75,7 +74,7 @@ func apiTokenRecordToResponse(rec *dal.APITokenRecord) tokenResponse {
 }
 
 func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -150,19 +149,8 @@ func (s *APIServer) ListTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxTokenBodyBytes+1))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
-		return
-	}
-
-	if len(body) > maxTokenBodyBytes {
-		writeAPIErrorCode(w, http.StatusRequestEntityTooLarge, apiErrRequestBodyTooLarge)
+	body, ok := readRequestBody(w, r, maxTokenBodyBytes)
+	if !ok {
 		return
 	}
 
@@ -183,7 +171,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -330,12 +318,14 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventTokenCreated, actorID, id, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventTokenCreated, actorID, id, map[string]any{
 		"label":       req.Label,
 		"expires_in":  req.ExpiresIn,
 		"target_user": targetUserID,
 		"scoped":      len(req.Scopes) > 0,
-	})
+	}) {
+		return
+	}
 
 	resp := createTokenResponse{
 		ID:        id,
@@ -348,6 +338,7 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 		resp.ExpiresAt = expiresAt
 	}
 
+	setNoStore(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -363,7 +354,7 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -419,9 +410,11 @@ func (s *APIServer) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventTokenDeleted, actorID, id, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventTokenDeleted, actorID, id, map[string]any{
 		"owner_id": ownerID,
-	})
+	}) {
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

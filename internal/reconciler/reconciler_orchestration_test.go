@@ -13,7 +13,7 @@ import (
 func TestService_Process_ReenqueuesQueuedRun_Orchestration(t *testing.T) {
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
-	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/shell","with":{"command":"echo x"}}}`
+	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
 
 	runsRepo := mocks.NewMockRunsRepository()
 	runsRepo.OrphanedRunIDs = []string{"run-orphaned"}
@@ -40,6 +40,44 @@ func TestService_Process_ReenqueuesQueuedRun_Orchestration(t *testing.T) {
 	if len(touched) != 1 || touched[0] != "run-1" {
 		t.Fatalf("expected run-1 touch, got %+v", touched)
 	}
+
+	if runsRepo.LastQueuedListLimit != QueuedRedispatchLimit {
+		t.Fatalf("queued list limit=%d, want %d", runsRepo.LastQueuedListLimit, QueuedRedispatchLimit)
+	}
+}
+
+func TestService_Process_RespectsRedispatchLimit_Orchestration(t *testing.T) {
+	ctx := context.Background()
+	jobsRepo := mocks.NewMockJobsRepository()
+	jobsRepo.Definitions["job-a"] = `{"id":"job-a","root":{"uses":"builtins/script","with":{"script":"echo x"}}}`
+
+	runsRepo := mocks.NewMockRunsRepository()
+	runsRepo.QueuedRuns = []dal.QueuedRun{
+		{RunID: "run-1", JobID: "job-a", DefinitionVersion: 1},
+		{RunID: "run-2", JobID: "job-a", DefinitionVersion: 1},
+	}
+
+	q := mocks.NewMockQueueService()
+	svc := NewServiceWithRepositories(interfaces.NewLogger("test"), jobsRepo, runsRepo, q, interfaces.SystemClock{})
+	svc.SetMinDispatchGap(1 * time.Millisecond)
+	svc.SetRedispatchLimit(1)
+
+	if err := svc.Process(ctx); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+
+	enqueued := q.GetJobs()
+	if len(enqueued) != 1 {
+		t.Fatalf("expected 1 enqueued job, got %d", len(enqueued))
+	}
+
+	if enqueued[0].GetRunId() != "run-1" {
+		t.Fatalf("unexpected enqueued run %q", enqueued[0].GetRunId())
+	}
+
+	if runsRepo.LastQueuedListLimit != 1 {
+		t.Fatalf("queued list limit=%d, want 1", runsRepo.LastQueuedListLimit)
+	}
 }
 
 func TestService_Process_OrphanSweepError_Orchestration(t *testing.T) {
@@ -55,7 +93,7 @@ func TestService_Process_OrphanSweepError_Orchestration(t *testing.T) {
 	}
 }
 
-func TestService_Process_SkipsWhenNoStoredOrVersionedDefinition_Orchestration(t *testing.T) {
+func TestService_Process_SkipsWhenNoDefinitionSnapshot_Orchestration(t *testing.T) {
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
 	runsRepo := mocks.NewMockRunsRepository()
@@ -79,11 +117,11 @@ func TestService_Process_SkipsWhenNoStoredOrVersionedDefinition_Orchestration(t 
 	}
 }
 
-func TestService_Process_ReenqueuesViaJobDefinitionsWhenNotStored_Orchestration(t *testing.T) {
+func TestService_Process_ReenqueuesViaDefinitionSnapshot_Orchestration(t *testing.T) {
 	ctx := context.Background()
 	jobsRepo := mocks.NewMockJobsRepository()
 	jobsRepo.Versions["ephemeral-id"] = map[int]string{
-		1: `{"id":"ephemeral-id","root":{"uses":"builtins/shell","with":{"command":"echo y"}}}`,
+		1: `{"id":"ephemeral-id","root":{"uses":"builtins/script","with":{"script":"echo y"}}}`,
 	}
 
 	runsRepo := mocks.NewMockRunsRepository()

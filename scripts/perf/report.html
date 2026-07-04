@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vectis Performance Report</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <header>
+    <h1>Vectis Performance Report</h1>
+    <div id="metadata" class="meta"></div>
+  </header>
+  <main>
+    <div id="run-summary" class="top-strip"></div>
+    <div class="toolbar">
+      <label>Benchmark <select id="benchmark-filter"></select></label>
+      <label>Metric <select id="metric-filter"></select></label>
+    </div>
+    <div class="grid">
+      <section>
+        <div class="section-head">
+          <h2>Benchmark Overview</h2>
+          <div class="section-kicker">Compare throughput, latency, cost, and memory at a glance.</div>
+        </div>
+        <div id="benchmark-overview" class="benchmark-list"></div>
+      </section>
+      <section class="half">
+        <div class="section-head">
+          <h2>Selected Metric</h2>
+          <div id="selected-metric-label" class="section-kicker"></div>
+        </div>
+        <div class="panel">
+          <div id="metric-chart" class="chart"></div>
+        </div>
+      </section>
+      <section class="half">
+        <div class="section-head">
+          <h2>Latency By Phase</h2>
+          <div class="section-kicker">Slowest measured phase groups first</div>
+        </div>
+        <div class="panel">
+          <div id="latency-breakdown" class="chart"></div>
+        </div>
+      </section>
+      <section>
+        <div class="section-head">
+          <h2>Metric Details</h2>
+          <div class="section-kicker">Latency percentiles, cost, memory, and counts by benchmark</div>
+        </div>
+        <div id="metric-details" class="metric-groups"></div>
+      </section>
+      <section>
+        <div class="section-head">
+          <h2>Postgres Statement Hot List</h2>
+          <div class="section-kicker">Final-iteration SQL statement totals</div>
+        </div>
+        <div class="pg-stack">
+          <div id="pg-controls" class="pg-controls">
+            <label>SQL filter <input id="query-filter" type="search" placeholder="Filter statement text"></label>
+            <div id="pg-filter-count" class="pg-filter-count"></div>
+          </div>
+          <div class="panel">
+            <div id="pg-chart" class="chart"></div>
+          </div>
+          <div id="pg-table" class="table-wrap"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script id="perf-data" type="application/json">{{.Payload}}</script>
+  <script src="report.js"></script>
+</body>
+</html>

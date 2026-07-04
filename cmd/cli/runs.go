@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
@@ -10,42 +11,228 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"text/tabwriter"
 	"time"
 )
 
 type runDetail struct {
-	RunID          string          `json:"run_id"`
-	RunIndex       int             `json:"run_index"`
-	Status         string          `json:"status"`
-	OrphanReason   *string         `json:"orphan_reason,omitempty"`
-	FailureCode    *string         `json:"failure_code,omitempty"`
-	CreatedAt      *string         `json:"created_at,omitempty"`
-	StartedAt      *string         `json:"started_at,omitempty"`
-	FinishedAt     *string         `json:"finished_at,omitempty"`
-	FailureReason  *string         `json:"failure_reason,omitempty"`
-	DispatchEvents []dispatchEvent `json:"dispatch_events,omitempty"`
+	RunID                     string                     `json:"run_id"`
+	RunIndex                  int                        `json:"run_index"`
+	Status                    string                     `json:"status"`
+	NextAction                string                     `json:"next_action,omitempty"`
+	OwningCell                string                     `json:"owning_cell,omitempty"`
+	OrphanReason              *string                    `json:"orphan_reason,omitempty"`
+	FailureCode               *string                    `json:"failure_code,omitempty"`
+	CreatedAt                 *string                    `json:"created_at,omitempty"`
+	StartedAt                 *string                    `json:"started_at,omitempty"`
+	FinishedAt                *string                    `json:"finished_at,omitempty"`
+	FailureReason             *string                    `json:"failure_reason,omitempty"`
+	DispatchSummary           []dispatchSummary          `json:"dispatch_summary,omitempty"`
+	DispatchEvents            []dispatchEvent            `json:"dispatch_events,omitempty"`
+	TaskCompletion            *taskCompletion            `json:"task_completion,omitempty"`
+	TaskDispatch              *taskDispatch              `json:"task_dispatch,omitempty"`
+	LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
+	Source                    *sourceProvenance          `json:"source,omitempty"`
+	RunAuditFields
+}
+
+type RunAuditFields struct {
+	DefinitionVersion     int      `json:"definition_version,omitempty"`
+	DefinitionHash        string   `json:"definition_hash,omitempty"`
+	ReplayOfRunID         *string  `json:"replay_of_run_id,omitempty"`
+	TriggerInvocationID   *string  `json:"trigger_invocation_id,omitempty"`
+	TriggerID             *int64   `json:"trigger_id,omitempty"`
+	TriggerKey            *string  `json:"trigger_key,omitempty"`
+	TriggerName           *string  `json:"trigger_name,omitempty"`
+	TriggerType           *string  `json:"trigger_type,omitempty"`
+	TriggerSourceInstance *string  `json:"trigger_source_instance,omitempty"`
+	TriggerPayloadHash    *string  `json:"trigger_payload_hash,omitempty"`
+	RequestedCells        []string `json:"requested_cells,omitempty"`
+	ExecutionPayloadHash  string   `json:"execution_payload_hash,omitempty"`
 }
 
 type dispatchEvent struct {
-	ID        int64   `json:"id"`
-	Source    string  `json:"source"`
-	EventType string  `json:"event_type"`
-	Message   *string `json:"message,omitempty"`
-	CreatedAt int64   `json:"created_at"`
+	ID             int64   `json:"id"`
+	Source         string  `json:"source"`
+	SourceInstance string  `json:"source_instance,omitempty"`
+	EventType      string  `json:"event_type"`
+	Message        *string `json:"message,omitempty"`
+	CreatedAt      int64   `json:"created_at"`
+}
+
+type dispatchSummary struct {
+	Source        string  `json:"source"`
+	Accepted      int     `json:"accepted"`
+	Attempts      int     `json:"attempts"`
+	Successes     int     `json:"successes"`
+	Failures      int     `json:"failures"`
+	FirstEventAt  int64   `json:"first_event_at"`
+	LastEventAt   int64   `json:"last_event_at"`
+	LastEventType string  `json:"last_event_type"`
+	LastMessage   *string `json:"last_message,omitempty"`
+}
+
+type taskCompletion struct {
+	Total          int `json:"total"`
+	Succeeded      int `json:"succeeded"`
+	TerminalFailed int `json:"terminal_failed"`
+	Incomplete     int `json:"incomplete"`
+}
+
+type taskDispatch struct {
+	Total        int                  `json:"total"`
+	Pending      int                  `json:"pending"`
+	Failed       int                  `json:"failed"`
+	Enqueued     int                  `json:"enqueued"`
+	UnknownState int                  `json:"unknown_state,omitempty"`
+	Truncated    bool                 `json:"truncated"`
+	Limit        int                  `json:"limit"`
+	Intents      []taskDispatchIntent `json:"intents,omitempty"`
+}
+
+type taskDispatchIntent struct {
+	ExecutionID          string  `json:"execution_id"`
+	TaskID               string  `json:"task_id"`
+	TaskAttemptID        string  `json:"task_attempt_id"`
+	SourceExecutionID    string  `json:"source_execution_id,omitempty"`
+	CellID               string  `json:"cell_id"`
+	State                string  `json:"state"`
+	EnqueueAttempts      int     `json:"enqueue_attempts"`
+	LastEnqueueError     *string `json:"last_enqueue_error,omitempty"`
+	EnqueuedAt           *int64  `json:"enqueued_at,omitempty"`
+	LastEnqueueAttemptAt *int64  `json:"last_enqueue_attempt_at,omitempty"`
+	CreatedAt            int64   `json:"created_at"`
+	UpdatedAt            int64   `json:"updated_at"`
 }
 
 type runListResult struct {
-	Data []struct {
-		RunID         string  `json:"run_id"`
-		RunIndex      int     `json:"run_index"`
-		Status        string  `json:"status"`
-		CreatedAt     *string `json:"created_at,omitempty"`
-		StartedAt     *string `json:"started_at,omitempty"`
-		FinishedAt    *string `json:"finished_at,omitempty"`
-		FailureCode   *string `json:"failure_code,omitempty"`
-		FailureReason *string `json:"failure_reason,omitempty"`
-	} `json:"data"`
-	NextCursor *int64 `json:"next_cursor,omitempty"`
+	Data       []runListRow `json:"data"`
+	NextCursor *int64       `json:"next_cursor,omitempty"`
+}
+
+type runListRow struct {
+	RunID         string            `json:"run_id"`
+	RunIndex      int               `json:"run_index"`
+	Status        string            `json:"status"`
+	CreatedAt     *string           `json:"created_at,omitempty"`
+	StartedAt     *string           `json:"started_at,omitempty"`
+	FinishedAt    *string           `json:"finished_at,omitempty"`
+	FailureCode   *string           `json:"failure_code,omitempty"`
+	FailureReason *string           `json:"failure_reason,omitempty"`
+	OwningCell    string            `json:"owning_cell,omitempty"`
+	Source        *sourceProvenance `json:"source,omitempty"`
+	RunAuditFields
+}
+
+type runTasksResult struct {
+	Data       []runTaskRow `json:"data"`
+	NextCursor *int64       `json:"next_cursor,omitempty"`
+}
+
+type runArtifactsResult struct {
+	Data       []runArtifactRow `json:"data"`
+	NextCursor *int64           `json:"next_cursor,omitempty"`
+}
+
+type runArtifactsListOptions struct {
+	Limit         int
+	Cursor        int
+	TaskID        string
+	TaskAttemptID string
+	ExecutionID   string
+}
+
+type runArtifactRow struct {
+	ID              int64           `json:"id"`
+	RunID           string          `json:"run_id"`
+	TaskID          *string         `json:"task_id,omitempty"`
+	TaskAttemptID   *string         `json:"task_attempt_id,omitempty"`
+	ExecutionID     *string         `json:"execution_id,omitempty"`
+	CellID          string          `json:"cell_id"`
+	Name            string          `json:"name"`
+	Path            string          `json:"path"`
+	ContentType     string          `json:"content_type,omitempty"`
+	BlobKey         string          `json:"blob_key"`
+	BlobAlgorithm   string          `json:"blob_algorithm"`
+	BlobDigest      string          `json:"blob_digest"`
+	SizeBytes       int64           `json:"size_bytes"`
+	ArtifactShardID string          `json:"artifact_shard_id"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt       int64           `json:"created_at"`
+	UpdatedAt       int64           `json:"updated_at"`
+}
+
+type runTaskRow struct {
+	TaskID       string              `json:"task_id"`
+	RunID        string              `json:"run_id"`
+	ParentTaskID *string             `json:"parent_task_id,omitempty"`
+	TaskKey      string              `json:"task_key"`
+	Name         string              `json:"name"`
+	Status       string              `json:"status"`
+	SpecHash     string              `json:"spec_hash,omitempty"`
+	CreatedAt    *string             `json:"created_at,omitempty"`
+	UpdatedAt    *string             `json:"updated_at,omitempty"`
+	Attempts     []runTaskAttemptRow `json:"attempts"`
+}
+
+type executionSecurityEventRow struct {
+	ID            int64   `json:"id"`
+	RunID         string  `json:"run_id"`
+	TaskID        string  `json:"task_id,omitempty"`
+	TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+	ExecutionID   string  `json:"execution_id,omitempty"`
+	EventType     string  `json:"event_type"`
+	Outcome       string  `json:"outcome"`
+	Reason        string  `json:"reason,omitempty"`
+	Provider      *string `json:"provider,omitempty"`
+	SecretCount   *int    `json:"secret_count,omitempty"`
+	FileCount     *int    `json:"file_count,omitempty"`
+	CreatedAt     int64   `json:"created_at"`
+}
+
+type runTaskAttemptRow struct {
+	AttemptID       string                      `json:"attempt_id"`
+	TaskID          string                      `json:"task_id"`
+	RunID           string                      `json:"run_id"`
+	ExecutionID     string                      `json:"execution_id,omitempty"`
+	ExecutionStatus string                      `json:"execution_status,omitempty"`
+	CellID          string                      `json:"cell_id"`
+	LeaseOwner      *string                     `json:"lease_owner,omitempty"`
+	LeaseUntil      *int64                      `json:"lease_until,omitempty"`
+	Attempt         int                         `json:"attempt"`
+	Status          string                      `json:"status"`
+	AcceptedAt      *string                     `json:"accepted_at,omitempty"`
+	StartedAt       *string                     `json:"started_at,omitempty"`
+	FinishedAt      *string                     `json:"finished_at,omitempty"`
+	LastObservedAt  *int64                      `json:"last_observed_at,omitempty"`
+	EventSequence   int64                       `json:"event_sequence"`
+	CreatedAt       *string                     `json:"created_at,omitempty"`
+	UpdatedAt       *string                     `json:"updated_at,omitempty"`
+	SecurityEvents  []executionSecurityEventRow `json:"security_events,omitempty"`
+}
+
+type runExecutionPayloadResult struct {
+	RunID          string          `json:"run_id"`
+	PayloadHash    string          `json:"payload_hash"`
+	DefinitionHash string          `json:"definition_hash,omitempty"`
+	Payload        json.RawMessage `json:"payload"`
+}
+
+type runDefinitionResult struct {
+	RunID             string            `json:"run_id"`
+	JobID             string            `json:"job_id"`
+	DefinitionVersion int               `json:"definition_version"`
+	DefinitionHash    string            `json:"definition_hash"`
+	Source            *sourceProvenance `json:"source,omitempty"`
+	Definition        json.RawMessage   `json:"definition"`
+}
+
+type runReplayResult struct {
+	JobID         string `json:"job_id"`
+	RunID         string `json:"run_id"`
+	RunIndex      int    `json:"run_index"`
+	CellID        string `json:"cell_id,omitempty"`
+	ReplayOfRunID string `json:"replay_of_run_id"`
 }
 
 type runRepairResult struct {
@@ -55,12 +242,316 @@ type runRepairResult struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type runArtifactDownloadResult struct {
+	Status      string `json:"status"`
+	RunID       string `json:"run_id"`
+	Name        string `json:"name"`
+	OutputPath  string `json:"output_path"`
+	ContentType string `json:"content_type,omitempty"`
+	Bytes       int64  `json:"bytes"`
+}
+
 func runGetRun(cmd *cobra.Command, args []string) {
 	runCLIError(getRun(args[0], os.Stdout))
 }
 
+func runGetRunPayload(cmd *cobra.Command, args []string) {
+	runCLIError(getRunExecutionPayload(args[0], os.Stdout))
+}
+
+func runGetRunDefinition(cmd *cobra.Command, args []string) {
+	runCLIError(getRunDefinition(cmd, args[0], os.Stdout))
+}
+
+func runGetRunTasks(cmd *cobra.Command, args []string) {
+	runCLIError(getRunTasks(args[0], runTasksLimit, runTasksCursor, os.Stdout))
+}
+
+func runListRunArtifacts(cmd *cobra.Command, args []string) {
+	runCLIError(getRunArtifacts(args[0], runArtifactsListOptions{
+		Limit:         runArtifactsLimit,
+		Cursor:        runArtifactsCursor,
+		TaskID:        runArtifactsTaskID,
+		TaskAttemptID: runArtifactsAttemptID,
+		ExecutionID:   runArtifactsExecID,
+	}, os.Stdout))
+}
+
+func runDownloadRunArtifact(cmd *cobra.Command, args []string) {
+	runCLIError(downloadRunArtifact(args[0], args[1], runArtifactOutput, os.Stdout))
+}
+
+func runReplayRun(cmd *cobra.Command, args []string) {
+	runCLIError(replayRun(args[0], runReplayCellID, runReplayIdemKey, os.Stdout))
+}
+
 func getRun(runID string, w io.Writer) error {
-	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s", runID), nil)
+	run, err := fetchRunDetail(runID)
+	if err != nil {
+		return err
+	}
+
+	if outputIsJSON() {
+		return writeJSON(w, run)
+	}
+
+	fmt.Fprintf(w, "run_id=%s\n", run.RunID)
+	fmt.Fprintf(w, "run_index=%d\n", run.RunIndex)
+	fmt.Fprintf(w, "status=%s\n", run.Status)
+
+	if strings.TrimSpace(run.NextAction) != "" {
+		fmt.Fprintf(w, "next_action=%s\n", run.NextAction)
+	}
+
+	if strings.TrimSpace(run.OwningCell) != "" {
+		fmt.Fprintf(w, "owning_cell=%s\n", run.OwningCell)
+	}
+
+	writeRunAuditFields(w, run.RunAuditFields)
+	writeRunSourceProvenance(w, run.Source)
+	writeTaskCompletion(w, run.TaskCompletion)
+	writeLatestFailedSecurityEvent(w, run.LatestFailedSecurityEvent)
+
+	if run.CreatedAt != nil {
+		fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
+	}
+
+	if run.StartedAt != nil {
+		fmt.Fprintf(w, "started_at=%s\n", *run.StartedAt)
+	}
+
+	if run.FinishedAt != nil {
+		fmt.Fprintf(w, "finished_at=%s\n", *run.FinishedAt)
+	}
+
+	if run.FailureCode != nil {
+		fmt.Fprintf(w, "failure_code=%s\n", *run.FailureCode)
+	}
+
+	if run.FailureReason != nil {
+		fmt.Fprintf(w, "failure_reason=%s\n", *run.FailureReason)
+	}
+
+	if run.OrphanReason != nil {
+		fmt.Fprintf(w, "orphan_reason=%s\n", *run.OrphanReason)
+	}
+
+	writeTaskDispatch(w, run.TaskDispatch)
+	writeDispatchSummary(w, run.DispatchSummary)
+
+	if len(run.DispatchEvents) > 0 {
+		fmt.Fprintln(w, "dispatch_events:")
+		for _, ev := range run.DispatchEvents {
+			ts := time.Unix(ev.CreatedAt, 0).UTC().Format(time.RFC3339)
+			source := ev.Source
+			if ev.SourceInstance != "" {
+				source = source + "@" + ev.SourceInstance
+			}
+
+			if ev.Message != nil {
+				fmt.Fprintf(w, "  [%s] %s/%s: %s\n", ts, source, ev.EventType, *ev.Message)
+			} else {
+				fmt.Fprintf(w, "  [%s] %s/%s\n", ts, source, ev.EventType)
+			}
+		}
+	}
+
+	return nil
+}
+
+func writeDispatchSummary(w io.Writer, summary []dispatchSummary) {
+	if len(summary) == 0 {
+		return
+	}
+
+	fmt.Fprintln(w, "dispatch_summary:")
+	for _, row := range summary {
+		lastAt := time.Unix(row.LastEventAt, 0).UTC().Format(time.RFC3339)
+		fmt.Fprintf(w, "  %s: accepted=%d attempts=%d successes=%d failures=%d last=%s at %s", row.Source, row.Accepted, row.Attempts, row.Successes, row.Failures, row.LastEventType, lastAt)
+		if row.LastMessage != nil {
+			fmt.Fprintf(w, ": %s", *row.LastMessage)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func fetchRunDetail(runID string) (runDetail, error) {
+	return fetchRunDetailWithContext(context.Background(), runID)
+}
+
+func fetchRunDetailWithContext(ctx context.Context, runID string) (runDetail, error) {
+	req, err := newAPIRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("/api/v1/runs/%s", runID), nil)
+	if err != nil {
+		return runDetail{}, err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return runDetail{}, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var run runDetail
+
+		if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
+			return runDetail{}, fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		return run, nil
+	case http.StatusNotFound:
+		return runDetail{}, fmt.Errorf("run %q not found", runID)
+	default:
+		return runDetail{}, fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func writeTaskCompletion(w io.Writer, tc *taskCompletion) {
+	if tc == nil || tc.Total == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "task_completion: total=%d succeeded=%d terminal_failed=%d incomplete=%d\n",
+		tc.Total, tc.Succeeded, tc.TerminalFailed, tc.Incomplete)
+}
+
+func writeLatestFailedSecurityEvent(w io.Writer, event *executionSecurityEventRow) {
+	if event == nil {
+		return
+	}
+
+	fmt.Fprintf(w, "latest_failed_security_event=%s\n", formatExecutionSecurityEvents([]executionSecurityEventRow{*event}))
+	fmt.Fprintln(w, "retry_guidance=fix_security_gate_before_retry_or_replay")
+}
+
+func writeTaskDispatch(w io.Writer, td *taskDispatch) {
+	if td == nil || td.Total == 0 {
+		return
+	}
+
+	fmt.Fprintf(w, "task_dispatch: total=%d pending=%d failed=%d enqueued=%d", td.Total, td.Pending, td.Failed, td.Enqueued)
+	if td.UnknownState > 0 {
+		fmt.Fprintf(w, " unknown=%d", td.UnknownState)
+	}
+
+	if td.Truncated {
+		fmt.Fprintf(w, " truncated=true limit=%d", td.Limit)
+	}
+
+	fmt.Fprintln(w)
+
+	for _, intent := range td.Intents {
+		fmt.Fprintf(w, "  %s execution=%s task=%s attempt=%s cell=%s enqueue_attempts=%d",
+			intent.State, intent.ExecutionID, intent.TaskID, intent.TaskAttemptID, intent.CellID, intent.EnqueueAttempts)
+
+		if intent.LastEnqueueAttemptAt != nil {
+			fmt.Fprintf(w, " last_attempt=%s", formatUnixNano(*intent.LastEnqueueAttemptAt))
+		}
+
+		if intent.EnqueuedAt != nil {
+			fmt.Fprintf(w, " enqueued_at=%s", formatUnixNano(*intent.EnqueuedAt))
+		}
+
+		if intent.LastEnqueueError != nil {
+			fmt.Fprintf(w, " error=%q", *intent.LastEnqueueError)
+		}
+
+		fmt.Fprintln(w)
+	}
+}
+
+func formatUnixNano(value int64) string {
+	return time.Unix(0, value).UTC().Format(time.RFC3339)
+}
+
+func writeRunAuditFields(w io.Writer, audit RunAuditFields) {
+	if audit.DefinitionVersion > 0 {
+		fmt.Fprintf(w, "definition_version=%d\n", audit.DefinitionVersion)
+	}
+
+	if strings.TrimSpace(audit.DefinitionHash) != "" {
+		fmt.Fprintf(w, "definition_hash=%s\n", audit.DefinitionHash)
+	}
+
+	if audit.ReplayOfRunID != nil {
+		fmt.Fprintf(w, "replay_of_run_id=%s\n", *audit.ReplayOfRunID)
+	}
+
+	if audit.TriggerInvocationID != nil {
+		fmt.Fprintf(w, "trigger_invocation_id=%s\n", *audit.TriggerInvocationID)
+	}
+
+	if audit.TriggerID != nil {
+		fmt.Fprintf(w, "trigger_id=%d\n", *audit.TriggerID)
+	}
+
+	if audit.TriggerKey != nil {
+		fmt.Fprintf(w, "trigger_key=%s\n", *audit.TriggerKey)
+	}
+
+	if audit.TriggerName != nil {
+		fmt.Fprintf(w, "trigger_name=%s\n", *audit.TriggerName)
+	}
+
+	if audit.TriggerType != nil {
+		fmt.Fprintf(w, "trigger_type=%s\n", *audit.TriggerType)
+	}
+
+	if audit.TriggerSourceInstance != nil {
+		fmt.Fprintf(w, "trigger_source_instance=%s\n", *audit.TriggerSourceInstance)
+	}
+
+	if audit.TriggerPayloadHash != nil {
+		fmt.Fprintf(w, "trigger_payload_hash=%s\n", *audit.TriggerPayloadHash)
+	}
+
+	if len(audit.RequestedCells) > 0 {
+		fmt.Fprintf(w, "requested_cells=%s\n", strings.Join(audit.RequestedCells, ","))
+	}
+
+	if strings.TrimSpace(audit.ExecutionPayloadHash) != "" {
+		fmt.Fprintf(w, "execution_payload_hash=%s\n", audit.ExecutionPayloadHash)
+	}
+}
+
+func writeRunSourceProvenance(w io.Writer, source *sourceProvenance) {
+	if !hasRunSourceProvenance(source) {
+		return
+	}
+
+	if strings.TrimSpace(source.RepositoryID) != "" {
+		fmt.Fprintf(w, "source_repository=%s\n", source.RepositoryID)
+	}
+
+	if strings.TrimSpace(source.RequestedRef) != "" {
+		fmt.Fprintf(w, "source_ref=%s\n", source.RequestedRef)
+	}
+
+	if strings.TrimSpace(source.ResolvedCommit) != "" {
+		fmt.Fprintf(w, "source_commit=%s\n", source.ResolvedCommit)
+	}
+
+	if strings.TrimSpace(source.Path) != "" {
+		fmt.Fprintf(w, "source_path=%s\n", source.Path)
+	}
+
+	if strings.TrimSpace(source.BlobSHA) != "" {
+		fmt.Fprintf(w, "source_blob_sha=%s\n", source.BlobSHA)
+	}
+}
+
+func hasRunSourceProvenance(source *sourceProvenance) bool {
+	return source != nil &&
+		(strings.TrimSpace(source.RepositoryID) != "" ||
+			strings.TrimSpace(source.RequestedRef) != "" ||
+			strings.TrimSpace(source.ResolvedCommit) != "" ||
+			strings.TrimSpace(source.Path) != "" ||
+			strings.TrimSpace(source.BlobSHA) != "")
+}
+
+func getRunExecutionPayload(runID string, w io.Writer) error {
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s/execution-payload", runID), nil)
 	if err != nil {
 		return err
 	}
@@ -69,62 +560,507 @@ func getRun(runID string, w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		var run runDetail
-
-		if err := json.NewDecoder(resp.Body).Decode(&run); err != nil {
+		var result runExecutionPayloadResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return fmt.Errorf("failed to parse response: %w", err)
 		}
 
 		if outputIsJSON() {
-			return writeJSON(w, run)
+			return writeJSON(w, result)
 		}
 
-		fmt.Fprintf(w, "run_id=%s\n", run.RunID)
-		fmt.Fprintf(w, "run_index=%d\n", run.RunIndex)
-		fmt.Fprintf(w, "status=%s\n", run.Status)
-		if run.CreatedAt != nil {
-			fmt.Fprintf(w, "created_at=%s\n", *run.CreatedAt)
+		fmt.Fprintf(w, "run_id=%s\n", result.RunID)
+		fmt.Fprintf(w, "payload_hash=%s\n", result.PayloadHash)
+		if strings.TrimSpace(result.DefinitionHash) != "" {
+			fmt.Fprintf(w, "definition_hash=%s\n", result.DefinitionHash)
 		}
 
-		if run.StartedAt != nil {
-			fmt.Fprintf(w, "started_at=%s\n", *run.StartedAt)
-		}
-
-		if run.FinishedAt != nil {
-			fmt.Fprintf(w, "finished_at=%s\n", *run.FinishedAt)
-		}
-
-		if run.FailureCode != nil {
-			fmt.Fprintf(w, "failure_code=%s\n", *run.FailureCode)
-		}
-
-		if run.FailureReason != nil {
-			fmt.Fprintf(w, "failure_reason=%s\n", *run.FailureReason)
-		}
-
-		if run.OrphanReason != nil {
-			fmt.Fprintf(w, "orphan_reason=%s\n", *run.OrphanReason)
-		}
-
-		if len(run.DispatchEvents) > 0 {
-			fmt.Fprintln(w, "dispatch_events:")
-			for _, ev := range run.DispatchEvents {
-				ts := time.Unix(ev.CreatedAt, 0).UTC().Format(time.RFC3339)
-				if ev.Message != nil {
-					fmt.Fprintf(w, "  [%s] %s/%s: %s\n", ts, ev.Source, ev.EventType, *ev.Message)
-				} else {
-					fmt.Fprintf(w, "  [%s] %s/%s\n", ts, ev.Source, ev.EventType)
-				}
+		fmt.Fprintln(w, "payload:")
+		var pretty bytes.Buffer
+		if err := json.Indent(&pretty, result.Payload, "", "  "); err == nil {
+			_, err = pretty.WriteTo(w)
+			if err != nil {
+				return err
 			}
+			_, err = fmt.Fprintln(w)
+			return err
+		}
+
+		_, err := fmt.Fprintln(w, string(result.Payload))
+		return err
+	case http.StatusNotFound:
+		return fmt.Errorf("execution payload for run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read execution payload for run %q", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func getRunDefinition(cmd *cobra.Command, runID string, w io.Writer) error {
+	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s/definition", runID), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result runDefinitionResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		raw, _ := cmd.Flags().GetBool("raw")
+		_, err := w.Write(formatJobDefinitionBody(result.Definition, !raw))
+		return err
+	case http.StatusNotFound:
+		return fmt.Errorf("definition for run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read definition for run %q", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func getRunTasks(runID string, limit, cursor int, w io.Writer) error {
+	path := fmt.Sprintf("/api/v1/runs/%s/tasks", runID)
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+
+	if cursor > 0 {
+		params.Set("cursor", fmt.Sprintf("%d", cursor))
+	}
+
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result runTasksResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		if len(result.Data) == 0 {
+			fmt.Fprintln(w, "No tasks found")
+			return nil
+		}
+
+		for _, task := range result.Data {
+			writeRunTask(w, task)
+		}
+
+		if result.NextCursor != nil {
+			fmt.Fprintf(w, "\nMore tasks available. Continue with --cursor %d.\n", *result.NextCursor)
 		}
 
 		return nil
 	case http.StatusNotFound:
 		return fmt.Errorf("run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read tasks for run %q", runID)
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func writeRunTask(w io.Writer, task runTaskRow) {
+	parentID := "-"
+	if task.ParentTaskID != nil && strings.TrimSpace(*task.ParentTaskID) != "" {
+		parentID = *task.ParentTaskID
+	}
+
+	taskKey := strings.TrimSpace(task.TaskKey)
+	if taskKey == "" {
+		taskKey = "-"
+	}
+
+	name := strings.TrimSpace(task.Name)
+	if name == "" {
+		name = "-"
+	}
+
+	status := strings.TrimSpace(task.Status)
+	if status == "" {
+		status = "-"
+	}
+
+	fmt.Fprintf(w, "task_id=%s parent=%s key=%s name=%s status=%s attempts=%d",
+		task.TaskID, parentID, taskKey, name, status, len(task.Attempts))
+
+	if strings.TrimSpace(task.SpecHash) != "" {
+		fmt.Fprintf(w, " spec_hash=%s", task.SpecHash)
+	}
+
+	fmt.Fprintln(w)
+
+	for _, attempt := range task.Attempts {
+		writeRunTaskAttempt(w, attempt)
+	}
+}
+
+func writeRunTaskAttempt(w io.Writer, attempt runTaskAttemptRow) {
+	cellID := strings.TrimSpace(attempt.CellID)
+	if cellID == "" {
+		cellID = "-"
+	}
+
+	status := strings.TrimSpace(attempt.Status)
+	if status == "" {
+		status = "-"
+	}
+
+	fmt.Fprintf(w, "  attempt=%d id=%s cell=%s status=%s event_sequence=%d",
+		attempt.Attempt, attempt.AttemptID, cellID, status, attempt.EventSequence)
+
+	if strings.TrimSpace(attempt.ExecutionID) != "" {
+		fmt.Fprintf(w, " execution_id=%s", attempt.ExecutionID)
+	}
+
+	if strings.TrimSpace(attempt.ExecutionStatus) != "" {
+		fmt.Fprintf(w, " execution_status=%s", attempt.ExecutionStatus)
+	}
+
+	if attempt.LeaseOwner != nil && strings.TrimSpace(*attempt.LeaseOwner) != "" {
+		fmt.Fprintf(w, " lease_owner=%s", *attempt.LeaseOwner)
+	}
+
+	if attempt.LeaseUntil != nil {
+		fmt.Fprintf(w, " lease_until=%s", time.Unix(*attempt.LeaseUntil, 0).UTC().Format(time.RFC3339))
+	}
+
+	if attempt.AcceptedAt != nil {
+		fmt.Fprintf(w, " accepted_at=%s", *attempt.AcceptedAt)
+	}
+
+	if attempt.StartedAt != nil {
+		fmt.Fprintf(w, " started_at=%s", *attempt.StartedAt)
+	}
+
+	if attempt.FinishedAt != nil {
+		fmt.Fprintf(w, " finished_at=%s", *attempt.FinishedAt)
+	}
+
+	if attempt.LastObservedAt != nil {
+		fmt.Fprintf(w, " last_observed_at=%s", formatUnixNano(*attempt.LastObservedAt))
+	}
+
+	if len(attempt.SecurityEvents) > 0 {
+		fmt.Fprintf(w, " security=[%s]", formatExecutionSecurityEvents(attempt.SecurityEvents))
+	}
+
+	fmt.Fprintln(w)
+}
+
+func formatExecutionSecurityEvents(events []executionSecurityEventRow) string {
+	parts := make([]string, 0, len(events))
+	for _, event := range events {
+		eventType := textOrDash(event.EventType)
+		outcome := textOrDash(event.Outcome)
+		reason := strings.TrimSpace(event.Reason)
+		if reason == "" {
+			reason = "-"
+		}
+
+		part := fmt.Sprintf("%s:%s/%s", eventType, outcome, reason)
+		if event.Provider != nil && strings.TrimSpace(*event.Provider) != "" {
+			part += " provider=" + strings.TrimSpace(*event.Provider)
+		}
+
+		if event.SecretCount != nil {
+			part += fmt.Sprintf(" secrets=%d", *event.SecretCount)
+		}
+
+		if event.FileCount != nil {
+			part += fmt.Sprintf(" files=%d", *event.FileCount)
+		}
+
+		parts = append(parts, part)
+	}
+
+	return strings.Join(parts, ";")
+}
+
+func getRunArtifacts(runID string, opts runArtifactsListOptions, w io.Writer) error {
+	path := fmt.Sprintf("/api/v1/runs/%s/artifacts", url.PathEscape(runID))
+	params := url.Values{}
+	if opts.Limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", opts.Limit))
+	}
+
+	if opts.Cursor > 0 {
+		params.Set("cursor", fmt.Sprintf("%d", opts.Cursor))
+	}
+
+	setTrimmedQueryParam(params, "task_id", opts.TaskID)
+	setTrimmedQueryParam(params, "task_attempt_id", opts.TaskAttemptID)
+	setTrimmedQueryParam(params, "execution_id", opts.ExecutionID)
+	if encoded := params.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	req, err := newAPIRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result runArtifactsResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		if len(result.Data) == 0 {
+			fmt.Fprintln(w, "No artifacts found")
+			return nil
+		}
+
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "NAME\tTASK\tATTEMPT\tEXECUTION\tPATH\tCONTENT TYPE\tSIZE\tSHARD\tDIGEST")
+		for _, artifact := range result.Data {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+				textOrDash(artifact.Name),
+				textPtrOrDash(artifact.TaskID),
+				textPtrOrDash(artifact.TaskAttemptID),
+				textPtrOrDash(artifact.ExecutionID),
+				textOrDash(artifact.Path),
+				textOrDash(artifact.ContentType),
+				artifact.SizeBytes,
+				textOrDash(artifact.ArtifactShardID),
+				textOrDash(artifact.BlobDigest),
+			)
+		}
+
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+
+		if result.NextCursor != nil {
+			fmt.Fprintf(w, "\nMore artifacts available. Continue with --cursor %d.\n", *result.NextCursor)
+		}
+
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("run %q not found", runID)
+	case http.StatusForbidden:
+		return fmt.Errorf("not authorized to read artifacts for run %q", runID)
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("artifact repository is not configured")
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func setTrimmedQueryParam(params url.Values, key, value string) {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		params.Set(key, value)
+	}
+}
+
+func downloadRunArtifact(runID, name, outputPath string, w io.Writer) error {
+	outputPath = strings.TrimSpace(outputPath)
+	if outputPath == "" {
+		return fmt.Errorf("--output is required (use --output - to write artifact bytes to stdout)")
+	}
+
+	if outputPath == "-" && outputIsJSON() {
+		return fmt.Errorf("--format json cannot be used with --output -")
+	}
+
+	req, err := newAPIRequest(
+		http.MethodGet,
+		fmt.Sprintf("/api/v1/runs/%s/artifacts/%s/download", url.PathEscape(runID), url.PathEscape(name)),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "*/*")
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		contentType := resp.Header.Get("Content-Type")
+		written, err := copyArtifactDownload(resp.Body, outputPath, w)
+		if err != nil {
+			return err
+		}
+
+		if outputPath == "-" {
+			return nil
+		}
+
+		result := runArtifactDownloadResult{
+			Status:      "downloaded",
+			RunID:       runID,
+			Name:        name,
+			OutputPath:  outputPath,
+			ContentType: contentType,
+			Bytes:       written,
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		fmt.Fprintf(w, "Downloaded artifact %s to %s (%d bytes).\n", name, outputPath, written)
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("artifact %q for run %q not found", name, runID)
+	case http.StatusBadGateway:
+		return fmt.Errorf("artifact blob unavailable")
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("artifact repository is not configured")
+	default:
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+}
+
+func copyArtifactDownload(r io.Reader, outputPath string, stdout io.Writer) (int64, error) {
+	if outputPath == "-" {
+		return io.Copy(stdout, r)
+	}
+
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return 0, fmt.Errorf("create output file: %w", err)
+	}
+
+	written, copyErr := io.Copy(file, r)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return written, fmt.Errorf("write artifact file: %w", copyErr)
+	}
+
+	if closeErr != nil {
+		return written, fmt.Errorf("close artifact file: %w", closeErr)
+	}
+
+	return written, nil
+}
+
+func textOrDash(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+
+	return value
+}
+
+func textPtrOrDash(value *string) string {
+	if value == nil {
+		return "-"
+	}
+
+	return textOrDash(*value)
+}
+
+func replayRun(sourceRunID, cellID, idempotencyKey string, w io.Writer) error {
+	var body io.Reader
+	if strings.TrimSpace(cellID) != "" {
+		payload, err := json.Marshal(map[string]string{"cell_id": strings.TrimSpace(cellID)})
+		if err != nil {
+			return fmt.Errorf("failed to encode request body: %w", err)
+		}
+		body = bytes.NewReader(payload)
+	}
+
+	req, err := newAPIRequest(http.MethodPost, fmt.Sprintf("/api/v1/runs/%s/replay", sourceRunID), body)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	if strings.TrimSpace(idempotencyKey) != "" {
+		req.Header.Set("Idempotency-Key", strings.TrimSpace(idempotencyKey))
+	}
+
+	resp, err := doAPIRequest(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		var result runReplayResult
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if outputIsJSON() {
+			return writeJSON(w, result)
+		}
+
+		fmt.Fprintf(w, "replay_of_run_id=%s\n", result.ReplayOfRunID)
+		fmt.Fprintf(w, "run_id=%s\n", result.RunID)
+		fmt.Fprintf(w, "run_index=%d\n", result.RunIndex)
+		if strings.TrimSpace(result.JobID) != "" {
+			fmt.Fprintf(w, "job_id=%s\n", result.JobID)
+		}
+
+		if strings.TrimSpace(result.CellID) != "" {
+			fmt.Fprintf(w, "cell_id=%s\n", result.CellID)
+		}
+
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("run %q not found", sourceRunID)
+	case http.StatusConflict:
+		return fmt.Errorf("run %q cannot be replayed from its current status", sourceRunID)
 	default:
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
@@ -144,10 +1080,10 @@ func cancelRun(runID string, w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
-	case http.StatusNoContent:
+	case http.StatusNoContent, http.StatusAccepted:
 		if outputIsJSON() {
 			return writeJSON(w, map[string]string{"status": "cancel_requested", "run_id": runID})
 		}
@@ -178,13 +1114,34 @@ func runListRuns(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("job id is required (pass [job-id] or --job)"))
 	}
 
+	if strings.TrimSpace(runListRepositoryID) == "" {
+		runCLIError(fmt.Errorf("--repository is required to list runs for a reusable job"))
+	}
+
 	since, _ := cmd.Flags().GetString("since")
-	runCLIError(listRuns(jobID, runListLimit, runListCursor, since, os.Stdout))
+	runCLIError(listRunsForRepository(jobID, runListRepositoryID, runListLimit, runListCursor, since, runListCellID, os.Stdout))
 }
 
-func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error {
-	path := fmt.Sprintf("/api/v1/jobs/%s/runs", jobID)
+func listRuns(jobID string, limit, cursor int, since string, cellID string, w io.Writer) error {
+	return listRunsForRepository(jobID, "", limit, cursor, since, cellID, w)
+}
+
+func listRunsForRepository(jobID, repositoryID string, limit, cursor int, since string, cellID string, w io.Writer) error {
+	path := fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID))
 	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	return listRunsPathWithParams(path, params, limit, cursor, since, cellID, w)
+}
+
+func listRunsPath(path string, limit, cursor int, since string, cellID string, w io.Writer) error {
+	return listRunsPathWithParams(path, nil, limit, cursor, since, cellID, w)
+}
+
+func listRunsPathWithParams(path string, params url.Values, limit, cursor int, since string, cellID string, w io.Writer) error {
+	if params == nil {
+		params = url.Values{}
+	}
+
 	if limit > 0 {
 		params.Set("limit", fmt.Sprintf("%d", limit))
 	}
@@ -195,6 +1152,10 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 
 	if strings.TrimSpace(since) != "" {
 		params.Set("since", strings.TrimSpace(since))
+	}
+
+	if strings.TrimSpace(cellID) != "" {
+		params.Set("cell_id", strings.TrimSpace(cellID))
 	}
 
 	if encoded := params.Encode(); encoded != "" {
@@ -210,7 +1171,7 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status: %s", resp.Status)
@@ -222,6 +1183,10 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
 
+	return writeRunListResult(w, result)
+}
+
+func writeRunListResult(w io.Writer, result runListResult) error {
 	if outputIsJSON() {
 		return writeJSON(w, result)
 	}
@@ -231,8 +1196,13 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 		return nil
 	}
 
-	fmt.Fprintf(w, "%-20s %-5s %-12s %-24s %-24s %-24s\n",
-		"RUN ID", "INDEX", "STATUS", "CREATED", "STARTED", "FINISHED")
+	includeSource := runListHasSourceProvenance(result.Data)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if includeSource {
+		fmt.Fprintln(tw, "RUN ID\tINDEX\tCELL\tSTATUS\tSOURCE\tPATH\tCOMMIT\tCREATED\tSTARTED\tFINISHED")
+	} else {
+		fmt.Fprintln(tw, "RUN ID\tINDEX\tCELL\tSTATUS\tCREATED\tSTARTED\tFINISHED")
+	}
 
 	for _, r := range result.Data {
 		created := "-"
@@ -250,8 +1220,25 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 			finished = *r.FinishedAt
 		}
 
-		fmt.Fprintf(w, "%-20s %-5d %-12s %-24s %-24s %-24s\n",
-			r.RunID, r.RunIndex, r.Status, created, started, finished)
+		owningCell := strings.TrimSpace(r.OwningCell)
+		if owningCell == "" {
+			owningCell = "-"
+		}
+
+		if includeSource {
+			sourceID, sourcePath, sourceCommit := runListSourceColumns(r.Source)
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				r.RunID, r.RunIndex, owningCell, r.Status, sourceID, sourcePath, sourceCommit, created, started, finished)
+
+			continue
+		}
+
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+			r.RunID, r.RunIndex, owningCell, r.Status, created, started, finished)
+	}
+
+	if err := tw.Flush(); err != nil {
+		return err
 	}
 
 	if result.NextCursor != nil {
@@ -259,6 +1246,28 @@ func listRuns(jobID string, limit, cursor int, since string, w io.Writer) error 
 	}
 
 	return nil
+}
+
+func runListHasSourceProvenance(rows []runListRow) bool {
+	for _, row := range rows {
+		if hasRunSourceProvenance(row.Source) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func runListSourceColumns(source *sourceProvenance) (string, string, string) {
+	if !hasRunSourceProvenance(source) {
+		return "-", "-", "-"
+	}
+
+	repositoryID := textOrDash(source.RepositoryID)
+	path := textOrDash(source.Path)
+	commit := shortSHA(source.ResolvedCommit)
+
+	return repositoryID, path, commit
 }
 
 func forceFailRun(cmd *cobra.Command, args []string) {
@@ -288,7 +1297,7 @@ func forceFail(runID, reason string, w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
@@ -320,7 +1329,7 @@ func forceRequeue(runID string, w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
@@ -367,7 +1376,7 @@ func markRunForRepair(runID, state, reason string, w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusNoContent:
@@ -393,6 +1402,9 @@ var runsCmd = &cobra.Command{
 
 Common flows:
   vectis-cli runs show run-123
+  vectis-cli runs tasks run-123
+  vectis-cli runs artifacts list run-123
+  vectis-cli runs artifacts download run-123 coverage --output coverage.txt
   vectis-cli runs list build-main
   vectis-cli runs repair mark-queued run-123`,
 	GroupID: cliGroupWorkflows,
@@ -470,10 +1482,65 @@ var repairMarkQueuedCmd = &cobra.Command{
 
 var runGetCmd = &cobra.Command{
 	Use:   "show [run-id]",
-	Short: "Show run status and failure details",
-	Long:  `Fetch a run by run-id and print operator-facing status and failure fields.`,
+	Short: "Show run status, audit metadata, and failure details",
+	Long:  `Fetch a run by run-id and print operator-facing status, audit metadata, dispatch events, and failure fields.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runGetRun,
+}
+
+var runPayloadCmd = &cobra.Command{
+	Use:   "payload [run-id]",
+	Short: "Show the frozen execution payload for a run",
+	Long:  `Fetch the immutable execution payload captured at first durable dispatch for one run. This is an operator-only audit surface.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGetRunPayload,
+}
+
+var runDefinitionCmd = &cobra.Command{
+	Use:   "definition [run-id]",
+	Short: "Show the frozen job definition for a run",
+	Long:  `Fetch the immutable job definition snapshot captured for one run. This works for source-backed and ephemeral runs.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGetRunDefinition,
+}
+
+var runTasksCmd = &cobra.Command{
+	Use:   "tasks [run-id]",
+	Short: "List task graph nodes and attempts for a run",
+	Long:  `List the task graph nodes and task attempt state recorded for one run.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runGetRunTasks,
+}
+
+var runArtifactsCmd = &cobra.Command{
+	Use:   "artifacts",
+	Short: "List and download run artifacts",
+	Long:  `List artifact manifests recorded for a run, or download one artifact by name.`,
+	Run:   showCommandHelp,
+}
+
+var runArtifactsListCmd = &cobra.Command{
+	Use:   "list [run-id]",
+	Short: "List artifact manifests for a run",
+	Long:  `List artifact manifests recorded for one run, including producer task identity, blob digest, size, content type, and storage shard.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runListRunArtifacts,
+}
+
+var runArtifactsDownloadCmd = &cobra.Command{
+	Use:   "download [run-id] [artifact-name]",
+	Short: "Download a run artifact",
+	Long:  `Download one artifact blob by run id and artifact name. Pass --output - only when raw artifact bytes should be written to stdout.`,
+	Args:  cobra.ExactArgs(2),
+	Run:   runDownloadRunArtifact,
+}
+
+var runReplayCmd = &cobra.Command{
+	Use:   "replay [run-id]",
+	Short: "Create a new run from a previous run's captured definition",
+	Long:  `Create a fresh queued run from the source run's captured job definition version. Replay creates a new run id and records replay lineage; it does not repair or mutate the source run.`,
+	Args:  cobra.ExactArgs(1),
+	Run:   runReplayRun,
 }
 
 var runCancelCmd = &cobra.Command{
@@ -487,9 +1554,10 @@ var runCancelCmd = &cobra.Command{
 var runListCmd = &cobra.Command{
 	Use:   "list [job-id]",
 	Short: "List runs for a job",
-	Long: `List runs for a stored job, most recent first. Pass the job id as an argument or with --job.
+	Long: `List runs for a source-backed reusable job by recorded source provenance. Pass the job id as an argument or with --job and select the source repository with --repository.
 
 Use --since to filter to runs created at or after a date. Use --limit to control page size.
+Use --cell to filter to runs owned by one execution cell.
 When more runs are available, the command prints a cursor; pass that value back with --cursor
 to fetch the next page.`,
 	Args: cobra.MaximumNArgs(1),
@@ -498,9 +1566,33 @@ to fetch the next page.`,
 
 func configureRunListFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&runListJobID, "job", "", "Job ID to list runs for")
+	cmd.Flags().StringVar(&runListRepositoryID, "repository", "", "Source repository ID for source-backed job runs")
 	cmd.Flags().IntVar(&runListLimit, "limit", 0, "Max runs to return (default 50)")
 	cmd.Flags().IntVar(&runListCursor, "cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().StringVar(&runListCellID, "cell", "", "Only list runs owned by this execution cell")
 	cmd.Flags().String("since", "", "Only list runs created at or after this RFC3339 timestamp or YYYY-MM-DD date")
+}
+
+func configureRunTasksFlags(cmd *cobra.Command) {
+	cmd.Flags().IntVar(&runTasksLimit, "limit", 0, "Max tasks to return (default 100)")
+	cmd.Flags().IntVar(&runTasksCursor, "cursor", 0, "Continue listing after this result cursor")
+}
+
+func configureRunArtifactsListFlags(cmd *cobra.Command) {
+	cmd.Flags().IntVar(&runArtifactsLimit, "limit", 0, "Max artifacts to return (default 50)")
+	cmd.Flags().IntVar(&runArtifactsCursor, "cursor", 0, "Continue listing after this result cursor")
+	cmd.Flags().StringVar(&runArtifactsTaskID, "task-id", "", "Only list artifacts produced by this task")
+	cmd.Flags().StringVar(&runArtifactsAttemptID, "task-attempt-id", "", "Only list artifacts produced by this task attempt")
+	cmd.Flags().StringVar(&runArtifactsExecID, "execution-id", "", "Only list artifacts produced by this execution")
+}
+
+func configureRunArtifactsDownloadFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&runArtifactOutput, "output", "o", "", "Output file path, or '-' to write raw bytes to stdout")
+}
+
+func configureRunReplayFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&runReplayCellID, "cell", "", "Replay into this execution cell instead of the source run's cell")
+	cmd.Flags().StringVar(&runReplayIdemKey, "idempotency-key", "", "Idempotency key for safe replay request retries")
 }
 
 func configureForceFailFlags(cmd *cobra.Command) {

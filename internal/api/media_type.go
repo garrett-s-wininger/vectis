@@ -1,12 +1,11 @@
 package api
 
 import (
-	"mime"
 	"net/http"
-	"strings"
+
+	"vectis/internal/httpsecurity"
 )
 
 func requestContentTypeIsJSON(r *http.Request) bool {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	return err == nil && strings.EqualFold(mediaType, "application/json")
+	return httpsecurity.RequestContentTypeIsJSON(r)
 }

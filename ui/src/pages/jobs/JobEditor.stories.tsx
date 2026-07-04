@@ -1,0 +1,57 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { PageStoryFrame } from "../../mocks/pageHarnesses";
+import { JobEditor } from "./JobEditor";
+import { emptyJobForm, type JobEditorMode, type JobFormValues } from "./JobEditorModel";
+
+function JobEditorStory({ error: initialError = "", mode }: { error?: string; mode: JobEditorMode }) {
+  const [error, setError] = useState(initialError);
+  const [values, setValues] = useState<JobFormValues>(() => ({
+    ...emptyJobForm,
+    cronSpec: "0 2 * * *",
+    name: mode.kind === "edit" ? "worker-image" : ""
+  }));
+
+  return (
+    <JobEditor
+      error={error}
+      mode={mode}
+      namespacePath="/"
+      onCancel={() => undefined}
+      onCreateJob={() => undefined}
+      onError={setError}
+      onUpdateJob={() => undefined}
+      onValuesChange={setValues}
+      values={values}
+    />
+  );
+}
+
+const meta = {
+  title: "Pages/Jobs/JobEditor",
+  decorators: [
+    (Story) => (
+      <PageStoryFrame>
+        <Story />
+      </PageStoryFrame>
+    )
+  ]
+} satisfies Meta;
+
+export default meta;
+
+type Story = StoryObj<typeof meta>;
+
+export const Create: Story = {
+  render: () => <JobEditorStory mode={{ kind: "create" }} />
+};
+
+export const Configure: Story = {
+  render: () => <JobEditorStory mode={{ kind: "edit", jobID: "worker-image" }} />
+};
+
+export const SaveError: Story = {
+  render: () => (
+    <JobEditorStory error="Unable to save job. The API rejected the definition." mode={{ kind: "create" }} />
+  )
+};

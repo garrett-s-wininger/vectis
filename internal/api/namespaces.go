@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -12,13 +11,19 @@ import (
 )
 
 type createNamespaceRequest struct {
-	Name     string `json:"name"`
-	ParentID *int64 `json:"parent_id,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ParentID    *int64 `json:"parent_id,omitempty"`
+}
+
+type updateNamespaceRequest struct {
+	Description string `json:"description,omitempty"`
 }
 
 type namespaceResponse struct {
 	ID               int64  `json:"id"`
 	Name             string `json:"name"`
+	Description      string `json:"description"`
 	ParentID         *int64 `json:"parent_id,omitempty"`
 	Path             string `json:"path"`
 	BreakInheritance bool   `json:"break_inheritance"`
@@ -28,6 +33,7 @@ func namespaceRecordToResponse(rec *dal.NamespaceRecord) namespaceResponse {
 	return namespaceResponse{
 		ID:               rec.ID,
 		Name:             rec.Name,
+		Description:      rec.Description,
 		ParentID:         rec.ParentID,
 		Path:             rec.Path,
 		BreakInheritance: rec.BreakInheritance,
@@ -35,14 +41,8 @@ func namespaceRecordToResponse(rec *dal.NamespaceRecord) namespaceResponse {
 }
 
 func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
 		return
 	}
 
@@ -57,7 +57,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -94,7 +94,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := s.namespaces.Create(ctx, req.Name, req.ParentID)
+	rec, err := s.namespaces.CreateWithDescription(ctx, req.Name, req.Description, req.ParentID)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -122,9 +122,10 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auditLog(ctx, audit.EventNamespaceCreated, actorID, rec.ID, map[string]any{
-		"name":      rec.Name,
-		"parent_id": req.ParentID,
-		"path":      rec.Path,
+		"name":        rec.Name,
+		"description": rec.Description,
+		"parent_id":   req.ParentID,
+		"path":        rec.Path,
 	})
 
 	resp := namespaceRecordToResponse(rec)
@@ -136,7 +137,7 @@ func (s *APIServer) CreateNamespace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) ListNamespaces(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -186,7 +187,7 @@ func (s *APIServer) GetNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -226,7 +227,7 @@ func (s *APIServer) GetNamespace(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) UpdateNamespace(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
@@ -234,12 +235,18 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if id == 1 {
-		writeAPIErrorCode(w, http.StatusForbidden, apiErrRootNamespaceDeleteForbidden)
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	var req updateNamespaceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidRequestBody)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -264,6 +271,100 @@ func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
 
 		s.logger.Error("Database error: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+
+		return
+	}
+
+	if !s.authorizeNamespace(ctx, w, p, authz.ActionAdmin, rec.Path) {
+		return
+	}
+
+	previousDescription := rec.Description
+	rec, err = s.namespaces.UpdateDescription(ctx, id, req.Description)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+
+		return
+	}
+	s.markDBRecovered()
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.auditLog(ctx, audit.EventNamespaceUpdated, actorID, id, map[string]any{
+		"name":                 rec.Name,
+		"path":                 rec.Path,
+		"description":          rec.Description,
+		"previous_description": previousDescription,
+	})
+
+	resp := namespaceRecordToResponse(rec)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode namespace: %v", err)
+	}
+}
+
+func (s *APIServer) DeleteNamespace(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidID)
+		return
+	}
+
+	if id == dal.RootNamespaceID {
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrRootNamespaceDeleteForbidden)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	if !s.requireNamespaces(w) {
+		return
+	}
+
+	rec, err := s.namespaces.GetByID(ctx, id)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIErrorCode(w, http.StatusNotFound, apiErrNamespaceNotFound)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+
+	if rec.Path == dal.RootNamespacePath {
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrRootNamespaceDeleteForbidden)
+		return
+	}
+
+	if rec.Path == dal.EphemeralNamespacePath {
+		writeAPIErrorCode(w, http.StatusForbidden, apiErrSystemNamespaceDeleteForbidden)
 		return
 	}
 

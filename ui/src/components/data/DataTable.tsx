@@ -1,0 +1,122 @@
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import type { CSSProperties } from "react";
+import styles from "./DataTable.module.css";
+
+export type DataTableColumn<TRow> = {
+  align?: "start" | "end";
+  cell: (row: TRow) => ReactNode;
+  header: string;
+  hideOnMobile?: boolean;
+  mobileOnly?: boolean;
+  width?: CSSProperties["width"];
+};
+
+type DataTableProps<TRow> = {
+  columns: DataTableColumn<TRow>[];
+  emptyMessage?: string;
+  getRowActionLabel?: (row: TRow) => string;
+  getRowKey: (row: TRow) => string;
+  isRowSelected?: (row: TRow) => boolean;
+  onRowClick?: (row: TRow) => void;
+  rows: TRow[];
+  showRowIndicator?: boolean;
+};
+
+function columnStyle(width: CSSProperties["width"] | undefined): CSSProperties | undefined {
+  return width ? ({ "--column-width": width } as CSSProperties) : undefined;
+}
+
+export function DataTable<TRow>({
+  columns,
+  emptyMessage = "No records to show.",
+  getRowActionLabel,
+  getRowKey,
+  isRowSelected,
+  onRowClick,
+  rows,
+  showRowIndicator = true
+}: DataTableProps<TRow>) {
+  function handleRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, row: TRow) {
+    if (!onRowClick || (event.key !== "Enter" && event.key !== " ")) {
+      return;
+    }
+
+    event.preventDefault();
+    onRowClick(row);
+  }
+
+  function handleRowClick(event: MouseEvent<HTMLTableRowElement>, row: TRow) {
+    if (!onRowClick || isInteractiveElement(event.target, event.currentTarget)) {
+      return;
+    }
+
+    onRowClick(row);
+  }
+
+  return (
+    <div className={styles.root}>
+      <table>
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th
+                data-align={column.align ?? "start"}
+                data-mobile-hidden={column.hideOnMobile}
+                data-mobile-only={column.mobileOnly}
+                key={column.header}
+                style={columnStyle(column.width)}
+              >
+                {column.header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length > 0 ? (
+            rows.map((row) => (
+              <tr
+                aria-label={getRowActionLabel?.(row)}
+                aria-selected={isRowSelected?.(row) || undefined}
+                data-clickable={onRowClick ? true : undefined}
+                data-row-indicator={onRowClick && showRowIndicator ? true : undefined}
+                key={getRowKey(row)}
+                onClick={onRowClick ? (event) => handleRowClick(event, row) : undefined}
+                onKeyDown={(event) => handleRowKeyDown(event, row)}
+                role={onRowClick ? "button" : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+              >
+                {columns.map((column) => (
+                  <td
+                    data-align={column.align ?? "start"}
+                    data-label={column.header}
+                    data-mobile-hidden={column.hideOnMobile}
+                    data-mobile-only={column.mobileOnly}
+                    key={column.header}
+                    style={columnStyle(column.width)}
+                  >
+                    {column.cell(row)}
+                  </td>
+                ))}
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td className={styles.empty} colSpan={columns.length}>
+                {emptyMessage}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function isInteractiveElement(target: EventTarget, row: HTMLTableRowElement) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  const interactiveElement = target.closest("a, button, input, select, textarea, [role='button'], [role='link']");
+  return Boolean(interactiveElement && interactiveElement !== row);
+}

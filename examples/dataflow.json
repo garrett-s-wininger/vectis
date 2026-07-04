@@ -1,0 +1,30 @@
+{
+  "id": "dataflow-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "steps": [
+      {
+        "id": "script-command",
+        "uses": "builtins/script",
+        "with": {
+          "runner": "sh",
+          "script": "printf '{\"command\":\"exit 0\"}' > outputs.json",
+          "outputs": "outputs.json"
+        }
+      },
+      {
+        "id": "gate",
+        "uses": "builtins/test",
+        "inputs": {
+          "command": {
+            "from": {
+              "node": "script-command",
+              "output": "command"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

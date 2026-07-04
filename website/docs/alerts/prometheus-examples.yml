@@ -8,7 +8,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis queue has pending jobs
-          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+          runbook: /docs/operating/reliability/repair-runbooks#queued-runs-or-backlog
 
       - alert: VectisQueueDLQNotEmpty
         expr: vectis_queue_dlq_size > 0
@@ -17,7 +17,15 @@ groups:
           severity: warning
         annotations:
           summary: Vectis queue DLQ contains deliveries
-          runbook: docs/REPAIR_RUNBOOKS.md#queued-runs-or-backlog
+          runbook: /docs/operating/reliability/repair-runbooks#queued-runs-or-backlog
+
+      - alert: VectisQueueExpiredDispatchDrops
+        expr: increase(vectis_queue_expired_dropped_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis queue dropped deliveries after dispatch start deadlines
+          runbook: /docs/operating/reliability/repair-runbooks#queued-runs-or-backlog
 
       - alert: VectisReconcilerReenqueueFailures
         expr: increase(vectis_reconciler_reenqueue_total{outcome!="success"}[10m]) > 0
@@ -25,7 +33,96 @@ groups:
           severity: warning
         annotations:
           summary: Vectis reconciler failed to reenqueue runs
-          runbook: docs/REPAIR_RUNBOOKS.md#reconciler-repair
+          runbook: /docs/operating/reliability/repair-runbooks#reconciler-repair
+
+      - alert: VectisReconcilerTaskFinalizationRepairFailures
+        expr: increase(vectis_reconciler_task_finalization_repairs_total{outcome="error"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis reconciler failed to repair orphaned task finalization
+          runbook: /docs/operating/reliability/repair-runbooks#reconciler-repair
+
+      - alert: VectisTaskReduceErrors
+        expr: increase(vectis_task_reduce_decisions_total{outcome="error"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis workers failed to reduce task completion
+          runbook: /docs/operating/reliability/repair-runbooks#manual-run-intervention
+
+      - alert: VectisTaskGraphRowsHigh
+        expr: sum(vectis_storage_records{surface=~"run_tasks|task_attempts|run_segments|segment_executions"}) > 1000000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis task graph SQL row count is above the example threshold
+          runbook: /docs/operating/reliability/repair-runbooks#retention-cleanup
+
+      - alert: VectisRetentionScheduledCleanupEvidenceMissing
+        expr: absent(vectis_retention_evidence_generated_timestamp_seconds{kind="scheduled_cleanup",name="default"})
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis scheduled retention cleanup evidence metrics are missing
+          runbook: /docs/operating/reliability/retention#production-scheduling
+
+      - alert: VectisRetentionScheduledCleanupEvidenceStale
+        expr: time() - vectis_retention_evidence_generated_timestamp_seconds{kind="scheduled_cleanup",name="default"} > 691200
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis scheduled retention cleanup evidence is older than eight days
+          runbook: /docs/operating/reliability/retention#production-scheduling
+
+      - alert: VectisRetentionScheduledCleanupUnverified
+        expr: vectis_retention_evidence_verified{kind="scheduled_cleanup",name="default"} == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis scheduled retention cleanup did not retain verified evidence
+          runbook: /docs/operating/reliability/retention#operator-flow
+
+      - alert: VectisBackupManifestEvidenceStale
+        expr: time() - vectis_retention_evidence_generated_timestamp_seconds{kind="backup_manifest",name="default"} > 90000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis retained backup manifest evidence is older than twenty-five hours
+          runbook: /docs/operating/reliability/backup-restore
+
+      - alert: VectisRestoreValidationEvidenceStale
+        expr: time() - vectis_retention_evidence_generated_timestamp_seconds{kind="restore_validation",name="default"} > 2678400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis restore-validation evidence is older than thirty-one days
+          runbook: /docs/operating/reliability/backup-restore#production-v1-drill
+
+      - alert: VectisStorageReportEvidenceFailed
+        expr: vectis_retention_evidence_status{kind="storage_report",status!="ok"} == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis retained storage verification evidence is not ok
+          description: "surface={{ $labels.name }} status={{ $labels.status }}"
+          runbook: /docs/operating/reliability/backup-restore
+
+      - alert: VectisRetentionWaiverExpiring
+        expr: vectis_retention_evidence_expires_timestamp_seconds{kind="waiver",name="default"} - time() < 86400
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis retained cleanup waiver expires within twenty-four hours
+          runbook: /docs/operating/reliability/retention#operator-flow
 
       - alert: VectisWorkerHighFailureRatio
         expr: |
@@ -38,7 +135,25 @@ groups:
           severity: warning
         annotations:
           summary: Vectis worker failure ratio is high
-          runbook: docs/REPAIR_RUNBOOKS.md#manual-run-intervention
+          runbook: /docs/operating/reliability/repair-runbooks#manual-run-intervention
+
+      - alert: VectisWorkerSPIFFESVIDCheckFailures
+        expr: increase(vectis_worker_spiffe_svid_checks_total{outcome="failed",reason!="canceled"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis worker SPIFFE execution SVID checks failed
+          description: "reason={{ $labels.reason }}"
+          runbook: /docs/operating/reliability/repair-runbooks#spiffe-execution-svid-checks
+
+      - alert: VectisSecretsResolveFailures
+        expr: increase(vectis_secrets_resolve_requests_total{outcome!="success"}[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis secret resolution failed
+          description: "outcome={{ $labels.outcome }} reason={{ $labels.reason }} provider={{ $labels.provider }}"
+          runbook: /docs/operating/reliability/repair-runbooks#secret-resolution
 
       - alert: VectisLogAppendFailures
         expr: increase(vectis_log_storage_append_failures_total[10m]) > 0
@@ -46,7 +161,7 @@ groups:
           severity: critical
         annotations:
           summary: Vectis log service failed to append logs
-          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
 
       - alert: VectisLogDrops
         expr: increase(vectis_log_memory_buffer_drops_total[10m]) + increase(vectis_log_subscriber_channel_drops_total[10m]) > 0
@@ -54,7 +169,51 @@ groups:
           severity: warning
         annotations:
           summary: Vectis log service dropped buffered or subscriber log data
-          runbook: docs/REPAIR_RUNBOOKS.md#log-service-repair
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
+
+      - alert: VectisLogShardRoutingFailures
+        expr: increase(vectis_log_shard_route_failures_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis log shard routing failed
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
+
+      - alert: VectisLogForwarderSpoolBacklog
+        expr: vectis_log_forwarder_spool_files > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis log-forwarder has durable spool backlog
+          runbook: /docs/operating/reliability/repair-runbooks#log-service-repair
+
+      - alert: VectisArtifactStorageLowFreeBytes
+        expr: vectis_artifact_storage_free_bytes < 1073741824
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis artifact storage free bytes are below the example threshold
+          runbook: /docs/operating/reliability/production-monitoring
+
+      - alert: VectisArtifactStorageLowFreeInodes
+        expr: vectis_artifact_storage_free_inodes < 10000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis artifact storage free inodes are below the example threshold
+          runbook: /docs/operating/reliability/production-monitoring
+
+      - alert: VectisArtifactStorageReadOnly
+        expr: vectis_artifact_storage_new_blob_writable == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Vectis artifact shard is not writable for new blobs
+          runbook: /docs/operating/reliability/production-monitoring
 
       - alert: VectisAuditDrops
         expr: increase(vectis_audit_events_dropped_total[10m]) > 0
@@ -62,7 +221,7 @@ groups:
           severity: critical
         annotations:
           summary: Vectis audit events were dropped
-          runbook: docs/REPAIR_RUNBOOKS.md#audit-durability-repair
+          runbook: /docs/operating/reliability/repair-runbooks#audit-durability-repair
 
       - alert: VectisAuditFlushFailures
         expr: increase(vectis_audit_flush_failures_total[10m]) > 0
@@ -70,7 +229,7 @@ groups:
           severity: critical
         annotations:
           summary: Vectis audit flush failed
-          runbook: docs/REPAIR_RUNBOOKS.md#audit-durability-repair
+          runbook: /docs/operating/reliability/repair-runbooks#audit-durability-repair
 
       - alert: VectisRetryExhausted
         expr: increase(vectis_retries_exhausted_total[10m]) > 0
@@ -78,7 +237,7 @@ groups:
           severity: warning
         annotations:
           summary: Vectis retry loop exhausted
-          runbook: docs/REPAIR_RUNBOOKS.md#quick-map
+          runbook: /docs/operating/reliability/repair-runbooks#quick-map
 
       - alert: VectisDatabasePoolSaturated
         expr: db_client_connections_in_use > 20
@@ -87,4 +246,22 @@ groups:
           severity: warning
         annotations:
           summary: Vectis database pool usage is high
-          runbook: docs/REPAIR_RUNBOOKS.md#database-pool-pressure
+          runbook: /docs/operating/reliability/repair-runbooks#database-pool-pressure
+
+      - alert: VectisAPISecurityRejectionsSustained
+        expr: sum(rate(vectis_api_security_rejections_total[10m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vectis API security rejections are sustained
+          runbook: /docs/operating/reliability/repair-runbooks#api-security-rejections
+
+      - alert: VectisAPISecurityRejectionSpike
+        expr: sum by (reason, route, status) (increase(vectis_api_security_rejections_total[5m])) > 25
+        labels:
+          severity: warning
+        annotations:
+          summary: "Vectis API security rejection spike on {{ $labels.route }}"
+          description: "reason={{ $labels.reason }} status={{ $labels.status }}"
+          runbook: /docs/operating/reliability/repair-runbooks#api-security-rejections

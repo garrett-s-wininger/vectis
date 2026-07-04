@@ -1,0 +1,94 @@
+.root {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 72%), rgb(255 255 255 / 18%)),
+    linear-gradient(180deg, #cad9e0 0%, #aebfc8 100%);
+  border-radius: var(--control-radius);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 82%),
+    0 1px 3px rgb(24 31 36 / 18%);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  width: fit-content;
+}
+
+.root > * {
+  min-width: 0;
+}
+
+.crumb {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 88%), rgb(255 255 255 / 34%)),
+    linear-gradient(180deg, #e5eef2 0%, #bdd0da 100%);
+  border: 0;
+  box-sizing: border-box;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%);
+  color: var(--text-subtle);
+  display: inline-flex;
+  filter: drop-shadow(0 1px 0 rgb(255 255 255 / 80%)) drop-shadow(0 1px 1px rgb(24 31 36 / 16%));
+  flex: 0 1 auto;
+  font: inherit;
+  line-height: var(--line-height-tight);
+  max-width: 24ch;
+  min-height: 28px;
+  overflow: hidden;
+  padding: var(--space-2xs) var(--space-lg) var(--space-2xs) var(--space-xl);
+  position: relative;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumb:first-child {
+  border-radius: var(--control-radius) 0 0 var(--control-radius);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+  padding-left: var(--space-sm);
+}
+
+.crumb:last-child {
+  border-radius: 0 var(--control-radius) var(--control-radius) 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 12px 50%);
+  padding-right: var(--space-sm);
+}
+
+.crumb:not(:last-child) {
+  margin-right: -8px;
+}
+
+.crumb[aria-current="page"] {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 86%), rgb(255 255 255 / 28%)),
+    linear-gradient(90deg, rgb(30 116 139 / 40%), rgb(183 111 62 / 30%)),
+    linear-gradient(180deg, #dcecf1 0%, #aec8d4 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 88%),
+    inset 0 -1px 0 rgb(133 151 161 / 34%);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-strong);
+}
+
+.root button.crumb {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 88%), rgb(255 255 255 / 34%)),
+    linear-gradient(180deg, #e5eef2 0%, #bdd0da 100%);
+  cursor: pointer;
+  flex: 0 0 auto;
+  padding: var(--space-2xs) var(--space-lg) var(--space-2xs) var(--space-xl);
+}
+
+.root button.crumb:hover {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 92%), rgb(255 255 255 / 34%)),
+    linear-gradient(180deg, #d8eef2 0%, #a9d1dc 100%);
+  color: var(--color-primary-hover);
+}
+
+.root button.crumb:focus-visible {
+  outline: 2px solid rgb(30 116 139 / 42%);
+  outline-offset: 2px;
+}

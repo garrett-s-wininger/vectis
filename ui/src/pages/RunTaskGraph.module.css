@@ -1,0 +1,282 @@
+.panel {
+  display: grid;
+  gap: var(--space-lg);
+  grid-column: 1 / -1;
+  padding: var(--space-xl);
+}
+
+.header {
+  align-items: center;
+  border-bottom: var(--panel-border-subtle);
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-bottom: var(--space-lg);
+  padding-top: var(--space-xs);
+}
+
+.header h2 {
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-compact);
+  margin: 0;
+}
+
+.header p {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.graph {
+  align-items: stretch;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 72%), rgb(255 255 255 / 22%)),
+    linear-gradient(180deg, #f4f7f9 0%, #e7eef2 100%);
+  border: var(--control-border);
+  border-radius: var(--control-radius);
+  display: grid;
+  gap: var(--space-xl);
+  justify-content: stretch;
+  justify-items: stretch;
+  min-height: 156px;
+  overflow-x: auto;
+  padding: var(--space-lg);
+}
+
+.tree {
+  --graph-connector-length: var(--space-3xl);
+  --graph-connector-midpoint: calc(var(--graph-connector-length) / 2);
+  --graph-connector-stroke: #9ba9b1;
+  --graph-connector-size: 2px;
+  --graph-node-height: 3.25rem;
+  --graph-node-width: 11rem;
+
+  align-items: center;
+  display: flex;
+  gap: var(--space-3xl);
+  justify-content: center;
+  min-width: 100%;
+  width: max-content;
+}
+
+.branch {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  position: relative;
+}
+
+.children {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  justify-content: center;
+  padding-left: var(--graph-connector-length);
+  position: relative;
+}
+
+.children::before,
+.childrenMultiple::after,
+.child::before {
+  background: var(--graph-connector-stroke);
+  content: "";
+  position: absolute;
+  z-index: 0;
+}
+
+.children::before {
+  height: var(--graph-connector-size);
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(var(--graph-connector-midpoint) + var(--graph-connector-size));
+}
+
+.childrenMultiple::after {
+  bottom: calc(var(--graph-node-height) / 2);
+  left: var(--graph-connector-midpoint);
+  top: calc(var(--graph-node-height) / 2);
+  width: var(--graph-connector-size);
+}
+
+.child {
+  position: relative;
+}
+
+.child::before {
+  height: var(--graph-connector-size);
+  left: calc(var(--graph-connector-midpoint) * -1);
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(var(--graph-connector-midpoint) + var(--graph-connector-size));
+}
+
+.node {
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 72%), rgb(255 255 255 / 22%)), linear-gradient(180deg, #f8fbfc, #e8f0f4);
+  border: 1px solid rgb(151 168 177 / 46%);
+  border-radius: var(--control-radius);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 82%),
+    0 1px 0 rgb(255 255 255 / 60%);
+  color: var(--text-navigation);
+  display: grid;
+  gap: var(--space-xs) var(--space-md);
+  grid-template-columns: var(--space-2xl) minmax(0, 1fr);
+  min-height: var(--graph-node-height);
+  padding: var(--space-sm) var(--space-md);
+  position: relative;
+  text-align: left;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+  width: var(--graph-node-width);
+  z-index: 1;
+}
+
+button.node {
+  cursor: pointer;
+}
+
+button.node:hover {
+  border-color: rgb(92 116 128 / 62%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 86%),
+    0 8px 18px rgb(24 31 36 / 8%);
+  transform: translateY(-1px);
+}
+
+button.node:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: var(--control-focus-offset);
+}
+
+.selected {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 80%), rgb(255 255 255 / 34%)),
+    linear-gradient(180deg, rgb(232 247 250 / 94%), rgb(213 235 240 / 96%));
+  border-color: rgb(30 116 139 / 86%);
+  box-shadow:
+    inset 4px 0 0 rgb(30 116 139 / 86%),
+    inset 0 1px 0 rgb(255 255 255 / 86%),
+    0 0 0 3px rgb(30 116 139 / 22%),
+    0 12px 24px rgb(24 31 36 / 13%);
+  transform: translateY(-1px);
+}
+
+.indicator {
+  align-items: center;
+  background: rgb(255 255 255 / 72%);
+  border: 2px solid rgb(151 168 177 / 40%);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 86%),
+    0 6px 12px rgb(24 31 36 / 8%);
+  display: grid;
+  height: var(--space-2xl);
+  justify-items: center;
+  position: relative;
+  width: var(--space-2xl);
+}
+
+.statusIcon {
+  color: var(--text-navigation);
+  height: var(--space-lg);
+  stroke-width: 2.5;
+  width: var(--space-lg);
+}
+
+.label {
+  align-self: center;
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planned .indicator,
+.pending .indicator {
+  border-color: var(--status-neutral-border);
+}
+
+.planned .statusIcon,
+.pending .statusIcon {
+  color: var(--text-subtle);
+}
+
+.accepted .indicator,
+.running .indicator {
+  border-color: var(--color-primary);
+}
+
+.accepted .statusIcon,
+.running .statusIcon {
+  color: var(--color-primary);
+}
+
+.succeeded .indicator {
+  border-color: var(--status-success-border);
+}
+
+.succeeded .statusIcon {
+  color: var(--status-success-text);
+}
+
+.failed .indicator,
+.cancelled .indicator,
+.aborted .indicator {
+  border-color: var(--status-danger-border);
+}
+
+.failed .statusIcon,
+.cancelled .statusIcon,
+.aborted .statusIcon {
+  color: var(--status-danger-text);
+}
+
+.selected .indicator {
+  background: rgb(255 255 255 / 88%);
+  border-color: rgb(30 116 139 / 86%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    0 0 0 3px rgb(30 116 139 / 16%);
+}
+
+.selected .label {
+  font-weight: var(--font-weight-strong);
+}
+
+@media (max-width: 620px) {
+  .header {
+    grid-template-columns: 1fr;
+  }
+
+  .graph {
+    gap: var(--space-lg);
+    padding: var(--space-md);
+  }
+
+  .tree {
+    --graph-connector-length: var(--space-2xl);
+    --graph-node-height: 3rem;
+    --graph-node-width: 9rem;
+
+    gap: var(--space-sm);
+  }
+
+  .children {
+    gap: var(--space-sm);
+  }
+
+  .node {
+    padding: var(--space-sm);
+  }
+}

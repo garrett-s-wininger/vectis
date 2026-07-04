@@ -20,7 +20,7 @@ import (
 
 func runVectisRegistry(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("registry")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting registry server...")
@@ -33,7 +33,8 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 	port := config.RegistryEffectiveListenPort()
 	addr := fmt.Sprintf(":%d", port)
 
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(cmd.Context(), "tcp", addr)
 	if err != nil {
 		logger.Fatal("Failed to listen: %v", err)
 	}
@@ -49,7 +50,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 		PeerDialTimeout:     config.RegistryClusterPeerDialTimeout(),
 	})
 
-	srvOpts, err := config.GRPCServerOptions()
+	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleRegistry)
 	if err != nil {
 		logger.Fatal("grpc tls: %v", err)
 	}
@@ -64,7 +65,7 @@ func runVectisRegistry(cmd *cobra.Command, args []string) {
 
 	logger.Info("Registry server listening on %s", addr)
 
-	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Registry", logger); err != nil {
+	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Registry", logger, cli.WithGRPCHealthServer(hs, "registry")); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }
@@ -80,6 +81,9 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Int("port", config.RegistryPort(), "Port for the registry")
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindEnv("registry.cluster.node_id", "VECTIS_REGISTRY_CLUSTER_NODE_ID")
+	_ = viper.BindEnv("registry.cluster.advertise_address", "VECTIS_REGISTRY_CLUSTER_ADVERTISE_ADDRESS")
+	_ = viper.BindEnv("registry.cluster.peer_addresses", "VECTIS_REGISTRY_CLUSTER_PEER_ADDRESSES")
 	viper.SetEnvPrefix("VECTIS_REGISTRY")
 	viper.AutomaticEnv()
 }

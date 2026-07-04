@@ -30,14 +30,27 @@ type jobRunEvent struct {
 }
 
 func runLogStream(runID string, filterStdout, filterStderr bool) error {
-	req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/runs/%s/logs", runID), nil)
+	return runLogStreamPath(fmt.Sprintf("/api/v1/runs/%s/logs", url.PathEscape(runID)), runID, filterStdout, filterStderr)
+}
+
+func runSourceLogStream(repositoryID, jobID, runID string, filterStdout, filterStderr bool) error {
+	path := fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs/%s/logs",
+		url.PathEscape(repositoryID),
+		url.PathEscape(jobID),
+		url.PathEscape(runID),
+	)
+	return runLogStreamPath(path, runID, filterStdout, filterStderr)
+}
+
+func runLogStreamPath(path, runID string, filterStdout, filterStderr bool) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := newAPIRequestWithContext(ctx, http.MethodGet, path, nil)
 	if err != nil {
+		cancel()
 		return fmt.Errorf("failed to create log stream request: %w", err)
 	}
 
 	req.Header.Set("Accept", "text/event-stream")
-	ctx, cancel := context.WithCancel(context.Background())
-	req = req.WithContext(ctx)
 
 	resp, err := doAPIStreamRequest(req)
 	if err != nil {
@@ -210,9 +223,54 @@ func runLogStream(runID string, filterStdout, filterStderr bool) error {
 }
 
 func runContinuousLogs(jobID string, filterStdout, filterStderr bool) error {
+	return runContinuousLogsForRepository(jobID, "", filterStdout, filterStderr)
+}
+
+func runContinuousLogsForRepository(jobID, repositoryID string, filterStdout, filterStderr bool) error {
+	label := "job " + jobID
+	if strings.TrimSpace(repositoryID) != "" {
+		label = "source job " + repositoryID + "/" + jobID
+	}
+
+	return runContinuousLogsPath(
+		label,
+		jobRunsSSEPath(jobID, repositoryID),
+		jobRunsPath(jobID, repositoryID),
+		func(ev jobRunEvent) error {
+			return runLogStream(ev.RunID, filterStdout, filterStderr)
+		},
+	)
+}
+
+func runContinuousSourceLogs(repositoryID, jobID string, filterStdout, filterStderr bool) error {
+	return runContinuousLogsPath(
+		"source job "+repositoryID+"/"+jobID,
+		fmt.Sprintf("/api/v1/sse/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)),
+		fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)),
+		func(ev jobRunEvent) error {
+			return runSourceLogStream(repositoryID, jobID, ev.RunID, filterStdout, filterStderr)
+		},
+	)
+}
+
+func jobRunsPath(jobID, repositoryID string) string {
+	path := fmt.Sprintf("/api/v1/jobs/%s/runs", url.PathEscape(jobID))
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	return appendQueryParams(path, params)
+}
+
+func jobRunsSSEPath(jobID, repositoryID string) string {
+	path := fmt.Sprintf("/api/v1/sse/jobs/%s/runs", url.PathEscape(jobID))
+	params := url.Values{}
+	setTrimmedQueryParam(params, "repository_id", repositoryID)
+	return appendQueryParams(path, params)
+}
+
+func runContinuousLogsPath(label, ssePath, runsPath string, streamRun func(jobRunEvent) error) error {
 	lastIndex := 0
 	if !outputIsJSON() {
-		fmt.Printf("Streaming logs for job %s (Ctrl+C to stop)\n", jobID)
+		fmt.Printf("Streaming logs for %s (Ctrl+C to stop)\n", label)
 	}
 
 	interrupt := make(chan os.Signal, 1)
@@ -226,12 +284,11 @@ outer:
 		runChan := make(chan jobRunEvent, 32)
 		go func() {
 			defer close(runChan)
-			req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/sse/jobs/%s/runs", jobID), nil)
+			req, err := newAPIRequestWithContext(attemptCtx, http.MethodGet, ssePath, nil)
 			if err != nil {
 				return
 			}
 
-			req = req.WithContext(attemptCtx)
 			req.Header.Set("Accept", "text/event-stream")
 
 			resp, err := doAPIStreamRequest(req)
@@ -296,7 +353,9 @@ outer:
 			}
 		}()
 
-		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?after_index=%d", jobID, lastIndex), nil)
+		params := url.Values{}
+		params.Set("after_index", strconv.Itoa(lastIndex))
+		req, err := newAPIRequest(http.MethodGet, appendQueryParams(runsPath, params), nil)
 		if err != nil {
 			attemptCancel()
 			return fmt.Errorf("creating runs request: %w", err)
@@ -308,14 +367,20 @@ outer:
 			return fmt.Errorf("fetching runs: %w", err)
 		}
 
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			attemptCancel()
+			return fmt.Errorf("listing runs failed: %s", resp.Status)
+		}
+
 		runs, err := decodeJobRuns(resp.Body)
 		if err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			attemptCancel()
 			return fmt.Errorf("parsing runs: %w", err)
 		}
 
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		for _, r := range runs {
 			if r.RunIndex > lastIndex {
 				lastIndex = r.RunIndex
@@ -342,7 +407,7 @@ outer:
 					lastIndex = ev.RunIndex
 				}
 
-				if err := runLogStream(ev.RunID, filterStdout, filterStderr); err != nil {
+				if err := streamRun(ev); err != nil {
 					if err.Error() == "interrupted" {
 						attemptCancel()
 						return err
@@ -368,6 +433,18 @@ func decodeJobRuns(r io.Reader) ([]jobRunEvent, error) {
 }
 
 func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
+	return latestRunForJobInRepository(jobID, "")
+}
+
+func latestRunForJobInRepository(jobID, repositoryID string) (jobRunEvent, bool, error) {
+	return latestRunForJobPath(jobRunsPath(jobID, repositoryID))
+}
+
+func latestRunForSourceJob(repositoryID, jobID string) (jobRunEvent, bool, error) {
+	return latestRunForJobPath(fmt.Sprintf("/api/v1/source-repositories/%s/jobs/%s/runs", url.PathEscape(repositoryID), url.PathEscape(jobID)))
+}
+
+func latestRunForJobPath(path string) (jobRunEvent, bool, error) {
 	var latest jobRunEvent
 	cursor := int64(0)
 
@@ -378,7 +455,7 @@ func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
 			params.Set("cursor", strconv.FormatInt(cursor, 10))
 		}
 
-		req, err := newAPIRequest(http.MethodGet, fmt.Sprintf("/api/v1/jobs/%s/runs?%s", jobID, params.Encode()), nil)
+		req, err := newAPIRequest(http.MethodGet, appendQueryParams(path, params), nil)
 		if err != nil {
 			return jobRunEvent{}, false, err
 		}
@@ -420,6 +497,19 @@ func latestRunForJob(jobID string) (jobRunEvent, bool, error) {
 	return latest, latest.RunID != "", nil
 }
 
+func appendQueryParams(path string, params url.Values) string {
+	encoded := params.Encode()
+	if encoded == "" {
+		return path
+	}
+
+	if strings.Contains(path, "?") {
+		return path + "&" + encoded
+	}
+
+	return path + "?" + encoded
+}
+
 func resolveLogIDArg(arg string) (string, error) {
 	if arg != "-" {
 		return arg, nil
@@ -456,11 +546,16 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 		runCLIError(err)
 	}
 
+	repositoryID := stringFlagValue(cmd, "repository")
+	if repositoryID == "" {
+		runCLIError(fmt.Errorf("--repository is required to stream logs for a reusable job; use logs run for a specific run"))
+	}
+
 	filterStdout, _ := cmd.Flags().GetBool("stdout")
 	filterStderr, _ := cmd.Flags().GetBool("stderr")
 	follow, _ := cmd.Flags().GetBool("follow")
 	if follow {
-		if err := runContinuousLogs(jobID, filterStdout, filterStderr); err != nil {
+		if err := runContinuousLogsForRepository(jobID, repositoryID, filterStdout, filterStderr); err != nil {
 			if err.Error() == "interrupted" {
 				return
 			}
@@ -471,17 +566,25 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	run, ok, err := latestRunForJob(jobID)
+	run, ok, err := latestRunForJobInRepository(jobID, repositoryID)
 	if err != nil {
 		runCLIError(err)
 	}
 
 	if !ok {
+		if repositoryID != "" {
+			runCLIError(fmt.Errorf("no runs found for source job %q/%q; use --follow to wait for future runs", repositoryID, jobID))
+		}
+
 		runCLIError(fmt.Errorf("no runs found for job %q; use --follow to wait for future runs", jobID))
 	}
 
 	if !outputIsJSON() {
-		fmt.Printf("Streaming latest run for job %s: %s\n", jobID, run.RunID)
+		if repositoryID != "" {
+			fmt.Printf("Streaming latest run for source job %s/%s: %s\n", repositoryID, jobID, run.RunID)
+		} else {
+			fmt.Printf("Streaming latest run for job %s: %s\n", jobID, run.RunID)
+		}
 	}
 
 	runCLIError(runLogStream(run.RunID, filterStdout, filterStderr))
@@ -490,7 +593,7 @@ func runLogsJob(cmd *cobra.Command, args []string) {
 var logsCmd = &cobra.Command{
 	Use:     "logs",
 	Short:   "Stream logs for runs",
-	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run. Use "logs job" for the latest run of a job, or add --follow to wait for future runs. Use "-" as the id to read from stdin.`,
+	Long:    `Stream logs via Server-Sent Events (SSE). Use "logs run" for a single run. Use "logs job --repository" for the latest run of a reusable source-backed job, or add --follow to wait for future runs. Use "-" as the id to read from stdin.`,
 	GroupID: cliGroupWorkflows,
 	Run:     showCommandHelp,
 }
@@ -506,7 +609,7 @@ var logsRunCmd = &cobra.Command{
 var logsJobCmd = &cobra.Command{
 	Use:   "job [job-id]",
 	Short: "Stream logs for the latest run of a job",
-	Long:  `Stream logs for the latest run of a job. Add --follow to wait for each future run triggered after you connect. Argument is a job-id; use "-" to read from stdin.`,
+	Long:  `Stream logs for the latest run of a source-backed reusable job. Pass --repository to select the source repository, and add --follow to wait for each future run triggered after you connect. Argument is a job-id; use "-" to read from stdin.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runLogsJob,
 }
@@ -518,4 +621,5 @@ func configureLogFilterFlags(cmd *cobra.Command) {
 
 func configureLogsJobFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "Wait for and stream future runs for this job")
+	cmd.Flags().String("repository", "", "Source repository ID for source-backed job logs")
 }

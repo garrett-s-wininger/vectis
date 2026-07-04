@@ -6,23 +6,24 @@
     "steps": [
       {
         "id": "step-1",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "echo 'Hello from Vectis!'"
+          "script": "echo 'Hello from Vectis!'"
         }
       },
       {
         "id": "step-2",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "echo 'Running multiple steps in sequence'"
+          "script": "echo 'Running multiple steps in sequence'"
         }
       },
       {
         "id": "step-3",
-        "uses": "builtins/shell",
+        "uses": "builtins/script",
         "with": {
-          "command": "pwd && ls -la"
+          "runner": "sh",
+          "script": "pwd && ls -la"
         }
       }
     ]

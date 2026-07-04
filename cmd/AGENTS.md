@@ -2,20 +2,30 @@
 
 **Authoritative list of commands:** directories under [`cmd/`](.) each with `main.go` (Cobra root + `runXxx` + Viper in `init()` for daemons).
 
-**Go version:** `1.25.10` (see repo root [`go.mod`](../go.mod)).
+**Go version:** `1.25.11` (see repo root [`go.mod`](../go.mod)).
 
 ## Layout
 
 | Directory | Binary | Nature |
 |-----------|--------|--------|
 | `api/` | `vectis-api` | daemon (REST + metrics) |
+| `artifact/` | `vectis-artifact` | daemon (artifact blob storage) |
+| `cell-ingress/` | `vectis-cell-ingress` | daemon (private cell execution ingress) |
 | `queue/` | `vectis-queue` | daemon (FIFO) |
 | `registry/` | `vectis-registry` | daemon (service discovery) |
 | `log/` | `vectis-log` | daemon (gRPC) |
 | `log-forwarder/` | `vectis-log-forwarder` | daemon (sidecar) |
+| `orchestrator/` | `vectis-orchestrator` | daemon (hot run state and task choreography) |
+| `secrets/` | `vectis-secrets` | daemon (secret resolution broker) |
+| `spiffe/` | `vectis-spiffe` | daemon (reference SPIFFE authority) |
 | `worker/` | `vectis-worker` | daemon (action exec) |
+| `worker-core/` | `vectis-worker-core` | daemon (worker execution core over UDS) |
 | `cron/` | `vectis-cron` | daemon (scheduler) |
+| `scm-gerrit-stream/` | `vectis-scm-gerrit-stream` | daemon (Gerrit stream trigger bridge) |
+| `scm-poller/` | `vectis-scm-poller` | daemon (SCM polling triggers) |
+| `catalog/` | `vectis-catalog` | daemon (cell catalog applier) |
 | `docs/` | `vectis-docs` | daemon (static docs HTTP) |
+| `ui/` | `vectis-ui` | daemon (static UI HTTP + API proxy) |
 | `reconciler/` | `vectis-reconciler` | daemon (recovery) |
 | `local/` | `vectis-local` | daemon (dev supervisor) |
 | `cli/` | `vectis-cli` | one-shot (HTTP client) |
@@ -49,27 +59,39 @@ func main() {
 
 ## Which binaries need the database import
 
-Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-eleven-cmd): `api`, `queue`, `cron`, `reconciler` — these need the `dbdrivers` import. `registry`, `log`, `worker`, `log-forwarder`, `docs`, `local`, `cli` do not.
+Check the `DB?` column in the root [`AGENTS.md`](../AGENTS.md#binaries-twenty-cmd): `api`, `cell-ingress`, `worker`, `secrets`, `cron`, `scm-gerrit-stream`, `scm-poller`, `reconciler`, `catalog`, `local`, and `cli` need the `dbdrivers` import. `artifact`, `queue`, `registry`, `log`, `orchestrator`, `log-forwarder`, `spiffe`, `worker-core`, and `docs` do not.
 
 ## Env prefix mapping
 
 **If this table disagrees with code, code wins:** `rg SetEnvPrefix cmd/`.
 
+Dedicated metrics listeners accept the service bind host plus loopback Host headers by default. Use `VECTIS_METRICS_ALLOWED_HOSTS` or the service-prefixed `VECTIS_<SERVICE>_METRICS_ALLOWED_HOSTS` when publishing metrics outside localhost.
+
 | Binary | `viper.SetEnvPrefix` | Primary TOML / notes |
 |--------|----------------------|----------------------|
-| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
-| `vectis-queue` | `VECTIS_QUEUE` | `[queue]` |
-| `vectis-registry` | `VECTIS_REGISTRY` | `[registry]` |
-| `vectis-log` | `VECTIS_LOG` | `[log]` |
-| `vectis-worker` | `VECTIS_WORKER` | `[worker]` |
-| `vectis-cron` | `VECTIS_CRON` | `[cron]` |
-| `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides |
-| `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]` |
-| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
-| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_HOST` controls local API and docs HTTP bind host |
-| `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go) |
+| `vectis-api` | `VECTIS_API_SERVER` | `[api]` in [`../internal/config/defaults.toml`](../internal/config/defaults.toml); `VECTIS_API_SERVER_HOST` / `--host` controls HTTP bind host; `--tls-cert-file` / `--tls-key-file` enable browser-facing HTTPS; `--cell-ingress-endpoint cell=url` configures remote cell execution ingress routes; LDAP login provider config lives under `api.auth.ldap.*` / `VECTIS_API_AUTH_LDAP_*`; ad hoc `VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS` for trusted proxy headers in [`trusted-proxy-client-ip.md`](../website/docs/operating/deployment/trusted-proxy-client-ip.md) |
+| `vectis-artifact` | `VECTIS_ARTIFACT` | `[artifact]`; default instance ID is `hostname-port`, `--storage-backend` selects `local` or `s3`, default local storage is `artifact/<instance-id>`, S3 provider config lives under `artifact.storage.s3.*` / `VECTIS_ARTIFACT_STORAGE_S3_*`, `--grpc-port` changes the internal upload/read listener, `--metrics-host` controls the localhost-default metrics bind host, `--storage-read-only-min-free-bytes` protects local new blobs under disk pressure, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleArtifact)` |
+| `vectis-cell-ingress` | `VECTIS_CELL_INGRESS` | `[cell_ingress]`; private HTTP `POST /cell/v1/executions` uses internal `VECTIS_GRPC_TLS_*` mTLS when exposed off-loopback, can require producer SPIFFE URI SANs via `VECTIS_SERVICE_IDENTITY_CELL_INGRESS_ALLOWED_PRODUCER_IDENTITIES`, `--allowed-host` / `VECTIS_CELL_INGRESS_ALLOWED_HOSTS` configure accepted Host headers, local execution repair, metrics host/port, plus queue discovery/pinned queue settings |
+| `vectis-queue` | `VECTIS_QUEUE` | `[queue]`; default instance ID is `hostname-port`, default persistence is `queue/<pool>/<instance-id>`; metrics host defaults to localhost; keep active shards unique; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleQueue)` |
+| `vectis-registry` | `VECTIS_REGISTRY` | `[registry]`; HA gossip membership uses `VECTIS_REGISTRY_CLUSTER_*`; gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleRegistry)` |
+| `vectis-log` | `VECTIS_LOG` | `[log]`; default instance ID is `hostname-port`, default storage is `log/<instance-id>`, `--grpc-port` changes the ingest/read listener, `--metrics-host` controls the localhost-default metrics bind host, `--storage-read-only-min-free-bytes` protects new run files under disk pressure, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleLog)` |
+| `vectis-secrets` | `VECTIS_SECRETS` | `[secrets]`; cell-local gRPC service for resolving job secrets, validates active execution claims against the cell DB, `--encryptedfs-root` plus `--encryptedfs-key-file` enable the encryptedfs provider, `--knox-url` plus `--knox-auth-token-file` or `--knox-auth-token` enable the Knox provider, provider config lives under `secrets.providers.<provider>.*`, `--allow-secret` / `VECTIS_SECRETS_POLICY_ALLOW` configure default-deny access policy, metrics host defaults to localhost, and the gRPC listener uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleSecrets)` |
+| `vectis-worker` | `VECTIS_WORKER` | `[worker]`; `--metrics-host` defaults to localhost; `--artifact-max-bytes`, `--artifact-max-run-bytes`, and `--artifact-max-count` cap worker artifact uploads; `--execution-lease-ttl` / `VECTIS_WORKER_EXECUTION_LEASE_TTL` bounds how long an execution claim survives without renewal; `--core-socket` dials required `vectis-worker-core`; `--core-connect-timeout` bounds startup dial/describe; `--core-shell-socket` exposes shell callbacks; `--checkout-cache-warm-interval`, `--checkout-cache-warm-timeout`, and `--checkout-cache-warm-jitter-ratio` tune worker-driven persistent checkout cache warming; `--secrets-address` points at the cell-local secrets service; `VECTIS_WORKER_REGISTER_WITH_REGISTRY` controls discovery registration and `VECTIS_WORKER_CONTROL_PUBLISH_ADDRESS` overrides the worker-control address advertised for remote cancellation; `worker.execution_identity.*` derives expected per-execution SPIFFE IDs for Vectis-owned action state; `worker.spiffe.*` requires an exact SPIFFE Workload API X.509-SVID before action code runs when enabled, and `worker.spiffe.registration.*` can create/renew/release SPIFFE Entry API registrations through a protected local Unix socket; worker-control gRPC uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleWorkerControl)` |
+| `vectis-worker-core` | `VECTIS_WORKER_CORE` | socket-local execution core; `--socket` serves the WorkerCore gRPC API over UDS; `--metrics-host` defaults to localhost and `--metrics-port` exposes checkout action/cache metrics; `--execution-backend host|lima`; `host` is the default, while `lima` registers a VM provider and makes unspecified action isolation inherit `vm`; use `--workspace-root` for VM-visible host workspaces or `--lima-guest-workspace-root` for guest-owned Lima workspaces; `--checkout-cache-root` enables host-side persistent checkout mirrors and advertises worker-driven warming for source repositories with `worker_cache_mode=persistent`; `--checkout-cache-generations-to-keep` tunes per-remote generation retention; `--checkout-cache-lease-ttl` bounds stale generation leases from crashed checkouts; `--checkout-cache-max-bytes` bounds retained pack bytes per remote; `--checkout-cache-warm-parallelism` bounds concurrent remote warming; encryptedfs source credential config resolves `credential_ref` for static persistent cache declarations |
+| `vectis-spiffe` | `VECTIS_SPIFFE` | development/reference SPIFFE authority; serves Workload API and Entry API over Unix sockets, persists a CA and bundle, defaults to trust domain `vectis.internal`, and supports `--init-only` for deployment init containers that need bundle material before daemons start |
+| `vectis-cron` | `VECTIS_CRON` | `[cron]`; `--instance-id` labels schedule claims, `--claim-ttl` bounds claim failover |
+| `vectis-scm-gerrit-stream` | `VECTIS_SCM_GERRIT_STREAM` | `[scm_gerrit_stream]`; `--url` is the Gerrit base URL, `--transport auto|input|ssh` keeps stdin/file fixtures while enabling managed SSH with `--ssh-host`, key/agent auth, strict known-hosts verification, and reconnect backoff; `--instance-id` labels trigger invocations and dispatch events, and `--queue-address` / `--registry-address` pin queue discovery |
+| `vectis-scm-poller` | `VECTIS_SCM_POLLER` | `[scm_poller]`; `--instance-id` labels SCM trigger claims, `--interval` controls due-trigger scans, `--claim-ttl` bounds claim failover, `--queue-address` / `--registry-address` pin queue discovery, and Gerrit provider credentials use `--gerrit-username` plus `--gerrit-password-file` or `--gerrit-password` / `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_*` |
+| `vectis-catalog` | `VECTIS_CATALOG` | `[catalog]`; `--cell-database-dsn cell=dsn` / `VECTIS_CATALOG_CELL_DATABASE_DSNS` configures catalog fan-in from cell-local DBs; metrics host defaults to localhost |
+| `vectis-docs` | `VECTIS_DOCS` | static docs server; default host `localhost`, default port `8088`, serves embedded docs unless `VECTIS_DOCS_DIR` overrides; `--allowed-host` / `VECTIS_DOCS_ALLOWED_HOSTS` configure accepted Host headers; `--tls-cert-file` / `--tls-key-file` enable HTTPS |
+| `vectis-ui` | `VECTIS_UI` | static UI server + browser BFF; default host `localhost`, default port `8089`, serves embedded UI unless `VECTIS_UI_DIR` overrides; can proxy Vite dev assets with `VECTIS_UI_DEV_ASSETS_URL`; manages UI session cookies and proxies `/api/` to `VECTIS_UI_API_URL` |
+| `vectis-reconciler` | `VECTIS_RECONCILER` | `[reconciler]`; `--redispatch-limit` bounds queued-run repair work per pass; metrics host defaults to localhost |
+| `vectis-log-forwarder` | `VECTIS_LOG_FORWARDER` | `[log_forwarder]` for metrics host/port plus flat viper keys — see flags in [`log-forwarder/main.go`](log-forwarder/main.go) |
+| `vectis-orchestrator` | `VECTIS_ORCHESTRATOR` | `[orchestrator]`; owns in-memory run state shards, exposes the task choreography gRPC service used by workers, `--metrics-host` controls the localhost-default metrics bind host, and uses `config.GRPCServerOptionsForRole(config.ServiceIdentityRoleOrchestrator)` |
+| `vectis-local` | `VECTIS_LOCAL` | orchestrates stack; `VECTIS_LOCAL_PROFILE=ha` starts a local multi-instance HA exercise cell, `VECTIS_LOCAL_HOST` controls local API, UI, and docs bind host, `--http-tls` controls local API/docs HTTPS, `init` creates local TLS material, `install-cert` only installs the generated CA, `--cell` / `VECTIS_LOCAL_CELLS` adds extra local execution cells in the simple profile, starts the embedded development-only local `vectis-spiffe` authority when local gRPC TLS is enabled, local API auth defaults on unless `VECTIS_LOCAL_AUTH_ENABLED=false` or `--auth=false`, `VECTIS_LOCAL_UI_DEV_ASSETS_ENABLED=true` starts Vite UI dev assets for `vectis-ui`, exposes `--config-as-code` / `--source-repository` knobs for local config-as-code, and exposes `--ui-*`, `--spiffe-*`, `VECTIS_LOCAL_UI_*`, and `VECTIS_LOCAL_SPIFFE_*` knobs for local UI and secret resolution smoke tests |
+| `vectis-cli` | *(none)* | [`internal/config`](../internal/config/) + `os.Getenv` — see [`../internal/config/api_auth.go`](../internal/config/api_auth.go); operator helpers include `secrets encryptedfs put` for writing encrypted job-secret envelopes |
 
-Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[metrics_tls]`, …).
+Shared TOML sections: [`../internal/config/defaults.toml`](../internal/config/defaults.toml) (`[database]`, `[discovery]`, `[grpc_tls]`, `[service_identity]`, `[metrics_tls]`, …).
 
 ## Common pitfalls
 

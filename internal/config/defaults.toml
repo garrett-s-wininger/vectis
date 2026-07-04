@@ -1,8 +1,12 @@
+[cell]
+id = "local"
+
 [api]
 host = "localhost"
 port = 8080
 log_format = "text"
 log.address = ""
+cell_ingress.endpoints = []
 
 [api.auth]
 enabled = false
@@ -15,6 +19,25 @@ engine = "hierarchical_rbac"
 enabled = true
 durability_overrides = ""
 
+[api.tls]
+cert_file = ""
+key_file = ""
+reload_interval = "0s"
+
+[api.hsts]
+max_age_seconds = 31536000
+include_subdomains = false
+preload = false
+
+[api.session]
+ttl = "168h"
+idle_ttl = "24h"
+cookie_secure = false
+allow_insecure_cookies = false
+
+[api.cache]
+backend = "database"
+
 [api.rate_limit]
 auth_refill_rate = "12s"
 auth_burst_size = 5
@@ -26,13 +49,34 @@ general_burst_size = 150
 [api.client_ip]
 # When empty, client IP for rate limits and audit logs is always the TCP peer (RemoteAddr).
 # When set to one or more CIDRs, a request whose peer address falls in any CIDR may use
-# X-Forwarded-For (left-most valid IP) or X-Real-IP instead. Do not list broad ranges:
-# 0.0.0.0/0 and ::/0 are rejected.
+# X-Forwarded-For (left-most valid IP), X-Real-IP, X-Forwarded-Proto, or
+# Forwarded proto. Do not list broad ranges: 0.0.0.0/0 and ::/0 are rejected.
 trusted_proxy_cidrs = []
+
+[api.host_validation]
+# Browser-facing API Host headers are limited to the listen host and loopback
+# names by default. Configure exact external hosts when serving behind an ingress
+# or binding to 0.0.0.0 for non-local access.
+allowed_hosts = []
+
+[api.cors]
+# Browser cross-origin access is closed by default. Configure exact HTTPS origins
+# for browser frontends; HTTP origins are accepted only for loopback/localhost
+# development. Wildcard credentialed CORS is intentionally unsupported.
+allowed_origins = []
 
 [queue]
 port = 8081
+metrics_host = "localhost"
 metrics_port = 9081
+register_with_registry = true
+advertise_address = ""
+
+[orchestrator]
+port = 8087
+metrics_host = "localhost"
+metrics_port = 9090
+shards = 0
 register_with_registry = true
 advertise_address = ""
 
@@ -51,13 +95,38 @@ peer_dial_timeout = "3s"
 
 [log]
 host = "localhost"
+metrics_host = "localhost"
 metrics_port = 9083
 max_run_buffers = 1024
+storage_read_only_min_free_bytes = 1073741824
 
 [log.grpc]
 port = 8083
 register_with_registry = true
 advertise_address = ""
+
+[artifact]
+storage_backend = "local"
+metrics_host = "localhost"
+metrics_port = 9089
+storage_read_only_min_free_bytes = 1073741824
+
+[artifact.grpc]
+port = 8086
+register_with_registry = true
+advertise_address = ""
+
+[log_forwarder]
+metrics_host = "localhost"
+metrics_port = 9088
+
+[secrets]
+port = 8090
+metrics_host = "localhost"
+metrics_port = 9091
+
+[secrets.policy]
+allow = []
 
 [discovery]
 registry_resolver_refresh = "10s"
@@ -65,14 +134,81 @@ registry_resolver_poll_timeout = "5s"
 registry_resolver_error_refresh = "2s"
 registry_registration_refresh = "45s"
 registry.addresses = []
+orchestrator.address = ""
+
+[dispatch]
+start_ttl = "24h"
+
+[retention.cleanup]
+evidence_manifest = ""
+terminal_run_age = "720h"
+job_definition_age = "720h"
+idempotency_age = "24h"
+audit_age = "8760h"
+artifact_blob_age = "720h"
+backup_max_age = "0s"
+backup_storage_max_age = "0s"
+audit_export_max_age = "0s"
+hold_review_max_age = "0s"
+require_backup_manifest = false
+require_audit_export = false
+require_hold_review = false
+
+[cron]
+claim_ttl = "5m"
+
+[scm_poller]
+interval = "30s"
+claim_ttl = "5m"
+
+[scm_gerrit_stream]
+registry.address = ""
+queue.address = ""
 
 [reconciler]
 interval = "30s"
+lease_ttl = "2m"
+redispatch_limit = 1000
+metrics_host = "localhost"
 metrics_port = 9085
+
+[catalog]
+interval = "1s"
+batch_size = 100
+metrics_host = "localhost"
+metrics_port = 9086
+
+[cell_ingress]
+host = "localhost"
+port = 8085
+metrics_host = "localhost"
+metrics_port = 9087
+repair_interval = "30s"
+registry.address = ""
+queue.address = ""
+
+[service_identity]
+registry_allowed_client_identities = []
+queue_allowed_client_identities = []
+log_allowed_client_identities = []
+artifact_allowed_client_identities = []
+orchestrator_allowed_client_identities = []
+worker_control_allowed_client_identities = []
+secrets_allowed_client_identities = []
+cell_ingress_allowed_producer_identities = []
+
+[action_registry]
+local_roots = []
+allowed_namespaces = []
+allowed_sources = []
+require_digest_pins = false
 
 [database]
 driver = "sqlite3"
 dsn = "{{data_home}}/vectis/db.sqlite3"
+
+[database.pgx]
+plan_cache_mode = ""
 
 [database.pgx_pool]
 max_open_conns = 25
@@ -80,15 +216,80 @@ max_idle_conns = 10
 conn_max_lifetime = "1h"
 conn_max_idle_time = "15m"
 
+[source]
+checkout_root = "{{data_home}}/vectis/source-checkouts"
+sync_configured_repositories_on_startup = false
+sync_configured_repositories_interval = "0s"
+sync_configured_repositories_max_concurrency = 1
+sync_configured_repositories_failure_backoff = "5m"
+sync_running_timeout = "15m"
+repositories = []
+schedules = []
+
 [worker]
+metrics_host = "localhost"
 metrics_port = 9082
 register_with_registry = true
+orchestrator.address = ""
+secrets.address = "localhost:8090"
+artifact_max_bytes = 1073741824
+artifact_max_run_bytes = 10737418240
+artifact_max_count = 1000
+queue.dequeue_poll_base_interval = "250ms"
+queue.dequeue_poll_jitter_ratio = 0.2
+queue.dequeue_poll_max_interval = "1s"
+queue.dequeue_sticky_success_budget = 64
+queue.continuation_inline_job_max_bytes = 65536
+
+[worker.execution]
+backend = "host"
+workspace_root = ""
+lease_ttl = "15m"
+checkout_cache_root = ""
+checkout_cache_generations_to_keep = 2
+checkout_cache_lease_ttl = "1h"
+checkout_cache_max_bytes = 0
+checkout_cache_warm_interval = "5m"
+checkout_cache_warm_timeout = "30m"
+checkout_cache_warm_jitter_ratio = 0.2
+checkout_cache_warm_parallelism = 1
+
+[worker.execution.lima]
+path = "limactl"
+instance = ""
+guest_workspace_root = ""
+start = false
+preserve_env = false
 
 [worker.control]
 mode = "static"
 port = 9084
 port_min = 20000
 port_max = 30000
+publish_address = ""
+
+[worker.execution_identity]
+enabled = false
+trust_domain = ""
+path_template = "/cell/{cell}/namespace/{namespace}/job/{job}/run/{run}/execution/{execution}"
+
+[worker.spiffe]
+enabled = false
+workload_api_address = ""
+fetch_timeout = "5s"
+
+[worker.spiffe.registration]
+enabled = false
+server_address = ""
+parent_id = ""
+selectors = []
+x509_svid_ttl = "0s"
+min_ttl = "0s"
+max_ttl = "0s"
+
+[worker_core]
+metrics_host = "localhost"
+metrics_port = 9092
 
 [grpc_tls]
 insecure = true

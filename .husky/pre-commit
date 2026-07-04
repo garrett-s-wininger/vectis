@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+cd ui
+npm run format:check
+npm run lint
+cd ../website
+npm run format:check
+npm run lint

@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812", # Conflicts with Ruff format.
+    "D203",   # Conflicts with D211.
+    "D213",   # Conflicts with D212.
+    "ISC001", # Conflicts with Ruff format.
+]

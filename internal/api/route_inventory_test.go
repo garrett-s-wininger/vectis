@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"vectis/internal/api/audit"
 	"vectis/internal/api/authz"
 )
 
@@ -19,16 +20,44 @@ func TestAPIRouteInventory(t *testing.T) {
 	}{
 		{"GET /health/live", "public"},
 		{"GET /health/ready", "public"},
-		{"GET /api/v1/version", "public"},
-		{"GET /api/v1/schema/status", "public"},
-		{"GET /api/v1/reconciler/heartbeat", "public"},
-		{"GET /api/v1/audit/drops", "public"},
-		{"GET /api/v1/db/pool-stats", "public"},
-		{"GET /api/v1/queue/backlog", "public"},
-		{"GET /api/v1/reconciler/stuck-runs", "public"},
-		{"GET /api/v1/log/reachable", "public"},
-		{"GET /api/v1/audit/flush-failures", "public"},
-		{"GET /api/v1/cron/status", "public"},
+		{"GET /api/v1/version", string(authz.ActionAdmin)},
+		{"GET /api/v1/schema/status", string(authz.ActionAdmin)},
+		{"GET /api/v1/reconciler/heartbeat", string(authz.ActionAdmin)},
+		{"GET /api/v1/audit/drops", string(authz.ActionAdmin)},
+		{"GET /api/v1/audit/events", string(authz.ActionAdmin)},
+		{"GET /api/v1/db/pool-stats", string(authz.ActionAdmin)},
+		{"GET /api/v1/queue/backlog", string(authz.ActionAdmin)},
+		{"GET /api/v1/reconciler/stuck-runs", string(authz.ActionAdmin)},
+		{"GET /api/v1/log/reachable", string(authz.ActionAdmin)},
+		{"GET /api/v1/audit/flush-failures", string(authz.ActionAdmin)},
+		{"GET /api/v1/cron/status", string(authz.ActionAdmin)},
+		{"GET /api/v1/catalog/status", string(authz.ActionAdmin)},
+		{"GET /api/v1/cells/status", string(authz.ActionAdmin)},
+		{"POST /api/v1/cells/{cell_id}/catalog-events", string(authz.ActionCatalogIngest)},
+		{"GET /api/v1/source/status", "public"},
+		{"GET /api/v1/source-schedules", string(authz.ActionJobRead)},
+		{"PATCH /api/v1/source-schedules/{schedule_id}", string(authz.ActionJobWrite)},
+		{"DELETE /api/v1/source-schedules/{schedule_id}", string(authz.ActionJobWrite)},
+		{"PUT /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
+		{"DELETE /api/v1/source-schedules/{schedule_id}/override", string(authz.ActionJobWrite)},
+		{"GET /api/v1/source-repositories", string(authz.ActionJobRead)},
+		{"POST /api/v1/source-repositories", string(authz.ActionJobWrite)},
+		{"GET /api/v1/source-repositories/{id}", string(authz.ActionJobRead)},
+		{"PUT /api/v1/source-repositories/{id}", string(authz.ActionJobWrite)},
+		{"DELETE /api/v1/source-repositories/{id}", string(authz.ActionJobWrite)},
+		{"POST /api/v1/source-repositories/{id}/sync", string(authz.ActionJobWrite)},
+		{"GET /api/v1/source-repositories/{id}/status", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/schedules", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/refs/branches", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/tree", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/definitions", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/jobs", string(authz.ActionJobRead)},
+		{"POST /api/v1/source-repositories/{id}/definitions/resolve", string(authz.ActionJobRead)},
+		{"GET /api/v1/source-repositories/{id}/jobs/{job_id}/definition", string(authz.ActionJobRead)},
+		{"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition", string(authz.ActionJobWrite)},
+		{"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs", string(authz.ActionRunRead)},
+		{"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs", string(authz.ActionRunRead)},
+		{"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger", string(authz.ActionRunTrigger)},
 		{"GET /api/v1/jobs", string(authz.ActionJobRead)},
 		{"GET /api/v1/jobs/{id}", string(authz.ActionJobRead)},
 		{"POST /api/v1/jobs", string(authz.ActionJobWrite)},
@@ -38,7 +67,16 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"POST /api/v1/jobs/trigger/{id}", string(authz.ActionRunTrigger)},
 		{"GET /api/v1/jobs/{id}/runs", string(authz.ActionRunRead)},
 		{"GET /api/v1/sse/jobs/{id}/runs", string(authz.ActionRunRead)},
+		{"GET /api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs", string(authz.ActionRunRead)},
 		{"GET /api/v1/runs/{id}", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/definition", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/tasks", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/artifacts", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/artifacts/{name}", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/artifacts/{name}/download", string(authz.ActionRunRead)},
+		{"GET /api/v1/runs/{id}/execution-payload", string(authz.ActionRunOperator)},
+		{"POST /api/v1/runs/{id}/replay", string(authz.ActionRunOperator)},
 		{"POST /api/v1/runs/{id}/cancel", string(authz.ActionRunOperator)},
 		{"POST /api/v1/runs/{id}/repair/mark-succeeded", string(authz.ActionRunOperator)},
 		{"POST /api/v1/runs/{id}/repair/mark-failed", string(authz.ActionRunOperator)},
@@ -51,6 +89,7 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/setup/status", string(authz.ActionSetupStatus)},
 		{"POST /api/v1/setup/complete", string(authz.ActionSetupComplete)},
 		{"POST /api/v1/login", "public"},
+		{"POST /api/v1/logout", string(authz.ActionAPI)},
 		{"GET /api/v1/tokens", string(authz.ActionAPI)},
 		{"POST /api/v1/tokens", string(authz.ActionAPI)},
 		{"DELETE /api/v1/tokens/{id}", string(authz.ActionAPI)},
@@ -60,9 +99,13 @@ func TestAPIRouteInventory(t *testing.T) {
 		{"GET /api/v1/users/{id}", string(authz.ActionUserAdmin)},
 		{"PUT /api/v1/users/{id}", string(authz.ActionUserAdmin)},
 		{"DELETE /api/v1/users/{id}", string(authz.ActionUserAdmin)},
+		{"GET /api/v1/users/{id}/external-identities", string(authz.ActionUserAdmin)},
+		{"POST /api/v1/users/{id}/external-identities", string(authz.ActionUserAdmin)},
+		{"DELETE /api/v1/users/{id}/external-identities/{identity_id}", string(authz.ActionUserAdmin)},
 		{"GET /api/v1/namespaces", string(authz.ActionJobRead)},
 		{"POST /api/v1/namespaces", string(authz.ActionAdmin)},
 		{"GET /api/v1/namespaces/{id}", string(authz.ActionJobRead)},
+		{"PUT /api/v1/namespaces/{id}", string(authz.ActionAdmin)},
 		{"DELETE /api/v1/namespaces/{id}", string(authz.ActionAdmin)},
 		{"GET /api/v1/namespaces/{id}/bindings", string(authz.ActionAdmin)},
 		{"POST /api/v1/namespaces/{id}/bindings", string(authz.ActionAdmin)},
@@ -92,7 +135,403 @@ func TestAPIRouteInventory(t *testing.T) {
 		if auth := authLabel(spec.Auth); auth != want[i].auth {
 			t.Fatalf("route[%d] %q auth = %q, want %q", i, spec.Pattern, auth, want[i].auth)
 		}
+
+		if err := spec.Auth.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid auth policy: %v", i, spec.Pattern, err)
+		}
+
+		if err := spec.Cache.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid cache policy: %v", i, spec.Pattern, err)
+		}
+
+		if err := spec.Body.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid body policy: %v", i, spec.Pattern, err)
+		}
+
+		if err := spec.Accept.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid accept policy: %v", i, spec.Pattern, err)
+		}
+
+		if err := spec.Query.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid query policy: %v", i, spec.Pattern, err)
+		}
+
+		if err := spec.Headers.validate(); err != nil {
+			t.Fatalf("route[%d] %q has invalid header policy: %v", i, spec.Pattern, err)
+		}
 	}
+}
+
+func TestAPIRouteInventory_mutationAuditCoverage(t *testing.T) {
+	s := &APIServer{}
+
+	audited := map[string][]string{
+		"POST /api/v1/source-repositories":                              {audit.EventSourceRepositoryCreated},
+		"PUT /api/v1/source-repositories/{id}":                          {audit.EventSourceRepositoryUpdated},
+		"DELETE /api/v1/source-repositories/{id}":                       {audit.EventSourceRepositoryDeleted},
+		"POST /api/v1/source-repositories/{id}/sync":                    {audit.EventSourceRepositorySyncRequested},
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition": {audit.EventJobCreated, audit.EventJobUpdated},
+		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger":   {audit.EventRunTriggered},
+		"PATCH /api/v1/source-schedules/{schedule_id}":                  {audit.EventSourceScheduleUpdated},
+		"DELETE /api/v1/source-schedules/{schedule_id}":                 {audit.EventSourceScheduleDeleted},
+		"PUT /api/v1/source-schedules/{schedule_id}/override":           {audit.EventSourceScheduleOverrideSet},
+		"DELETE /api/v1/source-schedules/{schedule_id}/override":        {audit.EventSourceScheduleOverrideCleared},
+		"POST /api/v1/jobs":                                             {audit.EventJobCreated},
+		"POST /api/v1/jobs/run":                                         {audit.EventRunTriggered},
+		"DELETE /api/v1/jobs/{id}":                                      {audit.EventJobDeleted},
+		"PUT /api/v1/jobs/{id}":                                         {audit.EventJobUpdated},
+		"POST /api/v1/jobs/trigger/{id}":                                {audit.EventRunTriggered},
+		"POST /api/v1/runs/{id}/replay":                                 {audit.EventRunTriggered},
+		"POST /api/v1/runs/{id}/cancel":                                 {audit.EventRunCancelled},
+		"POST /api/v1/runs/{id}/repair/mark-succeeded":                  {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-failed":                     {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-cancelled":                  {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-abandoned":                  {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/repair/mark-queued":                     {audit.EventRunRepairMarked},
+		"POST /api/v1/runs/{id}/force-fail":                             {audit.EventRunForceFailed},
+		"POST /api/v1/runs/{id}/force-requeue":                          {audit.EventRunForceRequeued},
+		"POST /api/v1/setup/complete":                                   {audit.EventSetupCompleted, audit.EventSetupBootstrapFailed},
+		"POST /api/v1/login":                                            {audit.EventAuthSuccess, audit.EventAuthFailure},
+		"POST /api/v1/logout":                                           {audit.EventAuthLogout},
+		"POST /api/v1/tokens":                                           {audit.EventTokenCreated},
+		"DELETE /api/v1/tokens/{id}":                                    {audit.EventTokenDeleted},
+		"POST /api/v1/users/change-password":                            {audit.EventPasswordChanged},
+		"POST /api/v1/users":                                            {audit.EventUserCreated},
+		"PUT /api/v1/users/{id}":                                        {audit.EventUserUpdated},
+		"DELETE /api/v1/users/{id}":                                     {audit.EventUserDeleted},
+		"POST /api/v1/users/{id}/external-identities":                   {audit.EventUserUpdated},
+		"DELETE /api/v1/users/{id}/external-identities/{identity_id}":   {audit.EventUserUpdated},
+		"POST /api/v1/namespaces":                                       {audit.EventNamespaceCreated},
+		"PUT /api/v1/namespaces/{id}":                                   {audit.EventNamespaceUpdated},
+		"DELETE /api/v1/namespaces/{id}":                                {audit.EventNamespaceDeleted},
+		"POST /api/v1/namespaces/{id}/bindings":                         {audit.EventBindingCreated},
+		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}":             {audit.EventBindingDeleted},
+	}
+
+	explicitlyUnaudited := map[string]string{
+		"POST /api/v1/cells/{cell_id}/catalog-events":               "catalog fan-in writes durable cell_catalog_events records instead of audit_log rows",
+		"POST /api/v1/source-repositories/{id}/definitions/resolve": "definition resolution is a read-style preview operation that uses POST for request-body size",
+	}
+
+	registered := map[string]bool{}
+	for _, eventType := range audit.RegisteredEventTypes() {
+		registered[eventType] = true
+	}
+
+	seenAudited := make(map[string]bool, len(audited))
+	seenUnaudited := make(map[string]bool, len(explicitlyUnaudited))
+	for _, spec := range s.routeSpecs(false) {
+		method, _, ok := strings.Cut(spec.Pattern, " ")
+		if !ok {
+			t.Fatalf("route pattern %q does not contain method and path", spec.Pattern)
+		}
+
+		if method == http.MethodGet {
+			continue
+		}
+
+		if eventTypes, ok := audited[spec.Pattern]; ok {
+			if len(eventTypes) == 0 {
+				t.Fatalf("route %q has empty audit coverage", spec.Pattern)
+			}
+
+			for _, eventType := range eventTypes {
+				if !registered[eventType] {
+					t.Fatalf("route %q expects unregistered audit event %q", spec.Pattern, eventType)
+				}
+			}
+
+			seenAudited[spec.Pattern] = true
+			continue
+		}
+
+		if reason, ok := explicitlyUnaudited[spec.Pattern]; ok {
+			if strings.TrimSpace(reason) == "" {
+				t.Fatalf("route %q has an empty unaudited rationale", spec.Pattern)
+			}
+
+			seenUnaudited[spec.Pattern] = true
+			continue
+		}
+
+		t.Fatalf("mutation route %q lacks audit coverage or explicit unaudited rationale", spec.Pattern)
+	}
+
+	for pattern := range audited {
+		if !seenAudited[pattern] {
+			t.Fatalf("audit coverage references missing route %q", pattern)
+		}
+	}
+
+	for pattern := range explicitlyUnaudited {
+		if !seenUnaudited[pattern] {
+			t.Fatalf("unaudited route rationale references missing route %q", pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_bodyPolicies(t *testing.T) {
+	s := &APIServer{}
+	want := map[string]routeBodyPolicy{
+		"PATCH /api/v1/source-schedules/{schedule_id}":                  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/source-schedules/{schedule_id}/override":           routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/source-repositories":                              routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/source-repositories/{id}":                          routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/source-repositories/{id}/definitions/resolve":     routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/source-repositories/{id}/jobs/{job_id}/definition": routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger":   routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/cells/{cell_id}/catalog-events":                   routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/jobs":                            routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/jobs/run":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"PUT /api/v1/jobs/{id}":                        routeBodyJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/jobs/trigger/{id}":               routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/runs/{id}/replay":                routeBodyOptionalJSONPolicy(maxJobDefinitionBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-succeeded": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-failed":    routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-cancelled": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-abandoned": routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/repair/mark-queued":    routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/runs/{id}/force-fail":            routeBodyOptionalJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/setup/complete":                  routeBodyJSONPolicy(maxSetupCompleteBodyBytes),
+		"POST /api/v1/login":                           routeBodyJSONPolicy(maxLoginBodyBytes),
+		"POST /api/v1/tokens":                          routeBodyJSONPolicy(maxTokenBodyBytes),
+		"POST /api/v1/users/change-password":           routeBodyJSONPolicy(maxChangePasswordBodyBytes),
+		"POST /api/v1/users":                           routeBodyJSONPolicy(maxUserBodyBytes),
+		"PUT /api/v1/users/{id}":                       routeBodyJSONPolicy(maxUserBodyBytes),
+		"POST /api/v1/users/{id}/external-identities":  routeBodyJSONPolicy(maxUserBodyBytes),
+		"POST /api/v1/namespaces":                      routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"PUT /api/v1/namespaces/{id}":                  routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+		"POST /api/v1/namespaces/{id}/bindings":        routeBodyJSONPolicy(maxJSONDocumentBodyBytes),
+	}
+
+	seen := make(map[string]bool, len(want))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Body.validate(); err != nil {
+			t.Fatalf("route %q has invalid body policy: %v", spec.Pattern, err)
+		}
+
+		wantPolicy, ok := want[spec.Pattern]
+		if !ok {
+			if spec.Body.allowsBody() {
+				t.Fatalf("route %q allows a request body without an inventory expectation", spec.Pattern)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if spec.Body != wantPolicy {
+			t.Fatalf("route %q body policy = %+v, want %+v", spec.Pattern, spec.Body, wantPolicy)
+		}
+	}
+
+	for pattern := range want {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include body policy for %q", pattern)
+		}
+	}
+}
+
+func TestProtectedRoutesDefaultNoStorePolicy(t *testing.T) {
+	s := &APIServer{}
+	handlerManaged := map[string]bool{
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": true,
+		"GET /api/v1/sse/jobs/{id}/runs":                                        true,
+		"GET /api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs":           true,
+		"GET /api/v1/runs/{id}/logs":                                            true,
+	}
+	explicitNoStore := map[string]bool{
+		"GET /api/v1/setup/status":    true,
+		"POST /api/v1/setup/complete": true,
+		"POST /api/v1/login":          true,
+	}
+
+	for _, spec := range s.routeSpecs(true) {
+		if explicitNoStore[spec.Pattern] {
+			if spec.Cache.mode != routeCacheNoStore {
+				t.Fatalf("sensitive route %q cache mode = %d, want no-store", spec.Pattern, spec.Cache.mode)
+			}
+
+			if !spec.Cache.shouldSetNoStore(spec.Auth) {
+				t.Fatalf("sensitive route %q should set no-store", spec.Pattern)
+			}
+
+			continue
+		}
+
+		if spec.Auth.isPublic() {
+			if spec.Cache.shouldSetNoStore(spec.Auth) {
+				t.Fatalf("public route %q should not default to no-store", spec.Pattern)
+			}
+
+			continue
+		}
+
+		if handlerManaged[spec.Pattern] {
+			if spec.Cache.mode != routeCacheHandlerManaged {
+				t.Fatalf("streaming route %q cache mode = %d, want handler-managed", spec.Pattern, spec.Cache.mode)
+			}
+
+			if spec.Cache.shouldSetNoStore(spec.Auth) {
+				t.Fatalf("streaming route %q should manage cache headers in handler", spec.Pattern)
+			}
+
+			continue
+		}
+
+		if !spec.Cache.shouldSetNoStore(spec.Auth) {
+			t.Fatalf("protected route %q should default to no-store", spec.Pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_acceptPolicies(t *testing.T) {
+	s := &APIServer{MetricsHandler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
+	want := map[string]routeAcceptPolicy{
+		"GET /health/live":  routeAcceptAnyPolicy(),
+		"GET /health/ready": routeAcceptAnyPolicy(),
+		"GET /metrics":      routeAcceptMetricsPolicy(),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": routeAcceptSSEPolicy(),
+		"GET /api/v1/sse/jobs/{id}/runs":                                        routeAcceptSSEPolicy(),
+		"GET /api/v1/sse/source-repositories/{id}/jobs/{job_id}/runs":           routeAcceptSSEPolicy(),
+		"GET /api/v1/runs/{id}/artifacts/{name}/download":                       routeAcceptAnyPolicy(),
+		"GET /api/v1/runs/{id}/logs":                                            routeAcceptSSEPolicy(),
+	}
+
+	seen := make(map[string]bool, len(want))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Accept.validate(); err != nil {
+			t.Fatalf("route %q has invalid accept policy: %v", spec.Pattern, err)
+		}
+
+		wantPolicy, ok := want[spec.Pattern]
+		if !ok {
+			if spec.Accept.mode != routeAcceptJSON {
+				t.Fatalf("route %q accept policy = %+v, want default JSON", spec.Pattern, spec.Accept)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if spec.Accept != wantPolicy {
+			t.Fatalf("route %q accept policy = %+v, want %+v", spec.Pattern, spec.Accept, wantPolicy)
+		}
+	}
+
+	for pattern := range want {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include accept policy for %q", pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_queryPolicies(t *testing.T) {
+	s := &APIServer{}
+	want := map[string]routeQueryPolicy{
+		"GET /api/v1/audit/events":                                              routeQueryParams("actor_id", "correlation_id", "cursor", "event_type", "limit", "since", "target_id", "until"),
+		"GET /api/v1/source-schedules":                                          routeQueryParams("namespace"),
+		"GET /api/v1/source-repositories":                                       routeQueryParams("namespace"),
+		"GET /api/v1/source-repositories/{id}/refs/branches":                    routeQueryParams("limit", "prefix"),
+		"GET /api/v1/source-repositories/{id}/tree":                             routeQueryParams("cursor", "limit", "path", "recursive", "ref"),
+		"GET /api/v1/source-repositories/{id}/definitions":                      routeQueryParams("cursor", "limit", "path", "ref"),
+		"GET /api/v1/source-repositories/{id}/jobs":                             routeQueryParams("cursor", "limit", "path", "ref"),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/definition":         routeQueryParams("path", "ref"),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs":               routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "since"),
+		"GET /api/v1/source-repositories/{id}/jobs/{job_id}/runs/{run_id}/logs": routeQueryParams("replay_limit", "since_sequence", "tail"),
+		"GET /api/v1/jobs":                                                      routeQueryParams("cursor", "limit", "path", "ref", "repository_id"),
+		"GET /api/v1/jobs/{id}":                                                 routeQueryParams("path", "ref", "repository_id"),
+		"GET /api/v1/jobs/{id}/runs":                                            routeQueryParams("after_index", "cell_id", "cursor", "limit", "owning_cell", "repository_id", "since"),
+		"GET /api/v1/sse/jobs/{id}/runs":                                        routeQueryParams("repository_id"),
+		"DELETE /api/v1/jobs/{id}":                                              routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
+		"PUT /api/v1/jobs/{id}":                                                 routeQueryParams("branch", "expected_head", "message", "path", "ref", "repository_id"),
+		"GET /api/v1/runs":                                                      routeQueryParams("cursor", "limit"),
+		"GET /api/v1/runs/{id}/tasks":                                           routeQueryParams("cursor", "limit"),
+		"GET /api/v1/runs/{id}/artifacts":                                       routeQueryParams("cursor", "execution_id", "limit", "task_attempt_id", "task_id"),
+		"GET /api/v1/runs/{id}/logs":                                            routeQueryParams("replay_limit", "since_sequence", "tail"),
+		"GET /api/v1/tokens":                                                    routeQueryParams("user_id"),
+		"DELETE /api/v1/namespaces/{id}/bindings/{user_id}":                     routeQueryParams("role"),
+	}
+
+	seen := make(map[string]bool, len(want))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Query.validate(); err != nil {
+			t.Fatalf("route %q has invalid query policy: %v", spec.Pattern, err)
+		}
+
+		wantPolicy, ok := want[spec.Pattern]
+		if !ok {
+			if len(spec.Query.allowed) != 0 {
+				t.Fatalf("route %q query policy = %+v, want no query parameters", spec.Pattern, spec.Query)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if !spec.Query.sameAllowed(wantPolicy) {
+			t.Fatalf("route %q query policy = %+v, want %+v", spec.Pattern, spec.Query, wantPolicy)
+		}
+	}
+
+	for pattern := range want {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include query policy for %q", pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_headerPolicies(t *testing.T) {
+	s := &APIServer{}
+	wantIdempotency := map[string]bool{
+		"POST /api/v1/source-repositories/{id}/jobs/{job_id}/trigger": true,
+		"POST /api/v1/jobs/run":          true,
+		"POST /api/v1/jobs/trigger/{id}": true,
+		"POST /api/v1/runs/{id}/replay":  true,
+	}
+
+	seen := make(map[string]bool, len(wantIdempotency))
+	for _, spec := range s.routeSpecs(true) {
+		if err := spec.Headers.validate(); err != nil {
+			t.Fatalf("route %q has invalid header policy: %v", spec.Pattern, err)
+		}
+
+		if !wantIdempotency[spec.Pattern] {
+			if spec.Headers.allowIdempotencyKey {
+				t.Fatalf("route %q accepts Idempotency-Key without an inventory expectation", spec.Pattern)
+			}
+
+			continue
+		}
+
+		seen[spec.Pattern] = true
+		if !spec.Headers.allowIdempotencyKey {
+			t.Fatalf("route %q should accept Idempotency-Key", spec.Pattern)
+		}
+	}
+
+	for pattern := range wantIdempotency {
+		if !seen[pattern] {
+			t.Fatalf("route inventory did not include header policy for %q", pattern)
+		}
+	}
+}
+
+func TestAPIRouteInventory_metricsRequiresAdmin(t *testing.T) {
+	s := &APIServer{MetricsHandler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
+	for _, spec := range s.routeSpecs(true) {
+		if spec.Pattern != "GET /metrics" {
+			continue
+		}
+
+		if auth := authLabel(spec.Auth); auth != string(authz.ActionAdmin) {
+			t.Fatalf("/metrics auth = %q, want %q", auth, authz.ActionAdmin)
+		}
+
+		return
+	}
+
+	t.Fatal("route inventory did not include /metrics")
 }
 
 func TestAPIReferenceListsRegisteredRoutes(t *testing.T) {
@@ -118,7 +557,7 @@ func TestAPIReferenceListsRegisteredRoutes(t *testing.T) {
 
 func authLabel(policy routeAuthPolicy) string {
 	policy = policy.normalized()
-	if policy.Public {
+	if policy.isPublic() {
 		return "public"
 	}
 

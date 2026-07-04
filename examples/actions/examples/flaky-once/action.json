@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "examples/flaky-once",
+  "display_name": "Flaky Once",
+  "version": "v1",
+  "runtime": "process",
+  "runtime_config": {
+    "command": "sh ./run.sh"
+  },
+  "input_schema": {
+    "fields": [
+      {
+        "name": "succeed_on",
+        "type": "number"
+      }
+    ]
+  },
+  "capabilities": [
+    "process_launch",
+    "workspace_read",
+    "workspace_write"
+  ]
+}

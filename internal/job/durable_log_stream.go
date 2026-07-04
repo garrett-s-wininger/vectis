@@ -3,7 +3,6 @@ package job
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +15,9 @@ import (
 	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
 	"vectis/internal/interfaces"
+	"vectis/internal/logrecord"
 
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -24,7 +25,7 @@ var (
 	logFlushTimeout = 30 * time.Second
 	logRetryBase    = 150 * time.Millisecond
 	logRetryMax     = 2 * time.Second
-	logInitialProbe = 200 * time.Millisecond
+	logInitialProbe = 0 * time.Millisecond
 	logSpoolDir     = ""
 	logTuneMu       sync.RWMutex
 )
@@ -74,7 +75,7 @@ func LogInitialProbeForTest() time.Duration {
 	return logInitialProbe
 }
 func SetLogInitialProbeForTest(d time.Duration) {
-	if d > 0 {
+	if d >= 0 {
 		logTuneMu.Lock()
 		logInitialProbe = d
 		logTuneMu.Unlock()
@@ -90,6 +91,7 @@ func SetLogSpoolDirForTest(dir string) {
 type durableLogStream struct {
 	logger    interfaces.Logger
 	logClient interfaces.LogClient
+	runID     string
 
 	mu           sync.Mutex
 	cond         *sync.Cond
@@ -114,14 +116,14 @@ func sanitizeRunIDForSpool(id string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "-"), string(filepath.Separator), "-")
 }
 
-func newDurableLogStream(logClient interfaces.LogClient, logger interfaces.Logger, runID string) (*durableLogStream, error) {
+func newDurableLogStream(ctx context.Context, logClient interfaces.LogClient, logger interfaces.Logger, runID string) (*durableLogStream, error) {
 	if logClient == nil {
 		return nil, fmt.Errorf("log client is required")
 	}
 
 	baseDir := spoolBaseDir()
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create log spool dir: %w", err)
+	if err := ensureLogSpoolDir(baseDir); err != nil {
+		return nil, fmt.Errorf("secure log spool dir: %w", err)
 	}
 
 	prefix := sanitizeRunIDForSpool(runID)
@@ -138,17 +140,18 @@ func newDurableLogStream(logClient interfaces.LogClient, logger interfaces.Logge
 	d := &durableLogStream{
 		logger:       logger,
 		logClient:    logClient,
+		runID:        runID,
 		spool:        spool,
 		spoolPath:    spool.Name(),
 		maxSpoolSize: maxSize,
 		done:         make(chan struct{}),
 	}
 
-	d.streamCtx, d.streamCancel = context.WithCancel(context.Background())
+	d.streamCtx, d.streamCancel = context.WithCancel(context.WithoutCancel(ctx))
 	d.cond = sync.NewCond(&d.mu)
 
 	go d.senderLoop()
-	d.probeInitialConnectivity()
+	d.probeInitialConnectivity(ctx)
 	return d, nil
 }
 
@@ -162,7 +165,10 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 		return fmt.Errorf("marshal log chunk: %w", err)
 	}
 
-	line := base64.RawStdEncoding.EncodeToString(payload) + "\n"
+	record, err := logrecord.Append(nil, payload)
+	if err != nil {
+		return fmt.Errorf("frame log chunk: %w", err)
+	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -171,7 +177,7 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 		return fmt.Errorf("log stream already closed")
 	}
 
-	if d.writeOffset+int64(len(line)) > d.maxSpoolSize {
+	if d.writeOffset+int64(len(record)) > d.maxSpoolSize {
 		if d.logger != nil {
 			d.logger.Warn("Log spool full for run; dropping log chunk (max %d bytes)", d.maxSpoolSize)
 		}
@@ -179,9 +185,13 @@ func (d *durableLogStream) Send(chunk *api.LogChunk) error {
 		return nil
 	}
 
-	n, err := d.spool.WriteString(line)
+	n, err := d.spool.Write(record)
 	if err != nil {
 		return fmt.Errorf("write spool chunk: %w", err)
+	}
+
+	if n != len(record) {
+		return io.ErrShortWrite
 	}
 
 	d.writeOffset += int64(n)
@@ -262,12 +272,12 @@ func (d *durableLogStream) senderLoop() {
 
 		return
 	}
-	defer readFile.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(readFile)
 
 	reader := bufio.NewReader(readFile)
 	var readOffset int64
 	retryAttempt := 0
-	pending := ""
+	maxRecordPayload := maxSpoolRecordPayload(d.maxSpoolSize)
 
 	for {
 		d.mu.Lock()
@@ -280,7 +290,7 @@ func (d *durableLogStream) senderLoop() {
 		deadlineExceeded := d.closed && time.Since(d.closeTime) > flushTimeout
 		d.mu.Unlock()
 
-		if shouldExit && pending == "" {
+		if shouldExit {
 			if err := d.finalizeCurrentStream(); err != nil {
 				d.setSenderErr(fmt.Errorf("finalize log stream: %w", err))
 			}
@@ -289,66 +299,34 @@ func (d *durableLogStream) senderLoop() {
 		}
 
 		if deadlineExceeded {
-			if pending != "" {
-				if d.logger != nil {
-					d.logger.Warn("Log flush deadline exceeded with unsent chunks; giving up after %s", flushTimeout)
-				}
+			if d.logger != nil {
+				d.logger.Warn("Log flush deadline exceeded with unsent chunks; giving up after %s", flushTimeout)
 			}
 
 			d.setSenderErr(fmt.Errorf("log flush deadline exceeded after %s", flushTimeout))
 			return
 		}
 
-		if shouldExit && pending != "" {
-			chunk, err := decodeSpoolLine(pending)
-			pending = ""
-			if err != nil {
-				d.setSenderErr(fmt.Errorf("decode trailing spool line: %w", err))
-				if d.logger != nil {
-					d.logger.Warn("Skipping invalid trailing spool line: %v", err)
-				}
-
-				continue
-			}
-
-			if err := d.sendWithRetry(chunk, &retryAttempt); err != nil {
-				d.setSenderErr(err)
-				return
-			}
-
-			continue
-		}
-
-		line, err := reader.ReadString('\n')
+		payload, n, err := logrecord.ReadWithMax(reader, maxRecordPayload)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				if line != "" {
-					pending += line
-					readOffset += int64(len(line))
-				}
-
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				time.Sleep(20 * time.Millisecond)
 				continue
 			}
 
+			d.setSenderErr(fmt.Errorf("read spool record: %w", err))
 			if d.logger != nil {
 				d.logger.Warn("Spool read error: %v", err)
 			}
 
-			time.Sleep(20 * time.Millisecond)
-			continue
+			return
 		}
 
-		readOffset += int64(len(line))
-		if pending != "" {
-			line = pending + line
-			pending = ""
-		}
-
-		chunk, err := decodeSpoolLine(line)
+		readOffset += int64(n)
+		chunk, err := decodeSpoolRecord(payload)
 		if err != nil {
 			if d.logger != nil {
-				d.logger.Warn("Skipping invalid spool line: %v", err)
+				d.logger.Warn("Skipping invalid spool record: %v", err)
 			}
 
 			continue
@@ -413,7 +391,7 @@ func (d *durableLogStream) ensureStream() (interfaces.LogStream, error) {
 		return nil, fmt.Errorf("log flush deadline exceeded after %s", flushTimeout)
 	}
 
-	stream, err := d.logClient.StreamLogs(d.streamCtx)
+	stream, err := d.openLogStream(d.streamCtx)
 	if err != nil {
 		d.noteAggregatorUnavailable(err)
 		return nil, err
@@ -434,22 +412,31 @@ func (d *durableLogStream) ensureStream() (interfaces.LogStream, error) {
 	return d.stream, nil
 }
 
-func (d *durableLogStream) probeInitialConnectivity() {
+func (d *durableLogStream) probeInitialConnectivity(ctx context.Context) {
 	probeTimeout := LogInitialProbeForTest()
 	if probeTimeout <= 0 {
 		return
 	}
 
-	probeCtx, cancel := context.WithTimeout(d.streamCtx, probeTimeout)
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), probeTimeout)
 	defer cancel()
 
-	stream, err := d.logClient.StreamLogs(probeCtx)
+	stream, err := d.openLogStream(probeCtx)
 	if err != nil {
 		d.noteAggregatorUnavailable(err)
 		return
 	}
 
 	_ = stream.CloseSend()
+}
+
+func (d *durableLogStream) openLogStream(ctx context.Context) (interfaces.LogStream, error) {
+	ctx = metadata.AppendToOutgoingContext(ctx, interfaces.LogSyntheticCompletionMetadata, "true")
+	if scoped, ok := d.logClient.(interfaces.RunLogClient); ok {
+		return scoped.StreamLogsForRun(ctx, d.runID)
+	}
+
+	return d.logClient.StreamLogs(ctx)
 }
 
 func (d *durableLogStream) closeCurrentStream() error {
@@ -534,6 +521,15 @@ func defaultMaxSpoolBytes() int64 {
 	return 10 * 1024 * 1024 // 10 MB
 }
 
+func maxSpoolRecordPayload(maxSpoolSize int64) int {
+	maxInt := int64(int(^uint(0) >> 1))
+	if maxSpoolSize <= 0 || maxSpoolSize > maxInt {
+		return int(maxInt)
+	}
+
+	return int(maxSpoolSize)
+}
+
 func spoolBaseDir() string {
 	logTuneMu.RLock()
 	dir := logSpoolDir
@@ -549,14 +545,44 @@ func spoolBaseDir() string {
 	return filepath.Join(os.TempDir(), "vectis-log-spool")
 }
 
+func ensureLogSpoolDir(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("log spool directory is required")
+	}
+
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat directory: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("directory must not be a symlink: %s", path)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+
+	if err := os.Chmod(path, 0o700); err != nil {
+		return fmt.Errorf("chmod directory: %w", err)
+	}
+
+	return nil
+}
+
 func pendingSpoolDir() string {
 	return filepath.Join(spoolBaseDir(), "pending")
 }
 
 func (d *durableLogStream) moveSpoolToPending() error {
 	dir := pendingSpoolDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create pending dir: %w", err)
+	if err := ensureLogSpoolDir(dir); err != nil {
+		return fmt.Errorf("secure pending dir: %w", err)
 	}
 
 	name := filepath.Base(d.spoolPath)
@@ -571,17 +597,7 @@ func (d *durableLogStream) moveSpoolToPending() error {
 	return nil
 }
 
-func decodeSpoolLine(line string) (*api.LogChunk, error) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil, fmt.Errorf("empty line")
-	}
-
-	payload, err := base64.RawStdEncoding.DecodeString(line)
-	if err != nil {
-		return nil, fmt.Errorf("decode base64: %w", err)
-	}
-
+func decodeSpoolRecord(payload []byte) (*api.LogChunk, error) {
 	var chunk api.LogChunk
 	if err := proto.Unmarshal(payload, &chunk); err != nil {
 		return nil, fmt.Errorf("unmarshal chunk: %w", err)

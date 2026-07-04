@@ -120,14 +120,23 @@ func TestPostgres_CronClaimAndDispatchSmoke(t *testing.T) {
 	clock.SetNow(now)
 
 	jobID := "pg-cron-job"
-	definition := `{"id":"pg-cron-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo pg"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	definition := `{"id":"pg-cron-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo pg"}}}`
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO job_cron_schedules (job_id, cron_spec, next_run_at) VALUES ($1, $2, $3)`,
+	var triggerID int64
+	if err := db.QueryRowContext(ctx,
+		`INSERT INTO job_triggers (job_id, trigger_type) VALUES ($1, $2) RETURNING id`,
 		jobID,
+		"cron",
+	).Scan(&triggerID); err != nil {
+		t.Fatalf("insert trigger: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES ($1, $2, $3)`,
+		triggerID,
 		"* * * * *",
 		now.Add(-time.Minute).Format(time.RFC3339),
 	); err != nil {
@@ -177,8 +186,8 @@ func TestPostgres_ReconcilerRedispatchSmoke(t *testing.T) {
 
 	ctx := context.Background()
 	jobID := "pg-reconciler-job"
-	definition := `{"id":"pg-reconciler-job","root":{"id":"root","uses":"builtins/shell","with":{"command":"echo pg"}}}`
-	if err := repos.Jobs().Create(ctx, jobID, definition, 1); err != nil {
+	definition := `{"id":"pg-reconciler-job","root":{"id":"root","uses":"builtins/script","with":{"script":"echo pg"}}}`
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, definition); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 

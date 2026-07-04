@@ -150,7 +150,7 @@ func TestDurableLogStream_FlushesAllChunksOnClose(t *testing.T) {
 	logClient := mocks.NewMockLogClient()
 	logger := mocks.NewMockLogger()
 
-	d, err := newDurableLogStream(logClient, logger, "run-test")
+	d, err := newDurableLogStream(context.Background(), logClient, logger, "run-test")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestDurableLogStream_FlushesAllChunksWithConcurrentSenders(t *testing.T) {
 	logClient := mocks.NewMockLogClient()
 	logger := mocks.NewMockLogger()
 
-	d, err := newDurableLogStream(logClient, logger, "run-test-concurrent")
+	d, err := newDurableLogStream(context.Background(), logClient, logger, "run-test-concurrent")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestDurableLogStream_NoSpuriousLossAcrossRapidClose(t *testing.T) {
 		logClient := mocks.NewMockLogClient()
 		logger := mocks.NewMockLogger()
 
-		d, err := newDurableLogStream(logClient, logger, fmt.Sprintf("run-%d", iter))
+		d, err := newDurableLogStream(context.Background(), logClient, logger, fmt.Sprintf("run-%d", iter))
 		if err != nil {
 			t.Fatalf("iter %d new durable stream: %v", iter, err)
 		}
@@ -261,7 +261,7 @@ func TestDurableLogStream_CloseSendReturnsFinalizeError(t *testing.T) {
 	logger := mocks.NewMockLogger()
 	client := &finalizeErrLogClient{finalizeErr: errors.New("server did not ack stream")}
 
-	d, err := newDurableLogStream(client, logger, "run-finalize-fail")
+	d, err := newDurableLogStream(context.Background(), client, logger, "run-finalize-fail")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestDurableLogStream_LogsOutageAndRecoveryOnce(t *testing.T) {
 		openFailures: 3,
 	}
 
-	d, err := newDurableLogStream(client, logger, "run-reconnect-logging")
+	d, err := newDurableLogStream(context.Background(), client, logger, "run-reconnect-logging")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}
@@ -358,19 +358,22 @@ func TestDurableLogStream_WarnsWhenWaitingForRecoveryDuringClose(t *testing.T) {
 	origRetryBase := LogRetryBaseForTest()
 	origRetryMax := LogRetryMaxForTest()
 	origFlushTimeout := LogFlushTimeoutForTest()
+	origInitialProbe := LogInitialProbeForTest()
 	SetLogRetryBaseForTest(1 * time.Millisecond)
 	SetLogRetryMaxForTest(5 * time.Millisecond)
 	SetLogFlushTimeoutForTest(80 * time.Millisecond)
+	SetLogInitialProbeForTest(20 * time.Millisecond)
 	t.Cleanup(func() {
 		SetLogRetryBaseForTest(origRetryBase)
 		SetLogRetryMaxForTest(origRetryMax)
 		SetLogFlushTimeoutForTest(origFlushTimeout)
+		SetLogInitialProbeForTest(origInitialProbe)
 	})
 
 	logger := mocks.NewMockLogger()
 	client := &flakyConnectLogClient{alwaysFail: true}
 
-	d, err := newDurableLogStream(client, logger, "run-timeout-warning")
+	d, err := newDurableLogStream(context.Background(), client, logger, "run-timeout-warning")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}
@@ -423,7 +426,7 @@ func TestDurableLogStream_BlockingConnectEmitsOutageAndWaitWarnings(t *testing.T
 	logger := mocks.NewMockLogger()
 	client := blockingConnectLogClient{}
 
-	d, err := newDurableLogStream(client, logger, "run-blocking-connect")
+	d, err := newDurableLogStream(context.Background(), client, logger, "run-blocking-connect")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}
@@ -474,7 +477,7 @@ func TestDurableLogStream_DoesNotFlapWhenHealthyStreamEstablished(t *testing.T) 
 	logger := mocks.NewMockLogger()
 	client := &contextBoundLogClient{}
 
-	d, err := newDurableLogStream(client, logger, "run-no-flap")
+	d, err := newDurableLogStream(context.Background(), client, logger, "run-no-flap")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}
@@ -515,7 +518,7 @@ func TestDurableLogStream_InitialProbeWarnsBeforeSend(t *testing.T) {
 	logger := mocks.NewMockLogger()
 	client := blockingConnectLogClient{}
 
-	d, err := newDurableLogStream(client, logger, "run-initial-probe-warn")
+	d, err := newDurableLogStream(context.Background(), client, logger, "run-initial-probe-warn")
 	if err != nil {
 		t.Fatalf("new durable stream: %v", err)
 	}

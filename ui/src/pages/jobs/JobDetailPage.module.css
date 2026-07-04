@@ -1,0 +1,95 @@
+.detailPage {
+  display: grid;
+  gap: var(--space-xl);
+  width: min(var(--layout-panel-max), 100%);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+}
+
+.commandPanel {
+  align-content: space-between;
+}
+
+.summaryGrid {
+  align-items: stretch;
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.panelHeader {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.panelHeader h3 {
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-compact);
+  margin: 0;
+}
+
+.panelHeader p {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+  margin: 0;
+}
+
+.commandStack {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.executionSummary {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.healthSummary {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.latestRun {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.latestRun span {
+  color: var(--text-subtle);
+  font-size: var(--font-size-sm);
+}
+
+.definitionHeader {
+  align-items: start;
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (max-width: 900px) {
+  .summaryGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .detailPage {
+    gap: var(--space-lg);
+  }
+
+  .definitionHeader {
+    grid-template-columns: 1fr;
+  }
+}

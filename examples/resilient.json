@@ -1,0 +1,57 @@
+{
+  "id": "resilient-job",
+  "root": {
+    "id": "with-cleanup",
+    "uses": "builtins/finally",
+    "ports": {
+      "body": {
+        "nodes": [
+          {
+            "id": "retry-build",
+            "uses": "builtins/retry",
+            "with": {
+              "attempts": "3"
+            },
+            "ports": {
+              "body": {
+                "nodes": [
+                  {
+                    "id": "timed-build",
+                    "uses": "builtins/timeout",
+                    "with": {
+                      "duration": "5m"
+                    },
+                    "ports": {
+                      "body": {
+                        "nodes": [
+                          {
+                            "id": "build",
+                            "uses": "builtins/script",
+                            "with": {
+                              "script": "mage build"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "always": {
+        "nodes": [
+          {
+            "id": "cleanup",
+            "uses": "builtins/script",
+            "with": {
+              "script": "mage clean"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

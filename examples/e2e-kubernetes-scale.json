@@ -1,0 +1,57 @@
+{
+  "id": "e2e-kubernetes-scale-smoke",
+  "root": {
+    "id": "root-control",
+    "uses": "builtins/sequence",
+    "with": {
+      "execution": "local"
+    },
+    "ports": {
+      "steps": {
+        "nodes": [
+          {
+            "id": "setup-control",
+            "uses": "builtins/script",
+            "with": {
+              "script": "printf 'scale-control-started\\n'"
+            }
+          },
+          {
+            "id": "fanout-control",
+            "uses": "builtins/parallel",
+            "with": {
+              "execution": "distributed"
+            },
+            "ports": {
+              "branches": {
+                "nodes": [
+                  {
+                    "id": "scale-branch-a",
+                    "uses": "builtins/script",
+                    "with": {
+                      "script": "printf 'scale-branch-a-started\\n'; sleep 25; printf 'scale-branch-a-finished\\n'"
+                    }
+                  },
+                  {
+                    "id": "scale-branch-b",
+                    "uses": "builtins/script",
+                    "with": {
+                      "script": "printf 'scale-branch-b-started\\n'; sleep 25; printf 'scale-branch-b-finished\\n'"
+                    }
+                  },
+                  {
+                    "id": "scale-branch-c",
+                    "uses": "builtins/script",
+                    "with": {
+                      "script": "printf 'scale-branch-c-started\\n'; sleep 25; printf 'scale-branch-c-finished\\n'"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

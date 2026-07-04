@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,7 +15,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/logforwarder"
 	"vectis/internal/observability"
-	"vectis/internal/utils"
+	"vectis/internal/platform"
 )
 
 const (
@@ -26,17 +24,17 @@ const (
 )
 
 func socketPath() string {
-	return filepath.Join(utils.RuntimeDir(), defaultSocketName)
+	return filepath.Join(platform.RuntimeDir(), defaultSocketName)
 }
 
 func lockPath() string {
-	return filepath.Join(utils.RuntimeDir(), defaultLockName)
+	return filepath.Join(platform.RuntimeDir(), defaultLockName)
 }
 
 func runLogForwarder(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("log-forwarder")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 
@@ -61,12 +59,43 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 	logger.Info("Socket: %s", sock)
 	logger.Info("Lockfile: %s", lock)
 
+	spoolDir := viper.GetString("spool_dir")
+	if spoolDir == "" {
+		dataHome := platform.DataHome()
+		spoolDir = filepath.Join(dataHome, "vectis", "log-forwarder", "spool")
+	}
+
+	metricsHandler, shutdownMetrics, err := observability.InitServiceMetrics(ctx, "vectis-log-forwarder")
+	if err != nil {
+		logger.Fatal("Failed to initialize metrics: %v", err)
+	}
+
+	logForwarderMetrics, err := observability.NewLogForwarderMetrics()
+	if err != nil {
+		logger.Fatal("Failed to register log-forwarder metrics: %v", err)
+	}
+
+	if err := observability.RegisterLogForwarderSpoolGauges(func() (int64, int64) {
+		return logforwarder.SpoolStats(spoolDir, time.Now())
+	}); err != nil {
+		logger.Fatal("Failed to register log-forwarder spool metrics: %v", err)
+	}
+
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
+
+	metricsAddr := config.LogForwarderMetricsListenAddr()
+	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Log-forwarder", logger)
+	if err != nil {
+		logger.Fatal("%v", err)
+	}
+	defer metricsSrv.Shutdown()
+
 	// Acquire lock
 	lockFd, err := logforwarder.AcquireLock(lock)
 	if err != nil {
 		logger.Fatal("Failed to acquire lock: %v", err)
 	}
-	defer logforwarder.ReleaseLock(lockFd, lock)
+	defer func() { _ = logforwarder.ReleaseLock(lockFd, lock) }()
 
 	logger.Info("Lock acquired")
 
@@ -75,8 +104,13 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to initialize retry metrics: %v", err)
 	}
 
+	logRoutingMetrics, err := observability.NewLogRoutingMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize log routing metrics: %v", err)
+	}
+
 	// Resolve vectis-log gRPC client
-	logClient, logCleanup, err := logforwarder.ResolveLogClient(ctx, logger, retryMetrics)
+	logClient, logCleanup, err := logforwarder.ResolveLogClient(ctx, logger, retryMetrics, logRoutingMetrics)
 	if err != nil {
 		logger.Fatal("Failed to resolve log service: %v", err)
 	}
@@ -94,18 +128,12 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 	if err != nil {
 		logger.Fatal("Failed to create socket server: %v", err)
 	}
-	defer server.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(server)
 	server.SetLogger(logger)
 
 	logger.Info("Listening on Unix socket: %s", sock)
 
 	// Create forwarder
-	spoolDir := viper.GetString("spool_dir")
-	if spoolDir == "" {
-		dataHome := utils.DataHome()
-		spoolDir = filepath.Join(dataHome, "vectis", "log-forwarder", "spool")
-	}
-
 	fwd := logforwarder.NewForwarder(
 		server.Chunks(),
 		logger,
@@ -114,6 +142,7 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 		viper.GetInt("max_chunks_per_sec"),
 	)
 	fwd.SetLogClient(logClient)
+	fwd.SetMetrics(logForwarderMetrics)
 
 	// Run server and forwarder concurrently
 	ctx, cancel := context.WithCancel(ctx)
@@ -131,18 +160,10 @@ func runLogForwarder(cmd *cobra.Command, args []string) {
 		fwd.Run(ctx)
 	})
 
-	// Wait for shutdown signal
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-ctx.Done()
+	logger.Info("Context cancelled; shutting down...")
 
-	select {
-	case <-ctx.Done():
-		logger.Info("Context cancelled; shutting down...")
-	case sig := <-sigCh:
-		logger.Info("Received signal %s; shutting down...", sig)
-	}
-
-	server.Close()
+	_ = server.Close()
 	fwd.Shutdown()
 	cancel()
 
@@ -186,6 +207,8 @@ func init() {
 	v.SetDefault("max_chunks_per_sec", 10000)
 	v.SetDefault("buffer_size", 1024)
 	v.SetDefault("shutdown_timeout", "10s")
+	v.SetDefault("metrics_host", config.LogForwarderMetricsHost())
+	v.SetDefault("metrics_port", config.LogForwarderMetricsPort())
 
 	rootCmd.PersistentFlags().String("socket", "", "Unix socket path (default: $XDG_RUNTIME_DIR/vectis/log-forwarder.sock)")
 	rootCmd.PersistentFlags().String("lockfile", "", "Lockfile path (default: $XDG_RUNTIME_DIR/vectis/log-forwarder.lock)")
@@ -194,6 +217,8 @@ func init() {
 	rootCmd.PersistentFlags().Int("max-chunks-per-sec", 10000, "Rate limit for forwarding")
 	rootCmd.PersistentFlags().Int("buffer-size", 1024, "Unix socket receive buffer size")
 	rootCmd.PersistentFlags().Duration("shutdown-timeout", 10*time.Second, "Graceful shutdown timeout")
+	rootCmd.PersistentFlags().String("metrics-host", config.LogForwarderMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().Int("metrics-port", config.LogForwarderMetricsPort(), "HTTP port for Prometheus /metrics")
 
 	_ = v.BindPFlag("socket", rootCmd.PersistentFlags().Lookup("socket"))
 	_ = v.BindPFlag("lockfile", rootCmd.PersistentFlags().Lookup("lockfile"))
@@ -202,6 +227,8 @@ func init() {
 	_ = v.BindPFlag("max_chunks_per_sec", rootCmd.PersistentFlags().Lookup("max-chunks-per-sec"))
 	_ = v.BindPFlag("buffer_size", rootCmd.PersistentFlags().Lookup("buffer-size"))
 	_ = v.BindPFlag("shutdown_timeout", rootCmd.PersistentFlags().Lookup("shutdown-timeout"))
+	_ = v.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
+	_ = v.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
 
 	viper.SetEnvPrefix("VECTIS_LOG_FORWARDER")
 	viper.AutomaticEnv()

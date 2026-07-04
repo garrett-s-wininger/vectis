@@ -35,6 +35,7 @@ func allDistinctActions() []Action {
 		ActionRunRead,
 		ActionRunOperator,
 		ActionAdmin,
+		ActionCatalogIngest,
 		ActionUserAdmin,
 		ActionSetupStatus,
 		ActionSetupComplete,
@@ -144,5 +145,9 @@ func TestActionSupportsNamespace(t *testing.T) {
 
 	if ActionSupportsNamespace(ActionUserAdmin) {
 		t.Fatal("user:admin should not support namespace scoping")
+	}
+
+	if ActionSupportsNamespace(ActionCatalogIngest) {
+		t.Fatal("catalog:ingest should not support namespace scoping")
 	}
 }

@@ -11,8 +11,8 @@
       <header class="topbar">
         <a class="brand" href="index.html" aria-label="Vectis console">
           <picture>
-            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
-            <img src="../../website/static/img/vectis.png" alt="" />
+            <source srcset="../../assets/brand/public/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../assets/brand/public/vectis.png" alt="" />
           </picture>
         </a>
         <nav class="topnav" aria-label="Primary">
@@ -142,9 +142,9 @@
   "id": "linux-ci",
   "description": "Pull request validation for Go services",
   "root": {
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "go test ./..."
+      "script": "go test ./..."
     }
   }
 }</code></pre>
@@ -179,33 +179,32 @@
               </div>
             </div>
           </section>
-
         </div>
       </main>
     </div>
 
     <script>
       const root = document.documentElement;
-      const storedTheme = localStorage.getItem('vectis-console-theme');
+      const storedTheme = localStorage.getItem("vectis-console-theme");
       if (storedTheme) {
         root.dataset.theme = storedTheme;
       }
 
-      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
-        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
         root.dataset.theme = next;
-        localStorage.setItem('vectis-console-theme', next);
+        localStorage.setItem("vectis-console-theme", next);
       });
 
       const syncArtifacts = () => {
-        const mobile = window.matchMedia('(max-width: 520px)').matches;
-        document.querySelectorAll('.artifact-panel').forEach((panel) => {
+        const mobile = window.matchMedia("(max-width: 520px)").matches;
+        document.querySelectorAll(".artifact-panel").forEach((panel) => {
           panel.open = !mobile;
         });
       };
 
       syncArtifacts();
-      window.addEventListener('resize', syncArtifacts);
+      window.addEventListener("resize", syncArtifacts);
     </script>
   </body>
 </html>

@@ -13,8 +13,13 @@ import (
 	"github.com/spf13/viper"
 
 	apigen "vectis/api/gen/go"
+	ldapauth "vectis/extensions/auth/ldap"
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
+	"vectis/internal/action/actionconfig"
 	"vectis/internal/api"
 	"vectis/internal/api/audit"
+	"vectis/internal/api/ratelimit"
+	"vectis/internal/cache"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/dal"
@@ -22,6 +27,7 @@ import (
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
 	"vectis/internal/registry"
+	"vectis/internal/resolver"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -38,9 +44,48 @@ func buildAccessLogger(format string) (*slog.Logger, func() error) {
 	return nil, nil
 }
 
+func warnIfProcessLocalAPICache(logger interfaces.Logger, backend string, authEnabled bool) {
+	if logger == nil || backend != config.APICacheBackendMemory || !authEnabled {
+		return
+	}
+
+	logger.Warn("API auth is enabled with api.cache.backend=memory; login sessions and rate-limit buckets are process-local and will not be shared across API replicas")
+}
+
+func warnIfPublicUnauthenticatedAPI(logger interfaces.Logger, host string, authEnabled bool) {
+	if logger == nil || authEnabled || !apiHostAllowsNonLoopback(host) {
+		return
+	}
+
+	logger.Warn("API auth is disabled while api.host=%q may accept non-loopback connections; this exposes the Vectis control plane on any reachable network", host)
+}
+
+func apiHostAllowsNonLoopback(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return true
+	}
+
+	if splitHost, _, err := net.SplitHostPort(host); err == nil {
+		host = splitHost
+	}
+
+	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
+	if host == "localhost" {
+		return false
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+
+	return !ip.IsLoopback()
+}
+
 func runVectisAPI(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("api")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting API server...")
@@ -59,15 +104,33 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
+	if err := config.ValidateAPIHTTPS(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := config.ValidateCellIngressHTTPClientMTLSConfig(config.APICellIngressEndpointSpecs()); err != nil {
+		logger.Error("Cell ingress HTTP mTLS config: %v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := config.ValidateAPIHSTSConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
 	config.StartGRPCTLSReloadLoop(cmd.Context())
 
-	db, _, err := database.OpenReadyDB(logger)
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Error("Failed to initialize database: %v", err)
 		exitCode = 1
 		return
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	authCtx, authCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer authCancel()
@@ -84,13 +147,30 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
-	if err != nil {
-		logger.Error("Failed to initialize tracer: %v", err)
+	if err := config.ValidateAPIHostConfig(); err != nil {
+		logger.Error("%v", err)
 		exitCode = 1
 		return
 	}
-	defer cli.DeferShutdown(logger, "Tracer", shutdownTracer)()
+	warnIfPublicUnauthenticatedAPI(logger, config.APIHost(), config.APIAuthEnabled())
+
+	if err := config.ValidateAPICORSConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := config.ValidateAPICacheConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := config.ValidateAPISessionConfig(); err != nil {
+		logger.Error("%v", err)
+		exitCode = 1
+		return
+	}
 
 	metricsHandler, shutdownMetrics, err := observability.InitAPIMetrics(cmd.Context())
 	if err != nil {
@@ -98,6 +178,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		exitCode = 1
 		return
 	}
+	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
 	if err := observability.RegisterSQLDBPoolMetrics(db); err != nil {
 		logger.Error("Failed to register DB pool metrics: %v", err)
@@ -125,10 +206,153 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
+	dispatchMetrics, err := observability.NewDispatchMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize dispatch metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
+	logRoutingMetrics, err := observability.NewLogRoutingMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize log routing metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
+	apiDispatchMetrics, err := observability.NewAPIDispatchMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize API dispatch metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
+	apiSecurityMetrics, err := observability.NewAPISecurityMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize API security metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceSyncMetrics, err := observability.NewSourceSyncMetrics()
+	if err != nil {
+		logger.Error("Failed to initialize source sync metrics: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceCtx, sourceCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer sourceCancel()
+	sourceRepos := dal.NewSQLRepositories(db)
+	sourceCredentialResolver, err := newConfiguredSourceRepositoryCredentialResolver(logger)
+	if err != nil {
+		logger.Error("Failed to configure source repository credentials: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceSyncStatus := configuredSourceRepositorySyncCheckoutStatusWithCredentialResolver(sourceCredentialResolver)
+	if err := reconcileConfiguredSourceRepositories(sourceCtx, sourceRepos, logger); err != nil {
+		logger.Error("Failed to reconcile configured source repositories: %v", err)
+		exitCode = 1
+		return
+	}
+
+	if err := reconcileConfiguredSourceSchedules(sourceCtx, sourceRepos, logger); err != nil {
+		logger.Error("Failed to reconcile configured source schedules: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourceSyncCtx := sourceCtx
+	sourceSyncCancel := func() {}
+	if config.SourceSyncConfiguredRepositoriesOnStartup() {
+		if timeout := config.SourceSyncRunningTimeout(); timeout > 0 {
+			sourceSyncCtx, sourceSyncCancel = context.WithTimeout(context.Background(), timeout)
+		} else {
+			sourceSyncCtx, sourceSyncCancel = context.WithCancel(context.Background())
+		}
+	}
+	defer sourceSyncCancel()
+
+	if err := syncConfiguredSourceRepositoriesWithStatus(sourceSyncCtx, sourceRepos, logger, sourceSyncStatus, sourceSyncMetrics); err != nil {
+		logger.Error("Failed to sync configured source repositories: %v", err)
+		exitCode = 1
+		return
+	}
+
+	sourcePeriodicSyncCtx, sourcePeriodicSyncCancel := context.WithCancel(cmd.Context())
+	defer sourcePeriodicSyncCancel()
+	startConfiguredSourceRepositoryPeriodicSyncWithStatus(sourcePeriodicSyncCtx, sourceRepos, logger, sourceSyncStatus, sourceSyncMetrics)
+
+	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
+	if err != nil {
+		logger.Error("Failed to initialize tracer: %v", err)
+		exitCode = 1
+		return
+	}
+	defer cli.DeferShutdown(logger, "Tracer", shutdownTracer)()
+
+	actionDescriptorResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Error("Invalid action registry config: %v", err)
+		exitCode = 1
+		return
+	}
+
+	actionResolver, err := actionconfig.Resolver()
+	if err != nil {
+		logger.Error("Invalid action registry config: %v", err)
+		exitCode = 1
+		return
+	}
 
 	server := api.NewAPIServer(logger, db)
+	server.SetActionDescriptorResolver(actionDescriptorResolver)
+	server.SetActionResolver(actionResolver)
 	server.MetricsHandler = metricsHandler
+	var cacheService cache.Service
+	switch config.APICacheBackend() {
+	case config.APICacheBackendDatabase:
+		cacheService = cache.NewSQLService(db, database.EffectiveDBDriver())
+	case config.APICacheBackendMemory:
+		cacheService = cache.NewMemoryService()
+	}
+
+	warnIfProcessLocalAPICache(logger, config.APICacheBackend(), config.APIAuthEnabled())
+	server.SetCacheService(cacheService)
+	server.SetRateLimiter(ratelimit.NewCacheRateLimiter(cacheService))
+
+	ldapConfig := ldapauth.ConfigFromViper(viper.GetViper())
+	if ldapConfig.Enabled() {
+		if !config.APIAuthEnabled() {
+			logger.Warn("LDAP login provider is configured but API auth is disabled")
+		} else {
+			ldapProvider, err := ldapConfig.NewProvider()
+			if err != nil {
+				logger.Error("Invalid LDAP auth config: %v", err)
+				exitCode = 1
+				return
+			}
+
+			if _, err := dal.NewSQLRepositories(db).Auth().EnsureAuthProvider(cmd.Context(), ldapConfig.ProviderID, ldapauth.ProviderKind); err != nil {
+				logger.Error("Failed to register LDAP auth provider: %v", err)
+				exitCode = 1
+				return
+			}
+
+			server.SetLoginProviderRegistrations([]api.LoginProviderRegistration{{
+				ID:       ldapConfig.ProviderID,
+				Kind:     ldapauth.ProviderKind,
+				Provider: ldapProvider,
+			}})
+
+			server.SetExternalLoginAutoProvision(ldapConfig.AutoCreateUsers)
+			server.SetExternalLoginAutoLinkUsers(ldapConfig.AutoLinkUsers)
+			logger.Info("LDAP login provider enabled provider_id=%s url=%s base_dn=%s auto_link_users=%t auto_create_users=%t", ldapConfig.ProviderID, ldapConfig.URL, ldapConfig.BaseDN, ldapConfig.AutoLinkUsers, ldapConfig.AutoCreateUsers)
+		}
+	}
+
 	accessLogger, closeAccessLogger := buildAccessLogger(config.APILogFormat())
 	if closeAccessLogger != nil {
 		defer func() { _ = closeAccessLogger() }()
@@ -154,6 +378,37 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetAuditPolicy(auditPolicy)
 
 	server.SetRetryMetrics(retryMetrics)
+	server.SetDispatchMetrics(dispatchMetrics)
+	server.SetLogRoutingMetrics(logRoutingMetrics)
+	server.SetAPIDispatchMetrics(apiDispatchMetrics)
+	server.SetAPISecurityMetrics(apiSecurityMetrics)
+	server.SetSourceSyncMetrics(sourceSyncMetrics)
+	server.SetSourceSyncCheckoutStatus(sourceSyncStatus)
+	server.SetSourceRefHydrator(configuredSourceRepositoryRefHydratorWithCredentialResolver(sourceCredentialResolver))
+
+	logger.Info("Establishing orchestrator read client connection...")
+	orchestratorDial, stopOrchestrator, err := resolver.DialOrchestratorWithOwner(cmd.Context(), logger, config.PinnedOrchestratorAddress(), config.APIRegistryDialAddress(), config.CellID(), "api:"+config.CellID(), retryMetrics)
+	if err != nil {
+		logger.Error("Failed to connect to orchestrator: %v", err)
+		exitCode = 1
+		return
+	}
+
+	defer stopOrchestrator()
+	orchestratorClient := apigen.NewOrchestratorServiceClient(orchestratorDial.Conn)
+	server.SetOrchestratorClient(orchestratorClient)
+	orchestratorOwnerClients := resolver.NewOrchestratorOwnerClientResolver(logger, config.APIRegistryDialAddress(), retryMetrics)
+	defer func() { _ = orchestratorOwnerClients.Close() }()
+
+	server.SetOrchestratorOwnerClientResolver(func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
+		if owner.OwnerID == orchestratorDial.OwnerID {
+			return orchestratorClient, true, nil
+		}
+
+		return orchestratorOwnerClients.Client(ctx, owner.OwnerID, owner.CellID, owner.RunID)
+	})
+
+	logger.Info("Orchestrator read client ready")
 
 	// Wire up worker address resolution via registry for cancel endpoint.
 	if regAddr := config.APIRegistryDialAddress(); regAddr != "" {
@@ -166,18 +421,35 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 			server.ResolveWorkerAddress = func(ctx context.Context, workerID string) (string, error) {
 				return registryClient.InstanceAddress(ctx, apigen.Component_COMPONENT_WORKER, workerID)
 			}
-			defer registryClient.Close()
+			defer func(closer interface{ Close() error }) { _ = closer.Close() }(registryClient)
 		}
 	}
 
 	port := config.APIEffectiveListenPort()
 	addr := net.JoinHostPort(config.APIHost(), fmt.Sprintf("%d", port))
-	ln, err := net.Listen("tcp", addr)
+	var listenConfig net.ListenConfig
+	ln, err := listenConfig.Listen(cmd.Context(), "tcp", addr)
 	if err != nil {
 		logger.Error("Listen: %v", err)
 		exitCode = 1
 		return
 	}
+
+	apiTLSReloader, err := config.NewAPIHTTPSReloader()
+	if err != nil {
+		_ = ln.Close()
+		logger.Error("API TLS: %v", err)
+		exitCode = 1
+		return
+	}
+
+	ln, err = config.APIHTTPSListener(ln, apiTLSReloader)
+	if err != nil {
+		logger.Error("API TLS: %v", err)
+		exitCode = 1
+		return
+	}
+	config.StartAPIHTTPSReloadLoop(cmd.Context(), apiTLSReloader)
 
 	logger.Info("Establishing queue client connection...")
 	if err := server.ConnectToQueue(cmd.Context()); err != nil {
@@ -210,7 +482,7 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 var rootCmd = &cobra.Command{
 	Use:   "vectis-api-server",
 	Short: "Vectis API Server",
-	Long:  `The Vectis API Server provides REST endpoints for triggering stored jobs.`,
+	Long:  `The Vectis API Server provides REST endpoints for triggering source-backed and one-off jobs.`,
 	Run:   runVectisAPI,
 }
 
@@ -218,10 +490,30 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().String("host", config.APIHost(), "Host/IP for the API server to bind")
 	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
+	rootCmd.PersistentFlags().StringSlice("cell-ingress-endpoint", config.APICellIngressEndpointSpecs(), "Cell ingress route in cell_id=url form; may be repeated")
+	rootCmd.PersistentFlags().String("tls-cert-file", config.APIHTTPSCertFile(), "Certificate file for browser-facing HTTPS")
+	rootCmd.PersistentFlags().String("tls-key-file", config.APIHTTPSKeyFile(), "Private key file for browser-facing HTTPS")
+	rootCmd.PersistentFlags().Duration("tls-reload-interval", config.APIHTTPSReloadInterval(), "How often to poll API HTTPS cert/key files for reload; 0 disables polling")
+	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
+	ldapauth.AddConfigFlags(rootCmd.PersistentFlags())
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
+	_ = viper.BindPFlag("cell_ingress_endpoints", rootCmd.PersistentFlags().Lookup("cell-ingress-endpoint"))
+	_ = viper.BindPFlag("api.tls.cert_file", rootCmd.PersistentFlags().Lookup("tls-cert-file"))
+	_ = viper.BindPFlag("api.tls.key_file", rootCmd.PersistentFlags().Lookup("tls-key-file"))
+	_ = viper.BindPFlag("api.tls.reload_interval", rootCmd.PersistentFlags().Lookup("tls-reload-interval"))
+	mustBindAuthProviderConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
+	mustBindAuthProviderConfig(ldapauth.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
+	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()
+}
+
+func mustBindAuthProviderConfig(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func main() {

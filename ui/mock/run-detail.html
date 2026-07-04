@@ -11,8 +11,8 @@
       <header class="topbar">
         <a class="brand" href="index.html" aria-label="Vectis console">
           <picture>
-            <source srcset="../../website/static/img/vectis-dark.png" media="(prefers-color-scheme: dark)" />
-            <img src="../../website/static/img/vectis.png" alt="" />
+            <source srcset="../../assets/brand/public/vectis-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="../../assets/brand/public/vectis.png" alt="" />
           </picture>
         </a>
         <nav class="topnav" aria-label="Primary">
@@ -54,7 +54,7 @@
               <section class="execution-item execution-item--primary">
                 <span>Current step</span>
                 <strong>test</strong>
-                <small>builtins/shell</small>
+                <small>builtins/script</small>
               </section>
               <section class="execution-item">
                 <span>Elapsed</span>
@@ -87,7 +87,7 @@
                 <div class="action-node" aria-hidden="true"></div>
                 <div class="action-main">
                   <strong>test</strong>
-                  <small>builtins/shell</small>
+                  <small>builtins/script</small>
                 </div>
                 <span class="duration-chip">3m 54s</span>
                 <span class="status status--running">running</span>
@@ -149,26 +149,26 @@
 
     <script>
       const root = document.documentElement;
-      const storedTheme = localStorage.getItem('vectis-console-theme');
+      const storedTheme = localStorage.getItem("vectis-console-theme");
       if (storedTheme) {
         root.dataset.theme = storedTheme;
       }
 
-      document.querySelector('[data-theme-toggle]').addEventListener('click', () => {
-        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
         root.dataset.theme = next;
-        localStorage.setItem('vectis-console-theme', next);
+        localStorage.setItem("vectis-console-theme", next);
       });
 
       const syncArtifacts = () => {
-        const mobile = window.matchMedia('(max-width: 520px)').matches;
-        document.querySelectorAll('.artifact-panel').forEach((panel) => {
+        const mobile = window.matchMedia("(max-width: 520px)").matches;
+        document.querySelectorAll(".artifact-panel").forEach((panel) => {
           panel.open = !mobile;
         });
       };
 
       syncArtifacts();
-      window.addEventListener('resize', syncArtifacts);
+      window.addEventListener("resize", syncArtifacts);
     </script>
   </body>
 </html>

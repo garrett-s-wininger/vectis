@@ -8,8 +8,10 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("conflict")
+	ErrNotFound             = errors.New("not found")
+	ErrConflict             = errors.New("conflict")
+	ErrPasswordAuthDisabled = errors.New("password auth disabled")
+	ErrDispatchExpired      = errors.New("dispatch expired")
 )
 
 func IsNotFound(err error) bool {
@@ -18,6 +20,10 @@ func IsNotFound(err error) bool {
 
 func IsConflict(err error) bool {
 	return errors.Is(err, ErrConflict)
+}
+
+func IsDispatchExpired(err error) bool {
+	return errors.Is(err, ErrDispatchExpired)
 }
 
 func IsInvalidNamespaceName(err error) bool {
@@ -30,18 +36,18 @@ func normalizeSQLError(err error) error {
 	}
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: %v", ErrNotFound, err)
+		return fmt.Errorf("%w: %w", ErrNotFound, err)
 	}
 
 	lower := strings.ToLower(err.Error())
 	if strings.Contains(lower, "unique constraint failed") ||
 		strings.Contains(lower, "duplicate key value violates unique constraint") {
-		return fmt.Errorf("%w: %v", ErrConflict, err)
+		return fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 
 	if strings.Contains(lower, "foreign key constraint failed") ||
 		strings.Contains(lower, "violates foreign key constraint") {
-		return fmt.Errorf("%w: %v", ErrConflict, err)
+		return fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 
 	return err

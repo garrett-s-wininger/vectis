@@ -1,0 +1,1051 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-postgres-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-queue-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-artifact-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-log-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-secrets-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-spiffe-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["127.0.0.1:9090"]
+      - job_name: vectis-api
+        static_configs:
+          - targets: {{ quoteList .PrometheusAPITargets }}
+        metrics_path: /metrics
+        scheme: http
+      - job_name: vectis-queue
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusQueueTargets }}
+      - job_name: vectis-orchestrator
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusOrchestratorTargets }}
+      - job_name: vectis-worker
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusWorkerTargets }}
+      - job_name: vectis-worker-core
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusWorkerCoreTargets }}
+      - job_name: vectis-log
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusLogTargets }}
+      - job_name: vectis-artifact
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusArtifactTargets }}
+      - job_name: vectis-secrets
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusSecretsTargets }}
+      - job_name: vectis-reconciler
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: {{ quoteList .PrometheusReconcilerTargets }}
+      - job_name: vectis-catalog
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          ca_file: /run/vectis/grpc-tls/ca.pem
+        static_configs:
+          - targets: ["127.0.0.1:9086"]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-grafana-datasources
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        orgId: 1
+        uid: vectis-prom
+        url: http://127.0.0.1:9090
+        isDefault: false
+        editable: false
+      - name: OpenSearch Logs
+        type: elasticsearch
+        access: proxy
+        orgId: 1
+        uid: vectis-logs
+        url: http://127.0.0.1:9200
+        database: '[vectis-logs-]YYYY.MM.DD'
+        isDefault: false
+        editable: false
+        jsonData:
+          esVersion: 7.10.0
+          interval: Daily
+          logLevelField: level
+          logMessageField: msg
+          timeField: ts
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-grpc-tls-env
+data:
+  VECTIS_GRPC_TLS_INSECURE: "false"
+  VECTIS_GRPC_TLS_CA_FILE: /run/vectis/grpc-tls/ca.pem
+  VECTIS_GRPC_TLS_CERT_FILE: /run/vectis/grpc-tls/server.pem
+  VECTIS_GRPC_TLS_KEY_FILE: /run/vectis/grpc-tls/server-key.pem
+  VECTIS_GRPC_TLS_SERVER_NAME: localhost
+  VECTIS_METRICS_TLS_INSECURE: "false"
+  VECTIS_METRICS_TLS_CERT_FILE: /run/vectis/grpc-tls/server.pem
+  VECTIS_METRICS_TLS_KEY_FILE: /run/vectis/grpc-tls/server-key.pem
+{{ if .RegistryAddresses }}
+  VECTIS_DISCOVERY_REGISTRY_ADDRESSES: {{ .RegistryAddresses }}
+{{ end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-tracing-env
+data:
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-logging-env
+data:
+  VECTIS_LOG_FORMAT: json
+  VECTIS_LOG_DIR: /var/log/vectis/components
+  VECTIS_API_SERVER_LOG_FORMAT: json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-fluent-bit-config
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush        1
+        Log_Level    info
+        Parsers_File /fluent-bit/etc/parsers.conf
+
+    [INPUT]
+        Name              tail
+        Path              /var/log/vectis/components/*.jsonl
+        Tag               vectis.component
+        Parser            vectis_json
+        Path_Key          log_file
+        Refresh_Interval  5
+        Rotate_Wait       30
+        Mem_Buf_Limit     10MB
+        Skip_Long_Lines   On
+
+    [OUTPUT]
+        Name                  opensearch
+        Match                 vectis.*
+        Host                  127.0.0.1
+        Port                  9200
+        Logstash_Format       On
+        Logstash_Prefix       vectis-logs
+        Suppress_Type_Name    On
+        Replace_Dots          On
+        Generate_ID           On
+        Retry_Limit           False
+  parsers.conf: |
+    [PARSER]
+        Name          vectis_json
+        Format        json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-jaeger-collector-config
+data:
+  config.yaml: |
+    extensions:
+      jaeger_storage:
+        backends:
+          trace_storage:
+            elasticsearch:
+              server_urls:
+                - http://127.0.0.1:9200
+      healthcheckv2:
+        use_v2: true
+        http:
+          endpoint: 0.0.0.0:13133
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch: {}
+    exporters:
+      jaeger_storage_exporter:
+        trace_storage: trace_storage
+    service:
+      extensions: [jaeger_storage, healthcheckv2]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [jaeger_storage_exporter]
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 18888
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-jaeger-query-config
+data:
+  config.yaml: |
+    receivers:
+      nop: {}
+    exporters:
+      nop: {}
+    extensions:
+      jaeger_storage:
+        backends:
+          trace_storage:
+            elasticsearch:
+              server_urls:
+                - http://127.0.0.1:9200
+      jaeger_query:
+        storage:
+          traces: trace_storage
+      healthcheckv2:
+        use_v2: true
+        http:
+          endpoint: 0.0.0.0:13134
+    service:
+      extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+      pipelines:
+        traces:
+          receivers: [nop]
+          exporters: [nop]
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 18889
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vectis
+spec:
+  volumes:
+    - name: postgres-data
+      persistentVolumeClaim:
+        claimName: vectis-postgres-data
+    - name: queue-data
+      persistentVolumeClaim:
+        claimName: vectis-queue-data
+    - name: log-data
+      persistentVolumeClaim:
+        claimName: vectis-log-data
+    - name: artifact-data
+      persistentVolumeClaim:
+        claimName: vectis-artifact-data
+    - name: secrets-data
+      persistentVolumeClaim:
+        claimName: vectis-secrets-data
+    - name: spiffe-data
+      persistentVolumeClaim:
+        claimName: vectis-spiffe-data
+    - name: spiffe-run
+      emptyDir: {}
+    - name: podman-secrets
+      secret:
+        secretName: vectis-podman-secrets
+    - name: prometheus-config
+      configMap:
+        name: vectis-prometheus-config
+    - name: prometheus-data
+      emptyDir: {}
+    - name: grafana-datasources
+      configMap:
+        name: vectis-grafana-datasources
+# NOTE(garrett): Grafana dashboard ConfigMaps are generated by deploy/podman/cmd/generate-grafana-configmaps.
+# Use vectis-cli deploy podman up/render so generated secrets and both YAML files are included.
+    - name: grafana-dashboard-provider
+      configMap:
+        name: vectis-grafana-dashboard-provider
+    - name: grafana-dashboards
+      configMap:
+        name: vectis-grafana-dashboards
+    - name: grafana-data
+      emptyDir: {}
+    - name: vectis-grpc-tls
+      emptyDir: {}
+    - name: vectis-postgres-tls
+      emptyDir: {}
+    - name: jaeger-collector-config
+      configMap:
+        name: vectis-jaeger-collector-config
+    - name: jaeger-query-config
+      configMap:
+        name: vectis-jaeger-query-config
+    - name: observability-search-data
+      emptyDir: {}
+    - name: component-logs
+      emptyDir: {}
+    - name: vectis-worker-core-sockets
+      emptyDir: {}
+    - name: fluent-bit-config
+      configMap:
+        name: vectis-fluent-bit-config
+  initContainers:
+    - name: vectis-pod-tls-init
+      image: docker.io/library/alpine:3.21
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          apk add --no-cache openssl
+          GRPC=/grpc-out
+          PG=/pg-tls-out
+          openssl genrsa -out "$GRPC/ca-key.pem" 4096
+          openssl req -new -x509 -days 3650 -key "$GRPC/ca-key.pem" -out "$GRPC/ca.pem" -subj "/CN=vectis-pod-grpc-ca"
+          openssl genrsa -out "$GRPC/server-key.pem" 2048
+          openssl req -new -key "$GRPC/server-key.pem" -out /tmp/grpc.csr -subj "/CN=localhost"
+          printf '%s\n' 'subjectAltName=DNS:localhost,IP:127.0.0.1' > /tmp/grpc-ext.cnf
+          openssl x509 -req -in /tmp/grpc.csr -CA "$GRPC/ca.pem" -CAkey "$GRPC/ca-key.pem" -CAcreateserial -out "$GRPC/server.pem" -days 825 -extfile /tmp/grpc-ext.cnf
+          chmod 644 "$GRPC/ca.pem" "$GRPC/server.pem"
+          chmod 600 "$GRPC/ca-key.pem" "$GRPC/server-key.pem"
+          openssl genrsa -out "$PG/ca-key.pem" 4096
+          openssl req -new -x509 -days 3650 -key "$PG/ca-key.pem" -out "$PG/ca.pem" -subj "/CN=vectis-pod-postgres-ca"
+          openssl genrsa -out "$PG/server-key.pem" 2048
+          openssl req -new -key "$PG/server-key.pem" -out /tmp/pg.csr -subj "/CN=127.0.0.1"
+          printf '%s\n' 'subjectAltName=DNS:localhost,IP:127.0.0.1' > /tmp/pg-ext.cnf
+          openssl x509 -req -in /tmp/pg.csr -CA "$PG/ca.pem" -CAkey "$PG/ca-key.pem" -CAcreateserial -out "$PG/server.pem" -days 825 -extfile /tmp/pg-ext.cnf
+          chmod 644 "$PG/ca.pem" "$PG/server.pem"
+          chmod 600 "$PG/ca-key.pem" "$PG/server-key.pem"
+          chown 70:70 "$PG/server.pem" "$PG/server-key.pem"
+      volumeMounts:
+        - name: vectis-grpc-tls
+          mountPath: /grpc-out
+        - name: vectis-postgres-tls
+          mountPath: /pg-tls-out
+    - name: vectis-spiffe-init
+      image: vectis-spiffe:latest
+      imagePullPolicy: Never
+      args:
+        - --init-only
+        - --trust-domain=vectis.internal
+        - --data-dir=/data/vectis/spiffe
+        - --runtime-dir=/run/vectis/spiffe
+        - --selector=unix:uid:0
+      volumeMounts:
+        - name: spiffe-data
+          mountPath: /data
+        - name: spiffe-run
+          mountPath: /run/vectis/spiffe
+    - name: vectis-client-ca-bundle-init
+      image: docker.io/library/alpine:3.21
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          cat /grpc-in/ca.pem /spiffe-data/vectis/spiffe/bundle.pem > /grpc-in/client-ca-bundle.pem
+          chmod 644 /grpc-in/client-ca-bundle.pem
+      volumeMounts:
+        - name: vectis-grpc-tls
+          mountPath: /grpc-in
+        - name: spiffe-data
+          mountPath: /spiffe-data
+  containers:
+    - name: postgres
+      image: docker.io/library/postgres:18-alpine
+      imagePullPolicy: IfNotPresent
+      args:
+        - postgres
+        - -c
+        - ssl=on
+        - -c
+        - ssl_cert_file=/run/postgres-tls/server.pem
+        - -c
+        - ssl_key_file=/run/postgres-tls/server-key.pem
+      env: &postgresEnv
+        - name: POSTGRES_USER
+          value: vectis
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          value: vectis
+      volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql
+        - name: vectis-postgres-tls
+          mountPath: /run/postgres-tls
+          readOnly: true
+      ports:
+        - containerPort: 5432
+          hostPort: 15432
+          protocol: TCP
+    - name: spiffe
+      image: vectis-spiffe:latest
+      imagePullPolicy: Never
+      args:
+        - --trust-domain=vectis.internal
+        - --data-dir=/data/vectis/spiffe
+        - --runtime-dir=/run/vectis/spiffe
+        - --selector=unix:uid:0
+      envFrom:
+        - configMapRef:
+            name: vectis-logging-env
+      volumeMounts:
+        - name: spiffe-data
+          mountPath: /data
+        - name: spiffe-run
+          mountPath: /run/vectis/spiffe
+        - name: component-logs
+          mountPath: /var/log/vectis/components
+{{ range .APIReplicas }}
+    - name: {{ .Name }}
+      image: vectis-api:latest
+      imagePullPolicy: Never
+      ports:
+        - containerPort: {{ .Port }}
+          hostPort: {{ .Port }}
+          protocol: TCP
+{{ if .First }}
+      envFrom: &vectisGrpcTlsEnvFrom
+        - configMapRef:
+            name: vectis-grpc-tls-env
+        - configMapRef:
+            name: vectis-tracing-env
+        - configMapRef:
+            name: vectis-logging-env
+      volumeMounts: &vectisGrpcAndPostgresCaVolumeMounts
+        - &grpcTlsMount
+          name: vectis-grpc-tls
+          mountPath: /run/vectis/grpc-tls
+          readOnly: true
+        - &postgresCaMount
+          name: vectis-postgres-tls
+          mountPath: /run/vectis/postgres-tls/ca.pem
+          subPath: ca.pem
+          readOnly: true
+        - &componentLogsMount
+          name: component-logs
+          mountPath: /var/log/vectis/components
+{{ else }}
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
+{{ end }}
+      env:
+        - name: VECTIS_API_SERVER_HOST
+          value: 0.0.0.0
+{{ if .SetPortEnv }}
+        - name: VECTIS_API_SERVER_PORT
+          value: "{{ .Port }}"
+{{ end }}
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+{{ end }}
+    - name: docs
+      image: vectis-docs:latest
+      imagePullPolicy: Never
+      env:
+        - name: VECTIS_DOCS_HOST
+          value: 0.0.0.0
+      ports:
+        - containerPort: 8088
+          hostPort: 8088
+          protocol: TCP
+{{ range .CronReplicas }}
+    - name: {{ .Name }}
+      image: vectis-cron:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
+      env:
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+{{ if .InstanceID }}
+        - name: VECTIS_CRON_INSTANCE_ID
+          value: {{ .InstanceID }}
+{{ end }}
+{{ end }}
+{{ range .LogShards }}
+    - name: {{ .Name }}
+      image: vectis-log:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *postgresCaMount
+        - <<: *componentLogsMount
+        - name: log-data
+          mountPath: /data
+      env:
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+        - name: XDG_DATA_HOME
+          value: /data
+{{ if .SetGRPCPortEnv }}
+        - name: VECTIS_LOG_GRPC_PORT
+          value: "{{ .GRPCPort }}"
+{{ end }}
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_LOG_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ if .InstanceID }}
+        - name: VECTIS_LOG_INSTANCE_ID
+          value: {{ .InstanceID }}
+{{ end }}
+{{ if .AdvertiseAddress }}
+        - name: VECTIS_LOG_GRPC_ADVERTISE_ADDRESS
+          value: {{ .AdvertiseAddress }}
+{{ end }}
+        - name: VECTIS_LOG_STORAGE_DIR
+          value: {{ .StorageDir }}
+      ports:
+        - containerPort: {{ .GRPCPort }}
+          protocol: TCP
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+{{ end }}
+{{ range .ArtifactShards }}
+    - name: {{ .Name }}
+      image: vectis-artifact:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *componentLogsMount
+        - name: artifact-data
+          mountPath: /data
+      env:
+        - name: XDG_DATA_HOME
+          value: /data
+{{ if .SetGRPCPortEnv }}
+        - name: VECTIS_ARTIFACT_GRPC_PORT
+          value: "{{ .GRPCPort }}"
+{{ end }}
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_ARTIFACT_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ if .InstanceID }}
+        - name: VECTIS_ARTIFACT_INSTANCE_ID
+          value: {{ .InstanceID }}
+{{ end }}
+{{ if .AdvertiseAddress }}
+        - name: VECTIS_ARTIFACT_GRPC_ADVERTISE_ADDRESS
+          value: {{ .AdvertiseAddress }}
+{{ end }}
+        - name: VECTIS_ARTIFACT_STORAGE_DIR
+          value: {{ .StorageDir }}
+      ports:
+        - containerPort: {{ .GRPCPort }}
+          protocol: TCP
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+{{ end }}
+{{ range .OrchestratorReplicas }}
+    - name: {{ .Name }}
+      image: vectis-orchestrator:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *componentLogsMount
+      ports:
+        - containerPort: {{ .Port }}
+          protocol: TCP
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+      env:
+{{ if .SetPortEnv }}
+        - name: VECTIS_ORCHESTRATOR_PORT
+          value: "{{ .Port }}"
+{{ end }}
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_ORCHESTRATOR_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ if .AdvertiseAddress }}
+        - name: VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS
+          value: {{ .AdvertiseAddress }}
+{{ end }}
+{{ end }}
+{{ range .QueueShards }}
+    - name: {{ .Name }}
+      image: vectis-queue:latest
+      imagePullPolicy: Never
+      ports:
+        - containerPort: {{ .Port }}
+          protocol: TCP
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+      envFrom: *vectisGrpcTlsEnvFrom
+      env:
+        - name: XDG_DATA_HOME
+          value: /data
+{{ if .SetPortEnv }}
+        - name: VECTIS_QUEUE_PORT
+          value: "{{ .Port }}"
+{{ end }}
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_QUEUE_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ if .Pool }}
+        - name: VECTIS_QUEUE_POOL
+          value: {{ .Pool }}
+{{ end }}
+{{ if .InstanceID }}
+        - name: VECTIS_QUEUE_INSTANCE_ID
+          value: {{ .InstanceID }}
+{{ end }}
+{{ if .AdvertiseAddress }}
+        - name: VECTIS_QUEUE_ADVERTISE_ADDRESS
+          value: {{ .AdvertiseAddress }}
+{{ end }}
+        - name: VECTIS_QUEUE_PERSISTENCE_DIR
+          value: {{ .PersistenceDir }}
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *postgresCaMount
+        - <<: *componentLogsMount
+        - name: queue-data
+          mountPath: /data
+{{ end }}
+    - name: secrets
+      image: vectis-secrets:latest
+      imagePullPolicy: Never
+      ports:
+        - containerPort: 8090
+          protocol: TCP
+        - containerPort: 9091
+          protocol: TCP
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *postgresCaMount
+        - <<: *componentLogsMount
+        - name: secrets-data
+          mountPath: /data
+        - name: podman-secrets
+          mountPath: /run/vectis/secrets/encryptedfs.key
+          subPath: encryptedfs.key
+          readOnly: true
+      env:
+        - name: VECTIS_CELL_ID
+          value: default
+        - name: VECTIS_SECRETS_PORT
+          value: "8090"
+        - name: VECTIS_SECRETS_METRICS_PORT
+          value: "9091"
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+        - name: VECTIS_GRPC_TLS_CLIENT_CA_FILE
+          value: /run/vectis/grpc-tls/client-ca-bundle.pem
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN
+          value: vectis.internal
+        - name: VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_ROOT
+          value: /data/vectis/secrets/encryptedfs
+        - name: VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE
+          value: /run/vectis/secrets/encryptedfs.key
+        - name: VECTIS_SECRETS_POLICY_ALLOW
+          value: namespace=*;job=*;task=*;ref=encryptedfs://*
+{{ range .ReconcilerReplicas }}
+    - name: {{ .Name }}
+      image: vectis-reconciler:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
+      ports:
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+      env:
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_RECONCILER_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ end }}
+    - name: catalog
+      image: vectis-catalog:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts: *vectisGrpcAndPostgresCaVolumeMounts
+      ports:
+        - containerPort: 9086
+          protocol: TCP
+      env:
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+{{ range .RegistryReplicas }}
+    - name: {{ .Name }}
+      image: vectis-registry:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+{{ if .ClusterNodeID }}
+      env:
+{{ if .SetPortEnv }}
+        - name: VECTIS_REGISTRY_PORT
+          value: "{{ .Port }}"
+{{ end }}
+        - name: VECTIS_REGISTRY_CLUSTER_NODE_ID
+          value: {{ .ClusterNodeID }}
+        - name: VECTIS_REGISTRY_CLUSTER_ADVERTISE_ADDRESS
+          value: {{ .AdvertiseAddress }}
+        - name: VECTIS_REGISTRY_CLUSTER_PEER_ADDRESSES
+          value: {{ .PeerAddresses }}
+{{ end }}
+{{ if .First }}
+      volumeMounts: &vectisGrpcTlsOnlyVolumeMounts
+        - *grpcTlsMount
+        - *componentLogsMount
+{{ else }}
+      volumeMounts: *vectisGrpcTlsOnlyVolumeMounts
+{{ end }}
+      ports:
+        - containerPort: {{ .Port }}
+          protocol: TCP
+{{ end }}
+    - name: worker-core
+      image: vectis-worker-core:latest
+      imagePullPolicy: Never
+      envFrom: *vectisGrpcTlsEnvFrom
+      ports:
+        - containerPort: 9092
+          protocol: TCP
+      volumeMounts:
+        - <<: *componentLogsMount
+        - &workerCoreSocketsMount
+          name: vectis-worker-core-sockets
+          mountPath: /run/vectis/worker-core
+      env:
+        - name: VECTIS_WORKER_CORE_SOCKET
+          value: /run/vectis/worker-core/worker-core.sock
+        - name: VECTIS_WORKER_CORE_METRICS_PORT
+          value: "9092"
+{{ range .WorkerReplicas }}
+    - name: {{ .Name }}
+      image: vectis-worker:latest
+      imagePullPolicy: Never
+      command:
+        - /bin/sh
+        - -c
+        - |
+          until [ -S /run/vectis/spiffe/workload.sock ] && [ -S /run/vectis/spiffe/registration.sock ]; do
+            sleep 0.1
+          done
+          exec /usr/local/bin/vectis-worker
+      ports:
+        - containerPort: {{ .MetricsPort }}
+          protocol: TCP
+      envFrom: *vectisGrpcTlsEnvFrom
+      volumeMounts:
+        - <<: *grpcTlsMount
+        - <<: *postgresCaMount
+        - <<: *componentLogsMount
+        - <<: *workerCoreSocketsMount
+        - name: spiffe-run
+          mountPath: /run/vectis/spiffe
+      env:
+        - name: VECTIS_DATABASE_DRIVER
+          value: pgx
+        - name: VECTIS_DATABASE_DSN
+          valueFrom:
+            secretKeyRef:
+              name: vectis-podman-secrets
+              key: VECTIS_DATABASE_DSN
+        - name: VECTIS_WORKER_CORE_SOCKET
+          value: /run/vectis/worker-core/worker-core.sock
+        - name: VECTIS_WORKER_CORE_SHELL_SOCKET
+          value: /run/vectis/worker-core/{{ .Name }}-shell.sock
+        - name: VECTIS_WORKER_SECRETS_ADDRESS
+          value: 127.0.0.1:8090
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN
+          value: vectis.internal
+        - name: VECTIS_WORKER_SPIFFE_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS
+          value: unix:///run/vectis/spiffe/workload.sock
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED
+          value: "true"
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS
+          value: unix:///run/vectis/spiffe/registration.sock
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID
+          value: spiffe://vectis.internal/vectis-spiffe/agent/local
+        - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS
+          value: unix:uid:0
+{{ if .SetMetricsPortEnv }}
+        - name: VECTIS_WORKER_METRICS_PORT
+          value: "{{ .MetricsPort }}"
+{{ end }}
+{{ if .SetControlPortEnv }}
+        - name: VECTIS_WORKER_CONTROL_PORT
+          value: "{{ .ControlPort }}"
+{{ end }}
+{{ end }}
+    - name: prometheus
+      image: docker.io/prom/prometheus:v3.11.0-distroless
+      imagePullPolicy: IfNotPresent
+      args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --web.enable-lifecycle
+        - --storage.tsdb.retention.time=24h
+      ports:
+        - containerPort: 9090
+          hostPort: 9090
+          protocol: TCP
+      volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-data
+          mountPath: /prometheus
+        - name: vectis-grpc-tls
+          mountPath: /run/vectis/grpc-tls
+          readOnly: true
+    - name: observability-search
+      image: docker.io/opensearchproject/opensearch:2.19.1
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: discovery.type
+          value: single-node
+        - name: plugins.security.disabled
+          value: "true"
+        - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+          value: Fj9!qL2#zR7@pT4$uN6
+        - name: OPENSEARCH_JAVA_OPTS
+          value: -Xms512m -Xmx512m
+      ports:
+        - containerPort: 9200
+          protocol: TCP
+      volumeMounts:
+        - name: observability-search-data
+          mountPath: /usr/share/opensearch/data
+    - name: fluent-bit
+      image: docker.io/fluent/fluent-bit:5.0.4
+      imagePullPolicy: IfNotPresent
+      args:
+        - --config=/fluent-bit/etc/fluent-bit.conf
+      volumeMounts:
+        - name: fluent-bit-config
+          mountPath: /fluent-bit/etc
+          readOnly: true
+        - name: component-logs
+          mountPath: /var/log/vectis/components
+          readOnly: true
+    - name: jaeger-collector
+      image: cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
+      imagePullPolicy: IfNotPresent
+      args:
+        - --config
+        - /jaeger/config.yaml
+      ports:
+        - containerPort: 4317
+          protocol: TCP
+        - containerPort: 4318
+          protocol: TCP
+      volumeMounts:
+        - name: jaeger-collector-config
+          mountPath: /jaeger
+          readOnly: true
+    - name: jaeger-query
+      image: cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
+      imagePullPolicy: IfNotPresent
+      args:
+        - --config
+        - /jaeger/config.yaml
+      ports:
+        - containerPort: 16686
+          hostPort: 16686
+          protocol: TCP
+      volumeMounts:
+        - name: jaeger-query-config
+          mountPath: /jaeger
+          readOnly: true
+    - name: opensearch-dashboards
+      image: docker.io/opensearchproject/opensearch-dashboards:2.19.1
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: OPENSEARCH_HOSTS
+          value: '["http://127.0.0.1:9200"]'
+        - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
+          value: "true"
+      ports:
+        - containerPort: 5601
+          hostPort: 5601
+          protocol: TCP
+    - name: grafana
+      image: docker.io/grafana/grafana:13.0.0-23943897787
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: admin
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: admin
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+          value: /var/lib/grafana/dashboards/vectis-overview.json
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+          protocol: TCP
+      volumeMounts:
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-dashboard-provider
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: grafana-data
+          mountPath: /var/lib/grafana
+        - name: grafana-dashboards
+          mountPath: /var/lib/grafana/dashboards

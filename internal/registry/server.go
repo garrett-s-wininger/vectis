@@ -9,6 +9,9 @@ import (
 
 	api "vectis/api/gen/go"
 	"vectis/internal/interfaces"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type ServiceOptions struct {
@@ -91,11 +94,14 @@ func (s *registryServer) Register(ctx context.Context, req *api.Registration) (*
 		return nil, fmt.Errorf("component and address are required")
 	}
 
-	comp := *req.Component
+	comp := req.GetComponent()
 	instanceID := req.GetInstanceId()
+	if err := ValidateComponentMetadata(comp, req.GetMetadata()); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid registry metadata: %v", err)
+	}
 
-	_, change := s.reg.registerWithChange(comp, instanceID, *req.Address, req.GetMetadata(), time.Now())
-	s.logRegistrationChange(change, comp, instanceID, *req.Address)
+	_, change := s.reg.registerWithChange(comp, instanceID, req.GetAddress(), req.GetMetadata(), time.Now())
+	s.logRegistrationChange(change, comp, instanceID, req.GetAddress())
 
 	return &api.Empty{}, nil
 }
@@ -108,6 +114,7 @@ func (s *registryServer) logRegistrationChange(change registrationChange, comp a
 
 	action := "New"
 	switch change {
+	case registrationChangeNew:
 	case registrationChangeUpdated:
 		action = "Updated"
 	case registrationChangeRenewed:
@@ -119,8 +126,13 @@ func (s *registryServer) logRegistrationChange(change registrationChange, comp a
 		log("%s queue registration at: %s", action, address)
 	case api.Component_COMPONENT_LOG:
 		log("%s log registration at: %s", action, address)
+	case api.Component_COMPONENT_ARTIFACT:
+		log("%s artifact registration %s at: %s", action, instanceID, address)
 	case api.Component_COMPONENT_WORKER:
 		log("%s worker registration %s at: %s", action, instanceID, address)
+	case api.Component_COMPONENT_ORCHESTRATOR:
+		log("%s orchestrator registration %s at: %s", action, instanceID, address)
+	case api.Component_COMPONENT_UNKNOWN:
 	}
 }
 
@@ -129,7 +141,7 @@ func (s *registryServer) GetAddress(ctx context.Context, req *api.AddressRequest
 		return nil, fmt.Errorf("component is required")
 	}
 
-	comp := *req.Component
+	comp := req.GetComponent()
 	instanceID := req.GetInstanceId()
 	var address string
 

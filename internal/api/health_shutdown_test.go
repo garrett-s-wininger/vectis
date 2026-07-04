@@ -34,6 +34,10 @@ func TestAPIServer_HealthLive_OK(t *testing.T) {
 	if got := rec.Header().Get("X-Vectis-Build-Version"); got == "" {
 		t.Fatal("expected X-Vectis-Build-Version header")
 	}
+
+	if got := rec.Header().Get("X-Vectis-Cell-ID"); got != "local" {
+		t.Fatalf("expected X-Vectis-Cell-ID local, got %q", got)
+	}
 }
 
 func TestAPIServer_HealthReady_OK(t *testing.T) {
@@ -52,6 +56,36 @@ func TestAPIServer_HealthReady_OK(t *testing.T) {
 
 	if got := rec.Header().Get("X-Vectis-Build-Commit"); got == "" {
 		t.Fatal("expected X-Vectis-Build-Commit header")
+	}
+
+	if got := rec.Header().Get("X-Vectis-Cell-ID"); got != "local" {
+		t.Fatalf("expected X-Vectis-Cell-ID local, got %q", got)
+	}
+}
+
+func TestAPIServer_GetVersion_IncludesCellID(t *testing.T) {
+	t.Parallel()
+	db := dbtest.NewTestDB(t)
+	srv := api.NewAPIServer(mocks.NewMockLogger(), db)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	srv.GetVersion(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	var resp struct {
+		CellID string `json:"cell_id"`
+	}
+
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode version response: %v", err)
+	}
+
+	if resp.CellID != "local" {
+		t.Fatalf("expected cell_id local, got %q", resp.CellID)
 	}
 }
 
@@ -109,6 +143,21 @@ func TestAPIServer_HealthReady_QueueNotConnected(t *testing.T) {
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
+func TestAPIServer_HealthReady_QueueIdleIsReady(t *testing.T) {
+	t.Parallel()
+	db := dbtest.NewTestDB(t)
+	srv := api.NewAPIServer(mocks.NewMockLogger(), db)
+	srv.SetQueueClient(queueConnStub{state: connectivity.Idle})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	srv.HealthReady(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d", http.StatusOK, rec.Code)
 	}
 }
 
@@ -223,5 +272,60 @@ func TestAPIServer_Serve_ShutdownOnContextCancel(t *testing.T) {
 	if err == nil {
 		_ = resp.Body.Close()
 		t.Fatal("expected connection error after shutdown")
+	}
+}
+
+func TestAPIServer_HealthReady_DrainingAfterShutdown(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	srv := api.NewAPIServer(mocks.NewMockLogger(), db)
+	srv.SetQueueClient(mocks.NewMockQueueService())
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Serve(ctx, ln)
+	}()
+
+	base := "http://" + ln.Addr().String()
+	var client http.Client
+	var reached bool
+	for start := time.Now(); time.Since(start) < 5*time.Second; time.Sleep(10 * time.Millisecond) {
+		resp, err := client.Get(base + "/health/ready")
+		if err == nil {
+			code := resp.StatusCode
+			_ = resp.Body.Close()
+
+			if code == http.StatusOK {
+				reached = true
+				break
+			}
+		}
+	}
+
+	if !reached {
+		t.Fatal("server never became ready")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for Serve to return after cancel")
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	srv.HealthReady(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected %d, got %d", http.StatusServiceUnavailable, rec.Code)
 	}
 }

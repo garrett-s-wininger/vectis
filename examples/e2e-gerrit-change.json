@@ -1,0 +1,49 @@
+{
+  "id": "e2e-gerrit-change",
+  "secrets": [
+    {
+      "id": "gerrit-http-password",
+      "ref": "encryptedfs://gerrit/http-password",
+      "delivery": {
+        "type": "file",
+        "path": "gerrit/http-password"
+      },
+      "task_keys": ["report"]
+    }
+  ],
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "steps": [
+      {
+        "id": "checkout",
+        "uses": "builtins/checkout",
+        "with": {
+          "url": "http://localhost:18088/vectis-smoke",
+          "ref": "refs/changes/01/1/1"
+        }
+      },
+      {
+        "id": "test",
+        "uses": "builtins/script",
+        "with": {
+          "script": "test -f README.md; printf 'gerrit-change-smoke-ok\\n'"
+        }
+      },
+      {
+        "id": "report",
+        "uses": "gerrit/review@v1",
+        "with": {
+          "url": "http://localhost:18088",
+          "change": "1",
+          "revision": "current",
+          "message": "Vectis Gerrit smoke succeeded",
+          "label": "Code-Review",
+          "value": "+1",
+          "username": "admin",
+          "password_file": ".vectis/secrets/gerrit/http-password"
+        }
+      }
+    ]
+  }
+}

@@ -111,4 +111,13 @@ func TestRegisterRetentionStorageMetrics_appearsInScrape(t *testing.T) {
 			t.Fatalf("missing metric %q; got: %v", want, sortedFamilyNames(names))
 		}
 	}
+
+	families, err := metricFamilies(rr.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !metricFamilyHasLabels(families["vectis_storage_records"], map[string]string{"surface": "run_artifacts"}) {
+		t.Fatalf("storage records metric missing run_artifacts surface: %v", families["vectis_storage_records"])
+	}
 }

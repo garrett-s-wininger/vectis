@@ -5,13 +5,6 @@ import (
 	"testing"
 )
 
-func TestAPIHTTPExcludedFromAuxLogging_metrics(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "/metrics", nil)
-	if !apiHTTPExcludedFromAuxLogging(req) {
-		t.Fatal("expected /metrics to be excluded")
-	}
-}
-
 func TestAPIHTTPExcludedFromAuxLogging_healthLive(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "/health/live", nil)
 	if !apiHTTPExcludedFromAuxLogging(req) {
@@ -27,7 +20,7 @@ func TestAPIHTTPExcludedFromAuxLogging_healthReady(t *testing.T) {
 }
 
 func TestAPIHTTPExcludedFromAuxLogging_otherPaths(t *testing.T) {
-	paths := []string{"/api/v1/jobs", "/api/v1/tokens", "/", "/health"}
+	paths := []string{"/metrics", "/api/v1/catalog/status", "/api/v1/cells/status", "/api/v1/jobs", "/api/v1/tokens", "/", "/health"}
 	for _, p := range paths {
 		req, _ := http.NewRequest(http.MethodGet, p, nil)
 		if apiHTTPExcludedFromAuxLogging(req) {

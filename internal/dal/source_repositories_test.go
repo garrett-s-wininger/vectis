@@ -1,0 +1,757 @@
+package dal_test
+
+import (
+	"context"
+	"reflect"
+	"testing"
+	"time"
+
+	"vectis/internal/dal"
+	"vectis/internal/testutil/dbtest"
+)
+
+func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	ctx := context.Background()
+
+	created, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		CanonicalURL: "https://mirror.invalid/vectis.git",
+		FallbackRemoteURLs: []string{
+			"https://tier1.invalid/vectis.git",
+			"https://tier2.invalid/vectis.git",
+		},
+		DefaultRef: "main",
+		Enabled:    true,
+	})
+
+	if err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if created.ID == 0 || created.GlobalID == "" {
+		t.Fatalf("expected durable IDs, got %+v", created)
+	}
+
+	if created.RepositoryID != "vectis-local" ||
+		created.CheckoutPath != "/work/vectis" ||
+		created.CanonicalURL != "https://mirror.invalid/vectis.git" ||
+		created.CheckoutMode != dal.SourceCheckoutModeExternal ||
+		created.AuthoringMode != dal.SourceAuthoringModeReadOnly ||
+		created.WorkerCacheMode != dal.SourceWorkerCacheModeEphemeral ||
+		created.SyncStatus != dal.SourceSyncStatusNever ||
+		!created.Enabled {
+		t.Fatalf("created repository mismatch: %+v", created)
+	}
+	if want := []string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"}; !reflect.DeepEqual(created.FallbackRemoteURLs, want) {
+		t.Fatalf("created fallback remotes: got %+v want %+v", created.FallbackRemoteURLs, want)
+	}
+
+	got, err := sources.GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.ID != created.ID || got.DefaultRef != "main" || !reflect.DeepEqual(got.FallbackRemoteURLs, created.FallbackRemoteURLs) {
+		t.Fatalf("get repository mismatch: got %+v want %+v", got, created)
+	}
+
+	listed, err := sources.ListRepositories(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListRepositories: %v", err)
+	}
+
+	if len(listed) != 1 || listed[0].RepositoryID != "vectis-local" || !reflect.DeepEqual(listed[0].FallbackRemoteURLs, created.FallbackRemoteURLs) {
+		t.Fatalf("expected one listed repository, got %+v", listed)
+	}
+}
+
+func TestSourcesRepository_ListRepositoriesByWorkerCacheMode(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{
+			RepositoryID:    "ephemeral-enabled",
+			NamespaceID:     1,
+			SourceKind:      dal.SourceKindLocalCheckout,
+			CheckoutPath:    "/work/ephemeral-enabled",
+			WorkerCacheMode: dal.SourceWorkerCacheModeEphemeral,
+			CanonicalURL:    "https://mirror.invalid/ephemeral.git",
+			Enabled:         true,
+		},
+		{
+			RepositoryID:       "persistent-enabled",
+			NamespaceID:        1,
+			SourceKind:         dal.SourceKindLocalCheckout,
+			CheckoutPath:       "/work/persistent-enabled",
+			WorkerCacheMode:    dal.SourceWorkerCacheModePersistent,
+			CanonicalURL:       "https://mirror.invalid/persistent.git",
+			FallbackRemoteURLs: []string{"https://tier1.invalid/persistent.git"},
+			Enabled:            true,
+		},
+		{
+			RepositoryID:    "persistent-disabled",
+			NamespaceID:     1,
+			SourceKind:      dal.SourceKindLocalCheckout,
+			CheckoutPath:    "/work/persistent-disabled",
+			WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+			CanonicalURL:    "https://mirror.invalid/disabled.git",
+			Enabled:         false,
+		},
+	} {
+		if _, err := sources.CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("create repository %s: %v", rec.RepositoryID, err)
+		}
+	}
+
+	listed, err := sources.ListRepositoriesByWorkerCacheMode(ctx, dal.SourceWorkerCacheModePersistent)
+	if err != nil {
+		t.Fatalf("ListRepositoriesByWorkerCacheMode: %v", err)
+	}
+
+	if len(listed) != 1 || listed[0].RepositoryID != "persistent-enabled" {
+		t.Fatalf("persistent repositories = %+v, want persistent-enabled only", listed)
+	}
+
+	if listed[0].CanonicalURL != "https://mirror.invalid/persistent.git" ||
+		!reflect.DeepEqual(listed[0].FallbackRemoteURLs, []string{"https://tier1.invalid/persistent.git"}) {
+		t.Fatalf("persistent repository URLs = %+v", listed[0])
+	}
+}
+
+func TestSourcesRepository_CountRepositories(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{RepositoryID: "declared-ready", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/declared-ready", Enabled: true},
+		{RepositoryID: "stale-failed", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/stale-failed", Enabled: true},
+		{RepositoryID: "declared-disabled", NamespaceID: 1, SourceKind: dal.SourceKindLocalCheckout, CheckoutPath: "/work/declared-disabled", Enabled: false},
+	} {
+		if _, err := sources.CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("create repository %s: %v", rec.RepositoryID, err)
+		}
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "declared-ready",
+		Status:       dal.SourceSyncStatusSucceeded,
+		Ref:          "main",
+		Commit:       "abc123",
+	}); err != nil {
+		t.Fatalf("sync declared-ready: %v", err)
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "stale-failed",
+		Status:       dal.SourceSyncStatusFailed,
+		Error:        "fetch failed",
+	}); err != nil {
+		t.Fatalf("sync stale-failed: %v", err)
+	}
+
+	counts, err := sources.CountRepositories(ctx, []string{"declared-ready", "declared-disabled", "declared-ready", " ", "stale-failed' OR 1=1 --"})
+	if err != nil {
+		t.Fatalf("CountRepositories: %v", err)
+	}
+
+	if counts.Total != 3 ||
+		counts.Enabled != 2 ||
+		counts.Disabled != 1 ||
+		counts.Declared != 2 ||
+		counts.StaleEnabled != 1 ||
+		counts.StaleDisabled != 0 ||
+		counts.SyncSucceeded != 1 ||
+		counts.SyncFailed != 1 ||
+		counts.SyncRunning != 0 ||
+		counts.SyncNever != 1 {
+		t.Fatalf("unexpected counts: %+v", counts)
+	}
+}
+
+func TestSourcesRepository_CreateRepositoryConflicts(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	rec := dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}
+
+	if _, err := sources.CreateRepository(ctx, rec); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if _, err := sources.CreateRepository(ctx, rec); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict on duplicate repository, got %v", err)
+	}
+
+	duplicatePath := rec
+	duplicatePath.RepositoryID = "vectis-alias"
+	if _, err := sources.CreateRepository(ctx, duplicatePath); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict on duplicate checkout path, got %v", err)
+	}
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "missing-path",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		Enabled:      true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for missing checkout path, got %v", err)
+	}
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "unknown-kind",
+		NamespaceID:  1,
+		SourceKind:   "remote_git",
+		CanonicalURL: "https://example.invalid/repo.git",
+		Enabled:      true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for unsupported source kind, got %v", err)
+	}
+}
+
+func TestSourcesRepository_DeleteRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("DeleteRepository: %v", err)
+	}
+
+	if _, err := sources.GetRepository(ctx, "vectis-local"); !dal.IsNotFound(err) {
+		t.Fatalf("expected deleted repository to be missing, got %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found deleting missing repository, got %v", err)
+	}
+}
+
+func TestSourcesRepository_DeleteRepositoryConflictsWhenReferenced(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := sources.RecordDefinitionSource(ctx, dal.JobDefinitionSourceRecord{
+		JobID:          "build",
+		Version:        1,
+		RepositoryID:   "vectis-local",
+		RequestedRef:   "main",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		DefinitionPath: ".vectis/jobs/build.json",
+		BlobSHA:        "abcdef0123456789abcdef0123456789abcdef01",
+	}); err != nil {
+		t.Fatalf("RecordDefinitionSource: %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict deleting referenced repository, got %v", err)
+	}
+
+	if _, err := sources.GetRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("referenced repository should remain: %v", err)
+	}
+}
+
+func TestSourcesRepository_DeleteRepositoryConflictsWhenScheduleReferencesRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if _, err := repos.Schedules().CreateCronSchedule(ctx, dal.CronScheduleRecord{
+		ScheduleID:         "nightly-build",
+		JobID:              "build",
+		CronSpec:           "30 8 * * *",
+		NextRunAt:          time.Date(2026, 5, 1, 8, 30, 0, 0, time.UTC),
+		SourceRepositoryID: "vectis-local",
+		SourceRef:          "main",
+		Enabled:            true,
+	}); err != nil {
+		t.Fatalf("create source schedule: %v", err)
+	}
+
+	if err := sources.DeleteRepository(ctx, "vectis-local"); !dal.IsConflict(err) {
+		t.Fatalf("expected conflict deleting repository referenced by schedule, got %v", err)
+	}
+
+	if _, err := sources.GetRepository(ctx, "vectis-local"); err != nil {
+		t.Fatalf("scheduled repository should remain: %v", err)
+	}
+}
+
+func TestSourcesRepository_UpdateRepository(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		DefaultRef:   "main",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	updated, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:    "vectis-local",
+		SourceKind:      dal.SourceKindLocalCheckout,
+		CheckoutPath:    "/work/vectis-next",
+		CheckoutMode:    dal.SourceCheckoutModeManaged,
+		AuthoringMode:   dal.SourceAuthoringModeLocalCommit,
+		WorkerCacheMode: dal.SourceWorkerCacheModePersistent,
+		CanonicalURL:    "https://example.invalid/vectis.git",
+		FallbackRemoteURLs: []string{
+			"https://tier1.invalid/vectis.git",
+			"https://tier2.invalid/vectis.git",
+		},
+		DefaultRef:    "release",
+		CredentialRef: "secret://git/vectis",
+		Enabled:       false,
+	})
+
+	if err != nil {
+		t.Fatalf("UpdateRepository: %v", err)
+	}
+
+	if updated.CheckoutPath != "/work/vectis-next" ||
+		updated.CheckoutMode != dal.SourceCheckoutModeManaged ||
+		updated.AuthoringMode != dal.SourceAuthoringModeLocalCommit ||
+		updated.WorkerCacheMode != dal.SourceWorkerCacheModePersistent ||
+		updated.CanonicalURL != "https://example.invalid/vectis.git" ||
+		!reflect.DeepEqual(updated.FallbackRemoteURLs, []string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"}) ||
+		updated.DefaultRef != "release" ||
+		updated.CredentialRef != "secret://git/vectis" ||
+		updated.Enabled {
+		t.Fatalf("updated repository mismatch: %+v", updated)
+	}
+
+	got, err := sources.GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.CheckoutPath != updated.CheckoutPath ||
+		got.CheckoutMode != updated.CheckoutMode ||
+		got.AuthoringMode != updated.AuthoringMode ||
+		got.WorkerCacheMode != updated.WorkerCacheMode ||
+		!reflect.DeepEqual(got.FallbackRemoteURLs, updated.FallbackRemoteURLs) ||
+		got.DefaultRef != updated.DefaultRef ||
+		got.Enabled != updated.Enabled {
+		t.Fatalf("persisted update mismatch: got %+v want %+v", got, updated)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "missing",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/missing",
+		Enabled:      true,
+	}); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found for missing repository, got %v", err)
+	}
+}
+
+func TestSourcesRepository_UpdateRepositoryConflicts(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	for _, rec := range []dal.SourceRepositoryRecord{
+		{
+			RepositoryID: "vectis-local",
+			NamespaceID:  1,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: "/work/vectis",
+			Enabled:      true,
+		},
+		{
+			RepositoryID: "other",
+			NamespaceID:  1,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: "/work/other",
+			Enabled:      true,
+		},
+	} {
+		if _, err := sources.CreateRepository(ctx, rec); err != nil {
+			t.Fatalf("CreateRepository(%s): %v", rec.RepositoryID, err)
+		}
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "other",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected duplicate checkout path conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "other",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		Enabled:      true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected missing checkout path conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "other",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/other",
+		CheckoutMode: "magic",
+		Enabled:      true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported checkout mode conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:  "other",
+		SourceKind:    dal.SourceKindLocalCheckout,
+		CheckoutPath:  "/work/other",
+		AuthoringMode: "magic",
+		Enabled:       true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported authoring mode conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:    "other",
+		SourceKind:      dal.SourceKindLocalCheckout,
+		CheckoutPath:    "/work/other",
+		WorkerCacheMode: "magic",
+		Enabled:         true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported worker cache mode conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID:  "other",
+		SourceKind:    dal.SourceKindLocalCheckout,
+		CheckoutPath:  "/work/other",
+		CheckoutMode:  dal.SourceCheckoutModeExternal,
+		AuthoringMode: dal.SourceAuthoringModeLocalCommit,
+		Enabled:       true,
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected incompatible authoring mode conflict, got %v", err)
+	}
+}
+
+func TestSourcesRepository_UpdateRepositorySync(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	synced, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:   "vectis-local",
+		Status:         dal.SourceSyncStatusSucceeded,
+		StartedAtUnix:  100,
+		FinishedAtUnix: 105,
+		Ref:            "refs/heads/main",
+		Commit:         "0123456789abcdef0123456789abcdef01234567",
+	})
+
+	if err != nil {
+		t.Fatalf("UpdateRepositorySync: %v", err)
+	}
+
+	if synced.SyncStatus != dal.SourceSyncStatusSucceeded ||
+		synced.LastSyncStartedAtUnix != 100 ||
+		synced.LastSyncFinishedAtUnix != 105 ||
+		synced.LastSyncRef != "refs/heads/main" ||
+		synced.LastSyncCommit != "0123456789abcdef0123456789abcdef01234567" ||
+		synced.LastSyncError != "" {
+		t.Fatalf("sync record mismatch: %+v", synced)
+	}
+
+	failed, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:   "vectis-local",
+		Status:         dal.SourceSyncStatusFailed,
+		StartedAtUnix:  200,
+		FinishedAtUnix: 201,
+		Ref:            "refs/heads/release",
+		Error:          "fetch failed",
+	})
+
+	if err != nil {
+		t.Fatalf("UpdateRepositorySync failed status: %v", err)
+	}
+
+	if failed.SyncStatus != dal.SourceSyncStatusFailed ||
+		failed.LastSyncCommit != "" ||
+		failed.LastSyncError != "fetch failed" {
+		t.Fatalf("failed sync record mismatch: %+v", failed)
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "vectis-local",
+		Status:       "maybe",
+	}); !dal.IsConflict(err) {
+		t.Fatalf("expected unsupported sync status conflict, got %v", err)
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "missing",
+		Status:       dal.SourceSyncStatusRunning,
+	}); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found for missing repository, got %v", err)
+	}
+}
+
+func TestSourcesRepository_BeginRepositorySync(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	running, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  "vectis-local",
+		StartedAtUnix: 100,
+		Ref:           "HEAD",
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync: %v", err)
+	}
+
+	if !began ||
+		running.SyncStatus != dal.SourceSyncStatusRunning ||
+		running.LastSyncStartedAtUnix != 100 ||
+		running.LastSyncFinishedAtUnix != 0 ||
+		running.LastSyncRef != "HEAD" ||
+		running.LastSyncCommit != "" ||
+		running.LastSyncError != "" {
+		t.Fatalf("running sync mismatch: began=%v record=%+v", began, running)
+	}
+
+	blocked, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  "vectis-local",
+		StartedAtUnix: 200,
+		Ref:           "refs/heads/main",
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync already running: %v", err)
+	}
+
+	if began || blocked.SyncStatus != dal.SourceSyncStatusRunning || blocked.LastSyncStartedAtUnix != 100 || blocked.LastSyncRef != "HEAD" {
+		t.Fatalf("already running mismatch: began=%v record=%+v", began, blocked)
+	}
+
+	reclaimed, began, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:           "vectis-local",
+		StartedAtUnix:          250,
+		Ref:                    "refs/heads/main",
+		RunningStaleBeforeUnix: 150,
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync stale running: %v", err)
+	}
+
+	if !began ||
+		reclaimed.SyncStatus != dal.SourceSyncStatusRunning ||
+		reclaimed.LastSyncStartedAtUnix != 250 ||
+		reclaimed.LastSyncFinishedAtUnix != 0 ||
+		reclaimed.LastSyncRef != "refs/heads/main" ||
+		reclaimed.LastSyncCommit != "" ||
+		reclaimed.LastSyncError != "" {
+		t.Fatalf("stale running sync mismatch: began=%v record=%+v", began, reclaimed)
+	}
+
+	if _, err := sources.UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:   "vectis-local",
+		Status:         dal.SourceSyncStatusSucceeded,
+		StartedAtUnix:  250,
+		FinishedAtUnix: 255,
+		Ref:            "refs/heads/main",
+		Commit:         "0123456789abcdef0123456789abcdef01234567",
+	}); err != nil {
+		t.Fatalf("UpdateRepositorySync: %v", err)
+	}
+
+	running, began, err = sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:  "vectis-local",
+		StartedAtUnix: 300,
+		Ref:           "refs/heads/main",
+	})
+
+	if err != nil {
+		t.Fatalf("BeginRepositorySync after completion: %v", err)
+	}
+
+	if !began ||
+		running.SyncStatus != dal.SourceSyncStatusRunning ||
+		running.LastSyncStartedAtUnix != 300 ||
+		running.LastSyncFinishedAtUnix != 0 ||
+		running.LastSyncRef != "refs/heads/main" ||
+		running.LastSyncCommit != "" ||
+		running.LastSyncError != "" {
+		t.Fatalf("rerun sync mismatch: began=%v record=%+v", began, running)
+	}
+
+	if _, _, err := sources.BeginRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID: "missing",
+	}); !dal.IsNotFound(err) {
+		t.Fatalf("expected not found for missing repository, got %v", err)
+	}
+}
+
+func TestSourcesRepository_RecordAndGetDefinitionSource(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	sources := repos.Sources()
+	ctx := context.Background()
+
+	if _, err := sources.CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	rec := dal.JobDefinitionSourceRecord{
+		JobID:          "build",
+		Version:        1,
+		RepositoryID:   "vectis-local",
+		RequestedRef:   "main",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		DefinitionPath: ".vectis/jobs/build.json",
+		BlobSHA:        "abcdef0123456789abcdef0123456789abcdef01",
+	}
+
+	if err := sources.RecordDefinitionSource(ctx, rec); err != nil {
+		t.Fatalf("RecordDefinitionSource: %v", err)
+	}
+
+	got, err := sources.GetDefinitionSource(ctx, "build", 1)
+	if err != nil {
+		t.Fatalf("GetDefinitionSource: %v", err)
+	}
+
+	if got != rec {
+		t.Fatalf("definition source mismatch: got %+v want %+v", got, rec)
+	}
+
+	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`); err != nil {
+		t.Fatalf("update job: %v", err)
+	}
+
+	rec.Version = 2
+	rec.ResolvedCommit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	rec.BlobSHA = "blob2"
+	if err := sources.RecordDefinitionSource(ctx, rec); err != nil {
+		t.Fatalf("RecordDefinitionSource v2: %v", err)
+	}
+
+	batch, err := sources.GetDefinitionSources(ctx, "build", []int{2, 1, 2, 99, -1})
+	if err != nil {
+		t.Fatalf("GetDefinitionSources: %v", err)
+	}
+
+	if len(batch) != 2 {
+		t.Fatalf("batch len: got %d want 2 (%+v)", len(batch), batch)
+	}
+
+	if batch[1].ResolvedCommit != "0123456789abcdef0123456789abcdef01234567" ||
+		batch[2].ResolvedCommit != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		t.Fatalf("batch records mismatch: %+v", batch)
+	}
+}
+
+func TestSourcesRepository_RecordDefinitionSourceRequiresExistingRows(t *testing.T) {
+	db := dbtest.NewTestDB(t)
+	sources := dal.NewSQLRepositories(db).Sources()
+	ctx := context.Background()
+
+	err := sources.RecordDefinitionSource(ctx, dal.JobDefinitionSourceRecord{
+		JobID:          "missing",
+		Version:        1,
+		RepositoryID:   "missing-repo",
+		RequestedRef:   "main",
+		ResolvedCommit: "0123456789abcdef0123456789abcdef01234567",
+		DefinitionPath: ".vectis/jobs/build.json",
+	})
+
+	if !dal.IsConflict(err) {
+		t.Fatalf("expected conflict for missing foreign keys, got %v", err)
+	}
+}

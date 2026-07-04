@@ -45,6 +45,8 @@ func TestGRPCResolverScheme_IsURLSafe(t *testing.T) {
 	for _, comp := range []api.Component{
 		api.Component_COMPONENT_QUEUE,
 		api.Component_COMPONENT_LOG,
+		api.Component_COMPONENT_ARTIFACT,
+		api.Component_COMPONENT_ORCHESTRATOR,
 	} {
 		s := grpcResolverScheme(comp)
 		for _, r := range s {
@@ -53,8 +55,17 @@ func TestGRPCResolverScheme_IsURLSafe(t *testing.T) {
 			}
 		}
 	}
+
 	if grpcResolverScheme(api.Component_COMPONENT_QUEUE) != "vectis-queue" {
 		t.Fatalf("queue scheme: %s", grpcResolverScheme(api.Component_COMPONENT_QUEUE))
+	}
+
+	if grpcResolverScheme(api.Component_COMPONENT_ARTIFACT) != "vectis-artifact" {
+		t.Fatalf("artifact scheme: %s", grpcResolverScheme(api.Component_COMPONENT_ARTIFACT))
+	}
+
+	if grpcResolverScheme(api.Component_COMPONENT_ORCHESTRATOR) != "vectis-orchestrator" {
+		t.Fatalf("orchestrator scheme: %s", grpcResolverScheme(api.Component_COMPONENT_ORCHESTRATOR))
 	}
 }
 
@@ -62,8 +73,16 @@ func TestGRPCHealthServiceName_MatchesServers(t *testing.T) {
 	if grpcHealthServiceName(api.Component_COMPONENT_QUEUE) != "queue" {
 		t.Fatal("queue health name must match internal/queue RegisterQueueService")
 	}
+
 	if grpcHealthServiceName(api.Component_COMPONENT_LOG) != "log" {
 		t.Fatal("log health name must match internal/logserver RunGRPC")
+	}
+	if grpcHealthServiceName(api.Component_COMPONENT_ARTIFACT) != "artifact" {
+		t.Fatal("artifact health name must match internal/artifact RunGRPC")
+	}
+
+	if grpcHealthServiceName(api.Component_COMPONENT_ORCHESTRATOR) != "orchestrator" {
+		t.Fatal("orchestrator health name must match internal/orchestrator RegisterOrchestratorService")
 	}
 }
 
@@ -217,6 +236,22 @@ func TestLogResolverAddress_Key(t *testing.T) {
 	viper.Set("log.resolver.address", ":legacy")
 	if got := config.LogResolverAddress(); got != ":legacy" {
 		t.Fatalf("log.resolver.address legacy: got %q", got)
+	}
+}
+
+func TestPinnedAddress_Artifact(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	viper.Set("artifact.grpc.resolver.address", "artifact-pinned:8086")
+	if got := pinnedAddress(api.Component_COMPONENT_ARTIFACT); got != "artifact-pinned:8086" {
+		t.Fatalf("artifact.grpc.resolver.address: got %q", got)
+	}
+
+	viper.Set("artifact.grpc.resolver.address", "")
+	viper.Set("artifact.resolver.address", "artifact-legacy:8086")
+	if got := pinnedAddress(api.Component_COMPONENT_ARTIFACT); got != "artifact-legacy:8086" {
+		t.Fatalf("artifact.resolver.address legacy: got %q", got)
 	}
 }
 

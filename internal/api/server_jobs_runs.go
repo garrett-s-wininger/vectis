@@ -8,15 +8,19 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/api/audit"
 	"vectis/internal/api/authn"
 	"vectis/internal/api/authz"
+	"vectis/internal/cell"
 	"vectis/internal/config"
 	"vectis/internal/dal"
+	"vectis/internal/dispatchmeta"
 	"vectis/internal/interfaces"
+	jobpkg "vectis/internal/job"
 	jobvalidation "vectis/internal/job/validation"
 	"vectis/internal/observability"
 
@@ -26,10 +30,277 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
-const defaultForceFailReason = "manually failed via API"
+const (
+	defaultForceFailReason               = "manually failed via API"
+	idempotencyResourceTriggerInvocation = "trigger_invocation"
+)
+
+func newRunAuditMetadata(triggerInvocationID, namespacePath string) dal.RunAuditMetadata {
+	return dal.RunAuditMetadata{
+		TriggerInvocationID:   triggerInvocationID,
+		NamespacePath:         namespacePath,
+		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
+	}
+}
+
+type runTargetOptions struct {
+	CellID        string   `json:"cell_id"`
+	TargetCellID  string   `json:"target_cell_id"`
+	CellIDs       []string `json:"cell_ids"`
+	TargetCellIDs []string `json:"target_cell_ids"`
+}
+
+func (o runTargetOptions) targetCellID() string {
+	targetCellIDs := o.targetCellIDs()
+
+	if len(targetCellIDs) == 0 {
+		return ""
+	}
+
+	return targetCellIDs[0]
+}
+
+func (o runTargetOptions) targetCellIDs() []string {
+	var out []string
+	seen := map[string]struct{}{}
+	appendCell := func(cellID string) {
+		cellID = strings.TrimSpace(cellID)
+		if cellID == "" {
+			return
+		}
+
+		if _, ok := seen[cellID]; ok {
+			return
+		}
+
+		seen[cellID] = struct{}{}
+		out = append(out, cellID)
+	}
+
+	appendCell(o.TargetCellID)
+	appendCell(o.CellID)
+
+	for _, cellID := range o.TargetCellIDs {
+		appendCell(cellID)
+	}
+
+	for _, cellID := range o.CellIDs {
+		appendCell(cellID)
+	}
+
+	return out
+}
+
+func parseRunTargetOptions(body []byte) (runTargetOptions, error) {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return runTargetOptions{}, nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return runTargetOptions{}, err
+	}
+	if _, ok := raw["trigger_key"]; ok {
+		return runTargetOptions{}, fmt.Errorf("trigger_key is not a supported trigger option")
+	}
+
+	var opts runTargetOptions
+	if err := json.Unmarshal(body, &opts); err != nil {
+		return runTargetOptions{}, err
+	}
+	return opts, nil
+}
+
+func jobDefinitionTriggersField(data []byte) (present, empty bool) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return false, false
+	}
+
+	raw, ok := doc["triggers"]
+	if !ok {
+		return false, false
+	}
+
+	raw = bytes.TrimSpace(raw)
+	if bytes.Equal(raw, []byte("null")) {
+		return true, true
+	}
+
+	var triggers []json.RawMessage
+	if err := json.Unmarshal(raw, &triggers); err != nil {
+		return true, false
+	}
+
+	return true, len(triggers) == 0
+}
+
+func requireNonEmptyStoredJobTriggers(w http.ResponseWriter, definitionJSON []byte) bool {
+	present, empty := jobDefinitionTriggersField(definitionJSON)
+	if !present || !empty {
+		return true
+	}
+
+	writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "stored-job triggers must not be empty; omit triggers to use on_demand", map[string]any{"field": "triggers"})
+	return false
+}
+
+type triggerJobRunResponse struct {
+	RunID    string `json:"run_id"`
+	RunIndex int    `json:"run_index"`
+	CellID   string `json:"cell_id,omitempty"`
+}
+
+type triggerJobResponseBody struct {
+	JobID    string                  `json:"job_id"`
+	RunID    string                  `json:"run_id,omitempty"`
+	RunIndex int                     `json:"run_index,omitempty"`
+	Runs     []triggerJobRunResponse `json:"runs,omitempty"`
+}
+
+type replayRunResponseBody struct {
+	JobID         string `json:"job_id"`
+	RunID         string `json:"run_id"`
+	RunIndex      int    `json:"run_index"`
+	CellID        string `json:"cell_id,omitempty"`
+	ReplayOfRunID string `json:"replay_of_run_id"`
+}
+
+type runTaskExecutionSecurityEventRow struct {
+	ID            int64   `json:"id"`
+	RunID         string  `json:"run_id"`
+	TaskID        string  `json:"task_id,omitempty"`
+	TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+	ExecutionID   string  `json:"execution_id,omitempty"`
+	EventType     string  `json:"event_type"`
+	Outcome       string  `json:"outcome"`
+	Reason        string  `json:"reason,omitempty"`
+	Provider      *string `json:"provider,omitempty"`
+	SecretCount   *int    `json:"secret_count,omitempty"`
+	FileCount     *int    `json:"file_count,omitempty"`
+	CreatedAt     int64   `json:"created_at"`
+}
+
+type runTaskAttemptRow struct {
+	AttemptID       string                             `json:"attempt_id"`
+	TaskID          string                             `json:"task_id"`
+	RunID           string                             `json:"run_id"`
+	ExecutionID     string                             `json:"execution_id,omitempty"`
+	ExecutionStatus string                             `json:"execution_status,omitempty"`
+	CellID          string                             `json:"cell_id"`
+	LeaseOwner      *string                            `json:"lease_owner,omitempty"`
+	LeaseUntil      *int64                             `json:"lease_until,omitempty"`
+	Attempt         int                                `json:"attempt"`
+	Status          string                             `json:"status"`
+	AcceptedAt      *string                            `json:"accepted_at,omitempty"`
+	StartedAt       *string                            `json:"started_at,omitempty"`
+	FinishedAt      *string                            `json:"finished_at,omitempty"`
+	LastObservedAt  *int64                             `json:"last_observed_at,omitempty"`
+	EventSequence   int64                              `json:"event_sequence"`
+	CreatedAt       *string                            `json:"created_at,omitempty"`
+	UpdatedAt       *string                            `json:"updated_at,omitempty"`
+	SecurityEvents  []runTaskExecutionSecurityEventRow `json:"security_events,omitempty"`
+}
+
+type runTaskRow struct {
+	TaskID       string              `json:"task_id"`
+	RunID        string              `json:"run_id"`
+	ParentTaskID *string             `json:"parent_task_id,omitempty"`
+	TaskKey      string              `json:"task_key"`
+	Name         string              `json:"name"`
+	Status       string              `json:"status"`
+	SpecHash     string              `json:"spec_hash,omitempty"`
+	CreatedAt    *string             `json:"created_at,omitempty"`
+	UpdatedAt    *string             `json:"updated_at,omitempty"`
+	Attempts     []runTaskAttemptRow `json:"attempts"`
+}
+
+func triggerJobResponse(jobID string, createdRuns []dal.CreatedRun) triggerJobResponseBody {
+	resp := triggerJobResponseBody{JobID: jobID}
+	if len(createdRuns) == 1 {
+		resp.RunID = createdRuns[0].RunID
+		resp.RunIndex = createdRuns[0].RunIndex
+		return resp
+	}
+
+	resp.Runs = make([]triggerJobRunResponse, 0, len(createdRuns))
+	for _, createdRun := range createdRuns {
+		resp.Runs = append(resp.Runs, triggerJobRunResponse{
+			RunID:    createdRun.RunID,
+			RunIndex: createdRun.RunIndex,
+			CellID:   createdRun.TargetCellID,
+		})
+	}
+
+	return resp
+}
+
+func (s *APIServer) recoverRunCreationIdempotency(
+	w http.ResponseWriter,
+	ctx context.Context,
+	scope string,
+	key string,
+	record dal.IdempotencyRecord,
+	buildResponse func([]dal.CreatedRun) (any, bool),
+) bool {
+	if record.ResourceType != idempotencyResourceTriggerInvocation || record.ResourceID == "" {
+		return false
+	}
+
+	createdRuns, err := s.runs.ListCreatedByTriggerInvocation(ctx, record.ResourceID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return true
+		}
+
+		s.logger.Error("Database error recovering idempotency response: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return true
+	}
+
+	if len(createdRuns) == 0 {
+		return false
+	}
+
+	response, ok := buildResponse(createdRuns)
+	if !ok {
+		return false
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		s.logger.Error("Failed to encode recovered idempotency response: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return true
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, scope, key, buf.Bytes())
+
+	return true
+}
+
+func cloneJobForRun(job *api.Job, runID string) *api.Job {
+	if job == nil {
+		return &api.Job{RunId: &runID}
+	}
+
+	cloned, ok := proto.Clone(job).(*api.Job)
+	if !ok {
+		cloned = &api.Job{}
+	}
+
+	cloned.RunId = &runID
+	return cloned
+}
 
 type repairMarkKind string
 
@@ -68,7 +339,7 @@ func (s *APIServer) repairMarkRun(w http.ResponseWriter, r *http.Request, mark r
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -148,9 +419,8 @@ func readRepairReason(w http.ResponseWriter, r *http.Request) (string, bool) {
 		return "", true
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
 		return "", false
 	}
 
@@ -201,7 +471,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -248,9 +518,8 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reason := defaultForceFailReason
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
 		return
 	}
 
@@ -269,7 +538,7 @@ func (s *APIServer) ForceFailRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.runs.MarkRunFailed(ctx, runID, "", dal.FailureCodeForceFailed, reason); err != nil {
+	if err := s.runs.MarkRunFailed(ctx, runID, dal.FailureCodeForceFailed, reason); err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
 		}
@@ -302,7 +571,7 @@ func (s *APIServer) ForceRequeueRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -395,7 +664,7 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -424,10 +693,15 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rec, err := s.runs.GetRunForCancel(ctx, runID)
+	rec, err := s.runs.RequestRunCancel(ctx, runID, dal.CancelReasonAPI)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "run_not_executing", "run is not executing", map[string]any{"status": rec.Status})
 			return
 		}
 
@@ -441,46 +715,42 @@ func (s *APIServer) CancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	if rec.Status != "running" {
-		writeAPIError(w, http.StatusConflict, "run_not_executing", "run is not executing", map[string]any{"status": rec.Status})
-		return
-	}
-
-	if rec.LeaseOwner == "" {
-		writeAPIError(w, http.StatusConflict, "run_worker_missing", "run has no assigned worker", nil)
-		return
-	}
-
-	if s.ResolveWorkerAddress == nil {
-		writeAPIError(w, http.StatusServiceUnavailable, "worker_resolution_unavailable", "worker resolution not configured", nil)
-		return
-	}
-
-	workerAddr, err := s.ResolveWorkerAddress(ctx, rec.LeaseOwner)
-	if err != nil {
-		s.logger.Error("Failed to resolve worker %s for run %s: %v", rec.LeaseOwner, runID, err)
-		writeAPIError(w, http.StatusBadGateway, "worker_not_reachable", "worker not reachable", nil)
-		return
-	}
-
-	if err := s.sendCancelToWorker(ctx, workerAddr, runID, rec.CancelToken); err != nil {
-		s.logger.Error("Failed to send cancel to worker %s for run %s: %v", rec.LeaseOwner, runID, err)
-		writeAPIError(w, http.StatusBadGateway, "worker_cancel_failed", "failed to send cancel to worker", nil)
-		return
-	}
-
 	actorID := int64(0)
 	if p != nil {
 		actorID = p.LocalUserID
 	}
 
+	if rec.LeaseOwner != "" && rec.CancelToken != "" && s.ResolveWorkerAddress != nil {
+		workerAddr, err := s.ResolveWorkerAddress(ctx, rec.LeaseOwner)
+		if err != nil {
+			s.logger.Warn("Cancel request stored for run %s but worker %s could not be resolved: %v", runID, rec.LeaseOwner, err)
+		} else if err := s.sendCancelToWorker(ctx, workerAddr, runID, rec.CancelToken); err != nil {
+			s.logger.Warn("Cancel request stored for run %s but worker %s did not accept fast-path cancel: %v", runID, rec.LeaseOwner, err)
+		} else {
+			s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
+				"run_id":    runID,
+				"namespace": nsPath,
+				"delivery":  "worker_control",
+			})
+
+			s.logger.Info("Cancellation request sent to worker: %s", runID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+
 	s.auditLog(ctx, audit.EventRunCancelled, actorID, 0, map[string]any{
 		"run_id":    runID,
 		"namespace": nsPath,
+		"delivery":  "pending",
 	})
 
-	s.logger.Info("Cancelation request sent to worker: %s", runID)
-	w.WriteHeader(http.StatusNoContent)
+	s.logger.Info("Cancellation request stored for run: %s", runID)
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"status":   "cancel_requested",
+		"run_id":   runID,
+		"delivery": "pending",
+	})
 }
 
 const workerCancelRPCTimeout = 10 * time.Second
@@ -495,7 +765,7 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 	if err != nil {
 		return fmt.Errorf("dial worker: %w", err)
 	}
-	defer conn.Close()
+	defer func(closer interface{ Close() error }) { _ = closer.Close() }(conn)
 
 	client := api.NewWorkerControlServiceClient(conn)
 
@@ -511,14 +781,12 @@ func (s *APIServer) sendCancelToWorker(ctx context.Context, workerAddr, runID, c
 }
 
 func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
+	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
+	if !ok {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, "", true) {
 		return
 	}
 
@@ -526,18 +794,19 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		Namespace string          `json:"namespace"`
 		Job       json.RawMessage `json:"job"`
 	}
-
 	if err := json.Unmarshal(body, &req); err != nil {
-		// Fallback to legacy format: the body is the job definition itself
 		req.Job = body
 	}
-
 	if req.Job == nil {
 		req.Job = body
 	}
 
+	if !requireNonEmptyStoredJobTriggers(w, req.Job) {
+		return
+	}
+
 	var job api.Job
-	if err := json.Unmarshal(req.Job, &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
@@ -547,12 +816,12 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -587,7 +856,8 @@ func (s *APIServer) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.jobs.Create(ctx, *job.Id, string(req.Job), ns.ID)
+	triggers := jobTriggerConfigs(&job)
+	err = s.jobs.CreateWithTriggers(ctx, *job.Id, string(req.Job), ns.ID, triggers)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -625,231 +895,57 @@ func (s *APIServer) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
+	if repositoryID := sourceJobRepositoryIDFromQuery(r); repositoryID != "" {
+		s.deleteSourceJobDefinitionFromJobsFacade(w, r, repositoryID, jobID)
 		return
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	err = s.jobs.Delete(ctx, jobID)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	actorID := int64(0)
-	if p != nil {
-		actorID = p.LocalUserID
-	}
-
-	s.auditLog(ctx, audit.EventJobDeleted, actorID, 0, map[string]any{
-		"job_id":    jobID,
-		"namespace": nsPath,
-	})
-
-	s.logger.Info("Deleted job: %s", jobID)
-	w.WriteHeader(http.StatusNoContent)
+	writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
 }
 
 func (s *APIServer) GetJobs(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
 	if !ok {
 		return
 	}
 
-	params := parsePageParams(r)
-	records, nextCursor, err := s.jobs.List(ctx, params.Cursor, params.Limit)
-	if err != nil {
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-	s.markDBRecovered()
-
-	var jobs []map[string]any
-	z := s.effectiveAuthorizer(true)
-	for _, rec := range records {
-		var nsPath string
-		if s.namespaces != nil && config.APIAuthEnabled() {
-			ns, err := s.namespaces.GetByID(ctx, rec.NamespaceID)
-			if err != nil {
-				continue
-			}
-
-			nsPath = ns.Path
-			if !z.Allow(ctx, p, authz.ActionJobRead, authz.Resource{NamespacePath: nsPath}) {
-				continue
-			}
-		}
-
-		var definition any
-		if err := json.Unmarshal([]byte(rec.DefinitionJSON), &definition); err != nil {
-			s.logger.Error("Failed to parse job definition for job %s: %v", rec.JobID, err)
-			continue
-		}
-
-		job := map[string]any{
-			"name":       rec.JobID,
-			"definition": definition,
-		}
-
-		if nsPath != "" {
-			job["namespace"] = nsPath
-		}
-
-		jobs = append(jobs, job)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if jobs == nil {
-		jobs = make([]map[string]any, 0)
-	}
-
-	resp := buildPaginatedResponse(jobs, nextCursor)
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
-		s.logger.Error("Failed to encode jobs as JSON: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	_, _ = w.Write(buf.Bytes())
+	r.SetPathValue("id", repositoryID)
+	s.ListSourceRepositoryJobs(w, r)
 }
 
 func (s *APIServer) GetJob(w http.ResponseWriter, r *http.Request) {
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
+	if !ok {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
-
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobRead, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	var definitionJSON string
-	var version int
-
-	if versionParam := r.URL.Query().Get("version"); versionParam != "" {
-		v, err := strconv.Atoi(versionParam)
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_version", "invalid version parameter", nil)
-			return
-		}
-
-		definitionJSON, err = s.jobs.GetDefinitionVersion(ctx, jobID, v)
-		if err != nil {
-			if dal.IsNotFound(err) {
-				writeAPIError(w, http.StatusNotFound, "job_version_not_found", "job version not found", nil)
-				return
-			}
-
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("Database error: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-
-		version = v
-	} else {
-		definitionJSON, version, err = s.jobs.GetDefinition(ctx, jobID)
-		if err != nil {
-			if dal.IsNotFound(err) {
-				writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-				return
-			}
-
-			if s.handleDBUnavailableError(w, err) {
-				return
-			}
-
-			s.logger.Error("Database error: %v", err)
-			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-			return
-		}
-	}
-	s.markDBRecovered()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Vectis-Version", strconv.Itoa(version))
-	w.WriteHeader(http.StatusOK)
-	if _, err := io.WriteString(w, definitionJSON); err != nil {
-		s.logger.Error("Failed to write job definition: %v", err)
-	}
+	setSourceJobPathValues(r, repositoryID, jobID)
+	s.GetSourceRepositoryJobDefinition(w, r)
 }
 
 func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
+	if repositoryID, ok := sourceJobRepositoryIDFromTriggerBody(w, r); !ok {
+		return
+	} else if repositoryID != "" {
+		jobID := r.PathValue("id")
+		setSourceJobPathValues(r, repositoryID, jobID)
+		s.TriggerSourceRepositoryJob(w, r)
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -857,7 +953,7 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	namespaceID, err := s.jobs.GetNamespaceID(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
@@ -872,13 +968,30 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}
+
+	ns, err := s.namespaces.GetByID(ctx, namespaceID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	nsPath := ns.Path
 
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunTrigger, nsPath) {
 		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
-	definitionJSON, definitionVersion, err := s.jobs.GetDefinition(ctx, jobID)
+	definitionJSON, definitionVersion, err := s.jobs.GetLatestDefinition(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
@@ -896,17 +1009,40 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	var job api.Job
-	if err := protojson.Unmarshal([]byte(definitionJSON), &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "invalid_stored_job_definition", "invalid job definition stored", nil)
 		return
 	}
 
+	definitionHash := dal.DefinitionHash(definitionJSON)
 	job.Id = &jobID
+
+	triggerBody, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
+	if !ok {
+		return
+	}
+
+	triggerOpts, err := parseRunTargetOptions(triggerBody)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "invalid trigger options", nil)
+		return
+	}
+	targetCellIDs := triggerOpts.targetCellIDs()
+
+	manualTriggerID, manualTriggerKey, ok := s.resolveManualTriggerID(ctx, w, jobID)
+	if !ok {
+		return
+	}
 
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("trigger:"+jobID, p)
-	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/jobs/trigger/"+jobID)
-	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyHashParts := []string{http.MethodPost, "/api/v1/jobs/trigger/" + jobID}
+	if trimmed := bytes.TrimSpace(triggerBody); len(trimmed) > 0 {
+		idempotencyHashParts = append(idempotencyHashParts, string(trimmed))
+	}
+
+	idempotencyHash := hashIdempotencyRequest(idempotencyHashParts...)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
 		return
 	}
@@ -918,7 +1054,47 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, runIndex, err := s.runs.CreateRun(ctx, jobID, nil, definitionVersion)
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			return triggerJobResponse(jobID, createdRuns), true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
+		return
+	}
+
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, manualTriggerID, string(bytes.TrimSpace(triggerBody)), targetCellIDs)
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching trigger idempotency resource: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	createdRuns, err := s.runs.CreateRunsInCellsWithAudit(ctx, jobID, nil, definitionVersion, targetCellIDs, newRunAuditMetadata(invocationID, nsPath))
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -934,29 +1110,39 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	s.runBroadcaster.Broadcast(jobID, runID, runIndex)
-	job.RunId = &runID
-
 	actorID := int64(0)
 	if p != nil {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
-		"job_id":    jobID,
-		"run_id":    runID,
-		"run_index": runIndex,
-		"namespace": nsPath,
-	})
+	for _, createdRun := range createdRuns {
+		s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
+		auditFields := map[string]any{
+			"job_id":      jobID,
+			"run_id":      createdRun.RunID,
+			"run_index":   createdRun.RunIndex,
+			"namespace":   nsPath,
+			"target_cell": createdRun.TargetCellID,
+			"invocation":  invocationID,
+		}
+
+		if manualTriggerKey != "" {
+			auditFields["trigger_key"] = manualTriggerKey
+		}
+
+		s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, auditFields)
+	}
+
+	for _, createdRun := range createdRuns {
+		s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindStored, observability.APIEnqueueOutcomeAccepted)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	response := triggerJobResponse(jobID, createdRuns)
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(map[string]any{
-		"job_id":    jobID,
-		"run_id":    runID,
-		"run_index": runIndex,
-	}); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		s.logger.Error("Failed to encode trigger response: %v", err)
 		return
 	}
@@ -966,11 +1152,16 @@ func (s *APIServer) TriggerJob(w http.ResponseWriter, r *http.Request) {
 
 	// NOTE(garrett): We finish the enqueue asynchronously so that we can response immediately to the client,
 	// rather than them waiting for the enqueue to complete (dual enqueue is idempotent by worker claim).
-	bgCtx := detachedTraceContextFromRequest(r)
-	go s.finishTriggerEnqueue(bgCtx, jobID, runID, runIndex, &job)
+	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
+	for _, createdRun := range createdRuns {
+		jobForRun := cloneJobForRun(&job, createdRun.RunID)
+		go s.finishTriggerEnqueue(bgCtx, jobID, createdRun, jobForRun, definitionHash)
+	}
 }
 
-func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID string, runIndex int, job *api.Job) {
+func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID string, createdRun dal.CreatedRun, job *api.Job, definitionHash string) {
+	runID := createdRun.RunID
+	runIndex := createdRun.RunIndex
 	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.trigger.async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	span.SetAttributes(observability.RunIndexAttrs(runIndex)...)
@@ -987,23 +1178,64 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		req.Metadata = map[string]string{}
 	}
 
-	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	enqueuedAt := time.Now().UnixNano()
+	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(enqueuedAt, 10)
 	observability.InjectJobTraceContext(ctx, req)
+	env, err := s.attachCreatedRunExecutionEnvelope(ctx, req, createdRun, enqueuedAt)
+	targetCellID := ""
+	if env != nil {
+		targetCellID = env.CellID
+	}
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "attach execution envelope")
+		span.End()
 
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
-	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
+		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
+		msg := err.Error()
+
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedEnqueue)
+		return
+	}
+
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeAttempt)
+	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "record execution payload")
+		span.End()
+		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
+
+		msg := err.Error()
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
+
+		return
+	}
+
+	req = dispatchReq
+	if env, ok, envErr := cell.ExecutionEnvelopeFromRequest(req); envErr == nil && ok {
+		targetCellID = env.CellID
+	}
+
+	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedEnqueue)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil); err != nil {
 		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
@@ -1011,19 +1243,288 @@ func (s *APIServer) finishTriggerEnqueue(ctx context.Context, jobID, runID strin
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeFailedTouchDispatch)
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil)
+
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeSuccess)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	if runIndex > 0 {
 		tdSpan.SetAttributes(observability.RunIndexAttrs(runIndex)...)
 	}
-	tdSpan.End()
 
+	tdSpan.End()
 	s.logger.Info("Triggered job: %s (run %s, index %d)", jobID, runID, runIndex)
+}
+
+func (s *APIServer) ReplayRun(w http.ResponseWriter, r *http.Request) {
+	sourceRunID := r.PathValue("id")
+	if sourceRunID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, ok := s.authorizeRunOperator(ctx, w, p, sourceRunID)
+	if !ok {
+		return
+	}
+
+	sourceRun, err := s.runs.GetRun(ctx, sourceRunID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if sourceRun.Status == dal.RunStatusQueued || sourceRun.Status == dal.RunStatusRunning {
+		writeAPIError(w, http.StatusConflict, "source_run_not_replayable", "source run cannot be replayed from its current status", nil)
+		return
+	}
+
+	jobID, err := s.runs.GetRunJobID(ctx, sourceRunID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
+	if !ok {
+		return
+	}
+
+	replayOpts, err := parseRunTargetOptions(body)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_replay_options", "invalid replay options", nil)
+		return
+	}
+
+	targetCellIDs := replayOpts.targetCellIDs()
+	if len(targetCellIDs) > 1 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_replay_options", "replay accepts at most one target cell", nil)
+		return
+	}
+
+	targetCellID := sourceRun.OwningCell
+	if len(targetCellIDs) == 1 {
+		targetCellID = targetCellIDs[0]
+	}
+
+	definitionJSON, err := s.jobs.GetDefinitionVersion(ctx, jobID, sourceRun.DefinitionVersion)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "source_definition_not_found", "source run definition not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	var job api.Job
+	if err := jobpkg.DecodeDefinitionJSON([]byte(definitionJSON), &job); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "invalid_run_definition", "invalid captured job definition", nil)
+		return
+	}
+
+	definitionHash := sourceRun.DefinitionHash
+	if strings.TrimSpace(definitionHash) == "" {
+		definitionHash = dal.DefinitionHash(definitionJSON)
+	}
+
+	idempotencyKey := idempotencyKeyFromRequest(r)
+	idempotencyScope := principalIdempotencyScope("replay:"+sourceRunID, p)
+	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/runs/"+sourceRunID+"/replay", string(bytes.TrimSpace(body)))
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	if !ok {
+		return
+	}
+
+	if idempotencyRecord.ResponseJSON != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, *idempotencyRecord.ResponseJSON)
+		return
+	}
+
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			if len(createdRuns) != 1 {
+				return nil, false
+			}
+
+			return replayRunResponseBody{
+				JobID:         jobID,
+				RunID:         createdRuns[0].RunID,
+				RunIndex:      createdRuns[0].RunIndex,
+				CellID:        createdRuns[0].TargetCellID,
+				ReplayOfRunID: sourceRunID,
+			}, true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
+		return
+	}
+
+	triggerPayload := map[string]string{
+		"source_run_id":      sourceRunID,
+		"definition_hash":    definitionHash,
+		"definition_version": strconv.Itoa(sourceRun.DefinitionVersion),
+		"target_cell_id":     targetCellID,
+	}
+
+	triggerPayloadJSON, err := json.Marshal(triggerPayload)
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		s.logger.Error("Failed to encode replay trigger payload: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeReplay, nil, string(triggerPayloadJSON), []string{targetCellID})
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording replay trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching replay idempotency resource: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	createdRun, err := s.runs.CreateReplayRun(ctx, sourceRunID, targetCellID, dal.RunAuditMetadata{
+		TriggerInvocationID:   invocationID,
+		ReplayOfRunID:         sourceRunID,
+		NamespacePath:         nsPath,
+		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()),
+	})
+
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		if dal.IsConflict(err) {
+			writeAPIError(w, http.StatusConflict, "source_run_not_replayable", "source run cannot be replayed from its current status", nil)
+			return
+		}
+
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		s.logger.Error("Database error creating replay run: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	job.Id = &jobID
+	job.RunId = &createdRun.RunID
+
+	actorID := int64(0)
+	if p != nil {
+		actorID = p.LocalUserID
+	}
+
+	s.runBroadcaster.Broadcast(jobID, createdRun.RunID, createdRun.RunIndex)
+	s.broadcastSourceRepositoryRunEvent(ctx, jobID, sourceRun.DefinitionVersion, createdRun.RunID, createdRun.RunIndex)
+	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
+		"job_id":           jobID,
+		"run_id":           createdRun.RunID,
+		"run_index":        createdRun.RunIndex,
+		"namespace":        nsPath,
+		"target_cell":      createdRun.TargetCellID,
+		"invocation":       invocationID,
+		"replay_of_run_id": sourceRunID,
+	})
+
+	s.recordDispatchEvent(ctx, createdRun.RunID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, createdRun.TargetCellID, nil)
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindReplay, observability.APIEnqueueOutcomeAccepted)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	response := replayRunResponseBody{
+		JobID:         jobID,
+		RunID:         createdRun.RunID,
+		RunIndex:      createdRun.RunIndex,
+		CellID:        createdRun.TargetCellID,
+		ReplayOfRunID: sourceRunID,
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		s.logger.Error("Failed to encode replay response: %v", err)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
+
+	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
+	jobForRun := cloneJobForRun(&job, createdRun.RunID)
+	go s.finishTriggerEnqueue(bgCtx, jobID, createdRun, jobForRun, definitionHash)
 }
 
 func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) {
@@ -1033,19 +1534,27 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
+	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
+	if !ok {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+	if s.writeSourceJobDefinitionFromJobsFacade(w, r, body, jobID, false) {
 		return
+	}
+
+	var req struct {
+		Job json.RawMessage `json:"job"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		req.Job = body
+	}
+	if req.Job == nil {
+		req.Job = body
 	}
 
 	var job api.Job
-	if err := json.Unmarshal(body, &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
@@ -1055,12 +1564,16 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true}); err != nil {
+	if !requireNonEmptyStoredJobTriggers(w, body) {
+		return
+	}
+
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{RequireJobID: true, Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1068,7 +1581,7 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
+	namespaceID, err := s.jobs.GetNamespaceID(ctx, jobID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
@@ -1084,12 +1597,30 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	ns, err := s.namespaces.GetByID(ctx, namespaceID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	nsPath := ns.Path
+
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionJobWrite, nsPath) {
 		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
 		return
 	}
 
-	newVersion, err := s.jobs.UpdateDefinition(ctx, jobID, string(body))
+	triggers := jobTriggerConfigs(&job)
+	newVersion, err := s.jobs.UpdateDefinitionWithTriggers(ctx, jobID, string(body), triggers)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
@@ -1122,23 +1653,81 @@ func (s *APIServer) UpdateJobDefinition(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func jobTriggerConfigs(job *api.Job) []dal.JobTriggerConfig {
+	if job == nil {
+		return nil
+	}
+
+	if len(job.GetTriggers()) == 0 {
+		return []dal.JobTriggerConfig{defaultManualTriggerConfig()}
+	}
+
+	triggers := make([]dal.JobTriggerConfig, 0, len(job.GetTriggers()))
+	for _, trigger := range job.GetTriggers() {
+		config := dal.JobTriggerConfig{
+			ID:   trigger.GetId(),
+			Name: trigger.GetName(),
+		}
+
+		switch spec := trigger.GetKind().(type) {
+		case *api.JobTrigger_Manual:
+			if spec.Manual == nil {
+				continue
+			}
+
+			config.Manual = &dal.JobManualTriggerConfig{}
+		case *api.JobTrigger_Cron:
+			if spec.Cron == nil {
+				continue
+			}
+
+			config.Cron = &dal.JobCronTriggerConfig{Spec: spec.Cron.GetSpec()}
+		case *api.JobTrigger_ScmPoll:
+			scmPoll := spec.ScmPoll
+			if scmPoll == nil {
+				continue
+			}
+
+			interval := time.Duration(scmPoll.GetIntervalSeconds()) * time.Second
+			config.SCMPoll = &dal.JobSCMPollTriggerConfig{
+				Provider: scmPoll.GetProvider(),
+				BaseURL:  scmPoll.GetBaseUrl(),
+				Project:  scmPoll.GetProject(),
+				Branch:   scmPoll.GetBranch(),
+				Query:    scmPoll.GetQuery(),
+				Interval: interval,
+			}
+		default:
+			continue
+		}
+
+		triggers = append(triggers, config)
+	}
+
+	return triggers
+}
+
+func defaultManualTriggerConfig() dal.JobTriggerConfig {
+	return dal.JobTriggerConfig{
+		ID:     dal.DefaultManualTriggerKey,
+		Name:   "On demand",
+		Manual: &dal.JobManualTriggerConfig{},
+	}
+}
+
 // Ephemeral runs persist definition version 1 in job_definitions so the reconciler can re-enqueue if the queue drops work.
 // The API always assigns a fresh job id server-side; any id in the request body is ignored (idempotency hashes the raw body).
 func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJobDefinitionBodyBytes))
-	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "request_read_failed", "failed to read request body", nil)
+	body, ok := readRequestBody(w, r, maxJobDefinitionBodyBytes)
+	if !ok {
 		return
 	}
 
 	var req struct {
-		Namespace string          `json:"namespace"`
-		Job       json.RawMessage `json:"job"`
+		Namespace    string          `json:"namespace"`
+		Job          json.RawMessage `json:"job"`
+		CellID       string          `json:"cell_id"`
+		TargetCellID string          `json:"target_cell_id"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -1148,15 +1737,21 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	if req.Job == nil {
 		req.Job = body
 	}
+	targetCellID := runTargetOptions{CellID: req.CellID, TargetCellID: req.TargetCellID}.targetCellID()
 
 	var job api.Job
-	if err := json.Unmarshal(req.Job, &job); err != nil {
+	if err := jobpkg.DecodeDefinitionJSON(req.Job, &job); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", nil)
 		return
 	}
 
-	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
+	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{Resolver: s.actionResolver}); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		return
+	}
+
+	if hasTriggers, _ := jobDefinitionTriggersField(req.Job); hasTriggers {
+		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "stored-job triggers are not supported for one-off runs", nil)
 		return
 	}
 
@@ -1170,8 +1765,9 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	definitionHash := dal.DefinitionHash(string(definitionJSON))
 	runIndexOne := 1
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1183,9 +1779,16 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	namespacePath := "/"
-	if req.Namespace != "" {
-		namespacePath = req.Namespace
+	namespacePath := strings.TrimSpace(req.Namespace)
+	if namespacePath == "" {
+		namespacePath = dal.EphemeralNamespacePath
+	}
+
+	if namespacePath != dal.EphemeralNamespacePath {
+		writeAPIError(w, http.StatusBadRequest, "unsupported_namespace", "direct job runs must use /ephemeral namespace", map[string]any{
+			"namespace": namespacePath,
+		})
+		return
 	}
 
 	ns, err := s.namespaces.GetByPath(ctx, namespacePath)
@@ -1211,7 +1814,7 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("run:"+ns.Path, p)
 	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/jobs/run", string(body))
-	idempotencyRecord, idempotencyReserved, ok := s.reserveIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
 	if !ok {
 		return
 	}
@@ -1223,7 +1826,60 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, _, err := s.ephemeralRuns.CreateDefinitionAndRun(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne)
+	if idempotencyInProgress {
+		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
+			if len(createdRuns) != 1 || createdRuns[0].JobID == "" {
+				return nil, false
+			}
+
+			return map[string]string{
+				"id":     createdRuns[0].JobID,
+				"run_id": createdRuns[0].RunID,
+			}, true
+		}) {
+			return
+		}
+
+		writeAPIError(w, http.StatusConflict, "idempotency_in_progress", "idempotent request is still in progress", nil)
+		return
+	}
+
+	invocationID, err := s.recordTriggerInvocation(ctx, ephemeralJobID, dal.TriggerTypeManual, nil, string(bytes.TrimSpace(body)), []string{targetCellID})
+	if err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error recording trigger invocation: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+		if idempotencyReserved {
+			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error attaching ephemeral idempotency resource: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	var runID string
+	if starter, ok := s.ephemeralRuns.(dal.EphemeralRunStarterWithAudit); ok {
+		runID, _, err = starter.CreateDefinitionAndRunInCellWithAudit(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID, newRunAuditMetadata(invocationID, ns.Path))
+	} else {
+		runID, _, err = s.ephemeralRuns.CreateDefinitionAndRunInCell(ctx, ephemeralJobID, string(definitionJSON), &runIndexOne, targetCellID)
+	}
+
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1247,11 +1903,15 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auditLog(ctx, audit.EventRunTriggered, actorID, 0, map[string]any{
-		"job_id":    ephemeralJobID,
-		"run_id":    runID,
-		"namespace": ns.Path,
-		"ephemeral": true,
+		"job_id":     ephemeralJobID,
+		"run_id":     runID,
+		"namespace":  ns.Path,
+		"ephemeral":  true,
+		"invocation": invocationID,
 	})
+
+	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAccepted, targetCellID, nil)
+	s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeAccepted)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -1267,15 +1927,24 @@ func (s *APIServer) RunJob(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
 
-	bgCtx := detachedTraceContextFromRequest(r)
+	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
 
-	go s.finishRunJobEnqueue(bgCtx, ephemeralJobID, runID, &job)
+	go s.finishRunJobEnqueue(bgCtx, ephemeralJobID, runID, &job, definitionHash)
 }
 
-func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string, job *api.Job) {
-	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue.ephemeral.async", trace.WithSpanKind(trace.SpanKindInternal))
+func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string, job *api.Job, definitionHash string) {
+	s.finishRunJobEnqueueWithKind(ctx, observability.APIEnqueueRunKindEphemeral, jobID, runID, job, definitionHash)
+}
+
+func (s *APIServer) finishRunJobEnqueueWithKind(ctx context.Context, runKind, jobID, runID string, job *api.Job, definitionHash string) {
+	if runKind == "" {
+		runKind = observability.APIEnqueueRunKindEphemeral
+	}
+
+	ctx, span := observability.Tracer("vectis/api").Start(ctx, "run.enqueue."+runKind+".async", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
-	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", true))
+	span.SetAttributes(attribute.String("vectis.run.kind", runKind))
+	span.SetAttributes(attribute.Bool("vectis.run.ephemeral", runKind == observability.APIEnqueueRunKindEphemeral))
 	span.SetAttributes(attribute.String("run.phase", "enqueue"))
 
 	holder := s.queueClient.Load()
@@ -1289,23 +1958,63 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		req.Metadata = map[string]string{}
 	}
 
-	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(time.Now().UnixNano(), 10)
+	enqueuedAt := time.Now().UnixNano()
+	req.Metadata[observability.JobEnqueuedAtUnixNanoKey] = strconv.FormatInt(enqueuedAt, 10)
 	observability.InjectJobTraceContext(ctx, req)
+	env, err := s.attachExecutionEnvelope(ctx, req, runID, enqueuedAt)
+	targetCellID := ""
+	if env != nil {
+		targetCellID = env.CellID
+	}
 
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventAttempt, nil)
-	if err := enqueueWithRetry(ctx, qc, req, s.logger); err != nil {
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "attach execution envelope")
+		span.End()
+
+		s.logger.Error("Failed to attach execution envelope (run %s): %v", runID, err)
+		msg := err.Error()
+
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
+		s.recordAPIEnqueueMetric(ctx, observability.APIEnqueueRunKindEphemeral, observability.APIEnqueueOutcomeFailedEnqueue)
+		return
+	}
+
+	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeAttempt)
+	dispatchReq, err := s.recordExecutionPayload(ctx, runID, req, definitionHash)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "record execution payload")
+		span.End()
+		s.logger.Error("Failed to record execution payload (run %s): %v", runID, err)
+		msg := err.Error()
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
+		return
+	}
+
+	req = dispatchReq
+	if env, ok, envErr := cell.ExecutionEnvelopeFromRequest(req); envErr == nil && ok {
+		targetCellID = env.CellID
+	}
+
+	if err := s.submitExecution(ctx, qc, req); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "enqueue")
 		span.End()
 		s.logger.Error("Failed to enqueue job (run %s): %v", runID, err)
 		msg := err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeFailedEnqueue)
+		if dispatchErr := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg); dispatchErr != nil {
+			s.logger.Error("Failed to record dispatch failure for run %s: %v", runID, dispatchErr)
+		}
 		return
 	}
 	span.SetAttributes(attribute.String("vectis.enqueue.outcome", "success"))
 	span.End()
 
-	if err := s.runs.TouchDispatched(ctx, runID); err != nil {
+	if err := s.recordDispatchAttemptOutcome(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, targetCellID, nil); err != nil {
 		_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 		tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 		tdSpan.RecordError(err)
@@ -1313,67 +2022,172 @@ func (s *APIServer) finishRunJobEnqueue(ctx context.Context, jobID, runID string
 		tdSpan.End()
 		s.logger.Error("TouchDispatched after enqueue (run %s): %v", runID, err)
 		msg := "touch dispatched: " + err.Error()
-		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, &msg)
+		s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeFailedTouchDispatch)
+		s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventFailure, targetCellID, &msg)
 		return
 	}
-	s.recordDispatchEvent(ctx, runID, dal.DispatchSourceAPI, dal.DispatchEventSuccess, nil)
+	s.recordAPIEnqueueMetric(ctx, runKind, observability.APIEnqueueOutcomeSuccess)
 
 	_, tdSpan := observability.Tracer("vectis/api").Start(ctx, "run.touch_dispatched", trace.WithSpanKind(trace.SpanKindInternal))
 	tdSpan.SetAttributes(observability.JobRunAttrs(jobID, runID)...)
 	tdSpan.End()
 
-	s.logger.Info("Enqueued ephemeral job: %s (run %s)", jobID, runID)
+	s.logger.Info("Enqueued %s job: %s (run %s)", runKind, jobID, runID)
 }
 
-func detachedTraceContextFromRequest(r *http.Request) context.Context {
-	if r == nil {
-		return context.Background()
+func (s *APIServer) resolveManualTriggerID(ctx context.Context, w http.ResponseWriter, jobID string) (*int64, string, bool) {
+	triggerKey := dal.DefaultManualTriggerKey
+	triggerID, err := s.jobs.GetEnabledTriggerID(ctx, jobID, dal.TriggerTypeManual, triggerKey)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusBadRequest, "invalid_trigger_options", "manual trigger not found", map[string]any{"trigger_key": triggerKey})
+			return nil, "", false
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return nil, "", false
+		}
+
+		s.logger.Error("Database error resolving manual trigger %s for job %s: %v", triggerKey, jobID, err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return nil, "", false
+	}
+	s.markDBRecovered()
+
+	return &triggerID, triggerKey, true
+}
+
+func (s *APIServer) recordTriggerInvocation(ctx context.Context, jobID, triggerType string, triggerID *int64, triggerPayload string, targetCellIDs []string) (string, error) {
+	if s.triggerEvents == nil {
+		return "", nil
 	}
 
-	sc := trace.SpanFromContext(r.Context()).SpanContext()
+	requestedCells := requestedCellsForInvocation(targetCellIDs)
+	rec, err := s.triggerEvents.Record(ctx, dal.TriggerInvocation{
+		TriggerID:          triggerID,
+		JobID:              jobID,
+		TriggerType:        triggerType,
+		TriggerPayloadHash: dal.PayloadHash(triggerPayload),
+		RequestedCells:     requestedCells,
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return rec.InvocationID, nil
+}
+
+func requestedCellsForInvocation(targetCellIDs []string) []string {
+	if len(targetCellIDs) == 0 {
+		return []string{config.CellID()}
+	}
+
+	out := make([]string, 0, len(targetCellIDs))
+	for _, cellID := range targetCellIDs {
+		cellID = strings.TrimSpace(cellID)
+		if cellID == "" {
+			continue
+		}
+
+		out = append(out, cellID)
+	}
+
+	if len(out) == 0 {
+		return []string{config.CellID()}
+	}
+
+	return out
+}
+
+func (s *APIServer) recordExecutionPayload(ctx context.Context, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
+	return cell.RecordExecutionHandoffPayload(ctx, s.runs, runID, req, definitionHash)
+}
+
+func (s *APIServer) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+	dispatch, err := s.runs.GetPendingExecution(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()))
+	if err != nil {
+		return nil, err
+	}
+
+	dispatch.StartDeadlineUnixNano = deadline
+	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionDescriptorResolver)
+}
+
+func (s *APIServer) attachCreatedRunExecutionEnvelope(ctx context.Context, req *api.JobRequest, createdRun dal.CreatedRun, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+	dispatch := createdRun.RootDispatch
+	if strings.TrimSpace(dispatch.ExecutionID) == "" || strings.TrimSpace(dispatch.SegmentID) == "" {
+		return s.attachExecutionEnvelope(ctx, req, createdRun.RunID, createdAtUnixNano)
+	}
+
+	dispatch.RunID = strings.TrimSpace(dispatch.RunID)
+	if dispatch.RunID == "" {
+		dispatch.RunID = createdRun.RunID
+	} else if dispatch.RunID != createdRun.RunID {
+		return nil, fmt.Errorf("created run dispatch run_id %q does not match created run %q", dispatch.RunID, createdRun.RunID)
+	}
+
+	if dispatch.RunIndex <= 0 {
+		dispatch.RunIndex = createdRun.RunIndex
+	} else if createdRun.RunIndex > 0 && dispatch.RunIndex != createdRun.RunIndex {
+		return nil, fmt.Errorf("created run dispatch run_index %d does not match created run index %d", dispatch.RunIndex, createdRun.RunIndex)
+	}
+
+	targetCellID := strings.TrimSpace(createdRun.TargetCellID)
+	dispatch.CellID = strings.TrimSpace(dispatch.CellID)
+	if dispatch.CellID == "" {
+		dispatch.CellID = targetCellID
+	} else if targetCellID != "" && dispatch.CellID != targetCellID {
+		return nil, fmt.Errorf("created run dispatch cell_id %q does not match target cell %q", dispatch.CellID, targetCellID)
+	}
+
+	dispatch.OwningCell = strings.TrimSpace(dispatch.OwningCell)
+	if dispatch.OwningCell == "" {
+		dispatch.OwningCell = targetCellID
+	} else if targetCellID != "" && dispatch.OwningCell != targetCellID {
+		return nil, fmt.Errorf("created run dispatch owning_cell %q does not match target cell %q", dispatch.OwningCell, targetCellID)
+	}
+
+	if strings.TrimSpace(dispatch.NamespacePath) == "" {
+		dispatch.NamespacePath = "/"
+	}
+
+	if dispatch.StartDeadlineUnixNano <= 0 {
+		deadline, err := s.runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(time.Now(), config.DispatchStartTTL()))
+		if err != nil {
+			return nil, err
+		}
+
+		dispatch.StartDeadlineUnixNano = deadline
+	}
+
+	return cell.AttachExecutionEnvelopeWithActions(req, dispatch, createdAtUnixNano, s.actionDescriptorResolver)
+}
+
+func detachedTraceContextFromContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	sc := trace.SpanFromContext(ctx).SpanContext()
 	if !sc.IsValid() {
-		return context.Background()
+		return ctx
 	}
 
 	// Preserve trace linkage for post-202 enqueue work without inheriting the
 	// HTTP request cancellation/deadline; the reconciler is the durable backstop.
-	return trace.ContextWithSpanContext(context.Background(), sc)
+	return trace.ContextWithSpanContext(ctx, sc)
 }
 
-func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
-	jobID := r.PathValue("id")
-	if jobID == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
-		return
-	}
-
-	sinceStr := r.URL.Query().Get("since")
-	var since *time.Time
-	if sinceStr != "" {
-		parsedSince, err := parseRunSince(sinceStr)
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be an RFC3339 timestamp or YYYY-MM-DD date", nil)
-			return
-		}
-
-		since = &parsedSince
-	}
-
-	afterIndexStr := r.URL.Query().Get("after_index")
-	var afterIndex *int
-	if afterIndexStr != "" {
-		parsedAfterIndex, err := strconv.Atoi(afterIndexStr)
-		if err != nil || parsedAfterIndex < 0 {
-			writeAPIError(w, http.StatusBadRequest, "invalid_after_index", "after_index must be a non-negative integer", nil)
-			return
-		}
-
-		afterIndex = &parsedAfterIndex
-	}
-
+func (s *APIServer) ListRuns(w http.ResponseWriter, r *http.Request) {
 	params := parsePageParams(r)
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1381,28 +2195,7 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
-	runRows, nextCursor, err := s.runs.ListByJob(ctx, jobID, afterIndex, since, params.Cursor, params.Limit)
+	runRows, nextCursor, err := s.runs.ListAll(ctx, params.Cursor, params.Limit)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -1415,29 +2208,76 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	s.markDBRecovered()
 
 	type runRow struct {
-		RunID         string  `json:"run_id"`
-		RunIndex      int     `json:"run_index"`
-		Status        string  `json:"status"`
-		OrphanReason  *string `json:"orphan_reason,omitempty"`
-		FailureCode   *string `json:"failure_code,omitempty"`
-		CreatedAt     *string `json:"created_at,omitempty"`
-		StartedAt     *string `json:"started_at,omitempty"`
-		FinishedAt    *string `json:"finished_at,omitempty"`
-		FailureReason *string `json:"failure_reason,omitempty"`
+		RunID                 string   `json:"run_id"`
+		JobID                 string   `json:"job_id"`
+		Namespace             string   `json:"namespace"`
+		RunIndex              int      `json:"run_index"`
+		Status                string   `json:"status"`
+		OrphanReason          *string  `json:"orphan_reason,omitempty"`
+		FailureCode           *string  `json:"failure_code,omitempty"`
+		CreatedAt             *string  `json:"created_at,omitempty"`
+		StartedAt             *string  `json:"started_at,omitempty"`
+		FinishedAt            *string  `json:"finished_at,omitempty"`
+		FailureReason         *string  `json:"failure_reason,omitempty"`
+		DefinitionVersion     int      `json:"definition_version"`
+		DefinitionHash        string   `json:"definition_hash,omitempty"`
+		OwningCell            string   `json:"owning_cell,omitempty"`
+		ReplayOfRunID         *string  `json:"replay_of_run_id,omitempty"`
+		TriggerInvocationID   *string  `json:"trigger_invocation_id,omitempty"`
+		TriggerID             *int64   `json:"trigger_id,omitempty"`
+		TriggerKey            *string  `json:"trigger_key,omitempty"`
+		TriggerName           *string  `json:"trigger_name,omitempty"`
+		TriggerType           *string  `json:"trigger_type,omitempty"`
+		TriggerSourceInstance *string  `json:"trigger_source_instance,omitempty"`
+		TriggerPayloadHash    *string  `json:"trigger_payload_hash,omitempty"`
+		RequestedCells        []string `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash  string   `json:"execution_payload_hash,omitempty"`
 	}
 
 	var runs []runRow
 	for _, rec := range runRows {
+		nsPath, err := s.getRunJobNamespacePath(ctx, rec.RunID)
+		if err != nil {
+			if dal.IsNotFound(err) {
+				nsPath = "/"
+			} else {
+				if s.handleDBUnavailableError(w, err) {
+					return
+				}
+
+				s.logger.Error("Database error: %v", err)
+				writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+				return
+			}
+		}
+
+		if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+			continue
+		}
+
 		runs = append(runs, runRow{
-			RunID:         rec.RunID,
-			RunIndex:      rec.RunIndex,
-			Status:        rec.Status,
-			OrphanReason:  rec.OrphanReason,
-			FailureCode:   rec.FailureCode,
-			CreatedAt:     rec.CreatedAt,
-			StartedAt:     rec.StartedAt,
-			FinishedAt:    rec.FinishedAt,
-			FailureReason: rec.FailureReason,
+			RunID:                 rec.RunID,
+			JobID:                 rec.JobID,
+			Namespace:             nsPath,
+			RunIndex:              rec.RunIndex,
+			Status:                rec.Status,
+			OrphanReason:          rec.OrphanReason,
+			FailureCode:           rec.FailureCode,
+			CreatedAt:             rec.CreatedAt,
+			StartedAt:             rec.StartedAt,
+			FinishedAt:            rec.FinishedAt,
+			FailureReason:         rec.FailureReason,
+			DefinitionVersion:     rec.DefinitionVersion,
+			DefinitionHash:        rec.DefinitionHash,
+			OwningCell:            rec.OwningCell,
+			ReplayOfRunID:         rec.ReplayOfRunID,
+			TriggerInvocationID:   rec.TriggerInvocationID,
+			TriggerID:             rec.TriggerID,
+			TriggerType:           rec.TriggerType,
+			TriggerSourceInstance: rec.TriggerSourceInstance,
+			TriggerPayloadHash:    rec.TriggerPayloadHash,
+			RequestedCells:        rec.RequestedCells,
+			ExecutionPayloadHash:  rec.ExecutionPayloadHash,
 		})
 	}
 
@@ -1455,6 +2295,177 @@ func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write(buf.Bytes())
+}
+
+func (s *APIServer) GetJobRuns(w http.ResponseWriter, r *http.Request) {
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
+	if !ok {
+		return
+	}
+
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	setSourceJobPathValues(r, repositoryID, jobID)
+	s.GetSourceRepositoryJobRuns(w, r)
+}
+
+type runListRequestOptions struct {
+	since      *time.Time
+	afterIndex *int
+	owningCell string
+	cursor     int64
+	limit      int
+}
+
+func parseRunListRequestOptions(w http.ResponseWriter, r *http.Request) (runListRequestOptions, bool) {
+	var opts runListRequestOptions
+
+	sinceStr := r.URL.Query().Get("since")
+	if sinceStr != "" {
+		parsedSince, err := parseRunSince(sinceStr)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_since", "since must be an RFC3339 timestamp or YYYY-MM-DD date", nil)
+			return opts, false
+		}
+
+		opts.since = &parsedSince
+	}
+
+	afterIndexStr := r.URL.Query().Get("after_index")
+	if afterIndexStr != "" {
+		parsedAfterIndex, err := strconv.Atoi(afterIndexStr)
+		if err != nil || parsedAfterIndex < 0 {
+			writeAPIError(w, http.StatusBadRequest, "invalid_after_index", "after_index must be a non-negative integer", nil)
+			return opts, false
+		}
+
+		opts.afterIndex = &parsedAfterIndex
+	}
+
+	owningCell, ok := parseRunOwningCellFilter(w, r)
+	if !ok {
+		return opts, false
+	}
+
+	opts.owningCell = owningCell
+	params := parsePageParams(r)
+	opts.cursor = params.Cursor
+	opts.limit = params.Limit
+
+	return opts, true
+}
+
+func (s *APIServer) writeJobRunsResponse(w http.ResponseWriter, ctx context.Context, jobID string, runRows []dal.RunRecord, nextCursor int64) {
+	versions := make([]int, 0, len(runRows))
+	for _, rec := range runRows {
+		versions = append(versions, rec.DefinitionVersion)
+	}
+
+	sourceByVersion, err := s.definitionSourceProvenanceByVersion(ctx, jobID, versions)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting run source provenance: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	type runRow struct {
+		RunID                 string                    `json:"run_id"`
+		RunIndex              int                       `json:"run_index"`
+		Status                string                    `json:"status"`
+		OrphanReason          *string                   `json:"orphan_reason,omitempty"`
+		FailureCode           *string                   `json:"failure_code,omitempty"`
+		CreatedAt             *string                   `json:"created_at,omitempty"`
+		StartedAt             *string                   `json:"started_at,omitempty"`
+		FinishedAt            *string                   `json:"finished_at,omitempty"`
+		FailureReason         *string                   `json:"failure_reason,omitempty"`
+		DefinitionVersion     int                       `json:"definition_version"`
+		DefinitionHash        string                    `json:"definition_hash,omitempty"`
+		Source                *sourceProvenanceResponse `json:"source,omitempty"`
+		OwningCell            string                    `json:"owning_cell,omitempty"`
+		ReplayOfRunID         *string                   `json:"replay_of_run_id,omitempty"`
+		TriggerInvocationID   *string                   `json:"trigger_invocation_id,omitempty"`
+		TriggerID             *int64                    `json:"trigger_id,omitempty"`
+		TriggerKey            *string                   `json:"trigger_key,omitempty"`
+		TriggerName           *string                   `json:"trigger_name,omitempty"`
+		TriggerType           *string                   `json:"trigger_type,omitempty"`
+		TriggerSourceInstance *string                   `json:"trigger_source_instance,omitempty"`
+		TriggerPayloadHash    *string                   `json:"trigger_payload_hash,omitempty"`
+		RequestedCells        []string                  `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash  string                    `json:"execution_payload_hash,omitempty"`
+	}
+
+	var runs []runRow
+	for _, rec := range runRows {
+		var source *sourceProvenanceResponse
+		if sourceValue, ok := sourceByVersion[rec.DefinitionVersion]; ok {
+			source = &sourceValue
+		}
+
+		runs = append(runs, runRow{
+			RunID:                 rec.RunID,
+			RunIndex:              rec.RunIndex,
+			Status:                rec.Status,
+			OrphanReason:          rec.OrphanReason,
+			FailureCode:           rec.FailureCode,
+			CreatedAt:             rec.CreatedAt,
+			StartedAt:             rec.StartedAt,
+			FinishedAt:            rec.FinishedAt,
+			FailureReason:         rec.FailureReason,
+			DefinitionVersion:     rec.DefinitionVersion,
+			DefinitionHash:        rec.DefinitionHash,
+			Source:                source,
+			OwningCell:            rec.OwningCell,
+			ReplayOfRunID:         rec.ReplayOfRunID,
+			TriggerInvocationID:   rec.TriggerInvocationID,
+			TriggerID:             rec.TriggerID,
+			TriggerKey:            rec.TriggerKey,
+			TriggerName:           rec.TriggerName,
+			TriggerType:           rec.TriggerType,
+			TriggerSourceInstance: rec.TriggerSourceInstance,
+			TriggerPayloadHash:    rec.TriggerPayloadHash,
+			RequestedCells:        rec.RequestedCells,
+			ExecutionPayloadHash:  rec.ExecutionPayloadHash,
+		})
+	}
+
+	if runs == nil {
+		runs = []runRow{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := buildPaginatedResponse(runs, nextCursor)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode runs: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
+func parseRunOwningCellFilter(w http.ResponseWriter, r *http.Request) (string, bool) {
+	cellID := strings.TrimSpace(r.URL.Query().Get("cell_id"))
+	owningCell := strings.TrimSpace(r.URL.Query().Get("owning_cell"))
+	if cellID != "" && owningCell != "" && cellID != owningCell {
+		writeAPIError(w, http.StatusBadRequest, "invalid_cell_id", "cell_id and owning_cell must match when both are provided", nil)
+		return "", false
+	}
+
+	if owningCell != "" {
+		return owningCell, true
+	}
+
+	return cellID, true
 }
 
 func parseRunSince(raw string) (time.Time, error) {
@@ -1477,7 +2488,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -1500,7 +2511,7 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markDBRecovered()
 
-	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	jobID, err := s.runs.GetRunJobID(ctx, runID)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
@@ -1512,10 +2523,35 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			// Ephemeral runs don't have stored_jobs entries;
+			// they run in the default namespace.
+			nsPath = "/"
+		} else {
+			s.logger.Error("Database error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
+	}
+
 	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
 		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
 		return
 	}
+
+	source, err := s.definitionSourceProvenance(ctx, rec.JobID, rec.DefinitionVersion)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting run source provenance: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
 
 	dispatchEvents := []dal.DispatchEvent{}
 	if s.dispatchEvents != nil {
@@ -1531,53 +2567,190 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	taskCompletionSummary, err := s.runs.GetRunTaskCompletion(ctx, runID)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	pendingTaskContinuation := false
+	if rec.Status == dal.RunStatusQueued && taskCompletionSummary.Total > 0 && taskCompletionSummary.Incomplete > 0 {
+		pendingTaskContinuation, err = s.runHasPendingTaskContinuation(ctx, runID)
+		if err != nil {
+			if s.handleDBUnavailableError(w, err) {
+				return
+			}
+
+			s.logger.Error("Database error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+			return
+		}
+	}
+
+	latestFailedSecurityEvent, err := s.runs.LatestRunSecurityEvent(ctx, runID, true)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
 	type dispatchEventRow struct {
-		ID        int64   `json:"id"`
-		Source    string  `json:"source"`
-		EventType string  `json:"event_type"`
-		Message   *string `json:"message,omitempty"`
-		CreatedAt int64   `json:"created_at"`
+		ID             int64   `json:"id"`
+		Source         string  `json:"source"`
+		SourceInstance string  `json:"source_instance,omitempty"`
+		EventType      string  `json:"event_type"`
+		Message        *string `json:"message,omitempty"`
+		CreatedAt      int64   `json:"created_at"`
+	}
+
+	type taskCompletionRow struct {
+		Total          int `json:"total"`
+		Succeeded      int `json:"succeeded"`
+		TerminalFailed int `json:"terminal_failed"`
+		Incomplete     int `json:"incomplete"`
+	}
+
+	type executionSecurityEventRow struct {
+		ID            int64   `json:"id"`
+		RunID         string  `json:"run_id"`
+		TaskID        string  `json:"task_id,omitempty"`
+		TaskAttemptID string  `json:"task_attempt_id,omitempty"`
+		ExecutionID   string  `json:"execution_id,omitempty"`
+		EventType     string  `json:"event_type"`
+		Outcome       string  `json:"outcome"`
+		Reason        string  `json:"reason,omitempty"`
+		Provider      *string `json:"provider,omitempty"`
+		SecretCount   *int    `json:"secret_count,omitempty"`
+		FileCount     *int    `json:"file_count,omitempty"`
+		CreatedAt     int64   `json:"created_at"`
 	}
 
 	type runRow struct {
-		RunID             string             `json:"run_id"`
-		RunIndex          int                `json:"run_index"`
-		Status            string             `json:"status"`
-		OrphanReason      *string            `json:"orphan_reason,omitempty"`
-		FailureCode       *string            `json:"failure_code,omitempty"`
-		CreatedAt         *string            `json:"created_at,omitempty"`
-		StartedAt         *string            `json:"started_at,omitempty"`
-		FinishedAt        *string            `json:"finished_at,omitempty"`
-		FailureReason     *string            `json:"failure_reason,omitempty"`
-		DefinitionVersion int                `json:"definition_version"`
-		DefinitionHash    string             `json:"definition_hash,omitempty"`
-		OwningCell        string             `json:"owning_cell"`
-		DispatchEvents    []dispatchEventRow `json:"dispatch_events"`
+		RunID                     string                     `json:"run_id"`
+		JobID                     string                     `json:"job_id"`
+		Namespace                 string                     `json:"namespace"`
+		RunIndex                  int                        `json:"run_index"`
+		Status                    string                     `json:"status"`
+		OrphanReason              *string                    `json:"orphan_reason,omitempty"`
+		FailureCode               *string                    `json:"failure_code,omitempty"`
+		CreatedAt                 *string                    `json:"created_at,omitempty"`
+		StartedAt                 *string                    `json:"started_at,omitempty"`
+		FinishedAt                *string                    `json:"finished_at,omitempty"`
+		FailureReason             *string                    `json:"failure_reason,omitempty"`
+		DefinitionVersion         int                        `json:"definition_version"`
+		DefinitionHash            string                     `json:"definition_hash,omitempty"`
+		Source                    *sourceProvenanceResponse  `json:"source,omitempty"`
+		OwningCell                string                     `json:"owning_cell"`
+		ReplayOfRunID             *string                    `json:"replay_of_run_id,omitempty"`
+		TriggerInvocationID       *string                    `json:"trigger_invocation_id,omitempty"`
+		TriggerID                 *int64                     `json:"trigger_id,omitempty"`
+		TriggerKey                *string                    `json:"trigger_key,omitempty"`
+		TriggerName               *string                    `json:"trigger_name,omitempty"`
+		TriggerType               *string                    `json:"trigger_type,omitempty"`
+		TriggerSourceInstance     *string                    `json:"trigger_source_instance,omitempty"`
+		TriggerPayloadHash        *string                    `json:"trigger_payload_hash,omitempty"`
+		RequestedCells            []string                   `json:"requested_cells,omitempty"`
+		ExecutionPayloadHash      string                     `json:"execution_payload_hash,omitempty"`
+		NextAction                *string                    `json:"next_action,omitempty"`
+		DispatchSummary           []dispatchSummary          `json:"dispatch_summary,omitempty"`
+		DispatchEvents            []dispatchEventRow         `json:"dispatch_events"`
+		TaskCompletion            *taskCompletionRow         `json:"task_completion,omitempty"`
+		LatestFailedSecurityEvent *executionSecurityEventRow `json:"latest_failed_security_event,omitempty"`
 	}
 
+	hotOwner, activeHotOwner, err := s.activeRunHotStateOwner(ctx, rec.RunID, time.Now())
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if activeHotOwner {
+		if summary, ok := s.orchestratorRunTaskCompletion(ctx, hotOwner, runID); ok {
+			taskCompletionSummary = summary
+		}
+	}
+
+	effectiveStatus := effectiveRunStatusFromHotOwner(rec.Status, activeHotOwner)
+
 	resp := runRow{
-		RunID:             rec.RunID,
-		RunIndex:          rec.RunIndex,
-		Status:            rec.Status,
-		OrphanReason:      rec.OrphanReason,
-		FailureCode:       rec.FailureCode,
-		CreatedAt:         rec.CreatedAt,
-		StartedAt:         rec.StartedAt,
-		FinishedAt:        rec.FinishedAt,
-		FailureReason:     rec.FailureReason,
-		DefinitionVersion: rec.DefinitionVersion,
-		DefinitionHash:    rec.DefinitionHash,
-		OwningCell:        rec.OwningCell,
-		DispatchEvents:    []dispatchEventRow{},
+		RunID:                 rec.RunID,
+		JobID:                 jobID,
+		Namespace:             nsPath,
+		RunIndex:              rec.RunIndex,
+		Status:                effectiveStatus,
+		OrphanReason:          rec.OrphanReason,
+		FailureCode:           rec.FailureCode,
+		CreatedAt:             rec.CreatedAt,
+		StartedAt:             rec.StartedAt,
+		FinishedAt:            rec.FinishedAt,
+		FailureReason:         rec.FailureReason,
+		DefinitionVersion:     rec.DefinitionVersion,
+		DefinitionHash:        rec.DefinitionHash,
+		Source:                source,
+		OwningCell:            rec.OwningCell,
+		ReplayOfRunID:         rec.ReplayOfRunID,
+		TriggerInvocationID:   rec.TriggerInvocationID,
+		TriggerID:             rec.TriggerID,
+		TriggerKey:            rec.TriggerKey,
+		TriggerName:           rec.TriggerName,
+		TriggerType:           rec.TriggerType,
+		TriggerSourceInstance: rec.TriggerSourceInstance,
+		TriggerPayloadHash:    rec.TriggerPayloadHash,
+		RequestedCells:        rec.RequestedCells,
+		ExecutionPayloadHash:  rec.ExecutionPayloadHash,
+		NextAction:            runNextAction(effectiveStatus, taskCompletionSummary, pendingTaskContinuation, latestFailedSecurityEvent != nil),
+		DispatchSummary:       buildDispatchSummary(dispatchEvents),
+		DispatchEvents:        []dispatchEventRow{},
+	}
+
+	if latestFailedSecurityEvent != nil {
+		resp.LatestFailedSecurityEvent = &executionSecurityEventRow{
+			ID:            latestFailedSecurityEvent.ID,
+			RunID:         latestFailedSecurityEvent.RunID,
+			TaskID:        latestFailedSecurityEvent.TaskID,
+			TaskAttemptID: latestFailedSecurityEvent.TaskAttemptID,
+			ExecutionID:   latestFailedSecurityEvent.ExecutionID,
+			EventType:     latestFailedSecurityEvent.EventType,
+			Outcome:       latestFailedSecurityEvent.Outcome,
+			Reason:        latestFailedSecurityEvent.Reason,
+			Provider:      latestFailedSecurityEvent.Provider,
+			SecretCount:   latestFailedSecurityEvent.SecretCount,
+			FileCount:     latestFailedSecurityEvent.FileCount,
+			CreatedAt:     latestFailedSecurityEvent.CreatedAt,
+		}
+	}
+
+	if taskCompletionSummary.Total > 0 {
+		resp.TaskCompletion = &taskCompletionRow{
+			Total:          taskCompletionSummary.Total,
+			Succeeded:      taskCompletionSummary.Succeeded,
+			TerminalFailed: taskCompletionSummary.TerminalFailed,
+			Incomplete:     taskCompletionSummary.Incomplete,
+		}
 	}
 
 	for _, event := range dispatchEvents {
 		resp.DispatchEvents = append(resp.DispatchEvents, dispatchEventRow{
-			ID:        event.ID,
-			Source:    event.Source,
-			EventType: event.EventType,
-			Message:   event.Message,
-			CreatedAt: event.CreatedAt,
+			ID:             event.ID,
+			Source:         event.Source,
+			SourceInstance: event.SourceInstance,
+			EventType:      event.EventType,
+			Message:        event.Message,
+			CreatedAt:      event.CreatedAt,
 		})
 	}
 
@@ -1585,6 +2758,609 @@ func (s *APIServer) GetRun(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode run: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (s *APIServer) GetRunDefinition(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	rec, err := s.runs.GetRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+
+	definitionJSON, err := s.jobs.GetDefinitionVersion(ctx, rec.JobID, rec.DefinitionVersion)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_definition_not_found", "run definition not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	if !json.Valid([]byte(definitionJSON)) {
+		s.logger.Error("Captured definition for run %s is not valid JSON", runID)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	source, err := s.definitionSourceProvenance(ctx, rec.JobID, rec.DefinitionVersion)
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error getting run source provenance: %v", err)
+		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
+		return
+	}
+	s.markDBRecovered()
+
+	definitionHash := rec.DefinitionHash
+	if strings.TrimSpace(definitionHash) == "" {
+		definitionHash = dal.DefinitionHash(definitionJSON)
+	}
+
+	resp := struct {
+		RunID             string                    `json:"run_id"`
+		JobID             string                    `json:"job_id"`
+		DefinitionVersion int                       `json:"definition_version"`
+		DefinitionHash    string                    `json:"definition_hash"`
+		Source            *sourceProvenanceResponse `json:"source,omitempty"`
+		Definition        json.RawMessage           `json:"definition"`
+	}{
+		RunID:             rec.RunID,
+		JobID:             rec.JobID,
+		DefinitionVersion: rec.DefinitionVersion,
+		DefinitionHash:    definitionHash,
+		Source:            source,
+		Definition:        json.RawMessage(definitionJSON),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode run definition: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (s *APIServer) effectiveRunStatus(ctx context.Context, rec dal.RunRecord, now time.Time) (string, error) {
+	_, active, err := s.activeRunHotStateOwner(ctx, rec.RunID, now)
+	if err != nil {
+		return "", err
+	}
+
+	return effectiveRunStatusFromHotOwner(rec.Status, active), nil
+}
+
+const (
+	runNextActionTaskCompletionPending         = "task_completion_pending"
+	runNextActionTaskContinuationPending       = "task_continuation_pending"
+	runNextActionTaskFinalizationRepairPending = "task_finalization_repair_pending"
+	runNextActionSecurityGateFailed            = "security_gate_failed"
+)
+
+func (s *APIServer) activeRunHotStateOwner(ctx context.Context, runID string, now time.Time) (dal.RunHotStateOwnerRecord, bool, error) {
+	owner, found, err := s.runs.GetRunHotStateOwner(ctx, runID)
+	if err != nil {
+		return dal.RunHotStateOwnerRecord{}, false, err
+	}
+
+	if !found || !owner.LeaseUntil.After(now.UTC()) {
+		return dal.RunHotStateOwnerRecord{}, false, nil
+	}
+
+	return owner, true, nil
+}
+
+func effectiveRunStatusFromHotOwner(status string, activeHotOwner bool) string {
+	if activeHotOwner && (status == dal.RunStatusQueued || status == dal.RunStatusRunning) {
+		return dal.RunStatusRunning
+	}
+
+	return status
+}
+
+func (s *APIServer) orchestratorRunTaskCompletion(ctx context.Context, owner dal.RunHotStateOwnerRecord, runID string) (dal.RunTaskCompletion, bool) {
+	client := s.orchestratorReadClientForOwner(ctx, owner)
+	if client == nil {
+		return dal.RunTaskCompletion{}, false
+	}
+
+	resp, err := client.GetRunTaskCompletion(ctx, &api.GetRunTaskCompletionRequest{RunId: &runID})
+	if err != nil {
+		if grpcstatus.Code(err) != grpccodes.NotFound {
+			s.logger.Warn("Live orchestrator task completion read for run %s failed; falling back to database: %v", runID, err)
+		}
+
+		return dal.RunTaskCompletion{}, false
+	}
+
+	if resp == nil {
+		return dal.RunTaskCompletion{}, false
+	}
+
+	return runTaskCompletionFromProto(resp), true
+}
+
+func runTaskCompletionFromProto(resp *api.OrchestratorRunTaskCompletion) dal.RunTaskCompletion {
+	if resp == nil {
+		return dal.RunTaskCompletion{}
+	}
+
+	return dal.RunTaskCompletion{
+		RunID:          resp.GetRunId(),
+		Total:          int(resp.GetTotal()),
+		Succeeded:      int(resp.GetSucceeded()),
+		TerminalFailed: int(resp.GetTerminalFailed()),
+		Incomplete:     int(resp.GetIncomplete()),
+	}
+}
+
+type dispatchSummary struct {
+	Source        string  `json:"source"`
+	Accepted      int     `json:"accepted"`
+	Attempts      int     `json:"attempts"`
+	Successes     int     `json:"successes"`
+	Failures      int     `json:"failures"`
+	FirstEventAt  int64   `json:"first_event_at"`
+	LastEventAt   int64   `json:"last_event_at"`
+	LastEventType string  `json:"last_event_type"`
+	LastMessage   *string `json:"last_message,omitempty"`
+}
+
+func buildDispatchSummary(events []dal.DispatchEvent) []dispatchSummary {
+	if len(events) == 0 {
+		return nil
+	}
+
+	bySource := map[string]int{}
+	summary := make([]dispatchSummary, 0)
+	for _, event := range events {
+		source := strings.TrimSpace(event.Source)
+		if source == "" {
+			source = "unknown"
+		}
+
+		idx, ok := bySource[source]
+		if !ok {
+			idx = len(summary)
+			bySource[source] = idx
+			summary = append(summary, dispatchSummary{
+				Source:       source,
+				FirstEventAt: event.CreatedAt,
+			})
+		}
+
+		row := &summary[idx]
+		switch event.EventType {
+		case dal.DispatchEventAccepted:
+			row.Accepted++
+		case dal.DispatchEventAttempt:
+			row.Attempts++
+		case dal.DispatchEventSuccess:
+			row.Successes++
+		case dal.DispatchEventFailure:
+			row.Failures++
+		}
+
+		row.LastEventAt = event.CreatedAt
+		row.LastEventType = event.EventType
+		row.LastMessage = event.Message
+	}
+
+	return summary
+}
+
+func runNextAction(status string, taskCompletion dal.RunTaskCompletion, pendingTaskContinuation bool, securityGateFailed bool) *string {
+	if status == dal.RunStatusFailed && securityGateFailed {
+		action := runNextActionSecurityGateFailed
+		return &action
+	}
+
+	if status == dal.RunStatusOrphaned && taskCompletion.Total > 0 && (taskCompletion.TerminalFailed > 0 || taskCompletion.AllSucceeded()) {
+		action := runNextActionTaskFinalizationRepairPending
+		return &action
+	}
+
+	if status != dal.RunStatusQueued {
+		return nil
+	}
+
+	if pendingTaskContinuation {
+		action := runNextActionTaskContinuationPending
+		return &action
+	}
+
+	if taskCompletion.Total > 0 && taskCompletion.Incomplete > 0 {
+		action := runNextActionTaskCompletionPending
+		return &action
+	}
+
+	return nil
+}
+
+func (s *APIServer) runHasPendingTaskContinuation(ctx context.Context, runID string) (bool, error) {
+	executions, err := s.runs.ListPendingExecutions(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+
+	for _, execution := range executions {
+		if strings.TrimSpace(execution.TaskKey) != "" && execution.TaskKey != dal.RootTaskKey {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (s *APIServer) orchestratorRunTaskRows(ctx context.Context, owner dal.RunHotStateOwnerRecord, runID string, params pageParams) ([]runTaskRow, int64, bool) {
+	client := s.orchestratorReadClientForOwner(ctx, owner)
+	if client == nil {
+		return nil, 0, false
+	}
+
+	cursor := params.Cursor
+	limit := int32(params.Limit)
+	resp, err := client.GetRunTaskSnapshot(ctx, &api.GetRunTaskSnapshotRequest{
+		RunId:  &runID,
+		Cursor: &cursor,
+		Limit:  &limit,
+	})
+
+	if err != nil {
+		if grpcstatus.Code(err) != grpccodes.NotFound {
+			s.logger.Warn("Live orchestrator task snapshot read for run %s failed; falling back to database: %v", runID, err)
+		}
+
+		return nil, 0, false
+	}
+
+	return runTaskRowsFromOrchestratorExecutions(resp.GetExecutions()), resp.GetNextCursor(), true
+}
+
+func runTaskRowsFromRecords(taskRecords []dal.TaskRecord) []runTaskRow {
+	tasks := make([]runTaskRow, 0, len(taskRecords))
+	for _, rec := range taskRecords {
+		task := runTaskRow{
+			TaskID:       rec.TaskID,
+			RunID:        rec.RunID,
+			ParentTaskID: rec.ParentTaskID,
+			TaskKey:      rec.TaskKey,
+			Name:         rec.Name,
+			Status:       rec.Status,
+			SpecHash:     rec.SpecHash,
+			CreatedAt:    rec.CreatedAt,
+			UpdatedAt:    rec.UpdatedAt,
+			Attempts:     []runTaskAttemptRow{},
+		}
+
+		for _, attempt := range rec.Attempts {
+			securityEvents := make([]runTaskExecutionSecurityEventRow, 0, len(attempt.SecurityEvents))
+			for _, event := range attempt.SecurityEvents {
+				securityEvents = append(securityEvents, runTaskExecutionSecurityEventRow{
+					ID:            event.ID,
+					RunID:         event.RunID,
+					TaskID:        event.TaskID,
+					TaskAttemptID: event.TaskAttemptID,
+					ExecutionID:   event.ExecutionID,
+					EventType:     event.EventType,
+					Outcome:       event.Outcome,
+					Reason:        event.Reason,
+					Provider:      event.Provider,
+					SecretCount:   event.SecretCount,
+					FileCount:     event.FileCount,
+					CreatedAt:     event.CreatedAt,
+				})
+			}
+
+			task.Attempts = append(task.Attempts, runTaskAttemptRow{
+				AttemptID:       attempt.AttemptID,
+				TaskID:          attempt.TaskID,
+				RunID:           attempt.RunID,
+				ExecutionID:     attempt.ExecutionID,
+				ExecutionStatus: attempt.ExecutionStatus,
+				CellID:          attempt.CellID,
+				LeaseOwner:      attempt.LeaseOwner,
+				LeaseUntil:      attempt.LeaseUntil,
+				Attempt:         attempt.Attempt,
+				Status:          attempt.Status,
+				AcceptedAt:      attempt.AcceptedAt,
+				StartedAt:       attempt.StartedAt,
+				FinishedAt:      attempt.FinishedAt,
+				LastObservedAt:  attempt.LastObservedAt,
+				EventSequence:   attempt.EventSequence,
+				CreatedAt:       attempt.CreatedAt,
+				UpdatedAt:       attempt.UpdatedAt,
+				SecurityEvents:  securityEvents,
+			})
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	return tasks
+}
+
+func runTaskRowsFromOrchestratorExecutions(executions []*api.OrchestratorTaskExecution) []runTaskRow {
+	tasks := make([]runTaskRow, 0, len(executions))
+	for _, execution := range executions {
+		if execution == nil {
+			continue
+		}
+
+		status := execution.GetStatus()
+		task := runTaskRow{
+			TaskID:       execution.GetTaskId(),
+			RunID:        execution.GetRunId(),
+			ParentTaskID: nonEmptyStringPtr(execution.GetParentTaskId()),
+			TaskKey:      execution.GetTaskKey(),
+			Name:         execution.GetName(),
+			Status:       status,
+			Attempts: []runTaskAttemptRow{{
+				AttemptID:       execution.GetTaskAttemptId(),
+				TaskID:          execution.GetTaskId(),
+				RunID:           execution.GetRunId(),
+				ExecutionID:     execution.GetExecutionId(),
+				ExecutionStatus: status,
+				CellID:          execution.GetCellId(),
+				Attempt:         int(execution.GetAttempt()),
+				Status:          status,
+				AcceptedAt:      unixNanoRFC3339StringPtr(execution.GetAcceptedAtUnixNano()),
+				StartedAt:       unixNanoRFC3339StringPtr(execution.GetStartedAtUnixNano()),
+				FinishedAt:      unixNanoRFC3339StringPtr(execution.GetFinishedAtUnixNano()),
+			}},
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	return tasks
+}
+
+func nonEmptyStringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+
+	return &value
+}
+
+func unixNanoRFC3339StringPtr(value int64) *string {
+	if value <= 0 {
+		return nil
+	}
+
+	formatted := time.Unix(0, value).UTC().Format(time.RFC3339Nano)
+	return &formatted
+}
+
+func (s *APIServer) writeRunTasksResponse(w http.ResponseWriter, tasks []runTaskRow, nextCursor int64) {
+	w.Header().Set("Content-Type", "application/json")
+	resp := buildPaginatedResponse(tasks, nextCursor)
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode run tasks: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (s *APIServer) GetRunTasks(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	params := parsePageParams(r)
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+
+	hotOwner, activeHotOwner, err := s.activeRunHotStateOwner(ctx, runID, time.Now())
+	if err != nil {
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	if activeHotOwner {
+		if tasks, nextCursor, ok := s.orchestratorRunTaskRows(ctx, hotOwner, runID, params); ok {
+			s.writeRunTasksResponse(w, tasks, nextCursor)
+			return
+		}
+	}
+
+	taskRecords, nextCursor, err := s.runs.ListRunTasks(ctx, runID, params.Cursor, params.Limit)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	s.writeRunTasksResponse(w, runTaskRowsFromRecords(taskRecords), nextCursor)
+}
+
+func (s *APIServer) GetRunExecutionPayload(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("id")
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
+		return
+	}
+
+	ctx, cancel := s.handlerDBCtx(r.Context())
+	defer cancel()
+
+	p, ok := s.requirePrincipal(w, r)
+	if !ok {
+		return
+	}
+
+	nsPath, err := s.getRunJobNamespacePath(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunOperator, nsPath) {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found", nil)
+		return
+	}
+
+	payload, err := s.runs.GetExecutionPayloadForRun(ctx, runID)
+	if err != nil {
+		if dal.IsNotFound(err) {
+			writeAPIError(w, http.StatusNotFound, "execution_payload_not_found", "execution payload not found", nil)
+			return
+		}
+
+		if s.handleDBUnavailableError(w, err) {
+			return
+		}
+
+		s.logger.Error("Database error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+	s.markDBRecovered()
+
+	if !json.Valid([]byte(payload.PayloadJSON)) {
+		s.logger.Error("Stored execution payload for run %s is not valid JSON", runID)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
+		return
+	}
+
+	resp := struct {
+		RunID          string          `json:"run_id"`
+		PayloadHash    string          `json:"payload_hash"`
+		DefinitionHash string          `json:"definition_hash,omitempty"`
+		Payload        json.RawMessage `json:"payload"`
+	}{
+		RunID:          payload.RunID,
+		PayloadHash:    payload.PayloadHash,
+		DefinitionHash: payload.DefinitionHash,
+		Payload:        json.RawMessage(payload.PayloadJSON),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode execution payload: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
 		return
 	}

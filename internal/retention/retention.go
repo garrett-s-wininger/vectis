@@ -2,17 +2,23 @@ package retention
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"vectis/internal/database"
+	"vectis/internal/platform"
 )
 
 const (
@@ -20,9 +26,23 @@ const (
 	DefaultJobDefinitionRetention = 30 * 24 * time.Hour
 	DefaultIdempotencyRetention   = 24 * time.Hour
 	DefaultAuditLogRetention      = 365 * 24 * time.Hour
+	DefaultArtifactBlobRetention  = 30 * 24 * time.Hour
 
 	auditEventRetentionCleanup = "retention.cleanup"
+	auditEventHoldCreated      = "retention.hold.created"
+	auditEventHoldReleased     = "retention.hold.released"
+	artifactBlobKeyPrefix      = "sha256:"
+	artifactBlobSuffix         = ".blob"
+	artifactHashAlgorithm      = "sha256"
+	artifactStorageLockFile    = "artifact.lock"
 	sqlTimeLayout              = "2006-01-02 15:04:05"
+
+	HoldScopeRun        = "run"
+	HoldScopeAuditRange = "audit_range"
+
+	HoldStatusActive   = "active"
+	HoldStatusExpired  = "expired"
+	HoldStatusReleased = "released"
 )
 
 // Policy controls which durable records are eligible for cleanup. A zero or
@@ -32,6 +52,7 @@ type Policy struct {
 	JobDefinitions  time.Duration
 	IdempotencyKeys time.Duration
 	AuditLog        time.Duration
+	ArtifactBlobs   time.Duration
 }
 
 type Cutoffs struct {
@@ -39,11 +60,17 @@ type Cutoffs struct {
 	JobDefinitions  *time.Time
 	IdempotencyKeys *time.Time
 	AuditLog        *time.Time
+	ArtifactBlobs   *time.Time
 }
 
 type Counts struct {
 	TerminalRuns      int64
 	RunDispatchEvents int64
+	RunArtifacts      int64
+	RunTasks          int64
+	TaskAttempts      int64
+	RunSegments       int64
+	SegmentExecutions int64
 	JobDefinitions    int64
 	IdempotencyKeys   int64
 	AuditLog          int64
@@ -53,16 +80,61 @@ type Report struct {
 	DryRun             bool
 	Cutoffs            Cutoffs
 	Counts             Counts
+	HeldCounts         Counts
 	AuditEventInserted bool
 }
 
 type FileReport struct {
-	RunLogFiles int64
-	RunLogBytes int64
+	RunLogFiles       int64
+	RunLogBytes       int64
+	ArtifactBlobFiles int64
+	ArtifactBlobBytes int64
 }
 
 type SQLCleaner struct {
 	db *sql.DB
+}
+
+type SQLHoldStore struct {
+	db *sql.DB
+}
+
+type Hold struct {
+	HoldID        string     `json:"hold_id"`
+	Scope         string     `json:"scope"`
+	TargetID      string     `json:"target_id"`
+	Reason        string     `json:"reason"`
+	Owner         string     `json:"owner"`
+	ExternalRef   string     `json:"external_ref,omitempty"`
+	CreatedBy     string     `json:"created_by,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	ReleasedBy    string     `json:"released_by,omitempty"`
+	ReleaseReason string     `json:"release_reason,omitempty"`
+	ReleasedAt    *time.Time `json:"released_at,omitempty"`
+	Status        string     `json:"status"`
+}
+
+type CreateHoldOptions struct {
+	Scope       string
+	TargetID    string
+	Reason      string
+	Owner       string
+	ExternalRef string
+	CreatedBy   string
+	ExpiresAt   *time.Time
+}
+
+type ListHoldOptions struct {
+	Scope         string
+	TargetID      string
+	IncludeClosed bool
+}
+
+type ReleaseHoldOptions struct {
+	HoldID        string
+	ReleasedBy    string
+	ReleaseReason string
 }
 
 func DefaultPolicy() Policy {
@@ -71,6 +143,7 @@ func DefaultPolicy() Policy {
 		JobDefinitions:  DefaultJobDefinitionRetention,
 		IdempotencyKeys: DefaultIdempotencyRetention,
 		AuditLog:        DefaultAuditLogRetention,
+		ArtifactBlobs:   DefaultArtifactBlobRetention,
 	}
 }
 
@@ -78,13 +151,266 @@ func NewSQLCleaner(db *sql.DB) *SQLCleaner {
 	return &SQLCleaner{db: db}
 }
 
+func NewSQLHoldStore(db *sql.DB) *SQLHoldStore {
+	return &SQLHoldStore{db: db}
+}
+
+func (s *SQLHoldStore) Create(ctx context.Context, options CreateHoldOptions, now time.Time) (Hold, error) {
+	options.Scope = strings.TrimSpace(options.Scope)
+	options.TargetID = strings.TrimSpace(options.TargetID)
+	options.Reason = strings.TrimSpace(options.Reason)
+	options.Owner = strings.TrimSpace(options.Owner)
+	options.ExternalRef = strings.TrimSpace(options.ExternalRef)
+	options.CreatedBy = strings.TrimSpace(options.CreatedBy)
+	if options.Scope == "" {
+		options.Scope = HoldScopeRun
+	}
+
+	if err := validateHoldScope(options.Scope); err != nil {
+		return Hold{}, err
+	}
+
+	if err := validateHoldTarget(options.Scope, options.TargetID); err != nil {
+		return Hold{}, err
+	}
+
+	if options.Reason == "" {
+		return Hold{}, fmt.Errorf("retention hold reason is required")
+	}
+
+	if options.Owner == "" {
+		return Hold{}, fmt.Errorf("retention hold owner is required")
+	}
+
+	if options.CreatedBy == "" {
+		options.CreatedBy = options.Owner
+	}
+
+	now = now.UTC()
+	if options.ExpiresAt != nil && !options.ExpiresAt.After(now) {
+		return Hold{}, fmt.Errorf("retention hold expires_at must be after the creation time")
+	}
+
+	hold := Hold{
+		HoldID:      "hold-" + uuid.NewString(),
+		Scope:       options.Scope,
+		TargetID:    options.TargetID,
+		Reason:      options.Reason,
+		Owner:       options.Owner,
+		ExternalRef: options.ExternalRef,
+		CreatedBy:   options.CreatedBy,
+		CreatedAt:   now,
+		ExpiresAt:   utcTimePtr(options.ExpiresAt),
+		Status:      HoldStatusActive,
+	}
+
+	hold.Status = hold.StatusAt(now)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Hold{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := requireHoldTarget(ctx, tx, options.Scope, options.TargetID); err != nil {
+		return Hold{}, err
+	}
+
+	var expiresAt any
+	if hold.ExpiresAt != nil {
+		expiresAt = sqlTimeParam(*hold.ExpiresAt)
+	}
+
+	if _, err := tx.ExecContext(ctx, rebind(`
+		INSERT INTO retention_holds (
+			hold_id,
+			scope,
+			target_id,
+			reason,
+			owner,
+			external_ref,
+			created_by,
+			created_at,
+			expires_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`), hold.HoldID, hold.Scope, hold.TargetID, hold.Reason, hold.Owner, hold.ExternalRef, hold.CreatedBy, sqlTimeParam(hold.CreatedAt), expiresAt); err != nil {
+		return Hold{}, fmt.Errorf("create retention hold: %w", err)
+	}
+
+	if err := insertHoldAuditEvent(ctx, tx, auditEventHoldCreated, hold); err != nil {
+		return Hold{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Hold{}, err
+	}
+
+	return hold, nil
+}
+
+func (s *SQLHoldStore) List(ctx context.Context, options ListHoldOptions, now time.Time) ([]Hold, error) {
+	options.Scope = strings.TrimSpace(options.Scope)
+	options.TargetID = strings.TrimSpace(options.TargetID)
+	if options.Scope == "" {
+		options.Scope = ""
+	}
+
+	if options.Scope != "" {
+		if err := validateHoldScope(options.Scope); err != nil {
+			return nil, err
+		}
+	}
+
+	query := `
+		SELECT
+			hold_id,
+			scope,
+			target_id,
+			reason,
+			owner,
+			external_ref,
+			created_by,
+			created_at,
+			expires_at,
+			released_by,
+			release_reason,
+			released_at
+		FROM retention_holds
+		WHERE 1 = 1
+	`
+	args := []any{}
+	if options.Scope != "" {
+		query += ` AND scope = ?`
+		args = append(args, options.Scope)
+	}
+	if options.TargetID != "" {
+		query += ` AND target_id = ?`
+		args = append(args, options.TargetID)
+	}
+
+	if !options.IncludeClosed {
+		query += ` AND released_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`
+		args = append(args, sqlTimeParam(now.UTC()))
+	}
+
+	query += ` ORDER BY created_at DESC, id DESC`
+
+	rows, err := s.db.QueryContext(ctx, rebind(query), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var holds []Hold
+	for rows.Next() {
+		hold, err := scanHold(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		hold.Status = hold.StatusAt(now)
+		holds = append(holds, hold)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return holds, nil
+}
+
+func (s *SQLHoldStore) Release(ctx context.Context, options ReleaseHoldOptions, now time.Time) (Hold, error) {
+	options.HoldID = strings.TrimSpace(options.HoldID)
+	options.ReleasedBy = strings.TrimSpace(options.ReleasedBy)
+	options.ReleaseReason = strings.TrimSpace(options.ReleaseReason)
+	if options.HoldID == "" {
+		return Hold{}, fmt.Errorf("retention hold id is required")
+	}
+
+	if options.ReleaseReason == "" {
+		return Hold{}, fmt.Errorf("retention hold release reason is required")
+	}
+
+	if options.ReleasedBy == "" {
+		options.ReleasedBy = "vectis-cli"
+	}
+
+	now = now.UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Hold{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	hold, err := getHoldTx(ctx, tx, options.HoldID)
+	if err != nil {
+		return Hold{}, err
+	}
+
+	if hold.ReleasedAt != nil {
+		return Hold{}, fmt.Errorf("retention hold %s is already released", options.HoldID)
+	}
+
+	result, err := tx.ExecContext(ctx, rebind(`
+		UPDATE retention_holds
+		SET released_by = ?,
+			release_reason = ?,
+			released_at = ?
+		WHERE hold_id = ?
+			AND released_at IS NULL
+	`), options.ReleasedBy, options.ReleaseReason, sqlTimeParam(now), options.HoldID)
+
+	if err != nil {
+		return Hold{}, fmt.Errorf("release retention hold: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return Hold{}, err
+	}
+
+	if affected != 1 {
+		return Hold{}, fmt.Errorf("retention hold %s was not released", options.HoldID)
+	}
+
+	hold.ReleasedBy = options.ReleasedBy
+	hold.ReleaseReason = options.ReleaseReason
+	hold.ReleasedAt = &now
+	hold.Status = hold.StatusAt(now)
+
+	if err := insertHoldAuditEvent(ctx, tx, auditEventHoldReleased, hold); err != nil {
+		return Hold{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Hold{}, err
+	}
+
+	return hold, nil
+}
+
+func (h Hold) StatusAt(now time.Time) string {
+	if h.ReleasedAt != nil {
+		return HoldStatusReleased
+	}
+
+	if h.ExpiresAt != nil && !h.ExpiresAt.After(now.UTC()) {
+		return HoldStatusExpired
+	}
+
+	return HoldStatusActive
+}
+
 func (c *SQLCleaner) Preview(ctx context.Context, policy Policy, now time.Time) (Report, error) {
 	report := Report{DryRun: true, Cutoffs: policyCutoffs(policy, now)}
-	counts, err := c.counts(ctx, nil, report.Cutoffs)
+	counts, heldCounts, err := c.counts(ctx, nil, report.Cutoffs, now)
 	if err != nil {
 		return Report{}, err
 	}
+
 	report.Counts = counts
+	report.HeldCounts = heldCounts
 	return report, nil
 }
 
@@ -97,31 +423,48 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	counts, err := c.counts(ctx, tx, report.Cutoffs)
+	counts, heldCounts, err := c.counts(ctx, tx, report.Cutoffs, now)
 	if err != nil {
 		return Report{}, err
 	}
+
+	report.HeldCounts = heldCounts
 
 	if report.Cutoffs.TerminalRuns != nil {
 		if _, err := execRows(ctx, tx, `
 			DELETE FROM run_dispatch_events
 			WHERE run_id IN (
-				SELECT run_id
-				FROM job_runs
-				WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
-					AND finished_at IS NOT NULL
-					AND finished_at < ?
+				SELECT jr.run_id
+				FROM job_runs AS jr
+				WHERE `+terminalRunPredicate("jr", terminalRunHoldExcluded)+`
 			)
-		`, sqlTimeParam(*report.Cutoffs.TerminalRuns)); err != nil {
+		`, terminalRunPredicateArgs(*report.Cutoffs.TerminalRuns, now)...); err != nil {
 			return Report{}, fmt.Errorf("delete run dispatch events: %w", err)
+		}
+
+		for _, child := range []struct {
+			table string
+			label string
+		}{
+			{table: "run_artifacts", label: "run artifacts"},
+			{table: "segment_executions", label: "segment executions"},
+			{table: "run_segments", label: "run segments"},
+			{table: "task_attempts", label: "task attempts"},
+			{table: "run_tasks", label: "run tasks"},
+		} {
+			if err := deleteTerminalRunChildren(ctx, tx, child.table, *report.Cutoffs.TerminalRuns, now); err != nil {
+				return Report{}, fmt.Errorf("delete %s: %w", child.label, err)
+			}
 		}
 
 		deletedRuns, err := execRows(ctx, tx, `
 			DELETE FROM job_runs
-			WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
-				AND finished_at IS NOT NULL
-				AND finished_at < ?
-		`, sqlTimeParam(*report.Cutoffs.TerminalRuns))
+			WHERE run_id IN (
+				SELECT jr.run_id
+				FROM job_runs AS jr
+				WHERE `+terminalRunPredicate("jr", terminalRunHoldExcluded)+`
+			)
+		`, terminalRunPredicateArgs(*report.Cutoffs.TerminalRuns, now)...)
 
 		if err != nil {
 			return Report{}, fmt.Errorf("delete terminal runs: %w", err)
@@ -142,13 +485,16 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 				)
 				AND NOT EXISTS (
 					SELECT 1
-					FROM stored_jobs
-					WHERE stored_jobs.job_id = job_definitions.job_id
+					FROM job_definition_sources
+					WHERE job_definition_sources.job_id = job_definitions.job_id
+						AND job_definition_sources.version = job_definitions.version
 				)
 		`, sqlTimeParam(*report.Cutoffs.JobDefinitions))
+
 		if err != nil {
 			return Report{}, fmt.Errorf("delete orphaned job definitions: %w", err)
 		}
+
 		counts.JobDefinitions = deleted
 	}
 
@@ -161,7 +507,7 @@ func (c *SQLCleaner) Apply(ctx context.Context, policy Policy, now time.Time) (R
 	}
 
 	if report.Cutoffs.AuditLog != nil {
-		deleted, err := execRows(ctx, tx, `DELETE FROM audit_log WHERE created_at < ?`, sqlTimeParam(*report.Cutoffs.AuditLog))
+		deleted, err := execRows(ctx, tx, `DELETE FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded), auditLogPredicateArgs(*report.Cutoffs.AuditLog, now)...)
 		if err != nil {
 			return Report{}, fmt.Errorf("delete audit log: %w", err)
 		}
@@ -188,18 +534,16 @@ func (c *SQLCleaner) TerminalRunIDs(ctx context.Context, retention time.Duration
 
 	cutoff := now.UTC().Add(-retention)
 	rows, err := c.db.QueryContext(ctx, rebind(`
-		SELECT run_id
-		FROM job_runs
-		WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
-			AND finished_at IS NOT NULL
-			AND finished_at < ?
-		ORDER BY id ASC
-	`), sqlTimeParam(cutoff))
+		SELECT jr.run_id
+		FROM job_runs AS jr
+		WHERE `+terminalRunPredicate("jr", terminalRunHoldExcluded)+`
+		ORDER BY jr.id ASC
+	`), terminalRunPredicateArgs(cutoff, now)...)
 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []string
 	for rows.Next() {
@@ -215,37 +559,164 @@ func (c *SQLCleaner) TerminalRunIDs(ctx context.Context, retention time.Duration
 	return out, nil
 }
 
-func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (Counts, error) {
+func (c *SQLCleaner) ReferencedArtifactBlobKeys(ctx context.Context) (map[string]bool, error) {
+	return c.referencedArtifactBlobKeys(ctx, 0, time.Time{})
+}
+
+func (c *SQLCleaner) ReferencedArtifactBlobKeysExcludingTerminalRuns(ctx context.Context, retention time.Duration, now time.Time) (map[string]bool, error) {
+	return c.referencedArtifactBlobKeys(ctx, retention, now)
+}
+
+func (c *SQLCleaner) referencedArtifactBlobKeys(ctx context.Context, retention time.Duration, now time.Time) (map[string]bool, error) {
+	query := `
+		SELECT DISTINCT blob_key
+		FROM run_artifacts
+		WHERE blob_key <> ''
+	`
+	args := []any{}
+	if retention > 0 {
+		cutoff := now.UTC().Add(-retention)
+		query += `
+			AND run_id NOT IN (
+				SELECT jr.run_id
+				FROM job_runs AS jr
+				WHERE ` + terminalRunPredicate("jr", terminalRunHoldExcluded) + `
+			)
+		`
+
+		args = append(args, terminalRunPredicateArgs(cutoff, now)...)
+	}
+
+	rows, err := c.db.QueryContext(ctx, rebind(query), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+
+		key = strings.TrimSpace(key)
+		if key != "" {
+			out[key] = true
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs, now time.Time) (Counts, Counts, error) {
 	var out Counts
+	var held Counts
 	var err error
 
 	if cutoffs.TerminalRuns != nil {
 		out.TerminalRuns, err = c.queryCount(ctx, tx, `
 			SELECT COUNT(*)
-			FROM job_runs
-			WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
-				AND finished_at IS NOT NULL
-				AND finished_at < ?
-		`, sqlTimeParam(*cutoffs.TerminalRuns))
+			FROM job_runs AS jr
+			WHERE `+terminalRunPredicate("jr", terminalRunHoldExcluded)+`
+		`, terminalRunPredicateArgs(*cutoffs.TerminalRuns, now)...)
 
 		if err != nil {
-			return Counts{}, fmt.Errorf("count terminal runs: %w", err)
+			return Counts{}, Counts{}, fmt.Errorf("count terminal runs: %w", err)
+		}
+
+		held.TerminalRuns, err = c.queryCount(ctx, tx, `
+			SELECT COUNT(*)
+			FROM job_runs AS jr
+			WHERE `+terminalRunPredicate("jr", terminalRunHoldRequired)+`
+		`, terminalRunPredicateArgs(*cutoffs.TerminalRuns, now)...)
+
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held terminal runs: %w", err)
 		}
 
 		out.RunDispatchEvents, err = c.queryCount(ctx, tx, `
 			SELECT COUNT(*)
 			FROM run_dispatch_events
 			WHERE run_id IN (
-				SELECT run_id
-				FROM job_runs
-				WHERE status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
-					AND finished_at IS NOT NULL
-					AND finished_at < ?
+				SELECT jr.run_id
+				FROM job_runs AS jr
+				WHERE `+terminalRunPredicate("jr", terminalRunHoldExcluded)+`
 			)
-		`, sqlTimeParam(*cutoffs.TerminalRuns))
+		`, terminalRunPredicateArgs(*cutoffs.TerminalRuns, now)...)
+
 		if err != nil {
-			return Counts{}, fmt.Errorf("count run dispatch events: %w", err)
+			return Counts{}, Counts{}, fmt.Errorf("count run dispatch events: %w", err)
 		}
+
+		held.RunDispatchEvents, err = c.queryCount(ctx, tx, `
+			SELECT COUNT(*)
+			FROM run_dispatch_events
+			WHERE run_id IN (
+				SELECT jr.run_id
+				FROM job_runs AS jr
+				WHERE `+terminalRunPredicate("jr", terminalRunHoldRequired)+`
+			)
+		`, terminalRunPredicateArgs(*cutoffs.TerminalRuns, now)...)
+
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held run dispatch events: %w", err)
+		}
+
+		out.RunArtifacts, err = c.countTerminalRunChildren(ctx, tx, "run_artifacts", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count run artifacts: %w", err)
+		}
+
+		held.RunArtifacts, err = c.countTerminalRunChildren(ctx, tx, "run_artifacts", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held run artifacts: %w", err)
+		}
+
+		out.RunTasks, err = c.countTerminalRunChildren(ctx, tx, "run_tasks", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count run tasks: %w", err)
+		}
+
+		held.RunTasks, err = c.countTerminalRunChildren(ctx, tx, "run_tasks", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held run tasks: %w", err)
+		}
+
+		out.TaskAttempts, err = c.countTerminalRunChildren(ctx, tx, "task_attempts", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count task attempts: %w", err)
+		}
+
+		held.TaskAttempts, err = c.countTerminalRunChildren(ctx, tx, "task_attempts", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held task attempts: %w", err)
+		}
+
+		out.RunSegments, err = c.countTerminalRunChildren(ctx, tx, "run_segments", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count run segments: %w", err)
+		}
+
+		held.RunSegments, err = c.countTerminalRunChildren(ctx, tx, "run_segments", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held run segments: %w", err)
+		}
+
+		out.SegmentExecutions, err = c.countTerminalRunChildren(ctx, tx, "segment_executions", *cutoffs.TerminalRuns, now, terminalRunHoldExcluded)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count segment executions: %w", err)
+		}
+
+		held.SegmentExecutions, err = c.countTerminalRunChildren(ctx, tx, "segment_executions", *cutoffs.TerminalRuns, now, terminalRunHoldRequired)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held segment executions: %w", err)
+		}
+
 	}
 
 	if cutoffs.JobDefinitions != nil {
@@ -259,47 +730,359 @@ func (c *SQLCleaner) counts(ctx context.Context, tx *sql.Tx, cutoffs Cutoffs) (C
 					WHERE job_runs.job_id = job_definitions.job_id
 						AND job_runs.definition_version = job_definitions.version
 		`
+
 		args := []any{sqlTimeParam(*cutoffs.JobDefinitions)}
+
 		if cutoffs.TerminalRuns != nil {
 			query += `
 						AND NOT (
-							status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
-							AND finished_at IS NOT NULL
-							AND finished_at < ?
+							` + terminalRunPredicate("job_runs", terminalRunHoldExcluded) + `
 						)
 			`
-			args = append(args, sqlTimeParam(*cutoffs.TerminalRuns))
+			args = append(args, terminalRunPredicateArgs(*cutoffs.TerminalRuns, now)...)
 		}
+
 		query += `
 				)
 				AND NOT EXISTS (
 					SELECT 1
-					FROM stored_jobs
-					WHERE stored_jobs.job_id = job_definitions.job_id
+					FROM job_definition_sources
+					WHERE job_definition_sources.job_id = job_definitions.job_id
+						AND job_definition_sources.version = job_definitions.version
 				)
 		`
 
 		out.JobDefinitions, err = c.queryCount(ctx, tx, query, args...)
 		if err != nil {
-			return Counts{}, fmt.Errorf("count orphaned job definitions: %w", err)
+			return Counts{}, Counts{}, fmt.Errorf("count orphaned job definitions: %w", err)
 		}
 	}
 
 	if cutoffs.IdempotencyKeys != nil {
 		out.IdempotencyKeys, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM idempotency_keys WHERE updated_at < ?`, sqlTimeParam(*cutoffs.IdempotencyKeys))
 		if err != nil {
-			return Counts{}, fmt.Errorf("count idempotency keys: %w", err)
+			return Counts{}, Counts{}, fmt.Errorf("count idempotency keys: %w", err)
 		}
 	}
 
 	if cutoffs.AuditLog != nil {
-		out.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE created_at < ?`, sqlTimeParam(*cutoffs.AuditLog))
+		out.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldExcluded), auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
 		if err != nil {
-			return Counts{}, fmt.Errorf("count audit log: %w", err)
+			return Counts{}, Counts{}, fmt.Errorf("count audit log: %w", err)
+		}
+
+		held.AuditLog, err = c.queryCount(ctx, tx, `SELECT COUNT(*) FROM audit_log WHERE `+auditLogPredicate("audit_log", auditLogHoldRequired), auditLogPredicateArgs(*cutoffs.AuditLog, now)...)
+		if err != nil {
+			return Counts{}, Counts{}, fmt.Errorf("count held audit log: %w", err)
 		}
 	}
 
-	return out, nil
+	return out, held, nil
+}
+
+func (c *SQLCleaner) countTerminalRunChildren(ctx context.Context, tx *sql.Tx, table string, cutoff, now time.Time, holdMatch terminalRunHoldMatch) (int64, error) {
+	return c.queryCount(ctx, tx, `
+		SELECT COUNT(*)
+		FROM `+table+`
+		WHERE run_id IN (
+			SELECT jr.run_id
+			FROM job_runs AS jr
+			WHERE `+terminalRunPredicate("jr", holdMatch)+`
+		)
+	`, terminalRunPredicateArgs(cutoff, now)...)
+}
+
+func deleteTerminalRunChildren(ctx context.Context, tx *sql.Tx, table string, cutoff, now time.Time) error {
+	_, err := execRows(ctx, tx, `
+		DELETE FROM `+table+`
+		WHERE run_id IN (
+			SELECT jr.run_id
+			FROM job_runs AS jr
+			WHERE `+terminalRunPredicate("jr", terminalRunHoldExcluded)+`
+		)
+	`, terminalRunPredicateArgs(cutoff, now)...)
+
+	return err
+}
+
+type terminalRunHoldMatch int
+
+const (
+	terminalRunHoldExcluded terminalRunHoldMatch = iota
+	terminalRunHoldRequired
+)
+
+type auditLogHoldMatch int
+
+const (
+	auditLogHoldExcluded auditLogHoldMatch = iota
+	auditLogHoldRequired
+)
+
+func terminalRunPredicate(alias string, holdMatch terminalRunHoldMatch) string {
+	runID := alias + ".run_id"
+	predicate := alias + `.status IN ('succeeded', 'failed', 'aborted', 'cancelled', 'abandoned')
+				AND ` + alias + `.finished_at IS NOT NULL
+				AND ` + alias + `.finished_at < ?`
+
+	switch holdMatch {
+	case terminalRunHoldRequired:
+		predicate += `
+				AND ` + activeRunHoldExistsSQL(runID)
+	default:
+		predicate += `
+				AND NOT ` + activeRunHoldExistsSQL(runID)
+	}
+
+	return predicate
+}
+
+func activeRunHoldExistsSQL(runIDExpr string) string {
+	return `EXISTS (
+					SELECT 1
+					FROM retention_holds AS retention_holds_active
+					WHERE retention_holds_active.scope = 'run'
+						AND retention_holds_active.target_id = ` + runIDExpr + `
+						AND retention_holds_active.released_at IS NULL
+						AND (
+							retention_holds_active.expires_at IS NULL
+							OR retention_holds_active.expires_at > ?
+						)
+				)`
+}
+
+func terminalRunPredicateArgs(cutoff, now time.Time) []any {
+	return []any{sqlTimeParam(cutoff), sqlTimeParam(now.UTC())}
+}
+
+func auditLogPredicate(alias string, holdMatch auditLogHoldMatch) string {
+	createdAt := alias + ".created_at"
+	predicate := createdAt + ` < ?`
+
+	switch holdMatch {
+	case auditLogHoldRequired:
+		predicate += `
+				AND ` + activeAuditRangeHoldExistsSQL(createdAt)
+	default:
+		predicate += `
+				AND NOT ` + activeAuditRangeHoldExistsSQL(createdAt)
+	}
+
+	return predicate
+}
+
+func activeAuditRangeHoldExistsSQL(createdAtExpr string) string {
+	sinceExpr, untilExpr := auditRangeHoldBoundSQL("retention_holds_active.target_id")
+	return `EXISTS (
+					SELECT 1
+					FROM retention_holds AS retention_holds_active
+					WHERE retention_holds_active.scope = '` + HoldScopeAuditRange + `'
+						AND retention_holds_active.released_at IS NULL
+						AND (
+							retention_holds_active.expires_at IS NULL
+							OR retention_holds_active.expires_at > ?
+						)
+						AND ` + createdAtExpr + ` >= ` + sinceExpr + `
+						AND ` + createdAtExpr + ` < ` + untilExpr + `
+				)`
+}
+
+func auditRangeHoldBoundSQL(targetExpr string) (sinceExpr, untilExpr string) {
+	const sinceStart = 1
+	const boundLength = len("2006-01-02 15:04:05")
+	const untilStart = boundLength + len("..") + 1
+	if os.Getenv(database.EnvDatabaseDriver) == "pgx" {
+		since := `((substring(` + targetExpr + ` from ` + strconv.Itoa(sinceStart) + ` for ` + strconv.Itoa(boundLength) + `))::timestamp AT TIME ZONE 'UTC')`
+		until := `((substring(` + targetExpr + ` from ` + strconv.Itoa(untilStart) + ` for ` + strconv.Itoa(boundLength) + `))::timestamp AT TIME ZONE 'UTC')`
+		return since, until
+	}
+
+	since := `substr(` + targetExpr + `, ` + strconv.Itoa(sinceStart) + `, ` + strconv.Itoa(boundLength) + `)`
+	until := `substr(` + targetExpr + `, ` + strconv.Itoa(untilStart) + `, ` + strconv.Itoa(boundLength) + `)`
+	return since, until
+}
+
+func auditLogPredicateArgs(cutoff, now time.Time) []any {
+	return []any{sqlTimeParam(cutoff), sqlTimeParam(now.UTC())}
+}
+
+func AuditRangeHoldTarget(since, until time.Time) (string, error) {
+	since = since.UTC().Truncate(time.Second)
+	until = until.UTC().Truncate(time.Second)
+	if since.IsZero() {
+		return "", fmt.Errorf("audit range hold since time is required")
+	}
+
+	if until.IsZero() {
+		return "", fmt.Errorf("audit range hold until time is required")
+	}
+
+	if !until.After(since) {
+		return "", fmt.Errorf("audit range hold until must be after since")
+	}
+
+	return since.Format(sqlTimeLayout) + ".." + until.Format(sqlTimeLayout), nil
+}
+
+func ParseAuditRangeHoldTarget(targetID string) (since, until time.Time, err error) {
+	sinceRaw, untilRaw, ok := strings.Cut(strings.TrimSpace(targetID), "..")
+	if !ok || strings.TrimSpace(sinceRaw) == "" || strings.TrimSpace(untilRaw) == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("audit range hold target must be since..until")
+	}
+
+	since, err = time.ParseInLocation(sqlTimeLayout, strings.TrimSpace(sinceRaw), time.UTC)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse audit range hold since: %w", err)
+	}
+
+	until, err = time.ParseInLocation(sqlTimeLayout, strings.TrimSpace(untilRaw), time.UTC)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse audit range hold until: %w", err)
+	}
+
+	if !until.After(since) {
+		return time.Time{}, time.Time{}, fmt.Errorf("audit range hold until must be after since")
+	}
+
+	return since.UTC(), until.UTC(), nil
+}
+
+func validateHoldScope(scope string) error {
+	switch scope {
+	case HoldScopeRun, HoldScopeAuditRange:
+		return nil
+	default:
+		return fmt.Errorf("unsupported retention hold scope %q", scope)
+	}
+}
+
+func validateHoldTarget(scope, targetID string) error {
+	if targetID == "" {
+		switch scope {
+		case HoldScopeRun:
+			return fmt.Errorf("retention hold run id is required")
+		case HoldScopeAuditRange:
+			return fmt.Errorf("retention hold audit range is required")
+		default:
+			return fmt.Errorf("retention hold target id is required")
+		}
+	}
+
+	if scope == HoldScopeAuditRange {
+		if _, _, err := ParseAuditRangeHoldTarget(targetID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func requireHoldTarget(ctx context.Context, tx *sql.Tx, scope, targetID string) error {
+	switch scope {
+	case HoldScopeRun:
+		return requireRunExists(ctx, tx, targetID)
+	case HoldScopeAuditRange:
+		_, _, err := ParseAuditRangeHoldTarget(targetID)
+		return err
+	default:
+		return validateHoldScope(scope)
+	}
+}
+
+func requireRunExists(ctx context.Context, tx *sql.Tx, runID string) error {
+	var exists int
+	if err := tx.QueryRowContext(ctx, rebind(`SELECT 1 FROM job_runs WHERE run_id = ?`), runID).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("run %s not found", runID)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+type holdScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanHold(row holdScanner) (Hold, error) {
+	var hold Hold
+	var createdAt sql.NullTime
+	var expiresAt sql.NullTime
+	var releasedAt sql.NullTime
+
+	if err := row.Scan(
+		&hold.HoldID,
+		&hold.Scope,
+		&hold.TargetID,
+		&hold.Reason,
+		&hold.Owner,
+		&hold.ExternalRef,
+		&hold.CreatedBy,
+		&createdAt,
+		&expiresAt,
+		&hold.ReleasedBy,
+		&hold.ReleaseReason,
+		&releasedAt,
+	); err != nil {
+		return Hold{}, err
+	}
+
+	if createdAt.Valid {
+		hold.CreatedAt = createdAt.Time.UTC()
+	}
+
+	if expiresAt.Valid {
+		expires := expiresAt.Time.UTC()
+		hold.ExpiresAt = &expires
+	}
+
+	if releasedAt.Valid {
+		released := releasedAt.Time.UTC()
+		hold.ReleasedAt = &released
+	}
+
+	return hold, nil
+}
+
+func getHoldTx(ctx context.Context, tx *sql.Tx, holdID string) (Hold, error) {
+	hold, err := scanHold(tx.QueryRowContext(ctx, rebind(`
+		SELECT
+			hold_id,
+			scope,
+			target_id,
+			reason,
+			owner,
+			external_ref,
+			created_by,
+			created_at,
+			expires_at,
+			released_by,
+			release_reason,
+			released_at
+		FROM retention_holds
+		WHERE hold_id = ?
+	`), holdID))
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return Hold{}, fmt.Errorf("retention hold %s not found", holdID)
+		}
+
+		return Hold{}, err
+	}
+
+	return hold, nil
+}
+
+func utcTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+
+	out := t.UTC()
+	return &out
 }
 
 type LocalRunLogCleaner struct {
@@ -357,6 +1140,154 @@ func (c LocalRunLogCleaner) walk(runIDs []string, remove bool) (FileReport, erro
 	return report, nil
 }
 
+type LocalArtifactBlobCleaner struct {
+	Dir                string
+	Cutoff             *time.Time
+	ReferencedBlobKeys map[string]bool
+}
+
+func (c LocalArtifactBlobCleaner) Preview() (FileReport, error) {
+	return c.walk(false)
+}
+
+func (c LocalArtifactBlobCleaner) Delete() (FileReport, error) {
+	return c.walk(true)
+}
+
+func (c LocalArtifactBlobCleaner) walk(remove bool) (FileReport, error) {
+	if c.Dir == "" || c.Cutoff == nil {
+		return FileReport{}, nil
+	}
+
+	root := filepath.Join(c.Dir, "blobs", artifactHashAlgorithm)
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			return FileReport{}, nil
+		}
+		return FileReport{}, fmt.Errorf("inspect artifact blob storage dir: %w", err)
+	}
+
+	if remove {
+		unlock, err := lockArtifactStorageForCleanup(c.Dir)
+		if err != nil {
+			return FileReport{}, err
+		}
+		defer unlock()
+	}
+
+	var report FileReport
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walk artifact blob path %s: %w", path, err)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+
+		key, ok := artifactBlobKeyFromPath(root, path)
+		if !ok || c.ReferencedBlobKeys[key] {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("inspect artifact blob %s: %w", path, err)
+		}
+		if !info.ModTime().Before(*c.Cutoff) {
+			return nil
+		}
+
+		report.ArtifactBlobFiles++
+		report.ArtifactBlobBytes += info.Size()
+		if remove {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove artifact blob %s: %w", path, err)
+			}
+			removeEmptyArtifactBlobDirs(root, filepath.Dir(path))
+		}
+
+		return nil
+	})
+	if err != nil {
+		return FileReport{}, err
+	}
+
+	return report, nil
+}
+
+func artifactBlobKeyFromPath(root, path string) (string, bool) {
+	name := filepath.Base(path)
+	if !strings.HasSuffix(name, artifactBlobSuffix) {
+		return "", false
+	}
+
+	digest := strings.TrimSuffix(name, artifactBlobSuffix)
+	if !validArtifactDigest(digest) {
+		return "", false
+	}
+
+	if filepath.Base(filepath.Dir(path)) != digest[2:4] {
+		return "", false
+	}
+	if filepath.Base(filepath.Dir(filepath.Dir(path))) != digest[:2] {
+		return "", false
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+
+	return artifactBlobKeyPrefix + digest, true
+}
+
+func validArtifactDigest(digest string) bool {
+	if len(digest) != sha256.Size*2 || strings.ToLower(digest) != digest {
+		return false
+	}
+	_, err := hex.DecodeString(digest)
+	return err == nil
+}
+
+func removeEmptyArtifactBlobDirs(root, dir string) {
+	for dir != root && pathWithin(root, dir) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
+}
+
+func lockArtifactStorageForCleanup(dir string) (func(), error) {
+	path := filepath.Join(dir, artifactStorageLockFile)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open artifact storage lock %s: %w", path, err)
+	}
+
+	if err := platform.TryLockFileExclusive(f); err != nil {
+		_ = f.Close()
+		if platform.IsFileLockUnavailable(err) {
+			return nil, fmt.Errorf("artifact storage directory %s is in use; stop vectis-artifact or run cleanup during a maintenance window before pruning blobs: %w", dir, err)
+		}
+
+		return nil, fmt.Errorf("lock artifact storage directory %s: %w", dir, err)
+	}
+
+	return func() {
+		_ = platform.UnlockFile(f)
+		_ = f.Close()
+	}, nil
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
 func policyCutoffs(policy Policy, now time.Time) Cutoffs {
 	now = now.UTC()
 	cutoff := func(d time.Duration) *time.Time {
@@ -372,6 +1303,7 @@ func policyCutoffs(policy Policy, now time.Time) Cutoffs {
 		JobDefinitions:  cutoff(policy.JobDefinitions),
 		IdempotencyKeys: cutoff(policy.IdempotencyKeys),
 		AuditLog:        cutoff(policy.AuditLog),
+		ArtifactBlobs:   cutoff(policy.ArtifactBlobs),
 	}
 }
 
@@ -408,15 +1340,31 @@ func insertCleanupAuditEvent(ctx context.Context, tx *sql.Tx, report Report) err
 		"counts": map[string]int64{
 			"terminal_runs":       report.Counts.TerminalRuns,
 			"run_dispatch_events": report.Counts.RunDispatchEvents,
+			"run_artifacts":       report.Counts.RunArtifacts,
+			"run_tasks":           report.Counts.RunTasks,
+			"task_attempts":       report.Counts.TaskAttempts,
+			"run_segments":        report.Counts.RunSegments,
+			"segment_executions":  report.Counts.SegmentExecutions,
 			"job_definitions":     report.Counts.JobDefinitions,
 			"idempotency_keys":    report.Counts.IdempotencyKeys,
 			"audit_log":           report.Counts.AuditLog,
+		},
+		"held_counts": map[string]int64{
+			"terminal_runs":       report.HeldCounts.TerminalRuns,
+			"run_dispatch_events": report.HeldCounts.RunDispatchEvents,
+			"run_artifacts":       report.HeldCounts.RunArtifacts,
+			"run_tasks":           report.HeldCounts.RunTasks,
+			"task_attempts":       report.HeldCounts.TaskAttempts,
+			"run_segments":        report.HeldCounts.RunSegments,
+			"segment_executions":  report.HeldCounts.SegmentExecutions,
+			"audit_log":           report.HeldCounts.AuditLog,
 		},
 		"cutoffs": map[string]string{
 			"terminal_runs":    formatCutoff(report.Cutoffs.TerminalRuns),
 			"job_definitions":  formatCutoff(report.Cutoffs.JobDefinitions),
 			"idempotency_keys": formatCutoff(report.Cutoffs.IdempotencyKeys),
 			"audit_log":        formatCutoff(report.Cutoffs.AuditLog),
+			"artifact_blobs":   formatCutoff(report.Cutoffs.ArtifactBlobs),
 		},
 	})
 	if err != nil {
@@ -433,10 +1381,60 @@ func insertCleanupAuditEvent(ctx context.Context, tx *sql.Tx, report Report) err
 	return nil
 }
 
+func insertHoldAuditEvent(ctx context.Context, tx *sql.Tx, eventType string, hold Hold) error {
+	metadataFields := map[string]any{
+		"hold_id":        hold.HoldID,
+		"scope":          hold.Scope,
+		"target_id":      hold.TargetID,
+		"reason":         hold.Reason,
+		"owner":          hold.Owner,
+		"external_ref":   hold.ExternalRef,
+		"created_by":     hold.CreatedBy,
+		"created_at":     hold.CreatedAt.UTC().Format(time.RFC3339),
+		"expires_at":     formatTimePtr(hold.ExpiresAt),
+		"released_by":    hold.ReleasedBy,
+		"release_reason": hold.ReleaseReason,
+		"released_at":    formatTimePtr(hold.ReleasedAt),
+		"status":         hold.Status,
+	}
+	if hold.Scope == HoldScopeAuditRange {
+		if since, until, err := ParseAuditRangeHoldTarget(hold.TargetID); err == nil {
+			metadataFields["audit_since"] = since.UTC().Format(time.RFC3339)
+			metadataFields["audit_until"] = until.UTC().Format(time.RFC3339)
+		}
+	}
+
+	metadata, err := json.Marshal(metadataFields)
+
+	if err != nil {
+		return fmt.Errorf("marshal retention hold audit metadata: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, rebind(`
+		INSERT INTO audit_log (event_type, actor_id, target_id, metadata, ip_address, correlation_id, created_at)
+		VALUES (?, NULL, NULL, ?, NULL, ?, CURRENT_TIMESTAMP)
+	`), eventType, metadata, "vectis-cli-retention-holds")
+
+	if err != nil {
+		return fmt.Errorf("insert retention hold audit event: %w", err)
+	}
+
+	return nil
+}
+
 func formatCutoff(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
+
+	return t.UTC().Format(time.RFC3339)
+}
+
+func formatTimePtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+
 	return t.UTC().Format(time.RFC3339)
 }
 
@@ -445,6 +1443,7 @@ func sqlTimeParam(t time.Time) any {
 	if os.Getenv(database.EnvDatabaseDriver) == "pgx" {
 		return t
 	}
+
 	return t.Format(sqlTimeLayout)
 }
 

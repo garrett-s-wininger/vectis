@@ -1,0 +1,544 @@
+package workercore
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+
+	api "vectis/api/gen/go"
+	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
+	"vectis/internal/dal"
+	"vectis/internal/interfaces/mocks"
+	"vectis/internal/source"
+	"vectis/internal/workloadidentity"
+	workersdk "vectis/sdk/workercore"
+
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestRemoteCoreExecuteTaskSendsShellSessionContract(t *testing.T) {
+	jobID := "job-remote-core"
+	runID := "run-remote-core"
+	nodeID := "root"
+	uses := "builtins/script"
+	job := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root: &api.Node{
+			Id:   &nodeID,
+			Uses: &uses,
+		},
+	}
+
+	var captured *api.ExecuteWorkerCoreTaskRequest
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		execute: func(_ context.Context, req *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+			captured = req
+			return &api.ExecuteWorkerCoreTaskResponse{Outcome: api.RunOutcome_RUN_OUTCOME_SUCCESS.Enum()}, nil
+		},
+	})
+
+	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
+		Job:     job,
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID:     "session-1",
+			ShellEndpoint: "unix:///tmp/vectis-worker-core-shell.sock",
+			LogClient:     mocks.NewMockLogClient(),
+			Logger:        mocks.NewMockLogger(),
+			ArtifactPublisher: fakeArtifactPublisher{
+				result: action.ArtifactPublishResult{Name: "artifact"},
+			},
+			WorkloadIdentity: &workloadidentity.Identity{
+				SPIFFEID:      "spiffe://vectis.local/cell/local/job/job-remote-core/run/run-remote-core/execution/session-1",
+				TrustDomain:   "vectis.local",
+				NamespacePath: "/team",
+				CellID:        "local",
+				JobID:         jobID,
+				RunID:         runID,
+				ExecutionID:   "session-1",
+				X509SVID:      &workloadidentity.X509SVID{SPIFFEID: "spiffe://vectis.local/workload"},
+			},
+			ActionLocks: []actionregistry.ActionLock{
+				{
+					NodeID:   "node-1",
+					NodePath: "root",
+					Uses:     "actions/example",
+					Descriptor: actionregistry.Descriptor{
+						CanonicalName: "actions/example",
+						DisplayName:   "Example",
+						Version:       "v1",
+						Digest:        "sha256:one",
+						Source:        actionregistry.SourceBuiltin,
+						Runtime:       actionregistry.RuntimeProcess,
+						RuntimeConfig: map[string]string{"entrypoint": "run"},
+						InputSchema: actionregistry.InputSchema{
+							AllowUnknown: true,
+							Fields: []actionregistry.InputField{
+								{Name: "url", Type: action.FieldURL, Required: true},
+							},
+						},
+						PortSchema: []actionregistry.PortSpec{
+							{Name: "main", Min: 1, Max: action.PortUnlimited, Primary: true},
+						},
+						LocalOnly:    true,
+						Capabilities: []actionregistry.Capability{actionregistry.CapabilityNetwork},
+						Status:       actionregistry.DescriptorStatusActive,
+						StatusReason: "ok",
+					},
+				},
+			},
+			CheckoutCacheRemotes: []CheckoutCacheRemote{
+				{
+					RemoteURL:          "https://mirror.invalid/vectis.git",
+					FallbackRemoteURLs: []string{"https://tier1.invalid/vectis.git"},
+					Credentials:        source.GitCredentials{Username: "alice", Password: "secret"},
+				},
+			},
+		}),
+	})
+
+	if err != nil {
+		t.Fatalf("ExecuteTask: %v", err)
+	}
+
+	if captured == nil {
+		t.Fatal("remote core did not receive request")
+	}
+
+	if captured.GetJob() != job {
+		t.Fatal("request job was not forwarded")
+	}
+
+	if captured.GetTaskKey() != dal.RootTaskKey {
+		t.Fatalf("task key = %q, want %q", captured.GetTaskKey(), dal.RootTaskKey)
+	}
+
+	session := captured.GetSession()
+	if session.GetSessionId() != "session-1" {
+		t.Fatalf("session id = %q", session.GetSessionId())
+	}
+
+	if session.GetShellEndpoint() != "unix:///tmp/vectis-worker-core-shell.sock" {
+		t.Fatalf("shell endpoint = %q", session.GetShellEndpoint())
+	}
+
+	if !session.GetLogsEnabled() {
+		t.Fatal("logs_enabled = false, want true")
+	}
+
+	if !session.GetArtifactsEnabled() {
+		t.Fatal("artifacts_enabled = false, want true")
+	}
+
+	if got, want := session.GetCheckoutCacheRemoteUrls(), []string{"https://mirror.invalid/vectis.git", "https://tier1.invalid/vectis.git"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("checkout cache remote urls = %+v, want %+v", got, want)
+	}
+
+	if got := session.GetCheckoutCacheRemotes(); len(got) != 1 ||
+		got[0].GetRemoteUrl() != "https://mirror.invalid/vectis.git" ||
+		!reflect.DeepEqual(got[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/vectis.git"}) ||
+		got[0].GetCredentials().GetUsername() != "alice" ||
+		got[0].GetCredentials().GetPassword() != "secret" {
+		t.Fatalf("checkout cache structured remotes = %+v", got)
+	}
+
+	identity := session.GetWorkloadIdentity()
+	if identity.GetSpiffeId() == "" || identity.GetX509SvidSpiffeId() != "spiffe://vectis.local/workload" {
+		t.Fatalf("workload identity not forwarded: %#v", identity)
+	}
+
+	locks := session.GetActionLocks()
+	if len(locks) != 1 {
+		t.Fatalf("action locks = %d, want 1", len(locks))
+	}
+
+	lock := locks[0]
+	if lock.GetNodePath() != "root" || lock.GetUses() != "actions/example" {
+		t.Fatalf("action lock = %#v", lock)
+	}
+
+	desc := lock.GetDescriptor_()
+	if desc.GetCanonicalName() != "actions/example" || desc.GetRuntime() != string(actionregistry.RuntimeProcess) {
+		t.Fatalf("descriptor = %#v", desc)
+	}
+
+	if desc.GetRuntimeConfig()["entrypoint"] != "run" {
+		t.Fatalf("runtime config = %#v", desc.GetRuntimeConfig())
+	}
+
+	if !desc.GetInputSchema().GetAllowUnknown() || desc.GetInputSchema().GetFields()[0].GetType() != string(action.FieldURL) {
+		t.Fatalf("input schema = %#v", desc.GetInputSchema())
+	}
+
+	if desc.GetPortSchema()[0].GetMax() != action.PortUnlimited {
+		t.Fatalf("port schema max = %d, want %d", desc.GetPortSchema()[0].GetMax(), action.PortUnlimited)
+	}
+
+	if len(desc.GetCapabilities()) != 1 || desc.GetCapabilities()[0] != string(actionregistry.CapabilityNetwork) {
+		t.Fatalf("capabilities = %#v", desc.GetCapabilities())
+	}
+}
+
+func TestExecuteTaskRequestProtoRejectsMismatchedWorkloadIdentity(t *testing.T) {
+	jobID := "job-remote-core"
+	runID := "run-remote-core"
+	job := &api.Job{
+		Id:    &jobID,
+		RunId: &runID,
+		Root:  &api.Node{},
+	}
+
+	_, err := ExecuteTaskRequestProto(ExecuteTaskRequest{
+		Job:     job,
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID: "execution-1",
+			WorkloadIdentity: &workloadidentity.Identity{
+				SPIFFEID:    "spiffe://vectis.local/cell/local/job/job-remote-core/run/other-run/execution/execution-1",
+				JobID:       jobID,
+				RunID:       "other-run",
+				ExecutionID: "execution-1",
+			},
+		}),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "run_id") {
+		t.Fatalf("ExecuteTaskRequestProto error = %v, want run_id identity mismatch", err)
+	}
+}
+
+func TestRemoteCoreExecuteTaskRequiresCallbackEndpoint(t *testing.T) {
+	core := NewRemoteCore(fakeWorkerCoreClient{})
+	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
+		Job:     &api.Job{},
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID: "session-1",
+			LogClient: mocks.NewMockLogClient(),
+			Logger:    mocks.NewMockLogger(),
+		}),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "requires a shell endpoint") {
+		t.Fatalf("ExecuteTask error = %v, want shell endpoint validation", err)
+	}
+}
+
+func TestRemoteCoreExecuteTaskFailureOutcome(t *testing.T) {
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		execute: func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+			return &api.ExecuteWorkerCoreTaskResponse{
+				Outcome:    api.RunOutcome_RUN_OUTCOME_FAILURE.Enum(),
+				Message:    proto.String("jenkins failed"),
+				ReasonCode: proto.String("jenkins.stage_failed"),
+			}, nil
+		},
+	})
+
+	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
+		Job:     &api.Job{},
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID: "session-1",
+			Logger:    mocks.NewMockLogger(),
+		}),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "jenkins failed") {
+		t.Fatalf("ExecuteTask error = %v, want failure message", err)
+	}
+
+	var resultErr *TaskResultError
+	if !errors.As(err, &resultErr) {
+		t.Fatalf("ExecuteTask error type = %T, want *TaskResultError", err)
+	}
+
+	if resultErr.Outcome != api.RunOutcome_RUN_OUTCOME_FAILURE {
+		t.Fatalf("outcome = %s, want failure", resultErr.Outcome)
+	}
+
+	if resultErr.ReasonCode != "jenkins.stage_failed" {
+		t.Fatalf("reason code = %q, want provider reason", resultErr.ReasonCode)
+	}
+}
+
+func TestRemoteCoreExecuteTaskDefaultReasonCode(t *testing.T) {
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		execute: func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+			return &api.ExecuteWorkerCoreTaskResponse{
+				Outcome: api.RunOutcome_RUN_OUTCOME_UNKNOWN.Enum(),
+			}, nil
+		},
+	})
+
+	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
+		Job:     &api.Job{},
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID: "session-1",
+			Logger:    mocks.NewMockLogger(),
+		}),
+	})
+
+	var resultErr *TaskResultError
+	if !errors.As(err, &resultErr) {
+		t.Fatalf("ExecuteTask error type = %T, want *TaskResultError", err)
+	}
+
+	if resultErr.ReasonCode != workersdk.ReasonUnknown {
+		t.Fatalf("reason code = %q, want %q", resultErr.ReasonCode, workersdk.ReasonUnknown)
+	}
+}
+
+func TestRemoteCoreDescribe(t *testing.T) {
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		describe: func(context.Context, *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error) {
+			return CoreDescriptionProto(CoreDescription{
+				Capabilities:       []CoreCapability{{Name: "external-runner", Version: "v1", Metadata: map[string]string{"provider": "jenkins"}}},
+				SupportedIsolation: []string{action.IsolationHost},
+				Metadata:           map[string]string{"name": "test-core"},
+			}), nil
+		},
+	})
+
+	desc, err := core.Describe(context.Background())
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+
+	if desc.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("protocol version = %q, want %q", desc.ProtocolVersion, ProtocolVersion)
+	}
+
+	if len(desc.Capabilities) != 1 || desc.Capabilities[0].Metadata["provider"] != "jenkins" {
+		t.Fatalf("capabilities = %#v", desc.Capabilities)
+	}
+}
+
+func TestValidateCoreDescription(t *testing.T) {
+	valid := CoreDescription{
+		ProtocolVersion: ProtocolVersion,
+		SupportedIsolation: []string{
+			action.IsolationHost,
+		},
+		Capabilities: []CoreCapability{
+			{Name: workersdk.CapabilityExecute, Version: "v1"},
+			{Name: workersdk.CapabilityCancelTask, Version: "v1"},
+			{Name: workersdk.CapabilityShellLogCallback, Version: "v1"},
+			{Name: workersdk.CapabilityShellArtifactPush, Version: "v1"},
+		},
+	}
+
+	if err := ValidateCoreDescription(valid, RequiredWorkerCoreCapabilities()); err != nil {
+		t.Fatalf("ValidateCoreDescription valid: %v", err)
+	}
+
+	badProtocol := valid
+	badProtocol.ProtocolVersion = "workercore.v0"
+	if err := ValidateCoreDescription(badProtocol, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "protocol version") {
+		t.Fatalf("ValidateCoreDescription protocol error = %v, want protocol version error", err)
+	}
+
+	missingCapability := valid
+	missingCapability.Capabilities = missingCapability.Capabilities[:2]
+	err := ValidateCoreDescription(missingCapability, RequiredWorkerCoreCapabilities())
+	if err == nil || !strings.Contains(err.Error(), workersdk.CapabilityShellLogCallback) || !strings.Contains(err.Error(), workersdk.CapabilityShellArtifactPush) {
+		t.Fatalf("ValidateCoreDescription missing capability error = %v", err)
+	}
+
+	missingIsolation := valid
+	missingIsolation.SupportedIsolation = nil
+	if err := ValidateCoreDescription(missingIsolation, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "supported isolation") {
+		t.Fatalf("ValidateCoreDescription missing isolation error = %v", err)
+	}
+
+	badIsolation := valid
+	badIsolation.SupportedIsolation = []string{action.IsolationHost, "container"}
+	if err := ValidateCoreDescription(badIsolation, RequiredWorkerCoreCapabilities()); err == nil || !strings.Contains(err.Error(), "unsupported isolation") {
+		t.Fatalf("ValidateCoreDescription bad isolation error = %v", err)
+	}
+}
+
+func TestRemoteCoreExecuteTaskWrapsClientError(t *testing.T) {
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		execute: func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error) {
+			return nil, errors.New("dial unix socket")
+		},
+	})
+
+	err := core.ExecuteTask(context.Background(), ExecuteTaskRequest{
+		Job:     &api.Job{},
+		TaskKey: dal.RootTaskKey,
+		Session: NewTaskSession(TaskSessionOptions{
+			SessionID: "session-1",
+			Logger:    mocks.NewMockLogger(),
+		}),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "dial unix socket") {
+		t.Fatalf("ExecuteTask error = %v, want wrapped client error", err)
+	}
+}
+
+func TestRemoteCoreWarmCheckoutCache(t *testing.T) {
+	var captured *api.WarmWorkerCoreCheckoutCacheRequest
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		warm: func(_ context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
+			captured = req
+			return &api.WarmWorkerCoreCheckoutCacheResponse{
+				Warmed:    proto.Int32(2),
+				Changed:   proto.Int32(1),
+				Unchanged: proto.Int32(1),
+				Failures: []*api.WorkerCoreCheckoutCacheWarmFailure{
+					{
+						RemoteUrl: proto.String("https://mirror.invalid/fail.git"),
+						Message:   proto.String("fetch failed"),
+					},
+				},
+			}, nil
+		},
+	})
+
+	result, err := core.WarmCheckoutCache(context.Background(), WarmCheckoutCacheRequest{
+		Remotes: []CheckoutCacheRemote{
+			{
+				RemoteURL:          "https://mirror.invalid/warm.git",
+				FallbackRemoteURLs: []string{"https://tier1.invalid/warm.git"},
+				Credentials:        source.GitCredentials{SSHPrivateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----"},
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("WarmCheckoutCache: %v", err)
+	}
+
+	if captured == nil ||
+		!reflect.DeepEqual(captured.GetRemoteUrls(), []string{"https://mirror.invalid/warm.git", "https://tier1.invalid/warm.git"}) ||
+		len(captured.GetRemotes()) != 1 ||
+		captured.GetRemotes()[0].GetRemoteUrl() != "https://mirror.invalid/warm.git" ||
+		!reflect.DeepEqual(captured.GetRemotes()[0].GetFallbackRemoteUrls(), []string{"https://tier1.invalid/warm.git"}) ||
+		captured.GetRemotes()[0].GetCredentials().GetSshPrivateKey() == "" {
+		t.Fatalf("captured warm request = %+v", captured)
+	}
+
+	if result.Warmed != 2 ||
+		result.Changed != 1 ||
+		result.Unchanged != 1 ||
+		len(result.Failures) != 1 ||
+		result.Failures[0].RemoteURL != "https://mirror.invalid/fail.git" ||
+		result.Failures[0].Message != "fetch failed" {
+		t.Fatalf("warm result = %+v", result)
+	}
+}
+
+func TestRemoteCoreCancelTask(t *testing.T) {
+	var captured *api.CancelWorkerCoreTaskRequest
+	core := NewRemoteCore(fakeWorkerCoreClient{
+		cancel: func(_ context.Context, req *api.CancelWorkerCoreTaskRequest) (*api.Empty, error) {
+			captured = req
+			return &api.Empty{}, nil
+		},
+	})
+
+	err := core.CancelTask(context.Background(), CancelTaskRequest{
+		SessionID: "execution-1",
+		RunID:     "run-1",
+		TaskKey:   "root",
+		Reason:    "remote request",
+	})
+
+	if err != nil {
+		t.Fatalf("CancelTask: %v", err)
+	}
+
+	if captured.GetSessionId() != "execution-1" || captured.GetRunId() != "run-1" || captured.GetReason() != "remote request" {
+		t.Fatalf("cancel request = %#v", captured)
+	}
+}
+
+func TestArtifactProtocolConversions(t *testing.T) {
+	metadataJSON := `{"source":"test"}`
+	metadata := ArtifactMetadataProto("session-1", action.ArtifactPublishRequest{
+		Name:         "build-log",
+		Path:         "logs/build.txt",
+		ContentType:  "text/plain",
+		MetadataJSON: &metadataJSON,
+		ExpectedSize: 42,
+		RequireSize:  true,
+		MaxBytes:     1024,
+	})
+
+	if metadata.GetSessionId() != "session-1" || metadata.GetMetadataJson() != metadataJSON {
+		t.Fatalf("artifact metadata = %#v", metadata)
+	}
+
+	result := action.ArtifactPublishResult{
+		Name:            "build-log",
+		Path:            "logs/build.txt",
+		ContentType:     "text/plain",
+		BlobKey:         "blob-1",
+		BlobAlgorithm:   "sha256",
+		BlobDigest:      "abc",
+		SizeBytes:       42,
+		ArtifactShardID: "artifact-a",
+	}
+
+	roundTrip := ArtifactResultFromProto(ArtifactResultProto(result))
+	if roundTrip != result {
+		t.Fatalf("artifact result round trip = %#v, want %#v", roundTrip, result)
+	}
+}
+
+type fakeWorkerCoreClient struct {
+	describe func(context.Context, *api.DescribeWorkerCoreRequest) (*api.DescribeWorkerCoreResponse, error)
+	execute  func(context.Context, *api.ExecuteWorkerCoreTaskRequest) (*api.ExecuteWorkerCoreTaskResponse, error)
+	cancel   func(context.Context, *api.CancelWorkerCoreTaskRequest) (*api.Empty, error)
+	warm     func(context.Context, *api.WarmWorkerCoreCheckoutCacheRequest) (*api.WarmWorkerCoreCheckoutCacheResponse, error)
+}
+
+func (f fakeWorkerCoreClient) DescribeCore(ctx context.Context, req *api.DescribeWorkerCoreRequest, _ ...grpc.CallOption) (*api.DescribeWorkerCoreResponse, error) {
+	if f.describe != nil {
+		return f.describe(ctx, req)
+	}
+
+	return &api.DescribeWorkerCoreResponse{}, nil
+}
+
+func (f fakeWorkerCoreClient) ExecuteTask(ctx context.Context, req *api.ExecuteWorkerCoreTaskRequest, _ ...grpc.CallOption) (*api.ExecuteWorkerCoreTaskResponse, error) {
+	if f.execute != nil {
+		return f.execute(ctx, req)
+	}
+
+	return &api.ExecuteWorkerCoreTaskResponse{}, nil
+}
+
+func (f fakeWorkerCoreClient) CancelTask(ctx context.Context, req *api.CancelWorkerCoreTaskRequest, _ ...grpc.CallOption) (*api.Empty, error) {
+	if f.cancel != nil {
+		return f.cancel(ctx, req)
+	}
+
+	return &api.Empty{}, nil
+}
+
+func (f fakeWorkerCoreClient) WarmCheckoutCache(ctx context.Context, req *api.WarmWorkerCoreCheckoutCacheRequest, _ ...grpc.CallOption) (*api.WarmWorkerCoreCheckoutCacheResponse, error) {
+	if f.warm != nil {
+		return f.warm(ctx, req)
+	}
+
+	return &api.WarmWorkerCoreCheckoutCacheResponse{}, nil
+}
+
+type fakeArtifactPublisher struct {
+	result action.ArtifactPublishResult
+	err    error
+}
+
+func (p fakeArtifactPublisher) PublishArtifact(context.Context, action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+	return p.result, p.err
+}

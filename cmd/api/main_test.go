@@ -1,8 +1,84 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/spf13/viper"
+
+	encryptedfs "vectis/extensions/secrets/encryptedfs"
+	"vectis/internal/config"
+	"vectis/internal/dal"
+	"vectis/internal/interfaces"
+	"vectis/internal/observability"
+	"vectis/internal/secrets"
+	sourcepkg "vectis/internal/source"
+	"vectis/internal/testutil/dbtest"
 )
+
+type sourceSyncMetricRecord struct {
+	trigger      string
+	sourceKind   string
+	checkoutMode string
+	outcome      string
+	reason       string
+}
+
+type recordingSourceSyncMetrics struct {
+	mu      sync.Mutex
+	records []sourceSyncMetricRecord
+}
+
+type recordingSourceCredentialSecretsResolver struct {
+	req    secrets.ResolveRequest
+	bundle secrets.Bundle
+	err    error
+}
+
+func (r *recordingSourceCredentialSecretsResolver) Resolve(_ context.Context, req secrets.ResolveRequest) (secrets.Bundle, error) {
+	r.req = req
+	if r.err != nil {
+		return secrets.Bundle{}, r.err
+	}
+
+	return r.bundle, nil
+}
+
+func (m *recordingSourceSyncMetrics) RecordSourceRepositorySync(_ context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, _ time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.records = append(m.records, sourceSyncMetricRecord{
+		trigger:      trigger,
+		sourceKind:   sourceKind,
+		checkoutMode: checkoutMode,
+		outcome:      outcome,
+		reason:       reason,
+	})
+}
+
+func (m *recordingSourceSyncMetrics) has(trigger, sourceKind, checkoutMode, outcome, reason string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, rec := range m.records {
+		if rec.trigger == trigger &&
+			rec.sourceKind == sourceKind &&
+			rec.checkoutMode == checkoutMode &&
+			rec.outcome == outcome &&
+			rec.reason == reason {
+			return true
+		}
+	}
+
+	return false
+}
 
 func TestBuildAccessLogger_json(t *testing.T) {
 	log, closeLog := buildAccessLogger("json")
@@ -45,5 +121,998 @@ func TestBuildAccessLogger_empty(t *testing.T) {
 
 	if log != nil {
 		t.Fatal("expected nil logger for empty format")
+	}
+}
+
+func TestWarnIfProcessLocalAPICache(t *testing.T) {
+	var buf bytes.Buffer
+	logger := interfaces.NewLogger("api-test").WithOutput(&buf)
+
+	warnIfProcessLocalAPICache(logger, config.APICacheBackendDatabase, true)
+	warnIfProcessLocalAPICache(logger, config.APICacheBackendMemory, false)
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected warning: %s", buf.String())
+	}
+
+	warnIfProcessLocalAPICache(logger, config.APICacheBackendMemory, true)
+	if got := buf.String(); !strings.Contains(got, "api.cache.backend=memory") || !strings.Contains(got, "process-local") {
+		t.Fatalf("warning = %q, want process-local memory cache warning", got)
+	}
+}
+
+func TestWarnIfPublicUnauthenticatedAPI(t *testing.T) {
+	var buf bytes.Buffer
+	logger := interfaces.NewLogger("api-test").WithOutput(&buf)
+
+	for _, host := range []string{"localhost", "localhost.", "127.0.0.1", "::1", "[::1]"} {
+		warnIfPublicUnauthenticatedAPI(logger, host, false)
+	}
+	warnIfPublicUnauthenticatedAPI(logger, "0.0.0.0", true)
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected warning: %s", buf.String())
+	}
+
+	for _, host := range []string{"", "0.0.0.0", "::", "api.example.test"} {
+		buf.Reset()
+		warnIfPublicUnauthenticatedAPI(logger, host, false)
+		got := buf.String()
+		if !strings.Contains(got, "API auth is disabled") || !strings.Contains(got, "control plane") {
+			t.Fatalf("warning for host %q = %q, want unauthenticated public API warning", host, got)
+		}
+	}
+}
+
+func TestReconcileConfiguredSourceRepositories_CreatesAndUpdates(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id":        "vectis-local",
+			"source_kind":          dal.SourceKindLocalCheckout,
+			"checkout_path":        "/work/vectis",
+			"checkout_mode":        dal.SourceCheckoutModeExternal,
+			"worker_cache_mode":    dal.SourceWorkerCacheModePersistent,
+			"canonical_url":        "https://mirror.invalid/vectis.git",
+			"fallback_remote_urls": []string{" https://tier1.invalid/vectis.git ", "https://tier1.invalid/vectis.git"},
+			"default_ref":          "main",
+			"enabled":              true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile create: %v", err)
+	}
+
+	got, err := repos.Sources().GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.CheckoutPath != "/work/vectis" ||
+		got.CanonicalURL != "https://mirror.invalid/vectis.git" ||
+		got.WorkerCacheMode != dal.SourceWorkerCacheModePersistent ||
+		len(got.FallbackRemoteURLs) != 1 ||
+		got.FallbackRemoteURLs[0] != "https://tier1.invalid/vectis.git" ||
+		got.DefaultRef != "main" ||
+		!got.Enabled {
+		t.Fatalf("created repository mismatch: %+v", got)
+	}
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id":        "vectis-local",
+			"source_kind":          dal.SourceKindLocalCheckout,
+			"checkout_path":        "/work/vectis-next",
+			"checkout_mode":        dal.SourceCheckoutModeExternal,
+			"authoring_mode":       dal.SourceAuthoringModeReadOnly,
+			"worker_cache_mode":    dal.SourceWorkerCacheModeEphemeral,
+			"fallback_remote_urls": []string{"https://tier2.invalid/vectis.git"},
+			"default_ref":          "release",
+			"credential_ref":       "repo-token",
+			"enabled":              false,
+		},
+	})
+
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile update: %v", err)
+	}
+
+	got, err = repos.Sources().GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository after update: %v", err)
+	}
+
+	if got.CheckoutPath != "/work/vectis-next" ||
+		got.DefaultRef != "release" ||
+		got.WorkerCacheMode != dal.SourceWorkerCacheModeEphemeral ||
+		len(got.FallbackRemoteURLs) != 1 ||
+		got.FallbackRemoteURLs[0] != "https://tier2.invalid/vectis.git" ||
+		got.CredentialRef != "repo-token" ||
+		got.Enabled {
+		t.Fatalf("updated repository mismatch: %+v", got)
+	}
+}
+
+func TestReconcileConfiguredSourceRepositories_DerivesManagedCheckoutPath(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+
+	checkoutRoot := filepath.Join(t.TempDir(), "checkouts")
+	viper.Set("source.checkout_root", checkoutRoot)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "github.com/acme/Big Repo.git",
+			"checkout_mode": dal.SourceCheckoutModeManaged,
+			"canonical_url": "https://example.invalid/acme/big-repo.git",
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	if err := reconcileConfiguredSourceRepositories(context.Background(), repos, nil); err != nil {
+		t.Fatalf("reconcile managed: %v", err)
+	}
+
+	got, err := repos.Sources().GetRepository(context.Background(), "github.com/acme/Big Repo.git")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.CheckoutMode != dal.SourceCheckoutModeManaged ||
+		got.CanonicalURL != "https://example.invalid/acme/big-repo.git" ||
+		!strings.HasPrefix(got.CheckoutPath, checkoutRoot+string(filepath.Separator)) {
+		t.Fatalf("managed repository mismatch: %+v", got)
+	}
+}
+
+func TestReconcileConfiguredSourceRepositories_RejectsNamespaceMove(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if _, err := repos.Namespaces().Create(ctx, "team-a", nil); err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis-local",
+		NamespaceID:  1,
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis-local",
+			"namespace":     "/team-a",
+			"source_kind":   dal.SourceKindLocalCheckout,
+			"checkout_path": "/work/vectis",
+		},
+	})
+
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err == nil {
+		t.Fatal("expected namespace move error")
+	}
+}
+
+func TestReconcileConfiguredSourceSchedules_CreatesAndUpdates(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis",
+			"checkout_path": "/work/vectis",
+			"default_ref":   "main",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile repositories: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "0 * * * *",
+			"ref":           "main",
+			"path":          ".vectis/jobs/build.json",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule create: %v", err)
+	}
+
+	got, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID: %v", err)
+	}
+
+	if got.JobID != "build" ||
+		got.SourceRepositoryID != "vectis" ||
+		got.SourceRef != "main" ||
+		got.SourcePath != ".vectis/jobs/build.json" ||
+		got.CronSpec != "0 * * * *" ||
+		!got.Enabled ||
+		got.NextRunAt.IsZero() {
+		t.Fatalf("created schedule mismatch: %+v", got)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "deploy",
+			"cron_spec":     "30 * * * *",
+			"ref":           "release",
+			"path":          ".vectis/jobs/deploy.json",
+			"enabled":       false,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule update: %v", err)
+	}
+
+	got, err = repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID after update: %v", err)
+	}
+
+	if got.JobID != "deploy" ||
+		got.SourceRepositoryID != "vectis" ||
+		got.SourceRef != "release" ||
+		got.SourcePath != ".vectis/jobs/deploy.json" ||
+		got.CronSpec != "30 * * * *" ||
+		got.Enabled {
+		t.Fatalf("updated schedule mismatch: %+v", got)
+	}
+
+	oldNextRun := time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC)
+	if _, err := db.ExecContext(ctx, "UPDATE cron_trigger_specs SET next_run_at = ? WHERE id = ?", oldNextRun.Format(time.RFC3339), got.ID); err != nil {
+		t.Fatalf("force disabled next_run_at: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "deploy",
+			"cron_spec":     "30 * * * *",
+			"ref":           "release",
+			"path":          ".vectis/jobs/deploy.json",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule enable: %v", err)
+	}
+
+	got, err = repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID after enable: %v", err)
+	}
+
+	if !got.Enabled {
+		t.Fatalf("expected enabled schedule after reconcile: %+v", got)
+	}
+
+	if !got.NextRunAt.After(oldNextRun) {
+		t.Fatalf("expected re-enabled schedule to compute a fresh next_run_at after %v, got %v", oldNextRun, got.NextRunAt)
+	}
+}
+
+func TestReconcileConfiguredSourceSchedules_PreservesActiveOverride(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis",
+			"checkout_path": "/work/vectis",
+			"default_ref":   "main",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile repositories: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "0 * * * *",
+			"ref":           "main",
+			"path":          ".vectis/jobs/build.json",
+			"enabled":       true,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule create: %v", err)
+	}
+
+	if _, err := repos.Schedules().SetSourceCronScheduleOverride(ctx, "nightly-build", dal.SourceScheduleOverride{
+		Ref:           "hotfix/build",
+		Path:          ".vectis/jobs/build-hotfix.json",
+		Reason:        "production hotfix",
+		CreatedAtUnix: 1234,
+	}); err != nil {
+		t.Fatalf("set source schedule override: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "nightly-build",
+			"repository_id": "vectis",
+			"job_id":        "deploy",
+			"cron_spec":     "30 * * * *",
+			"ref":           "release",
+			"path":          ".vectis/jobs/deploy.json",
+			"enabled":       false,
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile schedule update: %v", err)
+	}
+
+	got, err := repos.Schedules().GetCronScheduleByScheduleID(ctx, "nightly-build")
+	if err != nil {
+		t.Fatalf("GetCronScheduleByScheduleID after update: %v", err)
+	}
+
+	if got.JobID != "deploy" ||
+		got.SourceRepositoryID != "vectis" ||
+		got.SourceRef != "release" ||
+		got.SourcePath != ".vectis/jobs/deploy.json" ||
+		got.CronSpec != "30 * * * *" ||
+		got.Enabled {
+		t.Fatalf("updated configured schedule fields mismatch: %+v", got)
+	}
+
+	if got.SourceOverrideRef != "hotfix/build" ||
+		got.SourceOverridePath != ".vectis/jobs/build-hotfix.json" ||
+		got.SourceOverrideReason != "production hotfix" ||
+		got.SourceOverrideCreatedAtUnix != 1234 {
+		t.Fatalf("source schedule override was not preserved: %+v", got)
+	}
+}
+
+func TestReconcileConfiguredSourceSchedules_RejectsInvalid(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SCHEDULES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SCHEDULES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "missing-repo",
+			"repository_id": "missing",
+			"job_id":        "build",
+			"cron_spec":     "0 * * * *",
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err == nil {
+		t.Fatal("expected missing repository error")
+	}
+
+	if _, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+		RepositoryID: "vectis",
+		SourceKind:   dal.SourceKindLocalCheckout,
+		CheckoutPath: "/work/vectis",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "bad-cron",
+			"repository_id": "vectis",
+			"job_id":        "build",
+			"cron_spec":     "not a cron spec",
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err == nil {
+		t.Fatal("expected invalid cron spec error")
+	}
+
+	viper.Set("source.schedules", []map[string]any{
+		{
+			"schedule_id":   "bad-job-id",
+			"repository_id": "vectis",
+			"job_id":        "bad/id",
+			"cron_spec":     "0 * * * *",
+		},
+	})
+
+	if err := reconcileConfiguredSourceSchedules(ctx, repos, nil); err == nil {
+		t.Fatal("expected invalid derived source path error")
+	}
+}
+
+func TestSyncConfiguredSourceRepositories_SyncsEnabledRepositories(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+
+	viper.Set("source.sync_configured_repositories_on_startup", true)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis-local",
+			"checkout_path": "/work/vectis",
+			"default_ref":   "main",
+			"enabled":       true,
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	calls := 0
+	metrics := &recordingSourceSyncMetrics{}
+	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+		calls++
+		if rec.RepositoryID != "vectis-local" || syncRef != "main" {
+			t.Fatalf("sync input mismatch: rec=%+v syncRef=%q", rec, syncRef)
+		}
+
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
+	}, metrics)
+
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	if calls != 1 {
+		t.Fatalf("sync calls=%d, want 1", calls)
+	}
+
+	got, err := repos.Sources().GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.SyncStatus != dal.SourceSyncStatusSucceeded ||
+		got.LastSyncRef != "main" ||
+		got.LastSyncCommit != "abc123" ||
+		got.LastSyncStartedAtUnix == 0 ||
+		got.LastSyncFinishedAtUnix == 0 ||
+		got.LastSyncError != "" {
+		t.Fatalf("sync result mismatch: %+v", got)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerStartup, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+		t.Fatalf("missing startup success source sync metric: %+v", metrics.records)
+	}
+}
+
+func TestSyncConfiguredSourceRepositories_PersistsFailure(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+
+	viper.Set("source.sync_configured_repositories_on_startup", true)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis-local",
+			"checkout_path": "/work/vectis",
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(_ context.Context, _ dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+		if syncRef != "HEAD" {
+			t.Fatalf("syncRef=%q, want HEAD", syncRef)
+		}
+
+		return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
+	}, nil)
+
+	if err == nil {
+		t.Fatal("expected startup sync failure")
+	}
+
+	got, err := repos.Sources().GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.SyncStatus != dal.SourceSyncStatusFailed ||
+		got.LastSyncRef != "HEAD" ||
+		got.LastSyncError != "git_fetch_failed: remote unavailable" ||
+		got.LastSyncFinishedAtUnix == 0 {
+		t.Fatalf("failed sync result mismatch: %+v", got)
+	}
+}
+
+func TestSyncConfiguredSourceRepositories_PersistsFailureAfterCanceledSyncContext(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+
+	viper.Set("source.sync_configured_repositories_on_startup", true)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis-local",
+			"checkout_path": "/work/vectis",
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	baseCtx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(baseCtx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	syncCtx, cancel := context.WithCancel(baseCtx)
+	err := syncConfiguredSourceRepositoriesWithStatus(syncCtx, repos, nil, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
+		cancel()
+		return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "context deadline exceeded"}
+	}, nil)
+
+	if err == nil {
+		t.Fatal("expected startup sync failure")
+	}
+
+	got, err := repos.Sources().GetRepository(baseCtx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.SyncStatus != dal.SourceSyncStatusFailed ||
+		got.LastSyncError != "git_fetch_failed: context deadline exceeded" {
+		t.Fatalf("failed sync result mismatch after canceled context: %+v", got)
+	}
+}
+
+func TestSyncConfiguredSourceRepositories_SkipsDisabledRepositories(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_ON_STARTUP", "")
+
+	viper.Set("source.sync_configured_repositories_on_startup", true)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "vectis-local",
+			"checkout_path": "/work/vectis",
+			"enabled":       false,
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	calls := 0
+	err := syncConfiguredSourceRepositoriesWithStatus(ctx, repos, nil, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
+		calls++
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "abc123"}
+	}, nil)
+
+	if err != nil {
+		t.Fatalf("sync disabled: %v", err)
+	}
+
+	if calls != 0 {
+		t.Fatalf("sync calls=%d, want 0", calls)
+	}
+
+	got, err := repos.Sources().GetRepository(ctx, "vectis-local")
+	if err != nil {
+		t.Fatalf("GetRepository: %v", err)
+	}
+
+	if got.SyncStatus != dal.SourceSyncStatusNever ||
+		got.LastSyncStartedAtUnix != 0 ||
+		got.LastSyncFinishedAtUnix != 0 {
+		t.Fatalf("disabled repository sync result mismatch: %+v", got)
+	}
+}
+
+func TestConfiguredSourceRepositoryGitCredentialsRequireResolver(t *testing.T) {
+	_, err := configuredSourceRepositoryGitCredentials(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		CredentialRef: "encryptedfs://git/private-repo",
+	}, nil)
+
+	if err == nil || !strings.Contains(err.Error(), "credential_ref") {
+		t.Fatalf("expected credential resolver error, got %v", err)
+	}
+
+	status := configuredSourceRepositorySyncCheckoutStatusResolved(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CheckoutPath:  "/work/private",
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		CredentialRef: "encryptedfs://git/private-repo",
+	}, "main", nil)
+
+	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
+		t.Fatalf("unexpected credential status: %+v", status)
+	}
+
+	status = configuredSourceRepositoryRefHydratorWithCredentialResolver(nil)(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CheckoutPath:  "/work/private",
+		CheckoutMode:  dal.SourceCheckoutModeManaged,
+		CredentialRef: "encryptedfs://git/private-repo",
+	}, "feature/new", "")
+
+	if status.ErrorCode != "git_credentials_unavailable" || !strings.Contains(status.ErrorMessage, "credential_ref") {
+		t.Fatalf("unexpected ref hydrator credential status: %+v", status)
+	}
+}
+
+func TestSourceRepositoryCredentialResolverUsesSecretsResolver(t *testing.T) {
+	secretResolver := &recordingSourceCredentialSecretsResolver{
+		bundle: secrets.Bundle{
+			Files: []secrets.FileMaterial{{
+				ID:   "git-credential",
+				Data: []byte(`{"username":"oauth2","token":"ghp_private"}`),
+			}},
+		},
+	}
+
+	resolver := sourceRepositoryCredentialResolverFromSecrets(secretResolver)
+	if resolver == nil {
+		t.Fatal("expected credential resolver")
+	}
+
+	creds, err := resolver(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CredentialRef: "secret://git/private-repo",
+	})
+
+	if err != nil {
+		t.Fatalf("resolve source credential: %v", err)
+	}
+
+	if creds.Username != "oauth2" || creds.Password != "ghp_private" {
+		t.Fatalf("credentials = %+v, want oauth token material", creds)
+	}
+
+	if secretResolver.req.Scope.JobID != "source-repository:private-repo" {
+		t.Fatalf("scope job_id = %q, want source repository scope", secretResolver.req.Scope.JobID)
+	}
+
+	if len(secretResolver.req.Secrets) != 1 ||
+		secretResolver.req.Secrets[0].ID != "git-credential" ||
+		secretResolver.req.Secrets[0].Ref != "secret://git/private-repo" ||
+		secretResolver.req.Secrets[0].Delivery.Type != secrets.DeliveryTypeFile ||
+		secretResolver.req.Secrets[0].Delivery.Path != "git-credential" {
+		t.Fatalf("secret request = %+v", secretResolver.req.Secrets)
+	}
+}
+
+func TestConfiguredSourceRepositoryCredentialResolverUsesEncryptedFS(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv(encryptedfs.EnvRoot, "")
+	t.Setenv(encryptedfs.EnvKeyFile, "")
+
+	root := t.TempDir()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	keyFile := filepath.Join(t.TempDir(), "encryptedfs.key")
+	if err := os.WriteFile(keyFile, key, 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+
+	ref := "encryptedfs://git/private-repo"
+	if err := encryptedfs.WriteEncryptedFSSecretFile(root, ref, []byte(`{"username":"oauth2","token":"ghp_private"}`), key); err != nil {
+		t.Fatalf("write encrypted source credential: %v", err)
+	}
+
+	viper.Set(encryptedfs.ConfigKeyRoot, root)
+	viper.Set(encryptedfs.ConfigKeyKeyFile, keyFile)
+	resolver, err := newConfiguredSourceRepositoryCredentialResolver(nil)
+	if err != nil {
+		t.Fatalf("new credential resolver: %v", err)
+	}
+
+	if resolver == nil {
+		t.Fatal("expected configured credential resolver")
+	}
+
+	creds, err := resolver(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo",
+		CredentialRef: ref,
+	})
+
+	if err != nil {
+		t.Fatalf("resolve source credential: %v", err)
+	}
+
+	if creds.Username != "oauth2" || creds.Password != "ghp_private" {
+		t.Fatalf("credentials = %+v, want oauth token material", creds)
+	}
+
+	sshRef := "encryptedfs://git/private-repo-ssh"
+	sshPrivateKey := "-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----"
+	if err := encryptedfs.WriteEncryptedFSSecretFile(root, sshRef, []byte(`{"ssh_private_key":"-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----","known_hosts":"git.example ssh-ed25519 AAAA"}`), key); err != nil {
+		t.Fatalf("write encrypted source SSH credential: %v", err)
+	}
+
+	creds, err = resolver(context.Background(), dal.SourceRepositoryRecord{
+		RepositoryID:  "private-repo-ssh",
+		CredentialRef: sshRef,
+	})
+
+	if err != nil {
+		t.Fatalf("resolve source SSH credential: %v", err)
+	}
+
+	if creds.SSHPrivateKey != sshPrivateKey || creds.SSHKnownHosts != "git.example ssh-ed25519 AAAA" {
+		t.Fatalf("credentials = %+v, want SSH material", creds)
+	}
+}
+
+func TestSyncConfiguredSourceRepositoriesPeriodicCycle_ContinuesAfterFailure(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_MAX_CONCURRENCY", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_MAX_CONCURRENCY", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+
+	viper.Set("source.sync_configured_repositories_max_concurrency", 1)
+	viper.Set("source.sync_configured_repositories_failure_backoff", 0)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "bad-repo",
+			"checkout_path": "/work/bad",
+		},
+		{
+			"repository_id": "good-repo",
+			"checkout_path": "/work/good",
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	calls := make([]string, 0, 2)
+	metrics := &recordingSourceSyncMetrics{}
+	err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
+		calls = append(calls, rec.RepositoryID)
+		if rec.RepositoryID == "bad-repo" {
+			return sourcepkg.GitCheckoutStatus{ErrorCode: "git_fetch_failed", ErrorMessage: "remote unavailable"}
+		}
+
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "good123"}
+	}, metrics)
+
+	if err == nil {
+		t.Fatal("expected periodic sync cycle to report failed repository")
+	}
+
+	if strings.Join(calls, ",") != "bad-repo,good-repo" {
+		t.Fatalf("sync calls=%v, want bad-repo,good-repo", calls)
+	}
+
+	bad, err := repos.Sources().GetRepository(ctx, "bad-repo")
+	if err != nil {
+		t.Fatalf("GetRepository bad: %v", err)
+	}
+
+	good, err := repos.Sources().GetRepository(ctx, "good-repo")
+	if err != nil {
+		t.Fatalf("GetRepository good: %v", err)
+	}
+
+	if bad.SyncStatus != dal.SourceSyncStatusFailed || bad.LastSyncError != "git_fetch_failed: remote unavailable" {
+		t.Fatalf("bad repository sync mismatch: %+v", bad)
+	}
+
+	if good.SyncStatus != dal.SourceSyncStatusSucceeded || good.LastSyncCommit != "good123" {
+		t.Fatalf("good repository sync mismatch: %+v", good)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerPeriodic, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeFailed, "git_fetch_failed") {
+		t.Fatalf("missing periodic failure source sync metric: %+v", metrics.records)
+	}
+
+	if !metrics.has(observability.SourceSyncTriggerPeriodic, dal.SourceKindLocalCheckout, dal.SourceCheckoutModeExternal, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone) {
+		t.Fatalf("missing periodic success source sync metric: %+v", metrics.records)
+	}
+}
+
+func TestSyncConfiguredSourceRepositoriesPeriodicCycle_SkipsRecentFailures(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_SYNC_CONFIGURED_REPOSITORIES_FAILURE_BACKOFF", "")
+
+	viper.Set("source.sync_configured_repositories_failure_backoff", time.Hour)
+	viper.Set("source.repositories", []map[string]any{
+		{
+			"repository_id": "recent-failure",
+			"checkout_path": "/work/recent",
+		},
+		{
+			"repository_id": "eligible",
+			"checkout_path": "/work/eligible",
+		},
+	})
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+	if err := reconcileConfiguredSourceRepositories(ctx, repos, nil); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	nowUnix := time.Now().Unix()
+	if _, err := repos.Sources().UpdateRepositorySync(ctx, dal.SourceRepositorySyncRecord{
+		RepositoryID:   "recent-failure",
+		Status:         dal.SourceSyncStatusFailed,
+		StartedAtUnix:  nowUnix - 10,
+		FinishedAtUnix: nowUnix,
+		Ref:            "HEAD",
+		Error:          "git_fetch_failed: remote unavailable",
+	}); err != nil {
+		t.Fatalf("mark recent failure: %v", err)
+	}
+
+	calls := make([]string, 0, 1)
+	if err := syncConfiguredSourceRepositoriesPeriodicCycle(ctx, repos, nil, func(_ context.Context, rec dal.SourceRepositoryRecord, _ string) sourcepkg.GitCheckoutStatus {
+		calls = append(calls, rec.RepositoryID)
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
+	}, nil); err != nil {
+		t.Fatalf("periodic sync cycle: %v", err)
+	}
+
+	if strings.Join(calls, ",") != "eligible" {
+		t.Fatalf("sync calls=%v, want only eligible", calls)
+	}
+
+	recent, err := repos.Sources().GetRepository(ctx, "recent-failure")
+	if err != nil {
+		t.Fatalf("GetRepository recent-failure: %v", err)
+	}
+
+	if recent.SyncStatus != dal.SourceSyncStatusFailed || recent.LastSyncFinishedAtUnix != nowUnix {
+		t.Fatalf("recent failure should remain unchanged during backoff: %+v", recent)
+	}
+}
+
+func TestSyncConfiguredSourceRepositoryRecords_RespectsMaxConcurrency(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	t.Setenv("VECTIS_SOURCE_REPOSITORIES", "")
+	t.Setenv("VECTIS_API_SERVER_SOURCE_REPOSITORIES", "")
+
+	db := dbtest.NewTestDB(t)
+	repos := dal.NewSQLRepositories(db)
+	ctx := context.Background()
+
+	records := make([]dal.SourceRepositoryRecord, 0, 4)
+	for _, id := range []string{"repo-a", "repo-b", "repo-c", "repo-d"} {
+		rec, err := repos.Sources().CreateRepository(ctx, dal.SourceRepositoryRecord{
+			RepositoryID: id,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: "/work/" + id,
+			Enabled:      true,
+		})
+
+		if err != nil {
+			t.Fatalf("CreateRepository %s: %v", id, err)
+		}
+
+		records = append(records, rec)
+	}
+
+	var mu sync.Mutex
+	active := 0
+	maxActive := 0
+	if err := syncConfiguredSourceRepositoryRecords(ctx, repos, nil, records, 2, func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus {
+		mu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		mu.Unlock()
+
+		time.Sleep(20 * time.Millisecond)
+
+		mu.Lock()
+		active--
+		mu.Unlock()
+
+		return sourcepkg.GitCheckoutStatus{ResolvedCommit: "ok123"}
+	}, nil); err != nil {
+		t.Fatalf("periodic sync records: %v", err)
+	}
+
+	if maxActive > 2 {
+		t.Fatalf("max active syncs=%d, want <=2", maxActive)
+	}
+
+	if maxActive < 2 {
+		t.Fatalf("expected syncs to run concurrently up to the limit, max active=%d", maxActive)
 	}
 }

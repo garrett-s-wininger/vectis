@@ -69,11 +69,6 @@ type snapshot struct {
 }
 
 func loadSnapshot(opts Options) (*snapshot, error) {
-	minV := opts.MinVersion
-	if minV == 0 {
-		minV = defaultMinVersion
-	}
-
 	s := &snapshot{}
 
 	if opts.ServerCert != "" || opts.ServerKey != "" {
@@ -191,7 +186,7 @@ func (r *Reloader) ClientTLS(serverName string) (*tls.Config, error) {
 			defer r.mu.RUnlock()
 
 			if r.clientLeaf == nil {
-				return nil, nil
+				return nil, nil //nolint:nilnil // crypto/tls uses nil certificate with nil error to continue without a client cert.
 			}
 
 			return r.clientLeaf, nil

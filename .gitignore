@@ -4,7 +4,18 @@ formal/tla/*_TTrace_*.tla
 states/
 
 # Outputs
+__pycache__/
+.tools/
+artifacts/deploy/
+artifacts/integrations/
+artifacts/packages/
+artifacts/perf/
+artifacts/release-readiness/
+artifacts/sdk/
 bin/
+build/packer/**/output-*/
+build/packer/**/packer_cache/
+.cache/
 
 # Docusaurus
 website/node_modules/
@@ -13,7 +24,23 @@ website/build/
 website/playwright-report/
 website/test-results/
 
+# UI
+ui/.cache/
+ui/.vite/
+ui/coverage/
+ui/dist/
+ui/node_modules/
+ui/playwright-report/
+ui/storybook-static/
+ui/test-results/
+ui/*.tsbuildinfo
+
 # Generated docs assets embedded into vectis-docs
 cmd/docs/embedded/*
 !cmd/docs/embedded/
 !cmd/docs/embedded/.gitkeep
+
+# Generated UI assets embedded into vectis-ui
+cmd/ui/embedded/*
+!cmd/ui/embedded/
+!cmd/ui/embedded/.gitkeep

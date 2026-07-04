@@ -2,9 +2,9 @@
   "id": "long-running-job",
   "root": {
     "id": "root",
-    "uses": "builtins/shell",
+    "uses": "builtins/script",
     "with": {
-      "command": "sleep 10000"
+      "script": "sleep 10000"
     }
   }
 }

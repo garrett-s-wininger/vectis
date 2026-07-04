@@ -1,0 +1,253 @@
+.workspace {
+  display: grid;
+  gap: var(--space-xl);
+  width: min(var(--layout-panel-max), 100%);
+}
+
+.summary,
+.createPanel,
+.credentialPanel,
+.confirmPanel,
+.detailPanel,
+.identityPanel {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.summary {
+  align-items: stretch;
+  display: grid;
+  gap: var(--space-xl);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, auto);
+  padding: var(--space-2xl);
+}
+
+.summaryCopy {
+  align-content: center;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.summary h2,
+.createPanel h2,
+.credentialPanel h2,
+.confirmPanel h2,
+.detailPanel h2,
+.identityPanel h2 {
+  color: var(--text-primary);
+  font-size: var(--font-size-3xl);
+  line-height: var(--line-height-heading);
+  margin: 0;
+}
+
+.summary p,
+.createPanel p,
+.credentialPanel p,
+.confirmPanel p,
+.detailPanel p,
+.identityPanel p {
+  color: var(--text-subtle);
+  margin: 0;
+  max-width: 64ch;
+}
+
+.summaryFacts {
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.createPanel {
+  display: grid;
+  gap: var(--space-xl);
+  padding: var(--space-2xl);
+}
+
+.createCopy {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.detailWorkspace {
+  display: grid;
+  gap: var(--space-xl);
+  width: min(var(--layout-panel-max), 100%);
+}
+
+.identityPanel,
+.detailPanel {
+  display: grid;
+  gap: var(--space-xl);
+  padding: var(--space-2xl);
+}
+
+.detailHeader {
+  align-items: start;
+  display: flex;
+  gap: var(--space-lg);
+  justify-content: space-between;
+}
+
+.detailHeader > div,
+.detailCopy {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.detailFacts {
+  display: grid;
+  gap: var(--space-md);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detailFact {
+  align-content: start;
+  align-items: start;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 64%), rgb(255 255 255 / 18%)), linear-gradient(180deg, #f6f8f9, #e7eef2);
+  border: 1px solid rgb(183 194 200 / 62%);
+  border-radius: var(--control-radius);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 72%);
+  display: grid;
+  gap: var(--space-sm);
+  justify-items: start;
+  min-width: 0;
+  padding: var(--space-md);
+}
+
+.detailFact span:first-child {
+  color: var(--text-navigation);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-strong);
+}
+
+.detailFact strong {
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-strong);
+  overflow-wrap: anywhere;
+}
+
+.detailActions {
+  align-items: center;
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: repeat(2, minmax(120px, max-content));
+  justify-content: start;
+}
+
+.credentialPanel,
+.confirmPanel {
+  align-items: stretch;
+  display: grid;
+  gap: var(--space-lg);
+  max-width: min(560px, calc(100vw - var(--space-2xl)));
+  padding: var(--space-2xl);
+  position: relative;
+  width: 100%;
+}
+
+.modalCopy {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.modalOverlay {
+  align-items: center;
+  background: rgb(10 18 22 / 32%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--space-xl);
+  position: fixed;
+  z-index: 40;
+}
+
+.credentialField {
+  align-items: stretch;
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+}
+
+.credentialValue {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 64%), rgb(255 255 255 / 16%)), linear-gradient(180deg, #f5f8fa, #e6edf1);
+  border: 1px solid var(--color-border-metal);
+  border-radius: var(--control-radius);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 72%),
+    0 1px 0 rgb(255 255 255 / 64%);
+  color: var(--text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+  padding: var(--space-md);
+  width: 100%;
+}
+
+.form {
+  align-items: end;
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px) auto;
+}
+
+.formActions {
+  align-items: center;
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: end;
+}
+
+.userChip {
+  justify-self: start;
+}
+
+@media (max-width: 820px) {
+  .summary {
+    grid-template-columns: 1fr;
+  }
+
+  .summary,
+  .createPanel,
+  .detailPanel,
+  .identityPanel {
+    padding: var(--space-xl);
+  }
+
+  .detailFacts,
+  .summaryFacts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .workspace {
+    gap: var(--space-xl);
+  }
+
+  .credentialField {
+    grid-template-columns: 1fr;
+  }
+
+  .form {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .formActions {
+    justify-content: start;
+  }
+
+  .detailHeader {
+    align-items: start;
+    display: grid;
+  }
+
+  .detailActions {
+    grid-template-columns: 1fr;
+  }
+}

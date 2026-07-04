@@ -1,0 +1,150 @@
+edition = "2023";
+
+import "common.proto";
+
+option go_package = "vectis/api/gen/go;api";
+
+message OrchestratorTaskSpec {
+    string task_key = 1;
+    string parent_task_key = 2;
+    string name = 3;
+    string cell_id = 4;
+    repeated string child_task_keys = 5;
+    string uses = 6;
+}
+
+message OrchestratorTaskExecution {
+    string run_id = 1;
+    string task_id = 2;
+    string parent_task_id = 3;
+    string task_key = 4;
+    string name = 5;
+    string task_attempt_id = 6;
+    string segment_id = 7;
+    string segment_name = 8;
+    string execution_id = 9;
+    string cell_id = 10;
+    int32 attempt = 11;
+    string status = 12;
+    int64 accepted_at_unix_nano = 13;
+    int64 started_at_unix_nano = 14;
+    int64 finished_at_unix_nano = 15;
+}
+
+message OrchestratorRunTaskCompletion {
+    string run_id = 1;
+    int32 total = 2;
+    int32 succeeded = 3;
+    int32 terminal_failed = 4;
+    int32 incomplete = 5;
+}
+
+message LoadRunRequest {
+    string run_id = 1;
+    string cell_id = 2;
+    repeated OrchestratorTaskSpec tasks = 3;
+    OrchestratorTaskExecution root = 4;
+    repeated OrchestratorTaskExecution executions = 5;
+    bool omit_pending = 6;
+    string root_uses = 7;
+}
+
+message LoadRunResponse {
+    string run_id = 1;
+    OrchestratorTaskExecution root = 2;
+    repeated OrchestratorTaskExecution pending = 3;
+    OrchestratorRunTaskCompletion summary = 4;
+}
+
+message ListPendingRequest {
+    string run_id = 1;
+    int32 limit = 2;
+}
+
+message ListPendingResponse {
+    repeated OrchestratorTaskExecution executions = 1;
+}
+
+message ClaimExecutionRequest {
+    string run_id = 1;
+    string execution_id = 2;
+    string owner = 3;
+    int64 lease_until_unix_nano = 4;
+}
+
+message ClaimExecutionResponse {
+    bool claimed = 1;
+    string claim_token = 2;
+    bool transitioned_to_accepted = 3;
+    bool execution_started = 4;
+}
+
+message RenewExecutionLeaseRequest {
+    string run_id = 1;
+    string execution_id = 2;
+    string owner = 3;
+    string claim_token = 4;
+    int64 lease_until_unix_nano = 5;
+}
+
+message CompleteExecutionRequest {
+    string run_id = 1;
+    string execution_id = 2;
+    string owner = 3;
+    string claim_token = 4;
+    string status = 5;
+    string failure_code = 6;
+    string reason = 7;
+}
+
+message CompleteExecutionResponse {
+    string execution_id = 1;
+    string run_id = 2;
+    string outcome = 3;
+    OrchestratorRunTaskCompletion summary = 4;
+    repeated OrchestratorTaskExecution children = 5;
+    int32 activated = 6;
+    repeated OrchestratorTaskExecution executions = 7;
+}
+
+message GetRunTaskCompletionRequest {
+    string run_id = 1;
+}
+
+message GetRunTaskSnapshotRequest {
+    string run_id = 1;
+    int64 cursor = 2;
+    int32 limit = 3;
+}
+
+message GetRunTaskSnapshotResponse {
+    string run_id = 1;
+    repeated OrchestratorTaskExecution executions = 2;
+    OrchestratorRunTaskCompletion summary = 3;
+    int64 next_cursor = 4;
+}
+
+message ExecutionStreamRequest {
+    ClaimExecutionRequest claim = 1;
+    RenewExecutionLeaseRequest renew = 2;
+    CompleteExecutionRequest complete = 3;
+    LoadRunRequest load = 4;
+}
+
+message ExecutionStreamResponse {
+    ClaimExecutionResponse claim = 1;
+    common.Empty renew = 2;
+    CompleteExecutionResponse complete = 3;
+    LoadRunResponse load = 4;
+}
+
+service OrchestratorService {
+    rpc LoadRun(LoadRunRequest) returns (LoadRunResponse);
+    rpc ListPending(ListPendingRequest) returns (ListPendingResponse);
+    rpc ClaimExecution(ClaimExecutionRequest) returns (ClaimExecutionResponse);
+    rpc RenewExecutionLease(RenewExecutionLeaseRequest) returns (common.Empty);
+    rpc CompleteExecution(CompleteExecutionRequest) returns (CompleteExecutionResponse);
+    rpc GetRunTaskCompletion(GetRunTaskCompletionRequest) returns (OrchestratorRunTaskCompletion);
+    rpc GetRunTaskSnapshot(GetRunTaskSnapshotRequest) returns (GetRunTaskSnapshotResponse);
+    rpc ExecutionStream(stream ExecutionStreamRequest) returns (stream ExecutionStreamResponse);
+}

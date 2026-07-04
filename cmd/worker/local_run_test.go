@@ -5,6 +5,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -16,10 +18,10 @@ func writeLocalRunJob(t *testing.T, dir, command string) string {
 	body := `{
   "id": "local-test",
   "root": {
-    "id": "shell",
-    "uses": "builtins/shell",
+    "id": "script",
+    "uses": "builtins/script",
     "with": {
-      "command": "` + command + `"
+      "script": ` + strconv.Quote(command) + `
     }
   }
 }
@@ -33,7 +35,7 @@ func writeLocalRunJob(t *testing.T, dir, command string) string {
 
 func TestRunLocalJobSuccess(t *testing.T) {
 	workspace := t.TempDir()
-	jobPath := writeLocalRunJob(t, t.TempDir(), "printf local-ok")
+	jobPath := writeLocalRunJob(t, t.TempDir(), localRunSuccessScript())
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -42,7 +44,7 @@ func TestRunLocalJobSuccess(t *testing.T) {
 	}
 
 	if !strings.Contains(stdout.String(), "local-ok") {
-		t.Fatalf("expected stdout log to contain command output, got %q", stdout.String())
+		t.Fatalf("expected stdout log to contain script output, got %q", stdout.String())
 	}
 
 	if _, err := os.Stat(workspace); err != nil {
@@ -50,9 +52,45 @@ func TestRunLocalJobSuccess(t *testing.T) {
 	}
 }
 
+func TestRunLocalJobDecodesFriendlySecretDeliveryType(t *testing.T) {
+	workspace := t.TempDir()
+	dir := t.TempDir()
+	jobPath := filepath.Join(dir, "job.json")
+	body := `{
+  "id": "local-secret-alias",
+  "secrets": [
+    {
+      "id": "token",
+      "ref": "encryptedfs://team/token",
+      "delivery": {"type": "file", "path": "token"},
+      "task_keys": ["script"]
+    }
+  ],
+  "root": {
+    "id": "script",
+    "uses": "builtins/script",
+    "with": {"script": ` + strconv.Quote(localRunSecretScript()) + `}
+  }
+}`
+
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write job: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runLocalJob(context.Background(), jobPath, workspace, &stdout, &stderr); err != nil {
+		t.Fatalf("run local job: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "local-secret-alias-ok") {
+		t.Fatalf("expected stdout log to contain command output, got %q", stdout.String())
+	}
+}
+
 func TestRunLocalJobFailure(t *testing.T) {
 	workspace := t.TempDir()
-	jobPath := writeLocalRunJob(t, t.TempDir(), "printf local-fail; exit 7")
+	jobPath := writeLocalRunJob(t, t.TempDir(), localRunFailureScript())
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -61,8 +99,8 @@ func TestRunLocalJobFailure(t *testing.T) {
 		t.Fatal("expected local job failure")
 	}
 
-	if !strings.Contains(err.Error(), "command failed") {
-		t.Fatalf("expected command failure, got %v", err)
+	if !strings.Contains(err.Error(), "script failed") {
+		t.Fatalf("expected script failure, got %v", err)
 	}
 
 	if !strings.Contains(stdout.String(), "local-fail") {
@@ -90,4 +128,28 @@ func TestRunLocalJobValidation(t *testing.T) {
 	if err := runLocalJob(context.Background(), "missing.json", fileWorkspace, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "workspace is not a directory") {
 		t.Fatalf("expected workspace directory error, got %v", err)
 	}
+}
+
+func localRunSuccessScript() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output local-ok"
+	}
+
+	return "printf local-ok"
+}
+
+func localRunSecretScript() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output local-secret-alias-ok"
+	}
+
+	return "printf local-secret-alias-ok"
+}
+
+func localRunFailureScript() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output local-fail; exit 7"
+	}
+
+	return "printf local-fail; exit 7"
 }

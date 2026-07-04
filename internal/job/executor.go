@@ -5,14 +5,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	api "vectis/api/gen/go"
 	"vectis/internal/action"
+	"vectis/internal/action/actionregistry"
 	"vectis/internal/action/builtins"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces"
 	"vectis/internal/observability"
+	"vectis/internal/secrets"
+	"vectis/internal/taskgraph"
+	"vectis/internal/workloadidentity"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelcodes "go.opentelemetry.io/otel/codes"
@@ -27,7 +34,13 @@ type LogStreamWaiter interface {
 }
 
 type Executor struct {
-	registry *builtins.Registry
+	registry              *builtins.Registry
+	hostProcessExecutor   interfaces.ExecExecutor
+	vmProcessExecutor     interfaces.ExecExecutor
+	checkoutCache         action.CheckoutCache
+	defaultIsolation      string
+	workspaceRoot         string
+	asyncWorkspaceCleanup bool
 
 	// TestLogStreamHook is a test-only channel that receives the LogStreamWaiter
 	// created during ExecuteJob. It allows tests to wait for background flush
@@ -35,9 +48,121 @@ type Executor struct {
 	TestLogStreamHook chan LogStreamWaiter
 }
 
-func NewExecutor() *Executor {
-	return &Executor{
-		registry: builtins.NewRegistry(),
+type ExecuteOptions struct {
+	WorkloadIdentity  *workloadidentity.Identity
+	ArtifactPublisher action.ArtifactPublisher
+	ActionLocks       []actionregistry.ActionLock
+	ActionResolver    actionregistry.Resolver
+	ProcessExecutor   interfaces.ExecExecutor
+	SecretFiles       []secrets.FileMaterial
+	CheckoutCache     action.CheckoutCache
+	// WaitForLogFlush waits for the durable log sender to finish after the
+	// completion event is enqueued. Use this when the caller owns callback
+	// connection lifetime and would otherwise close it before async flush ends.
+	WaitForLogFlush bool
+}
+
+// ExecutorOption configures a job executor.
+type ExecutorOption func(*Executor)
+
+// WithProcessExecutor sets the command execution backend used by built-in
+// host-isolated actions during a run. Nil preserves the default host process
+// executor.
+func WithProcessExecutor(processExecutor interfaces.ExecExecutor) ExecutorOption {
+	return func(e *Executor) {
+		if processExecutor != nil {
+			e.hostProcessExecutor = processExecutor
+		}
+	}
+}
+
+// WithVMProcessExecutor sets the command execution backend used by VM-isolated
+// actions. Nil leaves VM isolation unavailable.
+func WithVMProcessExecutor(processExecutor interfaces.ExecExecutor) ExecutorOption {
+	return func(e *Executor) {
+		if processExecutor != nil {
+			e.vmProcessExecutor = processExecutor
+		}
+	}
+}
+
+// WithCheckoutCache sets the worker-local checkout cache used by builtins/checkout.
+// Nil preserves the direct clone path.
+func WithCheckoutCache(cache action.CheckoutCache) ExecutorOption {
+	return func(e *Executor) {
+		e.checkoutCache = cache
+	}
+}
+
+// WithDefaultIsolation sets the isolation level inherited by nodes that do not
+// declare one explicitly. Empty preserves the existing default.
+func WithDefaultIsolation(isolation string) ExecutorOption {
+	return func(e *Executor) {
+		if normalized := action.NormalizeIsolation(isolation); normalized != "" {
+			e.defaultIsolation = normalized
+		}
+	}
+}
+
+// WithWorkspaceRoot sets the parent directory for automatically-created run
+// workspaces. Empty preserves os.TempDir().
+func WithWorkspaceRoot(root string) ExecutorOption {
+	return func(e *Executor) {
+		e.workspaceRoot = strings.TrimSpace(root)
+	}
+}
+
+// WithAsyncWorkspaceCleanup removes automatically-created workspaces in a
+// bounded background cleaner. When the cleaner is saturated, cleanup falls back
+// to the synchronous path.
+func WithAsyncWorkspaceCleanup(enabled bool) ExecutorOption {
+	return func(e *Executor) {
+		e.asyncWorkspaceCleanup = enabled
+	}
+}
+
+func NewExecutor(options ...ExecutorOption) *Executor {
+	e := &Executor{
+		hostProcessExecutor: interfaces.NewDirectExecutor(),
+		defaultIsolation:    action.IsolationHost,
+	}
+
+	for _, option := range options {
+		if option != nil {
+			option(e)
+		}
+	}
+
+	e.registry = builtins.NewRegistry(builtins.WithCheckoutCache(e.checkoutCache))
+
+	return e
+}
+
+func (e *Executor) ResolveProcessExecutor(isolation string) (interfaces.ExecExecutor, string, error) {
+	effective := action.NormalizeIsolation(isolation)
+	if effective == "" {
+		effective = action.NormalizeIsolation(e.defaultIsolation)
+	}
+
+	if effective == "" {
+		effective = action.IsolationHost
+	}
+
+	switch effective {
+	case action.IsolationHost:
+		if e.hostProcessExecutor == nil {
+			return nil, "", fmt.Errorf("host isolation requested but no host process executor is configured")
+		}
+
+		return e.hostProcessExecutor, action.IsolationHost, nil
+	case action.IsolationVM:
+		if e.vmProcessExecutor == nil {
+			return nil, "", fmt.Errorf("vm isolation requested but no VM process executor is configured")
+		}
+
+		return e.vmProcessExecutor, action.IsolationVM, nil
+	default:
+		return nil, "", fmt.Errorf("unsupported isolation level %q", isolation)
 	}
 }
 
@@ -46,18 +171,46 @@ func sanitizeJobIDForPrefix(id string) string {
 }
 
 func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
-	return e.executeJob(ctx, job, logClient, logger, "")
+	return e.ExecuteJobWithOptions(ctx, job, logClient, logger, ExecuteOptions{})
+}
+
+func (e *Executor) ExecuteJobWithOptions(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, opts ExecuteOptions) (err error) {
+	return e.execute(ctx, job, logClient, logger, "", "", false, opts)
 }
 
 func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+	return e.ExecuteJobInWorkspaceWithOptions(ctx, job, logClient, logger, workspace, ExecuteOptions{})
+}
+
+func (e *Executor) ExecuteJobInWorkspaceWithOptions(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string, opts ExecuteOptions) (err error) {
 	if workspace == "" {
 		return fmt.Errorf("workspace is required")
 	}
 
-	return e.executeJob(ctx, job, logClient, logger, workspace)
+	return e.execute(ctx, job, logClient, logger, workspace, "", false, opts)
 }
 
-func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+func (e *Executor) ExecuteTask(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
+	return e.ExecuteTaskWithOptions(ctx, job, taskKey, logClient, logger, ExecuteOptions{})
+}
+
+func (e *Executor) ExecuteTaskWithOptions(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, opts ExecuteOptions) (err error) {
+	return e.execute(ctx, job, logClient, logger, "", taskKey, true, opts)
+}
+
+func (e *Executor) ExecuteTaskInWorkspace(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+	return e.ExecuteTaskInWorkspaceWithOptions(ctx, job, taskKey, logClient, logger, workspace, ExecuteOptions{})
+}
+
+func (e *Executor) ExecuteTaskInWorkspaceWithOptions(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string, opts ExecuteOptions) (err error) {
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+
+	return e.execute(ctx, job, logClient, logger, workspace, taskKey, true, opts)
+}
+
+func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace, taskKey string, taskScoped bool, opts ExecuteOptions) (err error) {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}
@@ -70,28 +223,98 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 		return fmt.Errorf("job has no run id")
 	}
 
+	node := job.GetRoot()
+	nodePath := "root"
+	ports := taskgraph.ChildPorts(node)
+	if taskScoped {
+		node, nodePath, err = findTaskNode(job, taskKey)
+		if err != nil {
+			return err
+		}
+
+		ports = taskgraph.LocalPortsForTask(node)
+	}
+
 	cleanupWorkspace := false
+	cleanupWorkspaceRoot := ""
 	if workspace == "" {
 		prefix := "vectis-" + sanitizeJobIDForPrefix(job.GetRunId()) + "-"
-		workspace, err = os.MkdirTemp(os.TempDir(), prefix)
+		workspaceRoot := e.workspaceRoot
+		if workspaceRoot == "" {
+			workspaceRoot = os.TempDir()
+		}
+
+		workspace, err = os.MkdirTemp(workspaceRoot, prefix)
 		if err != nil {
 			return fmt.Errorf("failed to create workspace: %w", err)
 		}
 
+		if err := secureAutoWorkspace(workspace, workspaceRoot); err != nil {
+			_ = os.RemoveAll(workspace)
+			return fmt.Errorf("secure auto workspace: %w", err)
+		}
+
 		cleanupWorkspace = true
+		cleanupWorkspaceRoot = workspaceRoot
+	} else if err := warnIfExplicitWorkspaceBroadPermissions(workspace, logger); err != nil {
+		return err
 	}
 
 	if cleanupWorkspace {
 		defer func() {
-			if err := os.RemoveAll(workspace); err != nil {
-				logger.Error("Failed to remove workspace %s: %v", workspace, err)
+			if e.asyncWorkspaceCleanup && enqueueAsyncWorkspaceCleanup(workspace, cleanupWorkspaceRoot, logger) {
+				return
+			}
+
+			cleanupWorkspacePath(workspace, cleanupWorkspaceRoot, logger)
+		}()
+	}
+
+	if err := ensureWorkspacePrivateDir(workspace, ".tmp"); err != nil {
+		return fmt.Errorf("failed to create workspace temp dir: %w", err)
+	}
+
+	descriptorResolver := opts.ActionResolver
+	if descriptorResolver == nil {
+		descriptorResolver = e.registry
+	}
+
+	actionVerifier, err := newActionLockVerifier(descriptorResolver, opts.ActionLocks)
+	if err != nil {
+		return fmt.Errorf("initialize action lock verifier: %w", err)
+	}
+
+	processEnv := action.SanitizedProcessEnv(
+		workspace,
+		os.Environ(),
+	)
+
+	if len(opts.SecretFiles) > 0 {
+		if err := ensureWorkspacePrivateDir(workspace, ".vectis"); err != nil {
+			return fmt.Errorf("failed to secure workspace control dir: %w", err)
+		}
+
+		if err := secrets.CleanupMaterialized(workspace); err != nil {
+			return fmt.Errorf("failed to reset workspace secrets dir: %w", err)
+		}
+
+		materialized, err := secrets.MaterializeFiles(workspace, opts.SecretFiles)
+		if err != nil {
+			return fmt.Errorf("failed to materialize secrets: %w", err)
+		}
+
+		defer func() {
+			if err := secrets.CleanupMaterialized(workspace); err != nil {
+				logger.Warn("Failed to remove materialized secrets for run %s: %v", job.GetRunId(), err)
 			}
 		}()
+
+		processEnv = action.AppendEnv(processEnv, "VECTIS_SECRETS_DIR", materialized.Dir)
 	}
 
 	logger.Info("Created workspace: %s", workspace)
 
-	logStream, err := newDurableLogStream(logClient, logger, job.GetRunId())
+	logStream, err := newDurableLogStream(ctx, logClient, logger, job.GetRunId())
 	if err != nil {
 		return fmt.Errorf("failed to initialize durable log stream: %w", err)
 	}
@@ -107,24 +330,86 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 		if closeErr := logStream.CloseSend(); closeErr != nil {
 			logger.Warn("Log stream flush incomplete for run %s: %v", job.GetRunId(), closeErr)
 		}
+		if !opts.WaitForLogFlush {
+			return
+		}
+
+		waitTimeout := LogFlushTimeoutForTest() + LogRetryMaxForTest() + 100*time.Millisecond
+		if err := logStream.WaitForDone(waitTimeout); err != nil {
+			logger.Warn("Log stream flush did not finish for run %s: %v", job.GetRunId(), err)
+			return
+		}
+
+		if senderErr := logStream.SenderErr(); senderErr != nil {
+			logger.Warn("Log stream flush incomplete for run %s: %v", job.GetRunId(), senderErr)
+		}
 	}()
 
-	state := &action.ExecutionState{
-		JobID:     job.GetId(),
-		RunID:     job.GetRunId(),
-		Workspace: workspace,
-		Logger:    logger,
-		LogClient: logClient,
-		LogStream: logStream,
-		Resolver:  e.registry,
+	defaultIsolation := action.NormalizeIsolation(job.GetDefaultIsolation())
+	if defaultIsolation == "" {
+		defaultIsolation = e.defaultIsolation
 	}
 
-	logger.Info("Starting job execution: %s", job.GetId())
+	processExecutor, isolation, err := e.ResolveProcessExecutor(defaultIsolation)
+	if err != nil {
+		return err
+	}
+
+	actionProcessExecutor := opts.ProcessExecutor
+	if actionProcessExecutor == nil {
+		actionProcessExecutor = processExecutor
+	}
+
+	actionResolver, err := newExecutableActionResolver(e.registry, descriptorResolver, opts.ActionLocks, actionProcessExecutor)
+	if err != nil {
+		return fmt.Errorf("initialize action resolver: %w", err)
+	}
+
+	checkoutCache := opts.CheckoutCache
+	if checkoutCache == nil {
+		checkoutCache = e.checkoutCache
+	}
+	checkoutCache, closeCheckoutCache, err := scopedCheckoutCache(checkoutCache)
+	if err != nil {
+		return err
+	}
+	if closeCheckoutCache != nil {
+		defer func() {
+			if closeErr := closeCheckoutCache(); closeErr != nil {
+				logger.Warn("Failed to release checkout cache scope for run %s: %v", job.GetRunId(), closeErr)
+			}
+		}()
+	}
+
+	state := &action.ExecutionState{
+		JobID:                   job.GetId(),
+		RunID:                   job.GetRunId(),
+		Workspace:               workspace,
+		CheckoutCache:           checkoutCache,
+		Artifacts:               opts.ArtifactPublisher,
+		ProcessEnv:              processEnv,
+		Logger:                  logger,
+		LogClient:               logClient,
+		LogStream:               logStream,
+		Resolver:                actionResolver,
+		Verifier:                actionVerifier,
+		NodePaths:               executionNodePathsForScope(job.GetRoot(), node, nodePath, ports, taskScoped),
+		Workload:                opts.WorkloadIdentity,
+		ProcessExecutor:         processExecutor,
+		ProcessExecutorResolver: e,
+		Isolation:               isolation,
+	}
 
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"start"}`)
-	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting job execution: %s", job.GetId()))
+	if taskScoped {
+		logger.Info("Starting task execution: %s task %s", job.GetId(), taskKey)
+		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting task execution: %s task %s", job.GetId(), taskKey))
+	} else {
+		logger.Info("Starting job execution: %s", job.GetId())
+		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting job execution: %s", job.GetId()))
+	}
 
-	result := e.executeNode(ctx, job.GetRoot(), state)
+	result := e.executeNodeWithPorts(ctx, node, state, ports)
 
 	if result.Status == action.StatusFailure {
 		if ctx.Err() != nil {
@@ -145,7 +430,35 @@ func (e *Executor) executeJob(ctx context.Context, job *api.Job, logClient inter
 	return nil
 }
 
+func scopedCheckoutCache(cache action.CheckoutCache) (action.CheckoutCache, func() error, error) {
+	if cache == nil {
+		return nil, nil, nil
+	}
+
+	if provider, ok := cache.(action.CheckoutCacheScopeProvider); ok {
+		scoped, err := provider.NewCheckoutCacheScope()
+		if err != nil {
+			return nil, nil, fmt.Errorf("initialize checkout cache scope: %w", err)
+		}
+		if scoped == nil {
+			return nil, nil, nil
+		}
+		cache = scoped
+	}
+
+	closer, _ := cache.(action.CheckoutCacheCloser)
+	if closer == nil {
+		return cache, nil, nil
+	}
+
+	return cache, closer.Close, nil
+}
+
 func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *action.ExecutionState) action.Result {
+	return e.executeNodeWithPorts(ctx, node, state, taskgraph.ChildPorts(node))
+}
+
+func (e *Executor) executeNodeWithPorts(ctx context.Context, node *api.Node, state *action.ExecutionState, ports map[string][]*api.Node) action.Result {
 	if node == nil {
 		return action.NewFailureResult(fmt.Errorf("nil node"))
 	}
@@ -155,11 +468,48 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 	span.SetAttributes(
 		attribute.String("action.type", node.GetUses()),
 		attribute.String("action.node.id", node.GetId()),
-		attribute.Bool("action.has_children", len(node.GetSteps()) > 0),
+		attribute.Bool("action.has_children", len(ports) > 0),
 	)
+	if state.Workload != nil {
+		span.SetAttributes(attribute.String("vectis.workload.spiffe_id", state.Workload.SPIFFEID))
+	}
 	defer span.End()
 
-	nodeImpl, err := e.registry.Resolve(node.GetUses())
+	restoreIsolation, err := state.ApplyNodeIsolation(node)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(otelcodes.Error, "resolve isolation")
+		return action.NewFailureResult(
+			&action.ExecutionError{
+				NodeID:  node.GetId(),
+				Action:  node.GetUses(),
+				Message: "failed to resolve isolation",
+				Cause:   err,
+			},
+		)
+	}
+	defer restoreIsolation()
+	span.SetAttributes(attribute.String("action.isolation", state.Isolation))
+
+	if state.Verifier != nil {
+		if err := state.Verifier.VerifyAction(node, state.NodePath(node)); err != nil {
+			span.RecordError(err)
+			span.SetStatus(otelcodes.Error, "verify action lock")
+			return action.NewFailureResult(&action.ExecutionError{
+				NodeID:  node.GetId(),
+				Action:  node.GetUses(),
+				Message: "failed to verify action lock",
+				Cause:   err,
+			})
+		}
+	}
+
+	resolver := state.Resolver
+	if resolver == nil {
+		resolver = e.registry
+	}
+
+	nodeImpl, err := resolver.Resolve(node.GetUses())
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, "resolve action")
@@ -173,20 +523,193 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 		)
 	}
 
-	inputs := make(map[string]any)
-	for k, v := range node.GetWith() {
-		inputs[k] = v
-	}
-
 	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Executing node: %s", nodeImpl.Type()))
 
-	result := nodeImpl.Execute(nodeCtx, state, inputs, node.GetSteps())
+	inputs, err := action.ResolveNodeInputs(state, node, action.InputSchema(nodeImpl))
+	if err != nil {
+		wrapped := &action.ExecutionError{
+			NodeID:  node.GetId(),
+			Action:  node.GetUses(),
+			Message: "failed to resolve node inputs",
+			Cause:   err,
+		}
+
+		span.RecordError(wrapped)
+		span.SetStatus(otelcodes.Error, "resolve inputs")
+		return action.NewFailureResult(wrapped)
+	}
+
+	result := nodeImpl.Execute(nodeCtx, state, inputs, action.Ports(ports))
 	if result.Status == action.StatusFailure && result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(otelcodes.Error, "action failed")
+		return result
+	}
+
+	if result.Status == action.StatusSuccess {
+		state.RecordOutputs(node.GetId(), result.Outputs)
 	}
 
 	return result
+}
+
+func executionNodePaths(root *api.Node) map[*api.Node]string {
+	paths := map[*api.Node]string{}
+	collectExecutionNodePaths(paths, root, "root")
+	return paths
+}
+
+func executionNodePathsForScope(root, node *api.Node, nodePath string, ports map[string][]*api.Node, taskScoped bool) map[*api.Node]string {
+	if !taskScoped {
+		return executionNodePaths(root)
+	}
+
+	paths := map[*api.Node]string{}
+	if node == nil {
+		return paths
+	}
+
+	path := strings.TrimSpace(nodePath)
+	if path == "" {
+		path = strings.TrimSpace(node.GetId())
+	}
+
+	paths[node] = path
+	collectExecutionNodePathsForPorts(paths, node, path, ports)
+	return paths
+}
+
+func collectExecutionNodePaths(paths map[*api.Node]string, node *api.Node, path string) {
+	if node == nil {
+		return
+	}
+
+	paths[node] = path
+	for _, ref := range taskgraph.ChildRefs(node, path) {
+		collectExecutionNodePaths(paths, ref.Node, ref.Path)
+	}
+}
+
+func collectExecutionNodePathsForPorts(paths map[*api.Node]string, node *api.Node, path string, ports map[string][]*api.Node) {
+	if node == nil || len(ports) == 0 {
+		return
+	}
+
+	for _, ref := range taskgraph.ChildRefs(node, path) {
+		if !portsContainNode(ports, ref.PortName, ref.Node) {
+			continue
+		}
+
+		collectExecutionNodePaths(paths, ref.Node, ref.Path)
+	}
+}
+
+func portsContainNode(ports map[string][]*api.Node, portName string, node *api.Node) bool {
+	for _, candidate := range ports[portName] {
+		if candidate == node {
+			return true
+		}
+	}
+
+	return false
+}
+
+func findTaskNode(job *api.Job, taskKey string) (*api.Node, string, error) {
+	taskKey = strings.TrimSpace(taskKey)
+	if taskKey == "" {
+		return nil, "", fmt.Errorf("task key is required")
+	}
+
+	if taskKey == dal.RootTaskKey {
+		return job.GetRoot(), "root", nil
+	}
+
+	if node, path := findNodeByID(job.GetRoot(), taskKey, "root"); node != nil {
+		return node, path, nil
+	}
+
+	return nil, "", fmt.Errorf("task node %q not found", taskKey)
+}
+
+func findNodeByID(node *api.Node, id, path string) (*api.Node, string) {
+	if node == nil {
+		return nil, ""
+	}
+
+	if strings.TrimSpace(node.GetId()) == id {
+		return node, path
+	}
+
+	for i, child := range node.GetSteps() {
+		if child == nil {
+			continue
+		}
+
+		if strings.TrimSpace(child.GetId()) == id {
+			return child, stepNodePath(path, i)
+		}
+
+		if nodeHasChildren(child) {
+			if found, foundPath := findNodeByID(child, id, stepNodePath(path, i)); found != nil {
+				return found, foundPath
+			}
+		}
+	}
+
+	for _, portName := range sortedNodePortNames(node) {
+		nodes := taskgraph.ExplicitPortChildren(node, portName)
+		for i, child := range nodes {
+			if child == nil {
+				continue
+			}
+
+			if strings.TrimSpace(child.GetId()) == id {
+				return child, portNodePath(path, portName, i)
+			}
+
+			if nodeHasChildren(child) {
+				if found, foundPath := findNodeByID(child, id, portNodePath(path, portName, i)); found != nil {
+					return found, foundPath
+				}
+			}
+		}
+	}
+
+	return nil, ""
+}
+
+func nodeHasChildren(node *api.Node) bool {
+	return node != nil && (len(node.GetSteps()) > 0 || len(node.GetPorts()) > 0)
+}
+
+func sortedNodePortNames(node *api.Node) []string {
+	if node == nil || len(node.GetPorts()) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(node.GetPorts()))
+	for name := range node.GetPorts() {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+	return names
+}
+
+func stepNodePath(parentPath string, index int) string {
+	return childNodePath(parentPath, "steps["+strconv.Itoa(index)+"]")
+}
+
+func portNodePath(parentPath, portName string, index int) string {
+	return childNodePath(parentPath, "ports."+portName+".nodes["+strconv.Itoa(index)+"]")
+}
+
+func childNodePath(parentPath, suffix string) string {
+	if parentPath == "" {
+		return suffix
+	}
+
+	return parentPath + "." + suffix
 }
 
 func sendLog(state *action.ExecutionState, streamType api.Stream, message string) {

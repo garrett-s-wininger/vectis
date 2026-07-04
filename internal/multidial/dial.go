@@ -3,66 +3,61 @@ package multidial
 import (
 	"context"
 	"fmt"
+	"time"
 
-	api "vectis/api/gen/go"
 	"vectis/internal/backoff"
 	"vectis/internal/config"
 	"vectis/internal/interfaces"
-	"vectis/internal/registry"
-	"vectis/internal/resolver"
-
-	"google.golang.org/grpc"
+	"vectis/internal/logclient"
+	"vectis/internal/queueclient"
 )
 
-func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
+type DialOptions struct {
+	QueueDequeueSupportedIsolation  []string
+	QueueDequeuePollBaseInterval    time.Duration
+	QueueDequeuePollJitterRatio     float64
+	QueueDequeuePollMaxInterval     time.Duration
+	QueueDequeueStickySuccessBudget int
+}
+
+func DialQueueAndLog(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, assignmentStore logclient.AssignmentStore, routingMetrics logclient.RoutingMetrics) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
+	return DialQueueAndLogWithOptions(ctx, logger, retryMetrics, assignmentStore, routingMetrics, DialOptions{})
+}
+
+func DialQueueAndLogWithOptions(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, assignmentStore logclient.AssignmentStore, routingMetrics logclient.RoutingMetrics, opts DialOptions) (interfaces.QueueClient, interfaces.LogClient, func(), error) {
 	qPin := config.PinnedQueueAddress()
 	lPin := config.PinnedLogAddress()
 
-	var regClient *registry.Registry
-	if qPin == "" || lPin == "" {
-		var err error
-		regClient, err = resolver.NewRegistryClient(ctx, config.WorkerRegistryDialAddress(), logger, interfaces.SystemClock{}, retryMetrics)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("registry client: %w", err)
-		}
-	}
+	queuePool, err := queueclient.NewManagingQueuePoolClient(ctx, logger, queueclient.QueuePoolOptions{
+		PinnedAddress:              qPin,
+		RegistryAddress:            config.WorkerRegistryDialAddress(),
+		RetryMetrics:               retryMetrics,
+		DequeueSupportedIsolation:  opts.QueueDequeueSupportedIsolation,
+		DequeuePollBaseInterval:    opts.QueueDequeuePollBaseInterval,
+		DequeuePollJitterRatio:     opts.QueueDequeuePollJitterRatio,
+		DequeuePollMaxInterval:     opts.QueueDequeuePollMaxInterval,
+		DequeueStickySuccessBudget: opts.QueueDequeueStickySuccessBudget,
+	})
 
-	queueConn, queueCleanup, err := dialComponent(ctx, logger, regClient, qPin, api.Component_COMPONENT_QUEUE, retryMetrics)
 	if err != nil {
-		if regClient != nil {
-			_ = regClient.Close()
-		}
-
 		return nil, nil, nil, fmt.Errorf("queue client: %w", err)
 	}
 
-	logConn, logCleanup, err := dialComponent(ctx, logger, regClient, lPin, api.Component_COMPONENT_LOG, retryMetrics)
-	if err != nil {
-		queueCleanup()
-		if regClient != nil {
-			_ = regClient.Close()
-		}
+	logPool, err := logclient.NewManagingLogClient(ctx, logger, logclient.PoolOptions{
+		PinnedAddress:   lPin,
+		RegistryAddress: config.WorkerRegistryDialAddress(),
+		RetryMetrics:    retryMetrics,
+		AssignmentStore: assignmentStore,
+		Metrics:         routingMetrics,
+	})
 
+	if err != nil {
+		_ = queuePool.Close()
 		return nil, nil, nil, fmt.Errorf("log client: %w", err)
 	}
 
-	return interfaces.NewGRPCQueueClient(queueConn), interfaces.NewGRPCLogClient(logConn), func() {
-		queueCleanup()
-		logCleanup()
-		if regClient != nil {
-			_ = regClient.Close()
-		}
+	return queuePool, logPool, func() {
+		_ = queuePool.Close()
+		_ = logPool.Close()
 	}, nil
-}
-
-func dialComponent(ctx context.Context, logger interfaces.Logger, reg *registry.Registry, pinned string, comp api.Component, retryMetrics backoff.RetryMetrics) (*grpc.ClientConn, func(), error) {
-	if pinned != "" {
-		return resolver.NewClientWithPinnedAddress(ctx, comp, pinned, logger, nil, retryMetrics)
-	}
-
-	if reg == nil {
-		return nil, nil, fmt.Errorf("registry client required for %s discovery", comp.String())
-	}
-
-	return resolver.NewClientWithRegistry(ctx, comp, logger, reg, retryMetrics)
 }

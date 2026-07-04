@@ -19,6 +19,7 @@ func (r *HierarchicalRBAC) Allow(ctx context.Context, p *authn.Principal, action
 	switch action {
 	case ActionSetupStatus, ActionSetupComplete:
 		return true
+	default:
 	}
 
 	if p == nil {
@@ -71,7 +72,7 @@ func (r *HierarchicalRBAC) allowNonNamespacedAction(ctx context.Context, localUs
 	switch action {
 	case ActionAPI:
 		return true
-	case ActionUserAdmin:
+	case ActionCatalogIngest, ActionUserAdmin:
 		return r.hasRootRole(ctx, localUserID, RoleAdmin)
 	default:
 		return r.hasActionAnywhere(ctx, localUserID, action)

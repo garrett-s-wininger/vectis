@@ -32,8 +32,11 @@ Vectis is a self-hosted orchestrator for generic job graphs and CI/CD-style work
 | Triggers | Add webhook and optional VCS polling support. Decide whether future trigger types belong in one trigger service or separate binaries. |
 | Operational coverage | Extend `health check` into deploy-specific checks that cannot be inferred through the API, including TLS files and writable storage paths. |
 | Observability | Improve run correlation across API, queue, worker, log service, and database. Keep Prometheus metrics; add richer traces only where they help operators debug real failures. |
-| Worker safety | Define containment, resource limits, action policy, environment filtering, workspace controls, and executor boundaries before positioning Vectis for untrusted workloads. |
-| Secrets | Design a local secrets service with provider-neutral contracts, worker-side resolution, authorization, audit, and redaction hooks. |
+| Event reactions | Add durable run and definition reactions outside the job DAG, starting with a local notification action that tests can assert before external transports and job-chaining targets ship. |
+| Lifecycle, recovery, and auditability | Work through the [Lifecycle, Recovery, And Auditability Tranche](./lifecycle-recovery-auditability.md): bounded daemon shutdown, startup/readiness contracts, backup inventory and restore evidence, and stronger audit review surfaces. |
+| Worker safety | Continue the [worker execution containment provider](../architecture-decisions/0009-worker-execution-containment-providers.md) path: job and action-level `host`/`vm` selection with the Lima command backend first, then profile-aware placement, container profiles, and disposable VM profiles for stronger isolation. |
+| Kubernetes deployment | Grow the initial single-cell reference manifest into a validated cluster lane: apply, readiness, canonical run, logs, artifacts, worker scale, pod kill recovery, then mTLS/SPIFFE and cell ingress. |
+| Secrets | Harden the shipped SPIFFE-authenticated encryptedfs broker, secret mounts, worker-side resolution, authorization, audit, and redaction hooks before adding external providers. |
 | Federation | Defer until single-cell behavior is boring. Future federation should use a gateway over distributed Vectis cells, not one shared global database. |
 
 ## Open Foundation Decisions
@@ -42,10 +45,10 @@ These areas are intentionally not active implementation plans yet. They should b
 
 | Area | Status | What needs a decision |
 | --- | --- | --- |
-| Multi-replica semantics | Deferred | Long-term API rate-limit behavior, queue/log HA posture, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
+| Multi-replica semantics | Deferred | Long-term API rate-limit behavior, queue/log/artifact HA posture, cron leader election or partitioning, reconciler duplicate-handoff bounds, pool-aware worker scale-out, and rolling-restart tests. |
 | Retention and storage pressure | Deferred | Production defaults, cleanup cadence, queue persistence, log-forwarder spools, backup/restore interaction, and deploy-specific disk pressure checks. |
-| Worker execution containment | Deferred | Isolation model, resource limits, action policy, environment filtering, workspace controls, executor boundary, and sandbox path. |
-| Local secrets service | Deferred | Provider-neutral service contract, encrypted local backend, runtime identity and authorization, worker-side resolution, audit events, and redaction hooks. |
+| Worker execution containment | Accepted design; implementation pending | Runner boundary, execution profiles, container provider, VM provider, resource limits, action policy, environment filtering, workspace controls, placement, and cleanup behavior. |
+| External secret providers | In progress | Knox primary-version reads are wired through the broker. Vault, Kubernetes, cloud-provider stores, provider-specific auth rotation, and provider health checks still need decisions. |
 
 ## Federation Direction
 
@@ -100,8 +103,8 @@ Before a major user-facing feature, answer yes to:
 
 These are not required before the next useful feature, but they remain part of the broader direction:
 
-- OIDC and LDAP integration.
-- Kubernetes-native manifests beyond the Podman reference.
+- OIDC integration and LDAP provider hardening beyond the first login-provider slice.
+- Production-grade Kubernetes variants beyond the initial single-cell reference manifest.
 - Autoscaling workers.
 - Frontend SPA.
 - Plugin or hook catalog.

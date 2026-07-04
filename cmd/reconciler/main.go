@@ -1,14 +1,14 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/database"
@@ -16,9 +16,6 @@ import (
 	"vectis/internal/observability"
 	"vectis/internal/queueclient"
 	"vectis/internal/reconciler"
-	"vectis/internal/resolver"
-
-	"google.golang.org/grpc"
 
 	_ "vectis/internal/dbdrivers"
 )
@@ -26,12 +23,16 @@ import (
 func runReconciler(cmd *cobra.Command, args []string) {
 	rootCtx := cmd.Context()
 	logger := interfaces.NewAsyncLogger("reconciler")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
 		logger.Fatal("%v", err)
+	}
+
+	if err := config.ValidateCellIngressHTTPClientMTLSConfig(config.CellIngressEndpointSpecs()); err != nil {
+		logger.Fatal("Cell ingress HTTP mTLS config: %v", err)
 	}
 
 	if err := config.ValidateMetricsTLS(); err != nil {
@@ -54,11 +55,11 @@ func runReconciler(cmd *cobra.Command, args []string) {
 
 	defer cli.DeferShutdown(logger, "Metrics", shutdownMetrics)()
 
-	db, _, err := database.OpenReadyDB(logger)
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	retryMetrics, err := observability.NewRetryMetrics()
 	if err != nil {
@@ -66,8 +67,10 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 
 	pin := config.ReconcilerQueueAddress()
-	mq, err := queueclient.NewManagingQueueService(rootCtx, logger, func(ctx context.Context) (*grpc.ClientConn, func(), error) {
-		return resolver.DialQueue(ctx, logger, pin, config.ReconcilerRegistryDialAddress(), retryMetrics)
+	mq, err := queueclient.NewManagingQueuePoolService(rootCtx, logger, queueclient.QueuePoolOptions{
+		PinnedAddress:   pin,
+		RegistryAddress: config.ReconcilerRegistryDialAddress(),
+		RetryMetrics:    retryMetrics,
 	})
 
 	if err != nil {
@@ -80,14 +83,31 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	}
 
 	svc := reconciler.NewService(logger, db, mq, interfaces.SystemClock{})
+	leaseOwner := uuid.NewString()
+	svc.SetLeaseOwner(leaseOwner)
+	svc.SetLeaseTTL(config.ReconcilerLeaseTTL())
+	svc.SetRedispatchLimit(config.ReconcilerRedispatchLimit())
+	actionResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Fatal("Invalid action registry config: %v", err)
+	}
+
+	svc.SetActionDescriptorResolver(actionResolver)
+	logger.Info("Reconciler instance ID: %s", leaseOwner)
+
 	reconcilerMetrics, err := observability.NewReconcilerMetrics()
 	if err != nil {
 		logger.Fatal("Failed to initialize reconciler metrics: %v", err)
 	}
 	svc.SetMetrics(reconcilerMetrics)
 
-	metricsPort := viper.GetInt("metrics_port")
-	metricsAddr := fmt.Sprintf(":%d", metricsPort)
+	dispatchMetrics, err := observability.NewDispatchMetrics()
+	if err != nil {
+		logger.Fatal("Failed to initialize dispatch metrics: %v", err)
+	}
+	svc.SetDispatchMetrics(dispatchMetrics)
+
+	metricsAddr := config.ReconcilerMetricsListenAddr()
 	metricsSrv, err := cli.StartMetricsHTTPServer(metricsHandler, metricsAddr, "Reconciler", logger)
 	if err != nil {
 		logger.Fatal("%v", err)
@@ -95,7 +115,7 @@ func runReconciler(cmd *cobra.Command, args []string) {
 	defer metricsSrv.Shutdown()
 
 	interval := config.ReconcilerInterval()
-	logger.Info("Reconciler polling every %v", interval)
+	logger.Info("Reconciler polling every %v with service lease ttl %v and redispatch limit %d", interval, config.ReconcilerLeaseTTL(), config.ReconcilerRedispatchLimit())
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -119,16 +139,26 @@ func runReconciler(cmd *cobra.Command, args []string) {
 
 var rootCmd = &cobra.Command{
 	Use:   "vectis-reconciler",
-	Short: "Re-enqueue queued job runs that were never dispatched or need a queue retry",
+	Short: "Repair queued runs and orphaned task finalization",
 	Run:   runReconciler,
 }
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().Duration("interval", config.ReconcilerInterval(), "How often to scan for queued runs")
+	rootCmd.PersistentFlags().Duration("lease-ttl", config.ReconcilerLeaseTTL(), "How long a reconciler instance owns the active service lease")
+	rootCmd.PersistentFlags().Int("redispatch-limit", config.ReconcilerRedispatchLimit(), "Maximum queued runs to redispatch per reconciler pass")
+	rootCmd.PersistentFlags().String("metrics-host", config.ReconcilerMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.ReconcilerMetricsPort(), "HTTP port for Prometheus /metrics")
+
 	_ = viper.BindPFlag("interval", rootCmd.PersistentFlags().Lookup("interval"))
+	_ = viper.BindPFlag("lease_ttl", rootCmd.PersistentFlags().Lookup("lease-ttl"))
+	_ = viper.BindPFlag("redispatch_limit", rootCmd.PersistentFlags().Lookup("redispatch-limit"))
+	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))
 	_ = viper.BindPFlag("metrics_port", rootCmd.PersistentFlags().Lookup("metrics-port"))
+	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_RECONCILER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+
+	viper.SetDefault("metrics_host", config.ReconcilerMetricsHost())
 	viper.SetDefault("metrics_port", config.ReconcilerMetricsPort())
 	viper.SetEnvPrefix("VECTIS_RECONCILER")
 	viper.AutomaticEnv()

@@ -88,7 +88,7 @@ func (r *SQLRoleBindingsRepository) ListByNamespace(ctx context.Context, namespa
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []RoleBindingRecord
 	for rows.Next() {
@@ -121,7 +121,7 @@ func (r *SQLRoleBindingsRepository) ListByUser(ctx context.Context, localUserID 
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []RoleBindingRecord
 	for rows.Next() {
@@ -150,7 +150,7 @@ func (r *SQLRoleBindingsRepository) GetUserRolesInNamespace(ctx context.Context,
 		return nil, normalizeSQLError(err)
 	}
 
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []string
 	for rows.Next() {

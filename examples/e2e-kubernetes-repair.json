@@ -1,0 +1,10 @@
+{
+  "id": "e2e-kubernetes-repair-smoke",
+  "root": {
+    "id": "repair-long-until-requeued",
+    "uses": "builtins/script",
+    "with": {
+      "script": "cutoff=\"__VECTIS_REPAIR_READY_AFTER_UNIX__\"; now=\"$(date +%s)\"; if [ \"$now\" -lt \"$cutoff\" ]; then printf 'repair-task-started\\n'; sleep 300; printf 'unexpected-repair-finished\\n'; else printf 'repair-task-requeued\\n'; fi"
+    }
+  }
+}

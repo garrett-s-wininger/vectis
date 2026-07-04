@@ -1,0 +1,317 @@
+package ldap
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/url"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	goldap "github.com/go-ldap/ldap/v3"
+
+	sdkauth "vectis/sdk/auth"
+)
+
+const (
+	ProviderKind      = "ldap"
+	DefaultProviderID = ProviderKind
+	maxProviderIDLen  = 128
+)
+
+type ProviderOptions struct {
+	ProviderID           string
+	URL                  string
+	BindDN               string
+	BindPassword         string
+	BaseDN               string
+	UserFilter           string
+	SubjectAttribute     string
+	UsernameAttribute    string
+	DisplayNameAttribute string
+	StartTLS             bool
+	Timeout              time.Duration
+	TLSConfig            *tls.Config
+	Dial                 func(context.Context) (conn, error)
+}
+
+type Provider struct {
+	providerID           string
+	url                  string
+	bindDN               string
+	bindPassword         string
+	baseDN               string
+	userFilter           string
+	subjectAttribute     string
+	usernameAttribute    string
+	displayNameAttribute string
+	startTLS             bool
+	timeout              time.Duration
+	tlsConfig            *tls.Config
+	dial                 func(context.Context) (conn, error)
+}
+
+type conn interface {
+	Bind(username, password string) error
+	Search(*goldap.SearchRequest) (*goldap.SearchResult, error)
+	StartTLS(*tls.Config) error
+	Close() error
+}
+
+func NewProvider(opts ProviderOptions) (*Provider, error) {
+	providerID := strings.TrimSpace(opts.ProviderID)
+	if providerID == "" {
+		providerID = DefaultProviderID
+	}
+
+	if !validProviderID(providerID) {
+		return nil, fmt.Errorf("ldap provider id is invalid")
+	}
+
+	rawURL := strings.TrimSpace(opts.URL)
+	if rawURL == "" {
+		return nil, fmt.Errorf("ldap url is required")
+	}
+
+	if _, err := url.Parse(rawURL); err != nil {
+		return nil, fmt.Errorf("parse ldap url: %w", err)
+	}
+
+	baseDN := strings.TrimSpace(opts.BaseDN)
+	if baseDN == "" {
+		return nil, fmt.Errorf("ldap base dn is required")
+	}
+
+	userFilter := strings.TrimSpace(opts.UserFilter)
+	if userFilter == "" {
+		userFilter = defaultUserFilter
+	}
+
+	if !strings.Contains(userFilter, "{username}") {
+		return nil, fmt.Errorf("ldap user filter must contain {username}")
+	}
+
+	usernameAttribute := strings.TrimSpace(opts.UsernameAttribute)
+	if usernameAttribute == "" {
+		usernameAttribute = defaultUsernameAttribute
+	}
+
+	subjectAttribute := strings.TrimSpace(opts.SubjectAttribute)
+
+	displayNameAttribute := strings.TrimSpace(opts.DisplayNameAttribute)
+	if displayNameAttribute == "" {
+		displayNameAttribute = defaultDisplayNameAttribute
+	}
+
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+
+	p := &Provider{
+		providerID:           providerID,
+		url:                  rawURL,
+		bindDN:               strings.TrimSpace(opts.BindDN),
+		bindPassword:         opts.BindPassword,
+		baseDN:               baseDN,
+		userFilter:           userFilter,
+		subjectAttribute:     subjectAttribute,
+		usernameAttribute:    usernameAttribute,
+		displayNameAttribute: displayNameAttribute,
+		startTLS:             opts.StartTLS,
+		timeout:              timeout,
+		tlsConfig:            opts.TLSConfig,
+		dial:                 opts.Dial,
+	}
+
+	if p.bindDN == "" && strings.TrimSpace(p.bindPassword) != "" {
+		return nil, fmt.Errorf("ldap bind password requires ldap bind dn")
+	}
+
+	if p.dial == nil {
+		p.dial = p.dialLDAP
+	}
+
+	return p, nil
+}
+
+func (p *Provider) ProviderID() string { return p.providerID }
+
+func (p *Provider) ProviderKind() string { return ProviderKind }
+
+func (p *Provider) Authenticate(ctx context.Context, username, password string) (sdkauth.Identity, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return sdkauth.Identity{}, sdkauth.ErrInvalidCredentials
+	}
+
+	authCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	c, err := p.dial(authCtx)
+	if err != nil {
+		return sdkauth.Identity{}, fmt.Errorf("%w: dial ldap: %v", sdkauth.ErrUnavailable, err)
+	}
+	defer c.Close()
+
+	if p.startTLS {
+		if err := c.StartTLS(p.effectiveTLSConfig()); err != nil {
+			return sdkauth.Identity{}, fmt.Errorf("%w: ldap starttls: %v", sdkauth.ErrUnavailable, err)
+		}
+	}
+
+	if p.bindDN != "" {
+		if err := c.Bind(p.bindDN, p.bindPassword); err != nil {
+			return sdkauth.Identity{}, fmt.Errorf("%w: ldap service bind: %v", sdkauth.ErrUnavailable, err)
+		}
+	}
+
+	entry, err := p.searchUser(authCtx, c, username)
+	if err != nil {
+		return sdkauth.Identity{}, err
+	}
+
+	if err := c.Bind(entry.DN, password); err != nil {
+		if goldap.IsErrorWithCode(err, goldap.LDAPResultInvalidCredentials) {
+			return sdkauth.Identity{}, sdkauth.ErrInvalidCredentials
+		}
+
+		return sdkauth.Identity{}, fmt.Errorf("%w: ldap user bind: %v", sdkauth.ErrUnavailable, err)
+	}
+
+	mappedUsername := strings.TrimSpace(entry.GetAttributeValue(p.usernameAttribute))
+	if mappedUsername == "" {
+		mappedUsername = username
+	}
+
+	subject := strings.TrimSpace(entry.DN)
+	if p.subjectAttribute != "" {
+		subject = strings.TrimSpace(entry.GetAttributeValue(p.subjectAttribute))
+		if subject == "" {
+			return sdkauth.Identity{}, fmt.Errorf("%w: ldap subject attribute %q is empty", sdkauth.ErrIdentityNotAllowed, p.subjectAttribute)
+		}
+	}
+
+	return sdkauth.Identity{
+		Provider:    p.providerID,
+		Subject:     subject,
+		Username:    mappedUsername,
+		DisplayName: strings.TrimSpace(entry.GetAttributeValue(p.displayNameAttribute)),
+		Attributes:  p.identityAttributes(entry),
+	}, nil
+}
+
+func (p *Provider) searchUser(ctx context.Context, c conn, username string) (*goldap.Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	filter := strings.ReplaceAll(p.userFilter, "{username}", goldap.EscapeFilter(username))
+	attributes := ldapSearchAttributes(p.usernameAttribute, p.displayNameAttribute, p.subjectAttribute)
+
+	result, err := c.Search(goldap.NewSearchRequest(
+		p.baseDN,
+		goldap.ScopeWholeSubtree,
+		goldap.NeverDerefAliases,
+		2,
+		int(p.timeout/time.Second),
+		false,
+		filter,
+		attributes,
+		nil,
+	))
+
+	if err != nil {
+		return nil, fmt.Errorf("%w: ldap user search: %v", sdkauth.ErrUnavailable, err)
+	}
+
+	switch len(result.Entries) {
+	case 0:
+		return nil, sdkauth.ErrInvalidCredentials
+	case 1:
+		return result.Entries[0], nil
+	default:
+		return nil, fmt.Errorf("%w: ldap user search returned multiple entries", sdkauth.ErrIdentityNotAllowed)
+	}
+}
+
+func (p *Provider) identityAttributes(entry *goldap.Entry) map[string][]string {
+	attributes := map[string][]string{}
+	for _, attribute := range ldapSearchAttributes(p.usernameAttribute, p.displayNameAttribute, p.subjectAttribute) {
+		values := entry.GetAttributeValues(attribute)
+		if len(values) > 0 {
+			attributes[attribute] = append([]string(nil), values...)
+		}
+	}
+
+	return attributes
+}
+
+func ldapSearchAttributes(attributes ...string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(attributes))
+	for _, attribute := range attributes {
+		attribute = strings.TrimSpace(attribute)
+		if attribute == "" {
+			continue
+		}
+
+		if _, ok := seen[attribute]; ok {
+			continue
+		}
+
+		seen[attribute] = struct{}{}
+		out = append(out, attribute)
+	}
+
+	return out
+}
+
+func (p *Provider) dialLDAP(ctx context.Context) (conn, error) {
+	dialer := &net.Dialer{Timeout: p.timeout}
+	if deadline, ok := ctx.Deadline(); ok {
+		dialer.Deadline = deadline
+	}
+
+	opts := []goldap.DialOpt{
+		goldap.DialWithDialer(dialer),
+		goldap.DialWithTLSConfig(p.effectiveTLSConfig()),
+	}
+
+	return goldap.DialURL(p.url, opts...)
+}
+
+func (p *Provider) effectiveTLSConfig() *tls.Config {
+	if p.tlsConfig != nil {
+		return p.tlsConfig
+	}
+
+	return &tls.Config{ServerName: ldapServerName(p.url), MinVersion: tls.VersionTLS12}
+}
+
+func ldapServerName(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		return ""
+	}
+
+	return host
+}
+
+func validProviderID(providerID string) bool {
+	return len(providerID) > 0 &&
+		len(providerID) <= maxProviderIDLen &&
+		utf8.ValidString(providerID) &&
+		!strings.ContainsAny(providerID, "\x00\r\n\t ")
+}

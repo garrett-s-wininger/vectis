@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"vectis/internal/testutil/grpctest"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func setupTestRegistry(t *testing.T) (string, *grpc.Server) {
@@ -154,6 +157,30 @@ func TestRegistryService_RegisterLogsNewUpdatedAndRenewed(t *testing.T) {
 	}
 }
 
+func TestRegistryServiceRejectsInvalidMetadata(t *testing.T) {
+	svc := NewRegistryServiceWithOptions(mocks.NopLogger{}, ServiceOptions{})
+	ctx := context.Background()
+	component := api.Component_COMPONENT_QUEUE
+	addr := "queue-invalid:50051"
+
+	_, err := svc.Register(ctx, &api.Registration{
+		Component: &component,
+		Address:   &addr,
+		Metadata: map[string]string{
+			MetadataCellID:    DefaultCellID,
+			MetadataQueueRole: "banana",
+		},
+	})
+
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected invalid argument, got %v", err)
+	}
+
+	if got := svc.reg.listEntries(api.Component_COMPONENT_QUEUE, nil, time.Now()); len(got) != 0 {
+		t.Fatalf("invalid registration was stored: %+v", got)
+	}
+}
+
 func TestRegistry_ListRegistrationsFiltersByMetadata(t *testing.T) {
 	addr, _ := setupTestRegistry(t)
 
@@ -194,6 +221,142 @@ func TestRegistry_ListRegistrationsFiltersByMetadata(t *testing.T) {
 
 	if entry.GetMetadata()[MetadataCellID] != DefaultCellID || entry.GetMetadata()[MetadataQueueRole] != QueueRolePool {
 		t.Fatalf("expected metadata on filtered entry, got %+v", entry.GetMetadata())
+	}
+}
+
+func TestServiceMetadataForCell(t *testing.T) {
+	service := DefaultServiceMetadataForCell("iad-a")
+	if service[MetadataCellID] != "iad-a" {
+		t.Fatalf("service metadata cell: got %+v", service)
+	}
+
+	queue := QueueIngressMetadataForCell("dfw-b")
+	if queue[MetadataCellID] != "dfw-b" || queue[MetadataQueueRole] != QueueRoleIngress {
+		t.Fatalf("queue metadata: got %+v", queue)
+	}
+
+	worker := WorkerExecutionMetadataForCell("sjc-c", "lima", "VM", []string{"HOST", "vm", "host", " "})
+	if worker[MetadataCellID] != "sjc-c" ||
+		worker[MetadataWorkerExecutionBackend] != "lima" ||
+		worker[MetadataWorkerDefaultIsolation] != "vm" ||
+		worker[MetadataWorkerSupportedIsolation] != "host,vm" {
+		t.Fatalf("worker execution metadata: got %+v", worker)
+	}
+
+	if got := DefaultServiceMetadataForCell(" ")[MetadataCellID]; got != DefaultCellID {
+		t.Fatalf("blank cell should fall back to %q, got %q", DefaultCellID, got)
+	}
+}
+
+func TestValidateComponentMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		component api.Component
+		metadata  map[string]string
+		wantErr   bool
+	}{
+		{
+			name:      "queue ingress",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata:  QueueIngressMetadataForCell("iad-a"),
+		},
+		{
+			name:      "queue custom metadata allowed",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata: map[string]string{
+				MetadataCellID:    DefaultCellID,
+				MetadataQueueRole: QueueRolePool,
+				"trait.os":        "linux",
+			},
+		},
+		{
+			name:      "queue bad role",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata: map[string]string{
+				MetadataCellID:    DefaultCellID,
+				MetadataQueueRole: "other",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "wrong owner",
+			component: api.Component_COMPONENT_QUEUE,
+			metadata: map[string]string{
+				MetadataArtifactWriteState: ArtifactWriteStateWritable,
+			},
+			wantErr: true,
+		},
+		{
+			name:      "log write state",
+			component: api.Component_COMPONENT_LOG,
+			metadata: map[string]string{
+				MetadataCellID:        DefaultCellID,
+				MetadataLogWriteState: LogWriteStateReadOnly,
+			},
+		},
+		{
+			name:      "log bad write state",
+			component: api.Component_COMPONENT_LOG,
+			metadata: map[string]string{
+				MetadataLogWriteState: "draining",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "artifact write state",
+			component: api.Component_COMPONENT_ARTIFACT,
+			metadata: map[string]string{
+				MetadataCellID:             DefaultCellID,
+				MetadataArtifactWriteState: ArtifactWriteStateWritable,
+			},
+		},
+		{
+			name:      "worker execution metadata",
+			component: api.Component_COMPONENT_WORKER,
+			metadata:  WorkerExecutionMetadataForCell("iad-a", "lima", "vm", []string{"host", "vm"}),
+		},
+		{
+			name:      "worker default outside supported",
+			component: api.Component_COMPONENT_WORKER,
+			metadata: map[string]string{
+				MetadataWorkerDefaultIsolation:   "vm",
+				MetadataWorkerSupportedIsolation: "host",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "worker unsupported isolation",
+			component: api.Component_COMPONENT_WORKER,
+			metadata: map[string]string{
+				MetadataWorkerSupportedIsolation: "host,container",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "worker unnormalized supported isolation",
+			component: api.Component_COMPONENT_WORKER,
+			metadata: map[string]string{
+				MetadataWorkerSupportedIsolation: "host, vm",
+			},
+			wantErr: true,
+		},
+		{
+			name:      "blank cell id",
+			component: api.Component_COMPONENT_LOG,
+			metadata: map[string]string{
+				MetadataCellID: " ",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateComponentMetadata(tt.component, tt.metadata)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateComponentMetadata() error = %v, wantErr=%v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -274,6 +437,115 @@ func TestStartInstanceRegistrationHeartbeat(t *testing.T) {
 
 	if got != "10.0.0.1:50051" {
 		t.Fatalf("expected 10.0.0.1:50051 after heartbeat, got %s", got)
+	}
+}
+
+func TestRegisterWithHeartbeatUsesSponsorPrimaryOnly(t *testing.T) {
+	addr1, _ := setupTestRegistry(t)
+	addr2, _ := setupTestRegistry(t)
+
+	component := api.Component_COMPONENT_QUEUE
+	instanceID := "queue-1"
+	publishAddress := "queue-1:8081"
+	metadata := QueueIngressMetadata()
+	ordered := splitRegistryAddresses(sponsorOrderedRegistryAddress(addr1+","+addr2, component, instanceID, publishAddress))
+	if len(ordered) != 2 {
+		t.Fatalf("expected two ordered registry addresses, got %+v", ordered)
+	}
+
+	logger := mocks.NewMockLogger()
+	stop, err := RegisterWithHeartbeat(context.Background(), RegistrationOptions{
+		RegistryAddress: addr1 + "," + addr2,
+		Component:       component,
+		InstanceID:      instanceID,
+		PublishAddress:  publishAddress,
+		Metadata:        metadata,
+		RefreshInterval: time.Hour,
+		Logger:          logger,
+		Clock:           mocks.NewMockClock(),
+	})
+
+	if err != nil {
+		t.Fatalf("register with heartbeat: %v", err)
+	}
+	defer stop()
+
+	waitForRegistryRegistration(t, ordered[0], component, metadata, instanceID, publishAddress)
+	assertRegistryRegistrationAbsent(t, ordered[1], component, metadata, instanceID, publishAddress)
+}
+
+func TestRegisterWithHeartbeatSucceedsWhenARegistryTargetFails(t *testing.T) {
+	liveAddr, _ := setupTestRegistry(t)
+
+	logger := mocks.NewMockLogger()
+	stop, err := RegisterWithHeartbeat(context.Background(), RegistrationOptions{
+		RegistryAddress: "127.0.0.1:1," + liveAddr,
+		Component:       api.Component_COMPONENT_LOG,
+		InstanceID:      "log-1",
+		PublishAddress:  "log-1:8083",
+		Metadata:        DefaultServiceMetadata(),
+		RefreshInterval: time.Hour,
+		Logger:          logger,
+		Clock:           mocks.NewMockClock(),
+	})
+	if err != nil {
+		t.Fatalf("register with heartbeat: %v", err)
+	}
+	defer stop()
+
+	waitForRegistryRegistration(t, liveAddr, api.Component_COMPONENT_LOG, DefaultServiceMetadata(), "log-1", "log-1:8083")
+}
+
+func TestRegisterWithDynamicMetadataHeartbeatRefreshesMetadata(t *testing.T) {
+	addr, _ := setupTestRegistry(t)
+
+	var state atomic.Value
+	state.Store(LogWriteStateWritable)
+
+	metadata := func() map[string]string {
+		m := DefaultServiceMetadata()
+		m[MetadataLogWriteState] = state.Load().(string)
+		return m
+	}
+
+	logger := mocks.NewMockLogger()
+	stop, err := RegisterWithDynamicMetadataHeartbeat(context.Background(), RegistrationOptions{
+		RegistryAddress: addr,
+		Component:       api.Component_COMPONENT_LOG,
+		InstanceID:      "log-1",
+		PublishAddress:  "log-1:8083",
+		RefreshInterval: 20 * time.Millisecond,
+		Logger:          logger,
+		Clock:           mocks.NewMockClock(),
+	}, metadata)
+	if err != nil {
+		t.Fatalf("register with heartbeat: %v", err)
+	}
+	defer stop()
+
+	waitForRegistryRegistration(t, addr, api.Component_COMPONENT_LOG, map[string]string{MetadataLogWriteState: LogWriteStateWritable}, "log-1", "log-1:8083")
+
+	state.Store(LogWriteStateReadOnly)
+	waitForRegistryRegistration(t, addr, api.Component_COMPONENT_LOG, map[string]string{MetadataLogWriteState: LogWriteStateReadOnly}, "log-1", "log-1:8083")
+}
+
+func assertRegistryRegistrationAbsent(t *testing.T, registryAddr string, component api.Component, metadata map[string]string, wantInstanceID, wantAddress string) {
+	t.Helper()
+
+	client := newRegistryTestClient(t, registryAddr)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	got, err := client.ListRegistrations(ctx, component, metadata)
+	cancel()
+	if err != nil {
+		t.Fatalf("list registrations from %s: %v", registryAddr, err)
+	}
+
+	for _, entry := range got {
+		if entry.GetInstanceId() == wantInstanceID && entry.GetAddress() == wantAddress {
+			t.Fatalf("registry %s unexpectedly listed %s/%q at %q", registryAddr, component.String(), wantInstanceID, wantAddress)
+		}
 	}
 }
 

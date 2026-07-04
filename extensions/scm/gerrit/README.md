@@ -1,0 +1,108 @@
+# Gerrit SCM Provider
+
+The Gerrit SCM provider implements `sdk/scm.PollProvider` by querying Gerrit's
+changes REST API and comparing each change's current revision against the stored
+cursor.
+
+Use it for change-level triggers where a Gerrit review update should dispatch a
+Vectis run once per current revision. The provider translates Gerrit change
+metadata into stable SCM poll events; the core SCM poller owns trigger claims,
+event dedupe, run creation, and dispatch.
+
+`base_url` must point at the Gerrit server. `project`, `branch`, and `query`
+are combined into a Gerrit query. When `query` is omitted, the provider adds
+`status:open`.
+
+`vectis-scm-poller` registers this provider with the key `gerrit`. Configure
+HTTP credentials on the poller with `--gerrit-username` plus
+`--gerrit-password-file` or `--gerrit-password`; the matching environment
+variables are `VECTIS_SCM_POLLER_PROVIDERS_GERRIT_USERNAME`,
+`VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD_FILE`, and
+`VECTIS_SCM_POLLER_PROVIDERS_GERRIT_PASSWORD`. Username and password must be
+configured together; omit both for anonymous Gerrit queries.
+
+## Event Stream Normalization
+
+Gerrit's SSH event stream emits newline-delimited JSON. `ConsumeStream` and
+`NormalizeStreamEvent` convert change events such as `patchset-created` and
+`comment-added` into the same stable `sdk/scm.Event` key shape used by polling:
+one key per Gerrit server, change identity, and current revision.
+`StreamEventInfoFromEvent` exposes the normalized project/branch/change
+metadata needed by a producer, while `StreamEventMatchesQuery` keeps stream
+routing conservative for query shapes the event payload can prove. That lets a
+future stream or webhook producer share dedupe with the poller instead of
+triggering duplicate runs for the same patch set.
+
+`vectis-scm-gerrit-stream` is the first producer for that path. In managed SSH
+mode, point `--url` at the same Gerrit base URL used in job trigger specs and
+set `--ssh-host` for the SSH event stream:
+
+```sh
+vectis-scm-gerrit-stream \
+  --url https://gerrit.example.com \
+  --ssh-host gerrit.example.com \
+  --ssh-user ci-bot \
+  --ssh-key-file /etc/vectis/gerrit/id_ed25519 \
+  --ssh-known-hosts-file /etc/vectis/gerrit/known_hosts
+```
+
+The bridge verifies SSH host keys through `known_hosts`, uses a key file and/or
+`SSH_AUTH_SOCK` agent identities, runs `gerrit stream-events`, and reconnects
+with exponential backoff when the stream drops. For tests or externally
+supervised transports, keep using stdin or a file:
+
+```sh
+ssh -p 29418 gerrit.example.com gerrit stream-events \
+  | vectis-scm-gerrit-stream --url https://gerrit.example.com
+```
+
+The bridge evaluates enabled `gerrit` SCM trigger specs for the matching server,
+project, and branch, then uses the shared SCM trigger dispatcher for event
+dedupe, run creation, queue handoff, trigger invocation records, and dispatch
+audit rows. Stream routing currently supports omitted queries, `status:open`,
+and `is:open`; more complex Gerrit queries stay with `vectis-scm-poller` until
+the stream payload can prove those predicates. Keep `vectis-scm-poller` enabled
+as the correctness backstop for any Gerrit stream downtime; both producers emit
+the same stable event keys, so duplicate observations collapse in the shared
+event ledger.
+
+Run the managed stream smoke against the local Gerrit container with:
+
+```sh
+make gerrit-stream-smoke
+```
+
+## Smoke
+
+Run the provider smoke against an already reachable Gerrit:
+
+```sh
+make gerrit-scm-smoke-check
+```
+
+Or start the local Gerrit container first:
+
+```sh
+make gerrit-scm-smoke
+```
+
+The smoke queries Gerrit's changes API through this SCM provider, validates the
+cursor returned by the provider, and can optionally force matching existing
+changes to emit events with `GERRIT_SCM_SMOKE_EMIT_EXISTING=true` plus
+`GERRIT_SCM_SMOKE_MIN_EVENTS=1`.
+
+Useful knobs:
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `GERRIT_SCM_SMOKE_URL` | `http://127.0.0.1:18088` | Gerrit base URL. |
+| `GERRIT_SCM_SMOKE_PROJECT` | empty | Optional Gerrit project query term. |
+| `GERRIT_SCM_SMOKE_BRANCH` | empty | Optional Gerrit branch query term. |
+| `GERRIT_SCM_SMOKE_QUERY` | `status:open` | Additional Gerrit query. |
+| `GERRIT_SCM_SMOKE_CURSOR` | empty | Existing provider cursor JSON. |
+| `GERRIT_SCM_SMOKE_USERNAME` | empty | Optional Gerrit HTTP username. |
+| `GERRIT_SCM_SMOKE_PASSWORD` | empty | Optional Gerrit HTTP password. |
+| `GERRIT_SCM_SMOKE_PASSWORD_FILE` | empty | File containing the optional Gerrit HTTP password. |
+| `GERRIT_SCM_SMOKE_EMIT_EXISTING` | `false` | Use an empty bootstrapped cursor so existing matches emit events. |
+| `GERRIT_SCM_SMOKE_MIN_EVENTS` | `0` | Minimum events required for success. |
+| `GERRIT_SCM_SMOKE_TIMEOUT` | `30s` | Maximum wait for the provider smoke. |

@@ -8,7 +8,7 @@ This is a developer and release-validation page. It is not a production operator
 
 Run these checks before:
 
-- changing queue, worker, log streaming, cron, reconciler, or API hot paths;
+- changing queue, orchestrator, worker, log streaming, cron, SCM poller, reconciler, catalog, or API hot paths;
 - changing database schema or query patterns that affect run creation, claiming, finalization, or log lookup;
 - changing retry, idempotency, dispatch, or repair behavior;
 - publishing a release that claims a new capacity envelope.
@@ -34,9 +34,10 @@ Match the evidence to the risk of the change:
 
 | Change type | Minimum evidence |
 | --- | --- |
-| Queue internals, delivery, persistence, or retry paths | `make capacity-benchmark` output before/after, plus notes on variance. |
-| API trigger, run state, dispatch, or idempotency path | Local benchmark when relevant, plus a deployed-stack check if concurrency behavior changed. |
-| Worker claim, lease, finalization, or log forwarding path | Deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
+| Queue internals, delivery, persistence, or retry paths | `SUITE=queue mage perf` output before/after, plus `benchstat` comparison and notes on variance. |
+| API trigger, run state, dispatch, or idempotency path | `SUITE=dal mage perf` when SQL hot paths changed, plus a deployed-stack check if concurrency behavior changed. |
+| Job executor, built-in action, or durable worker log flush path | `SUITE=job mage perf` output before/after, plus macro or deployed-stack evidence if worker throughput changes. |
+| Worker claim, lease, finalization, or log forwarding path | `SUITE=macro mage perf` for local flow slices, plus deployed-stack check with worker count, DB pool settings, queue depth, terminal outcomes, and log health. |
 | Log streaming, replay, or storage path | Deployed-stack check with concurrent readers, log volume, replay behavior, and storage/spool pressure. |
 | Release note that changes the operating envelope | Repeatable check record, raw output, observed limiting component, and docs update. |
 
@@ -48,28 +49,37 @@ Capture this for every meaningful performance check:
 | --- | --- |
 | Date and owner | Who ran the check and when. |
 | Code and build | Git commit, release version, build flags, and container image tags. |
-| Deployment shape | API, queue, log, cron, reconciler, and worker counts. |
+| Deployment shape | API, cell ingress, queue, orchestrator, log, artifact, secrets, worker-core, worker, log-forwarder, cron, SCM poller, reconciler, and catalog counts. |
 | Database | Driver, DSN class, pool settings, host size, and storage class. |
-| Queue and logs | Queue persistence path, log storage medium, spool location, and free space. |
+| Queue, logs, artifacts, and secrets | Queue persistence path, log storage medium, artifact backend and storage target, job secret store path, spool location, and relevant free-space or object-store capacity signals. |
 | Workload | Exact command, script, job definition, client count, trigger rate, and duration. |
 | Observability | Benchmark output, Prometheus snapshots, dashboard screenshots, and notable service logs. |
 | Result | Pass/fail decision, observed limit, and follow-up issues. |
 
 Keep the raw output. Summaries are helpful, but raw output is what lets the next check compare honestly.
 
-## Local Benchmark Check
+## Local Queue Benchmark Check
 
 Use this check when queue behavior, run handoff, or release confidence is the main question. It currently exercises queue benchmarks under `internal/queue`; it does not prove full API, database, worker, or log-service capacity by itself.
+
+The performance harness builds `bin/vectis-perf` and writes raw benchmark output, a JSON summary, a Markdown summary, and an offline HTML report under `artifacts/perf/`. Keep raw outputs when you need an honest before/after comparison; use `report.html` when you want to scan metrics and query hot spots visually.
+
+By default, the harness only writes artifacts and prints console output. To host the generated files after a run, opt in with `PERF_ARGS='--serve'`; the harness prints the `report.html` URL and waits until Ctrl-C.
 
 1. Set benchmark duration and repetition count:
 
 ```sh
-VECTIS_CAPACITY_BENCHTIME=5s VECTIS_CAPACITY_COUNT=3 make capacity-benchmark
+VECTIS_PERF_RUN_NAME=main VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=queue mage perf
 ```
 
-2. Save the summary and raw Go benchmark output.
+2. Save the artifact directory printed by the harness.
 3. Record Go version, OS, CPU model, and whether the run used a laptop, CI worker, or staging host.
-4. Compare queue ops/sec and p95/p99 latency with the previous baseline for the same machine class.
+4. Compare queue ops/sec and p95/p99 latency with the previous baseline for the same machine class:
+
+```sh
+BASELINE=artifacts/perf/main/go-bench.txt CURRENT=artifacts/perf/pr/go-bench.txt mage perfCompare
+```
+
 5. Investigate changes larger than normal local variance before changing the published envelope.
 
 Use shorter runs for quick local checks and repeated longer runs for baseline changes.
@@ -78,18 +88,152 @@ Useful knobs:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `VECTIS_CAPACITY_BENCHTIME` | `2s` | Go benchmark duration per scenario. |
-| `VECTIS_CAPACITY_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
-| `VECTIS_CAPACITY_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
-| `GO` | `go` | Go binary used by the benchmark script. |
+| `VECTIS_PERF_BENCHTIME` | `2s` | Go benchmark duration per scenario. |
+| `VECTIS_PERF_COUNT` | `1` | Repetition count. Use `3` or more for baseline capture. |
+| `VECTIS_PERF_QUEUE_BENCH` | Queue round-trip, concurrent, sustained, and latency benches | Override to focus on one scenario. |
+| `VECTIS_PERF_DAL_BENCH` | DAL hot-path benchmarks | Override to focus on one DAL scenario. |
+| `VECTIS_PERF_JOB_BENCH` | Job executor benchmarks | Override to focus on one executor scenario. |
+| `VECTIS_PERF_MACRO_BENCH` | API-to-terminal macro benchmarks | Override to focus on one macro scenario. |
+| `VECTIS_PERF_MACRO_DATABASES` | unset | Optional comma-separated macro database matrix, such as `sqlite3,pgx_podman,pgx_podman_unsafe`. |
+| `VECTIS_PERF_DATABASE_DRIVER` | `sqlite3` | Database driver used by macro benchmarks when not running a matrix. |
+| `VECTIS_PERF_DATABASE_DSN` | `:memory:` for SQLite, required for `pgx` | Macro benchmark database DSN. Use only disposable databases. |
+| `VECTIS_PERF_POSTGRES_DSN` | unset | Postgres DSN used for `pgx` matrix entries, so SQLite entries can keep using `:memory:`. |
+| `VECTIS_PERF_POSTGRES_DSN_PARAMS` | unset | Extra URL query parameters appended to Podman-generated Postgres DSNs, such as `plan_cache_mode=force_generic_plan`, for disposable A/B runs. |
+| `VECTIS_PERF_POSTGRES_IMAGE` | `postgres:18-alpine` | Postgres image used by `pgx_podman` matrix entries. |
+| `VECTIS_PERF_POSTGRES_DURABILITY` | `safe` | Podman Postgres durability profile. `pgx_podman_unsafe` sets this to `unsafe`. |
+| `VECTIS_PERF_POSTGRES_PORT` | auto-selected | Optional fixed localhost port for `pgx_podman` matrix entries. |
+| `VECTIS_PERF_PODMAN` | `podman` | Podman binary used by `pgx_podman` matrix entries. |
+| `VECTIS_PERF_SQLITE_DSN` | unset | Optional SQLite DSN used for `sqlite3` matrix entries. |
+| `VECTIS_PERF_DATABASE_MAX_OPEN_CONNS` | `1` for SQLite, `32` for Postgres | Macro benchmark SQL max open connections. |
+| `VECTIS_PERF_DATABASE_MAX_IDLE_CONNS` | `1` for SQLite, up to `16` for Postgres | Macro benchmark SQL max idle connections. |
+| `VECTIS_PERF_PG_STAT_STATEMENTS` | enabled for Postgres macro benchmarks | Set to `false` to skip `pg_stat_statements` reset and top-query output. |
+| `VECTIS_PERF_PG_STAT_STATEMENTS_OUTPUT` | harness-generated | Optional direct `go test` output file for Postgres top-query lines. |
+| `VECTIS_PERF_PG_STATS_SNAPSHOTS` | `true` for Podman-backed Postgres macro benchmarks | Set to `false` to skip before/after Postgres aggregate stats snapshots. |
+| `VECTIS_PERF_PG_STATS_SNAPSHOT_OUTPUT` | harness-generated when snapshots are enabled | Optional direct output file for before/after `pg_stat_*` and `pg_statio_*` TSV snapshots. |
+| `VECTIS_PERF_PG_WAIT_SAMPLES` | `false` | Set to `true` for Podman-backed Postgres macro attribution runs that should sample active waits and ungranted locks. Keep disabled for clean throughput runs. |
+| `VECTIS_PERF_PG_WAIT_SAMPLES_OUTPUT` | harness-generated when wait samples are enabled | Optional direct output file for active `pg_stat_activity`/`pg_locks` TSV samples. |
+| `VECTIS_PERF_PG_WAIT_SAMPLE_INTERVAL` | `50ms` | Sampling interval for Postgres wait samples. |
+| `VECTIS_PERF_PG_AUTO_EXPLAIN` | `false` | Set to `true` for Podman-backed Postgres planner attribution runs that should preload `auto_explain` and capture server-side plan logs. This is intentionally heavier than a clean benchmark. |
+| `VECTIS_PERF_PG_AUTO_EXPLAIN_OUTPUT` | harness-generated when auto-explain is enabled | Optional direct output file for the Podman Postgres server log containing `auto_explain` plans. |
+| `VECTIS_PERF_PG_AUTO_EXPLAIN_MIN_DURATION` | `1ms` | `auto_explain.log_min_duration` for planner attribution runs. Use `0` only when you need every statement plan. |
+| `VECTIS_PERF_TRIGGER_CLIENTS` | `4` | Concurrent trigger clients used by macro trigger-to-terminal benchmarks. |
+| `VECTIS_PERF_WORKERS` | `4` | Concurrent worker loops used by macro worker and trigger-to-terminal benchmarks. |
+| `VECTIS_PERF_WORKER_COUNTS` | `1,2,4,8,16` | Comma-separated worker counts used by worker-scale macro benchmarks. |
+| `VECTIS_PERF_FANOUT_WIDTHS` | `1,10,100` | Comma-separated fanout widths used by fanout and shallow distributed DAG macro benchmarks. |
+| `VECTIS_PERF_ASYNC_WORKSPACE_CLEANUP` | `false` | Macro benchmark A/B switch for moving automatic workspace removal onto the bounded async executor cleanup queue. Use it to test terminal-latency sensitivity to workspace cleanup; it can improve tiny in-process actions while hurting script-heavy workloads through background filesystem contention. |
+| `VECTIS_PERF_ARTIFACT_DIR` | `artifacts/perf` | Directory where harness artifacts are written. |
+| `VECTIS_PERF_RUN_NAME` | timestamp and suite | Optional artifact run directory name. |
+| `VECTIS_PERF_BASELINE` | unset | Optional baseline Go benchmark output for `benchstat` comparison during a queue run. |
+| `VECTIS_PERF_SERVE` | `false` | Set to `true` or pass `--serve` to host the run directory after benchmark output. |
+| `VECTIS_PERF_SERVE_HOST` | `127.0.0.1` | Host used by the opt-in artifact server. |
+| `VECTIS_PERF_SERVE_PORT` | `0` | Port used by the opt-in artifact server. `0` auto-selects a free port. |
+| `GO` | `go` | Go binary used to build the perf harness and run Go benchmarks. |
+| `BENCHSTAT` | `benchstat` | `benchstat` binary used for benchmark comparisons. |
+
+## Local DAL Benchmark Check
+
+Use this check when a change affects run creation, idempotency, dispatch visibility, worker claims, lease renewal, finalization, or run-listing queries.
+
+```sh
+VECTIS_PERF_RUN_NAME=main-dal VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=dal mage perf
+```
+
+The DAL suite is SQLite-backed for local repeatability. Use it as a fast regression tripwire, then run a deployed-stack check against Postgres before making claims about production scale.
+
+## Local Job Executor Benchmark Check
+
+Use this check when a change affects executor behavior, built-in action overhead, workspace setup, subprocess creation, or durable worker log flush.
+
+```sh
+VECTIS_PERF_RUN_NAME=main-job VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=job mage perf
+```
+
+To compare process-spawn overhead against an in-process action result, focus the executor suite:
+
+```sh
+VECTIS_PERF_JOB_BENCH='BenchmarkExecutor_Execute(ShellTrue|ResultTrue)' SUITE=job mage perf
+```
+
+The executor suite also includes `AsyncWorkspaceCleanup` variants. Use those when you need to distinguish terminal latency from synchronous workspace removal cost.
+
+## Local Macro Benchmark Check
+
+Use this check when the architectural question crosses component boundaries. The macro suite includes in-process sequential and concurrent no-op API trigger paths through run creation, async queue enqueue, queue dequeue/ack, worker-style DB claim, script execution, and terminal status update. It also includes a log-heavy variant that exercises worker durable log flush plus local log-store replay.
+
+```sh
+VECTIS_PERF_RUN_NAME=main-macro VECTIS_PERF_BENCHTIME=5s VECTIS_PERF_COUNT=3 SUITE=macro mage perf
+```
+
+SQLite is the default local backend and uses an in-memory database with one SQL connection. To compare the same macro slice against disposable Postgres, use the Podman-backed matrix entry:
+
+```sh
+VECTIS_PERF_MACRO_DATABASES=sqlite3,pgx_podman,pgx_podman_unsafe \
+SUITE=macro mage perf
+```
+
+The matrix tags parsed benchmark rows with `db_sqlite3`, `db_pgx_podman`, or `db_pgx_podman_unsafe`. The Podman entries start `postgres:18-alpine`, preload `pg_stat_statements`, run the Go benchmark with `VECTIS_PERF_DATABASE_DRIVER=pgx`, and force-remove the disposable container afterward. The Podman machine or socket must already be running; on macOS, start it with `podman machine start`.
+
+The `pgx_podman_unsafe` entry disables Postgres durability settings with `fsync=off`, `synchronous_commit=off`, and `full_page_writes=off`. Use it only for disposable local measurement. It approximates a lower bound for client/server, query, lock, and index overhead; it is not a deployable configuration.
+
+Use `VECTIS_PERF_POSTGRES_DSN_PARAMS` to A/B PostgreSQL connection parameters on the Podman-backed matrix without editing product configuration. For example, `VECTIS_PERF_POSTGRES_DSN_PARAMS=plan_cache_mode=force_generic_plan` appends that runtime parameter to the generated disposable DSN.
+
+The harness mirrors macro database settings into `VECTIS_DATABASE_DRIVER` for the benchmark child process so DAL SQL placeholder rebinding follows the selected backend. For Postgres macro benchmarks, the harness also writes `pg-stat-statements*.txt` sidecar artifacts, appends their `# pg_stat_statements` lines to the raw output after the Go benchmark rows, and includes the parsed final-iteration hot list in `summary.json` and `report.html`. Those lines show the top statements after setup has been reset out of the sample; when Go runs calibration passes, use the largest `iterations=` value for the representative sample. Podman-backed Postgres preloads `pg_stat_statements` with planning tracking enabled unless `VECTIS_PERF_PG_STAT_STATEMENTS=false`, so the hot list includes execution time, planning count, planning time, shared buffer counters, temp block counters, and WAL counters.
+
+Podman-backed Postgres runs also write `pg-stats-snapshot*.tsv` by default. This file captures before/after snapshots for `pg_stat_wal`, `pg_stat_io`, `pg_stat_bgwriter`, `pg_stat_checkpointer` when available, `pg_stat_database`, `pg_stat_user_tables`, `pg_stat_user_indexes`, `pg_statio_user_tables`, and `pg_statio_user_indexes`. Use this to compare whole-database WAL, checkpoint, table, and index churn against the per-statement hot list.
+
+For attribution runs, opt into database wait and planner evidence:
+
+```sh
+VECTIS_PERF_MACRO_DATABASES=pgx_podman \
+VECTIS_PERF_PG_WAIT_SAMPLES=true \
+VECTIS_PERF_PG_AUTO_EXPLAIN=true \
+SUITE=macro mage perf
+```
+
+Wait sampling writes `pg-wait-samples*.tsv` with active waits and ungranted locks from `pg_stat_activity`/`pg_locks`. Auto-explain writes `pg-auto-explain*.log` from the disposable Postgres server log. These options perturb the benchmark; use them to explain a suspected bottleneck, not as the clean capacity number. For the least noisy attribution, run wait sampling and auto-explain separately unless you intentionally want both views from the same run.
+
+To use an existing disposable Postgres database instead, pass a DSN and use `pgx`:
+
+```sh
+VECTIS_PERF_MACRO_DATABASES=sqlite3,pgx \
+VECTIS_PERF_POSTGRES_DSN='postgres://vectis:vectis@127.0.0.1:5432/vectis_perf?sslmode=disable' \
+SUITE=macro mage perf
+```
+
+The DSN-backed matrix does not reset the Postgres database; benchmark job IDs are unique, but the database should still be disposable. To collect query-level stats with a DSN-backed Postgres database, preload and create the `pg_stat_statements` extension or set `VECTIS_PERF_PG_STAT_STATEMENTS=false`.
+
+For worker scaling checks, either set `VECTIS_PERF_WORKERS` on a normal macro run or focus on the checked-in scaling curve:
+
+```sh
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ClaimAckComplete SUITE=macro mage perf
+```
+
+Set `VECTIS_PERF_WORKER_COUNTS` to sweep larger worker counts. To probe single-cell runnable-slot saturation without subprocess overhead, use the shallow distributed result-action DAG and set `VECTIS_PERF_FANOUT_WIDTHS` to the branch counts under test:
+
+```sh
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_OrchestratorGRPCConcurrentShallowFanoutResult_TriggerToTerminal \
+VECTIS_PERF_FANOUT_WIDTHS=100,500,1000 \
+VECTIS_PERF_WORKERS=128 \
+VECTIS_PERF_BENCHTIME=1x \
+SUITE=macro mage perf
+```
+
+Use the result action checks when you want to remove subprocess creation from the macro workload and isolate worker, database, queue, and log-flush overhead:
+
+```sh
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_WorkerScale_ResultActionClaimAckComplete SUITE=macro mage perf
+VECTIS_PERF_MACRO_BENCH=BenchmarkMacro_ResultActionWorkerClaimAckComplete SUITE=macro mage perf
+```
+
+This is a fast macro regression check, not a deployment capacity claim. Follow it with the deployed stack check when worker count, Postgres, log service, network, TLS, or service process boundaries matter.
 
 ## Deployed Stack Check
 
-Use this check when the question involves a real API, database, queue, worker fleet, log service, or dashboard.
+Use this check when the question involves a real API, database, queue, orchestrator, worker fleet, log service, or dashboard.
 
 1. Start a reference or staging stack with Postgres and durable log storage.
 2. Run `vectis-cli health check --strict`.
-3. Create one small stored shell job that is safe to run many times.
+3. Create one small source-backed script job that is safe to run many times.
 4. Trigger a small warm-up batch and confirm each run reaches a terminal status.
 5. Trigger a measured burst of runs with idempotency keys.
 6. Increase workers in steps and record queued-to-running and running-to-terminal latency at each step.
@@ -112,7 +256,7 @@ Do not treat a larger worker count as a win unless queue depth drains, DB pool p
 | Reconciler | Re-enqueue attempts, failures, and repeated repair for the same runs. |
 | Users | CLI/API responsiveness and whether operators can still inspect runs and logs during load. |
 
-Use `vectis-cli health check --json` when you want to capture health evidence alongside Prometheus or dashboard snapshots.
+Use `vectis-cli health check --format json` when you want to capture health evidence alongside Prometheus or dashboard snapshots.
 
 ## Stop Conditions
 
@@ -164,7 +308,7 @@ The current checks are intentionally simple. A fuller framework should add repre
 
 | Workload shape | What it should cover |
 | --- | --- |
-| Small fast jobs | Queue handoff, run claiming, and terminal-state churn. |
+| Small fast jobs | Queue handoff, execution claiming, and terminal-state churn. |
 | Log-heavy jobs | Log append, replay, storage growth, and reader fan-out. |
 | Cron bursts | Schedule-to-run latency and duplicate/missed enqueue detection. |
 | Mixed API/admin traffic | Job listing, run lookup, auth/token paths, and rate-limit behavior under build traffic. |

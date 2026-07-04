@@ -7,8 +7,8 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY website/ ./
 RUN npm run build
 
-FROM docker.io/library/golang:1.25.10-alpine AS builder
-RUN apk add --no-cache make
+FROM docker.io/library/golang:1.25.11-alpine AS builder
+ARG MAGE_VERSION=v1.17.2
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -17,32 +17,56 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY api/ ./api/
 COPY cmd/ ./cmd/
-COPY deploy/podman/ ./deploy/podman/
+COPY deploy/ ./deploy/
+COPY examples/actions/ ./examples/actions/
+COPY extensions/ ./extensions/
 COPY internal/ ./internal/
-COPY Makefile ./Makefile
+COPY sdk/ ./sdk/
+COPY magefile.go mage_*.go ./
 COPY --from=docs-builder /app/website/build ./cmd/docs/embedded
 
 ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make -j"$(getconf _NPROCESSORS_ONLN)" build-container SKIP_DOCS_ASSETS=1
+    go run github.com/magefile/mage@${MAGE_VERSION} buildContainer
 
 FROM scratch AS api
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-api /usr/local/bin/vectis-api
+COPY --from=builder /app/examples/actions /app/examples/actions
 ENTRYPOINT ["/usr/local/bin/vectis-api"]
+
+FROM scratch AS artifact
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-artifact /usr/local/bin/vectis-artifact
+ENTRYPOINT ["/usr/local/bin/vectis-artifact"]
+
+FROM scratch AS catalog
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-catalog /usr/local/bin/vectis-catalog
+ENTRYPOINT ["/usr/local/bin/vectis-catalog"]
+
+FROM scratch AS cell-ingress
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-cell-ingress /usr/local/bin/vectis-cell-ingress
+ENTRYPOINT ["/usr/local/bin/vectis-cell-ingress"]
 
 FROM scratch AS cli
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-cli /usr/local/bin/vectis-cli
+COPY --from=builder /app/examples/actions /app/examples/actions
 ENTRYPOINT ["/usr/local/bin/vectis-cli"]
 
 FROM scratch as cron
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-cron /usr/local/bin/vectis-cron
+COPY --from=builder /app/examples/actions /app/examples/actions
 ENTRYPOINT ["/usr/local/bin/vectis-cron"]
 
 FROM scratch as log
@@ -57,6 +81,18 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-log-forwarder /usr/local/bin/vectis-log-forwarder
 ENTRYPOINT ["/usr/local/bin/vectis-log-forwarder"]
 
+FROM scratch AS orchestrator
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-orchestrator /usr/local/bin/vectis-orchestrator
+ENTRYPOINT ["/usr/local/bin/vectis-orchestrator"]
+
+FROM scratch AS spiffe
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-spiffe /usr/local/bin/vectis-spiffe
+ENTRYPOINT ["/usr/local/bin/vectis-spiffe"]
+
 FROM scratch AS queue
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
@@ -67,6 +103,7 @@ FROM scratch AS reconciler
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 COPY --from=builder /app/bin/vectis-reconciler /usr/local/bin/vectis-reconciler
+COPY --from=builder /app/examples/actions /app/examples/actions
 ENTRYPOINT ["/usr/local/bin/vectis-reconciler"]
 
 FROM scratch AS registry
@@ -75,12 +112,48 @@ LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vec
 COPY --from=builder /app/bin/vectis-registry /usr/local/bin/vectis-registry
 ENTRYPOINT ["/usr/local/bin/vectis-registry"]
 
+FROM scratch AS scm-poller
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-scm-poller /usr/local/bin/vectis-scm-poller
+COPY --from=builder /app/examples/actions /app/examples/actions
+ENTRYPOINT ["/usr/local/bin/vectis-scm-poller"]
+
+FROM scratch AS scm-gerrit-stream
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-scm-gerrit-stream /usr/local/bin/vectis-scm-gerrit-stream
+COPY --from=builder /app/examples/actions /app/examples/actions
+ENTRYPOINT ["/usr/local/bin/vectis-scm-gerrit-stream"]
+
+FROM scratch AS secrets
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+COPY --from=builder /app/bin/vectis-secrets /usr/local/bin/vectis-secrets
+ENTRYPOINT ["/usr/local/bin/vectis-secrets"]
+
 FROM docker.io/library/alpine:3.23 AS worker
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
       org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/bin/vectis-worker /usr/local/bin/vectis-worker
+COPY --from=builder /app/examples/actions /app/examples/actions
 ENTRYPOINT ["/usr/local/bin/vectis-worker"]
+
+FROM docker.io/library/alpine:3.23 AS worker-core
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /app/bin/vectis-worker-core /usr/local/bin/vectis-worker-core
+COPY --from=builder /app/examples/actions /app/examples/actions
+ENTRYPOINT ["/usr/local/bin/vectis-worker-core"]
+
+FROM docker.io/library/alpine:3.23 AS worker-core-kubernetes
+LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
+      org.opencontainers.image.authors="Garrett Wininger <garrett.s.wininger@outlook.com>"
+RUN apk add --no-cache ca-certificates kubectl
+COPY --from=builder /app/bin/vectis-worker-core-kubernetes /usr/local/bin/vectis-worker-core-kubernetes
+ENTRYPOINT ["/usr/local/bin/vectis-worker-core-kubernetes"]
 
 FROM scratch AS docs
 LABEL org.opencontainers.image.source="https://github.com/garrett-s-wininger/vectis" \
@@ -95,14 +168,23 @@ ENV XDG_DATA_HOME=/data
 ENV VECTIS_LOCAL_HOST=0.0.0.0
 COPY --from=builder \
       /app/bin/vectis-api \
+      /app/bin/vectis-artifact \
+      /app/bin/vectis-catalog \
+      /app/bin/vectis-cell-ingress \
       /app/bin/vectis-cron \
       /app/bin/vectis-docs \
       /app/bin/vectis-local \
+      /app/bin/vectis-spiffe \
       /app/bin/vectis-log \
       /app/bin/vectis-log-forwarder \
+      /app/bin/vectis-orchestrator \
       /app/bin/vectis-queue \
       /app/bin/vectis-reconciler \
       /app/bin/vectis-registry \
+      /app/bin/vectis-scm-gerrit-stream \
+      /app/bin/vectis-scm-poller \
+      /app/bin/vectis-secrets \
+      /app/bin/vectis-worker-core \
       /app/bin/vectis-worker \
       /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/vectis-local"]

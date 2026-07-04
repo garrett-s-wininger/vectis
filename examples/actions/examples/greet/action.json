@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "examples/greet",
+  "display_name": "Greet",
+  "version": "v1",
+  "runtime": "process",
+  "runtime_config": {
+    "command": "echo \"Hello, ${VECTIS_INPUT_NAME}\""
+  },
+  "input_schema": {
+    "fields": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "capabilities": [
+    "process_launch"
+  ]
+}

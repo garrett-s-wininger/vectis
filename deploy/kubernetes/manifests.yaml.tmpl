@@ -1,0 +1,1439 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/part-of: vectis
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vectis-env
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/part-of: vectis
+data:
+  VECTIS_CELL_ID: local
+  VECTIS_DATABASE_DRIVER: pgx
+  VECTIS_DISCOVERY_REGISTRY_ADDRESS: vectis-registry:8082
+  VECTIS_GRPC_TLS_INSECURE: "false"
+  VECTIS_GRPC_TLS_CA_FILE: /run/vectis/grpc-tls/ca.pem
+  VECTIS_GRPC_TLS_CERT_FILE: /run/vectis/grpc-tls/server.pem
+  VECTIS_GRPC_TLS_KEY_FILE: /run/vectis/grpc-tls/server-key.pem
+  VECTIS_GRPC_TLS_SERVER_NAME: vectis.internal
+  VECTIS_METRICS_TLS_INSECURE: "true"
+  VECTIS_LOG_FORMAT: json
+  VECTIS_LOG_DIR: /var/log/vectis
+  VECTIS_API_SERVER_LOG_FORMAT: json
+  VECTIS_ACTION_REGISTRY_LOCAL_ROOTS: /app/examples/actions
+  VECTIS_WORKER_EXECUTION_IDENTITY_ENABLED: "true"
+  VECTIS_WORKER_EXECUTION_IDENTITY_TRUST_DOMAIN: vectis.internal
+  VECTIS_SCM_GERRIT_STREAM_URL: ""
+  VECTIS_SCM_GERRIT_STREAM_TRANSPORT: ssh
+  VECTIS_SCM_GERRIT_STREAM_SSH_HOST: ""
+  VECTIS_SCM_GERRIT_STREAM_SSH_PORT: "29418"
+  VECTIS_SCM_GERRIT_STREAM_SSH_USER: ""
+  VECTIS_SCM_GERRIT_STREAM_SSH_KEY_FILE: /run/vectis/gerrit-stream/id_rsa
+  VECTIS_SCM_GERRIT_STREAM_SSH_KNOWN_HOSTS_FILE: /run/vectis/gerrit-stream/known_hosts
+  VECTIS_API_ALLOWED_HOSTS: "localhost,127.0.0.1,vectis-api,vectis-api.{{ .Namespace }}.svc,vectis-api.{{ .Namespace }}.svc.cluster.local"
+  VECTIS_DOCS_ALLOWED_HOSTS: "localhost,127.0.0.1,vectis-docs,vectis-docs.{{ .Namespace }}.svc,vectis-docs.{{ .Namespace }}.svc.cluster.local"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vectis-secrets
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/part-of: vectis
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: {{ yamlQuote .PostgresPassword }}
+  VECTIS_DATABASE_DSN: {{ yamlQuote .DatabaseDSN }}
+  VECTIS_API_AUTH_BOOTSTRAP_TOKEN: {{ yamlQuote .BootstrapToken }}
+  encryptedfs.key: {{ yamlQuote .EncryptedFSKey }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vectis-grpc-tls
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/part-of: vectis
+type: Opaque
+stringData:
+  ca.pem: {{ yamlQuote .GRPCCA }}
+  server.pem: {{ yamlQuote .GRPCServerCert }}
+  server-key.pem: {{ yamlQuote .GRPCServerKey }}
+  client-ca-bundle.pem: {{ yamlQuote .GRPCClientCABundle }}
+  spiffe-ca.pem: {{ yamlQuote .SPIFFECA }}
+  spiffe-ca-key.pem: {{ yamlQuote .SPIFFECAKey }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vectis-gerrit-stream-ssh
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: scm-gerrit-stream
+type: Opaque
+stringData:
+  id_rsa: ""
+  known_hosts: ""
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-postgres-data
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-queue-data
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: queue
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-log-data
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: log
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-artifact-data
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: artifact
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vectis-secrets-data
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: secrets
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-postgres
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vectis-postgres
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: vectis-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres:18-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: vectis
+            - name: POSTGRES_DB
+              value: vectis
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "vectis", "-d", "vectis"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "vectis", "-d", "vectis"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: vectis-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-registry
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: registry
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: registry
+  ports:
+    - name: grpc
+      port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-registry
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: registry
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: registry
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: registry
+          image: {{ image "registry" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8082
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-queue
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: queue
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: queue
+  ports:
+    - name: grpc
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vectis-queue
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: queue
+spec:
+  serviceName: vectis-queue
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: queue
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: queue
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: queue
+          image: {{ image "queue" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_QUEUE_INSTANCE_ID
+              value: queue-1
+            - name: VECTIS_QUEUE_POOL
+              value: kubernetes
+            - name: VECTIS_QUEUE_ADVERTISE_ADDRESS
+              value: vectis-queue:8081
+            - name: VECTIS_QUEUE_PERSISTENCE_DIR
+              value: /data/vectis/queue
+          volumeMounts:
+            - name: queue-data
+              mountPath: /data/vectis/queue
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: queue-data
+          persistentVolumeClaim:
+            claimName: vectis-queue-data
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-orchestrator
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: orchestrator
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: orchestrator
+  ports:
+    - name: grpc
+      port: 8087
+      targetPort: 8087
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-orchestrator
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: orchestrator
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: orchestrator
+          image: {{ image "orchestrator" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8087
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_ORCHESTRATOR_ADVERTISE_ADDRESS
+              value: vectis-orchestrator:8087
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8087
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8087
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-log
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: log
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: log
+  ports:
+    - name: grpc
+      port: 8083
+      targetPort: 8083
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vectis-log
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: log
+spec:
+  serviceName: vectis-log
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: log
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: log
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: log
+          image: {{ image "log" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8083
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_LOG_INSTANCE_ID
+              value: log-1
+            - name: VECTIS_LOG_GRPC_ADVERTISE_ADDRESS
+              value: vectis-log:8083
+            - name: VECTIS_LOG_STORAGE_DIR
+              value: /data/vectis/log
+            - name: VECTIS_LOG_STORAGE_READ_ONLY_MIN_FREE_BYTES
+              value: "0"
+          volumeMounts:
+            - name: log-data
+              mountPath: /data/vectis/log
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8083
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8083
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: log-data
+          persistentVolumeClaim:
+            claimName: vectis-log-data
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-artifact
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: artifact
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: artifact
+  ports:
+    - name: grpc
+      port: 8086
+      targetPort: 8086
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vectis-artifact
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: artifact
+spec:
+  serviceName: vectis-artifact
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: artifact
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: artifact
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: artifact
+          image: {{ image "artifact" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8086
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_ARTIFACT_INSTANCE_ID
+              value: artifact-1
+            - name: VECTIS_ARTIFACT_GRPC_ADVERTISE_ADDRESS
+              value: vectis-artifact:8086
+            - name: VECTIS_ARTIFACT_STORAGE_DIR
+              value: /data/vectis/artifact
+            - name: VECTIS_ARTIFACT_STORAGE_READ_ONLY_MIN_FREE_BYTES
+              value: "0"
+          volumeMounts:
+            - name: artifact-data
+              mountPath: /data/vectis/artifact
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8086
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8086
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: artifact-data
+          persistentVolumeClaim:
+            claimName: vectis-artifact-data
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-secrets
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: secrets
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: secrets
+  ports:
+    - name: grpc
+      port: 8090
+      targetPort: 8090
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vectis-secrets
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: secrets
+spec:
+  serviceName: vectis-secrets
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: secrets
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: secrets
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: secrets
+          image: {{ image "secrets" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8090
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_ROOT
+              value: /data/vectis/secrets/encryptedfs
+            - name: VECTIS_SECRETS_PROVIDERS_ENCRYPTEDFS_KEY_FILE
+              value: /run/vectis/secrets/encryptedfs.key
+            - name: VECTIS_SECRETS_POLICY_ALLOW
+              value: "namespace=*;job=*;task=*;ref=encryptedfs://*"
+            - name: VECTIS_GRPC_TLS_CLIENT_CA_FILE
+              value: /run/vectis/grpc-tls/client-ca-bundle.pem
+          volumeMounts:
+            - name: secrets-data
+              mountPath: /data/vectis/secrets
+            - name: secrets-key
+              mountPath: /run/vectis/secrets
+              readOnly: true
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: secrets-data
+          persistentVolumeClaim:
+            claimName: vectis-secrets-data
+        - name: secrets-key
+          secret:
+            secretName: vectis-secrets
+            items:
+              - key: encryptedfs.key
+                path: encryptedfs.key
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-api
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-api
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: api
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: api
+          image: {{ image "api" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_API_SERVER_HOST
+              value: 0.0.0.0
+            - name: VECTIS_API_SERVER_PORT
+              value: "8080"
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_API_AUTH_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_API_AUTH_BOOTSTRAP_TOKEN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vectis-docs
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: docs
+spec:
+  selector:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: docs
+  ports:
+    - name: http
+      port: 8088
+      targetPort: 8088
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-docs
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: docs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: docs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: docs
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: docs
+          image: {{ image "docs" }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8088
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DOCS_HOST
+              value: 0.0.0.0
+            - name: VECTIS_DOCS_PORT
+              value: "8088"
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: 8088
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8088
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-cron
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: cron
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: cron
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: cron
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: cron
+          image: {{ image "cron" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_CRON_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-scm-poller
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: scm-poller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: scm-poller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: scm-poller
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: scm-poller
+          image: {{ image "scm-poller" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_SCM_POLLER_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-scm-gerrit-stream
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: scm-gerrit-stream
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: scm-gerrit-stream
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: scm-gerrit-stream
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: scm-gerrit-stream
+          image: {{ image "scm-gerrit-stream" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_SCM_GERRIT_STREAM_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+            - name: gerrit-stream-ssh
+              mountPath: /run/vectis/gerrit-stream
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+        - name: gerrit-stream-ssh
+          secret:
+            secretName: vectis-gerrit-stream-ssh
+            defaultMode: 0400
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-reconciler
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: reconciler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: reconciler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: reconciler
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: reconciler
+          image: {{ image "reconciler" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-catalog
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: catalog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: catalog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: catalog
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      containers:
+        - name: catalog
+          image: {{ image "catalog" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+      volumes:
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vectis-worker
+  namespace: {{ yamlQuote .Namespace }}
+  labels:
+    app.kubernetes.io/name: vectis
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vectis
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vectis
+        app.kubernetes.io/component: worker
+      annotations:
+        vectis.dev/grpc-tls-checksum: {{ yamlQuote .GRPCTLSChecksum }}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: db-migrate
+          image: {{ image "cli" }}
+          imagePullPolicy: IfNotPresent
+          args: ["database", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+        - name: spiffe-seed
+          image: {{ image "worker" }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /data/vectis/spiffe
+              cp /seed/spiffe-ca.pem /data/vectis/spiffe/ca.pem
+              cp /seed/spiffe-ca-key.pem /data/vectis/spiffe/ca-key.pem
+              chmod 600 /data/vectis/spiffe/ca-key.pem
+          volumeMounts:
+            - name: grpc-tls
+              mountPath: /seed
+              readOnly: true
+            - name: spiffe-data
+              mountPath: /data/vectis/spiffe
+      containers:
+        - name: spiffe
+          image: {{ image "spiffe" }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --trust-domain=vectis.internal
+            - --data-dir=/data/vectis/spiffe
+            - --runtime-dir=/run/vectis/spiffe
+            - --selector=unix:uid:0
+          volumeMounts:
+            - name: spiffe-data
+              mountPath: /data/vectis/spiffe
+            - name: spiffe-run
+              mountPath: /run/vectis/spiffe
+        - name: worker-core
+          image: {{ image "worker-core" }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_WORKER_CORE_SOCKET
+              value: /run/vectis/worker-core/worker-core.sock
+            - name: VECTIS_WORKER_CORE_WORKSPACE_ROOT
+              value: /workspace
+          volumeMounts:
+            - name: worker-core-sockets
+              mountPath: /run/vectis/worker-core
+            - name: worker-workspace
+              mountPath: /workspace
+            - name: worker-log-spool
+              mountPath: /tmp/vectis-log-spool
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+        - name: worker
+          image: {{ image "worker" }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              until [ -S /run/vectis/spiffe/workload.sock ] && [ -S /run/vectis/spiffe/registration.sock ]; do
+                sleep 0.2
+              done
+              exec /usr/local/bin/vectis-worker
+          ports:
+            - name: control
+              containerPort: 9084
+          envFrom:
+            - configMapRef:
+                name: vectis-env
+          env:
+            - name: VECTIS_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: vectis-secrets
+                  key: VECTIS_DATABASE_DSN
+            - name: VECTIS_WORKER_CORE_SOCKET
+              value: /run/vectis/worker-core/worker-core.sock
+            - name: VECTIS_WORKER_CORE_SHELL_SOCKET
+              value: /run/vectis/worker-core/worker-core-shell.sock
+            - name: VECTIS_WORKER_SECRETS_ADDRESS
+              value: vectis-secrets:8090
+            - name: VECTIS_WORKER_REGISTER_WITH_REGISTRY
+              value: "true"
+            - name: VECTIS_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VECTIS_WORKER_CONTROL_PUBLISH_ADDRESS
+              value: "$(VECTIS_POD_IP):9084"
+            - name: VECTIS_WORKER_SPIFFE_ENABLED
+              value: "true"
+            - name: VECTIS_WORKER_SPIFFE_WORKLOAD_API_ADDRESS
+              value: unix:///run/vectis/spiffe/workload.sock
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_ENABLED
+              value: "true"
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SERVER_ADDRESS
+              value: unix:///run/vectis/spiffe/registration.sock
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_PARENT_ID
+              value: spiffe://vectis.internal/vectis-spiffe/agent/local
+            - name: VECTIS_WORKER_SPIFFE_REGISTRATION_SELECTORS
+              value: unix:uid:0
+          volumeMounts:
+            - name: worker-core-sockets
+              mountPath: /run/vectis/worker-core
+            - name: worker-workspace
+              mountPath: /workspace
+            - name: worker-log-spool
+              mountPath: /tmp/vectis-log-spool
+            - name: grpc-tls
+              mountPath: /run/vectis/grpc-tls
+              readOnly: true
+            - name: spiffe-run
+              mountPath: /run/vectis/spiffe
+      volumes:
+        - name: worker-core-sockets
+          emptyDir: {}
+        - name: worker-workspace
+          emptyDir: {}
+        - name: worker-log-spool
+          emptyDir: {}
+        - name: spiffe-data
+          emptyDir: {}
+        - name: spiffe-run
+          emptyDir: {}
+        - name: grpc-tls
+          secret:
+            secretName: vectis-grpc-tls

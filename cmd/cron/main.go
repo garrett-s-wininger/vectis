@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"vectis/internal/action/actionconfig"
 	"vectis/internal/cli"
 	"vectis/internal/config"
 	"vectis/internal/cron"
@@ -18,7 +19,7 @@ import (
 
 func runVectisCron(cmd *cobra.Command, args []string) {
 	logger := interfaces.NewAsyncLogger("cron")
-	defer logger.Close()
+	defer func() { _ = logger.Close() }()
 
 	cli.SetLogLevel(logger)
 	logger.Info("Starting cron service...")
@@ -26,16 +27,29 @@ func runVectisCron(cmd *cobra.Command, args []string) {
 	if err := config.ValidateGRPCTLSForRole(config.GRPCTLSDaemonClientOnly); err != nil {
 		logger.Fatal("%v", err)
 	}
-	config.StartGRPCTLSReloadLoop(cmd.Context())
 
-	db, _, err := database.OpenReadyDB(logger)
+	if err := config.ValidateCellIngressHTTPClientMTLSConfig(config.CellIngressEndpointSpecs()); err != nil {
+		logger.Fatal("Cell ingress HTTP mTLS config: %v", err)
+	}
+
+	config.StartGRPCTLSReloadLoop(cmd.Context())
+	db, _, err := database.OpenReadyDBForRole(logger, database.RoleGlobal)
 	if err != nil {
 		logger.Fatal("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	service := cron.NewCronService(logger, db)
 	defer service.CloseQueueDial()
+	service.SetInstanceID(viper.GetString("instance_id"))
+	service.SetClaimTTL(config.CronClaimTTL())
+	actionResolver, err := actionconfig.DescriptorResolver()
+	if err != nil {
+		logger.Fatal("Invalid action registry config: %v", err)
+	}
+
+	service.SetActionDescriptorResolver(actionResolver)
+	logger.Info("Cron instance ID: %s; schedule claim ttl %v", service.InstanceID(), config.CronClaimTTL())
 
 	retryMetrics, err := observability.NewRetryMetrics()
 	if err != nil {
@@ -61,6 +75,13 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
+	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_CRON_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+	rootCmd.PersistentFlags().String("instance-id", "", "Stable cron instance identifier used in schedule claim tokens")
+	rootCmd.PersistentFlags().Duration("claim-ttl", config.CronClaimTTL(), "How long a cron instance owns a due schedule claim")
+	_ = viper.BindPFlag("instance_id", rootCmd.PersistentFlags().Lookup("instance-id"))
+	_ = viper.BindPFlag("claim_ttl", rootCmd.PersistentFlags().Lookup("claim-ttl"))
+	viper.SetDefault("claim_ttl", config.CronClaimTTL())
+	viper.SetDefault("instance_id", "")
 	viper.SetEnvPrefix("VECTIS_CRON")
 	viper.AutomaticEnv()
 }

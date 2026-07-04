@@ -68,6 +68,10 @@ func (m *MockLogClient) StreamLogs(ctx context.Context) (interfaces.LogStream, e
 	return &MockLogStream{client: m}, nil
 }
 
+func (m *MockLogClient) StreamLogsForRun(ctx context.Context, _ string) (interfaces.LogStream, error) {
+	return m.StreamLogs(ctx)
+}
+
 func (m *MockLogClient) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -159,4 +163,5 @@ func (m *MockLogStream) CloseSend() error {
 }
 
 var _ interfaces.LogClient = (*MockLogClient)(nil)
+var _ interfaces.RunLogClient = (*MockLogClient)(nil)
 var _ interfaces.LogStream = (*MockLogStream)(nil)

@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -23,11 +22,6 @@ type bindingResponse struct {
 }
 
 func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
-	if !requestContentTypeIsJSON(r) {
-		writeAPIErrorCode(w, http.StatusUnsupportedMediaType, apiErrUnsupportedMediaType)
-		return
-	}
-
 	nsIDStr := r.PathValue("id")
 	nsID, err := strconv.ParseInt(nsIDStr, 10, 64)
 	if err != nil || nsID <= 0 {
@@ -35,9 +29,8 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONDocumentBodyBytes))
-	if err != nil {
-		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrRequestReadFailed)
+	body, ok := readRequestBody(w, r, maxJSONDocumentBodyBytes)
+	if !ok {
 		return
 	}
 
@@ -65,7 +58,7 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -134,10 +127,12 @@ func (s *APIServer) CreateBinding(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventBindingCreated, actorID, req.LocalUserID, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventBindingCreated, actorID, req.LocalUserID, map[string]any{
 		"namespace_id": nsID,
 		"role":         req.Role,
-	})
+	}) {
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -157,7 +152,7 @@ func (s *APIServer) ListBindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -240,7 +235,7 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -293,10 +288,12 @@ func (s *APIServer) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventBindingDeleted, actorID, userID, map[string]any{
+	if !s.auditLogOrFail(w, ctx, audit.EventBindingDeleted, actorID, userID, map[string]any{
 		"namespace_id": nsID,
 		"role":         role,
-	})
+	}) {
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

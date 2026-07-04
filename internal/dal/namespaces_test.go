@@ -55,6 +55,28 @@ func TestNamespacesRepository_Create_rootLevel(t *testing.T) {
 	}
 }
 
+func TestNamespacesRepository_CreateWithDescription(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLNamespacesRepository(db)
+	ctx := context.Background()
+
+	rec, err := repo.CreateWithDescription(ctx, "described", "  Definitions owned by platform.  ", nil)
+	if err != nil {
+		t.Fatalf("create with description failed: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("get by id failed: %v", err)
+	}
+
+	if got.Description != "Definitions owned by platform." {
+		t.Fatalf("expected trimmed description, got %q", got.Description)
+	}
+}
+
 func TestNamespacesRepository_Create_invalidName(t *testing.T) {
 	t.Parallel()
 
@@ -150,6 +172,28 @@ func TestNamespacesRepository_ListChildren(t *testing.T) {
 	}
 }
 
+func TestNamespacesRepository_UpdateDescription(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.NewTestDB(t)
+	repo := NewSQLNamespacesRepository(db)
+	ctx := context.Background()
+
+	rec, err := repo.Create(ctx, "editable", nil)
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	updated, err := repo.UpdateDescription(ctx, rec.ID, "  Updated namespace detail.  ")
+	if err != nil {
+		t.Fatalf("update description failed: %v", err)
+	}
+
+	if updated.Description != "Updated namespace detail." {
+		t.Fatalf("expected trimmed description, got %q", updated.Description)
+	}
+}
+
 func TestNamespacesRepository_Delete(t *testing.T) {
 	t.Parallel()
 
@@ -227,6 +271,7 @@ func TestNamespacesRepository_HasJobs(t *testing.T) {
 
 	db := dbtest.NewTestDB(t)
 	repo := NewSQLNamespacesRepository(db)
+	sources := &SQLSourcesRepository{db: db}
 	ctx := context.Background()
 
 	rootID := int64(1)
@@ -237,6 +282,25 @@ func TestNamespacesRepository_HasJobs(t *testing.T) {
 
 	if has {
 		t.Fatal("expected no jobs on fresh db")
+	}
+
+	if _, err := sources.CreateRepository(ctx, SourceRepositoryRecord{
+		RepositoryID: "source-repo",
+		NamespaceID:  rootID,
+		SourceKind:   SourceKindLocalCheckout,
+		CheckoutPath: t.TempDir(),
+		Enabled:      true,
+	}); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+
+	has, err = repo.HasJobs(ctx, rootID)
+	if err != nil {
+		t.Fatalf("has jobs after source repository failed: %v", err)
+	}
+
+	if !has {
+		t.Fatal("expected source repository to keep namespace non-empty")
 	}
 }
 

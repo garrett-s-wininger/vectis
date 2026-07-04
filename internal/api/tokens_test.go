@@ -2,12 +2,14 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 
@@ -93,6 +95,7 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 		}
+		assertNoStore(t, rec)
 
 		var out createTokenResponse
 		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
@@ -222,7 +225,7 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 	var regularUserID int64
 	var regularToken string
 	t.Run("create_regular_user", func(t *testing.T) {
-		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
 		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "regular", string(hash), true)
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)
@@ -658,14 +661,18 @@ func TestTokenScoping_endToEnd(t *testing.T) {
 	})
 
 	t.Run("propagated_token_allows_child_namespace", func(t *testing.T) {
-		// Create a job in the child namespace first
-		_, err := db.Exec("INSERT INTO stored_jobs (job_id, namespace_id, definition_json) VALUES (?, ?, ?)", "test-job", 2, "{}")
-		if err != nil {
-			t.Fatalf("failed to create job: %v", err)
+		if _, err := dal.NewSQLRepositories(db).Sources().CreateRepository(context.Background(), dal.SourceRepositoryRecord{
+			RepositoryID: "child-repo",
+			NamespaceID:  2,
+			SourceKind:   dal.SourceKindLocalCheckout,
+			CheckoutPath: t.TempDir(),
+			Enabled:      true,
+		}); err != nil {
+			t.Fatalf("failed to create source repository: %v", err)
 		}
 
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/source-repositories/child-repo", nil)
 		req.Header.Set("Authorization", "Bearer "+propagatedToken)
 		h.ServeHTTP(rec, req)
 

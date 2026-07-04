@@ -1,0 +1,153 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	api "vectis/api/gen/go"
+	sdk "vectis/sdk/workercore"
+
+	"google.golang.org/protobuf/proto"
+)
+
+func main() {
+	socketPath := flag.String("socket", defaultSocketPath(), "Unix socket served by the example worker core")
+	flag.Parse()
+
+	core := newSampleCore()
+	server, listener, err := sdk.NewUnixCoreServer(*socketPath, core, sdk.ServiceOptions{})
+	if err != nil {
+		log.Fatalf("create worker core server: %v", err)
+	}
+	defer func(path string) { _ = os.Remove(path) }(*socketPath)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		server.GracefulStop()
+	}()
+
+	log.Printf("example worker core listening on %s", *socketPath)
+	if err := server.Serve(listener); err != nil && ctx.Err() == nil {
+		log.Fatalf("serve worker core: %v", err)
+	}
+}
+
+func defaultSocketPath() string {
+	root := "/tmp"
+	if runtime.GOOS == "windows" {
+		root = os.TempDir()
+	}
+
+	return filepath.Join(root, "vectis-worker-core-example.sock")
+}
+
+type sampleCore struct {
+	mu        sync.Mutex
+	cancelled map[string]string
+}
+
+func newSampleCore() *sampleCore {
+	return &sampleCore{cancelled: map[string]string{}}
+}
+
+func (*sampleCore) Describe(context.Context) (sdk.Description, error) {
+	return sdk.Description{
+		ProtocolVersion:    sdk.ProtocolVersion,
+		SupportedIsolation: []string{"host"},
+		Capabilities: []sdk.Capability{
+			{Name: sdk.CapabilityExecute, Version: "v1"},
+			{Name: sdk.CapabilityCancelTask, Version: "v1"},
+			{Name: sdk.CapabilityShellLogCallback, Version: "v1"},
+			{Name: sdk.CapabilityShellArtifactPush, Version: "v1"},
+			{Name: "example.external-runner", Version: "v1"},
+		},
+		Metadata: map[string]string{
+			"provider": "example",
+		},
+	}, nil
+}
+
+func (c *sampleCore) ExecuteTask(ctx context.Context, task sdk.Task) (sdk.Result, error) {
+	if err := sendLog(ctx, task, fmt.Sprintf("example external core accepted task %q\n", task.TaskKey)); err != nil {
+		return sdk.Result{}, err
+	}
+
+	timer := time.NewTimer(25 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return sdk.Cancelled(ctx.Err().Error()), nil
+	case <-timer.C:
+	}
+
+	if reason, ok := c.cancelReason(task.Session.ID()); ok {
+		return sdk.Cancelled("cancelled: " + reason), nil
+	}
+
+	if task.Session.ArtifactsEnabled() {
+		if _, err := task.Session.PublishArtifact(ctx, sdk.ArtifactRequest{
+			Name:        "external-core-summary",
+			Path:        "external-core-summary.txt",
+			ContentType: "text/plain",
+			Reader:      strings.NewReader("example external core completed\n"),
+		}); err != nil {
+			return sdk.Result{}, err
+		}
+	}
+
+	if err := sendLog(ctx, task, "example external core finished\n"); err != nil {
+		return sdk.Result{}, err
+	}
+
+	return sdk.Success(), nil
+}
+
+func (c *sampleCore) CancelTask(_ context.Context, req sdk.CancelRequest) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cancelled[req.SessionID] = req.Reason
+	return nil
+}
+
+func (c *sampleCore) cancelReason(sessionID string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	reason, ok := c.cancelled[sessionID]
+	return reason, ok
+}
+
+func sendLog(ctx context.Context, task sdk.Task, message string) error {
+	if !task.Session.LogsEnabled() {
+		return nil
+	}
+
+	stream, err := task.Session.OpenLogStream(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := stream.Send(&api.LogChunk{
+		RunId: proto.String(task.Job.GetRunId()),
+		Data:  []byte(message),
+	}); err != nil {
+		_ = stream.Close()
+		return err
+	}
+
+	return stream.Close()
+}

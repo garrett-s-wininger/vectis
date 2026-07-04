@@ -15,7 +15,7 @@ func (s *APIServer) GetReconcilerHeartbeat(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	ts, err := s.dispatchEvents.LastReconcilerActivity(ctx)

@@ -28,41 +28,22 @@ const (
 )
 
 func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
+	repositoryID, ok := requireSourceJobRepositoryIDFromQuery(w, r)
+	if !ok {
+		return
+	}
+
 	jobID := r.PathValue("id")
 	if jobID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_id", "id is required", nil)
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
-	defer cancel()
+	setSourceJobPathValues(r, repositoryID, jobID)
+	s.HandleSSESourceRepositoryJobRuns(w, r)
+}
 
-	p, ok := s.requirePrincipal(w, r)
-	if !ok {
-		return
-	}
-
-	nsPath, err := s.getJobNamespacePath(ctx, jobID)
-	if err != nil {
-		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-			return
-		}
-
-		if s.handleDBUnavailableError(w, err) {
-			return
-		}
-
-		s.logger.Error("Database error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "internal_error", "internal server error", nil)
-		return
-	}
-
-	if !s.checkNamespaceAuth(ctx, p, authz.ActionRunRead, nsPath) {
-		writeAPIError(w, http.StatusNotFound, "job_not_found", "job not found", nil)
-		return
-	}
-
+func (s *APIServer) streamRunEvents(w http.ResponseWriter, r *http.Request, subscriptionKey, logSubject string) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -78,10 +59,10 @@ func (s *APIServer) HandleSSEJobRuns(w http.ResponseWriter, r *http.Request) {
 
 	clearResponseWriteDeadline(w)
 
-	ch := s.runBroadcaster.Subscribe(jobID)
-	defer s.runBroadcaster.Unsubscribe(jobID, ch)
+	ch := s.runBroadcaster.Subscribe(subscriptionKey)
+	defer s.runBroadcaster.Unsubscribe(subscriptionKey, ch)
 
-	s.logger.Info("SSE client subscribed to runs for job: %s", jobID)
+	s.logger.Info("SSE client subscribed to runs for %s", logSubject)
 
 	_, _ = w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
@@ -126,7 +107,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.handlerDBCtx(r)
+	ctx, cancel := s.handlerDBCtx(r.Context())
 	defer cancel()
 
 	p, ok := s.requirePrincipal(w, r)
@@ -155,6 +136,10 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.streamRunLogs(w, r, runID, replay)
+}
+
+func (s *APIServer) streamRunLogs(w http.ResponseWriter, r *http.Request, runID string, replay logReplayRequest) {
 	holder := s.logClient.Load()
 	if holder == nil || holder.client == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "log_service_unavailable", "log service not connected", nil)
@@ -213,7 +198,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 	if !sawCompletion {
 		// NOTE(garrett): Use a fresh context for the one-shot fallback — the handler's DB context
 		// may have expired if the SSE stream has been alive longer than the timeout.
-		fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		fallbackCtx, fallbackCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 		defer fallbackCancel()
 		status, found, err := s.runs.GetRunStatus(fallbackCtx, runID)
 		if err != nil {
@@ -248,7 +233,7 @@ func (s *APIServer) GetRunLogs(w http.ResponseWriter, r *http.Request) {
 					Completed api.RunOutcome `json:"completed,omitempty"`
 				}{time.Now().Format(time.RFC3339Nano), api.Stream_STREAM_CONTROL, -1, string(inner), api.RunOutcome_RUN_OUTCOME_UNKNOWN})
 
-				w.Write(formatSSEDataEvent(-1, outer))
+				_, _ = w.Write(formatSSEDataEvent(-1, outer))
 				flusher.Flush()
 			}
 		}

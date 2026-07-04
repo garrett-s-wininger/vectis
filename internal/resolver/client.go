@@ -116,6 +116,10 @@ func grpcHealthServiceName(comp api.Component) string {
 		return "queue"
 	case api.Component_COMPONENT_LOG:
 		return "log"
+	case api.Component_COMPONENT_ARTIFACT:
+		return "artifact"
+	case api.Component_COMPONENT_ORCHESTRATOR:
+		return "orchestrator"
 	default:
 		return comp.String()
 	}

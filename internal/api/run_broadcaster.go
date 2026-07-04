@@ -25,6 +25,10 @@ func NewRunBroadcaster(logger interfaces.Logger) *RunBroadcaster {
 	}
 }
 
+func sourceRepositoryRunBroadcastKey(repositoryID, jobID string) string {
+	return "source-repository:" + repositoryID + ":job:" + jobID
+}
+
 func (b *RunBroadcaster) Subscribe(jobID string) chan []byte {
 	ch := make(chan []byte, 32)
 	b.mu.Lock()

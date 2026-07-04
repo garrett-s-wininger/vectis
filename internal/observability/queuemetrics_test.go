@@ -15,6 +15,7 @@ func TestRegisterQueueGauges_appearsOnScrape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	t.Cleanup(func() {
 		_ = shutdown(context.Background())
 	})
@@ -38,6 +39,7 @@ func TestRegisterQueueGauges_appearsOnScrape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	for _, want := range []string{"vectis_queue_jobs_pending", "vectis_queue_deliveries_inflight", "vectis_queue_dlq_size"} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("missing metric %q; got: %v", want, sortedFamilyNames(names))
@@ -64,6 +66,7 @@ func TestQueueCounters_appearOnScrape(t *testing.T) {
 	qm.RecordEnqueued(ctx)
 	qm.RecordDequeued(ctx)
 	qm.RecordExpiredRequeued(ctx)
+	qm.RecordExpiredDropped(ctx)
 	qm.RecordDLQMoved(ctx)
 	qm.RecordDLQRequeued(ctx)
 
@@ -84,6 +87,7 @@ func TestQueueCounters_appearOnScrape(t *testing.T) {
 		"vectis_queue_enqueued_total",
 		"vectis_queue_dequeued_total",
 		"vectis_queue_expired_requeued_total",
+		"vectis_queue_expired_dropped_total",
 		"vectis_queue_dlq_moved_total",
 		"vectis_queue_dlq_requeued_total",
 	} {

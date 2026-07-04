@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,6 +66,119 @@ func TestBearerToken_caseInsensitive(t *testing.T) {
 	}
 }
 
+func TestRequestCredential_acceptsSessionCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session"})
+
+	token, source, ok := requestCredential(req)
+	if !ok {
+		t.Fatal("expected cookie credential")
+	}
+
+	if source != credentialSourceCookie {
+		t.Fatalf("source=%q, want %q", source, credentialSourceCookie)
+	}
+
+	if token != "session" {
+		t.Fatalf("token=%q, want canonical cookie", token)
+	}
+}
+
+func TestRequestCredential_rejectsUnprefixedSessionCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+	req.AddCookie(&http.Cookie{Name: "vectis_session", Value: "legacy-session"})
+
+	if token, source, ok := requestCredential(req); ok {
+		t.Fatalf("token=%q source=%q, want no credential", token, source)
+	}
+}
+
+func TestValidCSRFOriginRequiresOriginOrReferer(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+
+	if validCSRFOrigin(req) {
+		t.Fatal("missing Origin and Referer must be invalid for unsafe cookie requests")
+	}
+}
+
+func TestValidCSRFOriginAcceptsMatchingOrigin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Origin", "https://api.example")
+
+	if !validCSRFOrigin(req) {
+		t.Fatal("matching Origin should be valid")
+	}
+}
+
+func TestValidCSRFOriginAcceptsMatchingReferer(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Referer", "https://api.example/account")
+
+	if !validCSRFOrigin(req) {
+		t.Fatal("matching Referer should be valid when Origin is absent")
+	}
+}
+
+func TestValidCSRFOriginRejectsMismatchedOrigin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Origin", "https://evil.example")
+
+	if validCSRFOrigin(req) {
+		t.Fatal("mismatched Origin should be invalid")
+	}
+}
+
+func TestValidCSRFOriginRejectsSchemeMismatch(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("Origin", "http://api.example")
+
+	if validCSRFOrigin(req) {
+		t.Fatal("same-host Origin with the wrong scheme should be invalid")
+	}
+}
+
+func TestValidCSRFOriginUsesTrustedForwardedProto(t *testing.T) {
+	t.Setenv("VECTIS_API_CLIENT_IP_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+	req.Host = "api.example"
+	req.RemoteAddr = "10.0.0.2:443"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Origin", "https://api.example")
+
+	if !validCSRFOrigin(req) {
+		t.Fatal("trusted forwarded HTTPS request should accept matching HTTPS Origin")
+	}
+}
+
+func TestRouteAuthPolicy_zeroValueDefaultsToAdmin(t *testing.T) {
+	p := routeAuthPolicy{}.normalized()
+	if p.isPublic() {
+		t.Fatal("zero-value route policy must not be public")
+	}
+
+	if p.Action != authz.ActionAdmin {
+		t.Fatalf("zero-value route action = %q, want %q", p.Action, authz.ActionAdmin)
+	}
+}
+
+func TestRouteAuthPolicy_publicOptOutRejectsAction(t *testing.T) {
+	p := routeAuthPolicy{mode: routeAuthPublic}
+	p.Action = authz.ActionAdmin
+	if err := p.validate(); err == nil {
+		t.Fatal("expected public route with auth action to fail validation")
+	}
+}
+
 func TestAccessControlledHandler_publicRoute(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 
@@ -72,7 +186,7 @@ func TestAccessControlledHandler_publicRoute(t *testing.T) {
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 
 	var hit bool
-	h := s.accessControlledHandler(routeAuthPolicy{Public: true}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := s.accessControlledHandler(routeAuthPolicy{mode: routeAuthPublic}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -210,7 +324,7 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	_, _ = s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	var principal *authn.Principal
@@ -222,6 +336,7 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
 	req.Header.Set("Authorization", "Bearer "+plain)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNoContent {
@@ -237,6 +352,35 @@ func TestAccessControlledHandler_validToken(t *testing.T) {
 	}
 }
 
+func TestValidFetchMetadata(t *testing.T) {
+	tests := []struct {
+		name string
+		site string
+		want bool
+	}{
+		{name: "absent", want: true},
+		{name: "same_origin", site: "same-origin", want: true},
+		{name: "same_site", site: "same-site", want: true},
+		{name: "none", site: "none", want: true},
+		{name: "cross_site", site: "cross-site", want: false},
+		{name: "case_insensitive", site: "Cross-Site", want: false},
+		{name: "unknown", site: "weird-client", want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/logout", nil)
+			if tc.site != "" {
+				req.Header.Set("Sec-Fetch-Site", tc.site)
+			}
+
+			if got := validFetchMetadata(req); got != tc.want {
+				t.Fatalf("validFetchMetadata(%q) = %v, want %v", tc.site, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAccessControlledHandler_authorizationDenied(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
 	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
@@ -249,7 +393,7 @@ func TestAccessControlledHandler_authorizationDenied(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	_, _ = s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	// Override authorizer to deny everything
@@ -338,7 +482,7 @@ func TestAccessControlledHandler_tokenScopesLoaded(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	tokenID, _ := s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	// Add a scope to the token
@@ -412,7 +556,7 @@ func TestAccessControlledHandler_tokenScopeDBErrorReturns500(t *testing.T) {
 
 	plain := "my-secret-token"
 	tokenHash := hashAPIToken(plain)
-	uid, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
+	uid, _, _, _, _ := s.authRepo.GetLocalUserByUsername(ctx, "admin")
 	_, _ = s.authRepo.CreateAPIToken(ctx, uid, tokenHash, "test", nil)
 
 	mockAuditor := &mockAuditor{}

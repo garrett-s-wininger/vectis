@@ -24,7 +24,7 @@ func ServeHTTP(
 
 	select {
 	case <-ctx.Done():
-		shutCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(shutCtx); err != nil && logger != nil {
 			logger.Warn("%s shutdown: %v", shutdownName, err)

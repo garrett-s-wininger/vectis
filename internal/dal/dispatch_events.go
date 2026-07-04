@@ -3,6 +3,7 @@ package dal
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -11,13 +12,18 @@ type SQLDispatchEventsRepository struct {
 }
 
 func (r *SQLDispatchEventsRepository) Record(ctx context.Context, runID, source, eventType string, message *string) error {
+	return r.RecordWithInstance(ctx, runID, source, "", eventType, message)
+}
+
+func (r *SQLDispatchEventsRepository) RecordWithInstance(ctx context.Context, runID, source, sourceInstance, eventType string, message *string) error {
 	_, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`
-			INSERT INTO run_dispatch_events (run_id, source, event_type, message, created_at)
-			VALUES (?, ?, ?, ?, ?)
+			INSERT INTO run_dispatch_events (run_id, source, source_instance, event_type, message, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
 		`),
 		runID,
 		source,
+		strings.TrimSpace(sourceInstance),
 		eventType,
 		message,
 		time.Now().Unix(),
@@ -26,10 +32,77 @@ func (r *SQLDispatchEventsRepository) Record(ctx context.Context, runID, source,
 	return normalizeSQLError(err)
 }
 
+func (r *SQLDispatchEventsRepository) RecordDispatchSuccess(ctx context.Context, runID, source string) error {
+	now := time.Now().Unix()
+	_, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`
+			UPDATE job_runs
+			SET last_dispatched_at = ?
+			WHERE run_id = ?;
+
+			INSERT INTO run_dispatch_events (run_id, source, event_type, message, created_at)
+			VALUES (?, ?, ?, NULL, ?)
+		`),
+		now,
+		runID,
+		runID,
+		source,
+		DispatchEventSuccess,
+		now,
+	)
+
+	return normalizeSQLError(err)
+}
+
+func (r *SQLDispatchEventsRepository) RecordDispatchAttemptOutcome(ctx context.Context, runID, source, outcomeEventType string, message *string) error {
+	now := time.Now().Unix()
+	if outcomeEventType == DispatchEventSuccess {
+		_, err := r.db.ExecContext(ctx,
+			rebindQueryForPgx(`
+				UPDATE job_runs
+				SET last_dispatched_at = ?
+				WHERE run_id = ?;
+
+				INSERT INTO run_dispatch_events (run_id, source, event_type, message, created_at)
+				VALUES (?, ?, ?, NULL, ?), (?, ?, ?, NULL, ?)
+			`),
+			now,
+			runID,
+			runID,
+			source,
+			DispatchEventAttempt,
+			now,
+			runID,
+			source,
+			DispatchEventSuccess,
+			now,
+		)
+		return normalizeSQLError(err)
+	}
+
+	_, err := r.db.ExecContext(ctx,
+		rebindQueryForPgx(`
+			INSERT INTO run_dispatch_events (run_id, source, event_type, message, created_at)
+			VALUES (?, ?, ?, NULL, ?), (?, ?, ?, ?, ?)
+		`),
+		runID,
+		source,
+		DispatchEventAttempt,
+		now,
+		runID,
+		source,
+		outcomeEventType,
+		message,
+		now,
+	)
+
+	return normalizeSQLError(err)
+}
+
 func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID string) ([]DispatchEvent, error) {
 	rows, err := r.db.QueryContext(ctx,
 		rebindQueryForPgx(`
-			SELECT id, run_id, source, event_type, message, created_at
+			SELECT id, run_id, source, source_instance, event_type, message, created_at
 			FROM run_dispatch_events
 			WHERE run_id = ?
 			ORDER BY created_at ASC, id ASC
@@ -40,13 +113,13 @@ func (r *SQLDispatchEventsRepository) ListByRun(ctx context.Context, runID strin
 	if err != nil {
 		return nil, normalizeSQLError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []DispatchEvent
 	for rows.Next() {
 		var rec DispatchEvent
 		var message sql.NullString
-		if err := rows.Scan(&rec.ID, &rec.RunID, &rec.Source, &rec.EventType, &message, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.ID, &rec.RunID, &rec.Source, &rec.SourceInstance, &rec.EventType, &message, &rec.CreatedAt); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -74,7 +147,7 @@ func (r *SQLDispatchEventsRepository) LastReconcilerActivity(ctx context.Context
 	}
 
 	if !ts.Valid {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No reconciler activity is represented as a nil timestamp.
 	}
 
 	return &ts.Int64, nil

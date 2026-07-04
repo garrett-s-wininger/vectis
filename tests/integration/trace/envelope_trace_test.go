@@ -7,7 +7,9 @@ import (
 	"time"
 
 	api "vectis/api/gen/go"
+	"vectis/internal/cell"
 	"vectis/internal/config"
+	"vectis/internal/dal"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/observability"
 	"vectis/internal/queue"
@@ -63,14 +65,34 @@ func TestEnvelopeTrace_QueueRoundTrip_ToWorkerContext(t *testing.T) {
 
 	jobID := "job-trace"
 	runID := "run-trace"
-	action := "builtins/shell"
+	action := "builtins/script"
 	req := &api.JobRequest{
 		Job: &api.Job{
 			Id:    &jobID,
 			RunId: &runID,
-			Root:  &api.Node{Uses: &action, With: map[string]string{"command": "echo hi"}},
+			Root:  &api.Node{Uses: &action, With: map[string]string{"script": "echo hi"}},
 		},
 	}
+
+	dispatch := dal.ExecutionDispatchRecord{
+		RunID:             runID,
+		JobID:             jobID,
+		TaskID:            runID + ":root",
+		TaskKey:           dal.RootTaskKey,
+		TaskName:          dal.RootTaskKey,
+		TaskAttemptID:     runID + ":root:attempt:1",
+		SegmentID:         runID + ":root:segment",
+		ExecutionID:       runID + ":root:attempt:1:execution",
+		CellID:            dal.DefaultCellID,
+		Attempt:           1,
+		DefinitionVersion: 1,
+		DefinitionHash:    "sha256:trace",
+	}
+
+	if _, err := cell.AttachExecutionEnvelope(req, dispatch, time.Now().UnixNano()); err != nil {
+		t.Fatalf("attach execution envelope: %v", err)
+	}
+
 	observability.InjectJobTraceContext(parentCtx, req)
 
 	if _, err := client.Enqueue(parentCtx, req); err != nil {
@@ -81,7 +103,7 @@ func TestEnvelopeTrace_QueueRoundTrip_ToWorkerContext(t *testing.T) {
 
 	deqCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	deqReq, err := client.Dequeue(deqCtx, &api.Empty{})
+	deqReq, err := client.Dequeue(deqCtx, &api.DequeueRequest{})
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}

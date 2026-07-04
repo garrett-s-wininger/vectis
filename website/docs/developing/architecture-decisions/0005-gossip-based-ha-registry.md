@@ -21,7 +21,7 @@ Implement HA registry as an in-memory, eventually consistent registry cluster us
 - State: versioned replicated map keyed by component and instance ID, with Lamport-dotted version vectors.
 - Convergence: delta gossip pushes recent updates to peers; periodic anti-entropy exchanges full snapshots or digests to repair missed gossip.
 - Leases: heartbeats refresh leases; expired entries stop being returned by discovery reads; tombstones are retained past gossip propagation delay to prevent stale revival.
-- Sponsor selection: clients pick a stable sponsor with rendezvous hashing from the configured registry address set, then re-pick on sponsor failure.
+- Sponsor selection: registration clients order registry targets with rendezvous hashing, publish initial registration and heartbeat updates to the active sponsor, and fail over to another configured target on errors.
 - Membership: static cluster membership for v1. Each node is configured with node ID, advertise address, and peer list.
 
 This decision records the HA machinery. A single registry remains the simplest operator default; multi-node registry deployment is an advanced posture that must be configured deliberately.
@@ -29,7 +29,7 @@ This decision records the HA machinery. A single registry remains the simplest o
 ## Consequences
 
 - No external dependencies: registry HA is self-contained.
-- Bounded staleness: during partitions, discovery reads may briefly return stale addresses within lease TTL or miss new registrations until gossip and anti-entropy converge.
+- Bounded staleness: during partitions, discovery reads may briefly return stale addresses within lease TTL or miss registrations that were accepted by another registry target until gossip and anti-entropy converge.
 - Operational simplicity: there is no consensus log to manage. Static membership keeps deployment straightforward, but it still requires deliberate configuration.
 - Migration path: existing single-node deployments continue working. Multi-node registry cells are additive.
 - Documentation requirement: operator docs should distinguish the safe default from the advanced HA registry posture.
@@ -40,6 +40,6 @@ This decision records the HA machinery. A single registry remains the simplest o
 - [Configuration](../../operating/configuration.md#service-discovery-vs-fixed-addresses)
 - `internal/registry/store.go` — Lamport-dotted versioned map, lease expiry, tombstone retention
 - `internal/registry/gossip.go` — delta push and anti-entropy snapshots
-- `internal/registry/registration.go` — rendezvous hash sponsor selection
+- `internal/registry/registration.go` — sponsor-ordered registration and heartbeats
 - `internal/resolver/` — discovery with last-good fallback
 - `internal/config/defaults.toml` — cluster configuration keys

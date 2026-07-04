@@ -5,9 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
+	"vectis/internal/api/authz"
 	"vectis/internal/api/ratelimit"
+	"vectis/internal/cache"
 	"vectis/internal/interfaces/mocks"
 	"vectis/internal/testutil/dbtest"
 )
@@ -19,9 +24,10 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 	db := dbtest.NewTestDB(t)
 	s := NewAPIServer(mocks.NewMockLogger(), db)
 	s.SetQueueClient(mocks.NewMockQueueService())
-	lim := ratelimit.NewMemoryRateLimiter()
-	defer lim.Stop()
-	s.SetRateLimiter(lim)
+
+	cacheService := cache.NewMemoryService()
+	s.SetCacheService(cacheService)
+	s.SetRateLimiter(ratelimit.NewCacheRateLimiter(cacheService))
 	h := s.Handler()
 
 	var adminToken string
@@ -103,6 +109,32 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 		}
 	})
 
+	t.Run("rotating_invalid_bearer_tokens_share_pre_auth_bucket", func(t *testing.T) {
+		for i := range 150 {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+			req.Header.Set("Authorization", "Bearer invalid-token-"+strconv.Itoa(i))
+			h.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusTooManyRequests {
+				t.Fatalf("invalid bearer request %d should not be rate limited yet, got 429", i+1)
+			}
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("invalid bearer request %d got status %d, want 401", i+1, rec.Code)
+			}
+		}
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+		req.Header.Set("Authorization", "Bearer invalid-token-overflow")
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("expected rotating invalid bearer tokens to hit shared 429 bucket, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
 	t.Run("auth_endpoint_rate_limited", func(t *testing.T) {
 		// Auth endpoints have burst=5 and each route has its own bucket.
 		// Exhaust the bucket for /api/v1/setup/status with 5 requests.
@@ -140,4 +172,177 @@ func TestRateLimiting_endToEnd(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestRateLimitKey_ignoresSessionCookie(t *testing.T) {
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+	rule := ratelimit.Rule{RefillRate: time.Second, BurstSize: 1}
+	spec := routeSpec{
+		Pattern:   "POST /api/v1/login",
+		Auth:      routeAuthPolicy{mode: routeAuthPublic},
+		RateLimit: rule,
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "POST /api/v1/login"
+	baseKey := s.rateLimitKey(req, spec)
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "POST /api/v1/login"
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "attacker-controlled-cookie"})
+	cookieKey := s.rateLimitKey(req, spec)
+
+	if cookieKey != baseKey {
+		t.Fatalf("session cookie should not change rate-limit key: got %q want %q", cookieKey, baseKey)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/login", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "POST /api/v1/login"
+	req.Header.Set("Authorization", "Bearer explicit-token")
+	bearerKey := s.rateLimitKey(req, spec)
+
+	if bearerKey != baseKey {
+		t.Fatalf("public auth routes should ignore bearer token for rate-limit key: got %q want %q", bearerKey, baseKey)
+	}
+
+	protectedSpec := routeSpec{
+		Pattern:   "GET /api/v1/tokens",
+		Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+		RateLimit: rule,
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	protectedIPKey := s.rateLimitKey(req, protectedSpec)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req.Header.Set("Authorization", "Bearer explicit-token")
+	protectedBearerKey := s.rateLimitKey(req, protectedSpec)
+
+	if protectedBearerKey == protectedIPKey {
+		t.Fatal("bearer token should still scope rate-limit key")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req.Header.Set("Authorization", "Bearer another-invalid-token")
+	anotherInvalidBearerKey := s.rateLimitKey(req, protectedSpec)
+
+	if anotherInvalidBearerKey != protectedBearerKey {
+		t.Fatalf("unknown bearer tokens should share an invalid-bearer bucket: got %q want %q", anotherInvalidBearerKey, protectedBearerKey)
+	}
+}
+
+func TestRateLimitKey_usesKnownBearerTokenBucket(t *testing.T) {
+	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
+	plain := "known-rate-limit-token"
+	tokenKey := hashAPIToken(plain)
+
+	spec := routeSpec{
+		Pattern:   "GET /api/v1/tokens",
+		Auth:      routeAuthPolicy{Action: authz.ActionAPI},
+		RateLimit: ratelimit.Rule{RefillRate: time.Second, BurstSize: 1},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req.Header.Set("Authorization", "Bearer "+plain)
+	preAuthKnownKey := s.rateLimitKey(req, spec)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req.Header.Set("Authorization", "Bearer invalid-token")
+	preAuthInvalidKey := s.rateLimitKey(req, spec)
+
+	if preAuthKnownKey != preAuthInvalidKey {
+		t.Fatalf("pre-auth bearer tokens should share the same IP bucket: got %q want %q", preAuthKnownKey, preAuthInvalidKey)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Pattern = "GET /api/v1/tokens"
+	req = req.WithContext(withRateLimitBearerKey(req.Context(), tokenKey))
+	authenticatedKey := s.authenticatedRateLimitKey(req, spec)
+
+	if authenticatedKey == preAuthInvalidKey {
+		t.Fatal("authenticated bearer token should use a token-specific bucket")
+	}
+
+	if !strings.Contains(authenticatedKey, "bearer:"+tokenKey) {
+		t.Fatalf("authenticated key should contain bearer token hash, got %q", authenticatedKey)
+	}
+}
+
+func TestRateLimiting_CacheBackendSharedAcrossAPIServers(t *testing.T) {
+	t.Setenv("VECTIS_API_AUTH_ENABLED", "true")
+	t.Setenv("VECTIS_API_AUTH_BOOTSTRAP_TOKEN", "sixteenchars----")
+
+	db := dbtest.NewTestDB(t)
+	s1 := NewAPIServer(mocks.NewMockLogger(), db)
+	s1.SetQueueClient(mocks.NewMockQueueService())
+	cache1 := cache.NewSQLService(db, "sqlite3")
+	s1.SetCacheService(cache1)
+	s1.SetRateLimiter(ratelimit.NewCacheRateLimiter(cache1))
+	h1 := s1.Handler()
+
+	s2 := NewAPIServer(mocks.NewMockLogger(), db)
+	s2.SetQueueClient(mocks.NewMockQueueService())
+	cache2 := cache.NewSQLService(db, "sqlite3")
+	s2.SetCacheService(cache2)
+	s2.SetRateLimiter(ratelimit.NewCacheRateLimiter(cache2))
+	h2 := s2.Handler()
+
+	body := map[string]string{
+		"bootstrap_token": "sixteenchars----",
+		"admin_username":  "root",
+		"admin_password":  "longenough",
+	}
+
+	b, _ := json.Marshal(body)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	h1.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup failed: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var setupOut setupCompleteResponse
+	if err := json.NewDecoder(rec.Body).Decode(&setupOut); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range 20 {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+		req.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
+
+		if i%2 == 0 {
+			h1.ServeHTTP(rec, req)
+		} else {
+			h2.ServeHTTP(rec, req)
+		}
+
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d should not be rate limited yet, got 429", i+1)
+		}
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/tokens", nil)
+	req.Header.Set("Authorization", "Bearer "+setupOut.APIToken)
+	h2.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected shared SQL bucket to return 429, got %d body=%s", rec.Code, rec.Body.String())
+	}
 }

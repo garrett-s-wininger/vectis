@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LogService_StreamLogs_FullMethodName = "/LogService/StreamLogs"
-	LogService_GetLogs_FullMethodName    = "/LogService/GetLogs"
+	LogService_StreamLogs_FullMethodName   = "/LogService/StreamLogs"
+	LogService_SendLogBatch_FullMethodName = "/LogService/SendLogBatch"
+	LogService_GetLogs_FullMethodName      = "/LogService/GetLogs"
 )
 
 // LogServiceClient is the client API for LogService service.
@@ -28,6 +29,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type LogServiceClient interface {
 	StreamLogs(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[LogChunk, Empty], error)
+	SendLogBatch(ctx context.Context, in *LogBatch, opts ...grpc.CallOption) (*Empty, error)
 	GetLogs(ctx context.Context, in *GetLogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogChunk], error)
 }
 
@@ -51,6 +53,16 @@ func (c *logServiceClient) StreamLogs(ctx context.Context, opts ...grpc.CallOpti
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LogService_StreamLogsClient = grpc.ClientStreamingClient[LogChunk, Empty]
+
+func (c *logServiceClient) SendLogBatch(ctx context.Context, in *LogBatch, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, LogService_SendLogBatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *logServiceClient) GetLogs(ctx context.Context, in *GetLogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogChunk], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -76,6 +88,7 @@ type LogService_GetLogsClient = grpc.ServerStreamingClient[LogChunk]
 // for forward compatibility.
 type LogServiceServer interface {
 	StreamLogs(grpc.ClientStreamingServer[LogChunk, Empty]) error
+	SendLogBatch(context.Context, *LogBatch) (*Empty, error)
 	GetLogs(*GetLogsRequest, grpc.ServerStreamingServer[LogChunk]) error
 	mustEmbedUnimplementedLogServiceServer()
 }
@@ -89,6 +102,9 @@ type UnimplementedLogServiceServer struct{}
 
 func (UnimplementedLogServiceServer) StreamLogs(grpc.ClientStreamingServer[LogChunk, Empty]) error {
 	return status.Error(codes.Unimplemented, "method StreamLogs not implemented")
+}
+func (UnimplementedLogServiceServer) SendLogBatch(context.Context, *LogBatch) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method SendLogBatch not implemented")
 }
 func (UnimplementedLogServiceServer) GetLogs(*GetLogsRequest, grpc.ServerStreamingServer[LogChunk]) error {
 	return status.Error(codes.Unimplemented, "method GetLogs not implemented")
@@ -121,6 +137,24 @@ func _LogService_StreamLogs_Handler(srv interface{}, stream grpc.ServerStream) e
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type LogService_StreamLogsServer = grpc.ClientStreamingServer[LogChunk, Empty]
 
+func _LogService_SendLogBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogBatch)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LogServiceServer).SendLogBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LogService_SendLogBatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LogServiceServer).SendLogBatch(ctx, req.(*LogBatch))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LogService_GetLogs_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(GetLogsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -138,7 +172,12 @@ type LogService_GetLogsServer = grpc.ServerStreamingServer[LogChunk]
 var LogService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "LogService",
 	HandlerType: (*LogServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SendLogBatch",
+			Handler:    _LogService_SendLogBatch_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamLogs",

@@ -1,0 +1,57 @@
+{
+  "id": "parallel-job",
+  "root": {
+    "id": "root",
+    "uses": "builtins/sequence",
+    "with": {
+      "execution": "local"
+    },
+    "ports": {
+      "steps": {
+        "nodes": [
+          {
+            "id": "setup",
+            "uses": "builtins/script",
+            "with": {
+              "script": "echo 'Preparing workspace'"
+            }
+          },
+          {
+            "id": "checks",
+            "uses": "builtins/parallel",
+            "with": {
+              "execution": "distributed"
+            },
+            "ports": {
+              "branches": {
+                "nodes": [
+                  {
+                    "id": "unit-tests",
+                    "uses": "builtins/script",
+                    "with": {
+                      "script": "echo 'Running unit tests'"
+                    }
+                  },
+                  {
+                    "id": "lint",
+                    "uses": "builtins/script",
+                    "with": {
+                      "script": "echo 'Running lint'"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "finish",
+            "uses": "builtins/script",
+            "with": {
+              "script": "echo 'All checks complete'"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

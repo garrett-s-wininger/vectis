@@ -3,17 +3,29 @@ package socktest
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
-// ShortPath returns a Unix socket path under /tmp to avoid path-length limits
-// on platforms with long temp roots.
+// ShortPath returns a socket path under a short temp root when one is available.
 func ShortPath(t testing.TB, name string) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "vectis-sock-*")
+	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-sock-*") //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
 	if err != nil {
 		t.Fatalf("mkdtemp: %v", err)
 	}
+
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, name)
+}
+
+func shortTempRoot() string {
+	if root := os.Getenv("TMPDIR"); root != "" {
+		return root
+	}
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+
+	return "/tmp"
 }
