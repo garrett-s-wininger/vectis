@@ -21,8 +21,6 @@ import (
 	"vectis/internal/gitcmd"
 	"vectis/internal/observability"
 	"vectis/internal/testutil/gittest"
-
-	"github.com/spf13/viper"
 )
 
 type sourceRepositoryObjectStoreMetricRecord struct {
@@ -458,11 +456,9 @@ func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
 
 func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
 	auditor := &sourceJobAuditCapturer{}
@@ -2069,11 +2065,9 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 
 func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
 	handler := server.Handler()
@@ -2122,11 +2116,9 @@ func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T
 
 func TestAPIServer_SourceRepositoryRejectsCheckoutPathOutsideRoot(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -2272,11 +2264,9 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 
 func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -2557,11 +2547,9 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 
 func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -2619,11 +2607,9 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T
 
 func TestAPIServer_ResolveManagedSourceDefinitionHydratesProviderRefs(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -2687,11 +2673,9 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesProviderRefs(t *testing
 
 func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
 	repos := dal.NewSQLRepositories(db)
@@ -2839,11 +2823,9 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 
 func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
 	repos := dal.NewSQLRepositories(db)
@@ -3430,11 +3412,9 @@ func TestAPIServer_UpdateSourceRepository(t *testing.T) {
 
 func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -3468,11 +3448,9 @@ func TestAPIServer_SourceRepositoryRejectsInvalidDefaultRef(t *testing.T) {
 
 func TestAPIServer_SourceRepositoryRejectsInvalidFallbackRemoteURL(t *testing.T) {
 	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 
 	checkoutRoot := t.TempDir()
-	viper.Set("source.checkout_root", checkoutRoot)
+	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
 	handler := server.Handler()
@@ -4059,8 +4037,7 @@ func initAPIGitRepo(t *testing.T) string {
 
 	repo := gittest.InitRepository(t)
 	if !apiSourceCheckoutRootConfiguredForTest() {
-		viper.Set("source.checkout_root", filepath.Dir(repo))
-		t.Cleanup(viper.Reset)
+		t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", filepath.Dir(repo))
 	}
 
 	return repo
@@ -4068,8 +4045,7 @@ func initAPIGitRepo(t *testing.T) string {
 
 func apiSourceCheckoutRootConfiguredForTest() bool {
 	return strings.TrimSpace(os.Getenv("VECTIS_SOURCE_CHECKOUT_ROOT")) != "" ||
-		strings.TrimSpace(os.Getenv("VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT")) != "" ||
-		viper.IsSet("source.checkout_root")
+		strings.TrimSpace(os.Getenv("VECTIS_API_SERVER_SOURCE_CHECKOUT_ROOT")) != ""
 }
 
 func writeAPIJobDefinitionAndCommit(t *testing.T, repo, command, message string) {

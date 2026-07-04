@@ -146,13 +146,14 @@ func (s *ExecutionState) RecordOutputs(nodeID string, outputs map[string]any) {
 		copied[key] = value
 	}
 
-	s.outputsMu.Lock()
-	defer s.outputsMu.Unlock()
-	if s.outputsByNode == nil {
-		s.outputsByNode = map[string]map[string]any{}
+	store := s.ensureOutputStore()
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.byNode == nil {
+		store.byNode = map[string]map[string]any{}
 	}
 
-	s.outputsByNode[nodeID] = copied
+	store.byNode[nodeID] = copied
 }
 
 func (s *ExecutionState) Output(nodeID, outputName string) (any, bool) {
@@ -166,9 +167,10 @@ func (s *ExecutionState) Output(nodeID, outputName string) (any, bool) {
 		return nil, false
 	}
 
-	s.outputsMu.RLock()
-	defer s.outputsMu.RUnlock()
-	outputs, ok := s.outputsByNode[nodeID]
+	store := s.ensureOutputStore()
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	outputs, ok := store.byNode[nodeID]
 	if !ok {
 		return nil, false
 	}

@@ -228,13 +228,8 @@ func TestQuick() error {
 		"-count=1",
 		"-short",
 		"-timeout=" + timeout,
-		"./internal/...",
-		"./cmd/...",
-		"./api/...",
-		"./sdk/...",
-		"./examples/...",
-		"./tools/...",
 	}
+	args = append(args, quickTestPackages()...)
 
 	env, err := goTestEnv()
 	if err != nil {
@@ -250,6 +245,17 @@ func defaultTestQuickTimeout() string {
 	}
 
 	return "60s"
+}
+
+func quickTestPackages() []string {
+	return []string{
+		"./internal/...",
+		"./cmd/...",
+		"./api/...",
+		"./sdk/...",
+		"./examples/...",
+		"./tools/...",
+	}
 }
 
 func goTestEnv() (map[string]string, error) {
@@ -414,7 +420,29 @@ func setDefaultEnv(env map[string]string, key, value string) {
 	}
 }
 
-// TestRace runs the Go race detector suite.
+// TestRace runs the quick feedback package set with the Go race detector.
 func TestRace() error {
-	return run("", nil, goCommand(), "test", "-race", "./...")
+	timeout := envDefault("TESTRACE_TIMEOUT", defaultTestRaceTimeout())
+	args := []string{
+		"test",
+		"-race",
+		"-short",
+		"-timeout=" + timeout,
+	}
+
+	args = append(args, quickTestPackages()...)
+	env, err := goTestEnv()
+	if err != nil {
+		return err
+	}
+
+	return run("", env, goCommand(), args...)
+}
+
+func defaultTestRaceTimeout() string {
+	if runtime.GOOS == "windows" {
+		return "900s"
+	}
+
+	return "300s"
 }

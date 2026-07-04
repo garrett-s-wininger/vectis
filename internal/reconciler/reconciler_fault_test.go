@@ -359,7 +359,7 @@ func TestService_Process_DuplicateDelivery_AllowsSingleClaimedExecution(t *testi
 		t.Fatalf("expected 1 enqueue in first pass, got %d", got)
 	}
 
-	clock.SetNow(now.Add(3 * time.Second))
+	advanceClockPastLastDispatch(t, ctx, db, clock, runID, 2*time.Second)
 	if err := svc.Process(ctx); err != nil {
 		t.Fatalf("second Process: %v", err)
 	}

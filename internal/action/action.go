@@ -56,10 +56,20 @@ type ExecutionState struct {
 	ProcessExecutor         interfaces.ExecExecutor
 	ProcessExecutorResolver ProcessExecutorResolver
 	Isolation               string
-	outputsMu               sync.RWMutex
-	outputsByNode           map[string]map[string]any
-	nextSequence            int64
+	outputs                 *executionOutputStore
+	sequence                *executionSequence
 }
+
+type executionOutputStore struct {
+	mu     sync.RWMutex
+	byNode map[string]map[string]any
+}
+
+type executionSequence struct {
+	next int64
+}
+
+var executionStateInitMu sync.Mutex
 
 type CheckoutCache interface {
 	Checkout(ctx context.Context, remoteURL, workspace string, logger interfaces.Logger) (bool, error)
@@ -78,7 +88,47 @@ type CheckoutCacheCloser interface {
 }
 
 func (s *ExecutionState) NextSequence() int64 {
-	return atomic.AddInt64(&s.nextSequence, 1)
+	if s == nil {
+		return 0
+	}
+
+	sequence := s.ensureSequence()
+	return atomic.AddInt64(&sequence.next, 1)
+}
+
+func (s *ExecutionState) ForConcurrentChild() *ExecutionState {
+	if s == nil {
+		return nil
+	}
+
+	outputs := s.ensureOutputStore()
+	sequence := s.ensureSequence()
+	child := *s
+	child.outputs = outputs
+	child.sequence = sequence
+	return &child
+}
+
+func (s *ExecutionState) ensureOutputStore() *executionOutputStore {
+	executionStateInitMu.Lock()
+	defer executionStateInitMu.Unlock()
+
+	if s.outputs == nil {
+		s.outputs = &executionOutputStore{}
+	}
+
+	return s.outputs
+}
+
+func (s *ExecutionState) ensureSequence() *executionSequence {
+	executionStateInitMu.Lock()
+	defer executionStateInitMu.Unlock()
+
+	if s.sequence == nil {
+		s.sequence = &executionSequence{}
+	}
+
+	return s.sequence
 }
 
 type Resolver interface {

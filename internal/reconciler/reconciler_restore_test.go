@@ -66,7 +66,7 @@ func TestService_Process_RestoreSkewRepopulatesLostQueueFromFrozenSQLPayload(t *
 		t.Fatalf("expected restored queue to start empty, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
 	}
 
-	clock.SetNow(now.Add(2 * time.Second))
+	advanceClockPastLastDispatch(t, ctx, db, clock, runID, time.Second)
 	restoredSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
 	restoredSvc.SetServiceLeases(nil)
 	restoredSvc.SetMinDispatchGap(time.Second)
@@ -183,7 +183,7 @@ func TestService_Process_RestoreSkewRequeuesLostInflightDeliveryFromFrozenSQLPay
 		t.Fatalf("expected restored queue to start empty, got pending=%d inflight=%d dlq=%d", pending, inflight, dlq)
 	}
 
-	clock.SetNow(now.Add(2 * time.Second))
+	advanceClockPastLastDispatch(t, ctx, db, clock, runID, time.Second)
 	restoredSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
 	restoredSvc.SetServiceLeases(nil)
 	restoredSvc.SetMinDispatchGap(time.Second)
@@ -314,7 +314,7 @@ func TestService_Process_RestoreSkewActiveDurableClaimSuppressesRedispatchUntilR
 	restoredQueue := newPersistedQueueForRestoreTest(t, queueDir)
 	defer closeQueueServiceForRestoreTest(t, restoredQueue)
 
-	clock.SetNow(now.Add(2 * time.Second))
+	advanceClockPastLastDispatch(t, ctx, db, clock, runID, time.Second)
 	restoredSvc := NewServiceWithRepositories(interfaces.NewLogger("test"), repos.Jobs(), repos.Runs(), restoredQueue, clock)
 	restoredSvc.SetServiceLeases(nil)
 	restoredSvc.SetMinDispatchGap(time.Second)
