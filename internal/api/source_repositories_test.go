@@ -60,13 +60,14 @@ func (m *sourceRepositoryStatusMetricRecorder) hasObjectStore(repositoryID, sour
 }
 
 func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	server, _, _, db := setupTestServer(t)
 	repos := dal.NewSQLRepositories(db)
-	handler := server.Handler()
 
-	repoPath := initAPIGitRepo(t)
+	repoPath := initAPIRemoteGitRepo(t)
+	server.SetSourceCheckoutRoot(filepath.Dir(repoPath))
+	handler := server.Handler()
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "first definition")
 	firstCommit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 	firstBlob := apiGitOutput(t, repoPath, "rev-parse", "HEAD:.vectis/jobs/build.json")
@@ -321,13 +322,14 @@ func TestAPIServer_SourceRepositoryJobLifecycle(t *testing.T) {
 }
 
 func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	server, _, _, db := setupTestServer(t)
 	repos := dal.NewSQLRepositories(db)
-	handler := server.Handler()
 
-	repoPath := initAPIGitRepo(t)
+	repoPath := initAPIRemoteGitRepo(t)
+	server.SetSourceCheckoutRoot(filepath.Dir(repoPath))
+	handler := server.Handler()
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "build definition")
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 	blob := apiGitOutput(t, repoPath, "rev-parse", "HEAD:.vectis/jobs/build.json")
@@ -1671,11 +1673,12 @@ func TestAPIServer_DeleteSourceRepositoryConflictsWhenScheduled(t *testing.T) {
 }
 
 func TestAPIServer_ResolveSourceDefinitionRejectsDisabledRepository(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	server, _, _, db := setupTestServer(t)
+	repoPath := initAPIRemoteGitRepo(t)
+	server.SetSourceCheckoutRoot(filepath.Dir(repoPath))
 	handler := server.Handler()
-	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
 
 	repos := dal.NewSQLRepositories(db)
@@ -1705,13 +1708,14 @@ func TestAPIServer_ResolveSourceDefinitionRejectsDisabledRepository(t *testing.T
 }
 
 func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	server, _, _, _ := setupTestServer(t)
 	metrics := &sourceRepositoryStatusMetricRecorder{}
 	server.SetSourceSyncMetrics(metrics)
+	repoPath := initAPIRemoteGitRepo(t)
+	server.SetSourceCheckoutRoot(filepath.Dir(repoPath))
 	handler := server.Handler()
-	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 	apiGit(t, repoPath, "update-ref", "refs/vectis/hydrated/1111111111111111111111111111111111111111", commit)
@@ -1818,11 +1822,12 @@ func TestAPIServer_GetSourceRepositoryStatus(t *testing.T) {
 }
 
 func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	server, _, _, _ := setupTestServer(t)
+	repoPath := initAPIRemoteGitRepo(t)
+	server.SetSourceCheckoutRoot(filepath.Dir(repoPath))
 	handler := server.Handler()
-	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "build", "build definition")
 	writeAPIFileAndCommit(t, repoPath, ".vectis/jobs/team/deploy.json", `{
 		"root": {"id": "root", "uses": "builtins/script", "with":{"script": "deploy"}}
@@ -2064,12 +2069,12 @@ func TestAPIServer_ListSourceRepositoryJobsDerivesTriggerableJobs(t *testing.T) 
 }
 
 func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	handler := server.Handler()
 
 	rec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
@@ -2115,12 +2120,12 @@ func TestAPIServer_CreateManagedSourceRepositoryDerivesCheckoutPath(t *testing.T
 }
 
 func TestAPIServer_SourceRepositoryRejectsCheckoutPathOutsideRoot(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	handler := server.Handler()
 
 	outsideRoot := t.TempDir()
@@ -2151,13 +2156,14 @@ func TestAPIServer_SourceRepositoryRejectsCheckoutPathOutsideRoot(t *testing.T) 
 }
 
 func TestAPIServer_SyncSourceRepository(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	server, _, _, _ := setupTestServer(t)
 	auditor := &sourceJobAuditCapturer{}
 	server.SetAuditor(auditor)
+	repoPath := initAPIRemoteGitRepo(t)
+	server.SetSourceCheckoutRoot(filepath.Dir(repoPath))
 	handler := server.Handler()
-	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
 	commit := apiGitOutput(t, repoPath, "rev-parse", "HEAD")
 
@@ -3249,11 +3255,12 @@ func TestAPIServer_SSESourceRepositoryJobRunsReceivesSourceTrigger(t *testing.T)
 }
 
 func TestAPIServer_UpdateSourceRepository(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	server, _, _, _ := setupTestServer(t)
+	repoPath := initAPIRemoteGitRepo(t)
+	server.SetSourceCheckoutRoot(filepath.Dir(repoPath))
 	handler := server.Handler()
-	repoPath := initAPIGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, repoPath, "true", "definition")
 
 	registerBody := map[string]any{
