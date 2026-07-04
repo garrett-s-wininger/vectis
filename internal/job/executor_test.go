@@ -39,6 +39,57 @@ func defaultScriptRunnerForTest(t *testing.T) scriptrunner.Runner {
 	return runner
 }
 
+func fastScriptRunnerForTest(t *testing.T) scriptrunner.Runner {
+	t.Helper()
+
+	runnerName := scriptrunner.Auto
+	if runtime.GOOS == "windows" {
+		runnerName = "cmd"
+	}
+
+	runner, err := scriptrunner.Resolve(runnerName, scriptrunner.Auto)
+	if err != nil {
+		t.Fatalf("resolve fast script runner: %v", err)
+	}
+
+	return runner
+}
+
+func fastScriptInputsForTest(script string) map[string]string {
+	inputs := map[string]string{"script": script}
+	if runtime.GOOS == "windows" {
+		inputs["runner"] = "cmd"
+	}
+
+	return inputs
+}
+
+func secretFileScriptInputsForTest() map[string]string {
+	if runtime.GOOS == "windows" {
+		return map[string]string{
+			"script": `set /p token=<"%VECTIS_SECRETS_DIR%\npm\token"` + "\r\n" + `if "%token%"=="secret-value" (exit /b 0) else (exit /b 1)`,
+			"runner": "cmd",
+		}
+	}
+
+	return map[string]string{
+		"script": `test "$(cat "$VECTIS_SECRETS_DIR/npm/token")" = "secret-value"`,
+	}
+}
+
+func sanitizedEnvironmentScriptInputsForTest() map[string]string {
+	if runtime.GOOS == "windows" {
+		return map[string]string{
+			"script": "if defined VECTIS_DATABASE_DSN (echo leaked & exit /b 1)\r\n" +
+				"if defined SPIFFE_ENDPOINT_SOCKET (echo leaked & exit /b 1)\r\n" +
+				"echo clean",
+			"runner": "cmd",
+		}
+	}
+
+	return map[string]string{"script": sanitizedEnvironmentScriptForTest()}
+}
+
 func generatedScriptArg(args []string, extension string) string {
 	for _, arg := range args {
 		arg = strings.Trim(arg, `"`)
@@ -218,9 +269,7 @@ func TestExecutor_ExecuteJob_Success(t *testing.T) {
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": "echo hello",
-			},
+			With: fastScriptInputsForTest("echo hello"),
 		},
 	}
 
@@ -315,9 +364,7 @@ func TestExecutor_ExecuteJob_MaterializesSecretFiles(t *testing.T) {
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": `test "$(cat "$VECTIS_SECRETS_DIR/npm/token")" = "secret-value"`,
-			},
+			With: secretFileScriptInputsForTest(),
 		},
 	}
 
@@ -369,9 +416,7 @@ func TestExecutor_ExecuteJob_DoesNotInheritWorkerEnvironment(t *testing.T) {
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": sanitizedEnvironmentScriptForTest(),
-			},
+			With: sanitizedEnvironmentScriptInputsForTest(),
 		},
 	}
 
@@ -403,12 +448,12 @@ func TestExecutor_ExecuteTask_ExecutesSelectedNodeOnly(t *testing.T) {
 				{
 					Id:   executorStrp("first"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo task-first-marker"},
+					With: fastScriptInputsForTest("echo task-first-marker"),
 				},
 				{
 					Id:   executorStrp("second"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo task-second-marker"},
+					With: fastScriptInputsForTest("echo task-second-marker"),
 				},
 			},
 		},
@@ -440,12 +485,12 @@ func TestExecutor_ExecuteTask_VerifiesActionLockWithOriginalNodePath(t *testing.
 				{
 					Id:   executorStrp("first"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo task-first-marker"},
+					With: fastScriptInputsForTest("echo task-first-marker"),
 				},
 				{
 					Id:   executorStrp("second"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo task-second-marker"},
+					With: fastScriptInputsForTest("echo task-second-marker"),
 				},
 			},
 		},
@@ -493,7 +538,7 @@ func TestExecutor_ExecuteTask_ExecutesLocalChildTasks(t *testing.T) {
 						{
 							Id:   executorStrp("nested"),
 							Uses: executorStrp("builtins/script"),
-							With: map[string]string{"script": "echo nested-child-marker"},
+							With: fastScriptInputsForTest("echo nested-child-marker"),
 						},
 					},
 				},
@@ -527,7 +572,7 @@ func TestExecutor_ExecuteTask_RootTaskExecutesLocalChildren(t *testing.T) {
 				{
 					Id:   executorStrp("child"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo root-child-marker"},
+					With: fastScriptInputsForTest("echo root-child-marker"),
 				},
 			},
 		},
@@ -559,7 +604,7 @@ func TestExecutor_ExecuteTask_RootTaskExecutesExplicitPorts(t *testing.T) {
 				taskgraph.StepsPort: executorNodePort(&api.Node{
 					Id:   executorStrp("child"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo explicit-port-marker"},
+					With: fastScriptInputsForTest("echo explicit-port-marker"),
 				}),
 			},
 		},
@@ -590,7 +635,7 @@ func TestExecutor_ExecuteTask_StopsAtDistributedBoundary(t *testing.T) {
 				{
 					Id:   executorStrp("setup"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo local-setup-marker"},
+					With: fastScriptInputsForTest("echo local-setup-marker"),
 				},
 				{
 					Id:   executorStrp("fanout"),
@@ -599,14 +644,14 @@ func TestExecutor_ExecuteTask_StopsAtDistributedBoundary(t *testing.T) {
 						{
 							Id:   executorStrp("distributed-child"),
 							Uses: executorStrp("builtins/script"),
-							With: map[string]string{"script": "echo distributed-child-marker"},
+							With: fastScriptInputsForTest("echo distributed-child-marker"),
 						},
 					},
 				},
 				{
 					Id:   executorStrp("after"),
 					Uses: executorStrp("builtins/script"),
-					With: map[string]string{"script": "echo after-boundary-marker"},
+					With: fastScriptInputsForTest("echo after-boundary-marker"),
 				},
 			},
 		},
@@ -679,9 +724,7 @@ func TestExecutor_ExecuteJob_EmptyID(t *testing.T) {
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": "echo hello",
-			},
+			With: fastScriptInputsForTest("echo hello"),
 		},
 	}
 
@@ -713,9 +756,7 @@ func TestExecutor_ExecuteJob_StreamLogsError(t *testing.T) {
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": "echo hello",
-			},
+			With: fastScriptInputsForTest("echo hello"),
 		},
 	}
 
@@ -783,9 +824,7 @@ func TestExecutor_ExecuteJob_StreamUnavailableAtStart_ThenRecovers(t *testing.T)
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": "echo hello",
-			},
+			With: fastScriptInputsForTest("echo hello"),
 		},
 	}
 
@@ -1094,9 +1133,7 @@ func TestExecutor_ExecuteJob_CommandFailure(t *testing.T) {
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": failingScriptForTest(),
-			},
+			With: fastScriptInputsForTest(failingScriptForTest()),
 		},
 	}
 
@@ -1494,9 +1531,7 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 		Root: &api.Node{
 			Id:   &nodeID,
 			Uses: &uses,
-			With: map[string]string{
-				"script": "echo custom",
-			},
+			With: fastScriptInputsForTest("echo custom"),
 		},
 	}
 
@@ -1507,7 +1542,7 @@ func TestExecutor_ExecuteJobInWorkspace_UsesConfiguredProcessExecutor(t *testing
 	paths := mockProcessExecutor.GetPaths()
 	args := mockProcessExecutor.GetArgs()
 	workDirs := mockProcessExecutor.GetWorkDirs()
-	defaultRunner := defaultScriptRunnerForTest(t)
+	defaultRunner := fastScriptRunnerForTest(t)
 	if len(paths) != 1 || paths[0] != defaultRunner.Path {
 		t.Fatalf("expected one script execution through configured process executor, got paths=%v", paths)
 	}
@@ -1559,18 +1594,18 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 				{
 					Id:   &vmStepID,
 					Uses: &scriptUses,
-					With: map[string]string{"script": "echo vm"},
+					With: fastScriptInputsForTest("echo vm"),
 				},
 				{
 					Id:        &hostStepID,
 					Uses:      &scriptUses,
 					Isolation: &hostIsolation,
-					With:      map[string]string{"script": "echo host"},
+					With:      fastScriptInputsForTest("echo host"),
 				},
 				{
 					Id:   &inheritStepID,
 					Uses: &scriptUses,
-					With: map[string]string{"script": "echo inherit"},
+					With: fastScriptInputsForTest("echo inherit"),
 				},
 			},
 		},
@@ -1581,7 +1616,7 @@ func TestExecutor_ExecuteJobInWorkspace_SelectsIsolationProcessExecutor(t *testi
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	defaultRunner := defaultScriptRunnerForTest(t)
+	defaultRunner := fastScriptRunnerForTest(t)
 	if len(hostArgs) != 1 || generatedScriptArg(hostArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected only explicit host action on host executor, got %v", hostArgs)
 	}
@@ -1634,13 +1669,13 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 				{
 					Id:   &vmStepID,
 					Uses: &scriptUses,
-					With: map[string]string{"script": "echo vm"},
+					With: fastScriptInputsForTest("echo vm"),
 				},
 				{
 					Id:        &hostStepID,
 					Uses:      &scriptUses,
 					Isolation: &hostIsolation,
-					With:      map[string]string{"script": "echo host"},
+					With:      fastScriptInputsForTest("echo host"),
 				},
 			},
 		},
@@ -1651,7 +1686,7 @@ func TestExecutor_ExecuteJobInWorkspace_JobDefaultIsolationOverridesWorkerDefaul
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	defaultRunner := defaultScriptRunnerForTest(t)
+	defaultRunner := fastScriptRunnerForTest(t)
 	if len(hostArgs) != 1 || generatedScriptArg(hostArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected explicit host action on host executor, got %v", hostArgs)
 	}
@@ -1702,13 +1737,13 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 				{
 					Id:   &vmStepID,
 					Uses: &scriptUses,
-					With: map[string]string{"script": "echo vm task"},
+					With: fastScriptInputsForTest("echo vm task"),
 				},
 				{
 					Id:        &hostStepID,
 					Uses:      &scriptUses,
 					Isolation: &hostIsolation,
-					With:      map[string]string{"script": "echo host task"},
+					With:      fastScriptInputsForTest("echo host task"),
 				},
 			},
 		},
@@ -1723,7 +1758,7 @@ func TestExecutor_ExecuteTaskInWorkspace_UsesJobDefaultIsolation(t *testing.T) {
 	}
 
 	hostArgs := hostProcessExecutor.GetArgs()
-	defaultRunner := defaultScriptRunnerForTest(t)
+	defaultRunner := fastScriptRunnerForTest(t)
 	if len(hostArgs) != 1 || generatedScriptArg(hostArgs[0], defaultRunner.Extension) == "" {
 		t.Fatalf("expected explicit host task on host executor, got %v", hostArgs)
 	}

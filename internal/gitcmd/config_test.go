@@ -23,6 +23,7 @@ func TestWriteConfigFileSettingsUpdatesAndAppends(t *testing.T) {
 	settings := [][2]string{
 		{"gc.auto", "0"},
 		{"remote.origin.tagOpt", "--no-tags"},
+		{"remote.origin.url", `C:\Users\vectis\repo.git`},
 		{"maintenance.auto", "false"},
 	}
 	if err := WriteConfigFileSettings(configPath, settings); err != nil {
@@ -37,11 +38,20 @@ func TestWriteConfigFileSettingsUpdatesAndAppends(t *testing.T) {
 	for _, want := range []string{
 		"\tauto = 0",
 		"\ttagOpt = --no-tags",
+		"\turl = \"C:\\\\Users\\\\vectis\\\\repo.git\"",
 		"[maintenance]\n\tauto = false",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("config missing %q:\n%s", want, text)
 		}
+	}
+
+	remotes, err := ReadConfigFileRemoteURLs(configPath)
+	if err != nil {
+		t.Fatalf("ReadConfigFileRemoteURLs: %v", err)
+	}
+	if got := remotes["origin"]; got != `C:\Users\vectis\repo.git` {
+		t.Fatalf("origin URL got %q", got)
 	}
 }
 

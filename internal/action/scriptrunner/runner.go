@@ -79,7 +79,7 @@ func (r Runner) InlineArgs(command string) []string {
 func (r Runner) FileArgs(path string) []string {
 	switch r.Name {
 	case "cmd":
-		return []string{"/D", "/S", "/C", quoteWindowsCommandPath(path)}
+		return []string{"/D", "/S", "/C", "call", path}
 	case "powershell":
 		return []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path}
 	case "pwsh":
@@ -173,8 +173,4 @@ func ensureRealDirectory(path string) error {
 	}
 
 	return nil
-}
-
-func quoteWindowsCommandPath(path string) string {
-	return `"` + path + `"`
 }

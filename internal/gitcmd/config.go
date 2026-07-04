@@ -190,7 +190,7 @@ func WriteConfigFileSettings(configPath string, settings [][2]string) error {
 				continue
 			}
 
-			lines[i] = "\t" + setting.name + " = " + setting.value
+			lines[i] = "\t" + setting.name + " = " + formatConfigValue(setting.value)
 			seen[setting.key] = true
 			break
 		}
@@ -205,7 +205,7 @@ func WriteConfigFileSettings(configPath string, settings [][2]string) error {
 			lines = append(lines, "")
 		}
 		lines = append(lines, formatConfigSection(setting.section, setting.subsection))
-		lines = append(lines, "\t"+setting.name+" = "+setting.value)
+		lines = append(lines, "\t"+setting.name+" = "+formatConfigValue(setting.value))
 		seen[setting.key] = true
 	}
 
@@ -311,7 +311,7 @@ func parseConfigAssignment(line string) (string, string, bool) {
 		if len(fields) == 0 {
 			return "", "", false
 		}
-		
+
 		if len(fields) == 1 {
 			return fields[0], "", true
 		}
@@ -321,7 +321,14 @@ func parseConfigAssignment(line string) (string, string, bool) {
 
 	_, value, _ := strings.Cut(trimmed, "=")
 	name = strings.TrimSpace(name)
-	return name, strings.TrimSpace(value), name != ""
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "\"") {
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		}
+	}
+
+	return name, value, name != ""
 }
 
 func sameConfigSection(leftSection, leftSubsection, rightSection, rightSubsection string) bool {
@@ -334,4 +341,36 @@ func formatConfigSection(section, subsection string) string {
 	}
 
 	return "[" + section + " " + strconv.Quote(subsection) + "]"
+}
+
+func formatConfigValue(value string) string {
+	if !configValueNeedsQuotes(value) {
+		return value
+	}
+
+	var out strings.Builder
+	out.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '\\', '"':
+			out.WriteByte('\\')
+			out.WriteRune(r)
+		case '\b':
+			out.WriteString(`\b`)
+		case '\n':
+			out.WriteString(`\n`)
+		case '\t':
+			out.WriteString(`\t`)
+		default:
+			out.WriteRune(r)
+		}
+	}
+	out.WriteByte('"')
+	return out.String()
+}
+
+func configValueNeedsQuotes(value string) bool {
+	return value == "" ||
+		strings.ContainsAny(value, "\\\"#;\b\n\t") ||
+		strings.TrimSpace(value) != value
 }

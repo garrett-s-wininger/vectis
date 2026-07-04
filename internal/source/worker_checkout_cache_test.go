@@ -8,12 +8,18 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"vectis/internal/gitcmd"
 	"vectis/internal/observability"
 )
+
+var workerCheckoutCacheSymlinkProbe struct {
+	once sync.Once
+	err  error
+}
 
 func workerCheckoutCacheRoot(t *testing.T) string {
 	t.Helper()
@@ -34,20 +40,27 @@ func workerCheckoutCacheRoot(t *testing.T) string {
 func skipIfWorkerCheckoutCacheSymlinksUnavailable(t *testing.T) {
 	t.Helper()
 
+	workerCheckoutCacheSymlinkProbe.once.Do(func() {
+		workerCheckoutCacheSymlinkProbe.err = probeWorkerCheckoutCacheSymlink()
+	})
+	if workerCheckoutCacheSymlinkProbe.err != nil {
+		t.Skipf("worker checkout cache uses directory symlinks; this Windows environment cannot create them: %v", workerCheckoutCacheSymlinkProbe.err)
+	}
+}
+
+func probeWorkerCheckoutCacheSymlink() error {
 	dir, err := os.MkdirTemp("", "vcc-symlink-*")
 	if err != nil {
-		t.Fatalf("create checkout cache symlink probe dir: %v", err)
+		return err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	target := filepath.Join(dir, "target")
 	if err := os.Mkdir(target, 0o755); err != nil {
-		t.Fatalf("create checkout cache symlink probe target: %v", err)
+		return err
 	}
 
-	if err := os.Symlink("target", filepath.Join(dir, "current")); err != nil {
-		t.Skipf("worker checkout cache uses directory symlinks; this Windows environment cannot create them: %v", err)
-	}
+	return os.Symlink("target", filepath.Join(dir, "current"))
 }
 
 func readCheckoutTextFile(t *testing.T, path string) string {

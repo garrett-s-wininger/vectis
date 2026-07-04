@@ -2,6 +2,7 @@ package scriptrunner
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -21,7 +22,7 @@ func TestResolveRunners(t *testing.T) {
 	}{
 		{raw: "sh", wantName: "sh", wantPath: "sh", wantExt: ".sh", wantInline: []string{"-c", "echo hi"}, wantFile: []string{"script.sh"}},
 		{raw: "bash", wantName: "bash", wantPath: "bash", wantExt: ".sh", wantInline: []string{"-c", "echo hi"}, wantFile: []string{"script.sh"}},
-		{raw: "batch", wantName: "cmd", wantPath: "cmd", wantExt: ".cmd", wantInline: []string{"/D", "/S", "/C", "echo hi"}, wantFile: []string{"/D", "/S", "/C", `"script.cmd"`}},
+		{raw: "batch", wantName: "cmd", wantPath: "cmd", wantExt: ".cmd", wantInline: []string{"/D", "/S", "/C", "echo hi"}, wantFile: []string{"/D", "/S", "/C", "call", "script.cmd"}},
 		{raw: "powershell", wantName: "powershell", wantPath: "powershell", wantExt: ".ps1", wantInline: []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "echo hi"}, wantFile: []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "script.ps1"}},
 		{raw: "pwsh", wantName: "pwsh", wantPath: "pwsh", wantExt: ".ps1", wantInline: []string{"-NoProfile", "-NonInteractive", "-Command", "echo hi"}, wantFile: []string{"-NoProfile", "-NonInteractive", "-File", "script.ps1"}},
 		{raw: "python", wantName: "python", wantPath: "python", wantExt: ".py", wantInline: []string{"-c", "echo hi"}, wantFile: []string{"script.py"}},
@@ -153,5 +154,35 @@ func TestWriteWorkspaceScriptFileRejectsSymlinkScriptDirectory(t *testing.T) {
 	_, err = WriteWorkspaceScriptFile(workspace, runner, "echo hi")
 	if err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
 		t.Fatalf("WriteWorkspaceScriptFile error = %v, want symlink rejection", err)
+	}
+}
+
+func TestCmdRunnerFileArgsExecutePathWithSpaces(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("cmd runner execution is Windows-specific")
+	}
+
+	dir := filepath.Join(t.TempDir(), "path with spaces")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("create script dir: %v", err)
+	}
+
+	path := filepath.Join(dir, "script file.cmd")
+	if err := os.WriteFile(path, []byte("@echo off\r\necho cmd-ok\r\n"), 0o600); err != nil {
+		t.Fatalf("write cmd script: %v", err)
+	}
+
+	runner, err := Resolve("cmd", Auto)
+	if err != nil {
+		t.Fatalf("Resolve cmd: %v", err)
+	}
+
+	out, err := exec.Command(runner.Path, runner.FileArgs(path)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run cmd script: %v\n%s", err, out)
+	}
+
+	if got := strings.TrimSpace(string(out)); got != "cmd-ok" {
+		t.Fatalf("cmd script output = %q, want cmd-ok", got)
 	}
 }

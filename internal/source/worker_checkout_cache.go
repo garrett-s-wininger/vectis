@@ -357,7 +357,7 @@ func (c *WorkerCheckoutCache) checkout(ctx context.Context, remoteURL, workspace
 		c.recordClone(ctx, mode, reason)
 
 		cacheRemoteURL := filepath.Join(c.repositoryPath(normalizedRemoteURL), "current")
-		if err := configureWorkerCheckoutCacheWorkspace(ctx, workspace, normalizedRemoteURL, cacheRemoteURL); err != nil {
+		if err := configureWorkerCheckoutCacheWorkspace(workspace, normalizedRemoteURL, cacheRemoteURL); err != nil {
 			return true, err
 		}
 
@@ -1272,18 +1272,12 @@ func configureWorkerCheckoutCacheMirror(ctx context.Context, mirrorPath string) 
 	return nil
 }
 
-func configureWorkerCheckoutCacheWorkspace(ctx context.Context, workspace, originURL, cacheRemoteURL string) error {
-	if err := runWorkerCacheGit(ctx, workspace, "remote", "set-url", "origin", originURL); err != nil {
-		return fmt.Errorf("restore checkout origin URL: %w", err)
-	}
-
-	_, _ = execGitRunner{}.RunGit(ctx, workspace, "remote", "remove", workerCheckoutCacheRemoteName)
-	if err := runWorkerCacheGit(ctx, workspace, "remote", "add", workerCheckoutCacheRemoteName, cacheRemoteURL); err != nil {
-		return fmt.Errorf("add worker checkout cache remote: %w", err)
-	}
-
+func configureWorkerCheckoutCacheWorkspace(workspace, originURL, cacheRemoteURL string) error {
 	settings := gitcmd.NoAutoMaintenanceSettings()
 	settings = append(settings,
+		[2]string{"remote.origin.url", originURL},
+		[2]string{"remote." + workerCheckoutCacheRemoteName + ".url", cacheRemoteURL},
+		[2]string{"remote." + workerCheckoutCacheRemoteName + ".fetch", "+refs/heads/*:refs/remotes/" + workerCheckoutCacheRemoteName + "/*"},
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".tagOpt", "--no-tags"},
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".skipDefaultUpdate", "true"},
 		[2]string{"remote." + workerCheckoutCacheRemoteName + ".skipFetchAll", "true"},

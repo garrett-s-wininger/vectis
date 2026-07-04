@@ -47,6 +47,15 @@ import (
 
 func workerStrp(s string) *string { return &s }
 
+func workerFastScriptInputsForTest(script string) map[string]string {
+	inputs := map[string]string{"script": script}
+	if runtime.GOOS == "windows" {
+		inputs["runner"] = "cmd"
+	}
+
+	return inputs
+}
+
 type countingExecutionChoreographer struct {
 	inner executionChoreographer
 	mu    sync.Mutex
@@ -1732,7 +1741,7 @@ func TestWorkerRunTaskExecution_WithExecutionEnvelope_TransitionsExecution(t *te
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -1956,7 +1965,7 @@ func TestWorkerRunClaimedJob_SPIFFEEnabledRejectsMissingSVIDBeforeAction(t *test
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -3282,7 +3291,7 @@ func TestWorkerRunTaskExecution_MissingExecutionEnvelopeFailsRun(t *testing.T) {
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -3574,7 +3583,7 @@ func TestWorkerRunTaskExecution_AckTransientThenSuccess_Completes(t *testing.T) 
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -3651,7 +3660,7 @@ func TestWorkerRunTaskExecution_AckPersistentFailure_OrphansRunWithoutExecution(
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -3735,7 +3744,7 @@ func TestWorkerRunTaskExecution_FinalizeSucceededRetriesOnTransientStoreFailure(
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -3811,7 +3820,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationSurvivesCatalogRecordFailure(
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "echo durable"},
+			With: workerFastScriptInputsForTest("echo durable"),
 		},
 	}
 
@@ -3890,7 +3899,7 @@ func TestWorkerRunTaskExecution_DurableFinalizationFailurePreventsSuccess(t *tes
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "echo durable-required"},
+			With: workerFastScriptInputsForTest("echo durable-required"),
 		},
 	}
 
@@ -3950,7 +3959,7 @@ func TestWorkerRunTaskExecution_RecoversOrchestratorRestartDuringFinalize(t *tes
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -4033,7 +4042,7 @@ func TestWorkerRunTaskExecution_LifecyclePhaseShowsFinalizing(t *testing.T) {
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -4167,7 +4176,7 @@ func TestWorkerRestartMidRun_LeaseExpiryThenRequeue_AllowsRecovery(t *testing.T)
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
@@ -4277,7 +4286,7 @@ func TestWorkerRunTaskExecution_FinalizeSucceededExhausted_LeavesRunningForOrpha
 	root := &api.Node{
 		Id:   &commandNodeID,
 		Uses: &action,
-		With: map[string]string{"script": command},
+		With: workerFastScriptInputsForTest(command),
 	}
 
 	j := &api.Job{
