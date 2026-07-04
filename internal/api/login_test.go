@@ -359,7 +359,7 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=alice,ou=people,dc=example,d
 		h := s.Handler()
 		completeLoginTestSetup(t, h)
 
-		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.MinCost)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -405,7 +405,7 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 		h := s.Handler()
 		completeLoginTestSetup(t, h)
 
-		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.MinCost)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -450,7 +450,7 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 		h := s.Handler()
 		completeLoginTestSetup(t, h)
 
-		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.MinCost)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -558,7 +558,7 @@ WHERE ap.provider_id = 'ldap' AND ei.subject = 'uid=dana,ou=people,dc=example,dc
 		h := s.Handler()
 		completeLoginTestSetup(t, h)
 
-		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.DefaultCost)
+		passHash, err := bcrypt.GenerateFromPassword([]byte("local-password"), bcrypt.MinCost)
 		if err != nil {
 			t.Fatal(err)
 		}

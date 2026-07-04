@@ -13,8 +13,6 @@ import (
 	"vectis/internal/api/audit"
 	"vectis/internal/config"
 	"vectis/internal/dal"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -206,7 +204,7 @@ func (s *APIServer) PostSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passHash, err := generatePasswordHash(password)
 	if err != nil {
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return

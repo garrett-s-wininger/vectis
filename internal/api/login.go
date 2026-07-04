@@ -422,7 +422,7 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 		return loginPrincipal{}, false
 	}
 
-	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passHash, err := generatePasswordHash(password)
 	if err != nil {
 		s.logger.Error("Failed to hash external user placeholder password: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)

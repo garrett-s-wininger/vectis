@@ -20,6 +20,7 @@ import (
 	"vectis/internal/dal"
 	"vectis/internal/gitcmd"
 	"vectis/internal/observability"
+	"vectis/internal/testutil/gittest"
 
 	"github.com/spf13/viper"
 )
@@ -4056,17 +4057,11 @@ func doJSONRequest(t *testing.T, handler http.Handler, method, path string, body
 func initAPIGitRepo(t *testing.T) string {
 	t.Helper()
 
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not available")
-	}
-
-	repo := t.TempDir()
+	repo := gittest.InitRepository(t)
 	if !apiSourceCheckoutRootConfiguredForTest() {
 		viper.Set("source.checkout_root", filepath.Dir(repo))
 		t.Cleanup(viper.Reset)
 	}
-
-	apiGit(t, repo, "init")
 
 	return repo
 }
@@ -4097,8 +4092,7 @@ func writeAPIFileAndCommit(t *testing.T, repo, name, content, message string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 
-	apiGit(t, repo, "add", name)
-	apiGit(t, repo, "commit", "-m", message)
+	gittest.CommitAll(t, repo, message)
 }
 
 func apiGitOutput(t *testing.T, repo string, args ...string) string {

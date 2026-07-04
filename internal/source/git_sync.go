@@ -419,7 +419,7 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 
 		objectID = strings.TrimSpace(string(objectOut))
 	}
-	
+
 	if objectID == "" {
 		return "", fmt.Errorf("%w: candidate ref %s resolved to an empty object", ErrInvalidReference, candidateRef)
 	}
@@ -559,18 +559,47 @@ func preferManagedGitFetchRemote(remotes []string, preferredRemote string) []str
 }
 
 func managedGitFallbackRemoteNames(ctx context.Context, checkoutPath string) []string {
+	if remotes, ok := managedGitFallbackRemoteConfig(checkoutPath); ok {
+		return sortedManagedGitFallbackRemoteNames(remotes)
+	}
+
 	out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote")
 	if err != nil {
 		return nil
 	}
 
-	var fallbacks []managedGitFallbackRemote
+	remotes := map[string]string{}
 	for _, line := range strings.Split(string(out), "\n") {
 		remote := strings.TrimSpace(line)
 		if !validManagedGitFallbackRemote(remote) {
 			continue
 		}
 
+		remotes[remote] = ""
+	}
+
+	return sortedManagedGitFallbackRemoteNames(remotes)
+}
+
+func managedGitFallbackRemoteConfig(checkoutPath string) (map[string]string, bool) {
+	remoteURLs, err := gitcmd.WorkTreeRemoteURLs(checkoutPath)
+	if err != nil {
+		return nil, false
+	}
+
+	fallbacks := make(map[string]string, len(remoteURLs))
+	for remote, remoteURL := range remoteURLs {
+		if validManagedGitFallbackRemote(remote) {
+			fallbacks[remote] = remoteURL
+		}
+	}
+
+	return fallbacks, true
+}
+
+func sortedManagedGitFallbackRemoteNames(remotes map[string]string) []string {
+	fallbacks := make([]managedGitFallbackRemote, 0, len(remotes))
+	for remote := range remotes {
 		tier, numeric := managedGitFallbackRemoteTier(remote)
 		fallbacks = append(fallbacks, managedGitFallbackRemote{name: remote, tier: tier, numeric: numeric})
 	}
@@ -733,7 +762,13 @@ func configureManagedGitFallbackRemotes(ctx context.Context, checkoutPath string
 		desired[managedGitFallbackRemoteName(i+1)] = remoteURL
 	}
 
-	for _, remote := range managedGitFallbackRemoteNames(ctx, checkoutPath) {
+	current, configReadable := managedGitFallbackRemoteConfig(checkoutPath)
+	currentNames := managedGitFallbackRemoteNames(ctx, checkoutPath)
+	if configReadable {
+		currentNames = sortedManagedGitFallbackRemoteNames(current)
+	}
+
+	for _, remote := range currentNames {
 		if _, ok := desired[remote]; ok {
 			continue
 		}
@@ -755,7 +790,22 @@ func configureManagedGitFallbackRemotes(ctx context.Context, checkoutPath string
 	})
 
 	for _, name := range names {
-		_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "remove", name)
+		if configReadable {
+			if current[name] == desired[name] {
+				continue
+			}
+			
+			if _, ok := current[name]; ok {
+				if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "set-url", name, desired[name]); err == nil {
+					continue
+				}
+
+				_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "remove", name)
+			}
+		} else {
+			_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "remove", name)
+		}
+
 		if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "add", name, desired[name]); err != nil {
 			return fmt.Errorf("configure managed fallback remote %s: %w", name, err)
 		}

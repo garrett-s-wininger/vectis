@@ -161,7 +161,7 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passHash, err := generatePasswordHash(password)
 	if err != nil {
 		s.logger.Error("Failed to hash password: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
@@ -861,7 +861,7 @@ func (s *APIServer) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	newHash, err := generatePasswordHash(req.NewPassword)
 	if err != nil {
 		s.logger.Error("Failed to hash password: %v", err)
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)

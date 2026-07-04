@@ -64,3 +64,32 @@ func TestWorkTreeConfigPathFollowsGitDirPointer(t *testing.T) {
 		t.Fatalf("config path got %q, want %q", got, want)
 	}
 }
+
+func TestReadConfigFileRemoteURLs(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config")
+	initial := `[core]
+	repositoryformatversion = 0
+[remote "origin"]
+	url = https://example.invalid/origin.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[remote "vectis-fallback-1"]
+	url = https://example.invalid/fallback.git
+	url = https://example.invalid/ignored.git
+	fetch = +refs/heads/*:refs/remotes/vectis-fallback-1/*
+`
+	if err := os.WriteFile(configPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+
+	got, err := ReadConfigFileRemoteURLs(configPath)
+	if err != nil {
+		t.Fatalf("ReadConfigFileRemoteURLs: %v", err)
+	}
+
+	if got["origin"] != "https://example.invalid/origin.git" {
+		t.Fatalf("origin URL got %q", got["origin"])
+	}
+	if got["vectis-fallback-1"] != "https://example.invalid/fallback.git" {
+		t.Fatalf("fallback URL got %q", got["vectis-fallback-1"])
+	}
+}

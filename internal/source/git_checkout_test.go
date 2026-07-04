@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"vectis/internal/gitcmd"
+	"vectis/internal/testutil/gittest"
 )
 
 func TestGitCheckoutResolveRevisionAndReadFile(t *testing.T) {
@@ -754,7 +755,7 @@ func TestGitCheckoutResolveRevisionUsesWorkTreeRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRevision branch: %v", err)
 	}
-	
+
 	if rev.Commit != want {
 		t.Fatalf("ResolveRevision branch got %q, want %q", rev.Commit, want)
 	}
@@ -805,14 +806,7 @@ func TestGitCheckoutStatusReportsMissingDefaultRef(t *testing.T) {
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not available")
-	}
-
-	repo := t.TempDir()
-	git(t, repo, "init")
-
-	return repo
+	return gittest.InitRepository(t)
 }
 
 func cloneGitRepo(t *testing.T, source, dest string) {
@@ -837,8 +831,7 @@ func writeAndCommit(t *testing.T, repo, name, content, message string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 
-	git(t, repo, "add", name)
-	git(t, repo, "commit", "-m", message)
+	gittest.CommitAll(t, repo, message)
 }
 
 func gitOutput(t *testing.T, repo string, args ...string) string {

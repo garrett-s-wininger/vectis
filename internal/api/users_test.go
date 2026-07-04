@@ -273,7 +273,7 @@ func TestChangePassword_endToEnd(t *testing.T) {
 	var regularToken string
 
 	t.Run("create_regular_user", func(t *testing.T) {
-		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
 		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "regular", string(hash), true)
 
 		if err != nil {
@@ -448,7 +448,7 @@ func TestChangePassword_endToEnd(t *testing.T) {
 		var newAdminToken string
 
 		{
-			hash, _ := bcrypt.GenerateFromPassword([]byte("newpassword123"), bcrypt.DefaultCost)
+			hash, _ := bcrypt.GenerateFromPassword([]byte("newpassword123"), bcrypt.MinCost)
 			_, err := db.Exec("UPDATE local_users SET password_hash = ? WHERE id = ?", string(hash), adminUserID)
 			if err != nil {
 				t.Fatalf("failed to update admin password: %v", err)
@@ -517,7 +517,7 @@ func TestChangePassword_endToEnd(t *testing.T) {
 		// Create a new regular token since the old one was revoked
 		var newRegularToken string
 		{
-			hash, _ := bcrypt.GenerateFromPassword([]byte("resetpassword456"), bcrypt.DefaultCost)
+			hash, _ := bcrypt.GenerateFromPassword([]byte("resetpassword456"), bcrypt.MinCost)
 			_, err := db.Exec("UPDATE local_users SET password_hash = ? WHERE id = ?", string(hash), regularUserID)
 			if err != nil {
 				t.Fatalf("failed to update regular password: %v", err)
@@ -935,7 +935,7 @@ func TestUserCRUD_endToEnd(t *testing.T) {
 	var otherAdminID int64
 	t.Run("cannot_delete_breakglass", func(t *testing.T) {
 		// Create another admin user first
-		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
 		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "otheradmin", string(hash), true)
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)
@@ -1044,7 +1044,7 @@ func TestNamespaceAdminCannotManageGlobalUsers(t *testing.T) {
 			t.Fatalf("failed to create namespace: %v", err)
 		}
 
-		hash, _ := bcrypt.GenerateFromPassword([]byte("teamadmin123"), bcrypt.DefaultCost)
+		hash, _ := bcrypt.GenerateFromPassword([]byte("teamadmin123"), bcrypt.MinCost)
 		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "team-admin", string(hash), true)
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)

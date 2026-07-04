@@ -41,6 +41,63 @@ func WorkTreeConfigPath(workTree string) (string, error) {
 	return filepath.Join(gitDir, "config"), nil
 }
 
+// WorkTreeRemoteURLs reads the first configured URL for each remote in a worktree.
+func WorkTreeRemoteURLs(workTree string) (map[string]string, error) {
+	configPath, err := WorkTreeConfigPath(workTree)
+	if err != nil {
+		return nil, err
+	}
+
+	return ReadConfigFileRemoteURLs(configPath)
+}
+
+// ReadConfigFileRemoteURLs reads the first configured URL for each remote section.
+func ReadConfigFileRemoteURLs(configPath string) (map[string]string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]string{}, nil
+		}
+
+		return nil, fmt.Errorf("read git config %s: %w", configPath, err)
+	}
+
+	remotes := map[string]string{}
+	currentRemote := ""
+	for _, line := range splitConfigLines(string(data)) {
+		if section, subsection, ok := parseConfigSection(line); ok {
+			currentRemote = ""
+			if strings.EqualFold(section, "remote") && strings.TrimSpace(subsection) != "" {
+				currentRemote = subsection
+				if _, exists := remotes[currentRemote]; !exists {
+					remotes[currentRemote] = ""
+				}
+			}
+			continue
+		}
+
+		if currentRemote == "" {
+			continue
+		}
+
+		name, value, ok := parseConfigAssignment(line)
+		if !ok || !strings.EqualFold(name, "url") {
+			continue
+		}
+
+		if _, exists := remotes[currentRemote]; exists {
+			if remotes[currentRemote] == "" {
+				remotes[currentRemote] = strings.TrimSpace(value)
+			}
+			continue
+		}
+
+		remotes[currentRemote] = strings.TrimSpace(value)
+	}
+
+	return remotes, nil
+}
+
 // WorkTreeGitDir returns the Git directory path for a worktree.
 func WorkTreeGitDir(workTree string) (string, error) {
 	dotGit := filepath.Join(workTree, ".git")
@@ -238,22 +295,33 @@ func parseConfigSection(line string) (string, string, bool) {
 }
 
 func parseConfigAssignmentName(line string) (string, bool) {
+	name, _, ok := parseConfigAssignment(line)
+	return name, ok
+}
+
+func parseConfigAssignment(line string) (string, string, bool) {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
-		return "", false
+		return "", "", false
 	}
 
 	name, _, ok := strings.Cut(trimmed, "=")
 	if !ok {
 		fields := strings.Fields(trimmed)
 		if len(fields) == 0 {
-			return "", false
+			return "", "", false
 		}
-		return fields[0], true
+		
+		if len(fields) == 1 {
+			return fields[0], "", true
+		}
+
+		return fields[0], strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0])), true
 	}
 
+	_, value, _ := strings.Cut(trimmed, "=")
 	name = strings.TrimSpace(name)
-	return name, name != ""
+	return name, strings.TrimSpace(value), name != ""
 }
 
 func sameConfigSection(leftSection, leftSubsection, rightSection, rightSubsection string) bool {

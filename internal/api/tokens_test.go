@@ -225,7 +225,7 @@ func TestTokenLifecycle_endToEnd(t *testing.T) {
 	var regularUserID int64
 	var regularToken string
 	t.Run("create_regular_user", func(t *testing.T) {
-		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+		hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.MinCost)
 		res, err := db.Exec("INSERT INTO local_users (username, password_hash, enabled) VALUES (?, ?, ?)", "regular", string(hash), true)
 		if err != nil {
 			t.Fatalf("failed to insert user: %v", err)
