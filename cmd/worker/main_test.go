@@ -703,8 +703,8 @@ func TestWorkerPrepareRunForExecutionMaterializesHotStateSecretPath(t *testing.T
 						Ports: map[string]*api.NodePort{
 							"branches": {
 								Nodes: []*api.Node{
-									{Id: workerStrp("secret-lane"), Uses: &script, With: map[string]string{"script": "echo secret"}},
-									{Id: workerStrp("plain-lane"), Uses: &script, With: map[string]string{"script": "echo plain"}},
+									{Id: workerStrp("secret-lane"), Uses: &script, With: workerFastScriptInputsForTest("echo secret")},
+									{Id: workerStrp("plain-lane"), Uses: &script, With: workerFastScriptInputsForTest("echo plain")},
 								},
 							},
 						},
@@ -1850,7 +1850,7 @@ func TestWorkerTryClaimExecution_RejectsExpiredReclaimAfterInitialClaim(t *testi
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "echo claim"},
+			With: workerFastScriptInputsForTest("echo claim"),
 		},
 	}
 
@@ -2170,7 +2170,7 @@ func TestWorkerRunTaskExecution_TaskFanoutQueuesContinuation(t *testing.T) {
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &childAction,
-				With: map[string]string{"script": "echo child"},
+				With: workerFastScriptInputsForTest("echo child"),
 			}},
 		},
 	}
@@ -2328,7 +2328,7 @@ func TestWorkerRunTaskExecution_TaskFanoutPersistsContinuationBeforeEnqueueFailu
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &childAction,
-				With: map[string]string{"script": "echo child"},
+				With: workerFastScriptInputsForTest("echo child"),
 			}},
 		},
 	}
@@ -2431,7 +2431,7 @@ func TestWorkerRunTaskExecution_TaskFanoutWaitingQueuesContinuation(t *testing.T
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &childAction,
-				With: map[string]string{"script": "echo child"},
+				With: workerFastScriptInputsForTest("echo child"),
 			}},
 		},
 	}
@@ -2559,7 +2559,7 @@ func TestWorkerRunTaskExecution_TaskFanoutFailureFinalizesExecutionAndRun(t *tes
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": failureScript},
+			With: workerFastScriptInputsForTest(failureScript),
 		},
 	}
 
@@ -2821,12 +2821,12 @@ func TestWorkerRunTaskExecution_TaskFanoutExecutesEnvelopeTaskOnly(t *testing.T)
 				{
 					Id:   &firstID,
 					Uses: &scriptAction,
-					With: map[string]string{"script": "echo worker-first-marker"},
+					With: workerFastScriptInputsForTest("echo worker-first-marker"),
 				},
 				{
 					Id:   &secondID,
 					Uses: &scriptAction,
-					With: map[string]string{"script": "echo worker-second-marker"},
+					With: workerFastScriptInputsForTest("echo worker-second-marker"),
 				},
 			},
 		},
@@ -2929,7 +2929,7 @@ func TestWorkerRunTaskExecution_ChildDeliveryHydratesAfterOrchestratorRestart(t 
 			Steps: []*api.Node{{
 				Id:   &childID,
 				Uses: &scriptAction,
-				With: map[string]string{"script": "echo child-ran"},
+				With: workerFastScriptInputsForTest("echo child-ran"),
 			}},
 		},
 	}
@@ -3237,7 +3237,7 @@ func TestWorkerHandleJob_RunlessDeliveryIsMalformed(t *testing.T) {
 		Root: &api.Node{
 			Id:   &commandNodeID,
 			Uses: &action,
-			With: map[string]string{"script": command},
+			With: workerFastScriptInputsForTest(command),
 		},
 	}}
 
@@ -3402,7 +3402,7 @@ func TestWorkerRunTaskExecution_ExecutionClaimRequiredBeforeExecute(t *testing.T
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "echo should-not-run"},
+			With: workerFastScriptInputsForTest("echo should-not-run"),
 		},
 	}
 
@@ -3508,7 +3508,7 @@ func TestWorkerRunTaskExecution_MirroredExpiredDispatchDoesNotOrphan(t *testing.
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "echo should-not-run"},
+			With: workerFastScriptInputsForTest("echo should-not-run"),
 		},
 	}
 
@@ -5723,7 +5723,7 @@ func TestLeaseRenewalLoopRenewsSPIFFERegistration(t *testing.T) {
 		Root: &api.Node{
 			Id:   &rootID,
 			Uses: &action,
-			With: map[string]string{"script": "echo renew"},
+			With: workerFastScriptInputsForTest("echo renew"),
 		},
 	}
 

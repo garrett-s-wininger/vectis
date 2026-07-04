@@ -455,17 +455,17 @@ func TestAPIServer_JobsFacadeUsesSourceRepository(t *testing.T) {
 }
 
 func TestAPIServer_JobsFacadeAuthorsSourceRepositoryDefinitions(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	auditor := &sourceJobAuditCapturer{}
 	server.SetAuditor(auditor)
 	repos := dal.NewSQLRepositories(db)
 	handler := server.Handler()
-	remotePath := initAPIGitRepo(t)
+	remotePath := initAPIRemoteGitRepo(t)
 	writeAPIFileAndCommit(t, remotePath, "README.md", "managed source\n", "readme")
 
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
@@ -2263,14 +2263,14 @@ func TestAPIServer_SyncSourceRepository(t *testing.T) {
 }
 
 func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	handler := server.Handler()
-	remotePath := initAPIGitRepo(t)
+	remotePath := initAPIRemoteGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, remotePath, "true", "first definition")
 	firstCommit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
 
@@ -2546,14 +2546,14 @@ func TestAPIServer_SyncManagedSourceRepositoryClonesAndFetches(t *testing.T) {
 }
 
 func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	handler := server.Handler()
-	remotePath := initAPIGitRepo(t)
+	remotePath := initAPIRemoteGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, remotePath, "main", "main definition")
 
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
@@ -2606,14 +2606,14 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesMissingRef(t *testing.T
 }
 
 func TestAPIServer_ResolveManagedSourceDefinitionHydratesProviderRefs(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, _ := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	handler := server.Handler()
-	remotePath := initAPIGitRepo(t)
+	remotePath := initAPIRemoteGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, remotePath, "main", "main definition")
 
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
@@ -2672,15 +2672,15 @@ func TestAPIServer_ResolveManagedSourceDefinitionHydratesProviderRefs(t *testing
 }
 
 func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	repos := dal.NewSQLRepositories(db)
 	handler := server.Handler()
-	remotePath := initAPIGitRepo(t)
+	remotePath := initAPIRemoteGitRepo(t)
 	writeAPIFileAndCommit(t, remotePath, "README.md", "managed source\n", "readme")
 
 	registerRec := doJSONRequest(t, handler, http.MethodPost, "/api/v1/source-repositories", map[string]any{
@@ -2822,15 +2822,15 @@ func TestAPIServer_PutManagedSourceRepositoryJobDefinitionCommitsDefinition(t *t
 }
 
 func TestAPIServer_TriggerManagedSourceRepositoryJobCreatesRunSnapshot(t *testing.T) {
-	t.Setenv("VECTIS_API_AUTH_ENABLED", "false")
+	t.Parallel()
 
 	checkoutRoot := t.TempDir()
-	t.Setenv("VECTIS_SOURCE_CHECKOUT_ROOT", checkoutRoot)
 
 	server, _, _, db := setupTestServer(t)
+	server.SetSourceCheckoutRoot(checkoutRoot)
 	repos := dal.NewSQLRepositories(db)
 	handler := server.Handler()
-	remotePath := initAPIGitRepo(t)
+	remotePath := initAPIRemoteGitRepo(t)
 	writeAPIJobDefinitionAndCommit(t, remotePath, "source-trigger", "source trigger definition")
 	commit := apiGitOutput(t, remotePath, "rev-parse", "HEAD")
 	blob := apiGitOutput(t, remotePath, "rev-parse", "HEAD:.vectis/jobs/build.json")
@@ -4041,6 +4041,12 @@ func initAPIGitRepo(t *testing.T) string {
 	}
 
 	return repo
+}
+
+func initAPIRemoteGitRepo(t *testing.T) string {
+	t.Helper()
+
+	return gittest.InitRepository(t)
 }
 
 func apiSourceCheckoutRootConfiguredForTest() bool {

@@ -184,6 +184,7 @@ type APIServer struct {
 	sourceRefHydrationLeasePollInterval time.Duration
 	sourceDefinitionAuthor              SourceDefinitionAuthorFactory
 	sourceAuthoring                     SourceAuthoringCapabilityResolver
+	sourceCheckoutRoot                  string
 	srvCtx                              atomic.Pointer[ctxHolder]
 }
 

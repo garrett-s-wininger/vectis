@@ -1,11 +1,14 @@
 package source
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -817,6 +820,16 @@ func cloneGitRepo(t *testing.T, source, dest string) {
 	if err != nil {
 		t.Fatalf("git clone %s %s: %v\n%s", source, dest, err, out)
 	}
+
+	settings := [][2]string{
+		{"user.name", "Vectis Test"},
+		{"user.email", "vectis@example.invalid"},
+		{"commit.gpgsign", "false"},
+	}
+	settings = append(settings, gitcmd.NoAutoMaintenanceSettings()...)
+	if err := gitcmd.WriteWorkTreeConfigSettings(dest, settings); err != nil {
+		t.Fatalf("configure cloned git repo %s: %v", dest, err)
+	}
 }
 
 func writeAndCommit(t *testing.T, repo, name, content, message string) {
@@ -899,6 +912,48 @@ func gitOutputFromFiles(repo string, args ...string) (string, bool) {
 		}
 
 		return commit + " " + args[2], true
+	case len(args) == 1 && args[0] == "remote":
+		remotes, err := gitcmd.WorkTreeRemoteURLs(repo)
+		if err != nil {
+			return "", false
+		}
+
+		names := make([]string, 0, len(remotes))
+		for name := range remotes {
+			names = append(names, name)
+		}
+
+		sort.Strings(names)
+		return strings.Join(names, "\n"), true
+	case len(args) == 3 && args[0] == "remote" && args[1] == "get-url":
+		remotes, err := gitcmd.WorkTreeRemoteURLs(repo)
+		if err != nil {
+			return "", false
+		}
+
+		remoteURL, ok := remotes[args[2]]
+		return remoteURL, ok
+	case len(args) == 2 && args[0] == "tag" && args[1] == "--list":
+		refs, ok := gitTestRefs(repo, "refs/tags")
+		if !ok {
+			return "", false
+		}
+
+		tags := make([]string, 0, len(refs))
+		for _, ref := range refs {
+			if tag, ok := strings.CutPrefix(ref, "refs/tags/"); ok {
+				tags = append(tags, tag)
+			}
+		}
+
+		return strings.Join(tags, "\n"), true
+	case len(args) == 3 && args[0] == "for-each-ref" && args[1] == "--format=%(refname)":
+		refs, ok := gitTestRefs(repo, args[2])
+		if !ok {
+			return "", false
+		}
+
+		return strings.Join(refs, "\n"), true
 	case len(args) == 3 && args[0] == "update-ref":
 		if err := gitcmd.WriteWorkTreeRef(repo, args[1], args[2]); err != nil {
 			return "", false
@@ -908,6 +963,76 @@ func gitOutputFromFiles(repo string, args ...string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func gitTestRefs(repo, prefix string) ([]string, bool) {
+	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
+	if !strings.HasPrefix(prefix, "refs/") {
+		return nil, false
+	}
+
+	gitDir, err := gitcmd.WorkTreeGitDir(repo)
+	if err != nil {
+		return nil, false
+	}
+
+	commonDir := gitcmd.GitCommonDir(gitDir)
+	refs := map[string]struct{}{}
+	root := filepath.Join(append([]string{commonDir}, strings.Split(prefix, "/")...)...)
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+
+		rel, err := filepath.Rel(commonDir, path)
+		if err != nil {
+			return err
+		}
+
+		refs[filepath.ToSlash(rel)] = struct{}{}
+		return nil
+	}); err != nil && !os.IsNotExist(err) {
+		return nil, false
+	}
+
+	file, err := os.Open(filepath.Join(commonDir, "packed-refs"))
+	if err == nil {
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+				continue
+			}
+
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && gitTestRefHasPrefix(fields[1], prefix) {
+				refs[fields[1]] = struct{}{}
+			}
+		}
+
+		if scanErr := scanner.Err(); scanErr != nil {
+			_ = file.Close()
+			return nil, false
+		}
+
+		_ = file.Close()
+	} else if !os.IsNotExist(err) {
+		return nil, false
+	}
+
+	out := make([]string, 0, len(refs))
+	for ref := range refs {
+		if gitTestRefHasPrefix(ref, prefix) {
+			out = append(out, ref)
+		}
+	}
+	
+	sort.Strings(out)
+	return out, true
+}
+
+func gitTestRefHasPrefix(ref, prefix string) bool {
+	return ref == prefix || strings.HasPrefix(ref, prefix+"/")
 }
 
 func resolveGitTestRef(repo, ref string) (string, bool) {

@@ -521,7 +521,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		checkoutPath, err := managedSourceCheckoutPath(req.RepositoryID)
+		checkoutPath, err := s.managedSourceCheckoutPath(req.RepositoryID)
 		if err != nil {
 			writeAPIError(w, http.StatusBadRequest, "invalid_repository_id", "repository_id cannot be mapped to a managed checkout path", nil)
 			return
@@ -530,7 +530,7 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 		req.CheckoutPath = checkoutPath
 	}
 
-	if err := validateAPISourceCheckoutPath(req.CheckoutPath); err != nil {
+	if err := s.validateSourceCheckoutPath(req.CheckoutPath); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "checkout_path_forbidden", "checkout_path must be under the configured source checkout root", nil)
 		return
 	}
@@ -2322,7 +2322,7 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		checkoutPath, err := managedSourceCheckoutPath(updated.RepositoryID)
+		checkoutPath, err := s.managedSourceCheckoutPath(updated.RepositoryID)
 		if err != nil {
 			writeAPIError(w, http.StatusBadRequest, "invalid_repository_id", "repository_id cannot be mapped to a managed checkout path", nil)
 			return
@@ -2332,7 +2332,7 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	if req.CheckoutPath != nil || (req.CheckoutMode != nil && updated.CheckoutMode == dal.SourceCheckoutModeManaged) {
-		if err := validateAPISourceCheckoutPath(updated.CheckoutPath); err != nil {
+		if err := s.validateSourceCheckoutPath(updated.CheckoutPath); err != nil {
 			writeAPIError(w, http.StatusBadRequest, "checkout_path_forbidden", "checkout_path must be under the configured source checkout root", nil)
 			return
 		}
@@ -3148,8 +3148,20 @@ func (s *APIServer) newSourceDefinitionAuthor(rec dal.SourceRepositoryRecord) (s
 	return factory(rec)
 }
 
-func managedSourceCheckoutPath(repositoryID string) (string, error) {
-	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(platform.DataHome()))
+func (s *APIServer) SetSourceCheckoutRoot(root string) {
+	s.sourceCheckoutRoot = strings.TrimSpace(root)
+}
+
+func (s *APIServer) sourceCheckoutRootPath() string {
+	if s != nil && strings.TrimSpace(s.sourceCheckoutRoot) != "" {
+		return filepath.Clean(s.sourceCheckoutRoot)
+	}
+
+	return config.SourceCheckoutRoot(platform.DataHome())
+}
+
+func (s *APIServer) managedSourceCheckoutPath(repositoryID string) (string, error) {
+	store, err := sourcepkg.NewCheckoutStore(s.sourceCheckoutRootPath())
 	if err != nil {
 		return "", err
 	}
@@ -3157,8 +3169,8 @@ func managedSourceCheckoutPath(repositoryID string) (string, error) {
 	return store.Path(repositoryID)
 }
 
-func validateAPISourceCheckoutPath(checkoutPath string) error {
-	store, err := sourcepkg.NewCheckoutStore(config.SourceCheckoutRoot(platform.DataHome()))
+func (s *APIServer) validateSourceCheckoutPath(checkoutPath string) error {
+	store, err := sourcepkg.NewCheckoutStore(s.sourceCheckoutRootPath())
 	if err != nil {
 		return err
 	}

@@ -296,9 +296,6 @@ func TestHydrateManagedGitRefFallsBackAcrossReplicaRemotes(t *testing.T) {
 
 	upstream := filepath.Join(t.TempDir(), "upstream")
 	cloneGitRepo(t, mirror, upstream)
-	git(t, upstream, "config", "user.name", "Vectis Test")
-	git(t, upstream, "config", "user.email", "vectis@example.invalid")
-	git(t, upstream, "config", "commit.gpgsign", "false")
 
 	checkoutPath := filepath.Join(t.TempDir(), "managed")
 	status := SyncManagedGitCheckout(context.Background(), ManagedGitCheckoutRequest{

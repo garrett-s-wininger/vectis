@@ -377,8 +377,6 @@ func TestWorkerCheckoutCacheHydratesCanonicalMirrorFromFallback(t *testing.T) {
 
 	upstream := filepath.Join(t.TempDir(), "upstream")
 	cloneGitRepo(t, primary, upstream)
-	git(t, upstream, "config", "user.name", "Vectis Test")
-	git(t, upstream, "config", "user.email", "vectis@example.invalid")
 	writeAndCommit(t, upstream, "README.md", "upstream\n", "upstream")
 	upstreamCommit := gitOutput(t, upstream, "rev-parse", "HEAD")
 
@@ -611,8 +609,6 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightOverlaysFallbackRefs(t *testin
 
 	fallback := filepath.Join(t.TempDir(), "fallback")
 	cloneGitRepo(t, primary, fallback)
-	git(t, fallback, "config", "user.name", "Vectis Test")
-	git(t, fallback, "config", "user.email", "vectis@example.invalid")
 	git(t, fallback, "checkout", "-b", "review/fallback")
 	writeAndCommit(t, fallback, "README.md", "fallback\n", "fallback")
 	fallbackCommit := gitOutput(t, fallback, "rev-parse", "HEAD")

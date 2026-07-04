@@ -794,14 +794,11 @@ func configureManagedGitFallbackRemotes(ctx context.Context, checkoutPath string
 			if current[name] == desired[name] {
 				continue
 			}
-			
-			if _, ok := current[name]; ok {
-				if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "set-url", name, desired[name]); err == nil {
-					continue
-				}
 
-				_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "remove", name)
+			if err := writeManagedGitFallbackRemoteConfig(checkoutPath, name, desired[name]); err != nil {
+				return fmt.Errorf("configure managed fallback remote %s: %w", name, err)
 			}
+			continue
 		} else {
 			_, _ = (execGitRunner{}).RunGit(ctx, checkoutPath, "remote", "remove", name)
 		}
@@ -812,6 +809,13 @@ func configureManagedGitFallbackRemotes(ctx context.Context, checkoutPath string
 	}
 
 	return nil
+}
+
+func writeManagedGitFallbackRemoteConfig(checkoutPath, name, remoteURL string) error {
+	return gitcmd.WriteWorkTreeConfigSettings(checkoutPath, [][2]string{
+		{"remote." + name + ".url", remoteURL},
+		{"remote." + name + ".fetch", "+refs/heads/*:refs/remotes/" + name + "/*"},
+	})
 }
 
 func managedGitFallbackRemoteName(tier int) string {
