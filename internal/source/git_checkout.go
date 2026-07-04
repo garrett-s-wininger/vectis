@@ -14,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+
 	"vectis/internal/gitcmd"
 	"vectis/internal/source/refspec"
 )
@@ -328,7 +331,37 @@ func (g *GitCheckout) readFileRequest(ctx context.Context, req DefinitionFileReq
 		if size < 0 {
 			return File{}, fmt.Errorf("%w: %s has invalid size %d", ErrInvalidReference, cleanPath, size)
 		}
+
+		if content, blobSize, ok, err := g.readBlobFromGoGit(blobSHA); ok {
+			if err != nil {
+				return File{}, err
+			}
+
+			size = blobSize
+			if g.maxFileBytes > 0 && size > g.maxFileBytes {
+				return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, size, g.maxFileBytes)
+			}
+
+			if g.maxFileBytes > 0 && int64(len(content)) > g.maxFileBytes {
+				return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(content), g.maxFileBytes)
+			}
+
+			return File{
+				Path:     cleanPath,
+				Revision: Revision{Commit: commit},
+				BlobSHA:  blobSHA,
+				Content:  content,
+			}, nil
+		}
 	} else {
+		if file, ok, err := g.readFileFromGoGit(commit, cleanPath); ok {
+			if err != nil {
+				return File{}, err
+			}
+
+			return file, nil
+		}
+
 		blobSHA, size, err = g.lookupFileBlob(ctx, commit, cleanPath)
 		if err != nil {
 			return File{}, err
@@ -361,6 +394,72 @@ func (g *GitCheckout) readFileRequest(ctx context.Context, req DefinitionFileReq
 		BlobSHA:  blobSHA,
 		Content:  content,
 	}, nil
+}
+
+func (g *GitCheckout) readFileFromGoGit(commit, cleanPath string) (File, bool, error) {
+	repo, err := gogit.PlainOpen(g.checkoutPath)
+	if err != nil {
+		return File{}, false, nil
+	}
+
+	commitObject, err := repo.CommitObject(plumbing.NewHash(commit))
+	if err != nil {
+		return File{}, false, nil
+	}
+
+	file, err := commitObject.File(cleanPath)
+	if err != nil {
+		return File{}, false, nil
+	}
+
+	if g.maxFileBytes > 0 && file.Size > g.maxFileBytes {
+		return File{}, true, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, file.Size, g.maxFileBytes)
+	}
+
+	content, err := readGoGitBlob(file.Reader)
+	if err != nil {
+		return File{}, false, nil
+	}
+	
+	if g.maxFileBytes > 0 && int64(len(content)) > g.maxFileBytes {
+		return File{}, true, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(content), g.maxFileBytes)
+	}
+
+	return File{
+		Path:     cleanPath,
+		Revision: Revision{Commit: commit},
+		BlobSHA:  file.Hash.String(),
+		Content:  content,
+	}, true, nil
+}
+
+func (g *GitCheckout) readBlobFromGoGit(blobSHA string) ([]byte, int64, bool, error) {
+	repo, err := gogit.PlainOpen(g.checkoutPath)
+	if err != nil {
+		return nil, 0, false, nil
+	}
+
+	blob, err := repo.BlobObject(plumbing.NewHash(blobSHA))
+	if err != nil {
+		return nil, 0, false, nil
+	}
+
+	content, err := readGoGitBlob(blob.Reader)
+	if err != nil {
+		return nil, 0, false, nil
+	}
+
+	return content, blob.Size, true, nil
+}
+
+func readGoGitBlob(reader func() (io.ReadCloser, error)) ([]byte, error) {
+	rc, err := reader()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	return io.ReadAll(rc)
 }
 
 func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (FileCommit, error) {
