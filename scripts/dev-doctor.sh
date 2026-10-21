@@ -250,15 +250,89 @@ install_go_tool() {
 		return
 	fi
 
-	mkdir -p "$TOOL_PREFIX/bin"
+	dest="$TOOL_PREFIX/bin"
+	case "$module" in
+		github.com/magefile/mage@*)
+			dest="$TOOL_PREFIX/libexec"
+			;;
+	esac
+
+	mkdir -p "$dest"
 	printf '  [run] go install %s\n' "$module"
 
-	if GOBIN="$TOOL_PREFIX/bin" go install "$module"; then
-		pass "installed $module to $TOOL_PREFIX/bin"
+	if GOBIN="$dest" go install "$module"; then
+		pass "installed $module to $dest"
+		case "$module" in
+			github.com/magefile/mage@*)
+				install_mage_wrapper
+				;;
+		esac
 	else
 		fail "go install failed for $module"
 		note "Check network access and GOPATH/GOBIN permissions, then rerun this script."
 	fi
+}
+
+install_mage_wrapper() {
+	if [ ! -x "$TOOL_PREFIX/libexec/mage" ]; then
+		fail "mage install did not produce $TOOL_PREFIX/libexec/mage"
+		return
+	fi
+
+	mkdir -p "$TOOL_PREFIX/bin"
+	cat > "$TOOL_PREFIX/bin/mage" <<'EOF'
+#!/bin/sh
+set -eu
+self=$0
+case "$self" in
+	*/*) ;;
+	*) self=$(command -v "$0" 2>/dev/null || printf '%s' "$0") ;;
+esac
+bin_dir=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd)
+tool_prefix=$(CDPATH= cd -- "$bin_dir/.." && pwd)
+local_go="$tool_prefix/go/bin/go"
+if [ -x "$local_go" ]; then
+	PATH="$tool_prefix/go/bin:$tool_prefix/bin:$tool_prefix/protoc/bin:$tool_prefix/node/bin:${PATH:-}"
+	export PATH
+	if [ -z "${MAGEFILE_GOCMD:-}" ]; then
+		MAGEFILE_GOCMD=$local_go
+		export MAGEFILE_GOCMD
+	fi
+	if [ -z "${GO:-}" ]; then
+		GO=$local_go
+		export GO
+	fi
+fi
+exec "$tool_prefix/libexec/mage" "$@"
+EOF
+	chmod +x "$TOOL_PREFIX/bin/mage"
+	pass "wrapped mage so it uses $TOOL_PREFIX/go/bin/go without a PATH change"
+}
+
+ensure_existing_mage_wrapper() {
+	mage_bin="$TOOL_PREFIX/bin/mage"
+	if [ -x "$TOOL_PREFIX/libexec/mage" ] && [ -f "$mage_bin" ]; then
+		sig=$(dd if="$mage_bin" bs=2 count=1 2>/dev/null || true)
+		if [ "$sig" = "#!" ]; then
+			return
+		fi
+	fi
+
+	if [ ! -x "$TOOL_PREFIX/libexec/mage" ]; then
+		if [ ! -f "$mage_bin" ] || [ -L "$mage_bin" ]; then
+			return
+		fi
+
+		sig=$(dd if="$mage_bin" bs=2 count=1 2>/dev/null || true)
+		if [ "$sig" = "#!" ]; then
+			return
+		fi
+
+		mkdir -p "$TOOL_PREFIX/libexec"
+		mv "$mage_bin" "$TOOL_PREFIX/libexec/mage"
+	fi
+
+	install_mage_wrapper
 }
 
 detect_package_manager() {
@@ -364,6 +438,7 @@ install_local_go() {
 		go_version=$(normalize_version "$go_version_raw")
 		if version_ge "$go_version" "$MIN_GO"; then
 			pass "go $go_version_raw already satisfies $MIN_GO+"
+			link_local_go
 			return
 		fi
 	fi
@@ -400,6 +475,16 @@ install_local_go() {
 	rm -rf "$tmpdir"
 	PATH="$TOOL_PREFIX/go/bin:$PATH"
 	export PATH
+	link_local_go
+}
+
+link_local_go() {
+	if [ ! -x "$TOOL_PREFIX/go/bin/go" ]; then
+		return
+	fi
+
+	mkdir -p "$TOOL_PREFIX/bin"
+	ln -sfn "../go/bin/go" "$TOOL_PREFIX/bin/go"
 }
 
 install_local_node() {
@@ -514,15 +599,28 @@ install_local_protoc() {
 
 write_env_file() {
 	mkdir -p "$TOOL_PREFIX"
+	go_exports=""
+	if [ -x "$TOOL_PREFIX/go/bin/go" ]; then
+		go_exports=$(cat <<EOF
+export MAGEFILE_GOCMD="$TOOL_PREFIX/go/bin/go"
+export GO="$TOOL_PREFIX/go/bin/go"
+EOF
+)
+	fi
+
 	cat > "$TOOL_PREFIX/env.sh" <<EOF
 # Source this file to use the Vectis repo-local toolchain installed by scripts/dev-doctor.sh.
-export PATH="$TOOL_PREFIX/bin:$TOOL_PREFIX/protoc/bin:$TOOL_PREFIX/go/bin:$TOOL_PREFIX/node/bin:\$PATH"
+# .tools/bin/mage finds .tools/go/bin/go on its own. Source this file so bare
+# go, mage, and protoc commands resolve in the current shell.
+export PATH="$TOOL_PREFIX/go/bin:$TOOL_PREFIX/bin:$TOOL_PREFIX/protoc/bin:$TOOL_PREFIX/node/bin:\$PATH"
+$go_exports
 export MAGE="$TOOL_PREFIX/bin/mage"
 export PROTOC_GEN_GO="$TOOL_PREFIX/bin/protoc-gen-go"
 export PROTOC_GEN_GO_GRPC="$TOOL_PREFIX/bin/protoc-gen-go-grpc"
 EOF
 	pass "wrote $TOOL_PREFIX/env.sh"
-	note "Run: . \"$TOOL_PREFIX/env.sh\""
+	note "mage at $TOOL_PREFIX/bin/mage uses the repo-local Go without a PATH change."
+	note "Run: . \"$TOOL_PREFIX/env.sh\"  # current shell: go, mage, protoc"
 }
 
 install_optional_packages() {
@@ -651,9 +749,12 @@ if [ "$INSTALL_GO_TOOLS" -eq 1 ]; then
 	install_go_tool "google.golang.org/grpc/cmd/protoc-gen-go-grpc@$PROTOC_GEN_GO_GRPC_VERSION"
 fi
 
-if [ "$INSTALL_REQUIRED" -eq 1 ] || [ "$INSTALL_FRONTEND" -eq 1 ]; then
+if [ "$INSTALL_REQUIRED" -eq 1 ] || [ "$INSTALL_FRONTEND" -eq 1 ] || [ -f "$TOOL_PREFIX/env.sh" ]; then
 	write_env_file
 fi
+
+link_local_go
+ensure_existing_mage_wrapper
 
 section "Required Tools"
 

@@ -78,7 +78,7 @@ To inspect or remove local state:
 - Node.js `20.19+` and npm only for frontend lanes such as `mage buildFrontend`, `mage buildDocs`, `mage buildUI`, and `mage buildFull`.
 - Mage, `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` for the portable build targets and protobuf regeneration.
 
-Run `scripts/dev-doctor.sh` on POSIX shells or `.\scripts\dev-doctor.ps1` on Windows PowerShell for a preflight check with install guidance. On Unix, `scripts/dev-doctor.sh --install --yes` installs the required local Go toolchain with the local package manager plus repo-local Go, Mage, and protobuf tools under `.tools/`; source `.tools/env.sh` afterward. Add `--install-frontend` when you also want repo-local Node.js for docs/UI work. Pass `--install-go-tools` / `-InstallGoTools` to install only the Go-based tools directly.
+Run `scripts/dev-doctor.sh` on POSIX shells or `.\scripts\dev-doctor.ps1` on Windows PowerShell for a preflight check with install guidance. On Unix, `scripts/dev-doctor.sh --install --yes` installs the required local Go toolchain with the local package manager plus repo-local Go, Mage, and protobuf tools under `.tools/`. `./.tools/bin/mage` uses that Go without a PATH change. Source `.tools/env.sh` when you want `go`, `mage`, and `protoc` as bare commands in the current shell. Add `--install-frontend` when you also want repo-local Node.js for docs/UI work. Pass `--install-go-tools` / `-InstallGoTools` to install only the Go-based tools directly.
 
 Portable build targets live in Mage. Use `mage -l` to list the targets after running the doctor install and loading the repo-local toolchain environment.
 

@@ -23,6 +23,8 @@ scripts/dev-doctor.sh --install --yes
 . .tools/env.sh
 ```
 
+`./.tools/bin/mage` uses the Go installed under `.tools/go` without a PATH change. Source `.tools/env.sh` when you want `go`, `mage`, and `protoc` as bare commands in the current shell.
+
 Use `--install-go-tools` on Unix or `-InstallGoTools` on Windows when you only need Mage and protobuf Go plugins installed through `go install`. On Unix, add `--install-frontend` when you also want repo-local Node.js for docs/UI work.
 
 ## Unix
