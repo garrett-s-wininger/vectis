@@ -55,7 +55,7 @@ scripts/dev-doctor.sh
 .\scripts\dev-doctor.ps1
 ```
 
-The doctor checks Go, Git, Mage, protobuf tooling, SQLite/CGO readiness, optional frontend tooling, optional container/formal tools, and Windows symlink support. Use `scripts/dev-doctor.sh --install --yes` on Unix-like systems to install the standard local Go toolchain, then source `.tools/env.sh`. Add `--install-frontend` when you also want repo-local Node.js for docs/UI work. Use `--install-go-tools` or `-InstallGoTools` when you only need Mage and protobuf Go plugins installed through `go install`.
+The doctor checks Go, Git, Mage, protobuf tooling, SQLite/CGO readiness, optional frontend tooling, optional container/formal tools, and Windows symlink support. Use `scripts/dev-doctor.sh --install --yes` on Unix-like systems to install the standard local Go toolchain. `./.tools/bin/mage` uses that Go without a PATH change; source `.tools/env.sh` when you want `go`, `mage`, and `protoc` as bare commands in the current shell. Add `--install-frontend` when you also want repo-local Node.js for docs/UI work. Use `--install-go-tools` or `-InstallGoTools` when you only need Mage and protobuf Go plugins installed through `go install`.
 
 ### Unix
 
