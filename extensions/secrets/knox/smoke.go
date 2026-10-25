@@ -182,7 +182,13 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 
 	file := bundle.Files[0]
 	if file.ID != opts.ID || file.Path != opts.Path {
-		return SmokeResult{}, fmt.Errorf("knox smoke file = id=%q path=%q, want id=%q path=%q", file.ID, file.Path, opts.ID, opts.Path)
+		return SmokeResult{}, fmt.Errorf(
+			"knox smoke file = id=%q path=%q, want id=%q path=%q",
+			file.ID,
+			file.Path,
+			opts.ID,
+			opts.Path,
+		)
 	}
 
 	sum := sha256.Sum256(file.Data)

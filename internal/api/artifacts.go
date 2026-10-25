@@ -53,7 +53,13 @@ func (s *APIServer) ListRunArtifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, nextCursor, err := s.artifacts.ListByRunFiltered(ctx, runID, params.Cursor, params.Limit, artifactListFilterFromQuery(r))
+	records, nextCursor, err := s.artifacts.ListByRunFiltered(
+		ctx,
+		runID,
+		params.Cursor,
+		params.Limit,
+		artifactListFilterFromQuery(r),
+	)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -163,8 +169,15 @@ func (s *APIServer) DownloadRunArtifact(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !artifactDescriptorMatchesRecord(desc, rec) {
-		s.logger.Error("Artifact manifest/blob mismatch for run %s artifact %s: manifest digest=%s size=%d blob digest=%s size=%d",
-			runID, name, rec.BlobDigest, rec.SizeBytes, desc.Digest, desc.Size)
+		s.logger.Error(
+			"Artifact manifest/blob mismatch for run %s artifact %s: manifest digest=%s size=%d blob digest=%s size=%d",
+			runID,
+			name,
+			rec.BlobDigest,
+			rec.SizeBytes,
+			desc.Digest,
+			desc.Size,
+		)
 		writeAPIError(w, http.StatusBadGateway, "artifact_blob_mismatch", "artifact blob does not match manifest", nil)
 		return
 	}
@@ -191,20 +204,38 @@ func (s *APIServer) DownloadRunArtifact(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !artifactDescriptorMatchesRecord(written, rec) {
-		s.logger.Error("Artifact stream descriptor mismatch for run %s artifact %s: manifest digest=%s size=%d stream digest=%s size=%d",
-			runID, name, rec.BlobDigest, rec.SizeBytes, written.Digest, written.Size)
+		s.logger.Error(
+			"Artifact stream descriptor mismatch for run %s artifact %s: manifest digest=%s size=%d stream digest=%s size=%d",
+			runID,
+			name,
+			rec.BlobDigest,
+			rec.SizeBytes,
+			written.Digest,
+			written.Size,
+		)
 	}
 }
 
 func (s *APIServer) requireArtifacts(w http.ResponseWriter) bool {
 	if s.artifacts == nil {
-		writeAPIError(w, http.StatusServiceUnavailable, "artifacts_not_configured", "artifact repository not configured", nil)
+		writeAPIError(
+			w,
+			http.StatusServiceUnavailable,
+			"artifacts_not_configured",
+			"artifact repository not configured",
+			nil,
+		)
 		return false
 	}
 	return true
 }
 
-func (s *APIServer) authorizeRunArtifactRead(ctx context.Context, w http.ResponseWriter, r *http.Request, runID string) bool {
+func (s *APIServer) authorizeRunArtifactRead(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	runID string,
+) bool {
 	p, ok := s.requirePrincipal(w, r)
 	if !ok {
 		return false
@@ -234,7 +265,11 @@ func (s *APIServer) authorizeRunArtifactRead(ctx context.Context, w http.Respons
 	return true
 }
 
-func (s *APIServer) getRunArtifact(ctx context.Context, w http.ResponseWriter, runID, name string) (dal.ArtifactRecord, bool) {
+func (s *APIServer) getRunArtifact(
+	ctx context.Context,
+	w http.ResponseWriter,
+	runID, name string,
+) (dal.ArtifactRecord, bool) {
 	rec, err := s.artifacts.GetByRunAndName(ctx, runID, name)
 	if err != nil {
 		if dal.IsNotFound(err) {

@@ -76,7 +76,10 @@ func (m *ManagingLogClient) StreamLogsForRun(ctx context.Context, runID string) 
 	return m.pool.streamLogsForRun(ctx, runID)
 }
 
-func (m *ManagingLogClient) StreamLogsForAssignedRun(ctx context.Context, runID, shardID string) (interfaces.LogStream, error) {
+func (m *ManagingLogClient) StreamLogsForAssignedRun(
+	ctx context.Context,
+	runID, shardID string,
+) (interfaces.LogStream, error) {
 	return m.pool.streamLogsForAssignedRun(ctx, runID, shardID)
 }
 
@@ -88,7 +91,11 @@ func (m *ManagingLogClient) SendLogBatchForRun(ctx context.Context, runID string
 	return m.pool.sendLogBatchForRun(ctx, runID, chunks)
 }
 
-func (m *ManagingLogClient) SendLogBatchForAssignedRun(ctx context.Context, runID, shardID string, chunks []*api.LogChunk) error {
+func (m *ManagingLogClient) SendLogBatchForAssignedRun(
+	ctx context.Context,
+	runID, shardID string,
+	chunks []*api.LogChunk,
+) error {
 	return m.pool.sendLogBatchForAssignedRun(ctx, runID, shardID, chunks)
 }
 
@@ -96,7 +103,11 @@ func (m *ManagingLogClient) AssignLogShardForRun(ctx context.Context, runID stri
 	return m.pool.assignLogShardForRun(ctx, runID)
 }
 
-func (m *ManagingLogClient) GetLogs(ctx context.Context, req *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error) {
+func (m *ManagingLogClient) GetLogs(
+	ctx context.Context,
+	req *api.GetLogsRequest,
+	opts ...grpc.CallOption,
+) (api.LogService_GetLogsClient, error) {
 	return m.pool.getLogs(ctx, req, opts...)
 }
 
@@ -156,7 +167,13 @@ func newLogPool(ctx context.Context, logger interfaces.Logger, opts PoolOptions)
 	}
 
 	if opts.PinnedAddress == "" {
-		reg, err := resolver.NewRegistryClient(ctx, opts.RegistryAddress, logger, interfaces.SystemClock{}, opts.RetryMetrics)
+		reg, err := resolver.NewRegistryClient(
+			ctx,
+			opts.RegistryAddress,
+			logger,
+			interfaces.SystemClock{},
+			opts.RetryMetrics,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("registry client: %w", err)
 		}
@@ -316,7 +333,11 @@ func (p *logPool) resolveDesired(ctx context.Context) ([]desiredLogEndpoint, err
 		return nil, fmt.Errorf("registry client is required")
 	}
 
-	entries, err := p.registry.ListRegistrations(ctx, api.Component_COMPONENT_LOG, registry.DefaultServiceMetadataForCell(config.CellID()))
+	entries, err := p.registry.ListRegistrations(
+		ctx,
+		api.Component_COMPONENT_LOG,
+		registry.DefaultServiceMetadataForCell(config.CellID()),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +384,14 @@ func (p *logPool) resolveDesired(ctx context.Context) ([]desiredLogEndpoint, err
 }
 
 func (p *logPool) connectEndpoint(ctx context.Context, id, address string, writable bool) (*logEndpoint, error) {
-	conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_LOG, address, p.logger, nil, p.opts.RetryMetrics)
+	conn, cleanup, err := resolver.NewClientWithPinnedAddress(
+		ctx,
+		api.Component_COMPONENT_LOG,
+		address,
+		p.logger,
+		nil,
+		p.opts.RetryMetrics,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +778,11 @@ func (p *logPool) assignLogShardForRun(ctx context.Context, runID string) (strin
 	return ep.id, nil
 }
 
-func (p *logPool) getLogs(ctx context.Context, req *api.GetLogsRequest, opts ...grpc.CallOption) (api.LogService_GetLogsClient, error) {
+func (p *logPool) getLogs(
+	ctx context.Context,
+	req *api.GetLogsRequest,
+	opts ...grpc.CallOption,
+) (api.LogService_GetLogsClient, error) {
 	ep, err := p.chooseReadEndpoint(ctx, req.GetRunId())
 	if err != nil {
 		return nil, err

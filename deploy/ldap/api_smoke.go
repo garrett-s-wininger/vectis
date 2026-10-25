@@ -211,7 +211,11 @@ func runInMemoryAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 	}
 
 	if identity.Provider != ldapauth.DefaultProviderID {
-		return APISmokeResult{}, fmt.Errorf("LDAP setup identity provider = %q, want %q", identity.Provider, ldapauth.DefaultProviderID)
+		return APISmokeResult{}, fmt.Errorf(
+			"LDAP setup identity provider = %q, want %q",
+			identity.Provider,
+			ldapauth.DefaultProviderID,
+		)
 	}
 
 	if strings.TrimSpace(identity.Subject) == "" {
@@ -239,7 +243,9 @@ func runInMemoryAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 		Provider: provider,
 	}})
 
-	if _, err := dal.NewSQLRepositories(db).Auth().EnsureAuthProvider(ctx, ldapauth.DefaultProviderID, ldapauth.ProviderKind); err != nil {
+	if _, err := dal.NewSQLRepositories(db).
+		Auth().
+		EnsureAuthProvider(ctx, ldapauth.DefaultProviderID, ldapauth.ProviderKind); err != nil {
 		return APISmokeResult{}, fmt.Errorf("register LDAP auth provider for API smoke setup: %w", err)
 	}
 
@@ -266,11 +272,22 @@ func runInMemoryAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 	}
 
 	if setup.APIToken == "" || setup.Username != opts.AdminUsername || setup.PasswordAuthEnabled {
-		return APISmokeResult{}, fmt.Errorf("ldap API smoke setup response token_present=%t username=%q password_auth_enabled=%t", setup.APIToken != "", setup.Username, setup.PasswordAuthEnabled)
+		return APISmokeResult{}, fmt.Errorf(
+			"ldap API smoke setup response token_present=%t username=%q password_auth_enabled=%t",
+			setup.APIToken != "",
+			setup.Username,
+			setup.PasswordAuthEnabled,
+		)
 	}
 
-	if setup.ExternalIdentity == nil || setup.ExternalIdentity.ProviderID != ldapauth.DefaultProviderID || setup.ExternalIdentity.Subject != identity.Subject {
-		return APISmokeResult{}, fmt.Errorf("ldap API smoke setup external identity = %+v, want provider=%q subject=%q", setup.ExternalIdentity, ldapauth.DefaultProviderID, identity.Subject)
+	if setup.ExternalIdentity == nil || setup.ExternalIdentity.ProviderID != ldapauth.DefaultProviderID ||
+		setup.ExternalIdentity.Subject != identity.Subject {
+		return APISmokeResult{}, fmt.Errorf(
+			"ldap API smoke setup external identity = %+v, want provider=%q subject=%q",
+			setup.ExternalIdentity,
+			ldapauth.DefaultProviderID,
+			identity.Subject,
+		)
 	}
 
 	setupExternalIdentityLinked := setup.ExternalIdentity.LocalUserID != 0
@@ -297,12 +314,20 @@ func runInMemoryAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 	}
 
 	if login.UserID == 0 || strings.TrimSpace(login.Token) == "" {
-		return APISmokeResult{}, fmt.Errorf("ldap API smoke login returned user_id=%d token_present=%t", login.UserID, strings.TrimSpace(login.Token) != "")
+		return APISmokeResult{}, fmt.Errorf(
+			"ldap API smoke login returned user_id=%d token_present=%t",
+			login.UserID,
+			strings.TrimSpace(login.Token) != "",
+		)
 	}
 
 	externalLoginMatchedSetup := login.UserID == setup.ExternalIdentity.LocalUserID
 	if !externalLoginMatchedSetup {
-		return APISmokeResult{}, fmt.Errorf("ldap API smoke login user_id=%d, want setup linked user_id=%d", login.UserID, setup.ExternalIdentity.LocalUserID)
+		return APISmokeResult{}, fmt.Errorf(
+			"ldap API smoke login user_id=%d, want setup linked user_id=%d",
+			login.UserID,
+			setup.ExternalIdentity.LocalUserID,
+		)
 	}
 
 	if err := getAuthenticatedAPI(ctx, client, httpServer.URL+opts.authenticatedAPIPath, login.Token); err != nil {
@@ -356,7 +381,11 @@ func runDeployedAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 	}
 
 	if identity.Provider != ldapauth.DefaultProviderID {
-		return APISmokeResult{}, fmt.Errorf("LDAP setup identity provider = %q, want %q", identity.Provider, ldapauth.DefaultProviderID)
+		return APISmokeResult{}, fmt.Errorf(
+			"LDAP setup identity provider = %q, want %q",
+			identity.Provider,
+			ldapauth.DefaultProviderID,
+		)
 	}
 
 	if strings.TrimSpace(identity.Subject) == "" {
@@ -402,11 +431,22 @@ func runDeployedAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 		}
 
 		if setup.APIToken == "" || setup.Username != opts.AdminUsername || setup.PasswordAuthEnabled {
-			return APISmokeResult{}, fmt.Errorf("ldap deployed API setup response token_present=%t username=%q password_auth_enabled=%t", setup.APIToken != "", setup.Username, setup.PasswordAuthEnabled)
+			return APISmokeResult{}, fmt.Errorf(
+				"ldap deployed API setup response token_present=%t username=%q password_auth_enabled=%t",
+				setup.APIToken != "",
+				setup.Username,
+				setup.PasswordAuthEnabled,
+			)
 		}
 
-		if setup.ExternalIdentity == nil || setup.ExternalIdentity.ProviderID != ldapauth.DefaultProviderID || setup.ExternalIdentity.Subject != identity.Subject {
-			return APISmokeResult{}, fmt.Errorf("ldap deployed API setup external identity = %+v, want provider=%q subject=%q", setup.ExternalIdentity, ldapauth.DefaultProviderID, identity.Subject)
+		if setup.ExternalIdentity == nil || setup.ExternalIdentity.ProviderID != ldapauth.DefaultProviderID ||
+			setup.ExternalIdentity.Subject != identity.Subject {
+			return APISmokeResult{}, fmt.Errorf(
+				"ldap deployed API setup external identity = %+v, want provider=%q subject=%q",
+				setup.ExternalIdentity,
+				ldapauth.DefaultProviderID,
+				identity.Subject,
+			)
 		}
 
 		setupExternalIdentityLinked = setup.ExternalIdentity.LocalUserID != 0
@@ -434,20 +474,33 @@ func runDeployedAPISmokeOnce(ctx context.Context, opts APISmokeOptions) (APISmok
 		"return_token": true,
 	}, http.StatusOK, &login); err != nil {
 		if setupAlreadyComplete {
-			return APISmokeResult{}, fmt.Errorf("ldap deployed API login failed after setup was already complete; run against a fresh cluster or pre-link provider %q subject %q: %w", ldapauth.DefaultProviderID, identity.Subject, err)
+			return APISmokeResult{}, fmt.Errorf(
+				"ldap deployed API login failed after setup was already complete; run against a fresh cluster or pre-link provider %q subject %q: %w",
+				ldapauth.DefaultProviderID,
+				identity.Subject,
+				err,
+			)
 		}
 
 		return APISmokeResult{}, err
 	}
 
 	if login.UserID == 0 || strings.TrimSpace(login.Token) == "" {
-		return APISmokeResult{}, fmt.Errorf("ldap deployed API login returned user_id=%d token_present=%t", login.UserID, strings.TrimSpace(login.Token) != "")
+		return APISmokeResult{}, fmt.Errorf(
+			"ldap deployed API login returned user_id=%d token_present=%t",
+			login.UserID,
+			strings.TrimSpace(login.Token) != "",
+		)
 	}
 
 	if setupPerformed {
 		externalLoginMatchedSetup = login.UserID == setupUserID
 		if !externalLoginMatchedSetup {
-			return APISmokeResult{}, fmt.Errorf("ldap deployed API login user_id=%d, want setup linked user_id=%d", login.UserID, setupUserID)
+			return APISmokeResult{}, fmt.Errorf(
+				"ldap deployed API login user_id=%d, want setup linked user_id=%d",
+				login.UserID,
+				setupUserID,
+			)
 		}
 	}
 
@@ -579,7 +632,12 @@ func getSetupStatus(ctx context.Context, client *http.Client, url string) (setup
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
-		return setupStatusResponse{}, fmt.Errorf("GET %s status=%d want 200 body=%s", url, resp.StatusCode, string(respBody))
+		return setupStatusResponse{}, fmt.Errorf(
+			"GET %s status=%d want 200 body=%s",
+			url,
+			resp.StatusCode,
+			string(respBody),
+		)
 	}
 
 	var out setupStatusResponse
@@ -590,7 +648,14 @@ func getSetupStatus(ctx context.Context, client *http.Client, url string) (setup
 	return out, nil
 }
 
-func postAPIJSON(ctx context.Context, client *http.Client, url string, body map[string]any, wantStatus int, out any) error {
+func postAPIJSON(
+	ctx context.Context,
+	client *http.Client,
+	url string,
+	body map[string]any,
+	wantStatus int,
+	out any,
+) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err

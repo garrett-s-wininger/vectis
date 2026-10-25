@@ -85,7 +85,11 @@ func NewCatalogEventPublisher(sourceCellID string, events dal.CatalogEventsRepos
 	}
 }
 
-func NewCatalogInboxProcessor(events dal.CatalogEventsRepository, updater dal.RunCatalogUpdater, artifacts ...dal.ArtifactsRepository) CatalogInboxProcessor {
+func NewCatalogInboxProcessor(
+	events dal.CatalogEventsRepository,
+	updater dal.RunCatalogUpdater,
+	artifacts ...dal.ArtifactsRepository,
+) CatalogInboxProcessor {
 	return CatalogInboxProcessor{
 		events:   events,
 		consumer: NewCatalogEventConsumer(updater, artifacts...),
@@ -123,7 +127,12 @@ func (p CatalogEventPublisher) RecordExecutionStatus(ctx context.Context, update
 		return fmt.Errorf("%w: execution_id and status are required", ErrInvalidCatalogEvent)
 	}
 
-	return p.record(ctx, CatalogExecutionStatusEventKey(update.ExecutionID, update.Status), CatalogEventTypeExecutionStatus, payload)
+	return p.record(
+		ctx,
+		CatalogExecutionStatusEventKey(update.ExecutionID, update.Status),
+		CatalogEventTypeExecutionStatus,
+		payload,
+	)
 }
 
 func (p CatalogEventPublisher) RecordArtifact(ctx context.Context, create dal.ArtifactCreate) error {
@@ -143,7 +152,10 @@ func (p CatalogEventPublisher) RecordArtifact(ctx context.Context, create dal.Ar
 	return p.record(ctx, CatalogArtifactEventKey(create.RunID, create.Name), CatalogEventTypeArtifactRecord, payload)
 }
 
-func (p CatalogEventPublisher) RecordExecutionSecurity(ctx context.Context, event dal.RecordExecutionSecurityEventParams) error {
+func (p CatalogEventPublisher) RecordExecutionSecurity(
+	ctx context.Context,
+	event dal.RecordExecutionSecurityEventParams,
+) error {
 	if p.events == nil {
 		return nil
 	}
@@ -161,14 +173,18 @@ func (p CatalogEventPublisher) RecordExecutionSecurity(ctx context.Context, even
 		return fmt.Errorf("marshal execution security catalog event: %w", err)
 	}
 
-	if strings.TrimSpace(event.RunID) == "" || strings.TrimSpace(event.EventType) == "" || strings.TrimSpace(event.Outcome) == "" {
+	if strings.TrimSpace(event.RunID) == "" || strings.TrimSpace(event.EventType) == "" ||
+		strings.TrimSpace(event.Outcome) == "" {
 		return fmt.Errorf("%w: run_id, event_type, and outcome are required", ErrInvalidCatalogEvent)
 	}
 
 	return p.record(ctx, event.EventKey, CatalogEventTypeExecutionSecurity, payload)
 }
 
-func (p CatalogEventPublisher) RecordTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+func (p CatalogEventPublisher) RecordTerminalExecutionSnapshot(
+	ctx context.Context,
+	update dal.TerminalExecutionSnapshotUpdate,
+) error {
 	if p.events == nil {
 		return nil
 	}
@@ -178,7 +194,8 @@ func (p CatalogEventPublisher) RecordTerminalExecutionSnapshot(ctx context.Conte
 		return fmt.Errorf("marshal terminal execution snapshot catalog event: %w", err)
 	}
 
-	if strings.TrimSpace(update.RunID) == "" || strings.TrimSpace(string(update.Outcome)) == "" || len(update.Executions) == 0 {
+	if strings.TrimSpace(update.RunID) == "" || strings.TrimSpace(string(update.Outcome)) == "" ||
+		len(update.Executions) == 0 {
 		return fmt.Errorf("%w: run_id, outcome, and executions are required", ErrInvalidCatalogEvent)
 	}
 
@@ -296,7 +313,11 @@ func CatalogEventFromRecord(rec dal.CatalogEventRecord) (CatalogEvent, error) {
 	case CatalogEventTypeTerminalSnapshot:
 		var update dal.TerminalExecutionSnapshotUpdate
 		if err := json.Unmarshal(rec.Payload, &update); err != nil {
-			return CatalogEvent{}, fmt.Errorf("%w: decode terminal execution snapshot payload: %w", ErrInvalidCatalogEvent, err)
+			return CatalogEvent{}, fmt.Errorf(
+				"%w: decode terminal execution snapshot payload: %w",
+				ErrInvalidCatalogEvent,
+				err,
+			)
 		}
 
 		event.TerminalSnapshot = &update
@@ -391,8 +412,16 @@ func (c CatalogEventConsumer) verifySourceOwnership(ctx context.Context, event C
 	}
 
 	if event.Artifact != nil {
-		if artifactCellID := strings.TrimSpace(event.Artifact.CellID); artifactCellID != "" && artifactCellID != sourceCellID {
-			return fmt.Errorf("%w: catalog source_cell %s cannot record artifact from cell %s", dal.ErrConflict, sourceCellID, artifactCellID)
+		if artifactCellID := strings.TrimSpace(
+			event.Artifact.CellID,
+		); artifactCellID != "" &&
+			artifactCellID != sourceCellID {
+			return fmt.Errorf(
+				"%w: catalog source_cell %s cannot record artifact from cell %s",
+				dal.ErrConflict,
+				sourceCellID,
+				artifactCellID,
+			)
 		}
 
 		if executionID := strings.TrimSpace(event.Artifact.ExecutionID); executionID != "" {
@@ -433,8 +462,13 @@ func (e CatalogEvent) Validate() error {
 
 	if e.ExecutionSecurity != nil {
 		updateCount++
-		if strings.TrimSpace(e.ExecutionSecurity.RunID) == "" || strings.TrimSpace(e.ExecutionSecurity.EventType) == "" || strings.TrimSpace(e.ExecutionSecurity.Outcome) == "" {
-			return fmt.Errorf("%w: execution security run_id, event_type, and outcome are required", ErrInvalidCatalogEvent)
+		if strings.TrimSpace(e.ExecutionSecurity.RunID) == "" ||
+			strings.TrimSpace(e.ExecutionSecurity.EventType) == "" ||
+			strings.TrimSpace(e.ExecutionSecurity.Outcome) == "" {
+			return fmt.Errorf(
+				"%w: execution security run_id, event_type, and outcome are required",
+				ErrInvalidCatalogEvent,
+			)
 		}
 	}
 

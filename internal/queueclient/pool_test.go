@@ -41,7 +41,11 @@ func (f *fakeQueueServiceClient) Enqueue(context.Context, *api.JobRequest, ...gr
 	return &api.Empty{}, nil
 }
 
-func (f *fakeQueueServiceClient) Dequeue(_ context.Context, req *api.DequeueRequest, _ ...grpc.CallOption) (*api.JobRequest, error) {
+func (f *fakeQueueServiceClient) Dequeue(
+	_ context.Context,
+	req *api.DequeueRequest,
+	_ ...grpc.CallOption,
+) (*api.JobRequest, error) {
 	f.dequeueRequests = append(f.dequeueRequests, req)
 	if len(f.dequeueErrs) > 0 {
 		err := f.dequeueErrs[0]
@@ -60,7 +64,11 @@ func (f *fakeQueueServiceClient) Dequeue(_ context.Context, req *api.DequeueRequ
 	return job, nil
 }
 
-func (f *fakeQueueServiceClient) TryDequeue(_ context.Context, req *api.DequeueRequest, _ ...grpc.CallOption) (*api.JobRequest, error) {
+func (f *fakeQueueServiceClient) TryDequeue(
+	_ context.Context,
+	req *api.DequeueRequest,
+	_ ...grpc.CallOption,
+) (*api.JobRequest, error) {
 	f.tryDequeueRequests = append(f.tryDequeueRequests, req)
 	return f.tryDequeue()
 }
@@ -88,11 +96,19 @@ func (f *fakeQueueServiceClient) Ack(_ context.Context, req *api.AckRequest, _ .
 	return &api.Empty{}, nil
 }
 
-func (f *fakeQueueServiceClient) ListDeadLetter(context.Context, *api.Empty, ...grpc.CallOption) (*api.ListDeadLetterResponse, error) {
+func (f *fakeQueueServiceClient) ListDeadLetter(
+	context.Context,
+	*api.Empty,
+	...grpc.CallOption,
+) (*api.ListDeadLetterResponse, error) {
 	return &api.ListDeadLetterResponse{}, nil
 }
 
-func (f *fakeQueueServiceClient) RequeueDeadLetter(context.Context, *api.RequeueDeadLetterRequest, ...grpc.CallOption) (*api.Empty, error) {
+func (f *fakeQueueServiceClient) RequeueDeadLetter(
+	context.Context,
+	*api.RequeueDeadLetterRequest,
+	...grpc.CallOption,
+) (*api.Empty, error) {
 	return &api.Empty{}, nil
 }
 

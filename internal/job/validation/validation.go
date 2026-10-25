@@ -93,7 +93,10 @@ func ValidateJob(job *api.Job, opts Options) error {
 		v.add("id", "is required")
 	}
 
-	if isolation := strings.TrimSpace(job.GetDefaultIsolation()); isolation != "" && !action.IsSupportedIsolation(isolation) {
+	if isolation := strings.TrimSpace(
+		job.GetDefaultIsolation(),
+	); isolation != "" &&
+		!action.IsSupportedIsolation(isolation) {
 		v.add("default_isolation", `must be one of "host" or "vm"`)
 	}
 
@@ -165,7 +168,12 @@ func (v *validator) walk(node *api.Node, path string, depth int, scope string) {
 	if raw, ok := node.GetWith()[taskgraph.ExecutionField]; ok && !taskgraph.ValidExecutionMode(raw) {
 		v.add(
 			path+".with."+taskgraph.ExecutionField,
-			fmt.Sprintf("must be %q or %q, got %q", taskgraph.ExecutionLocal, taskgraph.ExecutionDistributed, strings.TrimSpace(raw)),
+			fmt.Sprintf(
+				"must be %q or %q, got %q",
+				taskgraph.ExecutionLocal,
+				taskgraph.ExecutionDistributed,
+				strings.TrimSpace(raw),
+			),
 		)
 	}
 	if isolation := strings.TrimSpace(node.GetIsolation()); isolation != "" && !action.IsSupportedIsolation(isolation) {
@@ -317,13 +325,21 @@ func (v *validator) validateInputs(path string, node *api.Node, resolved action.
 		}
 
 		if firstPath, ok := v.seen[nodeID]; !ok {
-			v.add(path+".inputs."+inputName+".from.node", fmt.Sprintf("must reference an earlier node id, got %q", nodeID))
+			v.add(
+				path+".inputs."+inputName+".from.node",
+				fmt.Sprintf("must reference an earlier node id, got %q", nodeID),
+			)
 		} else if firstPath == path {
 			v.add(path+".inputs."+inputName+".from.node", "cannot reference the same node")
 		} else if sourceScope := v.scopeByID[nodeID]; sourceScope != "" && sourceScope != scope {
 			v.add(
 				path+".inputs."+inputName+".from.node",
-				fmt.Sprintf("must reference an earlier node in the same local execution scope; %q is in scope %q, current scope is %q", nodeID, sourceScope, scope),
+				fmt.Sprintf(
+					"must reference an earlier node in the same local execution scope; %q is in scope %q, current scope is %q",
+					nodeID,
+					sourceScope,
+					scope,
+				),
 			)
 		}
 	}
@@ -335,12 +351,22 @@ func (v *validator) validateExecutionScope(path string, node *api.Node, resolved
 	}
 
 	if taskgraph.ExecutionMode(node) == taskgraph.ExecutionDistributed {
-		v.add(path+".with."+taskgraph.ExecutionField, fmt.Sprintf("must be %q for action %q", taskgraph.ExecutionLocal, resolved.Type()))
+		v.add(
+			path+".with."+taskgraph.ExecutionField,
+			fmt.Sprintf("must be %q for action %q", taskgraph.ExecutionLocal, resolved.Type()),
+		)
 	}
 
 	for _, ref := range taskgraph.ChildRefs(node, path) {
 		if boundaryPath, ok := distributedBoundaryPath(ref.Node, ref.Path); ok {
-			v.add(path+".ports", fmt.Sprintf("action %q only supports local child ports for now; %s is a distributed boundary", resolved.Type(), boundaryPath))
+			v.add(
+				path+".ports",
+				fmt.Sprintf(
+					"action %q only supports local child ports for now; %s is a distributed boundary",
+					resolved.Type(),
+					boundaryPath,
+				),
+			)
 			return
 		}
 	}
@@ -484,7 +510,10 @@ func (v *validator) validateSecrets(secrets []*api.SecretReference) {
 		if id == "" {
 			v.add(path+".id", "is required")
 		} else if !secretIDRe.MatchString(id) {
-			v.add(path+".id", "must start with a letter or underscore and contain only letters, numbers, underscores, dots, or dashes")
+			v.add(
+				path+".id",
+				"must start with a letter or underscore and contain only letters, numbers, underscores, dots, or dashes",
+			)
 		} else if firstPath, ok := seen[id]; ok {
 			v.add(path+".id", fmt.Sprintf("duplicates secret id %q first used at %s.id", id, firstPath))
 		} else {
@@ -513,7 +542,10 @@ func (v *validator) validateTriggers(triggers []*api.JobTrigger) {
 		if id == "" {
 			v.add(path+".id", "is required")
 		} else if !triggerIDRe.MatchString(id) {
-			v.add(path+".id", "must start with a letter or underscore and contain only letters, numbers, underscores, dots, or dashes")
+			v.add(
+				path+".id",
+				"must start with a letter or underscore and contain only letters, numbers, underscores, dots, or dashes",
+			)
 		} else if firstPath, ok := seen[id]; ok {
 			v.add(path+".id", fmt.Sprintf("duplicates trigger id %q first used at %s.id", id, firstPath))
 		} else {

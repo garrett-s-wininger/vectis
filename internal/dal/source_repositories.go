@@ -16,7 +16,10 @@ type SQLSourcesRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error) {
+func (r *SQLSourcesRepository) CreateRepository(
+	ctx context.Context,
+	rec SourceRepositoryRecord,
+) (SourceRepositoryRecord, error) {
 	rec, err := normalizeSourceRepositoryRecord(rec)
 	if err != nil {
 		return SourceRepositoryRecord{}, err
@@ -64,7 +67,10 @@ func (r *SQLSourcesRepository) CreateRepository(ctx context.Context, rec SourceR
 	return r.GetRepository(ctx, rec.RepositoryID)
 }
 
-func (r *SQLSourcesRepository) UpdateRepository(ctx context.Context, rec SourceRepositoryRecord) (SourceRepositoryRecord, error) {
+func (r *SQLSourcesRepository) UpdateRepository(
+	ctx context.Context,
+	rec SourceRepositoryRecord,
+) (SourceRepositoryRecord, error) {
 	rec, err := normalizeSourceRepositoryRecord(rec)
 	if err != nil {
 		return SourceRepositoryRecord{}, err
@@ -151,7 +157,10 @@ func (r *SQLSourcesRepository) DeleteRepository(ctx context.Context, repositoryI
 	return nil
 }
 
-func (r *SQLSourcesRepository) BeginRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, bool, error) {
+func (r *SQLSourcesRepository) BeginRepositorySync(
+	ctx context.Context,
+	rec SourceRepositorySyncRecord,
+) (SourceRepositoryRecord, bool, error) {
 	rec.Status = SourceSyncStatusRunning
 	rec.FinishedAtUnix = 0
 	rec.Commit = ""
@@ -213,7 +222,10 @@ func (r *SQLSourcesRepository) BeginRepositorySync(ctx context.Context, rec Sour
 	return current, true, nil
 }
 
-func (r *SQLSourcesRepository) UpdateRepositorySync(ctx context.Context, rec SourceRepositorySyncRecord) (SourceRepositoryRecord, error) {
+func (r *SQLSourcesRepository) UpdateRepositorySync(
+	ctx context.Context,
+	rec SourceRepositorySyncRecord,
+) (SourceRepositoryRecord, error) {
 	rec, err := normalizeSourceRepositorySyncRecord(rec)
 	if err != nil {
 		return SourceRepositoryRecord{}, err
@@ -300,7 +312,10 @@ func (r *SQLSourcesRepository) GetRepository(ctx context.Context, repositoryID s
 	return rec, nil
 }
 
-func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID int64) ([]SourceRepositoryRecord, error) {
+func (r *SQLSourcesRepository) ListRepositories(
+	ctx context.Context,
+	namespaceID int64,
+) ([]SourceRepositoryRecord, error) {
 	rows, err := r.db.QueryContext(ctx, rebindQueryForPgx(`
 		SELECT
 			id,
@@ -350,7 +365,10 @@ func (r *SQLSourcesRepository) ListRepositories(ctx context.Context, namespaceID
 	return out, nil
 }
 
-func (r *SQLSourcesRepository) ListRepositoriesByWorkerCacheMode(ctx context.Context, mode string) ([]SourceRepositoryRecord, error) {
+func (r *SQLSourcesRepository) ListRepositoriesByWorkerCacheMode(
+	ctx context.Context,
+	mode string,
+) ([]SourceRepositoryRecord, error) {
 	mode = strings.TrimSpace(mode)
 	if !validSourceWorkerCacheMode(mode) {
 		return nil, fmt.Errorf("%w: unsupported worker_cache_mode %q", ErrConflict, mode)
@@ -407,7 +425,10 @@ func (r *SQLSourcesRepository) ListRepositoriesByWorkerCacheMode(ctx context.Con
 	return out, nil
 }
 
-func (r *SQLSourcesRepository) CountRepositories(ctx context.Context, declaredRepositoryIDs []string) (SourceRepositoryCountSummary, error) {
+func (r *SQLSourcesRepository) CountRepositories(
+	ctx context.Context,
+	declaredRepositoryIDs []string,
+) (SourceRepositoryCountSummary, error) {
 	declaredCTE, args := sourceCountDeclaredIDsCTE(declaredRepositoryIDs)
 	args = append(args,
 		SourceSyncStatusSucceeded,
@@ -507,15 +528,28 @@ func normalizeSourceRepositoryRecord(rec SourceRepositoryRecord) (SourceReposito
 	}
 
 	if !validSourceWorkerCacheMode(rec.WorkerCacheMode) {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: unsupported worker_cache_mode %q", ErrConflict, rec.WorkerCacheMode)
+		return SourceRepositoryRecord{}, fmt.Errorf(
+			"%w: unsupported worker_cache_mode %q",
+			ErrConflict,
+			rec.WorkerCacheMode,
+		)
 	}
 
 	if rec.AuthoringMode == SourceAuthoringModeLocalCommit && rec.CheckoutMode != SourceCheckoutModeManaged {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: authoring_mode %q requires checkout_mode %q", ErrConflict, rec.AuthoringMode, SourceCheckoutModeManaged)
+		return SourceRepositoryRecord{}, fmt.Errorf(
+			"%w: authoring_mode %q requires checkout_mode %q",
+			ErrConflict,
+			rec.AuthoringMode,
+			SourceCheckoutModeManaged,
+		)
 	}
 
 	if rec.CheckoutPath == "" {
-		return SourceRepositoryRecord{}, fmt.Errorf("%w: checkout_path is required for %s", ErrConflict, SourceKindLocalCheckout)
+		return SourceRepositoryRecord{}, fmt.Errorf(
+			"%w: checkout_path is required for %s",
+			ErrConflict,
+			SourceKindLocalCheckout,
+		)
 	}
 
 	if rec.SyncStatus == "" {
@@ -903,7 +937,11 @@ func jobDefinitionExistsTx(ctx context.Context, tx *sql.Tx, jobID string, versio
 	return true, nil
 }
 
-func (r *SQLSourcesRepository) GetDefinitionSource(ctx context.Context, jobID string, version int) (JobDefinitionSourceRecord, error) {
+func (r *SQLSourcesRepository) GetDefinitionSource(
+	ctx context.Context,
+	jobID string,
+	version int,
+) (JobDefinitionSourceRecord, error) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" || version <= 0 {
 		return JobDefinitionSourceRecord{}, fmt.Errorf("%w: job definition source", ErrNotFound)
@@ -940,7 +978,11 @@ func (r *SQLSourcesRepository) GetDefinitionSource(ctx context.Context, jobID st
 	return rec, nil
 }
 
-func (r *SQLSourcesRepository) GetDefinitionSources(ctx context.Context, jobID string, versions []int) (map[int]JobDefinitionSourceRecord, error) {
+func (r *SQLSourcesRepository) GetDefinitionSources(
+	ctx context.Context,
+	jobID string,
+	versions []int,
+) (map[int]JobDefinitionSourceRecord, error) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" || len(versions) == 0 {
 		return map[int]JobDefinitionSourceRecord{}, nil

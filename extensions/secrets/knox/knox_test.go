@@ -23,7 +23,12 @@ func TestKnoxProviderConformance(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.EscapedPath() {
 			case "/v0/keys/team:conformance_token/":
-				writeKnoxKeyResponse(t, w, "team:conformance_token", []knoxTestVersion{{ID: 1, Data: []byte("conformance-secret"), Status: "Primary"}})
+				writeKnoxKeyResponse(
+					t,
+					w,
+					"team:conformance_token",
+					[]knoxTestVersion{{ID: 1, Data: []byte("conformance-secret"), Status: "Primary"}},
+				)
 			case "/v0/keys/team:missing_token/":
 				writeKnoxErrorResponse(t, w, knoxResponseCodeNoKey)
 			case "/v0/keys/team:denied_token/":
@@ -106,7 +111,8 @@ func TestKnoxProviderResolveFetchesPrimaryVersion(t *testing.T) {
 	}
 
 	file := bundle.Files[0]
-	if file.ID != "deploy-token" || file.Path != "deploy/token" || string(file.Data) != "super-secret" || file.Mode != DefaultFileMode {
+	if file.ID != "deploy-token" || file.Path != "deploy/token" || string(file.Data) != "super-secret" ||
+		file.Mode != DefaultFileMode {
 		t.Fatalf("file = %+v", file)
 	}
 }
@@ -254,7 +260,11 @@ func TestKnoxProviderRejectsMismatchedOrOversizedSecrets(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider, err := NewKnoxProvider(server.URL, WithKnoxAuthToken("token"), WithKnoxMaxSecretBytes(tt.maxBytes))
+			provider, err := NewKnoxProvider(
+				server.URL,
+				WithKnoxAuthToken("token"),
+				WithKnoxMaxSecretBytes(tt.maxBytes),
+			)
 			if err != nil {
 				t.Fatalf("NewKnoxProvider: %v", err)
 			}
@@ -315,7 +325,11 @@ func TestKnoxProviderLoadsAuthTokenFile(t *testing.T) {
 func TestKnoxProviderRequiresClientCertificatePair(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewKnoxProvider("https://knox.example", WithKnoxAuthToken("0t-token"), WithKnoxClientCertificateFiles("/tmp/client.crt", ""))
+	_, err := NewKnoxProvider(
+		"https://knox.example",
+		WithKnoxAuthToken("0t-token"),
+		WithKnoxClientCertificateFiles("/tmp/client.crt", ""),
+	)
 	if err == nil || !strings.Contains(err.Error(), "client cert and key files") {
 		t.Fatalf("NewKnoxProvider error = %v, want client cert/key pair error", err)
 	}

@@ -54,7 +54,11 @@ func TestValidateResolveIdentityBindingAllowsMatchingIdentity(t *testing.T) {
 	}
 
 	if req.Workload.TrustDomain != "prod.example" || req.Scope.TrustDomain != "prod.example" {
-		t.Fatalf("trust domain was not canonicalized: workload=%q scope=%q", req.Workload.TrustDomain, req.Scope.TrustDomain)
+		t.Fatalf(
+			"trust domain was not canonicalized: workload=%q scope=%q",
+			req.Workload.TrustDomain,
+			req.Scope.TrustDomain,
+		)
 	}
 }
 

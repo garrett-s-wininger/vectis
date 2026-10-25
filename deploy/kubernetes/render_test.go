@@ -472,12 +472,23 @@ func TestSmokeDefaultsUseCanonicalSecretLane(t *testing.T) {
 		t.Fatalf("LDAP user filter = %q", opts.LDAPUserFilter)
 	}
 
-	if opts.LDAPUsername != DefaultSmokeLDAPUsername || opts.LDAPPassword != DefaultSmokeLDAPPassword || opts.LDAPWrongPassword != DefaultSmokeLDAPWrongPassword {
-		t.Fatalf("unexpected LDAP credentials: username=%q password=%q wrong=%q", opts.LDAPUsername, opts.LDAPPassword, opts.LDAPWrongPassword)
+	if opts.LDAPUsername != DefaultSmokeLDAPUsername || opts.LDAPPassword != DefaultSmokeLDAPPassword ||
+		opts.LDAPWrongPassword != DefaultSmokeLDAPWrongPassword {
+		t.Fatalf(
+			"unexpected LDAP credentials: username=%q password=%q wrong=%q",
+			opts.LDAPUsername,
+			opts.LDAPPassword,
+			opts.LDAPWrongPassword,
+		)
 	}
 
-	if opts.LDAPExpectedSubject != DefaultSmokeLDAPExpectedSubject || opts.LDAPExpectedName != DefaultSmokeLDAPExpectedName {
-		t.Fatalf("unexpected LDAP expected identity: subject=%q display=%q", opts.LDAPExpectedSubject, opts.LDAPExpectedName)
+	if opts.LDAPExpectedSubject != DefaultSmokeLDAPExpectedSubject ||
+		opts.LDAPExpectedName != DefaultSmokeLDAPExpectedName {
+		t.Fatalf(
+			"unexpected LDAP expected identity: subject=%q display=%q",
+			opts.LDAPExpectedSubject,
+			opts.LDAPExpectedName,
+		)
 	}
 
 	if opts.LDAPBootstrapToken != DefaultSmokeLDAPBootstrapToken {
@@ -505,7 +516,12 @@ func TestSmokeRunWaitDiagnosticsSummarizeDispatchFailures(t *testing.T) {
 		NextAction: "dispatch_pending",
 		DispatchEvents: []smokeDispatchEvent{
 			{Source: "cron", EventType: "attempt", Message: "ignored"},
-			{Source: "scm_gerrit_stream", SourceInstance: "vectis-scm-gerrit-stream-0", EventType: "failure", Message: "decode execution envelope: missing job"},
+			{
+				Source:         "scm_gerrit_stream",
+				SourceInstance: "vectis-scm-gerrit-stream-0",
+				EventType:      "failure",
+				Message:        "decode execution envelope: missing job",
+			},
 		},
 	}
 
@@ -515,7 +531,10 @@ func TestSmokeRunWaitDiagnosticsSummarizeDispatchFailures(t *testing.T) {
 	}
 
 	diagnostics := smokeRunDispatchDiagnostics(detail)
-	if !strings.Contains(diagnostics, "scm_gerrit_stream/vectis-scm-gerrit-stream-0 failure: decode execution envelope: missing job") {
+	if !strings.Contains(
+		diagnostics,
+		"scm_gerrit_stream/vectis-scm-gerrit-stream-0 failure: decode execution envelope: missing job",
+	) {
 		t.Fatalf("diagnostics = %q", diagnostics)
 	}
 
@@ -647,7 +666,9 @@ func TestKubernetesContainerBuildContextIncludesWorkerCoreProtos(t *testing.T) {
 	for _, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "api/proto/" || line == "api/proto" {
-			t.Fatalf(".containerignore must not exclude api/proto; container builds need worker_core.proto for the worker-core Kubernetes binary")
+			t.Fatalf(
+				".containerignore must not exclude api/proto; container builds need worker_core.proto for the worker-core Kubernetes binary",
+			)
 		}
 	}
 
@@ -1002,7 +1023,12 @@ func TestValidateS3ArtifactSmokeOptions(t *testing.T) {
 
 func TestSmokeGerritStreamJobPayloadContract(t *testing.T) {
 	opts := normalizeSmokeOptions(SmokeOptions{GerritClusterURL: "http://vectis-gerrit:8080"})
-	payload, err := smokeGerritStreamJobPayload(opts, "kubernetes-gerrit-stream-test", "project/test", "echo kubernetes-gerrit-stream-ok")
+	payload, err := smokeGerritStreamJobPayload(
+		opts,
+		"kubernetes-gerrit-stream-test",
+		"project/test",
+		"echo kubernetes-gerrit-stream-ok",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1059,8 @@ func TestSmokeGerritStreamJobPayloadContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if decoded.Namespace != "/" || decoded.Job.ID != "kubernetes-gerrit-stream-test" || decoded.Job.Root.Uses != "builtins/shell" {
+	if decoded.Namespace != "/" || decoded.Job.ID != "kubernetes-gerrit-stream-test" ||
+		decoded.Job.Root.Uses != "builtins/shell" {
 		t.Fatalf("unexpected job payload: %+v", decoded)
 	}
 

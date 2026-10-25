@@ -27,7 +27,13 @@ func TestRouteAcceptMiddlewareRejectsUnacceptableMediaType(t *testing.T) {
 	assertRouteGuardAPIError(t, rec, http.StatusNotAcceptable, apiErrNotAcceptable)
 	assertNoStore(t, rec)
 	if gotReason != securityReasonNotAcceptable || gotStatus != http.StatusNotAcceptable {
-		t.Fatalf("recorded rejection = (%q, %d), want (%q, %d)", gotReason, gotStatus, securityReasonNotAcceptable, http.StatusNotAcceptable)
+		t.Fatalf(
+			"recorded rejection = (%q, %d), want (%q, %d)",
+			gotReason,
+			gotStatus,
+			securityReasonNotAcceptable,
+			http.StatusNotAcceptable,
+		)
 	}
 }
 
@@ -50,10 +56,13 @@ func TestRouteAcceptMiddlewareAllowsJSONNegotiation(t *testing.T) {
 	for _, accept := range []string{"", "application/json", "application/*", "*/*", "text/html;q=0.1, application/json;q=0.9"} {
 		t.Run(accept, func(t *testing.T) {
 			called := false
-			handler := routeAcceptMiddleware(routeAcceptPolicy{}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				called = true
-				w.WriteHeader(http.StatusNoContent)
-			}))
+			handler := routeAcceptMiddleware(
+				routeAcceptPolicy{},
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					called = true
+					w.WriteHeader(http.StatusNoContent)
+				}),
+			)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
@@ -79,10 +88,25 @@ func TestRouteAcceptPolicyMediaTypes(t *testing.T) {
 		want   bool
 	}{
 		{name: "health accepts arbitrary", policy: routeAcceptAnyPolicy(), accept: "text/html", want: true},
-		{name: "sse accepts event stream", policy: routeAcceptSSEPolicy(), accept: httpsecurity.MediaTypeEventStream, want: true},
+		{
+			name:   "sse accepts event stream",
+			policy: routeAcceptSSEPolicy(),
+			accept: httpsecurity.MediaTypeEventStream,
+			want:   true,
+		},
 		{name: "sse rejects json", policy: routeAcceptSSEPolicy(), accept: httpsecurity.MediaTypeJSON, want: false},
-		{name: "metrics accepts text", policy: routeAcceptMetricsPolicy(), accept: httpsecurity.MediaTypePlainText, want: true},
-		{name: "metrics accepts openmetrics", policy: routeAcceptMetricsPolicy(), accept: "application/openmetrics-text; version=1.0.0", want: true},
+		{
+			name:   "metrics accepts text",
+			policy: routeAcceptMetricsPolicy(),
+			accept: httpsecurity.MediaTypePlainText,
+			want:   true,
+		},
+		{
+			name:   "metrics accepts openmetrics",
+			policy: routeAcceptMetricsPolicy(),
+			accept: "application/openmetrics-text; version=1.0.0",
+			want:   true,
+		},
 		{name: "metrics rejects html", policy: routeAcceptMetricsPolicy(), accept: "text/html", want: false},
 	}
 

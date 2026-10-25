@@ -51,7 +51,11 @@ func newSQLServiceWithClock(db *sql.DB, driver string, c clock) *SQLService {
 	}
 }
 
-func (s *SQLService) TakeRateLimitToken(ctx context.Context, key string, rule RateLimitRule) (RateLimitDecision, error) {
+func (s *SQLService) TakeRateLimitToken(
+	ctx context.Context,
+	key string,
+	rule RateLimitRule,
+) (RateLimitDecision, error) {
 	if s == nil || s.db == nil {
 		return RateLimitDecision{}, fmt.Errorf("sql cache requires a database")
 	}
@@ -78,7 +82,12 @@ func (s *SQLService) TakeRateLimitToken(ctx context.Context, key string, rule Ra
 	return decision, nil
 }
 
-func (s *SQLService) takeRateLimitTokenLocked(ctx context.Context, key string, rule RateLimitRule, now time.Time) (RateLimitDecision, error) {
+func (s *SQLService) takeRateLimitTokenLocked(
+	ctx context.Context,
+	key string,
+	rule RateLimitRule,
+	now time.Time,
+) (RateLimitDecision, error) {
 	if s.driver == "sqlite3" {
 		return s.takeRateLimitTokenSQLite(ctx, key, rule, now)
 	}
@@ -101,7 +110,12 @@ func (s *SQLService) takeRateLimitTokenLocked(ctx context.Context, key string, r
 	return decision, nil
 }
 
-func (s *SQLService) takeRateLimitTokenSQLite(ctx context.Context, key string, rule RateLimitRule, now time.Time) (RateLimitDecision, error) {
+func (s *SQLService) takeRateLimitTokenSQLite(
+	ctx context.Context,
+	key string,
+	rule RateLimitRule,
+	now time.Time,
+) (RateLimitDecision, error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return RateLimitDecision{}, err
@@ -137,7 +151,13 @@ type sqlExecutor interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func (s *SQLService) takeRateLimitTokenInTransaction(ctx context.Context, exec sqlExecutor, key string, rule RateLimitRule, now time.Time) (RateLimitDecision, error) {
+func (s *SQLService) takeRateLimitTokenInTransaction(
+	ctx context.Context,
+	exec sqlExecutor,
+	key string,
+	rule RateLimitRule,
+	now time.Time,
+) (RateLimitDecision, error) {
 	nowUnix := now.UnixNano()
 	inserted, err := s.insertInitialBucket(ctx, exec, key, rule, nowUnix)
 	if err != nil {
@@ -188,7 +208,13 @@ func (s *SQLService) takeRateLimitTokenInTransaction(ctx context.Context, exec s
 	return decision, nil
 }
 
-func (s *SQLService) insertInitialBucket(ctx context.Context, exec sqlExecutor, key string, rule RateLimitRule, nowUnix int64) (bool, error) {
+func (s *SQLService) insertInitialBucket(
+	ctx context.Context,
+	exec sqlExecutor,
+	key string,
+	rule RateLimitRule,
+	nowUnix int64,
+) (bool, error) {
 	res, err := exec.ExecContext(ctx, rebindQuery(`
 		INSERT INTO api_rate_limit_buckets (bucket_key, tokens, last_refill_unix_nano, last_access_unix_nano)
 		VALUES (?, ?, ?, ?)
@@ -246,7 +272,12 @@ func (s *SQLService) CreateSession(ctx context.Context, session Session) error {
 	return nil
 }
 
-func (s *SQLService) ResolveSession(ctx context.Context, tokenHash string, now time.Time, idleTTL time.Duration) (Session, error) {
+func (s *SQLService) ResolveSession(
+	ctx context.Context,
+	tokenHash string,
+	now time.Time,
+	idleTTL time.Duration,
+) (Session, error) {
 	if s == nil || s.db == nil {
 		return Session{}, fmt.Errorf("sql cache requires a database")
 	}
@@ -260,7 +291,8 @@ func (s *SQLService) ResolveSession(ctx context.Context, tokenHash string, now t
 		args = append(args, now.UTC().Add(-idleTTL).UnixNano())
 	}
 
-	err := s.db.QueryRowContext(ctx, rebindQuery(query, s.driver), args...).Scan(&sess.TokenHash, &sess.CSRFTokenHash, &sess.LocalUserID, &sess.Username, &expiresUnix, &lastUsedUnix)
+	err := s.db.QueryRowContext(ctx, rebindQuery(query, s.driver), args...).
+		Scan(&sess.TokenHash, &sess.CSRFTokenHash, &sess.LocalUserID, &sess.Username, &expiresUnix, &lastUsedUnix)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -318,7 +350,11 @@ func (s *SQLService) DeleteUserSessions(ctx context.Context, localUserID int64) 
 		return fmt.Errorf("sql cache requires a database")
 	}
 
-	_, err := s.db.ExecContext(ctx, rebindQuery(`DELETE FROM api_sessions WHERE local_user_id = ?`, s.driver), localUserID)
+	_, err := s.db.ExecContext(
+		ctx,
+		rebindQuery(`DELETE FROM api_sessions WHERE local_user_id = ?`, s.driver),
+		localUserID,
+	)
 	return err
 }
 

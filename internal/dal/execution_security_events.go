@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-func (r *SQLRunsRepository) RecordExecutionSecurityEvent(ctx context.Context, event RecordExecutionSecurityEventParams) error {
+func (r *SQLRunsRepository) RecordExecutionSecurityEvent(
+	ctx context.Context,
+	event RecordExecutionSecurityEventParams,
+) error {
 	event.RunID = strings.TrimSpace(event.RunID)
 	event.EventKey = strings.TrimSpace(event.EventKey)
 	event.TaskID = strings.TrimSpace(event.TaskID)
@@ -98,7 +101,11 @@ func ExecutionSecurityEventKey(event RecordExecutionSecurityEventParams) string 
 	return strings.Join(parts, ":")
 }
 
-func (r *SQLRunsRepository) LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*ExecutionSecurityEvent, error) {
+func (r *SQLRunsRepository) LatestRunSecurityEvent(
+	ctx context.Context,
+	runID string,
+	failedOnly bool,
+) (*ExecutionSecurityEvent, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return nil, fmt.Errorf("%w: run_id is required", ErrNotFound)

@@ -25,7 +25,13 @@ type Registry struct {
 	metrics   backoff.RetryMetrics
 }
 
-func New(ctx context.Context, addr string, logger interfaces.Logger, clock interfaces.Clock, retryMetrics backoff.RetryMetrics) (*Registry, error) {
+func New(
+	ctx context.Context,
+	addr string,
+	logger interfaces.Logger,
+	clock interfaces.Clock,
+	retryMetrics backoff.RetryMetrics,
+) (*Registry, error) {
 	addresses := splitRegistryAddresses(addr)
 	if len(addresses) == 0 {
 		return nil, fmt.Errorf("registry address is required")
@@ -55,7 +61,12 @@ func (r *Registry) Register(ctx context.Context, component api.Component, addres
 	return r.RegisterWithMetadata(ctx, component, address, nil)
 }
 
-func (r *Registry) RegisterWithMetadata(ctx context.Context, component api.Component, address string, metadata map[string]string) error {
+func (r *Registry) RegisterWithMetadata(
+	ctx context.Context,
+	component api.Component,
+	address string,
+	metadata map[string]string,
+) error {
 	return r.RegisterInstanceWithMetadata(ctx, component, "", address, metadata)
 }
 
@@ -63,7 +74,12 @@ func (r *Registry) RegisterInstance(ctx context.Context, component api.Component
 	return r.RegisterInstanceWithMetadata(ctx, component, instanceID, address, nil)
 }
 
-func (r *Registry) RegisterInstanceWithMetadata(ctx context.Context, component api.Component, instanceID, address string, metadata map[string]string) error {
+func (r *Registry) RegisterInstanceWithMetadata(
+	ctx context.Context,
+	component api.Component,
+	instanceID, address string,
+	metadata map[string]string,
+) error {
 	metadata = cloneMetadata(metadata)
 	if err := ValidateComponentMetadata(component, metadata); err != nil {
 		return fmt.Errorf("registry metadata: %w", err)
@@ -80,7 +96,13 @@ func (r *Registry) RegisterInstanceWithMetadata(ctx context.Context, component a
 	return retryer.Do(ctx, func() error {
 		return r.RegisterInstanceOnceWithMetadata(ctx, component, instanceID, address, metadata)
 	}, func(attempt int, nextDelay time.Duration, err error) {
-		r.logger.Debug("Failed to register with registry (attempt %d/%d): %v. Retrying in %v...", attempt, r.maxTries, err, nextDelay)
+		r.logger.Debug(
+			"Failed to register with registry (attempt %d/%d): %v. Retrying in %v...",
+			attempt,
+			r.maxTries,
+			err,
+			nextDelay,
+		)
 	})
 }
 
@@ -88,15 +110,29 @@ func (r *Registry) RegisterOnce(ctx context.Context, component api.Component, ad
 	return r.RegisterOnceWithMetadata(ctx, component, address, nil)
 }
 
-func (r *Registry) RegisterOnceWithMetadata(ctx context.Context, component api.Component, address string, metadata map[string]string) error {
+func (r *Registry) RegisterOnceWithMetadata(
+	ctx context.Context,
+	component api.Component,
+	address string,
+	metadata map[string]string,
+) error {
 	return r.RegisterInstanceOnceWithMetadata(ctx, component, "", address, metadata)
 }
 
-func (r *Registry) RegisterInstanceOnce(ctx context.Context, component api.Component, instanceID, address string) error {
+func (r *Registry) RegisterInstanceOnce(
+	ctx context.Context,
+	component api.Component,
+	instanceID, address string,
+) error {
 	return r.RegisterInstanceOnceWithMetadata(ctx, component, instanceID, address, nil)
 }
 
-func (r *Registry) RegisterInstanceOnceWithMetadata(ctx context.Context, component api.Component, instanceID, address string, metadata map[string]string) error {
+func (r *Registry) RegisterInstanceOnceWithMetadata(
+	ctx context.Context,
+	component api.Component,
+	instanceID, address string,
+	metadata map[string]string,
+) error {
 	if err := ValidateComponentMetadata(component, metadata); err != nil {
 		return fmt.Errorf("registry metadata: %w", err)
 	}
@@ -119,7 +155,11 @@ func (r *Registry) RegisterInstanceOnceWithMetadata(ctx context.Context, compone
 	})
 }
 
-func (r *Registry) ListRegistrations(ctx context.Context, component api.Component, metadata map[string]string) ([]*api.RegistryEntry, error) {
+func (r *Registry) ListRegistrations(
+	ctx context.Context,
+	component api.Component,
+	metadata map[string]string,
+) ([]*api.RegistryEntry, error) {
 	req := &api.ListRegistrationsRequest{
 		Component: component.Enum(),
 		Metadata:  cloneMetadata(metadata),
@@ -198,7 +238,10 @@ func (r *Registry) GossipOnce(ctx context.Context, req *api.GossipRequest) (*api
 	return resp, nil
 }
 
-func (r *Registry) SnapshotOnce(ctx context.Context, req *api.RegistrySnapshotRequest) (*api.RegistrySnapshotResponse, error) {
+func (r *Registry) SnapshotOnce(
+	ctx context.Context,
+	req *api.RegistrySnapshotRequest,
+) (*api.RegistrySnapshotResponse, error) {
 	var resp *api.RegistrySnapshotResponse
 	err := r.withClient(ctx, func(client api.RegistryServiceClient) error {
 		var e error

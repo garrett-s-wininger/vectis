@@ -91,7 +91,12 @@ func PollChange(ctx context.Context, provider Provider, opts PollOptions) (Chang
 				return Change{}, fmt.Errorf("poll SCM change %s: %w", changeID, lastErr)
 			}
 
-			return Change{}, fmt.Errorf("poll SCM change %s: not found after last query returned %d change(s): %w", changeID, lastCount, ctx.Err())
+			return Change{}, fmt.Errorf(
+				"poll SCM change %s: not found after last query returned %d change(s): %w",
+				changeID,
+				lastCount,
+				ctx.Err(),
+			)
 		case <-timer.C:
 		}
 	}

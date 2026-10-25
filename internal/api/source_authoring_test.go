@@ -18,11 +18,17 @@ import (
 
 type definitionAuthorFunc func(context.Context, sourcepkg.WriteDefinitionRequest) (sourcepkg.WrittenDefinition, error)
 
-func (f definitionAuthorFunc) WriteDefinition(ctx context.Context, req sourcepkg.WriteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
+func (f definitionAuthorFunc) WriteDefinition(
+	ctx context.Context,
+	req sourcepkg.WriteDefinitionRequest,
+) (sourcepkg.WrittenDefinition, error) {
 	return f(ctx, req)
 }
 
-func (f definitionAuthorFunc) DeleteDefinition(context.Context, sourcepkg.DeleteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
+func (f definitionAuthorFunc) DeleteDefinition(
+	context.Context,
+	sourcepkg.DeleteDefinitionRequest,
+) (sourcepkg.WrittenDefinition, error) {
 	return sourcepkg.WrittenDefinition{}, sourcepkg.ErrAuthoringUnavailable
 }
 
@@ -51,15 +57,17 @@ func TestAPIServer_SourceDefinitionAuthoringHooks(t *testing.T) {
 	server.SetSourceDefinitionAuthoring(
 		func(rec dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error) {
 			gotRec = rec
-			return definitionAuthorFunc(func(_ context.Context, req sourcepkg.WriteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
-				gotReq = req
-				return sourcepkg.WrittenDefinition{
-					RequestedRef: req.Branch,
-					Commit:       "0123456789abcdef0123456789abcdef01234567",
-					Path:         req.Path,
-					BlobSHA:      "abcdef0123456789abcdef0123456789abcdef01",
-				}, nil
-			}), nil
+			return definitionAuthorFunc(
+				func(_ context.Context, req sourcepkg.WriteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
+					gotReq = req
+					return sourcepkg.WrittenDefinition{
+						RequestedRef: req.Branch,
+						Commit:       "0123456789abcdef0123456789abcdef01234567",
+						Path:         req.Path,
+						BlobSHA:      "abcdef0123456789abcdef0123456789abcdef01",
+					}, nil
+				},
+			), nil
 		},
 		func(rec dal.SourceRepositoryRecord) sourcepkg.AuthoringCapability {
 			return sourcepkg.AuthoringCapability{
@@ -109,7 +117,11 @@ func TestAPIServer_SourceDefinitionAuthoringHooks(t *testing.T) {
 	}
 
 	putRec := httptest.NewRecorder()
-	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/source-repositories/external-author/jobs/build/definition", bytes.NewReader(body))
+	putReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/source-repositories/external-author/jobs/build/definition",
+		bytes.NewReader(body),
+	)
 	putReq.Header.Set("Content-Type", "application/json")
 	handler.ServeHTTP(putRec, putReq)
 	if putRec.Code != http.StatusOK {
@@ -165,9 +177,11 @@ func TestAPIServer_SourceDefinitionAuthoringBusyError(t *testing.T) {
 
 	server.SetSourceDefinitionAuthoring(
 		func(dal.SourceRepositoryRecord) (sourcepkg.DefinitionAuthor, error) {
-			return definitionAuthorFunc(func(context.Context, sourcepkg.WriteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
-				return sourcepkg.WrittenDefinition{}, sourcepkg.ErrBusy
-			}), nil
+			return definitionAuthorFunc(
+				func(context.Context, sourcepkg.WriteDefinitionRequest) (sourcepkg.WrittenDefinition, error) {
+					return sourcepkg.WrittenDefinition{}, sourcepkg.ErrBusy
+				},
+			), nil
 		},
 		func(rec dal.SourceRepositoryRecord) sourcepkg.AuthoringCapability {
 			return sourcepkg.AuthoringCapability{
@@ -193,7 +207,11 @@ func TestAPIServer_SourceDefinitionAuthoringBusyError(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/source-repositories/managed-author/jobs/build/definition", bytes.NewReader(body))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/source-repositories/managed-author/jobs/build/definition",
+		bytes.NewReader(body),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	handler.ServeHTTP(rec, req)
 

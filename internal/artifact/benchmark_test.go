@@ -121,31 +121,34 @@ func BenchmarkLocalStore_OpenRead(b *testing.B) {
 func BenchmarkArtifactService_UploadBlob(b *testing.B) {
 	for _, size := range benchmarkArtifactSizes() {
 		for _, chunkBytes := range benchmarkArtifactChunkSizes() {
-			b.Run(fmt.Sprintf("%s/chunk_%s", benchmarkArtifactSizeName(size), benchmarkArtifactSizeName(chunkBytes)), func(b *testing.B) {
-				store, err := NewLocalStore(b.TempDir())
-				if err != nil {
-					b.Fatalf("new local store: %v", err)
-				}
-				defer store.Close()
-
-				client := newBenchmarkArtifactServiceClient(b, store, ServerOptions{})
-				payload := benchmarkArtifactPayload(size)
-				ctx := context.Background()
-
-				b.SetBytes(int64(size))
-				b.ReportAllocs()
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
-					desc, err := uploadBenchmarkArtifactBlob(ctx, client, payload, chunkBytes)
+			b.Run(
+				fmt.Sprintf("%s/chunk_%s", benchmarkArtifactSizeName(size), benchmarkArtifactSizeName(chunkBytes)),
+				func(b *testing.B) {
+					store, err := NewLocalStore(b.TempDir())
 					if err != nil {
-						b.Fatalf("upload artifact payload: %v", err)
+						b.Fatalf("new local store: %v", err)
 					}
+					defer store.Close()
 
-					b.StopTimer()
-					removeBenchmarkArtifactBlob(b, store, desc.GetDigest())
-					b.StartTimer()
-				}
-			})
+					client := newBenchmarkArtifactServiceClient(b, store, ServerOptions{})
+					payload := benchmarkArtifactPayload(size)
+					ctx := context.Background()
+
+					b.SetBytes(int64(size))
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						desc, err := uploadBenchmarkArtifactBlob(ctx, client, payload, chunkBytes)
+						if err != nil {
+							b.Fatalf("upload artifact payload: %v", err)
+						}
+
+						b.StopTimer()
+						removeBenchmarkArtifactBlob(b, store, desc.GetDigest())
+						b.StartTimer()
+					}
+				},
+			)
 		}
 	}
 }
@@ -153,40 +156,43 @@ func BenchmarkArtifactService_UploadBlob(b *testing.B) {
 func BenchmarkPublisher_UploadBlob(b *testing.B) {
 	for _, size := range benchmarkArtifactSizes() {
 		for _, chunkBytes := range benchmarkArtifactChunkSizes() {
-			b.Run(fmt.Sprintf("%s/chunk_%s", benchmarkArtifactSizeName(size), benchmarkArtifactSizeName(chunkBytes)), func(b *testing.B) {
-				store, err := NewLocalStore(b.TempDir())
-				if err != nil {
-					b.Fatalf("new local store: %v", err)
-				}
-				defer store.Close()
-
-				publisher := &Publisher{
-					client:           newBenchmarkArtifactServiceClient(b, store, ServerOptions{}),
-					uploadChunkBytes: chunkBytes,
-				}
-
-				payload := benchmarkArtifactPayload(size)
-				ctx := context.Background()
-
-				b.SetBytes(int64(size))
-				b.ReportAllocs()
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
-					desc, err := publisher.uploadBlob(ctx, PublishRequest{
-						Reader:       bytes.NewReader(payload),
-						ExpectedSize: int64(size),
-						RequireSize:  true,
-					})
-
+			b.Run(
+				fmt.Sprintf("%s/chunk_%s", benchmarkArtifactSizeName(size), benchmarkArtifactSizeName(chunkBytes)),
+				func(b *testing.B) {
+					store, err := NewLocalStore(b.TempDir())
 					if err != nil {
-						b.Fatalf("publisher upload artifact payload: %v", err)
+						b.Fatalf("new local store: %v", err)
+					}
+					defer store.Close()
+
+					publisher := &Publisher{
+						client:           newBenchmarkArtifactServiceClient(b, store, ServerOptions{}),
+						uploadChunkBytes: chunkBytes,
 					}
 
-					b.StopTimer()
-					removeBenchmarkArtifactBlob(b, store, desc.Digest)
-					b.StartTimer()
-				}
-			})
+					payload := benchmarkArtifactPayload(size)
+					ctx := context.Background()
+
+					b.SetBytes(int64(size))
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						desc, err := publisher.uploadBlob(ctx, PublishRequest{
+							Reader:       bytes.NewReader(payload),
+							ExpectedSize: int64(size),
+							RequireSize:  true,
+						})
+
+						if err != nil {
+							b.Fatalf("publisher upload artifact payload: %v", err)
+						}
+
+						b.StopTimer()
+						removeBenchmarkArtifactBlob(b, store, desc.Digest)
+						b.StartTimer()
+					}
+				},
+			)
 		}
 	}
 }
@@ -194,9 +200,12 @@ func BenchmarkPublisher_UploadBlob(b *testing.B) {
 func BenchmarkPublisher_Publish(b *testing.B) {
 	for _, size := range benchmarkArtifactSizes() {
 		for _, quota := range []bool{false, true} {
-			b.Run(fmt.Sprintf("%s/%s", benchmarkArtifactSizeName(size), benchmarkArtifactQuotaName(quota)), func(b *testing.B) {
-				benchmarkPublisherPublish(b, size, quota)
-			})
+			b.Run(
+				fmt.Sprintf("%s/%s", benchmarkArtifactSizeName(size), benchmarkArtifactQuotaName(quota)),
+				func(b *testing.B) {
+					benchmarkPublisherPublish(b, size, quota)
+				},
+			)
 		}
 	}
 }
@@ -327,36 +336,39 @@ func BenchmarkArtifactManifest_ListByRun(b *testing.B) {
 func BenchmarkArtifactService_ReadBlob(b *testing.B) {
 	for _, size := range benchmarkArtifactSizes() {
 		for _, chunkBytes := range benchmarkArtifactChunkSizes() {
-			b.Run(fmt.Sprintf("%s/chunk_%s", benchmarkArtifactSizeName(size), benchmarkArtifactSizeName(chunkBytes)), func(b *testing.B) {
-				store, err := NewLocalStore(b.TempDir())
-				if err != nil {
-					b.Fatalf("new local store: %v", err)
-				}
-				defer store.Close()
-
-				client := newBenchmarkArtifactServiceClient(b, store, ServerOptions{ReadBlobChunkBytes: chunkBytes})
-				payload := benchmarkArtifactPayload(size)
-				ctx := context.Background()
-				desc, err := store.Put(ctx, bytes.NewReader(payload), PutOptions{})
-				if err != nil {
-					b.Fatalf("seed artifact payload: %v", err)
-				}
-
-				key := desc.Key
-				b.SetBytes(int64(size))
-				b.ReportAllocs()
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
-					n, err := readBenchmarkArtifactServiceBlob(ctx, client, key)
+			b.Run(
+				fmt.Sprintf("%s/chunk_%s", benchmarkArtifactSizeName(size), benchmarkArtifactSizeName(chunkBytes)),
+				func(b *testing.B) {
+					store, err := NewLocalStore(b.TempDir())
 					if err != nil {
-						b.Fatalf("read artifact service payload: %v", err)
+						b.Fatalf("new local store: %v", err)
+					}
+					defer store.Close()
+
+					client := newBenchmarkArtifactServiceClient(b, store, ServerOptions{ReadBlobChunkBytes: chunkBytes})
+					payload := benchmarkArtifactPayload(size)
+					ctx := context.Background()
+					desc, err := store.Put(ctx, bytes.NewReader(payload), PutOptions{})
+					if err != nil {
+						b.Fatalf("seed artifact payload: %v", err)
 					}
 
-					if n != int64(size) {
-						b.Fatalf("read %d bytes, want %d", n, size)
+					key := desc.Key
+					b.SetBytes(int64(size))
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						n, err := readBenchmarkArtifactServiceBlob(ctx, client, key)
+						if err != nil {
+							b.Fatalf("read artifact service payload: %v", err)
+						}
+
+						if n != int64(size) {
+							b.Fatalf("read %d bytes, want %d", n, size)
+						}
 					}
-				}
-			})
+				},
+			)
 		}
 	}
 }
@@ -466,7 +478,13 @@ func createBenchmarkArtifactRun(b *testing.B, ctx context.Context, repos *dal.SQ
 	return runID
 }
 
-func seedBenchmarkArtifactManifests(b *testing.B, ctx context.Context, artifacts dal.ArtifactsRepository, runID string, count int) {
+func seedBenchmarkArtifactManifests(
+	b *testing.B,
+	ctx context.Context,
+	artifacts dal.ArtifactsRepository,
+	runID string,
+	count int,
+) {
 	b.Helper()
 
 	for i := 0; i < count; i++ {
@@ -491,7 +509,12 @@ func benchmarkArtifactCreate(runID string, index int, size int64) dal.ArtifactCr
 	}
 }
 
-func uploadBenchmarkArtifactBlob(ctx context.Context, client api.ArtifactServiceClient, payload []byte, chunkBytes int) (*api.BlobDescriptor, error) {
+func uploadBenchmarkArtifactBlob(
+	ctx context.Context,
+	client api.ArtifactServiceClient,
+	payload []byte,
+	chunkBytes int,
+) (*api.BlobDescriptor, error) {
 	stream, err := client.UploadBlob(ctx)
 	if err != nil {
 		return nil, err
@@ -519,7 +542,11 @@ func uploadBenchmarkArtifactBlob(ctx context.Context, client api.ArtifactService
 	return stream.CloseAndRecv()
 }
 
-func readBenchmarkArtifactServiceBlob(ctx context.Context, client api.ArtifactServiceClient, key string) (int64, error) {
+func readBenchmarkArtifactServiceBlob(
+	ctx context.Context,
+	client api.ArtifactServiceClient,
+	key string,
+) (int64, error) {
 	stream, err := client.ReadBlob(ctx, &api.GetBlobRequest{Key: &key})
 	if err != nil {
 		return 0, err

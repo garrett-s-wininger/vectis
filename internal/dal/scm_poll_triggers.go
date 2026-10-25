@@ -12,7 +12,11 @@ type SQLSCMPollTriggersRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLSCMPollTriggersRepository) GetReady(ctx context.Context, at time.Time, limit int) ([]SCMPollTriggerSpec, error) {
+func (r *SQLSCMPollTriggersRepository) GetReady(
+	ctx context.Context,
+	at time.Time,
+	limit int,
+) ([]SCMPollTriggerSpec, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -83,7 +87,11 @@ func (r *SQLSCMPollTriggersRepository) GetReady(ctx context.Context, at time.Tim
 	return out, nil
 }
 
-func (r *SQLSCMPollTriggersRepository) ListEnabledByProvider(ctx context.Context, provider string, limit int) ([]SCMPollTriggerSpec, error) {
+func (r *SQLSCMPollTriggersRepository) ListEnabledByProvider(
+	ctx context.Context,
+	provider string,
+	limit int,
+) ([]SCMPollTriggerSpec, error) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
 		return nil, fmt.Errorf("%w: scm provider is required", ErrConflict)
@@ -170,7 +178,13 @@ func scanSCMPollTriggerSpec(scanner scmPollTriggerSpecScanner) (SCMPollTriggerSp
 	return spec, nil
 }
 
-func (r *SQLSCMPollTriggersRepository) ClaimDue(ctx context.Context, specID int64, observedNextPoll time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
+func (r *SQLSCMPollTriggersRepository) ClaimDue(
+	ctx context.Context,
+	specID int64,
+	observedNextPoll time.Time,
+	claimToken string,
+	claimedUntil, now time.Time,
+) (bool, error) {
 	result, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`
 			UPDATE scm_poll_trigger_specs
@@ -198,7 +212,13 @@ func (r *SQLSCMPollTriggersRepository) ClaimDue(ctx context.Context, specID int6
 	return rows == 1, nil
 }
 
-func (r *SQLSCMPollTriggersRepository) CompleteClaim(ctx context.Context, specID int64, claimToken string, nextPoll time.Time, cursor string) (bool, error) {
+func (r *SQLSCMPollTriggersRepository) CompleteClaim(
+	ctx context.Context,
+	specID int64,
+	claimToken string,
+	nextPoll time.Time,
+	cursor string,
+) (bool, error) {
 	result, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx(`
 			UPDATE scm_poll_trigger_specs
@@ -237,7 +257,10 @@ func (r *SQLSCMPollTriggersRepository) ReleaseClaim(ctx context.Context, specID 
 	return normalizeSQLError(err)
 }
 
-func (r *SQLSCMPollTriggersRepository) RecordEvent(ctx context.Context, event SCMTriggerEvent) (SCMTriggerEventRecord, bool, error) {
+func (r *SQLSCMPollTriggersRepository) RecordEvent(
+	ctx context.Context,
+	event SCMTriggerEvent,
+) (SCMTriggerEventRecord, bool, error) {
 	event.TriggerID = normalizeTriggerID(event.TriggerID)
 	event.EventKey = strings.TrimSpace(event.EventKey)
 	event.Source = strings.TrimSpace(event.Source)
@@ -302,7 +325,11 @@ func (r *SQLSCMPollTriggersRepository) RecordEvent(ctx context.Context, event SC
 	return rec, created, nil
 }
 
-func (r *SQLSCMPollTriggersRepository) getEvent(ctx context.Context, triggerID int64, eventKey string) (SCMTriggerEventRecord, error) {
+func (r *SQLSCMPollTriggersRepository) getEvent(
+	ctx context.Context,
+	triggerID int64,
+	eventKey string,
+) (SCMTriggerEventRecord, error) {
 	var rec SCMTriggerEventRecord
 	var runID sql.NullString
 	var lastObservedAt sql.NullString

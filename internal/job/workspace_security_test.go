@@ -87,7 +87,13 @@ func TestCleanupWorkspacePathRefusesWorkspaceSymlink(t *testing.T) {
 		t.Fatalf("cleanup followed workspace symlink and removed outside marker: %v", err)
 	}
 
-	if got := strings.Join(logger.GetErrorCalls(), "\n"); !strings.Contains(got, "workspace path must not be a symlink") {
+	if got := strings.Join(
+		logger.GetErrorCalls(),
+		"\n",
+	); !strings.Contains(
+		got,
+		"workspace path must not be a symlink",
+	) {
 		t.Fatalf("expected symlink refusal log, got %v", logger.GetErrorCalls())
 	}
 }

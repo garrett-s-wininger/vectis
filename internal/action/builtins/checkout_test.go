@@ -23,7 +23,11 @@ type fakeCheckoutCache struct {
 	workspace string
 }
 
-func (c *fakeCheckoutCache) Checkout(_ context.Context, remoteURL, workspace string, _ interfaces.Logger) (bool, error) {
+func (c *fakeCheckoutCache) Checkout(
+	_ context.Context,
+	remoteURL, workspace string,
+	_ interfaces.Logger,
+) (bool, error) {
 	c.calls++
 	c.remoteURL = remoteURL
 	c.workspace = workspace
@@ -39,7 +43,12 @@ type fakeCheckoutCacheRefFetcher struct {
 	fetchRefs    []string
 }
 
-func (c *fakeCheckoutCacheRefFetcher) FetchRefspecs(_ context.Context, remoteURL, _ string, refspecs []string, _ interfaces.Logger) (bool, error) {
+func (c *fakeCheckoutCacheRefFetcher) FetchRefspecs(
+	_ context.Context,
+	remoteURL, _ string,
+	refspecs []string,
+	_ interfaces.Logger,
+) (bool, error) {
 	c.fetchCalls++
 	c.fetchRemote = remoteURL
 	c.fetchRefs = append([]string(nil), refspecs...)
@@ -150,7 +159,15 @@ func TestCheckoutAction_Execute_UsesCheckoutCacheForFetchRefspecs(t *testing.T) 
 		t.Fatalf("expected one git fetch execution, got paths=%v", paths)
 	}
 
-	wantArgs := gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", "vectis-cache", "+refs/notes/*:refs/notes/*", "+refs/changes/*:refs/changes/*")
+	wantArgs := gitcmd.NoAutoMaintenanceArgs(
+		"fetch",
+		"--no-auto-gc",
+		"--no-tags",
+		"--",
+		"vectis-cache",
+		"+refs/notes/*:refs/notes/*",
+		"+refs/changes/*:refs/changes/*",
+	)
 	if len(args) != 1 || !reflect.DeepEqual(args[0], wantArgs) {
 		t.Fatalf("fetch args = %+v, want %+v", args, wantArgs)
 	}
@@ -175,7 +192,8 @@ func TestCheckoutAction_Execute_UsesCheckoutCacheRefFetcher(t *testing.T) {
 		t.Fatalf("expected success, got %v with error: %v", result.Status, result.Error)
 	}
 
-	if cache.fetchCalls != 1 || cache.fetchRemote != url || !reflect.DeepEqual(cache.fetchRefs, []string{"+refs/notes/*:refs/notes/*"}) {
+	if cache.fetchCalls != 1 || cache.fetchRemote != url ||
+		!reflect.DeepEqual(cache.fetchRefs, []string{"+refs/notes/*:refs/notes/*"}) {
 		t.Fatalf("fetcher calls=%d remote=%q refs=%+v", cache.fetchCalls, cache.fetchRemote, cache.fetchRefs)
 	}
 
@@ -237,7 +255,14 @@ func TestCheckoutAction_Execute_DirectCloneFetchesRefspecsFromOrigin(t *testing.
 	args := mockExecutor.GetArgs()
 	wantArgs := [][]string{
 		gitcmd.NoAutoMaintenanceCloneArgs(url, "."),
-		gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", "origin", "+refs/pull/*/head:refs/remotes/origin/pr/*"),
+		gitcmd.NoAutoMaintenanceArgs(
+			"fetch",
+			"--no-auto-gc",
+			"--no-tags",
+			"--",
+			"origin",
+			"+refs/pull/*/head:refs/remotes/origin/pr/*",
+		),
 	}
 
 	if !reflect.DeepEqual(args, wantArgs) {
@@ -317,7 +342,12 @@ func TestCheckoutAction_Execute_ReportsCheckoutCacheFailure(t *testing.T) {
 	checkoutAction := NewCheckoutAction(mockExecutor, cache)
 	state := createTestState(nil)
 
-	result := checkoutAction.Execute(context.Background(), state, map[string]any{"url": "https://github.com/example/repo.git"}, nil)
+	result := checkoutAction.Execute(
+		context.Background(),
+		state,
+		map[string]any{"url": "https://github.com/example/repo.git"},
+		nil,
+	)
 	if result.Status != action.StatusFailure {
 		t.Fatalf("expected failure, got %v", result.Status)
 	}

@@ -170,19 +170,43 @@ func sanitizeJobIDForPrefix(id string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(id, "/", "-"), string(filepath.Separator), "-")
 }
 
-func (e *Executor) ExecuteJob(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
+func (e *Executor) ExecuteJob(
+	ctx context.Context,
+	job *api.Job,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+) (err error) {
 	return e.ExecuteJobWithOptions(ctx, job, logClient, logger, ExecuteOptions{})
 }
 
-func (e *Executor) ExecuteJobWithOptions(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, opts ExecuteOptions) (err error) {
+func (e *Executor) ExecuteJobWithOptions(
+	ctx context.Context,
+	job *api.Job,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	opts ExecuteOptions,
+) (err error) {
 	return e.execute(ctx, job, logClient, logger, "", "", false, opts)
 }
 
-func (e *Executor) ExecuteJobInWorkspace(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+func (e *Executor) ExecuteJobInWorkspace(
+	ctx context.Context,
+	job *api.Job,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	workspace string,
+) (err error) {
 	return e.ExecuteJobInWorkspaceWithOptions(ctx, job, logClient, logger, workspace, ExecuteOptions{})
 }
 
-func (e *Executor) ExecuteJobInWorkspaceWithOptions(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace string, opts ExecuteOptions) (err error) {
+func (e *Executor) ExecuteJobInWorkspaceWithOptions(
+	ctx context.Context,
+	job *api.Job,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	workspace string,
+	opts ExecuteOptions,
+) (err error) {
 	if workspace == "" {
 		return fmt.Errorf("workspace is required")
 	}
@@ -190,19 +214,47 @@ func (e *Executor) ExecuteJobInWorkspaceWithOptions(ctx context.Context, job *ap
 	return e.execute(ctx, job, logClient, logger, workspace, "", false, opts)
 }
 
-func (e *Executor) ExecuteTask(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger) (err error) {
+func (e *Executor) ExecuteTask(
+	ctx context.Context,
+	job *api.Job,
+	taskKey string,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+) (err error) {
 	return e.ExecuteTaskWithOptions(ctx, job, taskKey, logClient, logger, ExecuteOptions{})
 }
 
-func (e *Executor) ExecuteTaskWithOptions(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, opts ExecuteOptions) (err error) {
+func (e *Executor) ExecuteTaskWithOptions(
+	ctx context.Context,
+	job *api.Job,
+	taskKey string,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	opts ExecuteOptions,
+) (err error) {
 	return e.execute(ctx, job, logClient, logger, "", taskKey, true, opts)
 }
 
-func (e *Executor) ExecuteTaskInWorkspace(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string) (err error) {
+func (e *Executor) ExecuteTaskInWorkspace(
+	ctx context.Context,
+	job *api.Job,
+	taskKey string,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	workspace string,
+) (err error) {
 	return e.ExecuteTaskInWorkspaceWithOptions(ctx, job, taskKey, logClient, logger, workspace, ExecuteOptions{})
 }
 
-func (e *Executor) ExecuteTaskInWorkspaceWithOptions(ctx context.Context, job *api.Job, taskKey string, logClient interfaces.LogClient, logger interfaces.Logger, workspace string, opts ExecuteOptions) (err error) {
+func (e *Executor) ExecuteTaskInWorkspaceWithOptions(
+	ctx context.Context,
+	job *api.Job,
+	taskKey string,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	workspace string,
+	opts ExecuteOptions,
+) (err error) {
 	if workspace == "" {
 		return fmt.Errorf("workspace is required")
 	}
@@ -210,7 +262,15 @@ func (e *Executor) ExecuteTaskInWorkspaceWithOptions(ctx context.Context, job *a
 	return e.execute(ctx, job, logClient, logger, workspace, taskKey, true, opts)
 }
 
-func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfaces.LogClient, logger interfaces.Logger, workspace, taskKey string, taskScoped bool, opts ExecuteOptions) (err error) {
+func (e *Executor) execute(
+	ctx context.Context,
+	job *api.Job,
+	logClient interfaces.LogClient,
+	logger interfaces.Logger,
+	workspace, taskKey string,
+	taskScoped bool,
+	opts ExecuteOptions,
+) (err error) {
 	if job.GetRoot() == nil {
 		return fmt.Errorf("job has no root node")
 	}
@@ -360,7 +420,12 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		actionProcessExecutor = processExecutor
 	}
 
-	actionResolver, err := newExecutableActionResolver(e.registry, descriptorResolver, opts.ActionLocks, actionProcessExecutor)
+	actionResolver, err := newExecutableActionResolver(
+		e.registry,
+		descriptorResolver,
+		opts.ActionLocks,
+		actionProcessExecutor,
+	)
 	if err != nil {
 		return fmt.Errorf("initialize action resolver: %w", err)
 	}
@@ -403,7 +468,11 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 	sendLog(state, api.Stream_STREAM_CONTROL, `{"event":"start"}`)
 	if taskScoped {
 		logger.Info("Starting task execution: %s task %s", job.GetId(), taskKey)
-		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting task execution: %s task %s", job.GetId(), taskKey))
+		sendLog(
+			state,
+			api.Stream_STREAM_STDOUT,
+			fmt.Sprintf("Starting task execution: %s task %s", job.GetId(), taskKey),
+		)
 	} else {
 		logger.Info("Starting job execution: %s", job.GetId())
 		sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Starting job execution: %s", job.GetId()))
@@ -413,7 +482,12 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 
 	if result.Status == action.StatusFailure {
 		if ctx.Err() != nil {
-			sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"aborted"}`, api.RunOutcome_RUN_OUTCOME_UNKNOWN)
+			sendCompletionLog(
+				state,
+				api.Stream_STREAM_CONTROL,
+				`{"event":"completed","status":"aborted"}`,
+				api.RunOutcome_RUN_OUTCOME_UNKNOWN,
+			)
 			if result.Error == nil {
 				return ctx.Err()
 			}
@@ -422,11 +496,21 @@ func (e *Executor) execute(ctx context.Context, job *api.Job, logClient interfac
 		}
 
 		logger.Error("Job failed: %v", result.Error)
-		sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"failure"}`, api.RunOutcome_RUN_OUTCOME_FAILURE)
+		sendCompletionLog(
+			state,
+			api.Stream_STREAM_CONTROL,
+			`{"event":"completed","status":"failure"}`,
+			api.RunOutcome_RUN_OUTCOME_FAILURE,
+		)
 		return result.Error
 	}
 
-	sendCompletionLog(state, api.Stream_STREAM_CONTROL, `{"event":"completed","status":"success"}`, api.RunOutcome_RUN_OUTCOME_SUCCESS)
+	sendCompletionLog(
+		state,
+		api.Stream_STREAM_CONTROL,
+		`{"event":"completed","status":"success"}`,
+		api.RunOutcome_RUN_OUTCOME_SUCCESS,
+	)
 	return nil
 }
 
@@ -458,12 +542,18 @@ func (e *Executor) executeNode(ctx context.Context, node *api.Node, state *actio
 	return e.executeNodeWithPorts(ctx, node, state, taskgraph.ChildPorts(node))
 }
 
-func (e *Executor) executeNodeWithPorts(ctx context.Context, node *api.Node, state *action.ExecutionState, ports map[string][]*api.Node) action.Result {
+func (e *Executor) executeNodeWithPorts(
+	ctx context.Context,
+	node *api.Node,
+	state *action.ExecutionState,
+	ports map[string][]*api.Node,
+) action.Result {
 	if node == nil {
 		return action.NewFailureResult(fmt.Errorf("nil node"))
 	}
 
-	nodeCtx, span := observability.Tracer("vectis/job").Start(ctx, "run.action.execute", trace.WithSpanKind(trace.SpanKindInternal))
+	nodeCtx, span := observability.Tracer("vectis/job").
+		Start(ctx, "run.action.execute", trace.WithSpanKind(trace.SpanKindInternal))
 	span.SetAttributes(observability.JobRunAttrs(state.JobID, state.RunID)...)
 	span.SetAttributes(
 		attribute.String("action.type", node.GetUses()),
@@ -559,7 +649,12 @@ func executionNodePaths(root *api.Node) map[*api.Node]string {
 	return paths
 }
 
-func executionNodePathsForScope(root, node *api.Node, nodePath string, ports map[string][]*api.Node, taskScoped bool) map[*api.Node]string {
+func executionNodePathsForScope(
+	root, node *api.Node,
+	nodePath string,
+	ports map[string][]*api.Node,
+	taskScoped bool,
+) map[*api.Node]string {
 	if !taskScoped {
 		return executionNodePaths(root)
 	}
@@ -590,7 +685,12 @@ func collectExecutionNodePaths(paths map[*api.Node]string, node *api.Node, path 
 	}
 }
 
-func collectExecutionNodePathsForPorts(paths map[*api.Node]string, node *api.Node, path string, ports map[string][]*api.Node) {
+func collectExecutionNodePathsForPorts(
+	paths map[*api.Node]string,
+	node *api.Node,
+	path string,
+	ports map[string][]*api.Node,
+) {
 	if node == nil || len(ports) == 0 {
 		return
 	}

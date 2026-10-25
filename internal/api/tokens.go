@@ -270,9 +270,15 @@ func (s *APIServer) CreateToken(w http.ResponseWriter, r *http.Request) {
 				ns, err := s.namespaces.GetByPath(ctx, scopeReq.NamespacePath)
 				if err != nil {
 					if dal.IsNotFound(err) {
-						writeAPIError(w, http.StatusBadRequest, "namespace_not_found", "namespace not found", map[string]any{
-							"namespace_path": scopeReq.NamespacePath,
-						})
+						writeAPIError(
+							w,
+							http.StatusBadRequest,
+							"namespace_not_found",
+							"namespace not found",
+							map[string]any{
+								"namespace_path": scopeReq.NamespacePath,
+							},
+						)
 						return
 					}
 

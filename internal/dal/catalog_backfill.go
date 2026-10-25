@@ -10,7 +10,11 @@ type SQLCatalogStatusBackfillRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLCatalogStatusBackfillRepository) ListMissingRunStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]RunStatusUpdate, error) {
+func (r *SQLCatalogStatusBackfillRepository) ListMissingRunStatusCatalogEvents(
+	ctx context.Context,
+	sourceCell string,
+	limit int,
+) ([]RunStatusUpdate, error) {
 	sourceCell = normalizeCellID(sourceCell)
 	if limit <= 0 {
 		limit = 100
@@ -65,7 +69,11 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingRunStatusCatalogEvents(c
 	return out, nil
 }
 
-func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionStatusCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionStatusUpdate, error) {
+func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionStatusCatalogEvents(
+	ctx context.Context,
+	sourceCell string,
+	limit int,
+) ([]ExecutionStatusUpdate, error) {
 	sourceCell = normalizeCellID(sourceCell)
 	if limit <= 0 {
 		limit = 100
@@ -116,7 +124,11 @@ func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionStatusCatalogEv
 	return out, nil
 }
 
-func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionSecurityCatalogEvents(ctx context.Context, sourceCell string, limit int) ([]ExecutionSecurityEvent, error) {
+func (r *SQLCatalogStatusBackfillRepository) ListMissingExecutionSecurityCatalogEvents(
+	ctx context.Context,
+	sourceCell string,
+	limit int,
+) ([]ExecutionSecurityEvent, error) {
 	sourceCell = normalizeCellID(sourceCell)
 	if limit <= 0 {
 		limit = 100

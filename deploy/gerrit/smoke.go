@@ -223,7 +223,12 @@ func (r smokeRunner) waitForGerrit(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			if !deadline.IsZero() {
-				return fmt.Errorf("gerrit smoke did not reach %s by %s: %w", r.opts.URL, deadline.Format(time.RFC3339), lastErr)
+				return fmt.Errorf(
+					"gerrit smoke did not reach %s by %s: %w",
+					r.opts.URL,
+					deadline.Format(time.RFC3339),
+					lastErr,
+				)
 			}
 
 			return fmt.Errorf("gerrit smoke did not reach %s: %w", r.opts.URL, lastErr)
@@ -301,7 +306,13 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 	}
 
 	if discoveredRevision != revision || discoveredFetchRef != fetchRef {
-		return SmokeResult{}, fmt.Errorf("gerrit poll discovered revision/ref %s/%s, detail returned %s/%s", discoveredRevision, discoveredFetchRef, revision, fetchRef)
+		return SmokeResult{}, fmt.Errorf(
+			"gerrit poll discovered revision/ref %s/%s, detail returned %s/%s",
+			discoveredRevision,
+			discoveredFetchRef,
+			revision,
+			fetchRef,
+		)
 	}
 
 	scmSmoke, err := scmgerrit.RunSmoke(ctx, scmgerrit.SmokeOptions{
@@ -351,7 +362,14 @@ func (r smokeRunner) run(ctx context.Context) (SmokeResult, error) {
 		return SmokeResult{}, fmt.Errorf("write wrong gerrit password file: %w", err)
 	}
 
-	if err := r.postReview(ctx, workspace, change, revision, ".vectis/secrets/gerrit/wrong-password", false); err != nil {
+	if err := r.postReview(
+		ctx,
+		workspace,
+		change,
+		revision,
+		".vectis/secrets/gerrit/wrong-password",
+		false,
+	); err != nil {
 		return SmokeResult{}, err
 	}
 
@@ -461,7 +479,12 @@ func (r smokeRunner) generateHTTPPassword(ctx context.Context, accessToken strin
 
 func (r smokeRunner) createProject(ctx context.Context, password string) error {
 	endpoint := r.opts.URL + "/a/projects/" + url.PathEscape(r.opts.Project)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, strings.NewReader(`{"create_empty_commit": true}`))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPut,
+		endpoint,
+		strings.NewReader(`{"create_empty_commit": true}`),
+	)
 	if err != nil {
 		return err
 	}
@@ -480,7 +503,11 @@ func (r smokeRunner) createProject(ctx context.Context, password string) error {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("create gerrit project failed: status=%d body=%s", resp.StatusCode, gerritaction.ReadErrorBody(resp.Body))
+		return fmt.Errorf(
+			"create gerrit project failed: status=%d body=%s",
+			resp.StatusCode,
+			gerritaction.ReadErrorBody(resp.Body),
+		)
 	}
 
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -491,7 +518,13 @@ func (r smokeRunner) pushChange(ctx context.Context, workspaceRoot, password, ch
 	repoDir := filepath.Join(workspaceRoot, "repo")
 	header := "Authorization: Basic " + basicAuth(r.opts.Username, password)
 	remote := r.opts.URL + "/a/" + url.PathEscape(r.opts.Project)
-	if err := r.runGit(ctx, workspaceRoot, []string{"-c", "http.extraHeader=" + header}, []string{"clone", remote, repoDir}, "git clone"); err != nil {
+	if err := r.runGit(
+		ctx,
+		workspaceRoot,
+		[]string{"-c", "http.extraHeader=" + header},
+		[]string{"clone", remote, repoDir},
+		"git clone",
+	); err != nil {
 		return err
 	}
 
@@ -523,7 +556,13 @@ func (r smokeRunner) pushChange(ctx context.Context, workspaceRoot, password, ch
 		return err
 	}
 
-	return r.runGit(ctx, repoDir, []string{"-c", "http.extraHeader=" + header}, []string{"push", "origin", "HEAD:refs/for/master"}, "git push")
+	return r.runGit(
+		ctx,
+		repoDir,
+		[]string{"-c", "http.extraHeader=" + header},
+		[]string{"push", "origin", "HEAD:refs/for/master"},
+		"git push",
+	)
 }
 
 func (r smokeRunner) checkoutChange(ctx context.Context, workspace, fetchRef string) error {
@@ -557,7 +596,11 @@ func (r smokeRunner) checkoutChange(ctx context.Context, workspace, fetchRef str
 	return nil
 }
 
-func (r smokeRunner) postReview(ctx context.Context, workspace, change, revision, passwordFile string, wantSuccess bool) error {
+func (r smokeRunner) postReview(
+	ctx context.Context,
+	workspace, change, revision, passwordFile string,
+	wantSuccess bool,
+) error {
 	logs := &captureLogStream{}
 	state := &action.ExecutionState{
 		Workspace: workspace,
@@ -605,7 +648,10 @@ func (r smokeRunner) postReview(ctx context.Context, workspace, change, revision
 	return nil
 }
 
-func (r smokeRunner) executeReviewJob(ctx context.Context, workspaceRoot, change, revision, fetchRef, password, message string) error {
+func (r smokeRunner) executeReviewJob(
+	ctx context.Context,
+	workspaceRoot, change, revision, fetchRef, password, message string,
+) error {
 	workspace := filepath.Join(workspaceRoot, "job")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return fmt.Errorf("create gerrit job workspace: %w", err)
@@ -653,15 +699,22 @@ func (r smokeRunner) executeReviewJob(ctx context.Context, workspaceRoot, change
 
 	logClient := &smokeLogClient{}
 	executor := jobexec.NewExecutor()
-	err = executor.ExecuteJobInWorkspaceWithOptions(ctx, testJob, logClient, interfaces.NewLogger("gerrit-smoke-job"), workspace, jobexec.ExecuteOptions{
-		ActionResolver: actionResolver,
-		SecretFiles: []secrets.FileMaterial{{
-			ID:   "gerrit-http-password",
-			Path: "gerrit/http-password",
-			Data: []byte(password),
-			Mode: 0o600,
-		}},
-	})
+	err = executor.ExecuteJobInWorkspaceWithOptions(
+		ctx,
+		testJob,
+		logClient,
+		interfaces.NewLogger("gerrit-smoke-job"),
+		workspace,
+		jobexec.ExecuteOptions{
+			ActionResolver: actionResolver,
+			SecretFiles: []secrets.FileMaterial{{
+				ID:   "gerrit-http-password",
+				Path: "gerrit/http-password",
+				Data: []byte(password),
+				Mode: 0o600,
+			}},
+		},
+	)
 
 	if err != nil {
 		return fmt.Errorf("execute gerrit review job: %w: logs=%s", err, logClient.String())
@@ -705,7 +758,10 @@ func (r smokeRunner) verifyReviewMessage(ctx context.Context, password, change, 
 	return fmt.Errorf("gerrit review message %q was not found", message)
 }
 
-func (r smokeRunner) runPollerBackstop(ctx context.Context, workspaceRoot, password, change, revision, fetchRef string) error {
+func (r smokeRunner) runPollerBackstop(
+	ctx context.Context,
+	workspaceRoot, password, change, revision, fetchRef string,
+) error {
 	restoreDriver, err := forceSQLiteDatabaseDriver()
 	if err != nil {
 		return err
@@ -788,7 +844,11 @@ func (r smokeRunner) runPollerBackstop(ctx context.Context, workspaceRoot, passw
 	return nil
 }
 
-func (r smokeRunner) verifyPollerBackstopRows(ctx context.Context, db *sql.DB, runID, change, revision, fetchRef string) error {
+func (r smokeRunner) verifyPollerBackstopRows(
+	ctx context.Context,
+	db *sql.DB,
+	runID, change, revision, fetchRef string,
+) error {
 	var eventKey, payloadJSON, eventRunID, firstSource, firstInstance, lastSource, lastInstance string
 	var observationCount int
 	if err := db.QueryRowContext(ctx, `
@@ -807,7 +867,14 @@ func (r smokeRunner) verifyPollerBackstopRows(ctx context.Context, db *sql.DB, r
 
 	if firstSource != dal.DispatchSourceSCMPoller || lastSource != dal.DispatchSourceSCMPoller ||
 		firstInstance != "gerrit-smoke-poller" || lastInstance != "gerrit-smoke-poller" || observationCount != 1 {
-		return fmt.Errorf("gerrit poller backstop observation metadata first=%s/%s last=%s/%s count=%d", firstSource, firstInstance, lastSource, lastInstance, observationCount)
+		return fmt.Errorf(
+			"gerrit poller backstop observation metadata first=%s/%s last=%s/%s count=%d",
+			firstSource,
+			firstInstance,
+			lastSource,
+			lastInstance,
+			observationCount,
+		)
 	}
 
 	if !strings.Contains(eventKey, revision) {
@@ -828,7 +895,13 @@ func (r smokeRunner) verifyPollerBackstopRows(ctx context.Context, db *sql.DB, r
 	}
 
 	if payload.CurrentRevision != revision || payload.Ref != fetchRef {
-		return fmt.Errorf("gerrit poller backstop payload revision/ref %s/%s, want %s/%s", payload.CurrentRevision, payload.Ref, revision, fetchRef)
+		return fmt.Errorf(
+			"gerrit poller backstop payload revision/ref %s/%s, want %s/%s",
+			payload.CurrentRevision,
+			payload.Ref,
+			revision,
+			fetchRef,
+		)
 	}
 
 	repos := dal.NewSQLRepositories(db)
@@ -838,7 +911,10 @@ func (r smokeRunner) verifyPollerBackstopRows(ctx context.Context, db *sql.DB, r
 	}
 
 	if run.TriggerSourceInstance == nil || *run.TriggerSourceInstance != "gerrit-smoke-poller" {
-		return fmt.Errorf("gerrit poller backstop run source instance = %+v, want gerrit-smoke-poller", run.TriggerSourceInstance)
+		return fmt.Errorf(
+			"gerrit poller backstop run source instance = %+v, want gerrit-smoke-poller",
+			run.TriggerSourceInstance,
+		)
 	}
 
 	dispatches, err := repos.DispatchEvents().ListByRun(ctx, runID)
@@ -846,7 +922,8 @@ func (r smokeRunner) verifyPollerBackstopRows(ctx context.Context, db *sql.DB, r
 		return fmt.Errorf("list gerrit poller backstop dispatch events: %w", err)
 	}
 
-	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt || dispatches[1].EventType != dal.DispatchEventSuccess {
+	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt ||
+		dispatches[1].EventType != dal.DispatchEventSuccess {
 		return fmt.Errorf("gerrit poller backstop dispatch events = %+v, want attempt/success", dispatches)
 	}
 
@@ -890,7 +967,9 @@ func findRepoRoot() (string, error) {
 
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			if _, err := os.Stat(filepath.Join(dir, "extensions", "actions", "gerrit", "review", "action.json")); err == nil {
+			if _, err := os.Stat(
+				filepath.Join(dir, "extensions", "actions", "gerrit", "review", "action.json"),
+			); err == nil {
 				return dir, nil
 			}
 		}

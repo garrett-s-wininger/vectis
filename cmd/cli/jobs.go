@@ -84,7 +84,10 @@ func triggerJobWithOutput(cmd *cobra.Command, args []string, out io.Writer) erro
 	}
 
 	jobID := args[0]
-	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "trigger a reusable job; use jobs run for one-off definitions")
+	repositoryID, err := resolveSourceRepositoryID(
+		stringFlagValue(cmd, "repository"),
+		"trigger a reusable job; use jobs run for one-off definitions",
+	)
 	if err != nil {
 		return err
 	}
@@ -247,7 +250,11 @@ func submitJobDefinitionBody(body []byte, cellID, idempotencyKey string) (jobRun
 	return submitJobDefinitionBodyWithContext(context.Background(), body, cellID, idempotencyKey)
 }
 
-func submitJobDefinitionBodyWithContext(ctx context.Context, body []byte, cellID, idempotencyKey string) (jobRunResult, error) {
+func submitJobDefinitionBodyWithContext(
+	ctx context.Context,
+	body []byte,
+	cellID, idempotencyKey string,
+) (jobRunResult, error) {
 	if err := validateRunnableJobDefinition(body); err != nil {
 		return jobRunResult{}, err
 	}
@@ -541,7 +548,10 @@ func createJob(cmd *cobra.Command, args []string) {
 		runCLIError(fmt.Errorf("invalid action registry config: %w", err))
 	}
 
-	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "create a reusable job; use jobs run for one-off definitions")
+	repositoryID, err := resolveSourceRepositoryID(
+		stringFlagValue(cmd, "repository"),
+		"create a reusable job; use jobs run for one-off definitions",
+	)
 	if err != nil {
 		runCLIError(err)
 	}
@@ -563,7 +573,12 @@ func createJob(cmd *cobra.Command, args []string) {
 	runCLIError(createSourceJobFromJobsFacadeWithOutput(cmd, os.Stdout, repositoryID, jobID, body))
 }
 
-func createSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string, definition []byte) error {
+func createSourceJobFromJobsFacadeWithOutput(
+	cmd *cobra.Command,
+	out io.Writer,
+	repositoryID, jobID string,
+	definition []byte,
+) error {
 	payload, err := jobsSourceDefinitionWritePayload(cmd, repositoryID, jobID, definition)
 	if err != nil {
 		return err
@@ -603,7 +618,12 @@ func createSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 	}
 }
 
-func updateSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string, definition []byte) error {
+func updateSourceJobFromJobsFacadeWithOutput(
+	cmd *cobra.Command,
+	out io.Writer,
+	repositoryID, jobID string,
+	definition []byte,
+) error {
 	payload, err := jobsSourceDefinitionWritePayload(cmd, repositoryID, jobID, definition)
 	if err != nil {
 		return err
@@ -643,7 +663,11 @@ func updateSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 	}
 }
 
-func jobsSourceDefinitionWritePayload(cmd *cobra.Command, repositoryID, jobID string, definition []byte) ([]byte, error) {
+func jobsSourceDefinitionWritePayload(
+	cmd *cobra.Command,
+	repositoryID, jobID string,
+	definition []byte,
+) ([]byte, error) {
 	payload, err := json.Marshal(jobsSourceDefinitionWriteRequest{
 		RepositoryID: strings.TrimSpace(repositoryID),
 		JobID:        strings.TrimSpace(jobID),
@@ -687,7 +711,11 @@ type sourceRepositoryJobDeleteResult struct {
 	RepositorySync sourceRepositorySyncInfo `json:"repository_sync"`
 }
 
-func writeJobsSourceDeleteResult(out io.Writer, result sourceRepositoryJobDeleteResult, fallbackRepositoryID, fallbackJobID string) error {
+func writeJobsSourceDeleteResult(
+	out io.Writer,
+	result sourceRepositoryJobDeleteResult,
+	fallbackRepositoryID, fallbackJobID string,
+) error {
 	jobID := strings.TrimSpace(result.JobID)
 	if jobID == "" {
 		jobID = fallbackJobID
@@ -717,7 +745,9 @@ func deleteJob(cmd *cobra.Command, args []string) {
 
 	force, _ := cmd.Flags().GetBool("yes")
 	if !force {
-		runCLIError(fmt.Errorf("delete job %q requires --yes; this removes the definition and prevents future triggers", jobID))
+		runCLIError(
+			fmt.Errorf("delete job %q requires --yes; this removes the definition and prevents future triggers", jobID),
+		)
 	}
 
 	repositoryID, err := resolveSourceRepositoryID(stringFlagValue(cmd, "repository"), "delete a reusable job")
@@ -763,7 +793,15 @@ func deleteSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, 
 	case http.StatusNoContent:
 		commit := strings.TrimSpace(resp.Header.Get("X-Vectis-Source-Commit"))
 		if outputIsJSON() {
-			return writeJSON(out, map[string]string{"status": "deleted", "job_id": jobID, "repository_id": repositoryID, "commit": commit})
+			return writeJSON(
+				out,
+				map[string]string{
+					"status":        "deleted",
+					"job_id":        jobID,
+					"repository_id": repositoryID,
+					"commit":        commit,
+				},
+			)
 		}
 		if commit != "" {
 			_, err = fmt.Fprintf(out, "Job %q deleted from source.\ncommit=%s\n", jobID, commit)
@@ -812,25 +850,48 @@ func sourceJobDefinitionBadRequestError(resp *http.Response, fallback string) er
 func sourceJobDefinitionConflictError(resp *http.Response, operation, repositoryID, jobID string) error {
 	apiErr, ok := readCLIAPIError(resp)
 	if !ok {
-		return fmt.Errorf("source job definition %s returned a conflict; refresh the branch head or verify repository authoring is enabled", operation)
+		return fmt.Errorf(
+			"source job definition %s returned a conflict; refresh the branch head or verify repository authoring is enabled",
+			operation,
+		)
 	}
 
 	switch apiErr.Code {
 	case "source_definition_already_exists":
-		return fmt.Errorf("source job definition for %q already exists in repository %q; use jobs edit to update it or choose a different job id/path", jobID, repositoryID)
+		return fmt.Errorf(
+			"source job definition for %q already exists in repository %q; use jobs edit to update it or choose a different job id/path",
+			jobID,
+			repositoryID,
+		)
 	case "source_authoring_unavailable":
-		return fmt.Errorf("source repository %q does not allow local definition authoring; enable authoring_mode=local_commit on a managed repository or choose a writable repository", repositoryID)
+		return fmt.Errorf(
+			"source repository %q does not allow local definition authoring; enable authoring_mode=local_commit on a managed repository or choose a writable repository",
+			repositoryID,
+		)
 	case "source_conflict":
-		return fmt.Errorf("source job definition %s for %q in repository %q conflicted because the branch head changed; refresh and retry with --expected-head", operation, jobID, repositoryID)
+		return fmt.Errorf(
+			"source job definition %s for %q in repository %q conflicted because the branch head changed; refresh and retry with --expected-head",
+			operation,
+			jobID,
+			repositoryID,
+		)
 	case "source_job_conflict":
-		return fmt.Errorf("source job definition %s for %q in repository %q conflicted while recording the definition; refresh the job definition and retry", operation, jobID, repositoryID)
+		return fmt.Errorf(
+			"source job definition %s for %q in repository %q conflicted while recording the definition; refresh the job definition and retry",
+			operation,
+			jobID,
+			repositoryID,
+		)
 	}
 
 	if apiErr.Message != "" {
 		return fmt.Errorf("source job definition %s failed: %s", operation, apiErr.Message)
 	}
 
-	return fmt.Errorf("source job definition %s returned a conflict; refresh the branch head or verify repository authoring is enabled", operation)
+	return fmt.Errorf(
+		"source job definition %s returned a conflict; refresh the branch head or verify repository authoring is enabled",
+		operation,
+	)
 }
 
 func listJobsWithOutput(w io.Writer, opts jobListOptions) error {
@@ -919,7 +980,8 @@ var listCmd = &cobra.Command{
 func configureJobTriggerFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "After triggering, stream logs (same as logs run <run-id>)")
 	cmd.Flags().StringArrayVar(&triggerCellIDs, "cell", nil, "Target execution cell; may be repeated")
-	cmd.Flags().StringVar(&triggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
+	cmd.Flags().
+		StringVar(&triggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
 	cmd.Flags().String("repository", "", "Source repository ID for a source-backed job trigger")
 	cmd.Flags().String("ref", "", "Git ref for source-backed job trigger (default: repository default_ref or HEAD)")
 	cmd.Flags().String("path", "", "Definition file path override for source-backed job trigger")
@@ -928,7 +990,8 @@ func configureJobTriggerFlags(cmd *cobra.Command) {
 func configureJobRunFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("follow", "f", false, "After submitting, stream logs (same as logs run <run-id>)")
 	cmd.Flags().StringVar(&runCellID, "cell", "", "Target execution cell")
-	cmd.Flags().StringVar(&runIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe ephemeral run retries")
+	cmd.Flags().
+		StringVar(&runIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe ephemeral run retries")
 }
 
 func configureJobShowFlags(cmd *cobra.Command) {

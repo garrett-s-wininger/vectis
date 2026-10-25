@@ -218,7 +218,9 @@ func TestDirectExecutorCancellationSendsTermBeforeKill(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	if ready, err := bufio.NewReader(process.Stdout()).ReadString('\n'); err != nil || strings.TrimSpace(ready) != "ready" {
+	if ready, err := bufio.NewReader(process.Stdout()).
+		ReadString('\n'); err != nil ||
+		strings.TrimSpace(ready) != "ready" {
 		cancel()
 		_ = process.Wait()
 		t.Fatalf("read ready line = %q, err=%v", ready, err)

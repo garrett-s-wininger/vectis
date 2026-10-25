@@ -49,7 +49,11 @@ type ManagingQueuePoolService struct {
 	pool *queuePool
 }
 
-func NewManagingQueuePoolService(ctx context.Context, logger interfaces.Logger, opts QueuePoolOptions) (*ManagingQueuePoolService, error) {
+func NewManagingQueuePoolService(
+	ctx context.Context,
+	logger interfaces.Logger,
+	opts QueuePoolOptions,
+) (*ManagingQueuePoolService, error) {
 	pool, err := newQueuePool(ctx, logger, opts)
 	if err != nil {
 		return nil, err
@@ -74,7 +78,11 @@ type ManagingQueuePoolClient struct {
 	pool *queuePool
 }
 
-func NewManagingQueuePoolClient(ctx context.Context, logger interfaces.Logger, opts QueuePoolOptions) (*ManagingQueuePoolClient, error) {
+func NewManagingQueuePoolClient(
+	ctx context.Context,
+	logger interfaces.Logger,
+	opts QueuePoolOptions,
+) (*ManagingQueuePoolClient, error) {
 	if opts.DequeueConnectionLimit <= 0 {
 		opts.DequeueConnectionLimit = 1
 	}
@@ -198,7 +206,13 @@ func newQueuePool(ctx context.Context, logger interfaces.Logger, opts QueuePoolO
 	p.dial = p.dialEndpoint
 
 	if opts.PinnedAddress == "" {
-		reg, err := resolver.NewRegistryClient(ctx, opts.RegistryAddress, logger, interfaces.SystemClock{}, opts.RetryMetrics)
+		reg, err := resolver.NewRegistryClient(
+			ctx,
+			opts.RegistryAddress,
+			logger,
+			interfaces.SystemClock{},
+			opts.RetryMetrics,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("registry client: %w", err)
 		}
@@ -316,7 +330,11 @@ func (p *queuePool) resolveDesired(ctx context.Context) ([]desiredQueueEndpoint,
 		return nil, fmt.Errorf("registry client is required")
 	}
 
-	entries, err := p.registry.ListRegistrations(ctx, api.Component_COMPONENT_QUEUE, registry.QueueIngressMetadataForCell(config.CellID()))
+	entries, err := p.registry.ListRegistrations(
+		ctx,
+		api.Component_COMPONENT_QUEUE,
+		registry.QueueIngressMetadataForCell(config.CellID()),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +386,14 @@ func (p *queuePool) connectEndpoint(ctx context.Context, id, address string) (*q
 }
 
 func (p *queuePool) dialEndpoint(ctx context.Context, id, address string) (*queuePoolEndpoint, error) {
-	conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_QUEUE, address, p.logger, nil, p.opts.RetryMetrics)
+	conn, cleanup, err := resolver.NewClientWithPinnedAddress(
+		ctx,
+		api.Component_COMPONENT_QUEUE,
+		address,
+		p.logger,
+		nil,
+		p.opts.RetryMetrics,
+	)
 	if err != nil {
 		return nil, err
 	}

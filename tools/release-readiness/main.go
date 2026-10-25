@@ -208,14 +208,29 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	flags := flag.NewFlagSet("release-readiness", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&opts.profile, "profile", opts.profile, "check profile: local, candidate, full, or metadata")
-	flags.StringVar(&opts.checksRaw, "checks", opts.checksRaw, "comma-separated check IDs to include; overrides --profile")
+	flags.StringVar(
+		&opts.checksRaw,
+		"checks",
+		opts.checksRaw,
+		"comma-separated check IDs to include; overrides --profile",
+	)
 	flags.StringVar(&opts.outRoot, "out", opts.outRoot, "directory for readiness report runs")
 	flags.StringVar(&opts.runName, "run-name", opts.runName, "report run directory name; defaults to UTC timestamp")
 	flags.StringVar(&timeoutRaw, "timeout", timeoutRaw, "per-command timeout; use 0 to disable")
 	flags.BoolVar(&opts.strict, "strict", opts.strict, "fail when any selected check is skipped or waived")
-	flags.BoolVar(&opts.failFast, "fail-fast", opts.failFast, "stop running later selected checks after the first failed check")
+	flags.BoolVar(
+		&opts.failFast,
+		"fail-fast",
+		opts.failFast,
+		"stop running later selected checks after the first failed check",
+	)
 	flags.BoolVar(&opts.list, "list-checks", opts.list, "list available check IDs and exit")
-	flags.StringVar(&opts.artifactRootsRaw, "artifact-roots", opts.artifactRootsRaw, "comma-separated files or directories to checksum")
+	flags.StringVar(
+		&opts.artifactRootsRaw,
+		"artifact-roots",
+		opts.artifactRootsRaw,
+		"comma-separated files or directories to checksum",
+	)
 	flags.Var(&opts.skips, "skip", "mark a selected check as skipped without running it, as check=reason")
 	flags.Var(&opts.waivers, "waive", "mark a selected check as waived without running it, as check=reason")
 
@@ -256,7 +271,11 @@ func parseOptions(args []string, stderr io.Writer) (options, error) {
 	if opts.checksRaw == "" {
 		profileChecks, ok := checkProfiles()[opts.profile]
 		if !ok && !opts.list {
-			return options{}, fmt.Errorf("unknown profile %q; expected one of %s", opts.profile, strings.Join(sortedProfileNames(), ", "))
+			return options{}, fmt.Errorf(
+				"unknown profile %q; expected one of %s",
+				opts.profile,
+				strings.Join(sortedProfileNames(), ", "),
+			)
 		}
 
 		opts.checksRaw = profileChecks
@@ -781,7 +800,10 @@ func finishCheck(result *checkResult, start time.Time) {
 }
 
 func executeCommand(ctx context.Context, cwd string, command, env []string, log io.Writer) (int, error) {
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...) // #nosec G204 -- release readiness intentionally runs configured local checks.
+	cmd := exec.CommandContext(
+		ctx,
+		command[0],
+		command[1:]...) // #nosec G204 -- release readiness intentionally runs configured local checks.
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = log
@@ -835,7 +857,10 @@ func commandOutput(cwd string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...) // #nosec G204 -- commandOutput only runs fixed local tool probes.
+	cmd := exec.CommandContext(
+		ctx,
+		args[0],
+		args[1:]...) // #nosec G204 -- commandOutput only runs fixed local tool probes.
 	cmd.Dir = cwd
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -982,7 +1007,14 @@ func writeMarkdownReport(runDir string, rep report) error {
 	fmt.Fprintf(&b, "## Summary\n\n")
 	fmt.Fprintf(&b, "| Passed | Failed | Skipped | Waived |\n")
 	fmt.Fprintf(&b, "| ---: | ---: | ---: | ---: |\n")
-	fmt.Fprintf(&b, "| %d | %d | %d | %d |\n\n", rep.Counts.Passed, rep.Counts.Failed, rep.Counts.Skipped, rep.Counts.Waived)
+	fmt.Fprintf(
+		&b,
+		"| %d | %d | %d | %d |\n\n",
+		rep.Counts.Passed,
+		rep.Counts.Failed,
+		rep.Counts.Skipped,
+		rep.Counts.Waived,
+	)
 
 	fmt.Fprintf(&b, "## Checks\n\n")
 	fmt.Fprintf(&b, "| Check | Status | Duration | Log | Reason |\n")

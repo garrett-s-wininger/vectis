@@ -71,7 +71,11 @@ func AddConfigFlags(flags *pflag.FlagSet) {
 	flags.String(FlagSecretAccessKeyFile, "", "File containing the S3 artifact storage secret access key")
 	flags.String(FlagSessionToken, "", "S3 artifact storage session token")
 	flags.Bool(FlagPathStyle, true, "Use path-style S3 URLs for local S3-compatible services")
-	flags.String(FlagTempDir, "", "Directory for temporary files while hashing S3 artifact uploads (default: OS temp directory)")
+	flags.String(
+		FlagTempDir,
+		"",
+		"Directory for temporary files while hashing S3 artifact uploads (default: OS temp directory)",
+	)
 }
 
 func BindConfig(v *viper.Viper, flags *pflag.FlagSet) error {

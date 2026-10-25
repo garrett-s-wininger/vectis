@@ -90,11 +90,17 @@ func parseCORSOrigin(origin string) (*url.URL, error) {
 	}
 
 	if u.Scheme == "http" && !isLoopbackCORSOriginHost(u.Hostname()) {
-		return nil, fmt.Errorf("api.cors.allowed_origins origin %q must use https unless the host is loopback or localhost", origin)
+		return nil, fmt.Errorf(
+			"api.cors.allowed_origins origin %q must use https unless the host is loopback or localhost",
+			origin,
+		)
 	}
 
 	if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
-		return nil, fmt.Errorf("api.cors.allowed_origins origin %q must not include user info, path, query, or fragment", origin)
+		return nil, fmt.Errorf(
+			"api.cors.allowed_origins origin %q must not include user info, path, query, or fragment",
+			origin,
+		)
 	}
 
 	return u, nil

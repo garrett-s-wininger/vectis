@@ -59,7 +59,12 @@ func StartServerOnListener(t *testing.T, listener net.Listener, register func(*g
 	return StartServerOnListenerWithOptions(t, listener, Options{}, register)
 }
 
-func StartServerOnListenerWithOptions(t *testing.T, listener net.Listener, opts Options, register func(*grpc.Server)) *Server {
+func StartServerOnListenerWithOptions(
+	t *testing.T,
+	listener net.Listener,
+	opts Options,
+	register func(*grpc.Server),
+) *Server {
 	t.Helper()
 
 	server := grpc.NewServer(opts.ServerOptions...)

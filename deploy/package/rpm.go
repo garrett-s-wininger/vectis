@@ -135,8 +135,16 @@ func buildRPM(pkg resolvedPackage, outDir string) (string, error) {
 
 	headerSHA1 := sha1Hex(header)
 	headerSHA256 := sha256Hex(header)
-	headerAndPayloadMD5 := md5.Sum(append(append([]byte{}, header...), payload...)) // #nosec G401 -- RPM signature metadata requires MD5.
-	signature := buildRPMSignatureHeader(int32(len(header)+len(payload)), uncompressedPayloadSize, headerSHA1, headerSHA256, headerAndPayloadMD5[:])
+	headerAndPayloadMD5 := md5.Sum(
+		append(append([]byte{}, header...), payload...),
+	) // #nosec G401 -- RPM signature metadata requires MD5.
+	signature := buildRPMSignatureHeader(
+		int32(len(header)+len(payload)),
+		uncompressedPayloadSize,
+		headerSHA1,
+		headerSHA256,
+		headerAndPayloadMD5[:],
+	)
 	lead := buildRPMLead(pkg.Name)
 
 	var out bytes.Buffer
@@ -258,7 +266,13 @@ func writeNewCEntry(buf *bytes.Buffer, name string, mode int64, content []byte) 
 	return nil
 }
 
-func buildRPMMainHeader(pkg resolvedPackage, files []rpmPayloadFile, arch, version, release string, installedSize int32, payloadDigest string) ([]byte, error) {
+func buildRPMMainHeader(
+	pkg resolvedPackage,
+	files []rpmPayloadFile,
+	arch, version, release string,
+	installedSize int32,
+	payloadDigest string,
+) ([]byte, error) {
 	var header rpmHeaderBuilder
 	header.addString(rpmTagName, pkg.Name)
 	header.addString(rpmTagVersion, version)

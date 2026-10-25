@@ -45,7 +45,12 @@ func insertCronTestSchedule(t *testing.T, db *sql.DB, jobID, cronSpec string, ne
 		t.Fatalf("cron trigger id: %v", err)
 	}
 
-	result, err = db.Exec("INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)", triggerID, cronSpec, nextRun.Format(time.RFC3339))
+	result, err = db.Exec(
+		"INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
+		triggerID,
+		cronSpec,
+		nextRun.Format(time.RFC3339),
+	)
 	if err != nil {
 		t.Fatalf("insert cron trigger spec: %v", err)
 	}
@@ -58,7 +63,12 @@ func insertCronTestSchedule(t *testing.T, db *sql.DB, jobID, cronSpec string, ne
 	return specID
 }
 
-func insertCronTestSourceSchedule(t *testing.T, db *sql.DB, jobID, repositoryID, ref, path, cronSpec string, nextRun time.Time) int64 {
+func insertCronTestSourceSchedule(
+	t *testing.T,
+	db *sql.DB,
+	jobID, repositoryID, ref, path, cronSpec string,
+	nextRun time.Time,
+) int64 {
 	t.Helper()
 
 	result, err := db.Exec(
@@ -78,7 +88,12 @@ func insertCronTestSourceSchedule(t *testing.T, db *sql.DB, jobID, repositoryID,
 		t.Fatalf("source cron trigger id: %v", err)
 	}
 
-	result, err = db.Exec("INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)", triggerID, cronSpec, nextRun.Format(time.RFC3339))
+	result, err = db.Exec(
+		"INSERT INTO cron_trigger_specs (trigger_id, cron_spec, next_run_at) VALUES (?, ?, ?)",
+		triggerID,
+		cronSpec,
+		nextRun.Format(time.RFC3339),
+	)
 	if err != nil {
 		t.Fatalf("insert source cron trigger spec: %v", err)
 	}
@@ -357,7 +372,8 @@ func TestCronService_ProcessSchedulesRejectsLegacyScheduleWithoutSourceRepositor
 	errorCalls := logger.GetErrorCalls()
 	hasSourceRequired := false
 	for _, msg := range errorCalls {
-		if strings.Contains(msg, "Failed to trigger job") && strings.Contains(msg, "requires a source repository schedule") {
+		if strings.Contains(msg, "Failed to trigger job") &&
+			strings.Contains(msg, "requires a source repository schedule") {
 			hasSourceRequired = true
 			break
 		}
@@ -704,7 +720,16 @@ func TestCronService_ProcessSchedules_QueueError(t *testing.T) {
 	})
 
 	pastTime := time.Now().Add(-24 * time.Hour).Truncate(time.Second).UTC()
-	insertCronTestSourceSchedule(t, db, "queue-error-job", "source-repo", "main", ".vectis/jobs/build.json", "* * * * *", pastTime)
+	insertCronTestSourceSchedule(
+		t,
+		db,
+		"queue-error-job",
+		"source-repo",
+		"main",
+		".vectis/jobs/build.json",
+		"* * * * *",
+		pastTime,
+	)
 
 	queueService.SetEnqueueError(errors.New("queue unavailable"))
 
@@ -809,7 +834,16 @@ func TestCronService_TriggerSchedule_SourceSuccess(t *testing.T) {
 	})
 
 	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
-	scheduleID := insertCronTestSourceSchedule(t, db, "trigger-test", "source-repo", "main", ".vectis/jobs/trigger.json", "* * * * *", scheduledFor)
+	scheduleID := insertCronTestSourceSchedule(
+		t,
+		db,
+		"trigger-test",
+		"source-repo",
+		"main",
+		".vectis/jobs/trigger.json",
+		"* * * * *",
+		scheduledFor,
+	)
 	sched := cron.CronSchedule{
 		ID:                 scheduleID,
 		ScheduleID:         "manual-trigger",
@@ -850,7 +884,12 @@ func TestCronService_TriggerSchedule_SourceSuccess(t *testing.T) {
 	}
 
 	if env.ExecutionID == "" || env.SegmentID == "" || env.CellID != dal.DefaultCellID {
-		t.Fatalf("unexpected envelope target: execution=%q segment=%q cell=%q", env.ExecutionID, env.SegmentID, env.CellID)
+		t.Fatalf(
+			"unexpected envelope target: execution=%q segment=%q cell=%q",
+			env.ExecutionID,
+			env.SegmentID,
+			env.CellID,
+		)
 	}
 
 	runRec, err := repos.Runs().GetRun(ctx, jobs[0].GetRunId())
@@ -898,7 +937,16 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	})
 
 	scheduledFor := time.Date(2026, 3, 21, 12, 10, 0, 0, time.UTC)
-	scheduleID := insertCronTestSourceSchedule(t, db, "scheduled-idempotent", "source-repo", "main", ".vectis/jobs/scheduled.json", "* * * * *", scheduledFor)
+	scheduleID := insertCronTestSourceSchedule(
+		t,
+		db,
+		"scheduled-idempotent",
+		"source-repo",
+		"main",
+		".vectis/jobs/scheduled.json",
+		"* * * * *",
+		scheduledFor,
+	)
 
 	sched := cron.CronSchedule{
 		ID:                 scheduleID,
@@ -934,7 +982,8 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-idempotent").Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-idempotent").
+		Scan(&runCount); err != nil {
 		t.Fatalf("count job runs: %v", err)
 	}
 
@@ -970,7 +1019,8 @@ func TestCronService_TriggerSchedule_ReusesRunForDuplicateTick(t *testing.T) {
 	}
 
 	var fireCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).
+		Scan(&fireCount); err != nil {
 		t.Fatalf("count schedule fires: %v", err)
 	}
 
@@ -1013,7 +1063,16 @@ func TestCronServiceFault_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 		return &recordingCronDefinitionResolver{}, nil
 	})
 
-	scheduleID := insertCronTestSourceSchedule(t, db, "scheduled-complete-fault", "source-repo", "main", ".vectis/jobs/scheduled-complete-fault.json", "* * * * *", now)
+	scheduleID := insertCronTestSourceSchedule(
+		t,
+		db,
+		"scheduled-complete-fault",
+		"source-repo",
+		"main",
+		".vectis/jobs/scheduled-complete-fault.json",
+		"* * * * *",
+		now,
+	)
 
 	if err := service.ProcessSchedules(context.Background()); err != nil {
 		t.Fatalf("process schedules with injected complete failure: %v", err)
@@ -1050,7 +1109,8 @@ func TestCronServiceFault_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-complete-fault").Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-complete-fault").
+		Scan(&runCount); err != nil {
 		t.Fatalf("count job runs: %v", err)
 	}
 
@@ -1059,7 +1119,8 @@ func TestCronServiceFault_CompleteClaimFailureRetriesSameScheduledRun(t *testing
 	}
 
 	var fireCount int
-	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).
+		Scan(&fireCount); err != nil {
 		t.Fatalf("count schedule fires: %v", err)
 	}
 
@@ -1100,7 +1161,16 @@ func TestCronServiceRestoreSkew_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *
 		return &recordingCronDefinitionResolver{}, nil
 	})
 
-	scheduleID := insertCronTestSourceSchedule(t, db, "scheduled-claim-restore", "source-repo", "main", ".vectis/jobs/scheduled-claim-restore.json", "* * * * *", now)
+	scheduleID := insertCronTestSourceSchedule(
+		t,
+		db,
+		"scheduled-claim-restore",
+		"source-repo",
+		"main",
+		".vectis/jobs/scheduled-claim-restore.json",
+		"* * * * *",
+		now,
+	)
 
 	claimed, err := service.ClaimDue(ctx, scheduleID, now, "crashed-before-trigger", now.Add(time.Minute), now)
 	if err != nil {
@@ -1120,7 +1190,8 @@ func TestCronServiceRestoreSkew_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *
 	}
 
 	var runCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-claim-restore").Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-claim-restore").
+		Scan(&runCount); err != nil {
 		t.Fatalf("count runs before claim expiry: %v", err)
 	}
 
@@ -1143,7 +1214,8 @@ func TestCronServiceRestoreSkew_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *
 		t.Fatal("expected recovered cron handoff to include run_id")
 	}
 
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-claim-restore").Scan(&runCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM job_runs WHERE job_id = ?", "scheduled-claim-restore").
+		Scan(&runCount); err != nil {
 		t.Fatalf("count runs after claim expiry: %v", err)
 	}
 
@@ -1152,7 +1224,8 @@ func TestCronServiceRestoreSkew_ExpiredClaimWithoutRunIsRecoveredByLaterPass(t *
 	}
 
 	var fireCount int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).Scan(&fireCount); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM cron_schedule_fires WHERE schedule_id = ?", scheduleID).
+		Scan(&fireCount); err != nil {
 		t.Fatalf("count schedule fires after claim expiry: %v", err)
 	}
 
@@ -1191,7 +1264,12 @@ type failOnceCompleteClaimSchedulesRepository struct {
 	failed bool
 }
 
-func (r *failOnceCompleteClaimSchedulesRepository) CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error) {
+func (r *failOnceCompleteClaimSchedulesRepository) CompleteClaim(
+	ctx context.Context,
+	scheduleID int64,
+	claimToken string,
+	nextRun time.Time,
+) (bool, error) {
 	if !r.failed {
 		r.failed = true
 		return false, r.err
@@ -1320,7 +1398,10 @@ type recordingCronDefinitionResolver struct {
 	request *sourcepkg.DefinitionRequest
 }
 
-func (r *recordingCronDefinitionResolver) ResolveDefinition(_ context.Context, req sourcepkg.DefinitionRequest) (sourcepkg.Definition, error) {
+func (r *recordingCronDefinitionResolver) ResolveDefinition(
+	_ context.Context,
+	req sourcepkg.DefinitionRequest,
+) (sourcepkg.Definition, error) {
 	if r.request != nil {
 		*r.request = req
 	}

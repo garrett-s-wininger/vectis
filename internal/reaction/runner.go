@@ -23,7 +23,10 @@ type Store interface {
 	MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error)
 	MarkInvocationSucceeded(ctx context.Context, invocationID, owner string, completedAtUnixNano int64) error
 	MarkInvocationFailed(ctx context.Context, invocationID, owner, message string, nextAttemptAtUnixNano int64) error
-	RecordLocalMessage(ctx context.Context, create dal.ReactionLocalMessageCreate) (dal.ReactionLocalMessageRecord, error)
+	RecordLocalMessage(
+		ctx context.Context,
+		create dal.ReactionLocalMessageCreate,
+	) (dal.ReactionLocalMessageRecord, error)
 }
 
 type ActionRequest struct {
@@ -78,7 +81,12 @@ func (r *Runner) RunOnce(ctx context.Context, limit int) (RunSummary, error) {
 	owner := r.owner()
 	summary := RunSummary{Scanned: len(ready), Expired: expired}
 	for _, invocation := range ready {
-		claimed, err := r.Store.MarkInvocationRunning(ctx, invocation.InvocationID, owner, now.Add(r.claimTTL()).UnixNano())
+		claimed, err := r.Store.MarkInvocationRunning(
+			ctx,
+			invocation.InvocationID,
+			owner,
+			now.Add(r.claimTTL()).UnixNano(),
+		)
 		if err != nil {
 			return summary, err
 		}
@@ -96,13 +104,24 @@ func (r *Runner) RunOnce(ctx context.Context, limit int) (RunSummary, error) {
 
 		if err := r.runClaimed(ctx, claimedInvocation, actions); err != nil {
 			summary.Failed++
-			if markErr := r.Store.MarkInvocationFailed(ctx, claimedInvocation.InvocationID, owner, err.Error(), time.Now().Add(r.retryDelay()).UnixNano()); markErr != nil {
+			if markErr := r.Store.MarkInvocationFailed(
+				ctx,
+				claimedInvocation.InvocationID,
+				owner,
+				err.Error(),
+				time.Now().Add(r.retryDelay()).UnixNano(),
+			); markErr != nil {
 				return summary, markErr
 			}
 			continue
 		}
 
-		if err := r.Store.MarkInvocationSucceeded(ctx, claimedInvocation.InvocationID, owner, time.Now().UnixNano()); err != nil {
+		if err := r.Store.MarkInvocationSucceeded(
+			ctx,
+			claimedInvocation.InvocationID,
+			owner,
+			time.Now().UnixNano(),
+		); err != nil {
 			return summary, err
 		}
 
@@ -112,7 +131,11 @@ func (r *Runner) RunOnce(ctx context.Context, limit int) (RunSummary, error) {
 	return summary, nil
 }
 
-func (r *Runner) runClaimed(ctx context.Context, invocation dal.ReactionInvocationRecord, actions map[string]Action) error {
+func (r *Runner) runClaimed(
+	ctx context.Context,
+	invocation dal.ReactionInvocationRecord,
+	actions map[string]Action,
+) error {
 	event, err := r.Store.GetEvent(ctx, invocation.EventID)
 	if err != nil {
 		return err

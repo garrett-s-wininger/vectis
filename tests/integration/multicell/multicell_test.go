@@ -282,7 +282,8 @@ func TestIntegrationMultiCell_ReplayRunRoutesToNamedCellWithSourceSnapshot(t *te
 		t.Fatalf("get replay execution payload: %v", err)
 	}
 
-	if !strings.Contains(payload.PayloadJSON, "replay-source") || strings.Contains(payload.PayloadJSON, "replay-current") {
+	if !strings.Contains(payload.PayloadJSON, "replay-source") ||
+		strings.Contains(payload.PayloadJSON, "replay-current") {
 		t.Fatalf("replay payload did not preserve the source definition snapshot: %s", payload.PayloadJSON)
 	}
 
@@ -365,7 +366,12 @@ func TestIntegrationMultiCell_CellsStatusCombinesRoutesRunsAndCatalogSources(t *
 	}
 
 	if readyStatus.Queued != 1 || readyStatus.Stuck != 0 {
-		t.Fatalf("ready cell run counts: got queued=%d stuck=%d, want queued=1 stuck=0 (%+v)", readyStatus.Queued, readyStatus.Stuck, readyStatus)
+		t.Fatalf(
+			"ready cell run counts: got queued=%d stuck=%d, want queued=1 stuck=0 (%+v)",
+			readyStatus.Queued,
+			readyStatus.Stuck,
+			readyStatus,
+		)
 	}
 
 	missingStatus := status[missingCellID]
@@ -373,12 +379,18 @@ func TestIntegrationMultiCell_CellsStatusCombinesRoutesRunsAndCatalogSources(t *
 		t.Fatalf("cells status missing unroutable cell %q: %+v", missingCellID, status)
 	}
 
-	if !missingStatus.IngressRequired || missingStatus.IngressConfigured || missingStatus.IngressReachable || missingStatus.Status != "missing_route" {
+	if !missingStatus.IngressRequired || missingStatus.IngressConfigured || missingStatus.IngressReachable ||
+		missingStatus.Status != "missing_route" {
 		t.Fatalf("unexpected missing-route cell status: %+v", missingStatus)
 	}
 
 	if missingStatus.Queued != 1 || missingStatus.Stuck != 1 {
-		t.Fatalf("missing route run counts: got queued=%d stuck=%d, want queued=1 stuck=1 (%+v)", missingStatus.Queued, missingStatus.Stuck, missingStatus)
+		t.Fatalf(
+			"missing route run counts: got queued=%d stuck=%d, want queued=1 stuck=1 (%+v)",
+			missingStatus.Queued,
+			missingStatus.Stuck,
+			missingStatus,
+		)
 	}
 
 	if err := readyCell.worker.runOne(ctx); err != nil {
@@ -629,7 +641,12 @@ type apiRunSnapshot struct {
 	OwningCell string
 }
 
-func startIntegrationCell(t *testing.T, cellID string, logger interfaces.Logger, logClient interfaces.LogClient) *integrationCell {
+func startIntegrationCell(
+	t *testing.T,
+	cellID string,
+	logger interfaces.Logger,
+	logClient interfaces.LogClient,
+) *integrationCell {
 	t.Helper()
 
 	cellDB := dbtest.NewTestDB(t)
@@ -688,7 +705,12 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 		return fmt.Errorf("ack delivery: %w", err)
 	}
 
-	executionClaim, err := w.store.TryClaimExecution(w.runCtx, env.ExecutionID, w.workerID, time.Now().Add(dal.DefaultLeaseTTL))
+	executionClaim, err := w.store.TryClaimExecution(
+		w.runCtx,
+		env.ExecutionID,
+		w.workerID,
+		time.Now().Add(dal.DefaultLeaseTTL),
+	)
 	if err != nil {
 		return fmt.Errorf("claim execution: %w", err)
 	}
@@ -698,12 +720,18 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 	}
 
 	if executionClaim.TransitionedToAccepted {
-		if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusAccepted}); err != nil {
+		if err := w.catalog.RecordExecutionStatus(
+			w.runCtx,
+			dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusAccepted},
+		); err != nil {
 			return fmt.Errorf("record accepted catalog event: %w", err)
 		}
 	}
 
-	if err := w.catalog.RecordRunStatus(w.runCtx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning}); err != nil {
+	if err := w.catalog.RecordRunStatus(
+		w.runCtx,
+		dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusRunning},
+	); err != nil {
 		return fmt.Errorf("record running catalog event: %w", err)
 	}
 
@@ -711,19 +739,49 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 		return fmt.Errorf("mark execution running: %w", err)
 	}
 
-	if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusRunning}); err != nil {
+	if err := w.catalog.RecordExecutionStatus(
+		w.runCtx,
+		dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusRunning},
+	); err != nil {
 		return fmt.Errorf("record running execution catalog event: %w", err)
 	}
 
 	if err := w.executor.ExecuteTask(w.runCtx, jobReq, env.TaskKey, w.logClient, w.logger); err != nil {
 		reason := err.Error()
-		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusFailed, dal.FailureCodeExecution, reason)
-		_ = w.catalog.RecordRunStatus(w.runCtx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusFailed, FailureCode: dal.FailureCodeExecution, Reason: reason})
-		_ = w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusFailed})
+		_, _ = w.store.CompleteExecutionAndFinalizeRunByClaim(
+			w.runCtx,
+			env.ExecutionID,
+			w.workerID,
+			executionClaim.ClaimToken,
+			dal.ExecutionStatusFailed,
+			dal.FailureCodeExecution,
+			reason,
+		)
+		_ = w.catalog.RecordRunStatus(
+			w.runCtx,
+			dal.RunStatusUpdate{
+				RunID:       runID,
+				Status:      dal.RunStatusFailed,
+				FailureCode: dal.FailureCodeExecution,
+				Reason:      reason,
+			},
+		)
+		_ = w.catalog.RecordExecutionStatus(
+			w.runCtx,
+			dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusFailed},
+		)
 		return fmt.Errorf("execute task: %w", err)
 	}
 
-	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(w.runCtx, env.ExecutionID, w.workerID, executionClaim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	finalized, err := w.store.CompleteExecutionAndFinalizeRunByClaim(
+		w.runCtx,
+		env.ExecutionID,
+		w.workerID,
+		executionClaim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		return fmt.Errorf("finalize execution succeeded: %w", err)
 	}
@@ -732,11 +790,17 @@ func (w *integrationWorker) runOne(ctx context.Context) error {
 	}
 
 	if w.recordTerminalCatalog {
-		if err := w.catalog.RecordRunStatus(w.runCtx, dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusSucceeded}); err != nil {
+		if err := w.catalog.RecordRunStatus(
+			w.runCtx,
+			dal.RunStatusUpdate{RunID: runID, Status: dal.RunStatusSucceeded},
+		); err != nil {
 			return fmt.Errorf("record succeeded catalog event: %w", err)
 		}
 
-		if err := w.catalog.RecordExecutionStatus(w.runCtx, dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusSucceeded}); err != nil {
+		if err := w.catalog.RecordExecutionStatus(
+			w.runCtx,
+			dal.ExecutionStatusUpdate{ExecutionID: env.ExecutionID, Status: dal.ExecutionStatusSucceeded},
+		); err != nil {
 			return fmt.Errorf("record succeeded execution catalog event: %w", err)
 		}
 	}
@@ -845,7 +909,12 @@ func assertCellRunStatus(t *testing.T, ctx context.Context, repos *dal.SQLReposi
 	}
 }
 
-func assertSourceMissingTerminalCatalogEvent(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, runID string) {
+func assertSourceMissingTerminalCatalogEvent(
+	t *testing.T,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	runID string,
+) {
 	t.Helper()
 
 	pending, err := repos.CatalogEvents().ListPending(ctx, 100)
@@ -892,7 +961,13 @@ func assertGlobalAPIRuns(t *testing.T, api *apiserver.APIServer, jobID string, w
 	}
 }
 
-func waitForDispatchEvents(t *testing.T, ctx context.Context, repos *dal.SQLRepositories, runID string, want int) []dal.DispatchEvent {
+func waitForDispatchEvents(
+	t *testing.T,
+	ctx context.Context,
+	repos *dal.SQLRepositories,
+	runID string,
+	want int,
+) []dal.DispatchEvent {
 	t.Helper()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -1080,7 +1155,12 @@ func getCellsStatus(t *testing.T, api *apiserver.APIServer) map[string]cellStatu
 	return out
 }
 
-func fanInAndProcess(t *testing.T, ctx context.Context, globalRepos *dal.SQLRepositories, cells []*integrationCell) (catalog.FanInResult, cell.CatalogInboxProcessResult) {
+func fanInAndProcess(
+	t *testing.T,
+	ctx context.Context,
+	globalRepos *dal.SQLRepositories,
+	cells []*integrationCell,
+) (catalog.FanInResult, cell.CatalogInboxProcessResult) {
 	t.Helper()
 
 	sources := make([]catalog.FanInSource, 0, len(cells))

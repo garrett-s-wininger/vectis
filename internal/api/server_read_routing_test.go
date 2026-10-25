@@ -27,27 +27,51 @@ type fakeOrchestratorReadClient struct {
 	snapshotCalls   int
 }
 
-func (f *fakeOrchestratorReadClient) LoadRun(context.Context, *apigen.LoadRunRequest, ...grpc.CallOption) (*apigen.LoadRunResponse, error) {
+func (f *fakeOrchestratorReadClient) LoadRun(
+	context.Context,
+	*apigen.LoadRunRequest,
+	...grpc.CallOption,
+) (*apigen.LoadRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "load run not implemented")
 }
 
-func (f *fakeOrchestratorReadClient) ListPending(context.Context, *apigen.ListPendingRequest, ...grpc.CallOption) (*apigen.ListPendingResponse, error) {
+func (f *fakeOrchestratorReadClient) ListPending(
+	context.Context,
+	*apigen.ListPendingRequest,
+	...grpc.CallOption,
+) (*apigen.ListPendingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "list pending not implemented")
 }
 
-func (f *fakeOrchestratorReadClient) ClaimExecution(context.Context, *apigen.ClaimExecutionRequest, ...grpc.CallOption) (*apigen.ClaimExecutionResponse, error) {
+func (f *fakeOrchestratorReadClient) ClaimExecution(
+	context.Context,
+	*apigen.ClaimExecutionRequest,
+	...grpc.CallOption,
+) (*apigen.ClaimExecutionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "claim execution not implemented")
 }
 
-func (f *fakeOrchestratorReadClient) RenewExecutionLease(context.Context, *apigen.RenewExecutionLeaseRequest, ...grpc.CallOption) (*apigen.Empty, error) {
+func (f *fakeOrchestratorReadClient) RenewExecutionLease(
+	context.Context,
+	*apigen.RenewExecutionLeaseRequest,
+	...grpc.CallOption,
+) (*apigen.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "renew execution lease not implemented")
 }
 
-func (f *fakeOrchestratorReadClient) CompleteExecution(context.Context, *apigen.CompleteExecutionRequest, ...grpc.CallOption) (*apigen.CompleteExecutionResponse, error) {
+func (f *fakeOrchestratorReadClient) CompleteExecution(
+	context.Context,
+	*apigen.CompleteExecutionRequest,
+	...grpc.CallOption,
+) (*apigen.CompleteExecutionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "complete execution not implemented")
 }
 
-func (f *fakeOrchestratorReadClient) GetRunTaskCompletion(context.Context, *apigen.GetRunTaskCompletionRequest, ...grpc.CallOption) (*apigen.OrchestratorRunTaskCompletion, error) {
+func (f *fakeOrchestratorReadClient) GetRunTaskCompletion(
+	context.Context,
+	*apigen.GetRunTaskCompletionRequest,
+	...grpc.CallOption,
+) (*apigen.OrchestratorRunTaskCompletion, error) {
 	f.completionCalls++
 	if f.completionErr != nil {
 		return nil, f.completionErr
@@ -56,7 +80,11 @@ func (f *fakeOrchestratorReadClient) GetRunTaskCompletion(context.Context, *apig
 	return f.completion, nil
 }
 
-func (f *fakeOrchestratorReadClient) GetRunTaskSnapshot(context.Context, *apigen.GetRunTaskSnapshotRequest, ...grpc.CallOption) (*apigen.GetRunTaskSnapshotResponse, error) {
+func (f *fakeOrchestratorReadClient) GetRunTaskSnapshot(
+	context.Context,
+	*apigen.GetRunTaskSnapshotRequest,
+	...grpc.CallOption,
+) (*apigen.GetRunTaskSnapshotResponse, error) {
 	f.snapshotCalls++
 	if f.snapshotErr != nil {
 		return nil, f.snapshotErr
@@ -65,7 +93,10 @@ func (f *fakeOrchestratorReadClient) GetRunTaskSnapshot(context.Context, *apigen
 	return f.snapshot, nil
 }
 
-func (f *fakeOrchestratorReadClient) ExecutionStream(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[apigen.ExecutionStreamRequest, apigen.ExecutionStreamResponse], error) {
+func (f *fakeOrchestratorReadClient) ExecutionStream(
+	context.Context,
+	...grpc.CallOption,
+) (grpc.BidiStreamingClient[apigen.ExecutionStreamRequest, apigen.ExecutionStreamResponse], error) {
 	return nil, status.Error(codes.Unimplemented, "execution stream not implemented")
 }
 
@@ -198,7 +229,8 @@ func TestAPIServer_GetRunTasks_ActiveHotStateOwnerUsesOrchestratorSnapshot(t *te
 		t.Fatalf("next cursor: got %+v, want %d", got.NextCursor, nextCursor)
 	}
 
-	if got.Data[0].TaskID != rootTaskID || got.Data[0].Status != rootStatus || got.Data[0].Attempts[0].ExecutionID != rootExecutionID {
+	if got.Data[0].TaskID != rootTaskID || got.Data[0].Status != rootStatus ||
+		got.Data[0].Attempts[0].ExecutionID != rootExecutionID {
 		t.Fatalf("root task row came from wrong source: %+v", got.Data[0])
 	}
 
@@ -290,13 +322,15 @@ func TestAPIServer_GetRunTasks_RoutesToExactHotStateOwner(t *testing.T) {
 	}
 
 	server.SetOrchestratorClient(defaultClient)
-	server.SetOrchestratorOwnerClientResolver(func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
-		if owner.OwnerID != ownerID {
-			t.Fatalf("owner resolver got owner %q, want %q", owner.OwnerID, ownerID)
-		}
+	server.SetOrchestratorOwnerClientResolver(
+		func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
+			if owner.OwnerID != ownerID {
+				t.Fatalf("owner resolver got owner %q, want %q", owner.OwnerID, ownerID)
+			}
 
-		return ownerClient, true, nil
-	})
+			return ownerClient, true, nil
+		},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/tasks?limit=200", nil)
 	req.SetPathValue("id", runID)
@@ -362,13 +396,15 @@ func TestAPIServer_GetRun_RoutesToExactHotStateOwner(t *testing.T) {
 	}
 
 	server.SetOrchestratorClient(defaultClient)
-	server.SetOrchestratorOwnerClientResolver(func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
-		if owner.OwnerID != ownerID {
-			t.Fatalf("owner resolver got owner %q, want %q", owner.OwnerID, ownerID)
-		}
+	server.SetOrchestratorOwnerClientResolver(
+		func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
+			if owner.OwnerID != ownerID {
+				t.Fatalf("owner resolver got owner %q, want %q", owner.OwnerID, ownerID)
+			}
 
-		return ownerClient, true, nil
-	})
+			return ownerClient, true, nil
+		},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID, nil)
 	req.SetPathValue("id", runID)
@@ -397,7 +433,8 @@ func TestAPIServer_GetRun_RoutesToExactHotStateOwner(t *testing.T) {
 		t.Fatalf("decode run response: %v", err)
 	}
 
-	if got.TaskCompletion == nil || got.TaskCompletion.Total != int(total) || got.TaskCompletion.Incomplete != int(incomplete) {
+	if got.TaskCompletion == nil || got.TaskCompletion.Total != int(total) ||
+		got.TaskCompletion.Incomplete != int(incomplete) {
 		t.Fatalf("unexpected owner-routed task completion: %+v", got.TaskCompletion)
 	}
 }
@@ -456,7 +493,8 @@ func TestAPIServer_GetRun_ActiveHotStateOwnerUsesOrchestratorTaskCompletion(t *t
 		t.Fatal("missing task completion summary")
 	}
 
-	if got.TaskCompletion.Total != 3 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 1 || got.TaskCompletion.Incomplete != 1 {
+	if got.TaskCompletion.Total != 3 || got.TaskCompletion.Succeeded != 1 || got.TaskCompletion.TerminalFailed != 1 ||
+		got.TaskCompletion.Incomplete != 1 {
 		t.Fatalf("task completion should come from orchestrator, got %+v", got.TaskCompletion)
 	}
 }

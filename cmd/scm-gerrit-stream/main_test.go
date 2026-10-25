@@ -65,7 +65,12 @@ func TestRouteGerritStreamEventPropagatesRouterError(t *testing.T) {
 	}
 
 	routerErr := errors.New("route failed")
-	_, err = routeGerritStreamEvent(context.Background(), "http://gerrit.example.com", &recordingGerritStreamRouter{err: routerErr}, event)
+	_, err = routeGerritStreamEvent(
+		context.Background(),
+		"http://gerrit.example.com",
+		&recordingGerritStreamRouter{err: routerErr},
+		event,
+	)
 	if !errors.Is(err, routerErr) {
 		t.Fatalf("routeGerritStreamEvent error = %v, want %v", err, routerErr)
 	}
@@ -179,7 +184,11 @@ type recordingGerritStreamRouter struct {
 	err    error
 }
 
-func (r *recordingGerritStreamRouter) HandleEvent(_ context.Context, target scmstream.EventTarget, event scm.Event) (scmstream.RouteResult, error) {
+func (r *recordingGerritStreamRouter) HandleEvent(
+	_ context.Context,
+	target scmstream.EventTarget,
+	event scm.Event,
+) (scmstream.RouteResult, error) {
 	r.target = target
 	r.event = event
 	return r.result, r.err

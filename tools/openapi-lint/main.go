@@ -11,15 +11,33 @@ import (
 )
 
 var (
-	httpMethods        = map[string]bool{"delete": true, "get": true, "head": true, "options": true, "patch": true, "post": true, "put": true, "trace": true}
-	pathItemFields     = map[string]bool{"$ref": true, "description": true, "parameters": true, "servers": true, "summary": true}
+	httpMethods = map[string]bool{
+		"delete":  true,
+		"get":     true,
+		"head":    true,
+		"options": true,
+		"patch":   true,
+		"post":    true,
+		"put":     true,
+		"trace":   true,
+	}
+	pathItemFields = map[string]bool{
+		"$ref":        true,
+		"description": true,
+		"parameters":  true,
+		"servers":     true,
+		"summary":     true,
+	}
 	operationIDPattern = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
 )
 
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [openapi-json]\n", os.Args[0])
-		fmt.Fprintln(flag.CommandLine.Output(), "Checks the Vectis OpenAPI contract for route metadata and reference consistency.")
+		fmt.Fprintln(
+			flag.CommandLine.Output(),
+			"Checks the Vectis OpenAPI contract for route metadata and reference consistency.",
+		)
 	}
 
 	flag.Parse()
@@ -166,7 +184,13 @@ func collectSecuritySchemes(doc map[string]any, add func(string, ...any)) map[st
 	return declared
 }
 
-func lintPathItem(path string, item map[string]any, declaredTags, securitySchemes map[string]bool, seenOperationIDs map[string]string, add func(string, ...any)) {
+func lintPathItem(
+	path string,
+	item map[string]any,
+	declaredTags, securitySchemes map[string]bool,
+	seenOperationIDs map[string]string,
+	add func(string, ...any),
+) {
 	for _, key := range sortedKeys(item) {
 		if httpMethods[key] {
 			op, ok := asObject(item[key])
@@ -185,7 +209,13 @@ func lintPathItem(path string, item map[string]any, declaredTags, securityScheme
 	}
 }
 
-func lintOperation(path, method string, op map[string]any, declaredTags, securitySchemes map[string]bool, seenOperationIDs map[string]string, add func(string, ...any)) {
+func lintOperation(
+	path, method string,
+	op map[string]any,
+	declaredTags, securitySchemes map[string]bool,
+	seenOperationIDs map[string]string,
+	add func(string, ...any),
+) {
 	context := fmt.Sprintf("%s %s", strings.ToUpper(method), path)
 	operationID := stringField(op, "operationId")
 	if operationID == "" {
@@ -259,7 +289,12 @@ func lintOperation(path, method string, op map[string]any, declaredTags, securit
 	}
 }
 
-func lintOperationSecurity(context string, op map[string]any, securitySchemes map[string]bool, add func(string, ...any)) bool {
+func lintOperationSecurity(
+	context string,
+	op map[string]any,
+	securitySchemes map[string]bool,
+	add func(string, ...any),
+) bool {
 	rawSecurity, ok := asArray(op["security"])
 	if !ok {
 		add("%s: missing explicit security array", context)

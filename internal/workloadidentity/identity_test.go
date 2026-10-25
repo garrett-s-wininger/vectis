@@ -37,7 +37,11 @@ func TestSPIFFEIDRootNamespace(t *testing.T) {
 }
 
 func TestSPIFFEIDCustomTemplate(t *testing.T) {
-	got, err := SPIFFEID("prod.example", "/cell/{cell}/run/{run_index}/attempt/{attempt}/def/{definition_version}", validExecution())
+	got, err := SPIFFEID(
+		"prod.example",
+		"/cell/{cell}/run/{run_index}/attempt/{attempt}/def/{definition_version}",
+		validExecution(),
+	)
 	if err != nil {
 		t.Fatalf("SPIFFEID: %v", err)
 	}
@@ -189,7 +193,8 @@ func TestX509SVIDTLSCertificate(t *testing.T) {
 		t.Fatalf("TLSCertificate material = %+v, want leaf/private key", cert)
 	}
 
-	if len(cert.Certificate) != 2 || string(cert.Certificate[0]) != string(leaf.Raw) || string(cert.Certificate[1]) != string(intermediate.Raw) {
+	if len(cert.Certificate) != 2 || string(cert.Certificate[0]) != string(leaf.Raw) ||
+		string(cert.Certificate[1]) != string(intermediate.Raw) {
 		t.Fatalf("TLSCertificate chain = %v", cert.Certificate)
 	}
 
@@ -207,7 +212,14 @@ func TestX509SVIDTLSCertificateRequiresMaterial(t *testing.T) {
 	}{
 		{name: "missing id", svid: X509SVID{}, want: "SPIFFE ID"},
 		{name: "missing cert", svid: X509SVID{SPIFFEID: "spiffe://prod.example/workload"}, want: "certificate chain"},
-		{name: "missing key", svid: X509SVID{SPIFFEID: "spiffe://prod.example/workload", Certificates: []*x509.Certificate{{Raw: []byte{1}}}}, want: "private key"},
+		{
+			name: "missing key",
+			svid: X509SVID{
+				SPIFFEID:     "spiffe://prod.example/workload",
+				Certificates: []*x509.Certificate{{Raw: []byte{1}}},
+			},
+			want: "private key",
+		},
 	}
 
 	for _, tt := range tests {

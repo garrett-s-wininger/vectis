@@ -79,7 +79,10 @@ func NewServer(provider Provider, authorizer Authorizer, opts ...ServerOption) *
 	return s
 }
 
-func (s *Server) ResolveSecrets(ctx context.Context, req *api.ResolveSecretsRequest) (*api.ResolveSecretsResponse, error) {
+func (s *Server) ResolveSecrets(
+	ctx context.Context,
+	req *api.ResolveSecretsRequest,
+) (*api.ResolveSecretsResponse, error) {
 	start := time.Now()
 	if s == nil || s.provider == nil {
 		if s != nil {

@@ -61,9 +61,16 @@ func (a *ProcessAction) LocalOnly() bool {
 	return a.descriptor.LocalOnly
 }
 
-func (a *ProcessAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, ports action.Ports) action.Result {
+func (a *ProcessAction) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	inputs map[string]any,
+	ports action.Ports,
+) action.Result {
 	if a.descriptor.Runtime != actionregistry.RuntimeProcess {
-		return action.NewFailureResult(fmt.Errorf("custom action %s uses unsupported runtime %q", a.Type(), a.descriptor.Runtime))
+		return action.NewFailureResult(
+			fmt.Errorf("custom action %s uses unsupported runtime %q", a.Type(), a.descriptor.Runtime),
+		)
 	}
 
 	if len(ports) > 0 {

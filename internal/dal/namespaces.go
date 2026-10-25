@@ -68,7 +68,11 @@ func (r *SQLNamespacesRepository) Create(ctx context.Context, name string, paren
 	return r.CreateWithDescription(ctx, name, "", parentID)
 }
 
-func (r *SQLNamespacesRepository) CreateWithDescription(ctx context.Context, name, description string, parentID *int64) (*NamespaceRecord, error) {
+func (r *SQLNamespacesRepository) CreateWithDescription(
+	ctx context.Context,
+	name, description string,
+	parentID *int64,
+) (*NamespaceRecord, error) {
 	if name == "" || name == "/" || name == ".." || !validNamespaceName.MatchString(name) {
 		return nil, ErrInvalidNamespaceName
 	}
@@ -87,9 +91,17 @@ func (r *SQLNamespacesRepository) CreateWithDescription(ctx context.Context, nam
 	}
 
 	var id int64
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("INSERT INTO namespaces (global_id, name, description, parent_id, path, home_cell) VALUES (?, ?, ?, ?, ?, ?) RETURNING id"),
-		newGlobalID(), name, strings.TrimSpace(description), parentID, path, r.currentCellID(),
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"INSERT INTO namespaces (global_id, name, description, parent_id, path, home_cell) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+		),
+		newGlobalID(),
+		name,
+		strings.TrimSpace(description),
+		parentID,
+		path,
+		r.currentCellID(),
 	).Scan(&id)
 
 	if err != nil {
@@ -103,8 +115,11 @@ func (r *SQLNamespacesRepository) GetByID(ctx context.Context, id int64) (*Names
 	var rec NamespaceRecord
 	var parentID sql.NullInt64
 	var breakInheritanceRaw any
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces WHERE id = ?"),
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces WHERE id = ?",
+		),
 		id,
 	).Scan(&rec.ID, &rec.GlobalID, &rec.Name, &rec.Description, &parentID, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt)
 
@@ -133,8 +148,11 @@ func (r *SQLNamespacesRepository) GetByPath(ctx context.Context, path string) (*
 	var rec NamespaceRecord
 	var parentID sql.NullInt64
 	var breakInheritanceRaw any
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces WHERE path = ?"),
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces WHERE path = ?",
+		),
 		path,
 	).Scan(&rec.ID, &rec.GlobalID, &rec.Name, &rec.Description, &parentID, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt)
 
@@ -160,8 +178,11 @@ func (r *SQLNamespacesRepository) GetByPath(ctx context.Context, path string) (*
 }
 
 func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, error) {
-	rows, err := r.db.QueryContext(ctx,
-		rebindQueryForPgx("SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces ORDER BY path"),
+	rows, err := r.db.QueryContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces ORDER BY path",
+		),
 	)
 
 	if err != nil {
@@ -175,7 +196,17 @@ func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, 
 		var parentID sql.NullInt64
 		var breakInheritanceRaw any
 
-		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.Name, &rec.Description, &parentID, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.GlobalID,
+			&rec.Name,
+			&rec.Description,
+			&parentID,
+			&rec.Path,
+			&breakInheritanceRaw,
+			&rec.HomeCell,
+			&rec.CreatedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -200,8 +231,11 @@ func (r *SQLNamespacesRepository) List(ctx context.Context) ([]NamespaceRecord, 
 }
 
 func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int64) ([]NamespaceRecord, error) {
-	rows, err := r.db.QueryContext(ctx,
-		rebindQueryForPgx("SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces WHERE parent_id = ? ORDER BY path"),
+	rows, err := r.db.QueryContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT id, COALESCE(global_id, ''), name, COALESCE(description, ''), parent_id, path, break_inheritance, home_cell, created_at FROM namespaces WHERE parent_id = ? ORDER BY path",
+		),
 		parentID,
 	)
 
@@ -216,7 +250,17 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 		var pid sql.NullInt64
 		var breakInheritanceRaw any
 
-		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.Name, &rec.Description, &pid, &rec.Path, &breakInheritanceRaw, &rec.HomeCell, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.GlobalID,
+			&rec.Name,
+			&rec.Description,
+			&pid,
+			&rec.Path,
+			&breakInheritanceRaw,
+			&rec.HomeCell,
+			&rec.CreatedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -240,7 +284,11 @@ func (r *SQLNamespacesRepository) ListChildren(ctx context.Context, parentID int
 	return out, nil
 }
 
-func (r *SQLNamespacesRepository) UpdateDescription(ctx context.Context, id int64, description string) (*NamespaceRecord, error) {
+func (r *SQLNamespacesRepository) UpdateDescription(
+	ctx context.Context,
+	id int64,
+	description string,
+) (*NamespaceRecord, error) {
 	res, err := r.db.ExecContext(ctx,
 		rebindQueryForPgx("UPDATE namespaces SET description = ? WHERE id = ?"),
 		strings.TrimSpace(description), id,

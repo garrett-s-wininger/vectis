@@ -141,7 +141,13 @@ func (s *ExecutionRepairService) repairOne(ctx context.Context, handoff dal.Cell
 }
 
 func (s *ExecutionRepairService) markFailed(ctx context.Context, executionID string, cause error) {
-	if err := s.acceptances.MarkEnqueueFailed(ctx, executionID, s.clock.Now().UnixNano(), cause.Error()); err != nil && s.logger != nil {
+	if err := s.acceptances.MarkEnqueueFailed(
+		ctx,
+		executionID,
+		s.clock.Now().UnixNano(),
+		cause.Error(),
+	); err != nil &&
+		s.logger != nil {
 		s.logger.Warn("cell execution repair failed to record enqueue failure for execution %s: %v", executionID, err)
 	}
 }
@@ -211,7 +217,13 @@ func matchHandoffString(field, stored, envelope string) error {
 	}
 
 	if stored != envelope {
-		return fmt.Errorf("cell execution repair handoff %s %q does not match request envelope %s %q", field, stored, field, envelope)
+		return fmt.Errorf(
+			"cell execution repair handoff %s %q does not match request envelope %s %q",
+			field,
+			stored,
+			field,
+			envelope,
+		)
 	}
 
 	return nil
@@ -223,7 +235,13 @@ func matchHandoffInt(field string, stored, envelope int) error {
 	}
 
 	if stored != envelope {
-		return fmt.Errorf("cell execution repair handoff %s %d does not match request envelope %s %d", field, stored, field, envelope)
+		return fmt.Errorf(
+			"cell execution repair handoff %s %d does not match request envelope %s %d",
+			field,
+			stored,
+			field,
+			envelope,
+		)
 	}
 
 	return nil

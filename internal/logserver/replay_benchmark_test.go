@@ -135,7 +135,12 @@ func replayBenchmarkDelimitedBytes(entryCount, payloadSize int) []byte {
 	return buf
 }
 
-func benchmarkCurrentReplay(b *testing.B, fixture *replayBenchmarkFixture, sinceSeq int64, tail, replayLimit, want int) {
+func benchmarkCurrentReplay(
+	b *testing.B,
+	fixture *replayBenchmarkFixture,
+	sinceSeq int64,
+	tail, replayLimit, want int,
+) {
 	b.Helper()
 	b.SetBytes(replayBenchmarkBytes(fixture.entryCount, fixture.entryCount, fixture.payloadSize))
 	b.ReportAllocs()
@@ -344,7 +349,11 @@ func readBenchmarkLogRecordHeader(r io.Reader) (benchmarkLogRecordHeader, error)
 
 	bodyLen := binary.LittleEndian.Uint32(lengthBuf[:])
 	if bodyLen < logEntryRecordHeaderSize {
-		return benchmarkLogRecordHeader{}, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+		return benchmarkLogRecordHeader{}, fmt.Errorf(
+			"record body length %d is smaller than header length %d",
+			bodyLen,
+			logEntryRecordHeaderSize,
+		)
 	}
 
 	var headerBuf [logEntryRecordHeaderSize]byte
@@ -354,7 +363,11 @@ func readBenchmarkLogRecordHeader(r io.Reader) (benchmarkLogRecordHeader, error)
 
 	dataLen := binary.LittleEndian.Uint32(headerBuf[28:32])
 	if dataLen != bodyLen-logEntryRecordHeaderSize {
-		return benchmarkLogRecordHeader{}, fmt.Errorf("record data length %d does not match body payload length %d", dataLen, bodyLen-logEntryRecordHeaderSize)
+		return benchmarkLogRecordHeader{}, fmt.Errorf(
+			"record data length %d does not match body payload length %d",
+			dataLen,
+			bodyLen-logEntryRecordHeaderSize,
+		)
 	}
 
 	nsec := binary.LittleEndian.Uint32(headerBuf[8:12])

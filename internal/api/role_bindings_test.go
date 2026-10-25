@@ -37,7 +37,11 @@ func TestCreateBinding_Success(t *testing.T) {
 	}
 
 	body := fmt.Appendf(nil, `{"local_user_id": %d, "role": "viewer"}`, uid)
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID),
+		bytes.NewReader(body),
+	)
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
 	rec := httptest.NewRecorder()
@@ -87,7 +91,11 @@ func TestCreateBinding_InvalidRole(t *testing.T) {
 	}
 
 	body := fmt.Appendf(nil, `{"local_user_id": %d, "role": "invalid-role"}`, uid)
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID),
+		bytes.NewReader(body),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
 	rec := httptest.NewRecorder()
@@ -110,7 +118,11 @@ func TestCreateBinding_MissingUserID(t *testing.T) {
 	}
 
 	body := []byte(`{"role": "viewer"}`)
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID),
+		bytes.NewReader(body),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
 	rec := httptest.NewRecorder()
@@ -146,7 +158,11 @@ func TestCreateBinding_Duplicate(t *testing.T) {
 
 	// Try to create duplicate
 	body := fmt.Appendf(nil, `{"local_user_id": %d, "role": "viewer"}`, uid)
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID), bytes.NewReader(body))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/v1/namespaces/%d/bindings", ns.ID),
+		bytes.NewReader(body),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
 	rec := httptest.NewRecorder()
@@ -225,7 +241,11 @@ func TestDeleteBinding_Success(t *testing.T) {
 		t.Fatalf("create binding: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d/bindings/%d?role=viewer", ns.ID, uid), nil)
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		fmt.Sprintf("/api/v1/namespaces/%d/bindings/%d?role=viewer", ns.ID, uid),
+		nil,
+	)
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
 	req.SetPathValue("user_id", fmt.Sprintf("%d", uid))
 	rec := httptest.NewRecorder()
@@ -265,7 +285,11 @@ func TestDeleteBinding_NotFound(t *testing.T) {
 		t.Fatalf("create namespace: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v1/namespaces/%d/bindings/%d?role=viewer", ns.ID, uid), nil)
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		fmt.Sprintf("/api/v1/namespaces/%d/bindings/%d?role=viewer", ns.ID, uid),
+		nil,
+	)
 	req.SetPathValue("id", fmt.Sprintf("%d", ns.ID))
 	req.SetPathValue("user_id", fmt.Sprintf("%d", uid))
 	rec := httptest.NewRecorder()

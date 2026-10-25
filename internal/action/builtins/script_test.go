@@ -21,7 +21,11 @@ func TestScriptActionExecuteSuccess(t *testing.T) {
 	mockExecutor.SetProcess(mockProcess)
 
 	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "outputs.json"), []byte(`{"ok":true,"runner":"script"}`), 0o600); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(workspace, "outputs.json"),
+		[]byte(`{"ok":true,"runner":"script"}`),
+		0o600,
+	); err != nil {
 		t.Fatalf("write outputs: %v", err)
 	}
 

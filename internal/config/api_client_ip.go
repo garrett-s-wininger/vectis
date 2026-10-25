@@ -57,7 +57,10 @@ func ParseTrustedProxyIPNets(cidrs []string) ([]*net.IPNet, error) {
 
 		if _, n, err := net.ParseCIDR(s); err == nil {
 			if isTrustAllCIDR(n) {
-				return nil, fmt.Errorf("trusted proxy CIDR %q is not allowed (use specific LB/proxy ranges, not entire address space)", s)
+				return nil, fmt.Errorf(
+					"trusted proxy CIDR %q is not allowed (use specific LB/proxy ranges, not entire address space)",
+					s,
+				)
 			}
 			out = append(out, n)
 			continue

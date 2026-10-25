@@ -89,7 +89,8 @@ func TestPublisher_PublishUploadsBlobAndRecordsManifest(t *testing.T) {
 		t.Fatalf("manifest content type = %q, want text/plain", manifest.ContentType)
 	}
 
-	if manifest.BlobKey != got.Blob.Key || manifest.BlobDigest != got.Blob.Digest || manifest.SizeBytes != got.Blob.Size {
+	if manifest.BlobKey != got.Blob.Key || manifest.BlobDigest != got.Blob.Digest ||
+		manifest.SizeBytes != got.Blob.Size {
 		t.Fatalf("manifest blob fields do not match descriptor: manifest=%+v blob=%+v", manifest, got.Blob)
 	}
 
@@ -327,7 +328,10 @@ func TestPublisher_InvalidBlobDescriptorDoesNotRecordManifest(t *testing.T) {
 		t.Fatalf("expected invalid descriptor error, got %v", err)
 	}
 
-	if _, err := repos.Artifacts().GetByRunAndName(context.Background(), runID, "bad-descriptor"); !dal.IsNotFound(err) {
+	if _, err := repos.Artifacts().
+		GetByRunAndName(context.Background(), runID, "bad-descriptor"); !dal.IsNotFound(
+		err,
+	) {
 		t.Fatalf("expected no manifest after invalid descriptor, got %v", err)
 	}
 }
@@ -381,7 +385,13 @@ func TestPublisher_RunQuotaRejectsBeforeUpload(t *testing.T) {
 		t.Fatalf("expected no manifest after quota failure, got %v", err)
 	}
 
-	if _, err := store.Stat(context.Background(), BlobKeySHA256(sha256BytesHex(second))); !errors.Is(err, ErrBlobNotFound) {
+	if _, err := store.Stat(
+		context.Background(),
+		BlobKeySHA256(sha256BytesHex(second)),
+	); !errors.Is(
+		err,
+		ErrBlobNotFound,
+	) {
 		t.Fatalf("quota failure should not upload blob, got %v", err)
 	}
 
@@ -475,7 +485,10 @@ type failOnceArtifactsRepository struct {
 	failed    bool
 }
 
-func (r *failOnceArtifactsRepository) Record(ctx context.Context, create dal.ArtifactCreate) (dal.ArtifactRecord, error) {
+func (r *failOnceArtifactsRepository) Record(
+	ctx context.Context,
+	create dal.ArtifactCreate,
+) (dal.ArtifactRecord, error) {
 	if !r.failed {
 		r.failed = true
 		return dal.ArtifactRecord{}, r.recordErr
@@ -524,15 +537,26 @@ type malformedArtifactClient struct {
 	desc *api.BlobDescriptor
 }
 
-func (c malformedArtifactClient) UploadBlob(context.Context, ...grpc.CallOption) (grpc.ClientStreamingClient[api.UploadBlobRequest, api.BlobDescriptor], error) {
+func (c malformedArtifactClient) UploadBlob(
+	context.Context,
+	...grpc.CallOption,
+) (grpc.ClientStreamingClient[api.UploadBlobRequest, api.BlobDescriptor], error) {
 	return &malformedUploadStream{desc: c.desc}, nil
 }
 
-func (c malformedArtifactClient) StatBlob(context.Context, *api.GetBlobRequest, ...grpc.CallOption) (*api.BlobDescriptor, error) {
+func (c malformedArtifactClient) StatBlob(
+	context.Context,
+	*api.GetBlobRequest,
+	...grpc.CallOption,
+) (*api.BlobDescriptor, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (c malformedArtifactClient) ReadBlob(context.Context, *api.GetBlobRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[api.ReadBlobResponse], error) {
+func (c malformedArtifactClient) ReadBlob(
+	context.Context,
+	*api.GetBlobRequest,
+	...grpc.CallOption,
+) (grpc.ServerStreamingClient[api.ReadBlobResponse], error) {
 	return nil, errors.New("not implemented")
 }
 

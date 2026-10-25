@@ -41,7 +41,12 @@ func runSecretEncryptedFSPut(cmd *cobra.Command, args []string) {
 	))
 }
 
-func secretEncryptedFSPut(ref, root, keyFile, fromFile string, createKey, force bool, stdin io.Reader, out io.Writer) error {
+func secretEncryptedFSPut(
+	ref, root, keyFile, fromFile string,
+	createKey, force bool,
+	stdin io.Reader,
+	out io.Writer,
+) error {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return fmt.Errorf("encryptedfs ref is required")
@@ -183,7 +188,9 @@ var secretsEncryptedFSPutCmd = &cobra.Command{
 func configureSecretEncryptedFSPutFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&secretEncryptedFSRoot, "root", "", "Encryptedfs provider root directory")
 	cmd.Flags().StringVar(&secretEncryptedFSKeyFile, "key-file", "", "Encryptedfs provider key file")
-	cmd.Flags().StringVar(&secretEncryptedFSFromFile, "from-file", "-", "Read secret plaintext from this file, or '-' for stdin")
-	cmd.Flags().BoolVar(&secretEncryptedFSCreateKey, "create-key", false, "Create the encryptedfs key file if it does not exist")
+	cmd.Flags().
+		StringVar(&secretEncryptedFSFromFile, "from-file", "-", "Read secret plaintext from this file, or '-' for stdin")
+	cmd.Flags().
+		BoolVar(&secretEncryptedFSCreateKey, "create-key", false, "Create the encryptedfs key file if it does not exist")
 	cmd.Flags().BoolVar(&secretEncryptedFSForce, "force", false, "Overwrite an existing encryptedfs secret envelope")
 }

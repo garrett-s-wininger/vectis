@@ -90,7 +90,12 @@ func ValidateBlobDescriptor(desc BlobDescriptor) error {
 	}
 
 	if keyDigest != normalizedDigest {
-		return fmt.Errorf("%w: blob key digest %q does not match descriptor digest %q", ErrInvalidBlobDescriptor, keyDigest, normalizedDigest)
+		return fmt.Errorf(
+			"%w: blob key digest %q does not match descriptor digest %q",
+			ErrInvalidBlobDescriptor,
+			keyDigest,
+			normalizedDigest,
+		)
 	}
 
 	if desc.Size < 0 {

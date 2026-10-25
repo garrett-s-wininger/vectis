@@ -59,7 +59,10 @@ func normalizeSPIFFEID(identity string) (string, error) {
 	}
 
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
-		return "", fmt.Errorf("service identity: %q must not include userinfo, query, fragment, or opaque data", identity)
+		return "", fmt.Errorf(
+			"service identity: %q must not include userinfo, query, fragment, or opaque data",
+			identity,
+		)
 	}
 
 	return u.String(), nil

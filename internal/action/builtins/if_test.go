@@ -16,7 +16,10 @@ import (
 func ifTestStrp(s string) *string { return &s }
 
 func TestIfNodeExecuteThenBranch(t *testing.T) {
-	condition := &countedNode{count: &atomic.Int32{}, result: action.NewSuccessResult(map[string]any{TestResultOutput: true})}
+	condition := &countedNode{
+		count:  &atomic.Int32{},
+		result: action.NewSuccessResult(map[string]any{TestResultOutput: true}),
+	}
 	thenCount := &atomic.Int32{}
 	elseCount := &atomic.Int32{}
 	thenNode := &countedNode{count: thenCount, result: action.NewSuccessResult(nil)}
@@ -47,7 +50,10 @@ func TestIfNodeExecuteThenBranch(t *testing.T) {
 }
 
 func TestIfNodeExecuteElseBranch(t *testing.T) {
-	condition := &countedNode{count: &atomic.Int32{}, result: action.NewSuccessResult(map[string]any{TestResultOutput: false})}
+	condition := &countedNode{
+		count:  &atomic.Int32{},
+		result: action.NewSuccessResult(map[string]any{TestResultOutput: false}),
+	}
 	thenCount := &atomic.Int32{}
 	elseCount := &atomic.Int32{}
 	thenNode := &countedNode{count: thenCount, result: action.NewSuccessResult(nil)}

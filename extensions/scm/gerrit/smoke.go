@@ -167,7 +167,11 @@ func runSmokeOnce(ctx context.Context, opts SmokeOptions) (SmokeResult, error) {
 	}
 
 	if len(pollResult.Events) < opts.MinEvents {
-		return SmokeResult{}, fmt.Errorf("gerrit scm smoke emitted %d events, want at least %d", len(pollResult.Events), opts.MinEvents)
+		return SmokeResult{}, fmt.Errorf(
+			"gerrit scm smoke emitted %d events, want at least %d",
+			len(pollResult.Events),
+			opts.MinEvents,
+		)
 	}
 
 	events := make([]SmokeEvent, 0, len(pollResult.Events))

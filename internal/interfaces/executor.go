@@ -82,7 +82,13 @@ func NewDirectExecutor() *DirectExecutor {
 
 type DirectExecutor struct{}
 
-func (e *DirectExecutor) Start(ctx context.Context, path string, args []string, workDir string, env []string) (Process, error) {
+func (e *DirectExecutor) Start(
+	ctx context.Context,
+	path string,
+	args []string,
+	workDir string,
+	env []string,
+) (Process, error) {
 	return startExecProcess(ctx, path, args, workDir, env)
 }
 
@@ -118,7 +124,10 @@ func startExecProcess(ctx context.Context, path string, args []string, workDir s
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, launcherCommand.Path, launcherCommand.Args...) // #nosec G204 -- path and args were resolved through actionlauncher.Command and sanitized launch policy.
+	cmd := exec.CommandContext(
+		ctx,
+		launcherCommand.Path,
+		launcherCommand.Args...) // #nosec G204 -- path and args were resolved through actionlauncher.Command and sanitized launch policy.
 	cmd.Dir = launcherCommand.WorkDir
 	cmd.Env = launcherCommand.Env
 	return startProcess(cmd)

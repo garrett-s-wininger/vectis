@@ -34,13 +34,22 @@ func RegisterWithHeartbeat(ctx context.Context, opts RegistrationOptions) (func(
 // registry addresses, preferring the rendezvous-hashed sponsor and failing over
 // to other targets on errors. It refreshes metadata from metadataProvider on
 // each heartbeat.
-func RegisterWithDynamicMetadataHeartbeat(ctx context.Context, opts RegistrationOptions, metadataProvider func() map[string]string) (func(), error) {
+func RegisterWithDynamicMetadataHeartbeat(
+	ctx context.Context,
+	opts RegistrationOptions,
+	metadataProvider func() map[string]string,
+) (func(), error) {
 	clock := opts.Clock
 	if clock == nil {
 		clock = interfaces.SystemClock{}
 	}
 
-	registryAddress := sponsorOrderedRegistryAddress(opts.RegistryAddress, opts.Component, opts.InstanceID, opts.PublishAddress)
+	registryAddress := sponsorOrderedRegistryAddress(
+		opts.RegistryAddress,
+		opts.Component,
+		opts.InstanceID,
+		opts.PublishAddress,
+	)
 	if metadataProvider == nil {
 		metadata := cloneMetadata(opts.Metadata)
 		metadataProvider = func() map[string]string {
@@ -53,19 +62,42 @@ func RegisterWithDynamicMetadataHeartbeat(ctx context.Context, opts Registration
 		return nil, err
 	}
 
-	if err := registryClient.RegisterInstanceWithMetadata(ctx, opts.Component, opts.InstanceID, opts.PublishAddress, metadataProvider()); err != nil {
+	if err := registryClient.RegisterInstanceWithMetadata(
+		ctx,
+		opts.Component,
+		opts.InstanceID,
+		opts.PublishAddress,
+		metadataProvider(),
+	); err != nil {
 		_ = registryClient.Close()
 		return nil, err
 	}
 
-	stopHeartbeat := startDynamicRegistrationHeartbeat(ctx, registryClient, opts.Component, opts.InstanceID, opts.PublishAddress, metadataProvider, opts.RefreshInterval, opts.Logger)
+	stopHeartbeat := startDynamicRegistrationHeartbeat(
+		ctx,
+		registryClient,
+		opts.Component,
+		opts.InstanceID,
+		opts.PublishAddress,
+		metadataProvider,
+		opts.RefreshInterval,
+		opts.Logger,
+	)
 	return func() {
 		stopHeartbeat()
 		_ = registryClient.Close()
 	}, nil
 }
 
-func startDynamicRegistrationHeartbeat(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, metadataProvider func() map[string]string, interval time.Duration, logger interfaces.Logger) func() {
+func startDynamicRegistrationHeartbeat(
+	ctx context.Context,
+	r *Registry,
+	comp api.Component,
+	instanceID, address string,
+	metadataProvider func() map[string]string,
+	interval time.Duration,
+	logger interfaces.Logger,
+) func() {
 	if r == nil || interval <= 0 || logger == nil {
 		return func() {}
 	}
@@ -76,7 +108,15 @@ func startDynamicRegistrationHeartbeat(ctx context.Context, r *Registry, comp ap
 	return cancel
 }
 
-func dynamicRegistrationHeartbeatLoop(ctx context.Context, r *Registry, comp api.Component, instanceID, address string, metadataProvider func() map[string]string, interval time.Duration, logger interfaces.Logger) {
+func dynamicRegistrationHeartbeatLoop(
+	ctx context.Context,
+	r *Registry,
+	comp api.Component,
+	instanceID, address string,
+	metadataProvider func() map[string]string,
+	interval time.Duration,
+	logger interfaces.Logger,
+) {
 	for {
 		wait := intervalWithJitter(interval)
 		select {
@@ -95,7 +135,11 @@ func dynamicRegistrationHeartbeatLoop(ctx context.Context, r *Registry, comp api
 	}
 }
 
-func sponsorOrderedRegistryAddress(addresses string, component api.Component, instanceID, publishAddress string) string {
+func sponsorOrderedRegistryAddress(
+	addresses string,
+	component api.Component,
+	instanceID, publishAddress string,
+) string {
 	parsed := splitRegistryAddresses(addresses)
 	if len(parsed) <= 1 {
 		return addresses

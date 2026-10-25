@@ -164,12 +164,22 @@ func loadExampleJob(t *testing.T, root string) ([]byte, *api.Job) {
 	return definitionJSON, &runJob
 }
 
-func startSecretsBroker(t *testing.T, logger interfaces.Logger, runs dal.RunsRepository, clientCAFile string) (*bufconn.Listener, string) {
+func startSecretsBroker(
+	t *testing.T,
+	logger interfaces.Logger,
+	runs dal.RunsRepository,
+	clientCAFile string,
+) (*bufconn.Listener, string) {
 	t.Helper()
 
 	root := t.TempDir()
 	key := []byte("0123456789abcdef0123456789abcdef")
-	if err := encryptedfs.WriteEncryptedFSSecretFile(root, "encryptedfs://team/smoke-token", []byte(secretPlaintext), key); err != nil {
+	if err := encryptedfs.WriteEncryptedFSSecretFile(
+		root,
+		"encryptedfs://team/smoke-token",
+		[]byte(secretPlaintext),
+		key,
+	); err != nil {
 		t.Fatalf("write encryptedfs secret: %v", err)
 	}
 
@@ -187,7 +197,9 @@ func startSecretsBroker(t *testing.T, logger interfaces.Logger, runs dal.RunsRep
 		provider,
 		secretstore.NewClaimAuthorizer(
 			runs,
-			secretstore.WithExecutionScopeResolver(integrationExecutionScopeResolver{store: runs, trustDomain: trustDomain}),
+			secretstore.WithExecutionScopeResolver(
+				integrationExecutionScopeResolver{store: runs, trustDomain: trustDomain},
+			),
 			secretstore.WithAccessPolicy(policy),
 		),
 		secretstore.WithLogger(logger),
@@ -240,7 +252,11 @@ func startSecretsBroker(t *testing.T, logger interfaces.Logger, runs dal.RunsRep
 	return listener, tlsMaterial.CAFile
 }
 
-func newBufconnSecretsResolver(listener *bufconn.Listener, caFile string, workload *workloadidentity.Identity) (secretstore.Resolver, func(), error) {
+func newBufconnSecretsResolver(
+	listener *bufconn.Listener,
+	caFile string,
+	workload *workloadidentity.Identity,
+) (secretstore.Resolver, func(), error) {
 	if workload == nil || workload.X509SVID == nil {
 		return nil, nil, fmt.Errorf("workload X.509-SVID is required")
 	}
@@ -287,7 +303,10 @@ type integrationExecutionScopeResolver struct {
 	trustDomain string
 }
 
-func (r integrationExecutionScopeResolver) ResolveExecutionScope(ctx context.Context, runID, executionID string) (secretstore.ExecutionScope, error) {
+func (r integrationExecutionScopeResolver) ResolveExecutionScope(
+	ctx context.Context,
+	runID, executionID string,
+) (secretstore.ExecutionScope, error) {
 	if r.store == nil {
 		return secretstore.ExecutionScope{}, errors.New("active execution store is not configured")
 	}
@@ -297,18 +316,22 @@ func (r integrationExecutionScopeResolver) ResolveExecutionScope(ctx context.Con
 		return secretstore.ExecutionScope{}, err
 	}
 
-	identity, err := workloadidentity.NewIdentity(r.trustDomain, workloadidentity.DefaultSPIFFEPathTemplate, workloadidentity.Execution{
-		CellID:            dispatch.CellID,
-		NamespacePath:     dispatch.NamespacePath,
-		JobID:             dispatch.JobID,
-		RunID:             dispatch.RunID,
-		RunIndex:          dispatch.RunIndex,
-		SegmentID:         dispatch.SegmentID,
-		ExecutionID:       dispatch.ExecutionID,
-		Attempt:           dispatch.Attempt,
-		DefinitionVersion: dispatch.DefinitionVersion,
-		DefinitionHash:    dispatch.DefinitionHash,
-	})
+	identity, err := workloadidentity.NewIdentity(
+		r.trustDomain,
+		workloadidentity.DefaultSPIFFEPathTemplate,
+		workloadidentity.Execution{
+			CellID:            dispatch.CellID,
+			NamespacePath:     dispatch.NamespacePath,
+			JobID:             dispatch.JobID,
+			RunID:             dispatch.RunID,
+			RunIndex:          dispatch.RunIndex,
+			SegmentID:         dispatch.SegmentID,
+			ExecutionID:       dispatch.ExecutionID,
+			Attempt:           dispatch.Attempt,
+			DefinitionVersion: dispatch.DefinitionVersion,
+			DefinitionHash:    dispatch.DefinitionHash,
+		},
+	)
 
 	if err != nil {
 		return secretstore.ExecutionScope{}, err
@@ -345,7 +368,12 @@ func assertRunSucceeded(t *testing.T, ctx context.Context, runs dal.RunsReposito
 	}
 }
 
-func assertSecretDidNotLeak(t *testing.T, logger *mocks.MockLogger, logStore *logserver.LocalRunLogStore, runID string) {
+func assertSecretDidNotLeak(
+	t *testing.T,
+	logger *mocks.MockLogger,
+	logStore *logserver.LocalRunLogStore,
+	runID string,
+) {
 	t.Helper()
 
 	joinedLogs := waitForRunLogContains(t, logStore, runID, "Command completed successfully", 3*time.Second)
@@ -360,7 +388,12 @@ func assertSecretDidNotLeak(t *testing.T, logger *mocks.MockLogger, logStore *lo
 	}
 }
 
-func waitForRunLogContains(t *testing.T, store *logserver.LocalRunLogStore, runID, want string, timeout time.Duration) string {
+func waitForRunLogContains(
+	t *testing.T,
+	store *logserver.LocalRunLogStore,
+	runID, want string,
+	timeout time.Duration,
+) string {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)

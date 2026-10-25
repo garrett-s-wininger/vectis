@@ -12,7 +12,9 @@ import (
 )
 
 func TestTriggersAndSchedulesReferenceMentionsRoutesAndConstants(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "website", "docs", "using", "triggers-and-schedules-reference.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "website", "docs", "using", "triggers-and-schedules-reference.md"),
+	)
 	if err != nil {
 		t.Fatalf("read triggers and schedules reference: %v", err)
 	}

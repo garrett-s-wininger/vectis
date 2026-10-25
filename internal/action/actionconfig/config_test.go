@@ -102,7 +102,10 @@ func TestDescriptorResolverRequiresDigestPinsForCustomActions(t *testing.T) {
 		t.Fatalf("DescriptorResolver(): %v", err)
 	}
 
-	if _, err := resolver.ResolveDescriptor("examples/greet@v1"); err == nil || !strings.Contains(err.Error(), "must be pinned by digest") {
+	if _, err := resolver.ResolveDescriptor(
+		"examples/greet@v1",
+	); err == nil ||
+		!strings.Contains(err.Error(), "must be pinned by digest") {
 		t.Fatalf("ResolveDescriptor version selector error = %v, want digest pin policy error", err)
 	}
 

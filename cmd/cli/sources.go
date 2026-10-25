@@ -371,7 +371,10 @@ func resolveSourceRepositoryID(explicit, action string) (string, error) {
 	case 0:
 		return "", fmt.Errorf("--repository is required to %s; no enabled source repository is registered", action)
 	default:
-		return "", fmt.Errorf("--repository is required to %s when more than one source repository is registered", action)
+		return "", fmt.Errorf(
+			"--repository is required to %s when more than one source repository is registered",
+			action,
+		)
 	}
 }
 
@@ -646,7 +649,11 @@ func updateSourceWithOutput(cmd *cobra.Command, out io.Writer, repositoryID stri
 		return fmt.Errorf("failed to encode source repository update: %w", err)
 	}
 
-	req, err := newAPIRequest(http.MethodPut, "/api/v1/source-repositories/"+url.PathEscape(repositoryID), bytes.NewReader(body))
+	req, err := newAPIRequest(
+		http.MethodPut,
+		"/api/v1/source-repositories/"+url.PathEscape(repositoryID),
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create source repository update request: %w", err)
 	}
@@ -684,7 +691,10 @@ func deleteSource(cmd *cobra.Command, args []string) {
 
 func deleteSourceWithOutput(out io.Writer, repositoryID string, confirmed bool) error {
 	if !confirmed {
-		return fmt.Errorf("delete source repository %q requires --yes; this removes the registration but preserves checkout files", repositoryID)
+		return fmt.Errorf(
+			"delete source repository %q requires --yes; this removes the registration but preserves checkout files",
+			repositoryID,
+		)
 	}
 
 	req, err := newAPIRequest(http.MethodDelete, "/api/v1/source-repositories/"+url.PathEscape(repositoryID), nil)
@@ -706,7 +716,10 @@ func deleteSourceWithOutput(out io.Writer, repositoryID string, confirmed bool) 
 		_, err := fmt.Fprintf(out, "Source repository %q deleted.\n", repositoryID)
 		return err
 	case http.StatusConflict:
-		return fmt.Errorf("source repository %q is still declared, has source schedules, or has recorded source provenance; remove it from current config, disable it, or remove dependent references first", repositoryID)
+		return fmt.Errorf(
+			"source repository %q is still declared, has source schedules, or has recorded source provenance; remove it from current config, disable it, or remove dependent references first",
+			repositoryID,
+		)
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
 	default:
@@ -792,7 +805,12 @@ func syncSourceWithOutput(out io.Writer, repositoryID string) error {
 		if outputIsJSON() {
 			return writeJSON(out, repo)
 		}
-		_, err := fmt.Fprintf(out, "Source repository %q sync status: %s\n", repo.RepositoryID, emptyAsDash(repo.Sync.Status))
+		_, err := fmt.Fprintf(
+			out,
+			"Source repository %q sync status: %s\n",
+			repo.RepositoryID,
+			emptyAsDash(repo.Sync.Status),
+		)
 		return err
 	case http.StatusNotFound:
 		return fmt.Errorf("source repository %q not found", repositoryID)
@@ -806,7 +824,11 @@ func showSourceStatus(cmd *cobra.Command, args []string) {
 }
 
 func showSourceStatusWithOutput(out io.Writer, repositoryID string) error {
-	req, err := newAPIRequest(http.MethodGet, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/status", nil)
+	req, err := newAPIRequest(
+		http.MethodGet,
+		"/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/status",
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create source repository status request: %w", err)
 	}
@@ -1122,7 +1144,11 @@ func setSourceScheduleOverrideWithOutput(out io.Writer, scheduleID string) error
 		return fmt.Errorf("failed to encode source schedule override: %w", err)
 	}
 
-	req, err := newAPIRequest(http.MethodPut, "/api/v1/source-schedules/"+url.PathEscape(scheduleID)+"/override", bytes.NewReader(body))
+	req, err := newAPIRequest(
+		http.MethodPut,
+		"/api/v1/source-schedules/"+url.PathEscape(scheduleID)+"/override",
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create source schedule override request: %w", err)
 	}
@@ -1157,7 +1183,11 @@ func clearSourceScheduleOverride(cmd *cobra.Command, args []string) {
 }
 
 func clearSourceScheduleOverrideWithOutput(out io.Writer, scheduleID string) error {
-	req, err := newAPIRequest(http.MethodDelete, "/api/v1/source-schedules/"+url.PathEscape(scheduleID)+"/override", nil)
+	req, err := newAPIRequest(
+		http.MethodDelete,
+		"/api/v1/source-schedules/"+url.PathEscape(scheduleID)+"/override",
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create source schedule override clear request: %w", err)
 	}
@@ -1223,7 +1253,11 @@ func setSourceScheduleEnabledWithOutput(out io.Writer, scheduleID string, enable
 		return fmt.Errorf("failed to encode source schedule update: %w", err)
 	}
 
-	req, err := newAPIRequest(http.MethodPatch, "/api/v1/source-schedules/"+url.PathEscape(scheduleID), bytes.NewReader(body))
+	req, err := newAPIRequest(
+		http.MethodPatch,
+		"/api/v1/source-schedules/"+url.PathEscape(scheduleID),
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create source schedule update request: %w", err)
 	}
@@ -1269,7 +1303,10 @@ func writeSourceScheduleEnabledResult(out io.Writer, schedule sourceScheduleSumm
 
 func deleteSourceScheduleWithOutput(out io.Writer, scheduleID string, confirmed bool) error {
 	if !confirmed {
-		return fmt.Errorf("delete source schedule %q requires --yes; only stale disabled schedules without overrides can be deleted", scheduleID)
+		return fmt.Errorf(
+			"delete source schedule %q requires --yes; only stale disabled schedules without overrides can be deleted",
+			scheduleID,
+		)
 	}
 
 	req, err := newAPIRequest(http.MethodDelete, "/api/v1/source-schedules/"+url.PathEscape(scheduleID), nil)
@@ -1291,7 +1328,10 @@ func deleteSourceScheduleWithOutput(out io.Writer, scheduleID string, confirmed 
 		_, err := fmt.Fprintf(out, "Source schedule %q deleted.\n", scheduleID)
 		return err
 	case http.StatusConflict:
-		return fmt.Errorf("source schedule %q must be stale, disabled, and clear of overrides before deletion", scheduleID)
+		return fmt.Errorf(
+			"source schedule %q must be stale, disabled, and clear of overrides before deletion",
+			scheduleID,
+		)
 	case http.StatusNotFound:
 		return fmt.Errorf("source schedule %q not found", scheduleID)
 	default:
@@ -1552,7 +1592,11 @@ func resolveSourceDefinitionWithOutput(cmd *cobra.Command, out io.Writer, reposi
 		return fmt.Errorf("failed to encode source definition resolve request: %w", err)
 	}
 
-	req, err := newAPIRequest(http.MethodPost, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/definitions/resolve", bytes.NewReader(body))
+	req, err := newAPIRequest(
+		http.MethodPost,
+		"/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/definitions/resolve",
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create source definition resolve request: %w", err)
 	}
@@ -1721,7 +1765,10 @@ func writeSourceRepositorySyncNotice(out io.Writer, repositoryID string, sync so
 
 	switch status {
 	case "failed":
-		parts = append(parts, "results may be stale; run `vectis-cli sources sync "+repositoryID+"` to refresh or `vectis-cli sources get "+repositoryID+"` for details")
+		parts = append(
+			parts,
+			"results may be stale; run `vectis-cli sources sync "+repositoryID+"` to refresh or `vectis-cli sources get "+repositoryID+"` for details",
+		)
 	case "running":
 		parts = append(parts, "sync is still running; results reflect the currently available checkout")
 	case "never":
@@ -1753,7 +1800,11 @@ func showSourceJob(cmd *cobra.Command, args []string) {
 }
 
 func showSourceJobWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
-	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs/" + url.PathEscape(jobID) + "/definition"
+	path := "/api/v1/source-repositories/" + url.PathEscape(
+		repositoryID,
+	) + "/jobs/" + url.PathEscape(
+		jobID,
+	) + "/definition"
 	params := url.Values{}
 	setTrimmedQueryParam(params, "ref", sourceShowRef)
 	setTrimmedQueryParam(params, "path", sourceShowPath)
@@ -1824,7 +1875,11 @@ func writeSourceJobWithOutput(out io.Writer, repositoryID, jobID, source string)
 		return fmt.Errorf("failed to encode source job definition write request: %w", err)
 	}
 
-	req, err := newAPIRequest(http.MethodPut, "/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/jobs/"+url.PathEscape(jobID)+"/definition", bytes.NewReader(payload))
+	req, err := newAPIRequest(
+		http.MethodPut,
+		"/api/v1/source-repositories/"+url.PathEscape(repositoryID)+"/jobs/"+url.PathEscape(jobID)+"/definition",
+		bytes.NewReader(payload),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create source job definition write request: %w", err)
 	}
@@ -1903,10 +1958,25 @@ func writeSourceJobDefinitionWriteResult(out io.Writer, result sourceRepositoryJ
 
 func listSourceRuns(cmd *cobra.Command, args []string) {
 	since, _ := cmd.Flags().GetString("since")
-	runCLIError(listSourceRunsWithOutput(os.Stdout, args[0], args[1], sourceRunsLimit, sourceRunsCursor, since, sourceRunsCellID))
+	runCLIError(
+		listSourceRunsWithOutput(
+			os.Stdout,
+			args[0],
+			args[1],
+			sourceRunsLimit,
+			sourceRunsCursor,
+			since,
+			sourceRunsCellID,
+		),
+	)
 }
 
-func listSourceRunsWithOutput(out io.Writer, repositoryID, jobID string, limit, cursor int, since, cellID string) error {
+func listSourceRunsWithOutput(
+	out io.Writer,
+	repositoryID, jobID string,
+	limit, cursor int,
+	since, cellID string,
+) error {
 	path := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs/" + url.PathEscape(jobID) + "/runs"
 	return listRunsPath(path, limit, cursor, since, cellID, out)
 }
@@ -1950,7 +2020,9 @@ func runSourceLogs(cmd *cobra.Command, args []string) {
 	}
 
 	if !ok {
-		runCLIError(fmt.Errorf("no runs found for source job %q/%q; use --follow to wait for future runs", repositoryID, jobID))
+		runCLIError(
+			fmt.Errorf("no runs found for source job %q/%q; use --follow to wait for future runs", repositoryID, jobID),
+		)
 	}
 
 	if !outputIsJSON() {
@@ -1965,8 +2037,23 @@ func triggerSourceJob(cmd *cobra.Command, args []string) {
 }
 
 func triggerSourceJobWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
-	apiPath := "/api/v1/source-repositories/" + url.PathEscape(repositoryID) + "/jobs/" + url.PathEscape(jobID) + "/trigger"
-	return triggerSourceJobPathWithOutput(cmd, out, apiPath, repositoryID, jobID, "", sourceTriggerRef, sourceTriggerPath, sourceTriggerCellID, sourceTriggerIdemKey)
+	apiPath := "/api/v1/source-repositories/" + url.PathEscape(
+		repositoryID,
+	) + "/jobs/" + url.PathEscape(
+		jobID,
+	) + "/trigger"
+	return triggerSourceJobPathWithOutput(
+		cmd,
+		out,
+		apiPath,
+		repositoryID,
+		jobID,
+		"",
+		sourceTriggerRef,
+		sourceTriggerPath,
+		sourceTriggerCellID,
+		sourceTriggerIdemKey,
+	)
 }
 
 func triggerSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer, repositoryID, jobID string) error {
@@ -1976,10 +2063,25 @@ func triggerSourceJobFromJobsFacadeWithOutput(cmd *cobra.Command, out io.Writer,
 	}
 
 	apiPath := "/api/v1/jobs/trigger/" + url.PathEscape(jobID)
-	return triggerSourceJobPathWithOutput(cmd, out, apiPath, repositoryID, jobID, repositoryID, stringFlagValue(cmd, "ref"), stringFlagValue(cmd, "path"), cellID, triggerIdemKey)
+	return triggerSourceJobPathWithOutput(
+		cmd,
+		out,
+		apiPath,
+		repositoryID,
+		jobID,
+		repositoryID,
+		stringFlagValue(cmd, "ref"),
+		stringFlagValue(cmd, "path"),
+		cellID,
+		triggerIdemKey,
+	)
 }
 
-func triggerSourceJobPathWithOutput(cmd *cobra.Command, out io.Writer, apiPath, repositoryID, jobID, bodyRepositoryID, ref, definitionPath, cellID, idempotencyKey string) error {
+func triggerSourceJobPathWithOutput(
+	cmd *cobra.Command,
+	out io.Writer,
+	apiPath, repositoryID, jobID, bodyRepositoryID, ref, definitionPath, cellID, idempotencyKey string,
+) error {
 	body, err := json.Marshal(sourceTriggerRequest{
 		RepositoryID: strings.TrimSpace(bodyRepositoryID),
 		Ref:          strings.TrimSpace(ref),
@@ -2289,16 +2391,21 @@ var sourcesTriggerCmd = &cobra.Command{
 }
 
 func configureSourcesListFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&sourceListNamespace, "namespace", "", "Namespace to list source repositories from (default: /)")
+	cmd.Flags().
+		StringVar(&sourceListNamespace, "namespace", "", "Namespace to list source repositories from (default: /)")
 	cmd.Flags().BoolVarP(&sourceListQuiet, "quiet", "q", false, "Print only repository IDs")
-	cmd.Flags().BoolVar(&sourceListStaleOnly, "stale", false, "Show only source repositories missing from current API config")
+	cmd.Flags().
+		BoolVar(&sourceListStaleOnly, "stale", false, "Show only source repositories missing from current API config")
 }
 
 func configureSourcesSchedulesFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&sourceSchedulesNamespace, "namespace", "", "Namespace to list source schedules from when no repository is specified (default: /)")
+	cmd.Flags().
+		StringVar(&sourceSchedulesNamespace, "namespace", "", "Namespace to list source schedules from when no repository is specified (default: /)")
 	cmd.Flags().BoolVarP(&sourceSchedulesQuiet, "quiet", "q", false, "Print only schedule IDs")
-	cmd.Flags().BoolVar(&sourceSchedulesOverrideOnly, "overrides", false, "Show only schedules with active source overrides")
-	cmd.Flags().BoolVar(&sourceSchedulesStaleOnly, "stale", false, "Show only source schedules missing from current API config")
+	cmd.Flags().
+		BoolVar(&sourceSchedulesOverrideOnly, "overrides", false, "Show only schedules with active source overrides")
+	cmd.Flags().
+		BoolVar(&sourceSchedulesStaleOnly, "stale", false, "Show only source schedules missing from current API config")
 }
 
 func configureSourcesOverrideFlags(cmd *cobra.Command) {
@@ -2308,15 +2415,22 @@ func configureSourcesOverrideFlags(cmd *cobra.Command) {
 }
 
 func configureSourcesRegisterFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&sourceRegisterNamespace, "namespace", "", "Namespace to register the repository in (default: /)")
+	cmd.Flags().
+		StringVar(&sourceRegisterNamespace, "namespace", "", "Namespace to register the repository in (default: /)")
 	cmd.Flags().StringVar(&sourceRegisterCheckoutMode, "checkout-mode", "", "Checkout mode: external or managed")
-	cmd.Flags().StringVar(&sourceRegisterAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
-	cmd.Flags().StringVar(&sourceRegisterCacheMode, "worker-cache-mode", "", "Worker cache mode: ephemeral or persistent")
-	cmd.Flags().StringVar(&sourceRegisterCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
-	cmd.Flags().StringSliceVar(&sourceRegisterFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
-	cmd.Flags().StringSliceVar(&sourceRegisterWarmRefspecs, "worker-cache-warm-refspec", nil, "Refspec to keep warm in worker persistent checkout caches; repeat for narrow large-repo warming")
+	cmd.Flags().
+		StringVar(&sourceRegisterAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
+	cmd.Flags().
+		StringVar(&sourceRegisterCacheMode, "worker-cache-mode", "", "Worker cache mode: ephemeral or persistent")
+	cmd.Flags().
+		StringVar(&sourceRegisterCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
+	cmd.Flags().
+		StringSliceVar(&sourceRegisterFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
+	cmd.Flags().
+		StringSliceVar(&sourceRegisterWarmRefspecs, "worker-cache-warm-refspec", nil, "Refspec to keep warm in worker persistent checkout caches; repeat for narrow large-repo warming")
 	cmd.Flags().StringVar(&sourceRegisterDefaultRef, "default-ref", "", "Default git ref for source operations")
-	cmd.Flags().StringVar(&sourceRegisterCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
+	cmd.Flags().
+		StringVar(&sourceRegisterCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
 	cmd.Flags().BoolVar(&sourceRegisterDisabled, "disabled", false, "Register the repository disabled")
 }
 
@@ -2324,13 +2438,18 @@ func configureSourcesUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceUpdateSourceKind, "source-kind", "", "Source kind, currently local_checkout")
 	cmd.Flags().StringVar(&sourceUpdateCheckoutPath, "checkout-path", "", "Checkout path for external repositories")
 	cmd.Flags().StringVar(&sourceUpdateCheckoutMode, "checkout-mode", "", "Checkout mode: external or managed")
-	cmd.Flags().StringVar(&sourceUpdateAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
+	cmd.Flags().
+		StringVar(&sourceUpdateAuthoringMode, "authoring-mode", "", "Authoring mode: read_only, local_commit, or external_change_request")
 	cmd.Flags().StringVar(&sourceUpdateCacheMode, "worker-cache-mode", "", "Worker cache mode: ephemeral or persistent")
-	cmd.Flags().StringVar(&sourceUpdateCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
-	cmd.Flags().StringSliceVar(&sourceUpdateFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
-	cmd.Flags().StringSliceVar(&sourceUpdateWarmRefspecs, "worker-cache-warm-refspec", nil, "Refspec to keep warm in worker persistent checkout caches; repeat for narrow large-repo warming")
+	cmd.Flags().
+		StringVar(&sourceUpdateCanonicalURL, "canonical-url", "", "Canonical clone/fetch URL for managed checkouts")
+	cmd.Flags().
+		StringSliceVar(&sourceUpdateFallbackURLs, "fallback-remote-url", nil, "Fallback clone/fetch URL for managed ref hydration; repeat for higher tiers")
+	cmd.Flags().
+		StringSliceVar(&sourceUpdateWarmRefspecs, "worker-cache-warm-refspec", nil, "Refspec to keep warm in worker persistent checkout caches; repeat for narrow large-repo warming")
 	cmd.Flags().StringVar(&sourceUpdateDefaultRef, "default-ref", "", "Default git ref for source operations")
-	cmd.Flags().StringVar(&sourceUpdateCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
+	cmd.Flags().
+		StringVar(&sourceUpdateCredentialRef, "credential-ref", "", "Credential reference for managed Git checkout sync")
 	cmd.Flags().BoolVar(&sourceUpdateEnable, "enable", false, "Enable the source repository")
 	cmd.Flags().BoolVar(&sourceUpdateDisable, "disable", false, "Disable the source repository")
 }
@@ -2359,7 +2478,8 @@ func configureSourcesTreeFlags(cmd *cobra.Command) {
 }
 
 func configureSourcesDefinitionsFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&sourceDefinitionsRef, "ref", "", "Git ref to inspect (default: repository default_ref or HEAD)")
+	cmd.Flags().
+		StringVar(&sourceDefinitionsRef, "ref", "", "Git ref to inspect (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceDefinitionsPath, "path", "", "Definition directory path (default: .vectis/jobs)")
 	cmd.Flags().IntVar(&sourceDefinitionsLimit, "limit", 0, "Max definition files to return")
 	cmd.Flags().StringVar(&sourceDefinitionsCursor, "cursor", "", "Continue after a previous definition file path")
@@ -2386,11 +2506,13 @@ func configureSourcesShowFlags(cmd *cobra.Command) {
 }
 
 func configureSourcesWriteFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&sourceWriteRef, "ref", "", "Git ref to use as the write base (default: repository default_ref or HEAD)")
+	cmd.Flags().
+		StringVar(&sourceWriteRef, "ref", "", "Git ref to use as the write base (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceWriteBranch, "branch", "", "Local branch to update instead of --ref/default")
 	cmd.Flags().StringVar(&sourceWritePath, "path", "", "Definition file path override")
 	cmd.Flags().StringVar(&sourceWriteMessage, "message", "", "Commit message for local source authoring")
-	cmd.Flags().StringVar(&sourceWriteExpectedHead, "expected-head", "", "Require the target branch to still point at this commit")
+	cmd.Flags().
+		StringVar(&sourceWriteExpectedHead, "expected-head", "", "Require the target branch to still point at this commit")
 	cmd.Flags().BoolVarP(&sourceWriteQuiet, "quiet", "q", false, "Print only the resulting commit")
 }
 
@@ -2410,5 +2532,6 @@ func configureSourcesTriggerFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&sourceTriggerRef, "ref", "", "Git ref to trigger (default: repository default_ref or HEAD)")
 	cmd.Flags().StringVar(&sourceTriggerPath, "path", "", "Definition file path override")
 	cmd.Flags().StringVar(&sourceTriggerCellID, "cell", "", "Target execution cell")
-	cmd.Flags().StringVar(&sourceTriggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
+	cmd.Flags().
+		StringVar(&sourceTriggerIdemKey, "idempotency-key", "", "Optional Idempotency-Key header for safe trigger retries")
 }

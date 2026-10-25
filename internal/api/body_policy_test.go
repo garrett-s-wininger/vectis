@@ -53,9 +53,12 @@ func TestRouteBodyMiddlewareAllowsEmptyDefaultPolicy(t *testing.T) {
 }
 
 func TestRouteBodyMiddlewareRejectsKnownOversizeBody(t *testing.T) {
-	handler := routeBodyMiddleware(routeBodyJSONPolicy(4), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	handler := routeBodyMiddleware(
+		routeBodyJSONPolicy(4),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader("12345"))
 	rec := httptest.NewRecorder()
@@ -67,15 +70,22 @@ func TestRouteBodyMiddlewareRejectsKnownOversizeBody(t *testing.T) {
 }
 
 func TestReadRequestBodyRejectsStreamingOversizeBody(t *testing.T) {
-	handler := routeBodyMiddleware(routeBodyJSONPolicy(4), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := readRequestBody(w, r, 4); !ok {
-			return
-		}
+	handler := routeBodyMiddleware(
+		routeBodyJSONPolicy(4),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := readRequestBody(w, r, 4); !ok {
+				return
+			}
 
-		w.WriteHeader(http.StatusNoContent)
-	}))
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", unknownLengthReader{Reader: strings.NewReader("12345")})
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/login",
+		unknownLengthReader{Reader: strings.NewReader("12345")},
+	)
 	if req.ContentLength != -1 {
 		t.Fatalf("test request ContentLength=%d, want unknown length", req.ContentLength)
 	}
@@ -111,22 +121,36 @@ func TestAPIServerRecordsNoBodyRouteSecurityRejection(t *testing.T) {
 		t.Fatalf("status=%d, want %d", rec.Code, http.StatusBadRequest)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonRequestBodyNotAllowed, "GET /api/v1/version", http.StatusBadRequest)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonRequestBodyNotAllowed,
+		"GET /api/v1/version",
+		http.StatusBadRequest,
+	)
 }
 
 func TestAPIServerRecordsStreamingOversizeBodySecurityRejection(t *testing.T) {
 	metrics := &fakeSecurityRejectionMetrics{}
 	s := NewAPIServerWithRepositories(mocks.NewMockLogger(), nil, nil, nil)
 	s.SetAPISecurityMetrics(metrics)
-	handler := routeBodyMiddleware(routeBodyJSONPolicy(4), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := readRequestBody(w, r, 4); !ok {
-			return
-		}
+	handler := routeBodyMiddleware(
+		routeBodyJSONPolicy(4),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := readRequestBody(w, r, 4); !ok {
+				return
+			}
 
-		w.WriteHeader(http.StatusNoContent)
-	}), s.recordSecurityRejection)
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		s.recordSecurityRejection,
+	)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", unknownLengthReader{Reader: strings.NewReader("12345")})
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/login",
+		unknownLengthReader{Reader: strings.NewReader("12345")},
+	)
 	req.Pattern = "POST /api/v1/login"
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -136,15 +160,24 @@ func TestAPIServerRecordsStreamingOversizeBodySecurityRejection(t *testing.T) {
 		t.Fatalf("status=%d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonRequestBodyTooLarge, "POST /api/v1/login", http.StatusRequestEntityTooLarge)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonRequestBodyTooLarge,
+		"POST /api/v1/login",
+		http.StatusRequestEntityTooLarge,
+	)
 }
 
 func TestRouteBodyMiddlewareRejectsMissingJSONContentType(t *testing.T) {
 	called := false
-	handler := routeBodyMiddleware(routeBodyJSONPolicy(128), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	handler := routeBodyMiddleware(
+		routeBodyJSONPolicy(128),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
@@ -177,14 +210,22 @@ func TestRouteBodyMiddlewareOptionalJSONContentType(t *testing.T) {
 	}{
 		{name: "empty without content type", wantStatus: http.StatusNoContent},
 		{name: "body without content type", body: "{}", wantStatus: http.StatusUnsupportedMediaType},
-		{name: "body with json content type", body: "{}", contentType: "application/json; charset=utf-8", wantStatus: http.StatusNoContent},
+		{
+			name:        "body with json content type",
+			body:        "{}",
+			contentType: "application/json; charset=utf-8",
+			wantStatus:  http.StatusNoContent,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := routeBodyMiddleware(routeBodyOptionalJSONPolicy(128), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusNoContent)
-			}))
+			handler := routeBodyMiddleware(
+				routeBodyOptionalJSONPolicy(128),
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusNoContent)
+				}),
+			)
 
 			var body io.Reader
 			if tt.body != "" {
@@ -220,7 +261,13 @@ func TestAPIServerRecordsUnsupportedMediaTypeSecurityRejection(t *testing.T) {
 		t.Fatalf("status=%d, want %d", rec.Code, http.StatusUnsupportedMediaType)
 	}
 
-	requireSecurityRejection(t, metrics, securityReasonUnsupportedMediaType, "POST /api/v1/login", http.StatusUnsupportedMediaType)
+	requireSecurityRejection(
+		t,
+		metrics,
+		securityReasonUnsupportedMediaType,
+		"POST /api/v1/login",
+		http.StatusUnsupportedMediaType,
+	)
 }
 
 func TestRouteBodyPolicyValidation(t *testing.T) {

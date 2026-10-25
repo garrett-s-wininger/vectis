@@ -17,7 +17,10 @@ type actionLockVerifier struct {
 
 var _ action.ActionVerifier = (*actionLockVerifier)(nil)
 
-func newActionLockVerifier(resolver actionregistry.Resolver, locks []actionregistry.ActionLock) (action.ActionVerifier, error) {
+func newActionLockVerifier(
+	resolver actionregistry.Resolver,
+	locks []actionregistry.ActionLock,
+) (action.ActionVerifier, error) {
 	if len(locks) == 0 {
 		return nil, nil //nolint:nilnil // A nil verifier means no action locks are configured.
 	}
@@ -87,23 +90,48 @@ func (v *actionLockVerifier) VerifyAction(node *api.Node, path string) error {
 
 	frozen := lock.Descriptor
 	if descriptor.CanonicalName != frozen.CanonicalName {
-		return fmt.Errorf("node %q resolved action name changed: got %q, frozen %q", nodePath, descriptor.CanonicalName, frozen.CanonicalName)
+		return fmt.Errorf(
+			"node %q resolved action name changed: got %q, frozen %q",
+			nodePath,
+			descriptor.CanonicalName,
+			frozen.CanonicalName,
+		)
 	}
 
 	if descriptor.Source != frozen.Source {
-		return fmt.Errorf("node %q resolved action source changed: got %q, frozen %q", nodePath, descriptor.Source, frozen.Source)
+		return fmt.Errorf(
+			"node %q resolved action source changed: got %q, frozen %q",
+			nodePath,
+			descriptor.Source,
+			frozen.Source,
+		)
 	}
 
 	if descriptor.Runtime != frozen.Runtime {
-		return fmt.Errorf("node %q resolved action runtime changed: got %q, frozen %q", nodePath, descriptor.Runtime, frozen.Runtime)
+		return fmt.Errorf(
+			"node %q resolved action runtime changed: got %q, frozen %q",
+			nodePath,
+			descriptor.Runtime,
+			frozen.Runtime,
+		)
 	}
 
 	if descriptor.Version != frozen.Version {
-		return fmt.Errorf("node %q resolved action version changed: got %q, frozen %q", nodePath, descriptor.Version, frozen.Version)
+		return fmt.Errorf(
+			"node %q resolved action version changed: got %q, frozen %q",
+			nodePath,
+			descriptor.Version,
+			frozen.Version,
+		)
 	}
 
 	if descriptor.Digest != frozen.Digest {
-		return fmt.Errorf("node %q resolved action digest changed: got %q, frozen %q", nodePath, descriptor.Digest, frozen.Digest)
+		return fmt.Errorf(
+			"node %q resolved action digest changed: got %q, frozen %q",
+			nodePath,
+			descriptor.Digest,
+			frozen.Digest,
+		)
 	}
 
 	if err := actionregistry.ValidateFrozenDescriptorExecution(uses, descriptor); err != nil {

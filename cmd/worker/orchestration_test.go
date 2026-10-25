@@ -27,11 +27,21 @@ func (c sqlExecutionChoreographer) completesExecutionDurably() bool {
 	return true
 }
 
-func (c sqlExecutionChoreographer) LoadRun(context.Context, *api.Job, *cell.ExecutionEnvelope, []orchestrator.TaskExecutionSnapshot) error {
+func (c sqlExecutionChoreographer) LoadRun(
+	context.Context,
+	*api.Job,
+	*cell.ExecutionEnvelope,
+	[]orchestrator.TaskExecutionSnapshot,
+) error {
 	return nil
 }
 
-func (c sqlExecutionChoreographer) ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (c sqlExecutionChoreographer) ClaimAndStartExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	claim, err := c.runs.TryClaimExecution(ctx, env.ExecutionID, owner, leaseUntil)
 	if err != nil || !claim.Claimed {
 		return claim, err
@@ -47,12 +57,29 @@ func (c sqlExecutionChoreographer) ClaimAndStartExecution(ctx context.Context, e
 	return claim, nil
 }
 
-func (c sqlExecutionChoreographer) RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error {
+func (c sqlExecutionChoreographer) RenewExecutionLease(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	return c.runs.RenewExecutionLease(ctx, env.ExecutionID, owner, claimToken, leaseUntil)
 }
 
-func (c sqlExecutionChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
-	return c.runs.CompleteExecutionAndFinalizeRunByClaim(ctx, env.ExecutionID, owner, claimToken, status, failureCode, reason)
+func (c sqlExecutionChoreographer) CompleteExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
+	return c.runs.CompleteExecutionAndFinalizeRunByClaim(
+		ctx,
+		env.ExecutionID,
+		owner,
+		claimToken,
+		status,
+		failureCode,
+		reason,
+	)
 }
 
 func (c sqlExecutionChoreographer) RequiresDurableTaskRows() bool {
@@ -76,7 +103,12 @@ type cleanupTestingT interface {
 	Cleanup(func())
 }
 
-func (c *localOrchestratorChoreographer) LoadRun(ctx context.Context, j *api.Job, env *cell.ExecutionEnvelope, snapshots []orchestrator.TaskExecutionSnapshot) error {
+func (c *localOrchestratorChoreographer) LoadRun(
+	ctx context.Context,
+	j *api.Job,
+	env *cell.ExecutionEnvelope,
+	snapshots []orchestrator.TaskExecutionSnapshot,
+) error {
 	spec, err := orchestrator.RunSpecFromJobAndEnvelope(j, env)
 	if err != nil {
 		return err
@@ -87,16 +119,39 @@ func (c *localOrchestratorChoreographer) LoadRun(ctx context.Context, j *api.Job
 	return err
 }
 
-func (c *localOrchestratorChoreographer) ClaimAndStartExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (c *localOrchestratorChoreographer) ClaimAndStartExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	return c.service.ClaimExecution(ctx, env.RunID, env.ExecutionID, owner, leaseUntil)
 }
 
-func (c *localOrchestratorChoreographer) RenewExecutionLease(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken string, leaseUntil time.Time) error {
+func (c *localOrchestratorChoreographer) RenewExecutionLease(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	return c.service.RenewExecutionLease(ctx, env.RunID, env.ExecutionID, owner, claimToken, leaseUntil)
 }
 
-func (c *localOrchestratorChoreographer) CompleteExecution(ctx context.Context, env *cell.ExecutionEnvelope, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
-	return c.service.CompleteExecutionByClaim(ctx, env.RunID, env.ExecutionID, owner, claimToken, status, failureCode, reason)
+func (c *localOrchestratorChoreographer) CompleteExecution(
+	ctx context.Context,
+	env *cell.ExecutionEnvelope,
+	owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
+	return c.service.CompleteExecutionByClaim(
+		ctx,
+		env.RunID,
+		env.ExecutionID,
+		owner,
+		claimToken,
+		status,
+		failureCode,
+		reason,
+	)
 }
 
 func (c *localOrchestratorChoreographer) RequiresDurableTaskRows() bool {
@@ -176,7 +231,15 @@ func TestGRPCExecutionChoreographerLoadRunHydratesSnapshots(t *testing.T) {
 		t.Fatalf("expected hydrated child claim over grpc, got %+v", claim)
 	}
 
-	result, err := choreographer.CompleteExecution(ctx, childEnv, "worker-grpc", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	result, err := choreographer.CompleteExecution(
+		ctx,
+		childEnv,
+		"worker-grpc",
+		claim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete hydrated child over grpc: %v", err)
 	}
@@ -241,7 +304,15 @@ func TestGRPCExecutionChoreographerFallsBackWhenExecutionStreamUnavailable(t *te
 		t.Fatalf("expected fallback claim, got %+v", claim)
 	}
 
-	result, err := choreographer.CompleteExecution(ctx, rootEnv, "worker-grpc", claim.ClaimToken, dal.ExecutionStatusSucceeded, "", "")
+	result, err := choreographer.CompleteExecution(
+		ctx,
+		rootEnv,
+		"worker-grpc",
+		claim.ClaimToken,
+		dal.ExecutionStatusSucceeded,
+		"",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("complete via unary fallback: %v", err)
 	}
@@ -266,17 +337,28 @@ type streamUnavailableOrchestratorClient struct {
 	completeCalls int
 }
 
-func (c *streamUnavailableOrchestratorClient) ExecutionStream(context.Context, ...grpc.CallOption) (grpc.BidiStreamingClient[api.ExecutionStreamRequest, api.ExecutionStreamResponse], error) {
+func (c *streamUnavailableOrchestratorClient) ExecutionStream(
+	context.Context,
+	...grpc.CallOption,
+) (grpc.BidiStreamingClient[api.ExecutionStreamRequest, api.ExecutionStreamResponse], error) {
 	c.streamCalls++
 	return nil, status.Error(codes.Unimplemented, "execution stream unavailable")
 }
 
-func (c *streamUnavailableOrchestratorClient) ClaimExecution(ctx context.Context, req *api.ClaimExecutionRequest, opts ...grpc.CallOption) (*api.ClaimExecutionResponse, error) {
+func (c *streamUnavailableOrchestratorClient) ClaimExecution(
+	ctx context.Context,
+	req *api.ClaimExecutionRequest,
+	opts ...grpc.CallOption,
+) (*api.ClaimExecutionResponse, error) {
 	c.claimCalls++
 	return c.OrchestratorServiceClient.ClaimExecution(ctx, req, opts...)
 }
 
-func (c *streamUnavailableOrchestratorClient) CompleteExecution(ctx context.Context, req *api.CompleteExecutionRequest, opts ...grpc.CallOption) (*api.CompleteExecutionResponse, error) {
+func (c *streamUnavailableOrchestratorClient) CompleteExecution(
+	ctx context.Context,
+	req *api.CompleteExecutionRequest,
+	opts ...grpc.CallOption,
+) (*api.CompleteExecutionResponse, error) {
 	c.completeCalls++
 	return c.OrchestratorServiceClient.CompleteExecution(ctx, req, opts...)
 }

@@ -117,7 +117,8 @@ func TestSDKServiceCancelTaskForwardsToCore(t *testing.T) {
 		t.Fatal("CancelTask response is nil")
 	}
 
-	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" || core.cancel.Reason != "remote request" {
+	if core.cancel.SessionID != "execution-1" || core.cancel.RunID != "run-1" ||
+		core.cancel.Reason != "remote request" {
 		t.Fatalf("cancel request = %#v", core.cancel)
 	}
 }
@@ -230,7 +231,10 @@ type recordingCore struct {
 func (c *recordingCore) Describe(context.Context) (Description, error) {
 	return Description{
 		SupportedIsolation: []string{"host"},
-		Capabilities:       []Capability{{Name: CapabilityExecute, Version: "v1"}, {Name: CapabilityCancelTask, Version: "v1"}},
+		Capabilities: []Capability{
+			{Name: CapabilityExecute, Version: "v1"},
+			{Name: CapabilityCancelTask, Version: "v1"},
+		},
 	}, nil
 }
 
@@ -251,7 +255,10 @@ type resultCore struct {
 func (c resultCore) Describe(context.Context) (Description, error) {
 	return Description{
 		SupportedIsolation: []string{"host"},
-		Capabilities:       []Capability{{Name: CapabilityExecute, Version: "v1"}, {Name: CapabilityCancelTask, Version: "v1"}},
+		Capabilities: []Capability{
+			{Name: CapabilityExecute, Version: "v1"},
+			{Name: CapabilityCancelTask, Version: "v1"},
+		},
 	}, nil
 }
 
@@ -333,7 +340,10 @@ func serveGRPC(t *testing.T, server *grpc.Server, listener net.Listener) {
 func shortSocketPath(t *testing.T, name string) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp(shortTempRoot(), "vectis-sdk-") //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
+	dir, err := os.MkdirTemp(
+		shortTempRoot(),
+		"vectis-sdk-",
+	) //nolint:usetesting // Keep Unix socket paths short on platforms with long test temp roots.
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}

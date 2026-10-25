@@ -48,7 +48,13 @@ func TestIntegrationReconciler_RedispatchesQueuedRun(t *testing.T) {
 
 	// Create reconciler with very short gap for testing.
 	logger := mocks.NewMockLogger()
-	rec := reconciler.NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queueService, interfaces.SystemClock{})
+	rec := reconciler.NewServiceWithRepositories(
+		logger,
+		repos.Jobs(),
+		repos.Runs(),
+		queueService,
+		interfaces.SystemClock{},
+	)
 	rec.SetMinDispatchGap(1 * time.Millisecond)
 
 	// Run reconciler.
@@ -128,7 +134,13 @@ func TestIntegrationReconciler_OrphansExpiredLease(t *testing.T) {
 
 	// Create reconciler.
 	logger := mocks.NewMockLogger()
-	rec := reconciler.NewServiceWithRepositories(logger, repos.Jobs(), repos.Runs(), queueService, interfaces.SystemClock{})
+	rec := reconciler.NewServiceWithRepositories(
+		logger,
+		repos.Jobs(),
+		repos.Runs(),
+		queueService,
+		interfaces.SystemClock{},
+	)
 	rec.SetMinDispatchGap(1 * time.Millisecond)
 
 	// Run reconciler.

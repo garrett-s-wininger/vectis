@@ -9,11 +9,19 @@ import (
 	"vectis/internal/interfaces/mocks"
 )
 
-func advanceClockPastLastDispatch(t *testing.T, ctx context.Context, db *sql.DB, clock *mocks.MockClock, runID string, gap time.Duration) {
+func advanceClockPastLastDispatch(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	clock *mocks.MockClock,
+	runID string,
+	gap time.Duration,
+) {
 	t.Helper()
 
 	var last sql.NullInt64
-	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", runID).Scan(&last); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT last_dispatched_at FROM job_runs WHERE run_id = ?", runID).
+		Scan(&last); err != nil {
 		t.Fatalf("query last_dispatched_at for %s: %v", runID, err)
 	}
 

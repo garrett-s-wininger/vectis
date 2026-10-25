@@ -44,7 +44,10 @@ func skipIfWorkerCheckoutCacheSymlinksUnavailable(t *testing.T) {
 		workerCheckoutCacheSymlinkProbe.err = probeWorkerCheckoutCacheSymlink()
 	})
 	if workerCheckoutCacheSymlinkProbe.err != nil {
-		t.Skipf("worker checkout cache uses directory symlinks; this Windows environment cannot create them: %v", workerCheckoutCacheSymlinkProbe.err)
+		t.Skipf(
+			"worker checkout cache uses directory symlinks; this Windows environment cannot create them: %v",
+			workerCheckoutCacheSymlinkProbe.err,
+		)
 	}
 }
 
@@ -107,11 +110,25 @@ func TestWorkerCheckoutCacheCachesPersistentRemote(t *testing.T) {
 		t.Fatalf("workspace README = %q, want cached", got)
 	}
 
-	if _, err := os.Stat(filepath.Join(workspace, ".git", "objects", "info", "alternates")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(
+		filepath.Join(workspace, ".git", "objects", "info", "alternates"),
+	); !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
 		t.Fatalf("cached checkout should not depend on alternates after clone: err=%v", err)
 	}
 
-	if got, want := gitOutput(t, workspace, "remote", "get-url", workerCheckoutCacheRemoteName), filepath.Join(cache.repositoryPath(remote), "current"); got != want {
+	if got, want := gitOutput(
+		t,
+		workspace,
+		"remote",
+		"get-url",
+		workerCheckoutCacheRemoteName,
+	), filepath.Join(
+		cache.repositoryPath(remote),
+		"current",
+	); got != want {
 		t.Fatalf("cache remote url = %q, want %q", got, want)
 	}
 	assertNoAutoGitMaintenanceConfig(t, workspace)
@@ -124,26 +141,31 @@ func TestWorkerCheckoutCacheCloneRetriesWithoutHardlinksForLinkFailure(t *testin
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	var calls [][]string
 
-	mode, reason, err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(_ context.Context, dir string, args ...string) error {
-		if dir != workspace {
-			t.Fatalf("clone dir = %q, want %q", dir, workspace)
-		}
-
-		calls = append(calls, append([]string(nil), args...))
-		if len(calls) == 1 {
-			if err := os.MkdirAll(filepath.Join(workspace, ".git", "objects"), 0o755); err != nil {
-				t.Fatalf("create partial clone artifact: %v", err)
+	mode, reason, err := cloneWorkerCheckoutCacheWorkspaceWithRunner(
+		context.Background(),
+		workspace,
+		mirrorPath,
+		func(_ context.Context, dir string, args ...string) error {
+			if dir != workspace {
+				t.Fatalf("clone dir = %q, want %q", dir, workspace)
 			}
 
-			return errors.New("fatal: failed to create link: invalid cross-device link")
-		}
+			calls = append(calls, append([]string(nil), args...))
+			if len(calls) == 1 {
+				if err := os.MkdirAll(filepath.Join(workspace, ".git", "objects"), 0o755); err != nil {
+					t.Fatalf("create partial clone artifact: %v", err)
+				}
 
-		if _, err := os.Stat(filepath.Join(workspace, ".git")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("partial clone artifact still exists before retry: err=%v", err)
-		}
+				return errors.New("fatal: failed to create link: invalid cross-device link")
+			}
 
-		return nil
-	})
+			if _, err := os.Stat(filepath.Join(workspace, ".git")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("partial clone artifact still exists before retry: err=%v", err)
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		t.Fatalf("cloneWorkerCheckoutCacheWorkspaceWithRunner: %v", err)
 	}
@@ -176,7 +198,13 @@ func TestWorkerCheckoutCacheCloneSkipsHardlinksWhenProbeFails(t *testing.T) {
 		},
 		func(probeMirrorPath, probeWorkspace string) bool {
 			if probeMirrorPath != mirrorPath || probeWorkspace != workspace {
-				t.Fatalf("probe got mirror=%q workspace=%q, want mirror=%q workspace=%q", probeMirrorPath, probeWorkspace, mirrorPath, workspace)
+				t.Fatalf(
+					"probe got mirror=%q workspace=%q, want mirror=%q workspace=%q",
+					probeMirrorPath,
+					probeWorkspace,
+					mirrorPath,
+					workspace,
+				)
 			}
 
 			return false
@@ -218,7 +246,13 @@ func TestWorkerCheckoutCacheCloneBorrowsObjectsWhenScopedProbeFails(t *testing.T
 		},
 		func(probeMirrorPath, probeWorkspace string) bool {
 			if probeMirrorPath != mirrorPath || probeWorkspace != workspace {
-				t.Fatalf("probe got mirror=%q workspace=%q, want mirror=%q workspace=%q", probeMirrorPath, probeWorkspace, mirrorPath, workspace)
+				t.Fatalf(
+					"probe got mirror=%q workspace=%q, want mirror=%q workspace=%q",
+					probeMirrorPath,
+					probeWorkspace,
+					mirrorPath,
+					workspace,
+				)
 			}
 
 			return false
@@ -229,7 +263,8 @@ func TestWorkerCheckoutCacheCloneBorrowsObjectsWhenScopedProbeFails(t *testing.T
 	if err != nil {
 		t.Fatalf("cloneWorkerCheckoutCacheWorkspaceWithRunnerProbeAndBorrow: %v", err)
 	}
-	if mode != observability.CheckoutCacheCloneModeBorrowed || reason != observability.CheckoutCacheCloneReasonProbe || !borrowed {
+	if mode != observability.CheckoutCacheCloneModeBorrowed || reason != observability.CheckoutCacheCloneReasonProbe ||
+		!borrowed {
 		t.Fatalf("clone mode=%q reason=%q borrowed=%v, want borrowed/probe/true", mode, reason, borrowed)
 	}
 
@@ -247,10 +282,15 @@ func TestWorkerCheckoutCacheCloneDoesNotRetryGenericFailure(t *testing.T) {
 	mirrorPath := filepath.Join(t.TempDir(), "mirror.git")
 	calls := 0
 
-	_, _, err := cloneWorkerCheckoutCacheWorkspaceWithRunner(context.Background(), workspace, mirrorPath, func(context.Context, string, ...string) error {
-		calls++
-		return errors.New("fatal: destination path '.' already exists and is not an empty directory")
-	})
+	_, _, err := cloneWorkerCheckoutCacheWorkspaceWithRunner(
+		context.Background(),
+		workspace,
+		mirrorPath,
+		func(context.Context, string, ...string) error {
+			calls++
+			return errors.New("fatal: destination path '.' already exists and is not an empty directory")
+		},
+	)
 
 	if err == nil {
 		t.Fatal("expected clone failure")
@@ -460,7 +500,12 @@ func TestWorkerCheckoutCacheWarmRemoteFlipsCurrentGeneration(t *testing.T) {
 		t.Fatalf("NewWorkerCheckoutCache: %v", err)
 	}
 
-	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || !changed {
+	if handled, _, changed, err := cache.WarmRemoteStatus(
+		context.Background(),
+		remote,
+		nil,
+	); err != nil || !handled ||
+		!changed {
 		t.Fatalf("initial WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
 	}
 
@@ -525,7 +570,12 @@ func TestWorkerCheckoutCacheWarmRemoteSkipsUnchangedGeneration(t *testing.T) {
 		t.Fatalf("read first current generation: %v", err)
 	}
 
-	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || changed {
+	if handled, _, changed, err := cache.WarmRemoteStatus(
+		context.Background(),
+		remote,
+		nil,
+	); err != nil || !handled ||
+		changed {
 		t.Fatalf("unchanged WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
 	}
 
@@ -581,7 +631,12 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightMatchesCurrent(t *testing.T) {
 	}
 
 	currentPath := currentWorkerCheckoutGeneration(t, cache, remote)
-	matched, err := workerCheckoutCacheRemoteRefsMatchCurrent(context.Background(), currentPath, nil, WorkerCheckoutCacheRemote{RemoteURL: remote})
+	matched, err := workerCheckoutCacheRemoteRefsMatchCurrent(
+		context.Background(),
+		currentPath,
+		nil,
+		WorkerCheckoutCacheRemote{RemoteURL: remote},
+	)
 	if err != nil {
 		t.Fatalf("workerCheckoutCacheRemoteRefsMatchCurrent: %v", err)
 	}
@@ -591,7 +646,12 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightMatchesCurrent(t *testing.T) {
 	}
 
 	writeAndCommit(t, remote, "README.md", "second\n", "second")
-	matched, err = workerCheckoutCacheRemoteRefsMatchCurrent(context.Background(), currentPath, nil, WorkerCheckoutCacheRemote{RemoteURL: remote})
+	matched, err = workerCheckoutCacheRemoteRefsMatchCurrent(
+		context.Background(),
+		currentPath,
+		nil,
+		WorkerCheckoutCacheRemote{RemoteURL: remote},
+	)
 	if err != nil {
 		t.Fatalf("workerCheckoutCacheRemoteRefsMatchCurrent after change: %v", err)
 	}
@@ -630,10 +690,15 @@ func TestWorkerCheckoutCacheAdvertisedRefPreflightOverlaysFallbackRefs(t *testin
 	}
 
 	currentPath := currentWorkerCheckoutGeneration(t, cache, primary)
-	matched, err := workerCheckoutCacheRemoteRefsMatchCurrent(context.Background(), currentPath, nil, WorkerCheckoutCacheRemote{
-		RemoteURL:          primary,
-		FallbackRemoteURLs: []string{fallback},
-	})
+	matched, err := workerCheckoutCacheRemoteRefsMatchCurrent(
+		context.Background(),
+		currentPath,
+		nil,
+		WorkerCheckoutCacheRemote{
+			RemoteURL:          primary,
+			FallbackRemoteURLs: []string{fallback},
+		},
+	)
 
 	if err != nil {
 		t.Fatalf("workerCheckoutCacheRemoteRefsMatchCurrent: %v", err)
@@ -669,7 +734,12 @@ func TestWorkerCheckoutCacheWarmRefspecsLimitInitialMirror(t *testing.T) {
 		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
 	}
 
-	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || !changed {
+	if handled, _, changed, err := cache.WarmRemoteStatus(
+		context.Background(),
+		remote,
+		nil,
+	); err != nil || !handled ||
+		!changed {
 		t.Fatalf("WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
 	}
 
@@ -774,7 +844,13 @@ func TestWorkerCheckoutCacheLargeRepoWorkflowKeepsWarmSetNarrowAndHydratesDynami
 	remote := initGitRepo(t)
 	writeAndCommit(t, remote, "README.md", "main\n", "main")
 	for i := 0; i < 4; i++ {
-		writeAndCommit(t, remote, filepath.Join("packages", "service", "file-"+string(rune('a'+i))+".txt"), string(bytes.Repeat([]byte{'a' + byte(i)}, 4096)), "large shard")
+		writeAndCommit(
+			t,
+			remote,
+			filepath.Join("packages", "service", "file-"+string(rune('a'+i))+".txt"),
+			string(bytes.Repeat([]byte{'a' + byte(i)}, 4096)),
+			"large shard",
+		)
 	}
 
 	mainCommit := gitOutput(t, remote, "rev-parse", "HEAD")
@@ -809,7 +885,12 @@ func TestWorkerCheckoutCacheLargeRepoWorkflowKeepsWarmSetNarrowAndHydratesDynami
 		t.Fatalf("NewWorkerCheckoutCacheWithRemotes: %v", err)
 	}
 
-	if handled, _, changed, err := cache.WarmRemoteStatus(context.Background(), remote, nil); err != nil || !handled || !changed {
+	if handled, _, changed, err := cache.WarmRemoteStatus(
+		context.Background(),
+		remote,
+		nil,
+	); err != nil || !handled ||
+		!changed {
 		t.Fatalf("WarmRemoteStatus: handled=%v changed=%v err=%v", handled, changed, err)
 	}
 
@@ -938,7 +1019,11 @@ func TestWorkerCheckoutCacheCheckoutSelfHealsCorruptCurrentGeneration(t *testing
 	}
 
 	assertStringSliceContains(t, evictions, observability.CheckoutCacheEvictionReasonCorrupt)
-	assertStringSliceContains(t, selfHeals, observability.CheckoutCacheSelfHealOperationCheckout+":"+observability.CheckoutCacheSelfHealOutcomeSuccess)
+	assertStringSliceContains(
+		t,
+		selfHeals,
+		observability.CheckoutCacheSelfHealOperationCheckout+":"+observability.CheckoutCacheSelfHealOutcomeSuccess,
+	)
 }
 
 func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
@@ -971,7 +1056,10 @@ func TestWorkerCheckoutCacheCleanupHonorsConfiguredRetention(t *testing.T) {
 			t.Fatalf("create generation %s: %v", name, err)
 		}
 	}
-	if err := os.Symlink(filepath.Join("generations", generationNames[3]), filepath.Join(repoPath, "current")); err != nil {
+	if err := os.Symlink(
+		filepath.Join("generations", generationNames[3]),
+		filepath.Join(repoPath, "current"),
+	); err != nil {
 		t.Fatalf("create current generation link: %v", err)
 	}
 
@@ -1022,12 +1110,19 @@ func TestWorkerCheckoutCacheCleanupHonorsPackByteBudgetAndLeases(t *testing.T) {
 			t.Fatalf("create pack dir %s: %v", packPath, err)
 		}
 
-		if err := os.WriteFile(filepath.Join(packPath, "pack-test.pack"), bytes.Repeat([]byte{'x'}, 10), 0o644); err != nil {
+		if err := os.WriteFile(
+			filepath.Join(packPath, "pack-test.pack"),
+			bytes.Repeat([]byte{'x'}, 10),
+			0o644,
+		); err != nil {
 			t.Fatalf("write pack file: %v", err)
 		}
 	}
 
-	if err := os.Symlink(filepath.Join("generations", generationNames[2]), filepath.Join(repoPath, "current")); err != nil {
+	if err := os.Symlink(
+		filepath.Join("generations", generationNames[2]),
+		filepath.Join(repoPath, "current"),
+	); err != nil {
 		t.Fatalf("create current generation link: %v", err)
 	}
 
@@ -1081,7 +1176,11 @@ func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
 		if err := os.MkdirAll(packPath, 0o755); err != nil {
 			t.Fatalf("create pack dir %s: %v", packPath, err)
 		}
-		if err := os.WriteFile(filepath.Join(packPath, "pack-test.pack"), bytes.Repeat([]byte{'x'}, 10+i), 0o644); err != nil {
+		if err := os.WriteFile(
+			filepath.Join(packPath, "pack-test.pack"),
+			bytes.Repeat([]byte{'x'}, 10+i),
+			0o644,
+		); err != nil {
 			t.Fatalf("write pack file: %v", err)
 		}
 		if err := os.WriteFile(filepath.Join(packPath, "pack-test.idx"), []byte("ignored"), 0o644); err != nil {
@@ -1101,7 +1200,8 @@ func TestWorkerCheckoutCacheStatsReportsRootFootprint(t *testing.T) {
 		t.Fatalf("Stats: %v", err)
 	}
 
-	if stats.Repositories != 1 || stats.Generations != 2 || stats.PackFiles != 2 || stats.PackBytes != 21 || stats.ActiveLeases != 1 {
+	if stats.Repositories != 1 || stats.Generations != 2 || stats.PackFiles != 2 || stats.PackBytes != 21 ||
+		stats.ActiveLeases != 1 {
 		t.Fatalf("stats = %+v, want repositories=1 generations=2 pack_files=2 pack_bytes=21 active_leases=1", stats)
 	}
 
@@ -1142,7 +1242,10 @@ func TestWorkerCheckoutCacheCleanupDropsStaleLeases(t *testing.T) {
 			t.Fatalf("create generation %s: %v", name, err)
 		}
 	}
-	if err := os.Symlink(filepath.Join("generations", generationNames[2]), filepath.Join(repoPath, "current")); err != nil {
+	if err := os.Symlink(
+		filepath.Join("generations", generationNames[2]),
+		filepath.Join(repoPath, "current"),
+	); err != nil {
 		t.Fatalf("create current generation link: %v", err)
 	}
 
@@ -1254,7 +1357,10 @@ func TestWorkerCheckoutCacheLeaseHeartbeatKeepsActiveLeaseFresh(t *testing.T) {
 		}
 	}
 
-	if err := os.Symlink(filepath.Join("generations", generationNames[0]), filepath.Join(repoPath, "current")); err != nil {
+	if err := os.Symlink(
+		filepath.Join("generations", generationNames[0]),
+		filepath.Join(repoPath, "current"),
+	); err != nil {
 		t.Fatalf("create current generation link: %v", err)
 	}
 
@@ -1271,7 +1377,10 @@ func TestWorkerCheckoutCacheLeaseHeartbeatKeepsActiveLeaseFresh(t *testing.T) {
 
 	waitForFreshWorkerCheckoutLease(t, lease.path, leaseTTL)
 
-	if err := cache.flipCurrentGeneration(repoPath, filepath.Join(repoPath, "generations", generationNames[2])); err != nil {
+	if err := cache.flipCurrentGeneration(
+		repoPath,
+		filepath.Join(repoPath, "generations", generationNames[2]),
+	); err != nil {
 		t.Fatalf("flip current generation: %v", err)
 	}
 

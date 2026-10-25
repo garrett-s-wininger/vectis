@@ -114,11 +114,22 @@ func (r *SQLArtifactsRepository) GetByRunAndName(ctx context.Context, runID, nam
 	`), runID, name))
 }
 
-func (r *SQLArtifactsRepository) ListByRun(ctx context.Context, runID string, cursor int64, limit int) ([]ArtifactRecord, int64, error) {
+func (r *SQLArtifactsRepository) ListByRun(
+	ctx context.Context,
+	runID string,
+	cursor int64,
+	limit int,
+) ([]ArtifactRecord, int64, error) {
 	return r.ListByRunFiltered(ctx, runID, cursor, limit, ArtifactListFilter{})
 }
 
-func (r *SQLArtifactsRepository) ListByRunFiltered(ctx context.Context, runID string, cursor int64, limit int, filter ArtifactListFilter) ([]ArtifactRecord, int64, error) {
+func (r *SQLArtifactsRepository) ListByRunFiltered(
+	ctx context.Context,
+	runID string,
+	cursor int64,
+	limit int,
+	filter ArtifactListFilter,
+) ([]ArtifactRecord, int64, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return nil, 0, fmt.Errorf("%w: run_id is required", ErrConflict)
@@ -191,7 +202,10 @@ func normalizeArtifactListFilter(filter ArtifactListFilter) ArtifactListFilter {
 	return filter
 }
 
-func (r *SQLArtifactsRepository) GetRunUsageExcludingName(ctx context.Context, runID, name string) (ArtifactRunUsage, error) {
+func (r *SQLArtifactsRepository) GetRunUsageExcludingName(
+	ctx context.Context,
+	runID, name string,
+) (ArtifactRunUsage, error) {
 	runID = strings.TrimSpace(runID)
 	name = strings.TrimSpace(name)
 	if runID == "" {

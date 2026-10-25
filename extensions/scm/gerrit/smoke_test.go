@@ -18,7 +18,10 @@ func TestRunSmokeBootstrapsCursorAgainstFakeGerrit(t *testing.T) {
 		gotPath = r.URL.EscapedPath()
 		gotQuery = r.URL.Query()
 		gotAuth = r.Header.Get("Authorization")
-		writeSmokeChanges(w, `[{"id":"project~main~Iabc","project":"project","branch":"main","status":"NEW","change_id":"Iabc","current_revision":"rev1","revisions":{"rev1":{"ref":"refs/changes/01/1/1"}}}]`)
+		writeSmokeChanges(
+			w,
+			`[{"id":"project~main~Iabc","project":"project","branch":"main","status":"NEW","change_id":"Iabc","current_revision":"rev1","revisions":{"rev1":{"ref":"refs/changes/01/1/1"}}}]`,
+		)
 	}))
 	defer server.Close()
 
@@ -56,7 +59,10 @@ func TestRunSmokeCanEmitExistingChangesWithBasicAuth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.EscapedPath()
 		gotUser, gotPassword, _ = r.BasicAuth()
-		writeSmokeChanges(w, `[{"id":"project~main~Iabc","project":"project","branch":"main","status":"NEW","change_id":"Iabc","current_revision":"rev2","revisions":{"rev2":{"ref":"refs/changes/01/1/2"}}}]`)
+		writeSmokeChanges(
+			w,
+			`[{"id":"project~main~Iabc","project":"project","branch":"main","status":"NEW","change_id":"Iabc","current_revision":"rev2","revisions":{"rev2":{"ref":"refs/changes/01/1/2"}}}]`,
+		)
 	}))
 	defer server.Close()
 
@@ -83,7 +89,8 @@ func TestRunSmokeCanEmitExistingChangesWithBasicAuth(t *testing.T) {
 		t.Fatalf("basic auth = %q/%q", gotUser, gotPassword)
 	}
 
-	if result.EventCount != 1 || len(result.Events) != 1 || !strings.Contains(result.Events[0].Key, ":project~main~Iabc:rev2") {
+	if result.EventCount != 1 || len(result.Events) != 1 ||
+		!strings.Contains(result.Events[0].Key, ":project~main~Iabc:rev2") {
 		t.Fatalf("unexpected events: %+v", result.Events)
 	}
 

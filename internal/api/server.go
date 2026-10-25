@@ -223,15 +223,30 @@ type dispatchMetrics interface {
 }
 
 type sourceRepositorySyncMetrics interface {
-	RecordSourceRepositorySync(ctx context.Context, trigger, sourceKind, checkoutMode, outcome, reason string, d time.Duration)
+	RecordSourceRepositorySync(
+		ctx context.Context,
+		trigger, sourceKind, checkoutMode, outcome, reason string,
+		d time.Duration,
+	)
 }
 
 type sourceRefHydrationMetrics interface {
-	RecordSourceRefHydration(ctx context.Context, sourceKind, checkoutMode, outcome, reason, tier, cacheState string, d time.Duration)
+	RecordSourceRefHydration(
+		ctx context.Context,
+		sourceKind, checkoutMode, outcome, reason, tier, cacheState string,
+		d time.Duration,
+	)
 }
 
 type sourceRepositoryObjectStoreMetrics interface {
-	RecordSourceRepositoryObjectStore(ctx context.Context, repositoryID, sourceKind, checkoutMode, pressure string, packFiles int, packBytes int64, looseObjects, hydratedRefs int, warnings []observability.SourceRepositoryObjectStoreWarning)
+	RecordSourceRepositoryObjectStore(
+		ctx context.Context,
+		repositoryID, sourceKind, checkoutMode, pressure string,
+		packFiles int,
+		packBytes int64,
+		looseObjects, hydratedRefs int,
+		warnings []observability.SourceRepositoryObjectStoreWarning,
+	)
 }
 
 func NewAPIServer(logger interfaces.Logger, db *sql.DB) *APIServer {
@@ -290,7 +305,10 @@ func NewAPIServerWithRepositories(
 	return s
 }
 
-func (s *APIServer) SetSourceDefinitionAuthoring(factory SourceDefinitionAuthorFactory, capabilities SourceAuthoringCapabilityResolver) {
+func (s *APIServer) SetSourceDefinitionAuthoring(
+	factory SourceDefinitionAuthorFactory,
+	capabilities SourceAuthoringCapabilityResolver,
+) {
 	if factory == nil {
 		factory = sourcepkg.NewDefinitionAuthorFromRecord
 	}
@@ -345,16 +363,29 @@ func actorIDFromPrincipal(p *authn.Principal) int64 {
 	return p.LocalUserID
 }
 
-func (s *APIServer) reserveIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, ok bool) {
+func (s *APIServer) reserveIdempotency(
+	w http.ResponseWriter,
+	ctx context.Context,
+	scope, key, requestHash string,
+) (record dal.IdempotencyRecord, reserved bool, ok bool) {
 	record, reserved, _, ok = s.reserveIdempotencyState(w, ctx, scope, key, requestHash, false)
 	return record, reserved, ok
 }
 
-func (s *APIServer) reserveRecoverableIdempotency(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
+func (s *APIServer) reserveRecoverableIdempotency(
+	w http.ResponseWriter,
+	ctx context.Context,
+	scope, key, requestHash string,
+) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
 	return s.reserveIdempotencyState(w, ctx, scope, key, requestHash, true)
 }
 
-func (s *APIServer) reserveIdempotencyState(w http.ResponseWriter, ctx context.Context, scope, key, requestHash string, allowInProgress bool) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
+func (s *APIServer) reserveIdempotencyState(
+	w http.ResponseWriter,
+	ctx context.Context,
+	scope, key, requestHash string,
+	allowInProgress bool,
+) (record dal.IdempotencyRecord, reserved bool, inProgress bool, ok bool) {
 	if key == "" || s.idempotency == nil {
 		return dal.IdempotencyRecord{}, false, false, true
 	}
@@ -371,7 +402,13 @@ func (s *APIServer) reserveIdempotencyState(w http.ResponseWriter, ctx context.C
 	}
 
 	if !created && record.RequestHash != requestHash {
-		writeAPIError(w, http.StatusConflict, "idempotency_key_reused", "idempotency key reused for different request", nil)
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"idempotency_key_reused",
+			"idempotency key reused for different request",
+			nil,
+		)
 		return dal.IdempotencyRecord{}, false, false, false
 	}
 
@@ -415,7 +452,11 @@ func (s *APIServer) attachIdempotencyResource(ctx context.Context, scope, key, r
 	return s.idempotency.AttachResource(ctx, scope, key, resourceType, resourceID)
 }
 
-func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, eventType, targetCell string, message *string) {
+func (s *APIServer) recordDispatchEvent(
+	ctx context.Context,
+	runID, source, eventType, targetCell string,
+	message *string,
+) {
 	if s.dispatchMetrics != nil {
 		s.dispatchMetrics.RecordDispatchEvent(ctx, source, eventType, targetCell)
 	}
@@ -427,7 +468,11 @@ func (s *APIServer) recordDispatchEvent(ctx context.Context, runID, source, even
 	}
 }
 
-func (s *APIServer) recordDispatchAttemptOutcome(ctx context.Context, runID, source, outcomeEventType, targetCell string, message *string) error {
+func (s *APIServer) recordDispatchAttemptOutcome(
+	ctx context.Context,
+	runID, source, outcomeEventType, targetCell string,
+	message *string,
+) error {
 	if s.dispatchMetrics != nil {
 		s.dispatchMetrics.RecordDispatchEvent(ctx, source, dal.DispatchEventAttempt, targetCell)
 		if outcomeEventType != dal.DispatchEventSuccess {
@@ -436,7 +481,13 @@ func (s *APIServer) recordDispatchAttemptOutcome(ctx context.Context, runID, sou
 	}
 
 	if s.dispatchEvents != nil {
-		if err := s.dispatchEvents.RecordDispatchAttemptOutcome(ctx, runID, source, outcomeEventType, message); err != nil {
+		if err := s.dispatchEvents.RecordDispatchAttemptOutcome(
+			ctx,
+			runID,
+			source,
+			outcomeEventType,
+			message,
+		); err != nil {
 			return err
 		}
 	} else if outcomeEventType == dal.DispatchEventSuccess && s.runs != nil {
@@ -514,7 +565,13 @@ func (s *APIServer) requireRoleBindings(w http.ResponseWriter) bool {
 
 func (s *APIServer) requireSources(w http.ResponseWriter) bool {
 	if s.sources == nil {
-		writeAPIError(w, http.StatusServiceUnavailable, "source_repositories_not_configured", "source repositories not configured", nil)
+		writeAPIError(
+			w,
+			http.StatusServiceUnavailable,
+			"source_repositories_not_configured",
+			"source repositories not configured",
+			nil,
+		)
 		return false
 	}
 
@@ -552,7 +609,13 @@ func (s *APIServer) requirePrincipal(w http.ResponseWriter, r *http.Request) (*a
 	return nil, false
 }
 
-func (s *APIServer) authorizeNamespace(ctx context.Context, w http.ResponseWriter, p *authn.Principal, action authz.Action, namespacePath string) bool {
+func (s *APIServer) authorizeNamespace(
+	ctx context.Context,
+	w http.ResponseWriter,
+	p *authn.Principal,
+	action authz.Action,
+	namespacePath string,
+) bool {
 	if !config.APIAuthEnabled() {
 		return true
 	}
@@ -566,7 +629,13 @@ func (s *APIServer) authorizeNamespace(ctx context.Context, w http.ResponseWrite
 	return true
 }
 
-func (s *APIServer) authorizeAction(ctx context.Context, w http.ResponseWriter, p *authn.Principal, action authz.Action, res authz.Resource) bool {
+func (s *APIServer) authorizeAction(
+	ctx context.Context,
+	w http.ResponseWriter,
+	p *authn.Principal,
+	action authz.Action,
+	res authz.Resource,
+) bool {
 	if !config.APIAuthEnabled() {
 		return true
 	}
@@ -580,7 +649,12 @@ func (s *APIServer) authorizeAction(ctx context.Context, w http.ResponseWriter, 
 	return true
 }
 
-func (s *APIServer) checkNamespaceAuth(ctx context.Context, p *authn.Principal, action authz.Action, namespacePath string) bool {
+func (s *APIServer) checkNamespaceAuth(
+	ctx context.Context,
+	p *authn.Principal,
+	action authz.Action,
+	namespacePath string,
+) bool {
 	if !config.APIAuthEnabled() {
 		return true
 	}
@@ -733,7 +807,9 @@ func (s *APIServer) orchestratorReadClient() api.OrchestratorServiceClient {
 	return holder.client
 }
 
-func (s *APIServer) SetOrchestratorOwnerClientResolver(resolve func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (api.OrchestratorServiceClient, bool, error)) {
+func (s *APIServer) SetOrchestratorOwnerClientResolver(
+	resolve func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (api.OrchestratorServiceClient, bool, error),
+) {
 	if resolve == nil {
 		s.orchestratorOwnerClient.Store(nil)
 		return
@@ -742,12 +818,20 @@ func (s *APIServer) SetOrchestratorOwnerClientResolver(resolve func(ctx context.
 	s.orchestratorOwnerClient.Store(&orchestratorOwnerClientResolverHolder{resolve: resolve})
 }
 
-func (s *APIServer) orchestratorReadClientForOwner(ctx context.Context, owner dal.RunHotStateOwnerRecord) api.OrchestratorServiceClient {
+func (s *APIServer) orchestratorReadClientForOwner(
+	ctx context.Context,
+	owner dal.RunHotStateOwnerRecord,
+) api.OrchestratorServiceClient {
 	holder := s.orchestratorOwnerClient.Load()
 	if holder != nil {
 		client, ok, err := holder.resolve(ctx, owner)
 		if err != nil {
-			s.logger.Warn("Orchestrator owner route %q for run %s failed; falling back to default orchestrator client: %v", owner.OwnerID, owner.RunID, err)
+			s.logger.Warn(
+				"Orchestrator owner route %q for run %s failed; falling back to default orchestrator client: %v",
+				owner.OwnerID,
+				owner.RunID,
+				err,
+			)
 		} else if ok && client != nil {
 			return client
 		}
@@ -869,15 +953,24 @@ func (s *APIServer) SetSourceSyncMetrics(m sourceRepositorySyncMetrics) {
 	}
 }
 
-func (s *APIServer) SetSourceSyncCheckoutStatus(fn func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus) {
+func (s *APIServer) SetSourceSyncCheckoutStatus(
+	fn func(context.Context, dal.SourceRepositoryRecord, string) sourcepkg.GitCheckoutStatus,
+) {
 	s.sourceSyncCheckoutStatus = fn
 }
 
-func (s *APIServer) SetSourceRefHydrator(fn func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus) {
+func (s *APIServer) SetSourceRefHydrator(
+	fn func(context.Context, dal.SourceRepositoryRecord, string, string) sourcepkg.GitCheckoutStatus,
+) {
 	s.sourceRefHydrator = fn
 }
 
-func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) error {
+func (s *APIServer) auditLog(
+	ctx context.Context,
+	eventType string,
+	actorID, targetID int64,
+	metadata map[string]any,
+) error {
 	s.mu.RLock()
 	auditor := s.auditor
 	policy := s.auditPolicy
@@ -909,7 +1002,13 @@ func (s *APIServer) auditLog(ctx context.Context, eventType string, actorID, tar
 	return err
 }
 
-func (s *APIServer) auditLogOrFail(w http.ResponseWriter, ctx context.Context, eventType string, actorID, targetID int64, metadata map[string]any) bool {
+func (s *APIServer) auditLogOrFail(
+	w http.ResponseWriter,
+	ctx context.Context,
+	eventType string,
+	actorID, targetID int64,
+	metadata map[string]any,
+) bool {
 	if err := s.auditLog(ctx, eventType, actorID, targetID, metadata); err != nil {
 		writeAPIErrorCode(w, http.StatusInternalServerError, apiErrInternal)
 		return false

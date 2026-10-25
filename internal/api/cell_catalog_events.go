@@ -27,7 +27,13 @@ type postCellCatalogEventResponse struct {
 
 func (s *APIServer) PostCellCatalogEvent(w http.ResponseWriter, r *http.Request) {
 	if s.catalogEvents == nil {
-		writeAPIError(w, http.StatusServiceUnavailable, "catalog_events_unavailable", "catalog event inbox not configured", nil)
+		writeAPIError(
+			w,
+			http.StatusServiceUnavailable,
+			"catalog_events_unavailable",
+			"catalog event inbox not configured",
+			nil,
+		)
 		return
 	}
 

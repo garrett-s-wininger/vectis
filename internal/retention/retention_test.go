@@ -40,7 +40,8 @@ func TestSQLCleanerPreviewDoesNotMutate(t *testing.T) {
 		t.Fatalf("artifact manifest candidates: got %d want 3", report.Counts.RunArtifacts)
 	}
 
-	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 {
+	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 ||
+		report.Counts.SegmentExecutions != 3 {
 		t.Fatalf("task cascade candidates: %+v", report.Counts)
 	}
 
@@ -96,25 +97,56 @@ func TestSQLCleanerApplyDeletesOnlyEligibleState(t *testing.T) {
 		t.Fatalf("deleted artifact manifests: got %d want 3", report.Counts.RunArtifacts)
 	}
 
-	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 || report.Counts.SegmentExecutions != 3 {
+	if report.Counts.RunTasks != 3 || report.Counts.TaskAttempts != 3 || report.Counts.RunSegments != 3 ||
+		report.Counts.SegmentExecutions != 3 {
 		t.Fatalf("deleted task cascade counts mismatch: %+v", report.Counts)
 	}
 
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_runs WHERE run_id IN ('queued-old', 'running-old', 'new-success')`, 3)
-	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(
+		t,
+		db,
+		`SELECT COUNT(*) FROM run_dispatch_events WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`,
+		0,
+	)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_dispatch_events WHERE run_id = 'queued-old'`, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(
+		t,
+		db,
+		`SELECT COUNT(*) FROM run_artifacts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`,
+		0,
+	)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_artifacts WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
-	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
-	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
-	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`, 0)
+	assertCount(
+		t,
+		db,
+		`SELECT COUNT(*) FROM task_attempts WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`,
+		0,
+	)
+	assertCount(
+		t,
+		db,
+		`SELECT COUNT(*) FROM run_segments WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`,
+		0,
+	)
+	assertCount(
+		t,
+		db,
+		`SELECT COUNT(*) FROM segment_executions WHERE run_id IN ('old-success', 'old-failed', 'old-aborted')`,
+		0,
+	)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_tasks WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM task_attempts WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM run_segments WHERE run_id = 'queued-old'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM segment_executions WHERE run_id = 'queued-old'`, 1)
-	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id IN ('old-success-job', 'old-failed-job', 'old-aborted-job', 'orphan-job')`, 0)
+	assertCount(
+		t,
+		db,
+		`SELECT COUNT(*) FROM job_definitions WHERE job_id IN ('old-success-job', 'old-failed-job', 'old-aborted-job', 'orphan-job')`,
+		0,
+	)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'queued-job'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definitions WHERE job_id = 'source-provenanced-job'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM job_definition_sources WHERE job_id = 'source-provenanced-job'`, 1)
@@ -176,7 +208,8 @@ func TestSQLCleanerActiveHoldProtectsTerminalRunState(t *testing.T) {
 		t.Fatalf("referenced keys: %v", err)
 	}
 
-	if !refs[artifactBlobKeyPrefix+strings.Repeat("a", 64)] || !refs[artifactBlobKeyPrefix+strings.Repeat("d", 64)] || len(refs) != 2 {
+	if !refs[artifactBlobKeyPrefix+strings.Repeat("a", 64)] || !refs[artifactBlobKeyPrefix+strings.Repeat("d", 64)] ||
+		len(refs) != 2 {
 		t.Fatalf("referenced keys after cleanup = %+v", refs)
 	}
 
@@ -348,7 +381,11 @@ func TestSQLCleanerReferencedArtifactBlobKeys(t *testing.T) {
 		t.Fatalf("unexpected referenced keys: %+v", all)
 	}
 
-	afterTerminalCleanup, err := cleaner.ReferencedArtifactBlobKeysExcludingTerminalRuns(ctx, testPolicy().TerminalRuns, now)
+	afterTerminalCleanup, err := cleaner.ReferencedArtifactBlobKeysExcludingTerminalRuns(
+		ctx,
+		testPolicy().TerminalRuns,
+		now,
+	)
 	if err != nil {
 		t.Fatalf("referenced keys excluding terminal candidates: %v", err)
 	}
@@ -464,9 +501,27 @@ func TestLocalArtifactBlobCleanerPreviewAndDelete(t *testing.T) {
 	newUnreferencedDigest := strings.Repeat("c", 64)
 	unrelatedDigest := strings.Repeat("d", 64)
 
-	oldUnreferenced := writeArtifactBlobFile(t, dir, oldUnreferencedDigest, []byte("delete-me"), fixedNow().Add(-40*24*time.Hour))
-	oldReferenced := writeArtifactBlobFile(t, dir, oldReferencedDigest, []byte("keep-ref"), fixedNow().Add(-40*24*time.Hour))
-	newUnreferenced := writeArtifactBlobFile(t, dir, newUnreferencedDigest, []byte("keep-new"), fixedNow().Add(-12*time.Hour))
+	oldUnreferenced := writeArtifactBlobFile(
+		t,
+		dir,
+		oldUnreferencedDigest,
+		[]byte("delete-me"),
+		fixedNow().Add(-40*24*time.Hour),
+	)
+	oldReferenced := writeArtifactBlobFile(
+		t,
+		dir,
+		oldReferencedDigest,
+		[]byte("keep-ref"),
+		fixedNow().Add(-40*24*time.Hour),
+	)
+	newUnreferenced := writeArtifactBlobFile(
+		t,
+		dir,
+		newUnreferencedDigest,
+		[]byte("keep-new"),
+		fixedNow().Add(-12*time.Hour),
+	)
 	unrelated := filepath.Join(dir, "blobs", artifactHashAlgorithm, unrelatedDigest+".blob")
 	if err := os.MkdirAll(filepath.Dir(unrelated), 0o755); err != nil {
 		t.Fatal(err)

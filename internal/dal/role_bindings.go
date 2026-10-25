@@ -31,12 +31,22 @@ func NewSQLRoleBindingsRepository(db *sql.DB) *SQLRoleBindingsRepository {
 	return &SQLRoleBindingsRepository{db: db}
 }
 
-func (r *SQLRoleBindingsRepository) Create(ctx context.Context, localUserID, namespaceID int64, role string) (*RoleBindingRecord, error) {
+func (r *SQLRoleBindingsRepository) Create(
+	ctx context.Context,
+	localUserID, namespaceID int64,
+	role string,
+) (*RoleBindingRecord, error) {
 	var id int64
 	globalID := newGlobalID()
-	err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("INSERT INTO role_bindings (global_id, local_user_id, namespace_id, role) VALUES (?, ?, ?, ?) RETURNING id"),
-		globalID, localUserID, namespaceID, role,
+	err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"INSERT INTO role_bindings (global_id, local_user_id, namespace_id, role) VALUES (?, ?, ?, ?) RETURNING id",
+		),
+		globalID,
+		localUserID,
+		namespaceID,
+		role,
 	).Scan(&id)
 
 	if err != nil {
@@ -74,7 +84,10 @@ func (r *SQLRoleBindingsRepository) Delete(ctx context.Context, localUserID, nam
 	return nil
 }
 
-func (r *SQLRoleBindingsRepository) ListByNamespace(ctx context.Context, namespaceID int64) ([]RoleBindingRecord, error) {
+func (r *SQLRoleBindingsRepository) ListByNamespace(
+	ctx context.Context,
+	namespaceID int64,
+) ([]RoleBindingRecord, error) {
 	rows, err := r.db.QueryContext(ctx,
 		rebindQueryForPgx(`
 			SELECT id, COALESCE(global_id, ''), local_user_id, namespace_id, role, created_at
@@ -93,7 +106,14 @@ func (r *SQLRoleBindingsRepository) ListByNamespace(ctx context.Context, namespa
 	var out []RoleBindingRecord
 	for rows.Next() {
 		var rec RoleBindingRecord
-		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.LocalUserID, &rec.NamespaceID, &rec.Role, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.GlobalID,
+			&rec.LocalUserID,
+			&rec.NamespaceID,
+			&rec.Role,
+			&rec.CreatedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -126,7 +146,14 @@ func (r *SQLRoleBindingsRepository) ListByUser(ctx context.Context, localUserID 
 	var out []RoleBindingRecord
 	for rows.Next() {
 		var rec RoleBindingRecord
-		if err := rows.Scan(&rec.ID, &rec.GlobalID, &rec.LocalUserID, &rec.NamespaceID, &rec.Role, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.GlobalID,
+			&rec.LocalUserID,
+			&rec.NamespaceID,
+			&rec.Role,
+			&rec.CreatedAt,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -140,7 +167,10 @@ func (r *SQLRoleBindingsRepository) ListByUser(ctx context.Context, localUserID 
 	return out, nil
 }
 
-func (r *SQLRoleBindingsRepository) GetUserRolesInNamespace(ctx context.Context, localUserID, namespaceID int64) ([]string, error) {
+func (r *SQLRoleBindingsRepository) GetUserRolesInNamespace(
+	ctx context.Context,
+	localUserID, namespaceID int64,
+) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		rebindQueryForPgx("SELECT role FROM role_bindings WHERE local_user_id = ? AND namespace_id = ?"),
 		localUserID, namespaceID,

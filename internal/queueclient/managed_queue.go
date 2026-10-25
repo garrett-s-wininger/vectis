@@ -22,7 +22,11 @@ type ManagingQueueService struct {
 	cancelFn context.CancelFunc
 }
 
-func NewManagingQueueService(ctx context.Context, logger interfaces.Logger, dial func(context.Context) (*grpc.ClientConn, func(), error)) (*ManagingQueueService, error) {
+func NewManagingQueueService(
+	ctx context.Context,
+	logger interfaces.Logger,
+	dial func(context.Context) (*grpc.ClientConn, func(), error),
+) (*ManagingQueueService, error) {
 	if dial == nil {
 		return nil, fmt.Errorf("dial is required")
 	}

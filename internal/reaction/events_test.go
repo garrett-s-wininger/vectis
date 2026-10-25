@@ -15,7 +15,14 @@ func TestPublisherPublishManualNoticeUsesCanonicalEvent(t *testing.T) {
 	store := dal.NewSQLRepositories(db).Reactions()
 	ctx := context.Background()
 
-	if err := createLocalSubscription(ctx, store, "manual-target", "manual-notices", dal.ReactionEventTypeManualNotice, "manual"); err != nil {
+	if err := createLocalSubscription(
+		ctx,
+		store,
+		"manual-target",
+		"manual-notices",
+		dal.ReactionEventTypeManualNotice,
+		"manual",
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -30,7 +37,8 @@ func TestPublisherPublishManualNoticeUsesCanonicalEvent(t *testing.T) {
 		t.Fatalf("publish manual notice: %v", err)
 	}
 
-	if publication.Event.Source != dal.ReactionEventSourceManual || publication.Event.EventType != dal.ReactionEventTypeManualNotice {
+	if publication.Event.Source != dal.ReactionEventSourceManual ||
+		publication.Event.EventType != dal.ReactionEventTypeManualNotice {
 		t.Fatalf("event: %+v", publication.Event)
 	}
 
@@ -264,7 +272,14 @@ func TestPublisherPublishManualNoticeIsIdempotentForEventID(t *testing.T) {
 	store := dal.NewSQLRepositories(db).Reactions()
 	ctx := context.Background()
 
-	if err := createLocalSubscription(ctx, store, "manual-idempotent-target", "manual-idempotent", dal.ReactionEventTypeManualNotice, "manual-idempotent"); err != nil {
+	if err := createLocalSubscription(
+		ctx,
+		store,
+		"manual-idempotent-target",
+		"manual-idempotent",
+		dal.ReactionEventTypeManualNotice,
+		"manual-idempotent",
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -289,7 +304,8 @@ func TestPublisherPublishManualNoticeIsIdempotentForEventID(t *testing.T) {
 		t.Fatalf("publish duplicate notice: %v", err)
 	}
 
-	if duplicate.Event.ID != first.Event.ID || len(duplicate.Invocations) != 1 || duplicate.Invocations[0].InvocationID != first.Invocations[0].InvocationID {
+	if duplicate.Event.ID != first.Event.ID || len(duplicate.Invocations) != 1 ||
+		duplicate.Invocations[0].InvocationID != first.Invocations[0].InvocationID {
 		t.Fatalf("duplicate publication: got %+v want %+v", duplicate, first)
 	}
 
@@ -409,11 +425,13 @@ func TestPublisherPublishRunCompletedMatchesSubscriptionMetadata(t *testing.T) {
 		t.Fatalf("publish run completed: %v", err)
 	}
 
-	if publication.Event.Source != dal.ReactionEventSourceLifecycle || publication.Event.EventType != dal.ReactionEventTypeRunCompleted {
+	if publication.Event.Source != dal.ReactionEventSourceLifecycle ||
+		publication.Event.EventType != dal.ReactionEventTypeRunCompleted {
 		t.Fatalf("event: %+v", publication.Event)
 	}
 
-	if publication.Event.JobID != "job-a" || publication.Event.RunID != "run-1" || publication.Event.SourceCell != "iad-a" {
+	if publication.Event.JobID != "job-a" || publication.Event.RunID != "run-1" ||
+		publication.Event.SourceCell != "iad-a" {
 		t.Fatalf("event metadata: %+v", publication.Event)
 	}
 
@@ -453,7 +471,14 @@ func TestPublisherPublishDefinitionValidationFailedHasNoRun(t *testing.T) {
 	store := dal.NewSQLRepositories(db).Reactions()
 	ctx := context.Background()
 
-	if err := createLocalSubscription(ctx, store, "validation-target", "validation-failures", dal.ReactionEventTypeDefinitionValidationFailed, "validation"); err != nil {
+	if err := createLocalSubscription(
+		ctx,
+		store,
+		"validation-target",
+		"validation-failures",
+		dal.ReactionEventTypeDefinitionValidationFailed,
+		"validation",
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -484,7 +509,8 @@ func TestPublisherPublishDefinitionValidationFailedHasNoRun(t *testing.T) {
 		t.Fatalf("decode payload: %v", err)
 	}
 
-	if payload.Message != "definition is invalid" || payload.Reason != "unknown action" || payload.DefinitionHash != "sha256:bad" {
+	if payload.Message != "definition is invalid" || payload.Reason != "unknown action" ||
+		payload.DefinitionHash != "sha256:bad" {
 		t.Fatalf("payload: %+v", payload)
 	}
 
@@ -512,7 +538,11 @@ func TestPublisherPublishDefinitionValidationFailedRequiresJobIDBeforeEvent(t *t
 	}
 }
 
-func createLocalSubscription(ctx context.Context, store dal.ReactionsRepository, targetName, subscriptionName, eventType, mailbox string) error {
+func createLocalSubscription(
+	ctx context.Context,
+	store dal.ReactionsRepository,
+	targetName, subscriptionName, eventType, mailbox string,
+) error {
 	target, err := store.CreateTarget(ctx, dal.ReactionTargetCreate{
 		Name:       targetName,
 		Kind:       dal.ReactionTargetKindLocal,
@@ -546,7 +576,13 @@ func runLocalReactions(t *testing.T, ctx context.Context, store dal.ReactionsRep
 	}
 }
 
-func assertLocalMessageCount(t *testing.T, ctx context.Context, store dal.ReactionsRepository, mailbox string, want int) {
+func assertLocalMessageCount(
+	t *testing.T,
+	ctx context.Context,
+	store dal.ReactionsRepository,
+	mailbox string,
+	want int,
+) {
 	t.Helper()
 
 	messages, _, err := store.ListLocalMessages(ctx, mailbox, 0, 10)

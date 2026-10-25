@@ -10,7 +10,13 @@ import (
 	"vectis/internal/platform"
 )
 
-func verifyServicesInstalled(ctx context.Context, t *testing.T, manager platform.VirtualMachineManager, instance string, stdout, stderr *bytes.Buffer) {
+func verifyServicesInstalled(
+	ctx context.Context,
+	t *testing.T,
+	manager platform.VirtualMachineManager,
+	instance string,
+	stdout, stderr *bytes.Buffer,
+) {
 	t.Helper()
 
 	for _, path := range []string{
@@ -40,7 +46,13 @@ func verifyServicesInstalled(ctx context.Context, t *testing.T, manager platform
 		"/usr/share/doc/vectis-api/examples/vectis-api.env.example",
 	} {
 		if err := manager.Shell(ctx, instance, nil, "test", "-e", path); err != nil {
-			t.Fatalf("expected package path %s: %v\nstdout:\n%s\nstderr:\n%s", path, err, stdout.String(), stderr.String())
+			t.Fatalf(
+				"expected package path %s: %v\nstdout:\n%s\nstderr:\n%s",
+				path,
+				err,
+				stdout.String(),
+				stderr.String(),
+			)
 		}
 	}
 
@@ -55,20 +67,49 @@ func verifyServicesInstalled(ctx context.Context, t *testing.T, manager platform
 		"/usr/bin/vectis-worker-core",
 	} {
 		if err := manager.Shell(ctx, instance, nil, "test", "-x", path); err != nil {
-			t.Fatalf("expected executable package path %s: %v\nstdout:\n%s\nstderr:\n%s", path, err, stdout.String(), stderr.String())
+			t.Fatalf(
+				"expected executable package path %s: %v\nstdout:\n%s\nstderr:\n%s",
+				path,
+				err,
+				stdout.String(),
+				stderr.String(),
+			)
 		}
 	}
 
 	if err := manager.Shell(ctx, instance, nil, "test", "!", "-e", "/etc/vectis/vectis.env"); err != nil {
-		t.Fatalf("services package should not install live /etc/vectis config: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		t.Fatalf(
+			"services package should not install live /etc/vectis config: %v\nstdout:\n%s\nstderr:\n%s",
+			err,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 
-	if err := manager.Shell(ctx, instance, nil, "/bin/sh", "-lc", "sudo systemd-analyze verify /usr/lib/systemd/system/vectis.target /usr/lib/systemd/system/vectis*.service /usr/lib/systemd/system/vectis*.timer"); err != nil {
-		t.Fatalf("packaged systemd units did not verify: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	if err := manager.Shell(
+		ctx,
+		instance,
+		nil,
+		"/bin/sh",
+		"-lc",
+		"sudo systemd-analyze verify /usr/lib/systemd/system/vectis.target /usr/lib/systemd/system/vectis*.service /usr/lib/systemd/system/vectis*.timer",
+	); err != nil {
+		t.Fatalf(
+			"packaged systemd units did not verify: %v\nstdout:\n%s\nstderr:\n%s",
+			err,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 }
 
-func verifyServicesRemoved(ctx context.Context, t *testing.T, manager platform.VirtualMachineManager, instance string, stdout, stderr *bytes.Buffer) {
+func verifyServicesRemoved(
+	ctx context.Context,
+	t *testing.T,
+	manager platform.VirtualMachineManager,
+	instance string,
+	stdout, stderr *bytes.Buffer,
+) {
 	t.Helper()
 
 	for _, path := range []string{
@@ -95,7 +136,13 @@ func verifyServicesRemoved(ctx context.Context, t *testing.T, manager platform.V
 		"/usr/share/doc/vectis-api/examples/vectis-api.env.example",
 	} {
 		if err := manager.Shell(ctx, instance, nil, "test", "!", "-e", path); err != nil {
-			t.Fatalf("package path remained after removal %s: %v\nstdout:\n%s\nstderr:\n%s", path, err, stdout.String(), stderr.String())
+			t.Fatalf(
+				"package path remained after removal %s: %v\nstdout:\n%s\nstderr:\n%s",
+				path,
+				err,
+				stdout.String(),
+				stderr.String(),
+			)
 		}
 	}
 }

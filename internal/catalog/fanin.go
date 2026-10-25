@@ -101,7 +101,12 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 		for _, rec := range records {
 			if err := validateSourceCatalogEventForFanIn(sourceCellID, rec); err != nil {
 				if markErr := source.Events.MarkFailed(ctx, rec.ID, err.Error()); markErr != nil {
-					return result, fmt.Errorf("mark spoofed source catalog event %d from cell %q failed: %w", rec.ID, source.CellID, markErr)
+					return result, fmt.Errorf(
+						"mark spoofed source catalog event %d from cell %q failed: %w",
+						rec.ID,
+						source.CellID,
+						markErr,
+					)
 				}
 
 				remaining--
@@ -121,11 +126,21 @@ func (p *FanInProcessor) IngestPending(ctx context.Context, limit int) (FanInRes
 			}
 
 			if err := validateTargetCatalogEventForSourceAck(target); err != nil {
-				return result, fmt.Errorf("target catalog event %q from cell %q is not ackable: %w", rec.EventKey, source.CellID, err)
+				return result, fmt.Errorf(
+					"target catalog event %q from cell %q is not ackable: %w",
+					rec.EventKey,
+					source.CellID,
+					err,
+				)
 			}
 
 			if err := source.Events.MarkApplied(ctx, rec.ID); err != nil {
-				return result, fmt.Errorf("mark source catalog event %d from cell %q applied: %w", rec.ID, source.CellID, err)
+				return result, fmt.Errorf(
+					"mark source catalog event %d from cell %q applied: %w",
+					rec.ID,
+					source.CellID,
+					err,
+				)
 			}
 
 			remaining--
@@ -150,7 +165,11 @@ func validateSourceCatalogEventForFanIn(sourceCellID string, rec dal.CatalogEven
 	}
 
 	if eventSourceCell != sourceCellID {
-		return fmt.Errorf("catalog event source_cell %q does not match configured source %q", eventSourceCell, sourceCellID)
+		return fmt.Errorf(
+			"catalog event source_cell %q does not match configured source %q",
+			eventSourceCell,
+			sourceCellID,
+		)
 	}
 
 	return nil

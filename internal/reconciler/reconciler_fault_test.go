@@ -255,7 +255,11 @@ func TestService_Process_TouchDispatchedFailureRetriesFrozenPayload(t *testing.T
 
 	secondEnvelope := secondReqs[1].GetMetadata()[cell.ExecutionEnvelopeMetadataKey]
 	if secondEnvelope != firstEnvelope {
-		t.Fatalf("redispatch envelope changed after touch failure:\nfirst:  %s\nsecond: %s", firstEnvelope, secondEnvelope)
+		t.Fatalf(
+			"redispatch envelope changed after touch failure:\nfirst:  %s\nsecond: %s",
+			firstEnvelope,
+			secondEnvelope,
+		)
 	}
 
 	_, lastAfter := fetchRunState(t, ctx, db, runID)

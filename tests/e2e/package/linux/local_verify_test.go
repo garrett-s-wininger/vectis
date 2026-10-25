@@ -10,7 +10,13 @@ import (
 	"vectis/internal/platform"
 )
 
-func verifyLocalInstalled(ctx context.Context, t *testing.T, manager platform.VirtualMachineManager, instance string, stdout, stderr *bytes.Buffer) {
+func verifyLocalInstalled(
+	ctx context.Context,
+	t *testing.T,
+	manager platform.VirtualMachineManager,
+	instance string,
+	stdout, stderr *bytes.Buffer,
+) {
 	t.Helper()
 
 	for _, path := range []string{
@@ -24,7 +30,13 @@ func verifyLocalInstalled(ctx context.Context, t *testing.T, manager platform.Vi
 		"/usr/lib/vectis-local/bin/vectis-worker-core",
 	} {
 		if err := manager.Shell(ctx, instance, nil, "test", "-x", path); err != nil {
-			t.Fatalf("expected executable package path %s: %v\nstdout:\n%s\nstderr:\n%s", path, err, stdout.String(), stderr.String())
+			t.Fatalf(
+				"expected executable package path %s: %v\nstdout:\n%s\nstderr:\n%s",
+				path,
+				err,
+				stdout.String(),
+				stderr.String(),
+			)
 		}
 	}
 
@@ -34,16 +46,33 @@ func verifyLocalInstalled(ctx context.Context, t *testing.T, manager platform.Vi
 		"/etc/vectis/vectis.env",
 	} {
 		if err := manager.Shell(ctx, instance, nil, "test", "!", "-e", path); err != nil {
-			t.Fatalf("vectis-local package should not install %s: %v\nstdout:\n%s\nstderr:\n%s", path, err, stdout.String(), stderr.String())
+			t.Fatalf(
+				"vectis-local package should not install %s: %v\nstdout:\n%s\nstderr:\n%s",
+				path,
+				err,
+				stdout.String(),
+				stderr.String(),
+			)
 		}
 	}
 
 	if err := manager.Shell(ctx, instance, nil, "vectis-local", "--help"); err != nil {
-		t.Fatalf("packaged vectis-local wrapper did not run: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		t.Fatalf(
+			"packaged vectis-local wrapper did not run: %v\nstdout:\n%s\nstderr:\n%s",
+			err,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 }
 
-func verifyLocalRemoved(ctx context.Context, t *testing.T, manager platform.VirtualMachineManager, instance string, stdout, stderr *bytes.Buffer) {
+func verifyLocalRemoved(
+	ctx context.Context,
+	t *testing.T,
+	manager platform.VirtualMachineManager,
+	instance string,
+	stdout, stderr *bytes.Buffer,
+) {
 	t.Helper()
 
 	for _, path := range []string{
@@ -52,11 +81,22 @@ func verifyLocalRemoved(ctx context.Context, t *testing.T, manager platform.Virt
 		"/usr/lib/vectis-local/bin/vectis-api",
 	} {
 		if err := manager.Shell(ctx, instance, nil, "test", "!", "-e", path); err != nil {
-			t.Fatalf("package path remained after removal %s: %v\nstdout:\n%s\nstderr:\n%s", path, err, stdout.String(), stderr.String())
+			t.Fatalf(
+				"package path remained after removal %s: %v\nstdout:\n%s\nstderr:\n%s",
+				path,
+				err,
+				stdout.String(),
+				stderr.String(),
+			)
 		}
 	}
 
 	if err := manager.Shell(ctx, instance, nil, "test", "!", "-e", "/usr/bin/vectis-cli"); err != nil {
-		t.Fatalf("packaged CLI remained after local package removal: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		t.Fatalf(
+			"packaged CLI remained after local package removal: %v\nstdout:\n%s\nstderr:\n%s",
+			err,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 }

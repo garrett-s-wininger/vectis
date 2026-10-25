@@ -160,7 +160,8 @@ func TestLocalCommitDefinitionAuthorUsesDefaultRef(t *testing.T) {
 		t.Fatalf("WriteDefinition: %v", err)
 	}
 
-	if written.RequestedRef != branch || written.Commit == "" || written.Path != ".vectis/jobs/build.json" || written.BlobSHA == "" {
+	if written.RequestedRef != branch || written.Commit == "" || written.Path != ".vectis/jobs/build.json" ||
+		written.BlobSHA == "" {
 		t.Fatalf("written definition mismatch: %+v", written)
 	}
 
@@ -174,7 +175,10 @@ func TestLocalCommitDefinitionAuthorUsesDefaultRef(t *testing.T) {
 		t.Fatalf("DeleteDefinition: %v", err)
 	}
 
-	if deleted.RequestedRef != branch || deleted.Commit == "" || deleted.Commit == written.Commit || deleted.ParentCommit != written.Commit || deleted.Path != ".vectis/jobs/build.json" || deleted.BlobSHA != "" {
+	if deleted.RequestedRef != branch || deleted.Commit == "" || deleted.Commit == written.Commit ||
+		deleted.ParentCommit != written.Commit ||
+		deleted.Path != ".vectis/jobs/build.json" ||
+		deleted.BlobSHA != "" {
 		t.Fatalf("deleted definition mismatch: %+v written=%+v", deleted, written)
 	}
 }

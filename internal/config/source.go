@@ -53,29 +53,29 @@ const (
 )
 
 type SourceRepositoryDeclaration struct {
-	RepositoryID            string   `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
-	Namespace               string   `json:"namespace" mapstructure:"namespace" toml:"namespace"`
-	SourceKind              string   `json:"source_kind" mapstructure:"source_kind" toml:"source_kind"`
-	CheckoutPath            string   `json:"checkout_path" mapstructure:"checkout_path" toml:"checkout_path"`
-	CheckoutMode            string   `json:"checkout_mode" mapstructure:"checkout_mode" toml:"checkout_mode"`
-	AuthoringMode           string   `json:"authoring_mode" mapstructure:"authoring_mode" toml:"authoring_mode"`
-	WorkerCacheMode         string   `json:"worker_cache_mode" mapstructure:"worker_cache_mode" toml:"worker_cache_mode"`
-	CanonicalURL            string   `json:"canonical_url" mapstructure:"canonical_url" toml:"canonical_url"`
-	FallbackRemoteURLs      []string `json:"fallback_remote_urls" mapstructure:"fallback_remote_urls" toml:"fallback_remote_urls"`
+	RepositoryID            string   `json:"repository_id"              mapstructure:"repository_id"              toml:"repository_id"`
+	Namespace               string   `json:"namespace"                  mapstructure:"namespace"                  toml:"namespace"`
+	SourceKind              string   `json:"source_kind"                mapstructure:"source_kind"                toml:"source_kind"`
+	CheckoutPath            string   `json:"checkout_path"              mapstructure:"checkout_path"              toml:"checkout_path"`
+	CheckoutMode            string   `json:"checkout_mode"              mapstructure:"checkout_mode"              toml:"checkout_mode"`
+	AuthoringMode           string   `json:"authoring_mode"             mapstructure:"authoring_mode"             toml:"authoring_mode"`
+	WorkerCacheMode         string   `json:"worker_cache_mode"          mapstructure:"worker_cache_mode"          toml:"worker_cache_mode"`
+	CanonicalURL            string   `json:"canonical_url"              mapstructure:"canonical_url"              toml:"canonical_url"`
+	FallbackRemoteURLs      []string `json:"fallback_remote_urls"       mapstructure:"fallback_remote_urls"       toml:"fallback_remote_urls"`
 	WorkerCacheWarmRefspecs []string `json:"worker_cache_warm_refspecs" mapstructure:"worker_cache_warm_refspecs" toml:"worker_cache_warm_refspecs"`
-	DefaultRef              string   `json:"default_ref" mapstructure:"default_ref" toml:"default_ref"`
-	CredentialRef           string   `json:"credential_ref" mapstructure:"credential_ref" toml:"credential_ref"`
-	Enabled                 *bool    `json:"enabled" mapstructure:"enabled" toml:"enabled"`
+	DefaultRef              string   `json:"default_ref"                mapstructure:"default_ref"                toml:"default_ref"`
+	CredentialRef           string   `json:"credential_ref"             mapstructure:"credential_ref"             toml:"credential_ref"`
+	Enabled                 *bool    `json:"enabled"                    mapstructure:"enabled"                    toml:"enabled"`
 }
 
 type SourceScheduleDeclaration struct {
-	ScheduleID   string `json:"schedule_id" mapstructure:"schedule_id" toml:"schedule_id"`
+	ScheduleID   string `json:"schedule_id"   mapstructure:"schedule_id"   toml:"schedule_id"`
 	RepositoryID string `json:"repository_id" mapstructure:"repository_id" toml:"repository_id"`
-	JobID        string `json:"job_id" mapstructure:"job_id" toml:"job_id"`
-	CronSpec     string `json:"cron_spec" mapstructure:"cron_spec" toml:"cron_spec"`
-	Ref          string `json:"ref" mapstructure:"ref" toml:"ref"`
-	Path         string `json:"path" mapstructure:"path" toml:"path"`
-	Enabled      *bool  `json:"enabled" mapstructure:"enabled" toml:"enabled"`
+	JobID        string `json:"job_id"        mapstructure:"job_id"        toml:"job_id"`
+	CronSpec     string `json:"cron_spec"     mapstructure:"cron_spec"     toml:"cron_spec"`
+	Ref          string `json:"ref"           mapstructure:"ref"           toml:"ref"`
+	Path         string `json:"path"          mapstructure:"path"          toml:"path"`
+	Enabled      *bool  `json:"enabled"       mapstructure:"enabled"       toml:"enabled"`
 }
 
 // SourceCheckoutRoot returns the root directory for Vectis-managed source checkouts.
@@ -324,15 +324,28 @@ func normalizeSourceRepositoryDeclarations(in []SourceRepositoryDeclaration) ([]
 		}
 
 		if !validSourceRepositoryWorkerCacheMode(repo.WorkerCacheMode) {
-			return nil, fmt.Errorf("source.repositories[%d].worker_cache_mode %q is not supported", i, repo.WorkerCacheMode)
+			return nil, fmt.Errorf(
+				"source.repositories[%d].worker_cache_mode %q is not supported",
+				i,
+				repo.WorkerCacheMode,
+			)
 		}
 
 		if repo.AuthoringMode == sourceAuthoringModeLocalCommit && repo.CheckoutMode != sourceCheckoutModeManaged {
-			return nil, fmt.Errorf("source.repositories[%d].authoring_mode %q requires checkout_mode %q", i, repo.AuthoringMode, sourceCheckoutModeManaged)
+			return nil, fmt.Errorf(
+				"source.repositories[%d].authoring_mode %q requires checkout_mode %q",
+				i,
+				repo.AuthoringMode,
+				sourceCheckoutModeManaged,
+			)
 		}
 
 		if repo.CheckoutPath == "" && repo.CheckoutMode != sourceCheckoutModeManaged {
-			return nil, fmt.Errorf("source.repositories[%d].checkout_path is required unless checkout_mode is %q", i, sourceCheckoutModeManaged)
+			return nil, fmt.Errorf(
+				"source.repositories[%d].checkout_path is required unless checkout_mode is %q",
+				i,
+				sourceCheckoutModeManaged,
+			)
 		}
 
 		if repo.DefaultRef != "" {

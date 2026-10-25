@@ -13,9 +13,17 @@ func TestSafeRequestTarget(t *testing.T) {
 		want bool
 	}{
 		{name: "origin form", req: httptest.NewRequest(http.MethodGet, "/metrics", nil), want: true},
-		{name: "query string", req: httptest.NewRequest(http.MethodGet, "/metrics?format=openmetrics", nil), want: true},
+		{
+			name: "query string",
+			req:  httptest.NewRequest(http.MethodGet, "/metrics?format=openmetrics", nil),
+			want: true,
+		},
 		{name: "directory index", req: httptest.NewRequest(http.MethodGet, "/guide/", nil), want: true},
-		{name: "absolute form", req: httptest.NewRequest(http.MethodGet, "http://example.test/metrics", nil), want: false},
+		{
+			name: "absolute form",
+			req:  httptest.NewRequest(http.MethodGet, "http://example.test/metrics", nil),
+			want: false,
+		},
 		{name: "encoded static segment", req: httptest.NewRequest(http.MethodGet, "/%6detics", nil), want: false},
 		{name: "encoded slash", req: httptest.NewRequest(http.MethodGet, "/assets%2Fmain.js", nil), want: false},
 		{name: "dot segment", req: httptest.NewRequest(http.MethodGet, "/docs/../metrics", nil), want: false},

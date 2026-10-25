@@ -52,7 +52,9 @@ func (s *Server) RunGRPC(ctx context.Context, bindAddr string) error {
 		return err
 	}
 
-	srvOpts, err := config.GRPCServerOptionsForRole(config.ServiceIdentityRoleArtifact) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
+	srvOpts, err := config.GRPCServerOptionsForRole(
+		config.ServiceIdentityRoleArtifact,
+	) //nolint:contextcheck // gRPC stream interceptors authorize each RPC via grpc.ServerStream.Context().
 	if err != nil {
 		return err
 	}
@@ -91,7 +93,14 @@ func RunWithOptions(ctx context.Context, logger interfaces.Logger, store Store, 
 		}
 
 		publishAddr := config.ArtifactGRPCRegistryPublishAddress(bindGRPC)
-		stopRegistration, err := registerArtifactWithHeartbeat(ctx, config.ArtifactRegistrationRegistryAddress(), instanceID, publishAddr, store, logger)
+		stopRegistration, err := registerArtifactWithHeartbeat(
+			ctx,
+			config.ArtifactRegistrationRegistryAddress(),
+			instanceID,
+			publishAddr,
+			store,
+			logger,
+		)
 		if err != nil {
 			return err
 		}
@@ -106,7 +115,12 @@ func RunWithOptions(ctx context.Context, logger interfaces.Logger, store Store, 
 	return server.RunGRPC(ctx, bindGRPC)
 }
 
-func registerArtifactWithHeartbeat(ctx context.Context, registryAddress, instanceID, publishAddress string, store Store, logger interfaces.Logger) (func(), error) {
+func registerArtifactWithHeartbeat(
+	ctx context.Context,
+	registryAddress, instanceID, publishAddress string,
+	store Store,
+	logger interfaces.Logger,
+) (func(), error) {
 	interval := config.RegistryRegistrationRefresh()
 	if interval <= 0 {
 		interval = 45 * time.Second

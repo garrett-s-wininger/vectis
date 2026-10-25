@@ -124,7 +124,11 @@ func ValidateAPIAuthConfig(ctx context.Context, state AuthSetupState) error {
 	}
 
 	if state == nil {
-		return fmt.Errorf("api.auth.enabled requires either a bootstrap token of at least %d characters (%s) or a database to verify initial setup is complete", MinBootstrapTokenLen, envAPIAuthBootstrapToken)
+		return fmt.Errorf(
+			"api.auth.enabled requires either a bootstrap token of at least %d characters (%s) or a database to verify initial setup is complete",
+			MinBootstrapTokenLen,
+			envAPIAuthBootstrapToken,
+		)
 	}
 
 	complete, err := state.IsSetupComplete(ctx)
@@ -136,5 +140,9 @@ func ValidateAPIAuthConfig(ctx context.Context, state AuthSetupState) error {
 		return nil
 	}
 
-	return fmt.Errorf("api.auth.enabled requires a bootstrap token of at least %d characters (%s or api.auth.bootstrap_token) until initial setup completes", MinBootstrapTokenLen, envAPIAuthBootstrapToken)
+	return fmt.Errorf(
+		"api.auth.enabled requires a bootstrap token of at least %d characters (%s or api.auth.bootstrap_token) until initial setup completes",
+		MinBootstrapTokenLen,
+		envAPIAuthBootstrapToken,
+	)
 }

@@ -48,7 +48,13 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 		!created.Enabled {
 		t.Fatalf("created repository mismatch: %+v", created)
 	}
-	if want := []string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"}; !reflect.DeepEqual(created.FallbackRemoteURLs, want) {
+	if want := []string{
+		"https://tier1.invalid/vectis.git",
+		"https://tier2.invalid/vectis.git",
+	}; !reflect.DeepEqual(
+		created.FallbackRemoteURLs,
+		want,
+	) {
 		t.Fatalf("created fallback remotes: got %+v want %+v", created.FallbackRemoteURLs, want)
 	}
 
@@ -57,7 +63,8 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 		t.Fatalf("GetRepository: %v", err)
 	}
 
-	if got.ID != created.ID || got.DefaultRef != "main" || !reflect.DeepEqual(got.FallbackRemoteURLs, created.FallbackRemoteURLs) {
+	if got.ID != created.ID || got.DefaultRef != "main" ||
+		!reflect.DeepEqual(got.FallbackRemoteURLs, created.FallbackRemoteURLs) {
 		t.Fatalf("get repository mismatch: got %+v want %+v", got, created)
 	}
 
@@ -66,7 +73,8 @@ func TestSourcesRepository_CreateGetAndListRepository(t *testing.T) {
 		t.Fatalf("ListRepositories: %v", err)
 	}
 
-	if len(listed) != 1 || listed[0].RepositoryID != "vectis-local" || !reflect.DeepEqual(listed[0].FallbackRemoteURLs, created.FallbackRemoteURLs) {
+	if len(listed) != 1 || listed[0].RepositoryID != "vectis-local" ||
+		!reflect.DeepEqual(listed[0].FallbackRemoteURLs, created.FallbackRemoteURLs) {
 		t.Fatalf("expected one listed repository, got %+v", listed)
 	}
 }
@@ -158,7 +166,10 @@ func TestSourcesRepository_CountRepositories(t *testing.T) {
 		t.Fatalf("sync stale-failed: %v", err)
 	}
 
-	counts, err := sources.CountRepositories(ctx, []string{"declared-ready", "declared-disabled", "declared-ready", " ", "stale-failed' OR 1=1 --"})
+	counts, err := sources.CountRepositories(
+		ctx,
+		[]string{"declared-ready", "declared-disabled", "declared-ready", " ", "stale-failed' OR 1=1 --"},
+	)
 	if err != nil {
 		t.Fatalf("CountRepositories: %v", err)
 	}
@@ -268,7 +279,8 @@ func TestSourcesRepository_DeleteRepositoryConflictsWhenReferenced(t *testing.T)
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -372,7 +384,10 @@ func TestSourcesRepository_UpdateRepository(t *testing.T) {
 		updated.AuthoringMode != dal.SourceAuthoringModeLocalCommit ||
 		updated.WorkerCacheMode != dal.SourceWorkerCacheModePersistent ||
 		updated.CanonicalURL != "https://example.invalid/vectis.git" ||
-		!reflect.DeepEqual(updated.FallbackRemoteURLs, []string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"}) ||
+		!reflect.DeepEqual(
+			updated.FallbackRemoteURLs,
+			[]string{"https://tier1.invalid/vectis.git", "https://tier2.invalid/vectis.git"},
+		) ||
 		updated.DefaultRef != "release" ||
 		updated.CredentialRef != "secret://git/vectis" ||
 		updated.Enabled {
@@ -605,7 +620,8 @@ func TestSourcesRepository_BeginRepositorySync(t *testing.T) {
 		t.Fatalf("BeginRepositorySync already running: %v", err)
 	}
 
-	if began || blocked.SyncStatus != dal.SourceSyncStatusRunning || blocked.LastSyncStartedAtUnix != 100 || blocked.LastSyncRef != "HEAD" {
+	if began || blocked.SyncStatus != dal.SourceSyncStatusRunning || blocked.LastSyncStartedAtUnix != 100 ||
+		blocked.LastSyncRef != "HEAD" {
 		t.Fatalf("already running mismatch: began=%v record=%+v", began, blocked)
 	}
 
@@ -684,7 +700,8 @@ func TestSourcesRepository_RecordAndGetDefinitionSource(t *testing.T) {
 		t.Fatalf("CreateRepository: %v", err)
 	}
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"true"}}}`); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -711,7 +728,8 @@ func TestSourcesRepository_RecordAndGetDefinitionSource(t *testing.T) {
 		t.Fatalf("definition source mismatch: got %+v want %+v", got, rec)
 	}
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, "build", `{"root":{"id":"root","uses":"builtins/script","with":{"script":"false"}}}`); err != nil {
 		t.Fatalf("update job: %v", err)
 	}
 

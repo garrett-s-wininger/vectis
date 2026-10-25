@@ -31,7 +31,13 @@ func sourceJobRepositoryIDFromQuery(r *http.Request) string {
 func requireSourceJobRepositoryIDFromQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
 	repositoryID := sourceJobRepositoryIDFromQuery(r)
 	if repositoryID == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required for reusable jobs", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"missing_repository_id",
+			"repository_id is required for reusable jobs",
+			nil,
+		)
 		return "", false
 	}
 
@@ -66,7 +72,13 @@ func sourceJobRepositoryIDFromTriggerBody(w http.ResponseWriter, r *http.Request
 	return strings.TrimSpace(req.RepositoryID), true
 }
 
-func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(w http.ResponseWriter, r *http.Request, body []byte, fallbackJobID string, createOnly bool) bool {
+func (s *APIServer) writeSourceJobDefinitionFromJobsFacade(
+	w http.ResponseWriter,
+	r *http.Request,
+	body []byte,
+	fallbackJobID string,
+	createOnly bool,
+) bool {
 	trimmed := bytes.TrimSpace(body)
 
 	var req sourceJobDefinitionFacadeRequest
@@ -175,7 +187,11 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(w http.ResponseWriter, r *http.Request, repositoryID, jobID string) {
+func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(
+	w http.ResponseWriter,
+	r *http.Request,
+	repositoryID, jobID string,
+) {
 	setSourceJobPathValues(r, repositoryID, jobID)
 
 	q := r.URL.Query()
@@ -184,7 +200,13 @@ func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(w http.ResponseWrite
 		var err error
 		definitionPath, err = sourcepkg.DefinitionPathForJobID(jobID)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_job_id",
+				"job_id cannot be mapped to a source definition path",
+				nil,
+			)
 			return
 		}
 	}
@@ -230,7 +252,13 @@ func (s *APIServer) deleteSourceJobDefinitionFromJobsFacade(w http.ResponseWrite
 		actorID = p.LocalUserID
 	}
 
-	s.auditLog(ctx, audit.EventJobDeleted, actorID, 0, sourceDefinitionAuditMetadata(jobID, nsPath, rec.RepositoryID, "delete", deleted))
+	s.auditLog(
+		ctx,
+		audit.EventJobDeleted,
+		actorID,
+		0,
+		sourceDefinitionAuditMetadata(jobID, nsPath, rec.RepositoryID, "delete", deleted),
+	)
 
 	w.Header().Set("X-Vectis-Source-Commit", deleted.Commit)
 	writeJSON(w, http.StatusOK, sourceRepositoryJobDeleteResponse{

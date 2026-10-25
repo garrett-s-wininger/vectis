@@ -12,7 +12,10 @@ type SQLTriggerInvocationsRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLTriggerInvocationsRepository) Record(ctx context.Context, invocation TriggerInvocation) (TriggerInvocationRecord, error) {
+func (r *SQLTriggerInvocationsRepository) Record(
+	ctx context.Context,
+	invocation TriggerInvocation,
+) (TriggerInvocationRecord, error) {
 	normalized, requestedCellsJSON, err := normalizeTriggerInvocation(invocation)
 	if err != nil {
 		return TriggerInvocationRecord{}, err
@@ -46,13 +49,20 @@ func (r *SQLTriggerInvocationsRepository) Record(ctx context.Context, invocation
 	}
 
 	if !sameTriggerInvocation(rec, normalized, requestedCellsJSON) {
-		return TriggerInvocationRecord{}, fmt.Errorf("%w: trigger invocation %s already exists with different content", ErrConflict, normalized.InvocationID)
+		return TriggerInvocationRecord{}, fmt.Errorf(
+			"%w: trigger invocation %s already exists with different content",
+			ErrConflict,
+			normalized.InvocationID,
+		)
 	}
 
 	return rec, nil
 }
 
-func (r *SQLTriggerInvocationsRepository) get(ctx context.Context, invocationID string) (TriggerInvocationRecord, error) {
+func (r *SQLTriggerInvocationsRepository) get(
+	ctx context.Context,
+	invocationID string,
+) (TriggerInvocationRecord, error) {
 	var rec TriggerInvocationRecord
 	var nullableTriggerID sql.NullInt64
 	if err := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
@@ -114,7 +124,11 @@ func normalizeTriggerInvocation(invocation TriggerInvocation) (TriggerInvocation
 	}
 
 	if !validTriggerInvocationType(invocation.TriggerType) {
-		return TriggerInvocation{}, "", fmt.Errorf("%w: unsupported trigger_type %q", ErrConflict, invocation.TriggerType)
+		return TriggerInvocation{}, "", fmt.Errorf(
+			"%w: unsupported trigger_type %q",
+			ErrConflict,
+			invocation.TriggerType,
+		)
 	}
 
 	invocation.SourceInstance = strings.TrimSpace(invocation.SourceInstance)

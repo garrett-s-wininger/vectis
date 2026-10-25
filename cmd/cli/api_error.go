@@ -25,5 +25,6 @@ func readCLIAPIError(resp *http.Response) (cliAPIError, bool) {
 		return cliAPIError{}, false
 	}
 
-	return apiErr, apiErr.Code != "" || apiErr.Message != "" || apiErr.Error != "" || apiErr.Detail != "" || len(apiErr.Details) > 0
+	return apiErr, apiErr.Code != "" || apiErr.Message != "" || apiErr.Error != "" || apiErr.Detail != "" ||
+		len(apiErr.Details) > 0
 }

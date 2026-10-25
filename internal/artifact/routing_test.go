@@ -226,7 +226,12 @@ func newArtifactRouteRegistryClient(t *testing.T, address string, logger *mocks.
 	return reg
 }
 
-func registerArtifactRouteEndpoint(t *testing.T, reg *registry.Registry, instanceID, address, cellID string, writable bool) {
+func registerArtifactRouteEndpoint(
+	t *testing.T,
+	reg *registry.Registry,
+	instanceID, address, cellID string,
+	writable bool,
+) {
 	t.Helper()
 
 	metadata := registry.DefaultServiceMetadataForCell(cellID)
@@ -236,7 +241,13 @@ func registerArtifactRouteEndpoint(t *testing.T, reg *registry.Registry, instanc
 		metadata[registry.MetadataArtifactWriteState] = registry.ArtifactWriteStateReadOnly
 	}
 
-	if err := reg.RegisterInstanceWithMetadata(context.Background(), api.Component_COMPONENT_ARTIFACT, instanceID, address, metadata); err != nil {
+	if err := reg.RegisterInstanceWithMetadata(
+		context.Background(),
+		api.Component_COMPONENT_ARTIFACT,
+		instanceID,
+		address,
+		metadata,
+	); err != nil {
 		t.Fatalf("register artifact endpoint %s: %v", instanceID, err)
 	}
 }

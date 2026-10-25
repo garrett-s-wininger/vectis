@@ -15,7 +15,10 @@ type SQLReactionsRepository struct {
 	cellID string
 }
 
-func (r *SQLReactionsRepository) RecordEvent(ctx context.Context, create ReactionEventCreate) (ReactionEventRecord, error) {
+func (r *SQLReactionsRepository) RecordEvent(
+	ctx context.Context,
+	create ReactionEventCreate,
+) (ReactionEventRecord, error) {
 	eventID := strings.TrimSpace(create.EventID)
 	if eventID == "" {
 		eventID = newGlobalID()
@@ -86,7 +89,11 @@ func (r *SQLReactionsRepository) RecordEvent(ctx context.Context, create Reactio
 		PayloadJSON: payload,
 		SourceCell:  sourceCell,
 	}) {
-		return ReactionEventRecord{}, fmt.Errorf("%w: reaction event %s already exists with different content", ErrConflict, eventID)
+		return ReactionEventRecord{}, fmt.Errorf(
+			"%w: reaction event %s already exists with different content",
+			ErrConflict,
+			eventID,
+		)
 	}
 
 	return event, nil
@@ -101,7 +108,10 @@ func (r *SQLReactionsRepository) GetEvent(ctx context.Context, eventID string) (
 	return r.getEvent(ctx, eventID)
 }
 
-func (r *SQLReactionsRepository) CreateTarget(ctx context.Context, create ReactionTargetCreate) (ReactionTargetRecord, error) {
+func (r *SQLReactionsRepository) CreateTarget(
+	ctx context.Context,
+	create ReactionTargetCreate,
+) (ReactionTargetRecord, error) {
 	targetID := strings.TrimSpace(create.TargetID)
 	if targetID == "" {
 		targetID = newGlobalID()
@@ -135,7 +145,10 @@ func (r *SQLReactionsRepository) CreateTarget(ctx context.Context, create Reacti
 			return ReactionTargetRecord{}, err
 		}
 		if jobID == "" {
-			return ReactionTargetRecord{}, fmt.Errorf("%w: job reaction target config_json requires job_id", ErrConflict)
+			return ReactionTargetRecord{}, fmt.Errorf(
+				"%w: job reaction target config_json requires job_id",
+				ErrConflict,
+			)
 		}
 	}
 
@@ -182,7 +195,11 @@ func (r *SQLReactionsRepository) GetTarget(ctx context.Context, targetID string)
 	return r.getTarget(ctx, targetID)
 }
 
-func (r *SQLReactionsRepository) SetTargetEnabled(ctx context.Context, targetID string, enabled bool) (ReactionTargetRecord, error) {
+func (r *SQLReactionsRepository) SetTargetEnabled(
+	ctx context.Context,
+	targetID string,
+	enabled bool,
+) (ReactionTargetRecord, error) {
 	targetID = strings.TrimSpace(targetID)
 	if targetID == "" {
 		return ReactionTargetRecord{}, fmt.Errorf("%w: target_id is required", ErrConflict)
@@ -205,7 +222,10 @@ func (r *SQLReactionsRepository) SetTargetEnabled(ctx context.Context, targetID 
 	return r.getTarget(ctx, targetID)
 }
 
-func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create ReactionSubscriptionCreate) (ReactionSubscriptionRecord, error) {
+func (r *SQLReactionsRepository) CreateSubscription(
+	ctx context.Context,
+	create ReactionSubscriptionCreate,
+) (ReactionSubscriptionRecord, error) {
 	subscriptionID := strings.TrimSpace(create.SubscriptionID)
 	if subscriptionID == "" {
 		subscriptionID = newGlobalID()
@@ -227,7 +247,10 @@ func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create 
 	}
 
 	if create.NamespaceID > 0 && target.NamespaceID != nil && *target.NamespaceID != create.NamespaceID {
-		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: reaction subscription namespace does not match target namespace", ErrConflict)
+		return ReactionSubscriptionRecord{}, fmt.Errorf(
+			"%w: reaction subscription namespace does not match target namespace",
+			ErrConflict,
+		)
 	}
 
 	eventType := strings.TrimSpace(create.EventType)
@@ -278,7 +301,11 @@ func (r *SQLReactionsRepository) CreateSubscription(ctx context.Context, create 
 	return r.getSubscription(ctx, subscriptionID)
 }
 
-func (r *SQLReactionsRepository) SetSubscriptionEnabled(ctx context.Context, subscriptionID string, enabled bool) (ReactionSubscriptionRecord, error) {
+func (r *SQLReactionsRepository) SetSubscriptionEnabled(
+	ctx context.Context,
+	subscriptionID string,
+	enabled bool,
+) (ReactionSubscriptionRecord, error) {
 	subscriptionID = strings.TrimSpace(subscriptionID)
 	if subscriptionID == "" {
 		return ReactionSubscriptionRecord{}, fmt.Errorf("%w: subscription_id is required", ErrConflict)
@@ -301,7 +328,10 @@ func (r *SQLReactionsRepository) SetSubscriptionEnabled(ctx context.Context, sub
 	return r.getSubscription(ctx, subscriptionID)
 }
 
-func (r *SQLReactionsRepository) ListMatchingSubscriptions(ctx context.Context, event ReactionEventRecord) ([]ReactionSubscriptionMatch, error) {
+func (r *SQLReactionsRepository) ListMatchingSubscriptions(
+	ctx context.Context,
+	event ReactionEventRecord,
+) ([]ReactionSubscriptionMatch, error) {
 	eventType := strings.TrimSpace(event.EventType)
 	if eventType == "" {
 		return nil, fmt.Errorf("%w: event_type is required", ErrConflict)
@@ -418,7 +448,10 @@ func (r *SQLReactionsRepository) ListJobTriggerEdges(ctx context.Context) ([]Rea
 	return out, nil
 }
 
-func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create ReactionInvocationCreate) (ReactionInvocationRecord, error) {
+func (r *SQLReactionsRepository) CreateInvocation(
+	ctx context.Context,
+	create ReactionInvocationCreate,
+) (ReactionInvocationRecord, error) {
 	invocationID := strings.TrimSpace(create.InvocationID)
 	if invocationID == "" {
 		invocationID = newGlobalID()
@@ -450,7 +483,13 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 		return ReactionInvocationRecord{}, err
 	}
 	if actionUses != target.Uses {
-		return ReactionInvocationRecord{}, fmt.Errorf("%w: reaction invocation action %q does not match target %s action %q", ErrConflict, actionUses, targetID, target.Uses)
+		return ReactionInvocationRecord{}, fmt.Errorf(
+			"%w: reaction invocation action %q does not match target %s action %q",
+			ErrConflict,
+			actionUses,
+			targetID,
+			target.Uses,
+		)
 	}
 
 	descriptor, err := normalizeJSONObject(create.ActionDescriptorJSON, "action_descriptor_json", "{}")
@@ -463,7 +502,11 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 		return ReactionInvocationRecord{}, err
 	}
 	if !sameReactionJSON(targetConfig, target.ConfigJSON) {
-		return ReactionInvocationRecord{}, fmt.Errorf("%w: reaction invocation target_config_json does not match target %s config_json", ErrConflict, targetID)
+		return ReactionInvocationRecord{}, fmt.Errorf(
+			"%w: reaction invocation target_config_json does not match target %s config_json",
+			ErrConflict,
+			targetID,
+		)
 	}
 
 	maxAttempts := create.MaxAttempts
@@ -520,13 +563,21 @@ func (r *SQLReactionsRepository) CreateInvocation(ctx context.Context, create Re
 		MaxAttempts:          maxAttempts,
 		NextAttemptAt:        nextAttemptAt,
 	}) {
-		return ReactionInvocationRecord{}, fmt.Errorf("%w: reaction invocation for event %s target %s already exists with different content", ErrConflict, eventID, targetID)
+		return ReactionInvocationRecord{}, fmt.Errorf(
+			"%w: reaction invocation for event %s target %s already exists with different content",
+			ErrConflict,
+			eventID,
+			targetID,
+		)
 	}
 
 	return invocation, nil
 }
 
-func (r *SQLReactionsRepository) GetInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error) {
+func (r *SQLReactionsRepository) GetInvocation(
+	ctx context.Context,
+	invocationID string,
+) (ReactionInvocationRecord, error) {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
 		return ReactionInvocationRecord{}, fmt.Errorf("%w: invocation_id is required", ErrConflict)
@@ -535,7 +586,11 @@ func (r *SQLReactionsRepository) GetInvocation(ctx context.Context, invocationID
 	return r.getInvocation(ctx, invocationID)
 }
 
-func (r *SQLReactionsRepository) ListReadyInvocations(ctx context.Context, nowUnixNano int64, limit int) ([]ReactionInvocationRecord, error) {
+func (r *SQLReactionsRepository) ListReadyInvocations(
+	ctx context.Context,
+	nowUnixNano int64,
+	limit int,
+) ([]ReactionInvocationRecord, error) {
 	if nowUnixNano <= 0 {
 		nowUnixNano = time.Now().UnixNano()
 	}
@@ -609,7 +664,11 @@ func (r *SQLReactionsRepository) MarkExpiredInvocationsFailed(ctx context.Contex
 	return int(rows), nil
 }
 
-func (r *SQLReactionsRepository) MarkInvocationRunning(ctx context.Context, invocationID, owner string, claimUntilUnixNano int64) (bool, error) {
+func (r *SQLReactionsRepository) MarkInvocationRunning(
+	ctx context.Context,
+	invocationID, owner string,
+	claimUntilUnixNano int64,
+) (bool, error) {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
 		return false, fmt.Errorf("%w: invocation_id is required", ErrConflict)
@@ -648,7 +707,11 @@ func (r *SQLReactionsRepository) MarkInvocationRunning(ctx context.Context, invo
 	return rows == 1, nil
 }
 
-func (r *SQLReactionsRepository) MarkInvocationSucceeded(ctx context.Context, invocationID, owner string, completedAtUnixNano int64) error {
+func (r *SQLReactionsRepository) MarkInvocationSucceeded(
+	ctx context.Context,
+	invocationID, owner string,
+	completedAtUnixNano int64,
+) error {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
 		return fmt.Errorf("%w: invocation_id is required", ErrConflict)
@@ -676,7 +739,11 @@ func (r *SQLReactionsRepository) MarkInvocationSucceeded(ctx context.Context, in
 	return requireOneRowByString(res, "reaction invocation", invocationID)
 }
 
-func (r *SQLReactionsRepository) MarkInvocationFailed(ctx context.Context, invocationID, owner, message string, nextAttemptAtUnixNano int64) error {
+func (r *SQLReactionsRepository) MarkInvocationFailed(
+	ctx context.Context,
+	invocationID, owner, message string,
+	nextAttemptAtUnixNano int64,
+) error {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
 		return fmt.Errorf("%w: invocation_id is required", ErrConflict)
@@ -711,7 +778,10 @@ func (r *SQLReactionsRepository) MarkInvocationFailed(ctx context.Context, invoc
 	return requireOneRowByString(res, "reaction invocation", invocationID)
 }
 
-func (r *SQLReactionsRepository) RecordLocalMessage(ctx context.Context, create ReactionLocalMessageCreate) (ReactionLocalMessageRecord, error) {
+func (r *SQLReactionsRepository) RecordLocalMessage(
+	ctx context.Context,
+	create ReactionLocalMessageCreate,
+) (ReactionLocalMessageRecord, error) {
 	messageID := strings.TrimSpace(create.MessageID)
 	if messageID == "" {
 		messageID = newGlobalID()
@@ -731,7 +801,13 @@ func (r *SQLReactionsRepository) RecordLocalMessage(ctx context.Context, create 
 		return ReactionLocalMessageRecord{}, err
 	}
 	if invocation.EventID != eventID {
-		return ReactionLocalMessageRecord{}, fmt.Errorf("%w: reaction local message event %s does not match invocation %s event %s", ErrConflict, eventID, invocationID, invocation.EventID)
+		return ReactionLocalMessageRecord{}, fmt.Errorf(
+			"%w: reaction local message event %s does not match invocation %s event %s",
+			ErrConflict,
+			eventID,
+			invocationID,
+			invocation.EventID,
+		)
 	}
 
 	mailbox := strings.TrimSpace(create.Mailbox)
@@ -771,13 +847,22 @@ func (r *SQLReactionsRepository) RecordLocalMessage(ctx context.Context, create 
 		Mailbox:      mailbox,
 		PayloadJSON:  payload,
 	}) {
-		return ReactionLocalMessageRecord{}, fmt.Errorf("%w: reaction local message for invocation %s already exists with different content", ErrConflict, invocationID)
+		return ReactionLocalMessageRecord{}, fmt.Errorf(
+			"%w: reaction local message for invocation %s already exists with different content",
+			ErrConflict,
+			invocationID,
+		)
 	}
 
 	return message, nil
 }
 
-func (r *SQLReactionsRepository) ListLocalMessages(ctx context.Context, mailbox string, cursor int64, limit int) ([]ReactionLocalMessageRecord, int64, error) {
+func (r *SQLReactionsRepository) ListLocalMessages(
+	ctx context.Context,
+	mailbox string,
+	cursor int64,
+	limit int,
+) ([]ReactionLocalMessageRecord, int64, error) {
 	mailbox = strings.TrimSpace(mailbox)
 	if mailbox == "" {
 		mailbox = "default"
@@ -839,7 +924,10 @@ func (r *SQLReactionsRepository) getTarget(ctx context.Context, targetID string)
 	return scanReactionTarget(row)
 }
 
-func (r *SQLReactionsRepository) getSubscription(ctx context.Context, subscriptionID string) (ReactionSubscriptionRecord, error) {
+func (r *SQLReactionsRepository) getSubscription(
+	ctx context.Context,
+	subscriptionID string,
+) (ReactionSubscriptionRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, subscription_id, namespace_id, target_id, name, event_type, job_id, run_status, trigger_type, owning_cell,
 		       enabled, created_at, updated_at
@@ -850,7 +938,10 @@ func (r *SQLReactionsRepository) getSubscription(ctx context.Context, subscripti
 	return scanReactionSubscription(row)
 }
 
-func (r *SQLReactionsRepository) getInvocation(ctx context.Context, invocationID string) (ReactionInvocationRecord, error) {
+func (r *SQLReactionsRepository) getInvocation(
+	ctx context.Context,
+	invocationID string,
+) (ReactionInvocationRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, invocation_id, event_id, target_id, status, action_uses, action_descriptor_json, action_digest,
 		       target_config_json, attempts, max_attempts, next_attempt_at, claimed_by, claim_until, last_error,
@@ -862,7 +953,10 @@ func (r *SQLReactionsRepository) getInvocation(ctx context.Context, invocationID
 	return scanReactionInvocation(row)
 }
 
-func (r *SQLReactionsRepository) getInvocationByEventTarget(ctx context.Context, eventID, targetID string) (ReactionInvocationRecord, error) {
+func (r *SQLReactionsRepository) getInvocationByEventTarget(
+	ctx context.Context,
+	eventID, targetID string,
+) (ReactionInvocationRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, invocation_id, event_id, target_id, status, action_uses, action_descriptor_json, action_digest,
 		       target_config_json, attempts, max_attempts, next_attempt_at, claimed_by, claim_until, last_error,
@@ -874,7 +968,10 @@ func (r *SQLReactionsRepository) getInvocationByEventTarget(ctx context.Context,
 	return scanReactionInvocation(row)
 }
 
-func (r *SQLReactionsRepository) getLocalMessage(ctx context.Context, messageID string) (ReactionLocalMessageRecord, error) {
+func (r *SQLReactionsRepository) getLocalMessage(
+	ctx context.Context,
+	messageID string,
+) (ReactionLocalMessageRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, message_id, event_id, invocation_id, mailbox, payload_json, created_at
 		FROM reaction_local_messages
@@ -884,7 +981,10 @@ func (r *SQLReactionsRepository) getLocalMessage(ctx context.Context, messageID 
 	return scanReactionLocalMessage(row)
 }
 
-func (r *SQLReactionsRepository) getLocalMessageByInvocation(ctx context.Context, invocationID string) (ReactionLocalMessageRecord, error) {
+func (r *SQLReactionsRepository) getLocalMessageByInvocation(
+	ctx context.Context,
+	invocationID string,
+) (ReactionLocalMessageRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, message_id, event_id, invocation_id, mailbox, payload_json, created_at
 		FROM reaction_local_messages
@@ -1285,11 +1385,21 @@ func validateReactionTargetAction(kind, uses string) error {
 	switch kind {
 	case ReactionTargetKindLocal:
 		if uses != ReactionActionNotifyLocal {
-			return fmt.Errorf("%w: reaction target kind %q requires uses %q", ErrConflict, kind, ReactionActionNotifyLocal)
+			return fmt.Errorf(
+				"%w: reaction target kind %q requires uses %q",
+				ErrConflict,
+				kind,
+				ReactionActionNotifyLocal,
+			)
 		}
 	case ReactionTargetKindJob:
 		if uses != ReactionActionTriggerJob {
-			return fmt.Errorf("%w: reaction target kind %q requires uses %q", ErrConflict, kind, ReactionActionTriggerJob)
+			return fmt.Errorf(
+				"%w: reaction target kind %q requires uses %q",
+				ErrConflict,
+				kind,
+				ReactionActionTriggerJob,
+			)
 		}
 	default:
 		return fmt.Errorf("%w: unsupported reaction target kind %q", ErrConflict, kind)

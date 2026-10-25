@@ -48,7 +48,11 @@ type HandleResult struct {
 	AlreadyDispatched bool
 }
 
-func (p Processor) HandleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) (HandleResult, error) {
+func (p Processor) HandleEvent(
+	ctx context.Context,
+	spec dal.SCMPollTriggerSpec,
+	event scm.Event,
+) (HandleResult, error) {
 	rec, created, err := p.recordEvent(ctx, spec.TriggerID, event)
 	if err != nil {
 		return HandleResult{}, err
@@ -81,7 +85,11 @@ func (p Processor) HandleEvent(ctx context.Context, spec dal.SCMPollTriggerSpec,
 	return result, nil
 }
 
-func (p Processor) recordEvent(ctx context.Context, triggerID int64, event scm.Event) (dal.SCMTriggerEventRecord, bool, error) {
+func (p Processor) recordEvent(
+	ctx context.Context,
+	triggerID int64,
+	event scm.Event,
+) (dal.SCMTriggerEventRecord, bool, error) {
 	if p.Events == nil {
 		return dal.SCMTriggerEventRecord{}, false, fmt.Errorf("scm trigger event repository is not set")
 	}
@@ -112,7 +120,11 @@ func (p Processor) recordEvent(ctx context.Context, triggerID int64, event scm.E
 	return rec, created, nil
 }
 
-func (p Processor) dispatchEventRun(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) (string, bool, error) {
+func (p Processor) dispatchEventRun(
+	ctx context.Context,
+	spec dal.SCMPollTriggerSpec,
+	event scm.Event,
+) (string, bool, error) {
 	job, definitionVersion, definitionHash, err := p.getJobDefinitionWithVersion(ctx, spec.JobID)
 	if err != nil {
 		return "", false, err
@@ -129,7 +141,14 @@ func (p Processor) dispatchEventRun(ctx context.Context, spec dal.SCMPollTrigger
 		StartDeadlineUnixNano: dispatchmeta.DeadlineUnixNano(p.clock().Now(), config.DispatchStartTTL()),
 	}
 
-	runID, _, created, err := p.Runs.CreateSCMEventRun(ctx, spec.TriggerID, strings.TrimSpace(event.Key), spec.JobID, definitionVersion, audit)
+	runID, _, created, err := p.Runs.CreateSCMEventRun(
+		ctx,
+		spec.TriggerID,
+		strings.TrimSpace(event.Key),
+		spec.JobID,
+		definitionVersion,
+		audit,
+	)
 	if err != nil {
 		return "", false, fmt.Errorf("create scm event run: %w", err)
 	}
@@ -163,7 +182,11 @@ func (p Processor) getJobDefinitionWithVersion(ctx context.Context, jobID string
 	return &job, version, dal.DefinitionHash(definitionJSON), nil
 }
 
-func (p Processor) recordTriggerInvocation(ctx context.Context, spec dal.SCMPollTriggerSpec, event scm.Event) (string, error) {
+func (p Processor) recordTriggerInvocation(
+	ctx context.Context,
+	spec dal.SCMPollTriggerSpec,
+	event scm.Event,
+) (string, error) {
 	if p.Invocations == nil {
 		return "", nil
 	}

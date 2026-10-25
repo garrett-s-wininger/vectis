@@ -39,7 +39,12 @@ func reserveTCPAddr(t *testing.T) string {
 	return addr
 }
 
-func startLogServer(t *testing.T, addr string, logger interfaces.Logger, store logserver.RunLogStore) *runningLogServer {
+func startLogServer(
+	t *testing.T,
+	addr string,
+	logger interfaces.Logger,
+	store logserver.RunLogStore,
+) *runningLogServer {
 	t.Helper()
 
 	bindAddr := addr
@@ -95,7 +100,13 @@ func (s *runningLogServer) stop() {
 	}
 }
 
-func waitForStoreContains(t *testing.T, store *logserver.LocalRunLogStore, runID string, want string, timeout time.Duration) {
+func waitForStoreContains(
+	t *testing.T,
+	store *logserver.LocalRunLogStore,
+	runID string,
+	want string,
+	timeout time.Duration,
+) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

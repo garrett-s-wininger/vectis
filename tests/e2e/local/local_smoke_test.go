@@ -169,7 +169,13 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 	statuses, final := waitForRunTerminal(t, root, env, cli, run.RunID, 3*time.Minute)
 
 	if final.Status != "succeeded" {
-		t.Fatalf("run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s", run.RunID, final.Status, statuses, proc.stderr.String())
+		t.Fatalf(
+			"run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s",
+			run.RunID,
+			final.Status,
+			statuses,
+			proc.stderr.String(),
+		)
 	}
 
 	final = waitForRunTaskCompletionSucceeded(t, root, env, cli, run.RunID, 30*time.Second)
@@ -197,7 +203,16 @@ func TestE2ELocalTriggerSmoke(t *testing.T) {
 		"Run "+run.RunID+" finished successfully.",
 	)
 	assertRunArtifact(t, root, env, cli, run.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
-	assertRunArtifact(t, root, env, cli, run.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
+	assertRunArtifact(
+		t,
+		root,
+		env,
+		cli,
+		run.RunID,
+		smokeRetryArtifactName,
+		smokeRetryArtifactPath,
+		smokeRetryArtifactContent,
+	)
 }
 
 func TestE2ELocalConfigAsCodeTriggerSmoke(t *testing.T) {
@@ -253,7 +268,13 @@ func TestE2ELocalConfigAsCodeTriggerSmoke(t *testing.T) {
 	statuses, final := waitForRunTerminal(t, root, env, cli, run.RunID, 3*time.Minute)
 
 	if final.Status != "succeeded" {
-		t.Fatalf("source run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s", run.RunID, final.Status, statuses, proc.stderr.String())
+		t.Fatalf(
+			"source run %s finished with status %q; observed statuses=%v\nvectis-local stderr:\n%s",
+			run.RunID,
+			final.Status,
+			statuses,
+			proc.stderr.String(),
+		)
 	}
 
 	final = waitForRunTaskCompletionSucceeded(t, root, env, cli, run.RunID, 30*time.Second)
@@ -282,7 +303,16 @@ func TestE2ELocalConfigAsCodeTriggerSmoke(t *testing.T) {
 	)
 
 	assertRunArtifact(t, root, env, cli, run.RunID, smokeArtifactName, smokeArtifactPath, smokeArtifactContent)
-	assertRunArtifact(t, root, env, cli, run.RunID, smokeRetryArtifactName, smokeRetryArtifactPath, smokeRetryArtifactContent)
+	assertRunArtifact(
+		t,
+		root,
+		env,
+		cli,
+		run.RunID,
+		smokeRetryArtifactName,
+		smokeRetryArtifactPath,
+		smokeRetryArtifactContent,
+	)
 }
 
 func (b *lockedBuffer) Write(p []byte) (int, error) {
@@ -376,7 +406,11 @@ func requireLocalPortsAvailable(t *testing.T, ports []int) {
 	}
 
 	if len(busy) > 0 {
-		skipOrFatal(t, "vectis-local smoke ports already in use: %s; stop the local stack before running this e2e test", strings.Join(busy, ", "))
+		skipOrFatal(
+			t,
+			"vectis-local smoke ports already in use: %s; stop the local stack before running this e2e test",
+			strings.Join(busy, ", "),
+		)
 	}
 }
 
@@ -478,7 +512,11 @@ func stopVectisLocal(t *testing.T, proc *localProcess) {
 		select {
 		case <-proc.done:
 		case <-time.After(5 * time.Second):
-			t.Fatalf("vectis-local did not exit after SIGKILL\nstdout:\n%s\nstderr:\n%s", proc.stdout.String(), proc.stderr.String())
+			t.Fatalf(
+				"vectis-local did not exit after SIGKILL\nstdout:\n%s\nstderr:\n%s",
+				proc.stdout.String(),
+				proc.stderr.String(),
+			)
 		}
 	}
 }
@@ -492,7 +530,12 @@ func waitForAPIReady(t *testing.T, proc *localProcess, url string, timeout time.
 	for time.Now().Before(deadline) {
 		select {
 		case <-proc.done:
-			t.Fatalf("vectis-local exited before API became ready: %v\nstdout:\n%s\nstderr:\n%s", proc.exitErr(), proc.stdout.String(), proc.stderr.String())
+			t.Fatalf(
+				"vectis-local exited before API became ready: %v\nstdout:\n%s\nstderr:\n%s",
+				proc.exitErr(),
+				proc.stdout.String(),
+				proc.stderr.String(),
+			)
 		default:
 		}
 
@@ -512,7 +555,14 @@ func waitForAPIReady(t *testing.T, proc *localProcess, url string, timeout time.
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	t.Fatalf("API did not become ready at %s within %s: %v\nstdout:\n%s\nstderr:\n%s", url, timeout, lastErr, proc.stdout.String(), proc.stderr.String())
+	t.Fatalf(
+		"API did not become ready at %s within %s: %v\nstdout:\n%s\nstderr:\n%s",
+		url,
+		timeout,
+		lastErr,
+		proc.stdout.String(),
+		proc.stderr.String(),
+	)
 }
 
 func (p *localProcess) exitErr() error {
@@ -538,7 +588,12 @@ func seedLocalSmokeSecret(t *testing.T, root string, env []string, cli, dataHome
 
 	var out secretEncryptedFSPutResult
 	if err := json.Unmarshal([]byte(result.stdout), &out); err != nil {
-		t.Fatalf("parse secrets encryptedfs put output: %v\nstdout:\n%s\nstderr:\n%s", err, result.stdout, result.stderr)
+		t.Fatalf(
+			"parse secrets encryptedfs put output: %v\nstdout:\n%s\nstderr:\n%s",
+			err,
+			result.stdout,
+			result.stderr,
+		)
 	}
 
 	if out.Status != "ok" || out.Ref != smokeSecretRef || out.Bytes != len(smokeSecretPlaintext) {
@@ -631,7 +686,13 @@ func triggerSourceSmokeJob(t *testing.T, root string, env []string, cli, reposit
 	return out
 }
 
-func waitForRunTerminal(t *testing.T, root string, env []string, cli, runID string, timeout time.Duration) ([]string, runShowResult) {
+func waitForRunTerminal(
+	t *testing.T,
+	root string,
+	env []string,
+	cli, runID string,
+	timeout time.Duration,
+) ([]string, runShowResult) {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
@@ -657,11 +718,24 @@ func waitForRunTerminal(t *testing.T, root string, env []string, cli, runID stri
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	t.Fatalf("run %s did not reach a terminal state within %s; statuses=%v last=%+v err=%v", runID, timeout, statuses, last, lastErr)
+	t.Fatalf(
+		"run %s did not reach a terminal state within %s; statuses=%v last=%+v err=%v",
+		runID,
+		timeout,
+		statuses,
+		last,
+		lastErr,
+	)
 	return nil, runShowResult{}
 }
 
-func waitForRunTaskCompletionSucceeded(t *testing.T, root string, env []string, cli, runID string, timeout time.Duration) runShowResult {
+func waitForRunTaskCompletionSucceeded(
+	t *testing.T,
+	root string,
+	env []string,
+	cli, runID string,
+	timeout time.Duration,
+) runShowResult {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
@@ -682,7 +756,14 @@ func waitForRunTaskCompletionSucceeded(t *testing.T, root string, env []string, 
 	}
 
 	if last.TaskCompletion != nil {
-		t.Fatalf("run %s task completion did not converge within %s; status=%s completion=%+v err=%v", runID, timeout, last.Status, *last.TaskCompletion, lastErr)
+		t.Fatalf(
+			"run %s task completion did not converge within %s; status=%s completion=%+v err=%v",
+			runID,
+			timeout,
+			last.Status,
+			*last.TaskCompletion,
+			lastErr,
+		)
 	}
 
 	t.Fatalf("run %s task completion did not converge within %s; last=%+v err=%v", runID, timeout, last, lastErr)
@@ -806,7 +887,14 @@ func assertRunLogsContain(t *testing.T, root string, env []string, cli, runID st
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	t.Fatalf("logs for run %s missing %v err=%v\nstdout:\n%s\nstderr:\n%s", runID, missing, lastErr, last.stdout, last.stderr)
+	t.Fatalf(
+		"logs for run %s missing %v err=%v\nstdout:\n%s\nstderr:\n%s",
+		runID,
+		missing,
+		lastErr,
+		last.stdout,
+		last.stderr,
+	)
 }
 
 func missingLogNeedles(logs string, needles []string) []string {
@@ -820,7 +908,12 @@ func missingLogNeedles(logs string, needles []string) []string {
 	return missing
 }
 
-func assertRunArtifact(t *testing.T, root string, env []string, cli, runID, artifactName, artifactPath, artifactContent string) {
+func assertRunArtifact(
+	t *testing.T,
+	root string,
+	env []string,
+	cli, runID, artifactName, artifactPath, artifactContent string,
+) {
 	t.Helper()
 
 	artifact := waitForRunArtifact(t, root, env, cli, runID, artifactName, 30*time.Second)
@@ -840,7 +933,22 @@ func assertRunArtifact(t *testing.T, root string, env []string, cli, runID, arti
 	downloadCtx, downloadCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer downloadCancel()
 
-	if _, err := runCommand(downloadCtx, root, env, nil, cli, "--format", "json", "runs", "artifacts", "download", runID, artifactName, "--output", downloadPath); err != nil {
+	if _, err := runCommand(
+		downloadCtx,
+		root,
+		env,
+		nil,
+		cli,
+		"--format",
+		"json",
+		"runs",
+		"artifacts",
+		"download",
+		runID,
+		artifactName,
+		"--output",
+		downloadPath,
+	); err != nil {
 		t.Fatalf("download run artifact: %v", err)
 	}
 
@@ -854,7 +962,13 @@ func assertRunArtifact(t *testing.T, root string, env []string, cli, runID, arti
 	}
 }
 
-func waitForRunArtifact(t *testing.T, root string, env []string, cli, runID, artifactName string, timeout time.Duration) *runArtifactRow {
+func waitForRunArtifact(
+	t *testing.T,
+	root string,
+	env []string,
+	cli, runID, artifactName string,
+	timeout time.Duration,
+) *runArtifactRow {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
@@ -889,7 +1003,14 @@ func waitForRunArtifact(t *testing.T, root string, env []string, cli, runID, art
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	t.Fatalf("run %s artifact %q did not appear within %s; last=%+v err=%v", runID, artifactName, timeout, last, lastErr)
+	t.Fatalf(
+		"run %s artifact %q did not appear within %s; last=%+v err=%v",
+		runID,
+		artifactName,
+		timeout,
+		last,
+		lastErr,
+	)
 	return nil
 }
 
@@ -911,7 +1032,14 @@ func containsStatus(statuses []string, want string) bool {
 	return false
 }
 
-func runCommand(ctx context.Context, dir string, env []string, stdin io.Reader, name string, args ...string) (commandResult, error) {
+func runCommand(
+	ctx context.Context,
+	dir string,
+	env []string,
+	stdin io.Reader,
+	name string,
+	args ...string,
+) (commandResult, error) {
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- e2e harness controls command names/args.
 	if dir != "" {
 		cmd.Dir = dir
@@ -932,10 +1060,23 @@ func runCommand(ctx context.Context, dir string, env []string, stdin io.Reader, 
 	result := commandResult{stdout: stdout.String(), stderr: stderr.String()}
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return result, fmt.Errorf("%s %s timed out: stdout=%q stderr=%q", name, strings.Join(args, " "), result.stdout, result.stderr)
+			return result, fmt.Errorf(
+				"%s %s timed out: stdout=%q stderr=%q",
+				name,
+				strings.Join(args, " "),
+				result.stdout,
+				result.stderr,
+			)
 		}
 
-		return result, fmt.Errorf("%s %s failed: %w\nstdout:\n%s\nstderr:\n%s", name, strings.Join(args, " "), err, result.stdout, result.stderr)
+		return result, fmt.Errorf(
+			"%s %s failed: %w\nstdout:\n%s\nstderr:\n%s",
+			name,
+			strings.Join(args, " "),
+			err,
+			result.stdout,
+			result.stderr,
+		)
 	}
 
 	return result, nil

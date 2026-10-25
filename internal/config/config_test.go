@@ -68,7 +68,11 @@ func TestMustDefaults_ReconcilerInterval(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	if d.SCMGerritStream.RegistryAddress != "" || d.SCMGerritStream.QueueAddress != "" {
-		t.Fatalf("expected empty scm_gerrit_stream addresses, got registry=%q queue=%q", d.SCMGerritStream.RegistryAddress, d.SCMGerritStream.QueueAddress)
+		t.Fatalf(
+			"expected empty scm_gerrit_stream addresses, got registry=%q queue=%q",
+			d.SCMGerritStream.RegistryAddress,
+			d.SCMGerritStream.QueueAddress,
+		)
 	}
 
 	viper.Set("scm_gerrit_stream.registry.address", "registry.local:8082")
@@ -864,7 +868,10 @@ func TestSourceRepositoryDeclarations_EnvJSON(t *testing.T) {
 	t.Setenv(envAPIServerSourceRepositories, "")
 	t.Setenv(envWorkerSourceRepositories, "")
 	t.Setenv(envWorkerCoreSourceRepositories, "")
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"managed","canonical_url":"https://example.invalid/vectis.git","fallback_remote_urls":["https://tier1.invalid/vectis.git"],"enabled":true}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","checkout_mode":"managed","canonical_url":"https://example.invalid/vectis.git","fallback_remote_urls":["https://tier1.invalid/vectis.git"],"enabled":true}]`,
+	)
 
 	repos, err := SourceRepositoryDeclarations()
 	if err != nil {
@@ -889,7 +896,10 @@ func TestSourceRepositoryDeclarations_WorkerCoreEnvJSON(t *testing.T) {
 	t.Setenv(envSourceRepositories, "")
 	t.Setenv(envAPIServerSourceRepositories, "")
 	t.Setenv(envWorkerSourceRepositories, "")
-	t.Setenv(envWorkerCoreSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"managed","worker_cache_mode":"persistent","canonical_url":"https://example.invalid/vectis.git"}]`)
+	t.Setenv(
+		envWorkerCoreSourceRepositories,
+		`[{"repository_id":"vectis","checkout_mode":"managed","worker_cache_mode":"persistent","canonical_url":"https://example.invalid/vectis.git"}]`,
+	)
 
 	repos, err := SourceRepositoryDeclarations()
 	if err != nil {
@@ -907,7 +917,10 @@ func TestSourceRepositoryDeclarations_WorkerCoreEnvJSON(t *testing.T) {
 func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_path":"/work/vectis"},{"repository_id":"vectis","checkout_path":"/work/vectis-2"}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","checkout_path":"/work/vectis"},{"repository_id":"vectis","checkout_path":"/work/vectis-2"}]`,
+	)
 	t.Setenv(envAPIServerSourceRepositories, "")
 
 	if _, err := SourceRepositoryDeclarations(); err == nil {
@@ -919,37 +932,58 @@ func TestSourceRepositoryDeclarations_RejectsInvalid(t *testing.T) {
 		t.Fatal("expected unknown JSON field error")
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_path":"/work/vectis","default_ref":"HEAD~1"}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","checkout_path":"/work/vectis","default_ref":"HEAD~1"}]`,
+	)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected invalid default_ref error")
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_path":"/work/vectis","fallback_remote_urls":["-config"]}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","checkout_path":"/work/vectis","fallback_remote_urls":["-config"]}]`,
+	)
 	if _, err := SourceRepositoryDeclarations(); err == nil || !strings.Contains(err.Error(), "fallback_remote_urls") {
 		t.Fatalf("expected invalid fallback_remote_urls error, got %v", err)
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","source_kind":"archive","checkout_path":"/work/vectis"}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","source_kind":"archive","checkout_path":"/work/vectis"}]`,
+	)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected unsupported source_kind error")
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"magic","checkout_path":"/work/vectis"}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","checkout_mode":"magic","checkout_path":"/work/vectis"}]`,
+	)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected unsupported checkout_mode error")
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","authoring_mode":"magic","checkout_path":"/work/vectis"}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","authoring_mode":"magic","checkout_path":"/work/vectis"}]`,
+	)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected unsupported authoring_mode error")
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","worker_cache_mode":"magic","checkout_path":"/work/vectis"}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","worker_cache_mode":"magic","checkout_path":"/work/vectis"}]`,
+	)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected unsupported worker_cache_mode error")
 	}
 
-	t.Setenv(envSourceRepositories, `[{"repository_id":"vectis","checkout_mode":"external","authoring_mode":"local_commit","checkout_path":"/work/vectis"}]`)
+	t.Setenv(
+		envSourceRepositories,
+		`[{"repository_id":"vectis","checkout_mode":"external","authoring_mode":"local_commit","checkout_path":"/work/vectis"}]`,
+	)
 	if _, err := SourceRepositoryDeclarations(); err == nil {
 		t.Fatal("expected incompatible source authoring mode error")
 	}
@@ -1003,7 +1037,10 @@ func TestSourceScheduleDeclarations_EnvJSON(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	t.Setenv(envAPIServerSourceSchedules, "")
-	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","enabled":true}]`)
+	t.Setenv(
+		envSourceSchedules,
+		`[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","enabled":true}]`,
+	)
 
 	schedules, err := SourceScheduleDeclarations()
 	if err != nil {
@@ -1023,14 +1060,20 @@ func TestSourceScheduleDeclarations_EnvJSON(t *testing.T) {
 func TestSourceScheduleDeclarations_RejectsInvalid(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
-	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *"},{"schedule_id":"nightly","repository_id":"vectis","job_id":"deploy","cron_spec":"0 * * * *"}]`)
+	t.Setenv(
+		envSourceSchedules,
+		`[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *"},{"schedule_id":"nightly","repository_id":"vectis","job_id":"deploy","cron_spec":"0 * * * *"}]`,
+	)
 	t.Setenv(envAPIServerSourceSchedules, "")
 
 	if _, err := SourceScheduleDeclarations(); err == nil {
 		t.Fatal("expected duplicate source schedule error")
 	}
 
-	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","unexpected":true}]`)
+	t.Setenv(
+		envSourceSchedules,
+		`[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","unexpected":true}]`,
+	)
 	if _, err := SourceScheduleDeclarations(); err == nil {
 		t.Fatal("expected unknown JSON field error")
 	}
@@ -1040,17 +1083,26 @@ func TestSourceScheduleDeclarations_RejectsInvalid(t *testing.T) {
 		t.Fatal("expected missing cron_spec error")
 	}
 
-	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","ref":"HEAD~1"}]`)
+	t.Setenv(
+		envSourceSchedules,
+		`[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","ref":"HEAD~1"}]`,
+	)
 	if _, err := SourceScheduleDeclarations(); err == nil {
 		t.Fatal("expected invalid ref error")
 	}
 
-	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","path":"../build.json"}]`)
+	t.Setenv(
+		envSourceSchedules,
+		`[{"schedule_id":"nightly","repository_id":"vectis","job_id":"build","cron_spec":"0 * * * *","path":"../build.json"}]`,
+	)
 	if _, err := SourceScheduleDeclarations(); err == nil {
 		t.Fatal("expected invalid path error")
 	}
 
-	t.Setenv(envSourceSchedules, `[{"schedule_id":"nightly","repository_id":"vectis","job_id":"team/build","cron_spec":"0 * * * *"}]`)
+	t.Setenv(
+		envSourceSchedules,
+		`[{"schedule_id":"nightly","repository_id":"vectis","job_id":"team/build","cron_spec":"0 * * * *"}]`,
+	)
 	if _, err := SourceScheduleDeclarations(); err == nil {
 		t.Fatal("expected invalid derived job path error")
 	}

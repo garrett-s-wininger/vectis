@@ -40,7 +40,15 @@ var rolePermissions = map[string][]Action{
 	RoleViewer:   {ActionJobRead, ActionRunRead},
 	RoleTrigger:  {ActionJobRead, ActionRunRead, ActionRunTrigger},
 	RoleOperator: {ActionJobRead, ActionRunRead, ActionRunTrigger, ActionRunOperator},
-	RoleAdmin:    {ActionJobRead, ActionJobWrite, ActionRunRead, ActionRunTrigger, ActionRunOperator, ActionAdmin, ActionAPI},
+	RoleAdmin: {
+		ActionJobRead,
+		ActionJobWrite,
+		ActionRunRead,
+		ActionRunTrigger,
+		ActionRunOperator,
+		ActionAdmin,
+		ActionAPI,
+	},
 }
 
 func roleAllows(role string, action Action) bool {

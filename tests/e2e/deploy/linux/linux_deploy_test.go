@@ -67,7 +67,12 @@ func TestE2ELinuxDeploySmoke(t *testing.T) {
 	}
 
 	if result.Status != "verified" {
-		t.Fatalf("deploy linux status = %q, want verified\nstdout:\n%s\nstderr:\n%s", result.Status, stdout.String(), stderr.String())
+		t.Fatalf(
+			"deploy linux status = %q, want verified\nstdout:\n%s\nstderr:\n%s",
+			result.Status,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 	if strings.TrimSpace(result.Provider) == "" {
 		t.Fatalf("deploy linux output missing provider: %+v", result)
@@ -134,10 +139,23 @@ func runCommand(ctx context.Context, name string, args ...string) (commandResult
 	result := commandResult{stdout: stdout.String(), stderr: stderr.String()}
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return result, fmt.Errorf("%s %s timed out: stdout=%q stderr=%q", name, strings.Join(args, " "), result.stdout, result.stderr)
+			return result, fmt.Errorf(
+				"%s %s timed out: stdout=%q stderr=%q",
+				name,
+				strings.Join(args, " "),
+				result.stdout,
+				result.stderr,
+			)
 		}
 
-		return result, fmt.Errorf("%s %s failed: %w\nstdout:\n%s\nstderr:\n%s", name, strings.Join(args, " "), err, result.stdout, result.stderr)
+		return result, fmt.Errorf(
+			"%s %s failed: %w\nstdout:\n%s\nstderr:\n%s",
+			name,
+			strings.Join(args, " "),
+			err,
+			result.stdout,
+			result.stderr,
+		)
 	}
 
 	return result, nil

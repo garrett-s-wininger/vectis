@@ -20,7 +20,10 @@ type recordingArtifactPublisher struct {
 	err  error
 }
 
-func (p *recordingArtifactPublisher) PublishArtifact(_ context.Context, req action.ArtifactPublishRequest) (action.ArtifactPublishResult, error) {
+func (p *recordingArtifactPublisher) PublishArtifact(
+	_ context.Context,
+	req action.ArtifactPublishRequest,
+) (action.ArtifactPublishResult, error) {
 	p.req = req
 	if req.Reader != nil {
 		data, err := io.ReadAll(req.Reader)
@@ -81,7 +84,8 @@ func TestUploadArtifactAction_ExecutePublishesWorkspaceFile(t *testing.T) {
 		t.Fatalf("expected success, got %v err=%v", result.Status, result.Error)
 	}
 
-	if publisher.req.Name != "coverage" || publisher.req.Path != "coverage/out.json" || publisher.req.ContentType != "application/json" {
+	if publisher.req.Name != "coverage" || publisher.req.Path != "coverage/out.json" ||
+		publisher.req.ContentType != "application/json" {
 		t.Fatalf("unexpected publish request: %+v", publisher.req)
 	}
 
@@ -94,7 +98,12 @@ func TestUploadArtifactAction_ExecutePublishesWorkspaceFile(t *testing.T) {
 	}
 
 	if publisher.req.ExpectedSize != int64(len(content)) || !publisher.req.RequireSize {
-		t.Fatalf("size expectation = (%d, %v), want (%d, true)", publisher.req.ExpectedSize, publisher.req.RequireSize, len(content))
+		t.Fatalf(
+			"size expectation = (%d, %v), want (%d, true)",
+			publisher.req.ExpectedSize,
+			publisher.req.RequireSize,
+			len(content),
+		)
 	}
 
 	if !bytes.Equal(publisher.data, content) {
@@ -122,7 +131,8 @@ func TestUploadArtifactAction_ExecuteRequiresPublisher(t *testing.T) {
 		"path": "coverage/out.json",
 	}, nil)
 
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "not configured") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "not configured") {
 		t.Fatalf("expected publisher configuration failure, got %+v", result)
 	}
 }
@@ -139,7 +149,8 @@ func TestUploadArtifactAction_ExecuteRejectsPathOutsideWorkspace(t *testing.T) {
 		"path": "../escape.txt",
 	}, nil)
 
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "within the workspace") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "within the workspace") {
 		t.Fatalf("expected workspace containment failure, got %+v", result)
 	}
 }
@@ -168,7 +179,8 @@ func TestUploadArtifactAction_ExecuteRejectsSymlinkOutsideWorkspace(t *testing.T
 		"path": "secret-link.txt",
 	}, nil)
 
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "within the workspace") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "within the workspace") {
 		t.Fatalf("expected symlink containment failure, got %+v", result)
 	}
 }
@@ -190,7 +202,8 @@ func TestUploadArtifactAction_ExecutePropagatesPublisherError(t *testing.T) {
 		"path": "artifact.txt",
 	}, nil)
 
-	if result.Status != action.StatusFailure || result.Error == nil || !strings.Contains(result.Error.Error(), "artifact backend unavailable") {
+	if result.Status != action.StatusFailure || result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "artifact backend unavailable") {
 		t.Fatalf("expected publisher failure, got %+v", result)
 	}
 }

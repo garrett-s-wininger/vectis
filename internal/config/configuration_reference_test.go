@@ -11,7 +11,9 @@ import (
 )
 
 func TestConfigurationReferenceMentionsDefaultKeys(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "website", "docs", "operating", "reference", "configuration-key-reference.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "website", "docs", "operating", "reference", "configuration-key-reference.md"),
+	)
 	if err != nil {
 		t.Fatalf("read configuration key reference: %v", err)
 	}

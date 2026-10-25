@@ -20,7 +20,10 @@ func MaterializeFiles(workspace string, files []FileMaterial) (MaterializationRe
 		return MaterializationResult{}, fmt.Errorf("secrets: workspace is required")
 	}
 
-	if err := secureWorkspaceRelativePath(workspace, filepath.Dir(filepath.FromSlash(WorkspaceSecretsDir))); err != nil {
+	if err := secureWorkspaceRelativePath(
+		workspace,
+		filepath.Dir(filepath.FromSlash(WorkspaceSecretsDir)),
+	); err != nil {
 		return MaterializationResult{}, err
 	}
 

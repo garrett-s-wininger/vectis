@@ -13,7 +13,11 @@ type SQLCatalogEventsRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLCatalogEventsRepository) Record(ctx context.Context, sourceCell, eventKey, eventType string, payload []byte) (CatalogEventRecord, bool, error) {
+func (r *SQLCatalogEventsRepository) Record(
+	ctx context.Context,
+	sourceCell, eventKey, eventType string,
+	payload []byte,
+) (CatalogEventRecord, bool, error) {
 	sourceCell = strings.TrimSpace(sourceCell)
 	eventKey = strings.TrimSpace(eventKey)
 	eventType = strings.TrimSpace(eventType)
@@ -58,7 +62,12 @@ func (r *SQLCatalogEventsRepository) Record(ctx context.Context, sourceCell, eve
 	}
 
 	if !created && !catalogEventRecordMatches(rec, eventType, payload) {
-		return CatalogEventRecord{}, false, fmt.Errorf("%w: catalog event %s/%s already exists with different payload", ErrConflict, sourceCell, eventKey)
+		return CatalogEventRecord{}, false, fmt.Errorf(
+			"%w: catalog event %s/%s already exists with different payload",
+			ErrConflict,
+			sourceCell,
+			eventKey,
+		)
 	}
 
 	return rec, created, nil
@@ -203,7 +212,15 @@ func (r *SQLCatalogEventsRepository) SummaryBySource(ctx context.Context) ([]Cat
 		var rec CatalogEventSourceSummary
 		var lastReceived sql.NullInt64
 		var lastApplied sql.NullInt64
-		if err := rows.Scan(&rec.SourceCell, &rec.Pending, &rec.Applied, &rec.Failed, &rec.Total, &lastReceived, &lastApplied); err != nil {
+		if err := rows.Scan(
+			&rec.SourceCell,
+			&rec.Pending,
+			&rec.Applied,
+			&rec.Failed,
+			&rec.Total,
+			&lastReceived,
+			&lastApplied,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -225,7 +242,10 @@ func (r *SQLCatalogEventsRepository) SummaryBySource(ctx context.Context) ([]Cat
 	return out, nil
 }
 
-func (r *SQLCatalogEventsRepository) getByKey(ctx context.Context, sourceCell, eventKey string) (CatalogEventRecord, error) {
+func (r *SQLCatalogEventsRepository) getByKey(
+	ctx context.Context,
+	sourceCell, eventKey string,
+) (CatalogEventRecord, error) {
 	row := r.db.QueryRowContext(ctx, rebindQueryForPgx(`
 		SELECT id, source_cell, event_key, event_type, payload_json, status, attempts, last_error, received_at, applied_at, updated_at
 		FROM cell_catalog_events

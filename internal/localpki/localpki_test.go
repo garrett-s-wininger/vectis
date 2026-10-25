@@ -113,11 +113,21 @@ func TestMaterial_ApplyParentViper_setsTLSAndServerName(t *testing.T) {
 		t.Fatal("grpc_tls.client_cert_file mismatch")
 	}
 
-	if got := viper.GetStringSlice("service_identity.queue_allowed_client_identities"); !slices.Contains(got, LocalServiceIdentity) {
+	if got := viper.GetStringSlice(
+		"service_identity.queue_allowed_client_identities",
+	); !slices.Contains(
+		got,
+		LocalServiceIdentity,
+	) {
 		t.Fatalf("service identity queue allowlist = %v, want %q", got, LocalServiceIdentity)
 	}
 
-	if got := viper.GetStringSlice("service_identity.orchestrator_allowed_client_identities"); !slices.Contains(got, LocalServiceIdentity) {
+	if got := viper.GetStringSlice(
+		"service_identity.orchestrator_allowed_client_identities",
+	); !slices.Contains(
+		got,
+		LocalServiceIdentity,
+	) {
 		t.Fatalf("service identity orchestrator allowlist = %v, want %q", got, LocalServiceIdentity)
 	}
 }

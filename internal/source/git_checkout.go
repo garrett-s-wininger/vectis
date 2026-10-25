@@ -275,7 +275,14 @@ func (g *GitCheckout) ReadNote(ctx context.Context, opts ReadNoteOptions) (GitNo
 	}
 
 	if maxBytes > 0 && int64(len(content)) > maxBytes {
-		return GitNote{}, fmt.Errorf("%w: note %s for %s has %d bytes (limit %d)", ErrTooLarge, notesRef, revision.Commit, len(content), maxBytes)
+		return GitNote{}, fmt.Errorf(
+			"%w: note %s for %s has %d bytes (limit %d)",
+			ErrTooLarge,
+			notesRef,
+			revision.Commit,
+			len(content),
+			maxBytes,
+		)
 	}
 
 	return GitNote{
@@ -339,11 +346,23 @@ func (g *GitCheckout) readFileRequest(ctx context.Context, req DefinitionFileReq
 
 			size = blobSize
 			if g.maxFileBytes > 0 && size > g.maxFileBytes {
-				return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, size, g.maxFileBytes)
+				return File{}, fmt.Errorf(
+					"%w: %s has %d bytes (limit %d)",
+					ErrTooLarge,
+					cleanPath,
+					size,
+					g.maxFileBytes,
+				)
 			}
 
 			if g.maxFileBytes > 0 && int64(len(content)) > g.maxFileBytes {
-				return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(content), g.maxFileBytes)
+				return File{}, fmt.Errorf(
+					"%w: %s has %d bytes (limit %d)",
+					ErrTooLarge,
+					cleanPath,
+					len(content),
+					g.maxFileBytes,
+				)
 			}
 
 			return File{
@@ -385,7 +404,13 @@ func (g *GitCheckout) readFileRequest(ctx context.Context, req DefinitionFileReq
 		return File{}, fmt.Errorf("%w: read %s at %s", ErrNotFound, cleanPath, commit)
 	}
 	if g.maxFileBytes > 0 && int64(len(content)) > g.maxFileBytes {
-		return File{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(content), g.maxFileBytes)
+		return File{}, fmt.Errorf(
+			"%w: %s has %d bytes (limit %d)",
+			ErrTooLarge,
+			cleanPath,
+			len(content),
+			g.maxFileBytes,
+		)
 	}
 
 	return File{
@@ -413,7 +438,13 @@ func (g *GitCheckout) readFileFromGoGit(commit, cleanPath string) (File, bool, e
 	}
 
 	if g.maxFileBytes > 0 && file.Size > g.maxFileBytes {
-		return File{}, true, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, file.Size, g.maxFileBytes)
+		return File{}, true, fmt.Errorf(
+			"%w: %s has %d bytes (limit %d)",
+			ErrTooLarge,
+			cleanPath,
+			file.Size,
+			g.maxFileBytes,
+		)
 	}
 
 	content, err := readGoGitBlob(file.Reader)
@@ -422,7 +453,13 @@ func (g *GitCheckout) readFileFromGoGit(commit, cleanPath string) (File, bool, e
 	}
 
 	if g.maxFileBytes > 0 && int64(len(content)) > g.maxFileBytes {
-		return File{}, true, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(content), g.maxFileBytes)
+		return File{}, true, fmt.Errorf(
+			"%w: %s has %d bytes (limit %d)",
+			ErrTooLarge,
+			cleanPath,
+			len(content),
+			g.maxFileBytes,
+		)
 	}
 
 	return File{
@@ -484,7 +521,13 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	}
 
 	if g.maxFileBytes > 0 && int64(len(opts.Content)) > g.maxFileBytes {
-		return FileCommit{}, fmt.Errorf("%w: %s has %d bytes (limit %d)", ErrTooLarge, cleanPath, len(opts.Content), g.maxFileBytes)
+		return FileCommit{}, fmt.Errorf(
+			"%w: %s has %d bytes (limit %d)",
+			ErrTooLarge,
+			cleanPath,
+			len(opts.Content),
+			g.maxFileBytes,
+		)
 	}
 
 	parent, err := g.resolveCommit(ctx, "refs/heads/"+branch)
@@ -498,7 +541,13 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 			return FileCommit{}, err
 		}
 		if !strings.EqualFold(expectedCommit, parent) {
-			return FileCommit{}, fmt.Errorf("%w: branch %s moved from %s to %s", ErrConflict, branch, expectedCommit, parent)
+			return FileCommit{}, fmt.Errorf(
+				"%w: branch %s moved from %s to %s",
+				ErrConflict,
+				branch,
+				expectedCommit,
+				parent,
+			)
 		}
 	}
 
@@ -519,7 +568,11 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	}
 	blobSHA := strings.TrimSpace(string(blobOut))
 	if blobSHA == "" {
-		return FileCommit{}, fmt.Errorf("%w: write blob for %s returned an empty object id", ErrInvalidReference, cleanPath)
+		return FileCommit{}, fmt.Errorf(
+			"%w: write blob for %s returned an empty object id",
+			ErrInvalidReference,
+			cleanPath,
+		)
 	}
 
 	indexFile, err := tempGitIndexFile()
@@ -533,7 +586,16 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 		return FileCommit{}, fmt.Errorf("%w: prepare index for %s: %w", ErrInvalidReference, parent, err)
 	}
 
-	if _, err := g.runWithEnv(ctx, indexEnv, "update-index", "--add", "--cacheinfo", "100644", blobSHA, cleanPath); err != nil {
+	if _, err := g.runWithEnv(
+		ctx,
+		indexEnv,
+		"update-index",
+		"--add",
+		"--cacheinfo",
+		"100644",
+		blobSHA,
+		cleanPath,
+	); err != nil {
 		return FileCommit{}, fmt.Errorf("%w: update index for %s: %w", ErrInvalidReference, cleanPath, err)
 	}
 
@@ -577,7 +639,13 @@ func (g *GitCheckout) CommitFile(ctx context.Context, opts CommitFileOptions) (F
 	}
 
 	if _, err := g.run(ctx, "update-ref", "refs/heads/"+branch, commitSHA, parent); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: branch %s moved while committing %s: %w", ErrConflict, branch, cleanPath, err)
+		return FileCommit{}, fmt.Errorf(
+			"%w: branch %s moved while committing %s: %w",
+			ErrConflict,
+			branch,
+			cleanPath,
+			err,
+		)
 	}
 
 	return FileCommit{
@@ -622,7 +690,13 @@ func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (F
 		}
 
 		if !strings.EqualFold(expectedCommit, parent) {
-			return FileCommit{}, fmt.Errorf("%w: branch %s moved from %s to %s", ErrConflict, branch, expectedCommit, parent)
+			return FileCommit{}, fmt.Errorf(
+				"%w: branch %s moved from %s to %s",
+				ErrConflict,
+				branch,
+				expectedCommit,
+				parent,
+			)
 		}
 	}
 
@@ -684,7 +758,13 @@ func (g *GitCheckout) DeleteFile(ctx context.Context, opts DeleteFileOptions) (F
 	}
 
 	if _, err := g.run(ctx, "update-ref", "refs/heads/"+branch, commitSHA, parent); err != nil {
-		return FileCommit{}, fmt.Errorf("%w: branch %s moved while deleting %s: %w", ErrConflict, branch, cleanPath, err)
+		return FileCommit{}, fmt.Errorf(
+			"%w: branch %s moved while deleting %s: %w",
+			ErrConflict,
+			branch,
+			cleanPath,
+			err,
+		)
 	}
 
 	return FileCommit{
@@ -785,7 +865,14 @@ func (g *GitCheckout) ListTree(ctx context.Context, opts ListTreeOptions) (TreeL
 		limit = DefaultTreeListLimit
 	}
 
-	entries, truncated, nextCursor, err := g.listTreeEntries(ctx, revision.Commit, cleanPath, opts.Recursive, limit, cursor)
+	entries, truncated, nextCursor, err := g.listTreeEntries(
+		ctx,
+		revision.Commit,
+		cleanPath,
+		opts.Recursive,
+		limit,
+		cursor,
+	)
 	if err != nil {
 		return TreeListing{}, err
 	}
@@ -801,7 +888,10 @@ func (g *GitCheckout) ListTree(ctx context.Context, opts ListTreeOptions) (TreeL
 	}, nil
 }
 
-func (g *GitCheckout) ListDefinitionFiles(ctx context.Context, opts ListDefinitionFilesOptions) (DefinitionFileListing, error) {
+func (g *GitCheckout) ListDefinitionFiles(
+	ctx context.Context,
+	opts ListDefinitionFilesOptions,
+) (DefinitionFileListing, error) {
 	if err := g.validateCheckout(); err != nil {
 		return DefinitionFileListing{}, err
 	}
@@ -874,7 +964,12 @@ type branchRefScope struct {
 	remote  string
 }
 
-func (g *GitCheckout) listBranchScope(ctx context.Context, scope branchRefScope, prefix string, limit int) ([]BranchRef, error) {
+func (g *GitCheckout) listBranchScope(
+	ctx context.Context,
+	scope branchRefScope,
+	prefix string,
+	limit int,
+) ([]BranchRef, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -884,7 +979,13 @@ func (g *GitCheckout) listBranchScope(ctx context.Context, scope branchRefScope,
 		pattern += "/" + prefix + "*"
 	}
 
-	out, err := g.run(ctx, "for-each-ref", "--format=%(refname)%00%(objectname)", "--count="+strconv.Itoa(limit), pattern)
+	out, err := g.run(
+		ctx,
+		"for-each-ref",
+		"--format=%(refname)%00%(objectname)",
+		"--count="+strconv.Itoa(limit),
+		pattern,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("%w: list branches: %w", ErrInvalidReference, err)
 	}
@@ -919,7 +1020,13 @@ func (g *GitCheckout) listBranchScope(ctx context.Context, scope branchRefScope,
 	return branches, nil
 }
 
-func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath string, recursive bool, limit int, cursor string) ([]TreeEntry, bool, string, error) {
+func (g *GitCheckout) listTreeEntries(
+	ctx context.Context,
+	commit, treePath string,
+	recursive bool,
+	limit int,
+	cursor string,
+) ([]TreeEntry, bool, string, error) {
 	if limit <= 0 {
 		return nil, false, "", nil
 	}
@@ -973,7 +1080,12 @@ func (g *GitCheckout) listTreeEntries(ctx context.Context, commit, treePath stri
 	return entries, truncated, nextCursor, nil
 }
 
-func (g *GitCheckout) listDefinitionFileEntries(ctx context.Context, commit, treePath string, limit int, cursor string) ([]DefinitionFile, bool, string, error) {
+func (g *GitCheckout) listDefinitionFileEntries(
+	ctx context.Context,
+	commit, treePath string,
+	limit int,
+	cursor string,
+) ([]DefinitionFile, bool, string, error) {
 	if limit <= 0 {
 		return nil, false, "", nil
 	}
@@ -1063,7 +1175,11 @@ func (g *GitCheckout) lookupFileBlob(ctx context.Context, commit, filePath strin
 	return "", 0, fmt.Errorf("%w: %s at %s", ErrNotFound, filePath, commit)
 }
 
-func (g *GitCheckout) resolveReadRevision(ctx context.Context, ref string, revision Revision) (string, Revision, error) {
+func (g *GitCheckout) resolveReadRevision(
+	ctx context.Context,
+	ref string,
+	revision Revision,
+) (string, Revision, error) {
 	if revision.Valid() {
 		commit, err := normalizeCommit(revision.Commit)
 		if err != nil {
@@ -1089,7 +1205,11 @@ func (g *GitCheckout) resolveReadRevision(ctx context.Context, ref string, revis
 	}
 
 	if commit == "" {
-		return "", Revision{}, fmt.Errorf("%w: revision %q resolved to an empty commit", ErrInvalidReference, normalized)
+		return "", Revision{}, fmt.Errorf(
+			"%w: revision %q resolved to an empty commit",
+			ErrInvalidReference,
+			normalized,
+		)
 	}
 
 	return normalized, Revision{Commit: commit}, nil
@@ -1490,7 +1610,13 @@ func parseTreeEntryRecord(record []byte, treePath string) (TreeEntry, bool, erro
 
 type gitRunner interface {
 	RunGit(ctx context.Context, checkoutPath string, args ...string) ([]byte, error)
-	RunGitWithInputEnv(ctx context.Context, checkoutPath string, input []byte, env []string, args ...string) ([]byte, error)
+	RunGitWithInputEnv(
+		ctx context.Context,
+		checkoutPath string,
+		input []byte,
+		env []string,
+		args ...string,
+	) ([]byte, error)
 	StreamGitRecords(ctx context.Context, checkoutPath string, args []string, handle func([]byte) error) error
 }
 
@@ -1500,9 +1626,18 @@ func (execGitRunner) RunGit(ctx context.Context, checkoutPath string, args ...st
 	return (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, nil, args...)
 }
 
-func (execGitRunner) RunGitWithInputEnv(ctx context.Context, checkoutPath string, input []byte, env []string, args ...string) ([]byte, error) {
+func (execGitRunner) RunGitWithInputEnv(
+	ctx context.Context,
+	checkoutPath string,
+	input []byte,
+	env []string,
+	args ...string,
+) ([]byte, error) {
 	gitArgs := append([]string{"-C", checkoutPath}, args...)
-	cmd := exec.CommandContext(ctx, "git", gitArgs...) // #nosec G204 -- Git arguments are assembled by source-control helpers after ref/path normalization.
+	cmd := exec.CommandContext(
+		ctx,
+		"git",
+		gitArgs...) // #nosec G204 -- Git arguments are assembled by source-control helpers after ref/path normalization.
 
 	if len(input) > 0 {
 		cmd.Stdin = bytes.NewReader(input)
@@ -1545,9 +1680,17 @@ func tempGitIndexFile() (string, error) {
 
 var errStopGitStream = errors.New("stop git stream")
 
-func (execGitRunner) StreamGitRecords(ctx context.Context, checkoutPath string, args []string, handle func([]byte) error) error {
+func (execGitRunner) StreamGitRecords(
+	ctx context.Context,
+	checkoutPath string,
+	args []string,
+	handle func([]byte) error,
+) error {
 	gitArgs := append([]string{"-C", checkoutPath}, args...)
-	cmd := exec.CommandContext(ctx, "git", gitArgs...) // #nosec G204 -- Git arguments are assembled by source-control helpers after ref/path normalization.
+	cmd := exec.CommandContext(
+		ctx,
+		"git",
+		gitArgs...) // #nosec G204 -- Git arguments are assembled by source-control helpers after ref/path normalization.
 	cmd.Env = gitCommandEnv(nil)
 
 	stdout, err := cmd.StdoutPipe()

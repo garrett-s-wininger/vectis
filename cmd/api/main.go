@@ -34,9 +34,12 @@ import (
 
 func buildAccessLogger(format string) (*slog.Logger, func() error) {
 	if strings.EqualFold(format, "json") {
-		handler := observability.NewAsyncSlogHandler(slog.NewJSONHandler(interfaces.NewLogOutput("api-access"), &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}), 0)
+		handler := observability.NewAsyncSlogHandler(
+			slog.NewJSONHandler(interfaces.NewLogOutput("api-access"), &slog.HandlerOptions{
+				Level: slog.LevelInfo,
+			}),
+			0,
+		)
 
 		return slog.New(handler), handler.Close
 	}
@@ -49,7 +52,9 @@ func warnIfProcessLocalAPICache(logger interfaces.Logger, backend string, authEn
 		return
 	}
 
-	logger.Warn("API auth is enabled with api.cache.backend=memory; login sessions and rate-limit buckets are process-local and will not be shared across API replicas")
+	logger.Warn(
+		"API auth is enabled with api.cache.backend=memory; login sessions and rate-limit buckets are process-local and will not be shared across API replicas",
+	)
 }
 
 func warnIfPublicUnauthenticatedAPI(logger interfaces.Logger, host string, authEnabled bool) {
@@ -57,7 +62,10 @@ func warnIfPublicUnauthenticatedAPI(logger interfaces.Logger, host string, authE
 		return
 	}
 
-	logger.Warn("API auth is disabled while api.host=%q may accept non-loopback connections; this exposes the Vectis control plane on any reachable network", host)
+	logger.Warn(
+		"API auth is disabled while api.host=%q may accept non-loopback connections; this exposes the Vectis control plane on any reachable network",
+		host,
+	)
 }
 
 func apiHostAllowsNonLoopback(host string) bool {
@@ -275,7 +283,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	}
 	defer sourceSyncCancel()
 
-	if err := syncConfiguredSourceRepositoriesWithStatus(sourceSyncCtx, sourceRepos, logger, sourceSyncStatus, sourceSyncMetrics); err != nil {
+	if err := syncConfiguredSourceRepositoriesWithStatus(
+		sourceSyncCtx,
+		sourceRepos,
+		logger,
+		sourceSyncStatus,
+		sourceSyncMetrics,
+	); err != nil {
 		logger.Error("Failed to sync configured source repositories: %v", err)
 		exitCode = 1
 		return
@@ -283,7 +297,13 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 	sourcePeriodicSyncCtx, sourcePeriodicSyncCancel := context.WithCancel(cmd.Context())
 	defer sourcePeriodicSyncCancel()
-	startConfiguredSourceRepositoryPeriodicSyncWithStatus(sourcePeriodicSyncCtx, sourceRepos, logger, sourceSyncStatus, sourceSyncMetrics)
+	startConfiguredSourceRepositoryPeriodicSyncWithStatus(
+		sourcePeriodicSyncCtx,
+		sourceRepos,
+		logger,
+		sourceSyncStatus,
+		sourceSyncMetrics,
+	)
 
 	shutdownTracer, err := observability.InitTracer(cmd.Context(), "vectis-api")
 	if err != nil {
@@ -335,7 +355,9 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 				return
 			}
 
-			if _, err := dal.NewSQLRepositories(db).Auth().EnsureAuthProvider(cmd.Context(), ldapConfig.ProviderID, ldapauth.ProviderKind); err != nil {
+			if _, err := dal.NewSQLRepositories(db).
+				Auth().
+				EnsureAuthProvider(cmd.Context(), ldapConfig.ProviderID, ldapauth.ProviderKind); err != nil {
 				logger.Error("Failed to register LDAP auth provider: %v", err)
 				exitCode = 1
 				return
@@ -349,7 +371,14 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 
 			server.SetExternalLoginAutoProvision(ldapConfig.AutoCreateUsers)
 			server.SetExternalLoginAutoLinkUsers(ldapConfig.AutoLinkUsers)
-			logger.Info("LDAP login provider enabled provider_id=%s url=%s base_dn=%s auto_link_users=%t auto_create_users=%t", ldapConfig.ProviderID, ldapConfig.URL, ldapConfig.BaseDN, ldapConfig.AutoLinkUsers, ldapConfig.AutoCreateUsers)
+			logger.Info(
+				"LDAP login provider enabled provider_id=%s url=%s base_dn=%s auto_link_users=%t auto_create_users=%t",
+				ldapConfig.ProviderID,
+				ldapConfig.URL,
+				ldapConfig.BaseDN,
+				ldapConfig.AutoLinkUsers,
+				ldapConfig.AutoCreateUsers,
+			)
 		}
 	}
 
@@ -372,7 +401,11 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 		Overrides: auditOverrides,
 	}
 
-	auditor := audit.NewAsyncAuditorWithMetrics(&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()}, slog.Default(), auditMetrics)
+	auditor := audit.NewAsyncAuditorWithMetrics(
+		&audit.DALRepository{Auth: dal.NewSQLRepositories(db).Auth()},
+		slog.Default(),
+		auditMetrics,
+	)
 	defer auditor.Stop()
 	server.SetAuditor(auditor)
 	server.SetAuditPolicy(auditPolicy)
@@ -387,7 +420,15 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	server.SetSourceRefHydrator(configuredSourceRepositoryRefHydratorWithCredentialResolver(sourceCredentialResolver))
 
 	logger.Info("Establishing orchestrator read client connection...")
-	orchestratorDial, stopOrchestrator, err := resolver.DialOrchestratorWithOwner(cmd.Context(), logger, config.PinnedOrchestratorAddress(), config.APIRegistryDialAddress(), config.CellID(), "api:"+config.CellID(), retryMetrics)
+	orchestratorDial, stopOrchestrator, err := resolver.DialOrchestratorWithOwner(
+		cmd.Context(),
+		logger,
+		config.PinnedOrchestratorAddress(),
+		config.APIRegistryDialAddress(),
+		config.CellID(),
+		"api:"+config.CellID(),
+		retryMetrics,
+	)
 	if err != nil {
 		logger.Error("Failed to connect to orchestrator: %v", err)
 		exitCode = 1
@@ -397,16 +438,22 @@ func runVectisAPI(cmd *cobra.Command, args []string) {
 	defer stopOrchestrator()
 	orchestratorClient := apigen.NewOrchestratorServiceClient(orchestratorDial.Conn)
 	server.SetOrchestratorClient(orchestratorClient)
-	orchestratorOwnerClients := resolver.NewOrchestratorOwnerClientResolver(logger, config.APIRegistryDialAddress(), retryMetrics)
+	orchestratorOwnerClients := resolver.NewOrchestratorOwnerClientResolver(
+		logger,
+		config.APIRegistryDialAddress(),
+		retryMetrics,
+	)
 	defer func() { _ = orchestratorOwnerClients.Close() }()
 
-	server.SetOrchestratorOwnerClientResolver(func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
-		if owner.OwnerID == orchestratorDial.OwnerID {
-			return orchestratorClient, true, nil
-		}
+	server.SetOrchestratorOwnerClientResolver(
+		func(ctx context.Context, owner dal.RunHotStateOwnerRecord) (apigen.OrchestratorServiceClient, bool, error) {
+			if owner.OwnerID == orchestratorDial.OwnerID {
+				return orchestratorClient, true, nil
+			}
 
-		return orchestratorOwnerClients.Client(ctx, owner.OwnerID, owner.CellID, owner.RunID)
-	})
+			return orchestratorOwnerClients.Client(ctx, owner.OwnerID, owner.CellID, owner.RunID)
+		},
+	)
 
 	logger.Info("Orchestrator read client ready")
 
@@ -490,10 +537,14 @@ func init() {
 	cli.ConfigureVersion(rootCmd)
 	rootCmd.PersistentFlags().String("host", config.APIHost(), "Host/IP for the API server to bind")
 	rootCmd.PersistentFlags().Int("port", config.APIPort(), "Port for the API server")
-	rootCmd.PersistentFlags().StringSlice("cell-ingress-endpoint", config.APICellIngressEndpointSpecs(), "Cell ingress route in cell_id=url form; may be repeated")
-	rootCmd.PersistentFlags().String("tls-cert-file", config.APIHTTPSCertFile(), "Certificate file for browser-facing HTTPS")
-	rootCmd.PersistentFlags().String("tls-key-file", config.APIHTTPSKeyFile(), "Private key file for browser-facing HTTPS")
-	rootCmd.PersistentFlags().Duration("tls-reload-interval", config.APIHTTPSReloadInterval(), "How often to poll API HTTPS cert/key files for reload; 0 disables polling")
+	rootCmd.PersistentFlags().
+		StringSlice("cell-ingress-endpoint", config.APICellIngressEndpointSpecs(), "Cell ingress route in cell_id=url form; may be repeated")
+	rootCmd.PersistentFlags().
+		String("tls-cert-file", config.APIHTTPSCertFile(), "Certificate file for browser-facing HTTPS")
+	rootCmd.PersistentFlags().
+		String("tls-key-file", config.APIHTTPSKeyFile(), "Private key file for browser-facing HTTPS")
+	rootCmd.PersistentFlags().
+		Duration("tls-reload-interval", config.APIHTTPSReloadInterval(), "How often to poll API HTTPS cert/key files for reload; 0 disables polling")
 	encryptedfs.AddConfigFlags(rootCmd.PersistentFlags())
 	ldapauth.AddConfigFlags(rootCmd.PersistentFlags())
 	_ = viper.BindPFlag("host", rootCmd.PersistentFlags().Lookup("host"))
@@ -504,7 +555,11 @@ func init() {
 	_ = viper.BindPFlag("api.tls.reload_interval", rootCmd.PersistentFlags().Lookup("tls-reload-interval"))
 	mustBindAuthProviderConfig(encryptedfs.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
 	mustBindAuthProviderConfig(ldapauth.BindConfig(viper.GetViper(), rootCmd.PersistentFlags()))
-	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+	_ = viper.BindEnv(
+		"cell_ingress_endpoints",
+		"VECTIS_API_SERVER_CELL_INGRESS_ENDPOINTS",
+		"VECTIS_CELL_INGRESS_ENDPOINTS",
+	)
 
 	viper.SetEnvPrefix("VECTIS_API_SERVER")
 	viper.AutomaticEnv()

@@ -60,7 +60,8 @@ func TestPublisherPublishCreatesInvocationForMatchingSubscription(t *testing.T) 
 		t.Fatalf("event: %+v", publication.Event)
 	}
 
-	if len(publication.Matches) != 2 || publication.Matches[0].Subscription.SubscriptionID != subscription.SubscriptionID {
+	if len(publication.Matches) != 2 ||
+		publication.Matches[0].Subscription.SubscriptionID != subscription.SubscriptionID {
 		t.Fatalf("matches: %+v", publication.Matches)
 	}
 
@@ -69,7 +70,8 @@ func TestPublisherPublishCreatesInvocationForMatchingSubscription(t *testing.T) 
 	}
 
 	invocation := publication.Invocations[0]
-	if invocation.ActionUses != dal.ReactionActionNotifyLocal || string(invocation.TargetConfigJSON) != string(target.ConfigJSON) {
+	if invocation.ActionUses != dal.ReactionActionNotifyLocal ||
+		string(invocation.TargetConfigJSON) != string(target.ConfigJSON) {
 		t.Fatalf("invocation: %+v", invocation)
 	}
 
@@ -82,7 +84,8 @@ func TestPublisherPublishCreatesInvocationForMatchingSubscription(t *testing.T) 
 		t.Fatalf("decode action descriptor: %v", err)
 	}
 
-	if descriptor.CanonicalName != dal.ReactionActionNotifyLocal || descriptor.SubscriptionID != subscription.SubscriptionID {
+	if descriptor.CanonicalName != dal.ReactionActionNotifyLocal ||
+		descriptor.SubscriptionID != subscription.SubscriptionID {
 		t.Fatalf("descriptor: %+v", descriptor)
 	}
 

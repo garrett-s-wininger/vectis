@@ -38,7 +38,14 @@ func NewReaderForArtifact(ctx context.Context, rec dal.ArtifactRecord, opts Read
 	}
 
 	logger := artifactRouteLogger(opts.Logger)
-	conn, cleanup, err := resolver.NewClientWithPinnedAddress(ctx, api.Component_COMPONENT_ARTIFACT, endpoint.Address, logger, nil, opts.RetryMetrics)
+	conn, cleanup, err := resolver.NewClientWithPinnedAddress(
+		ctx,
+		api.Component_COMPONENT_ARTIFACT,
+		endpoint.Address,
+		logger,
+		nil,
+		opts.RetryMetrics,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +156,13 @@ func resolveArtifactReadEndpoint(ctx context.Context, shardID string, opts Reade
 	reg := opts.Registry
 	if reg == nil {
 		var err error
-		reg, err = resolver.NewRegistryClient(ctx, opts.RegistryAddress, artifactRouteLogger(opts.Logger), nil, opts.RetryMetrics)
+		reg, err = resolver.NewRegistryClient(
+			ctx,
+			opts.RegistryAddress,
+			artifactRouteLogger(opts.Logger),
+			nil,
+			opts.RetryMetrics,
+		)
 		if err != nil {
 			return ArtifactEndpoint{}, fmt.Errorf("artifact registry client: %w", err)
 		}

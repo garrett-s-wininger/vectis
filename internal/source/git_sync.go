@@ -91,7 +91,14 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 				return checkoutStatus
 			}
 
-			if err := materializeManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs, defaultRef); err != nil {
+			if err := materializeManagedGitCheckout(
+				ctx,
+				checkoutPath,
+				req.RemoteURL,
+				credentialEnv,
+				fallbackRemoteURLs,
+				defaultRef,
+			); err != nil {
 				checkoutStatus.ErrorCode = ""
 				checkoutStatus.ErrorMessage = ""
 				checkoutStatus.setError("git_clone_failed", err.Error())
@@ -113,7 +120,14 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 			}
 		}
 	case os.IsNotExist(err):
-		if err := materializeManagedGitCheckout(ctx, checkoutPath, req.RemoteURL, credentialEnv, fallbackRemoteURLs, defaultRef); err != nil {
+		if err := materializeManagedGitCheckout(
+			ctx,
+			checkoutPath,
+			req.RemoteURL,
+			credentialEnv,
+			fallbackRemoteURLs,
+			defaultRef,
+		); err != nil {
 			status.setError("git_clone_failed", err.Error())
 			return status
 		}
@@ -130,7 +144,8 @@ func SyncManagedGitCheckout(ctx context.Context, req ManagedGitCheckoutRequest) 
 	}
 
 	finalStatus := NewManagedGitCheckout(checkoutPath).Status(ctx, defaultRef)
-	if finalStatus.ErrorCode == "default_ref_not_found" && fetchManagedGitMissingDefaultRef(ctx, checkoutPath, defaultRef, credentialEnv) == nil {
+	if finalStatus.ErrorCode == "default_ref_not_found" &&
+		fetchManagedGitMissingDefaultRef(ctx, checkoutPath, defaultRef, credentialEnv) == nil {
 		finalStatus = NewManagedGitCheckout(checkoutPath).Status(ctx, defaultRef)
 	}
 
@@ -218,7 +233,13 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 	}
 
 	if len(auxiliaryRefs) > 0 {
-		hydratedAuxiliaryRefs, err := fetchManagedGitAuxiliaryRefs(ctx, checkoutPath, credentialEnv, auxiliaryRefs, hydrationRemote)
+		hydratedAuxiliaryRefs, err := fetchManagedGitAuxiliaryRefs(
+			ctx,
+			checkoutPath,
+			credentialEnv,
+			auxiliaryRefs,
+			hydrationRemote,
+		)
 		if err != nil {
 			checkoutStatus.DefaultRef = ref
 			if strings.TrimSpace(checkoutStatus.ErrorCode) == "" {
@@ -243,7 +264,9 @@ func HydrateManagedGitRef(ctx context.Context, req ManagedGitRefHydrationRequest
 }
 
 func NewManagedGitCheckout(checkoutPath string, opts ...GitCheckoutOption) *GitCheckout {
-	return NewGitCheckout(checkoutPath, append([]GitCheckoutOption{WithRemoteFallback("origin"), withManagedWriterLock()}, opts...)...)
+	return NewGitCheckout(
+		checkoutPath,
+		append([]GitCheckoutOption{WithRemoteFallback("origin"), withManagedWriterLock()}, opts...)...)
 }
 
 func managedGitCredentialEnvironment(creds GitCredentials) ([]string, func(), error) {
@@ -258,7 +281,13 @@ func managedGitCheckoutIsLocalOnly(remoteURL string, fallbackRemoteURLs []string
 	return strings.TrimSpace(remoteURL) == "" && len(fallbackRemoteURLs) == 0
 }
 
-func materializeManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string, env []string, fallbackRemoteURLs []string, defaultRef string) error {
+func materializeManagedGitCheckout(
+	ctx context.Context,
+	checkoutPath, remoteURL string,
+	env []string,
+	fallbackRemoteURLs []string,
+	defaultRef string,
+) error {
 	if managedGitCheckoutIsLocalOnly(remoteURL, fallbackRemoteURLs) {
 		return initLocalManagedGitCheckout(ctx, checkoutPath, defaultRef)
 	}
@@ -300,7 +329,12 @@ func initLocalManagedGitCheckout(ctx context.Context, checkoutPath, defaultRef s
 	return nil
 }
 
-func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string, env []string, fallbackRemoteURLs []string) error {
+func cloneManagedGitCheckout(
+	ctx context.Context,
+	checkoutPath, remoteURL string,
+	env []string,
+	fallbackRemoteURLs []string,
+) error {
 	remoteURL, err := normalizeGitRemoteURL(remoteURL)
 	if err != nil {
 		return err
@@ -310,7 +344,18 @@ func cloneManagedGitCheckout(ctx context.Context, checkoutPath, remoteURL string
 		return fmt.Errorf("create checkout parent: %w", err)
 	}
 
-	if _, err := runGitCommandWithEnv(ctx, env, managedGitCommandArgs("clone", "--filter=blob:none", "--no-checkout", "--no-tags", "--", remoteURL, checkoutPath)...); err != nil {
+	if _, err := runGitCommandWithEnv(
+		ctx,
+		env,
+		managedGitCommandArgs(
+			"clone",
+			"--filter=blob:none",
+			"--no-checkout",
+			"--no-tags",
+			"--",
+			remoteURL,
+			checkoutPath,
+		)...); err != nil {
 		return err
 	}
 
@@ -334,7 +379,12 @@ func fetchManagedGitCheckout(ctx context.Context, checkoutPath string, env []str
 		return nil
 	}
 
-	_, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--prune", "--no-tags", "--no-auto-gc", "origin")...)
+	_, err := (execGitRunner{}).RunGitWithInputEnv(
+		ctx,
+		checkoutPath,
+		nil,
+		env,
+		managedGitCommandArgs("fetch", "--filter=blob:none", "--prune", "--no-tags", "--no-auto-gc", "origin")...)
 	return err
 }
 
@@ -369,7 +419,14 @@ func managedGitOriginHEADBranch(ctx context.Context, checkoutPath string) (strin
 	if target, ok := managedGitSymbolicRefTarget(checkoutPath, "refs/remotes/origin/HEAD"); ok {
 		branch = strings.TrimSpace(strings.TrimPrefix(target, "refs/remotes/origin/"))
 	} else {
-		out, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+		out, err := (execGitRunner{}).RunGit(
+			ctx,
+			checkoutPath,
+			"symbolic-ref",
+			"--quiet",
+			"--short",
+			"refs/remotes/origin/HEAD",
+		)
 		if err != nil {
 			return "", false
 		}
@@ -415,7 +472,12 @@ func fetchManagedGitMissingDefaultRef(ctx context.Context, checkoutPath, default
 	return err
 }
 
-func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, ref, preferredRemote string) (string, error) {
+func fetchManagedGitRef(
+	ctx context.Context,
+	checkoutPath string,
+	env []string,
+	ref, preferredRemote string,
+) (string, error) {
 	ref, err := normalizeRef(ref)
 	if err != nil {
 		return "", err
@@ -436,7 +498,19 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	var hydrationRemote string
 	allFetchErrorsMissing := true
 	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath, preferredRemote) {
-		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
+		if _, err := (execGitRunner{}).RunGitWithInputEnv(
+			ctx,
+			checkoutPath,
+			nil,
+			env,
+			managedGitCommandArgs(
+				"fetch",
+				"--filter=blob:none",
+				"--no-tags",
+				"--no-auto-gc",
+				remote,
+				refspec,
+			)...); err != nil {
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
 			if !managedGitFetchErrorIsMissingRef(err) {
 				allFetchErrorsMissing = false
@@ -451,7 +525,11 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	}
 
 	if len(fetchErrors) > 0 {
-		err := fmt.Errorf("fetch managed ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
+		err := fmt.Errorf(
+			"fetch managed ref %q failed from all candidate remotes: %s",
+			ref,
+			strings.Join(fetchErrors, "; "),
+		)
 		if allFetchErrorsMissing {
 			return "", fmt.Errorf("%w: %v", ErrNotFound, err)
 		}
@@ -489,7 +567,13 @@ func fetchManagedGitRef(ctx context.Context, checkoutPath string, env []string, 
 	return hydrationRemote, nil
 }
 
-func fetchManagedGitAuxiliaryRefs(ctx context.Context, checkoutPath string, env []string, refs []string, preferredRemote string) ([]string, error) {
+func fetchManagedGitAuxiliaryRefs(
+	ctx context.Context,
+	checkoutPath string,
+	env []string,
+	refs []string,
+	preferredRemote string,
+) ([]string, error) {
 	if len(refs) == 0 {
 		return nil, nil
 	}
@@ -506,7 +590,12 @@ func fetchManagedGitAuxiliaryRefs(ctx context.Context, checkoutPath string, env 
 	return hydratedRefs, nil
 }
 
-func fetchManagedGitAuxiliaryRef(ctx context.Context, checkoutPath string, env []string, ref, preferredRemote string) (string, error) {
+func fetchManagedGitAuxiliaryRef(
+	ctx context.Context,
+	checkoutPath string,
+	env []string,
+	ref, preferredRemote string,
+) (string, error) {
 	sourceRef, destRef, ok := managedGitAuxiliaryFetchRefspec(ref)
 	if !ok {
 		return "", fmt.Errorf("%w: managed auxiliary ref %q is not supported", ErrInvalidReference, ref)
@@ -522,7 +611,19 @@ func fetchManagedGitAuxiliaryRef(ctx context.Context, checkoutPath string, env [
 	var hydrationRemote string
 	allFetchErrorsMissing := true
 	for _, remote := range managedGitFetchRemotes(ctx, checkoutPath, preferredRemote) {
-		if _, err := (execGitRunner{}).RunGitWithInputEnv(ctx, checkoutPath, nil, env, managedGitCommandArgs("fetch", "--filter=blob:none", "--no-tags", "--no-auto-gc", remote, refspec)...); err != nil {
+		if _, err := (execGitRunner{}).RunGitWithInputEnv(
+			ctx,
+			checkoutPath,
+			nil,
+			env,
+			managedGitCommandArgs(
+				"fetch",
+				"--filter=blob:none",
+				"--no-tags",
+				"--no-auto-gc",
+				remote,
+				refspec,
+			)...); err != nil {
 			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", remote, err))
 			if !managedGitFetchErrorIsMissingRef(err) {
 				allFetchErrorsMissing = false
@@ -537,7 +638,11 @@ func fetchManagedGitAuxiliaryRef(ctx context.Context, checkoutPath string, env [
 	}
 
 	if len(fetchErrors) > 0 {
-		err := fmt.Errorf("fetch managed auxiliary ref %q failed from all candidate remotes: %s", ref, strings.Join(fetchErrors, "; "))
+		err := fmt.Errorf(
+			"fetch managed auxiliary ref %q failed from all candidate remotes: %s",
+			ref,
+			strings.Join(fetchErrors, "; "),
+		)
 		if allFetchErrorsMissing {
 			return "", fmt.Errorf("%w: %v", ErrNotFound, err)
 		}
@@ -547,12 +652,21 @@ func fetchManagedGitAuxiliaryRef(ctx context.Context, checkoutPath string, env [
 
 	commitOut, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "rev-parse", "--verify", candidateRef+"^{commit}")
 	if err != nil {
-		return "", fmt.Errorf("%w: auxiliary candidate ref %s did not resolve to a commit: %v", ErrNotFound, candidateRef, err)
+		return "", fmt.Errorf(
+			"%w: auxiliary candidate ref %s did not resolve to a commit: %v",
+			ErrNotFound,
+			candidateRef,
+			err,
+		)
 	}
 
 	commitID := strings.TrimSpace(string(commitOut))
 	if commitID == "" {
-		return "", fmt.Errorf("%w: auxiliary candidate ref %s resolved to an empty commit", ErrInvalidReference, candidateRef)
+		return "", fmt.Errorf(
+			"%w: auxiliary candidate ref %s resolved to an empty commit",
+			ErrInvalidReference,
+			candidateRef,
+		)
 	}
 
 	if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "update-ref", destRef, commitID); err != nil {
@@ -906,7 +1020,14 @@ func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef st
 		if target, ok := managedGitSymbolicRefTarget(checkoutPath, "refs/remotes/origin/HEAD"); ok {
 			branch = strings.TrimSpace(strings.TrimPrefix(target, "refs/remotes/origin/"))
 		} else {
-			out, ok := managedGitCommandOutput(ctx, checkoutPath, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+			out, ok := managedGitCommandOutput(
+				ctx,
+				checkoutPath,
+				"symbolic-ref",
+				"--quiet",
+				"--short",
+				"refs/remotes/origin/HEAD",
+			)
 			if !ok {
 				return nil
 			}
@@ -940,7 +1061,13 @@ func alignManagedGitCheckoutRef(ctx context.Context, checkoutPath, defaultRef st
 	}
 
 	if ref == "HEAD" {
-		if _, err := (execGitRunner{}).RunGit(ctx, checkoutPath, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {
+		if _, err := (execGitRunner{}).RunGit(
+			ctx,
+			checkoutPath,
+			"symbolic-ref",
+			"HEAD",
+			"refs/heads/"+branch,
+		); err != nil {
 			return fmt.Errorf("set HEAD to %s: %w", branch, err)
 		}
 	}

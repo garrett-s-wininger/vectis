@@ -88,7 +88,11 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 	if persistenceDir == "" {
 		logger.Info("Queue persistence disabled")
 	} else {
-		logger.Info("Using queue persistence directory: %s (snapshot every %d mutations)", persistenceDir, snapshotEvery)
+		logger.Info(
+			"Using queue persistence directory: %s (snapshot every %d mutations)",
+			persistenceDir,
+			snapshotEvery,
+		)
 	}
 
 	queueMetrics, err := observability.NewQueueMetrics()
@@ -143,7 +147,14 @@ func runVectisQueue(cmd *cobra.Command, args []string) {
 		logger.Info("Skipping registry registration (queue.register_with_registry is false)")
 	}
 
-	if err := cli.ServeGRPC(cmd.Context(), grpcServer, ln, "Queue", logger, cli.WithGRPCHealthServer(healthServer, "queue")); err != nil {
+	if err := cli.ServeGRPC(
+		cmd.Context(),
+		grpcServer,
+		ln,
+		"Queue",
+		logger,
+		cli.WithGRPCHealthServer(healthServer, "queue"),
+	); err != nil {
 		logger.Error("gRPC server failed: %v", err)
 	}
 }
@@ -209,7 +220,13 @@ func defaultQueueInstanceIDForHost(hostname string, port int) string {
 }
 
 func defaultQueuePersistenceDir(pool, instanceID string) string {
-	return filepath.Join(platform.DataHome(), "vectis", "queue", sanitizeQueuePathComponent(pool), sanitizeQueuePathComponent(instanceID))
+	return filepath.Join(
+		platform.DataHome(),
+		"vectis",
+		"queue",
+		sanitizeQueuePathComponent(pool),
+		sanitizeQueuePathComponent(instanceID),
+	)
 }
 
 func sanitizeQueuePathComponent(value string) string {
@@ -255,12 +272,16 @@ func init() {
 	viper.SetDefault("persistence_snapshot_every", 128)
 
 	rootCmd.PersistentFlags().Int("port", config.QueuePort(), "Port for the queue")
-	rootCmd.PersistentFlags().String("metrics-host", config.QueueMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
+	rootCmd.PersistentFlags().
+		String("metrics-host", config.QueueMetricsHost(), "Host/IP for the Prometheus /metrics HTTP server to bind")
 	rootCmd.PersistentFlags().Int("metrics-port", config.QueueMetricsPort(), "HTTP port for Prometheus /metrics")
-	rootCmd.PersistentFlags().String("pool", defaultQueuePool, "Queue pool name used for default local persistence grouping")
+	rootCmd.PersistentFlags().
+		String("pool", defaultQueuePool, "Queue pool name used for default local persistence grouping")
 	rootCmd.PersistentFlags().String("instance-id", "", "Stable queue instance ID for registry and delivery routing")
-	rootCmd.PersistentFlags().String("persistence-dir", "", "Directory for queue WAL/snapshot persistence (default: $XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>; empty disables)")
-	rootCmd.PersistentFlags().Int("persistence-snapshot-every", 128, "Persisted queue snapshot interval in queue mutations")
+	rootCmd.PersistentFlags().
+		String("persistence-dir", "", "Directory for queue WAL/snapshot persistence (default: $XDG_DATA_HOME/vectis/queue/<pool>/<instance-id>; empty disables)")
+	rootCmd.PersistentFlags().
+		Int("persistence-snapshot-every", 128, "Persisted queue snapshot interval in queue mutations")
 
 	_ = viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	_ = viper.BindPFlag("metrics_host", rootCmd.PersistentFlags().Lookup("metrics-host"))

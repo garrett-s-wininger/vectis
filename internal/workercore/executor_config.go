@@ -46,8 +46,18 @@ func NewJobExecutor(cfg ExecutorConfig) (*job.Executor, string, error) {
 		checkoutCacheRemotes = checkoutCacheRemotesFromURLs(cfg.CheckoutCacheRemoteURLs)
 	}
 
-	if checkoutCacheRoot := strings.TrimSpace(cfg.CheckoutCacheRoot); checkoutCacheRoot != "" && len(checkoutCacheRemotes) > 0 {
-		checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(checkoutCacheRoot, sourceWorkerCheckoutCacheRemotes(checkoutCacheRemotes), workerCheckoutCacheOptions(cfg.CheckoutCacheGenerationsToKeep, cfg.CheckoutCacheLeaseTTL, cfg.CheckoutCacheMaxBytes)...)
+	if checkoutCacheRoot := strings.TrimSpace(
+		cfg.CheckoutCacheRoot,
+	); checkoutCacheRoot != "" &&
+		len(checkoutCacheRemotes) > 0 {
+		checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(
+			checkoutCacheRoot,
+			sourceWorkerCheckoutCacheRemotes(checkoutCacheRemotes),
+			workerCheckoutCacheOptions(
+				cfg.CheckoutCacheGenerationsToKeep,
+				cfg.CheckoutCacheLeaseTTL,
+				cfg.CheckoutCacheMaxBytes,
+			)...)
 		if err != nil {
 			return nil, "", err
 		}

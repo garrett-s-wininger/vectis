@@ -505,15 +505,47 @@ func init() {
 	_ = viper.BindEnv("worker.queue.dequeue_poll_jitter_ratio", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_JITTER_RATIO")
 	_ = viper.BindEnv("worker.queue.dequeue_poll_max_interval", "VECTIS_WORKER_QUEUE_DEQUEUE_POLL_MAX_INTERVAL")
 	_ = viper.BindEnv("worker.queue.dequeue_sticky_success_budget", "VECTIS_WORKER_QUEUE_DEQUEUE_STICKY_SUCCESS_BUDGET")
-	_ = viper.BindEnv("worker.queue.continuation_inline_job_max_bytes", "VECTIS_WORKER_QUEUE_CONTINUATION_INLINE_JOB_MAX_BYTES")
-	_ = viper.BindEnv("worker.execution.checkout_cache_root", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_ROOT", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT")
-	_ = viper.BindEnv("worker.execution.checkout_cache_generations_to_keep", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_GENERATIONS_TO_KEEP", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_GENERATIONS_TO_KEEP")
-	_ = viper.BindEnv("worker.execution.checkout_cache_lease_ttl", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_LEASE_TTL", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_LEASE_TTL")
-	_ = viper.BindEnv("worker.execution.checkout_cache_max_bytes", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_MAX_BYTES", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_MAX_BYTES")
-	_ = viper.BindEnv("worker.execution.checkout_cache_warm_interval", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL")
-	_ = viper.BindEnv("worker.execution.checkout_cache_warm_timeout", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT")
-	_ = viper.BindEnv("worker.execution.checkout_cache_warm_jitter_ratio", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO")
-	_ = viper.BindEnv("worker.execution.checkout_cache_warm_parallelism", "VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_PARALLELISM", "VECTIS_WORKER_CORE_CHECKOUT_CACHE_WARM_PARALLELISM")
+	_ = viper.BindEnv(
+		"worker.queue.continuation_inline_job_max_bytes",
+		"VECTIS_WORKER_QUEUE_CONTINUATION_INLINE_JOB_MAX_BYTES",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_root",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_ROOT",
+		"VECTIS_WORKER_CORE_CHECKOUT_CACHE_ROOT",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_generations_to_keep",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_GENERATIONS_TO_KEEP",
+		"VECTIS_WORKER_CORE_CHECKOUT_CACHE_GENERATIONS_TO_KEEP",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_lease_ttl",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_LEASE_TTL",
+		"VECTIS_WORKER_CORE_CHECKOUT_CACHE_LEASE_TTL",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_max_bytes",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_MAX_BYTES",
+		"VECTIS_WORKER_CORE_CHECKOUT_CACHE_MAX_BYTES",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_warm_interval",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_INTERVAL",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_warm_timeout",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_TIMEOUT",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_warm_jitter_ratio",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_JITTER_RATIO",
+	)
+	_ = viper.BindEnv(
+		"worker.execution.checkout_cache_warm_parallelism",
+		"VECTIS_WORKER_EXECUTION_CHECKOUT_CACHE_WARM_PARALLELISM",
+		"VECTIS_WORKER_CORE_CHECKOUT_CACHE_WARM_PARALLELISM",
+	)
 }
 
 func MustDefaults() Defaults {
@@ -588,7 +620,9 @@ func validateDefaults(d Defaults) {
 		d.Orchestrator.MetricsPort == d.Catalog.MetricsPort ||
 		d.Orchestrator.MetricsPort == d.CellIngress.MetricsPort ||
 		d.Orchestrator.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: orchestrator.metrics_port must differ from queue/worker/log/artifact/log-forwarder/reconciler/catalog/cell-ingress metrics ports and worker control port")
+		panic(
+			"config defaults: orchestrator.metrics_port must differ from queue/worker/log/artifact/log-forwarder/reconciler/catalog/cell-ingress metrics ports and worker control port",
+		)
 	}
 
 	if d.Orchestrator.Shards < 0 {
@@ -658,7 +692,9 @@ func validateDefaults(d Defaults) {
 		d.LogForwarder.MetricsPort == d.Worker.MetricsPort ||
 		d.LogForwarder.MetricsPort == d.Log.MetricsPort ||
 		d.LogForwarder.MetricsPort == d.Log.GRPC.Port {
-		panic("config defaults: log_forwarder.metrics_port must differ from queue/worker/log metrics ports and log gRPC port")
+		panic(
+			"config defaults: log_forwarder.metrics_port must differ from queue/worker/log metrics ports and log gRPC port",
+		)
 	}
 
 	validatePort(d.Secrets.Port, "secrets.port")
@@ -682,7 +718,9 @@ func validateDefaults(d Defaults) {
 		d.Secrets.MetricsPort == d.CellIngress.MetricsPort ||
 		d.Secrets.MetricsPort == d.Worker.Control.Port ||
 		d.Secrets.MetricsPort == d.Log.GRPC.Port {
-		panic("config defaults: secrets.metrics_port must differ from secrets, queue/worker/log/log-forwarder/reconciler/catalog/cell_ingress metrics ports, worker control port, and log gRPC port")
+		panic(
+			"config defaults: secrets.metrics_port must differ from secrets, queue/worker/log/log-forwarder/reconciler/catalog/cell_ingress metrics ports, worker control port, and log gRPC port",
+		)
 	}
 
 	if d.Log.Host == "" {
@@ -740,7 +778,9 @@ func validateDefaults(d Defaults) {
 	}
 
 	if d.Worker.Queue.DequeuePollMaxInterval < d.Worker.Queue.DequeuePollBaseInterval {
-		panic("config defaults: worker.queue.dequeue_poll_max_interval must be >= worker.queue.dequeue_poll_base_interval")
+		panic(
+			"config defaults: worker.queue.dequeue_poll_max_interval must be >= worker.queue.dequeue_poll_base_interval",
+		)
 	}
 
 	if d.Worker.Queue.DequeuePollJitterRatio < 0 || d.Worker.Queue.DequeuePollJitterRatio > 1 {
@@ -807,7 +847,9 @@ func validateDefaults(d Defaults) {
 		d.WorkerCore.MetricsPort == d.CellIngress.MetricsPort ||
 		d.WorkerCore.MetricsPort == d.Secrets.MetricsPort ||
 		d.WorkerCore.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: worker_core.metrics_port must differ from queue/orchestrator/worker/log/artifact/log-forwarder/reconciler/catalog/cell-ingress/secrets metrics ports and worker control port")
+		panic(
+			"config defaults: worker_core.metrics_port must differ from queue/orchestrator/worker/log/artifact/log-forwarder/reconciler/catalog/cell-ingress/secrets metrics ports and worker control port",
+		)
 	}
 
 	if strings.TrimSpace(d.Worker.ExecutionIdentity.PathTemplate) == "" {
@@ -822,18 +864,22 @@ func validateDefaults(d Defaults) {
 	if defaultTrustDomain == "" {
 		defaultTrustDomain = "example.invalid"
 	}
-	if _, err := workloadidentity.SPIFFEID(defaultTrustDomain, d.Worker.ExecutionIdentity.PathTemplate, workloadidentity.Execution{
-		CellID:            "local",
-		NamespacePath:     "/",
-		JobID:             "job",
-		RunID:             "run",
-		RunIndex:          1,
-		SegmentID:         "segment",
-		ExecutionID:       "execution",
-		Attempt:           1,
-		DefinitionVersion: 1,
-		DefinitionHash:    "sha256:sample",
-	}); err != nil {
+	if _, err := workloadidentity.SPIFFEID(
+		defaultTrustDomain,
+		d.Worker.ExecutionIdentity.PathTemplate,
+		workloadidentity.Execution{
+			CellID:            "local",
+			NamespacePath:     "/",
+			JobID:             "job",
+			RunID:             "run",
+			RunIndex:          1,
+			SegmentID:         "segment",
+			ExecutionID:       "execution",
+			Attempt:           1,
+			DefinitionVersion: 1,
+			DefinitionHash:    "sha256:sample",
+		},
+	); err != nil {
 		panic("config defaults: worker.execution_identity: " + err.Error())
 	}
 
@@ -894,7 +940,9 @@ func validateDefaults(d Defaults) {
 		d.Reconciler.MetricsPort == d.LogForwarder.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Secrets.MetricsPort ||
 		d.Reconciler.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: reconciler.metrics_port must differ from queue/worker/log/log-forwarder/secrets metrics ports and worker control port")
+		panic(
+			"config defaults: reconciler.metrics_port must differ from queue/worker/log/log-forwarder/secrets metrics ports and worker control port",
+		)
 	}
 
 	if time.Duration(d.Catalog.Interval) <= 0 {
@@ -914,7 +962,9 @@ func validateDefaults(d Defaults) {
 		d.Catalog.MetricsPort == d.Reconciler.MetricsPort ||
 		d.Catalog.MetricsPort == d.Secrets.MetricsPort ||
 		d.Catalog.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: catalog.metrics_port must differ from queue/worker/log/log-forwarder/reconciler/secrets metrics ports and worker control port")
+		panic(
+			"config defaults: catalog.metrics_port must differ from queue/worker/log/log-forwarder/reconciler/secrets metrics ports and worker control port",
+		)
 	}
 
 	if strings.TrimSpace(d.CellIngress.Host) == "" {
@@ -940,7 +990,9 @@ func validateDefaults(d Defaults) {
 		d.CellIngress.MetricsPort == d.Catalog.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Secrets.MetricsPort ||
 		d.CellIngress.MetricsPort == d.Worker.Control.Port {
-		panic("config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/log-forwarder/reconciler/catalog/secrets metrics ports and worker control port")
+		panic(
+			"config defaults: cell_ingress.metrics_port must differ from cell ingress, queue/worker/log/log-forwarder/reconciler/catalog/secrets metrics ports and worker control port",
+		)
 	}
 
 	if time.Duration(d.CellIngress.RepairInterval) <= 0 {
@@ -957,7 +1009,9 @@ func validateDefaults(d Defaults) {
 	}
 
 	if e != "authenticated_full" && e != "hierarchical_rbac" {
-		panic("config defaults: api.authz.engine must be authenticated_full or hierarchical_rbac (got " + d.API.Authz.Engine + ")")
+		panic(
+			"config defaults: api.authz.engine must be authenticated_full or hierarchical_rbac (got " + d.API.Authz.Engine + ")",
+		)
 	}
 
 	if b := normalizeAPICacheBackend(d.API.Cache.Backend); b != APICacheBackendDatabase && b != APICacheBackendMemory {
@@ -997,7 +1051,12 @@ func validateDefaults(d Defaults) {
 	}
 
 	if d.API.HSTS.Preload && d.API.HSTS.MaxAgeSeconds < apiHSTSPreloadMinMaxAgeSeconds {
-		panic(fmt.Sprintf("config defaults: api.hsts.preload requires api.hsts.max_age_seconds >= %d", apiHSTSPreloadMinMaxAgeSeconds))
+		panic(
+			fmt.Sprintf(
+				"config defaults: api.hsts.preload requires api.hsts.max_age_seconds >= %d",
+				apiHSTSPreloadMinMaxAgeSeconds,
+			),
+		)
 	}
 
 	rl := d.API.RateLimit
@@ -1035,7 +1094,10 @@ func validateDefaults(d Defaults) {
 		"secrets_allowed_client_identities":        d.ServiceID.SecretsAllowedClientIdentities,
 		"cell_ingress_allowed_producer_identities": d.ServiceID.CellIngressAllowedProducerIdentities,
 	} {
-		if _, err := validateServiceIdentityAllowlist("config defaults: service_identity."+name, identities); err != nil {
+		if _, err := validateServiceIdentityAllowlist(
+			"config defaults: service_identity."+name,
+			identities,
+		); err != nil {
 			panic(err.Error())
 		}
 	}
@@ -1504,15 +1566,24 @@ func RetentionCleanupBackupMaxAge() time.Duration {
 }
 
 func RetentionCleanupBackupStorageMaxAge() time.Duration {
-	return retentionCleanupDuration("retention.cleanup.backup_storage_max_age", MustDefaults().Retention.Cleanup.BackupStorageMaxAge)
+	return retentionCleanupDuration(
+		"retention.cleanup.backup_storage_max_age",
+		MustDefaults().Retention.Cleanup.BackupStorageMaxAge,
+	)
 }
 
 func RetentionCleanupAuditExportMaxAge() time.Duration {
-	return retentionCleanupDuration("retention.cleanup.audit_export_max_age", MustDefaults().Retention.Cleanup.AuditExportMaxAge)
+	return retentionCleanupDuration(
+		"retention.cleanup.audit_export_max_age",
+		MustDefaults().Retention.Cleanup.AuditExportMaxAge,
+	)
 }
 
 func RetentionCleanupHoldReviewMaxAge() time.Duration {
-	return retentionCleanupDuration("retention.cleanup.hold_review_max_age", MustDefaults().Retention.Cleanup.HoldReviewMaxAge)
+	return retentionCleanupDuration(
+		"retention.cleanup.hold_review_max_age",
+		MustDefaults().Retention.Cleanup.HoldReviewMaxAge,
+	)
 }
 
 func RetentionCleanupRequireBackupManifest() bool {

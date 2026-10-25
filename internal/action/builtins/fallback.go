@@ -33,7 +33,12 @@ func (f *FallbackNode) PortSchema() []action.PortSpec {
 	}}
 }
 
-func (f *FallbackNode) Execute(ctx context.Context, state *action.ExecutionState, _ map[string]any, ports action.Ports) action.Result {
+func (f *FallbackNode) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	_ map[string]any,
+	ports action.Ports,
+) action.Result {
 	choices := ports.Children(taskgraph.ChoicesPort)
 	if len(choices) == 0 {
 		return action.NewFailureResult(fmt.Errorf("fallback action requires at least one choice node"))
@@ -47,7 +52,11 @@ func (f *FallbackNode) Execute(ctx context.Context, state *action.ExecutionState
 		last = executeChildNode(ctx, child, state)
 		if last.Status == action.StatusSuccess {
 			if idx > 0 {
-				sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Fallback choice %d/%d succeeded", idx+1, len(choices)))
+				sendLog(
+					state,
+					api.Stream_STREAM_STDOUT,
+					fmt.Sprintf("Fallback choice %d/%d succeeded", idx+1, len(choices)),
+				)
 			}
 
 			return last
@@ -58,11 +67,19 @@ func (f *FallbackNode) Execute(ctx context.Context, state *action.ExecutionState
 		}
 
 		state.Logger.Warn("Fallback choice %d/%d failed: %v", idx+1, len(choices), last.Error)
-		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Fallback choice %d/%d failed: %v", idx+1, len(choices), last.Error))
+		sendLog(
+			state,
+			api.Stream_STREAM_STDERR,
+			fmt.Sprintf("Fallback choice %d/%d failed: %v", idx+1, len(choices), last.Error),
+		)
 	}
 
 	state.Logger.Error("Fallback failed after %d choice(s): %v", len(choices), last.Error)
-	sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Fallback failed after %d choice(s): %v", len(choices), last.Error))
+	sendLog(
+		state,
+		api.Stream_STREAM_STDERR,
+		fmt.Sprintf("Fallback failed after %d choice(s): %v", len(choices), last.Error),
+	)
 	if last.Error == nil {
 		return action.NewFailureResult(fmt.Errorf("fallback failed after %d choice(s)", len(choices)))
 	}

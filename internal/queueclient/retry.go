@@ -127,16 +127,32 @@ func IsTransientEnqueueError(err error) bool {
 	return IsTransientRPCError(err)
 }
 
-func EnqueueWithRetry(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger) error {
+func EnqueueWithRetry(
+	ctx context.Context,
+	q interfaces.QueueService,
+	req *api.JobRequest,
+	log interfaces.Logger,
+) error {
 	_, err := EnqueueWithRetryResult(ctx, q, req, log)
 	return err
 }
 
-func EnqueueWithRetryResult(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger) (*api.Empty, error) {
+func EnqueueWithRetryResult(
+	ctx context.Context,
+	q interfaces.QueueService,
+	req *api.JobRequest,
+	log interfaces.Logger,
+) (*api.Empty, error) {
 	return EnqueueWithRetryResultOptions(ctx, q, req, log, EnqueueRetryOptions{})
 }
 
-func EnqueueWithRetryResultOptions(ctx context.Context, q interfaces.QueueService, req *api.JobRequest, log interfaces.Logger, opts EnqueueRetryOptions) (*api.Empty, error) {
+func EnqueueWithRetryResultOptions(
+	ctx context.Context,
+	q interfaces.QueueService,
+	req *api.JobRequest,
+	log interfaces.Logger,
+	opts EnqueueRetryOptions,
+) (*api.Empty, error) {
 	if q == nil {
 		return nil, fmt.Errorf("queue service not available")
 	}

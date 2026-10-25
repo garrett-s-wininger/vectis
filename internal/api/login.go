@@ -93,7 +93,13 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !complete {
-		writeAPIError(w, http.StatusServiceUnavailable, string(apiErrSetupRequired), "complete initial setup before logging in", nil)
+		writeAPIError(
+			w,
+			http.StatusServiceUnavailable,
+			string(apiErrSetupRequired),
+			"complete initial setup before logging in",
+			nil,
+		)
 		return
 	}
 
@@ -186,7 +192,12 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) authenticateLogin(ctx context.Context, w http.ResponseWriter, r *http.Request, req loginRequest) (loginPrincipal, bool) {
+func (s *APIServer) authenticateLogin(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	req loginRequest,
+) (loginPrincipal, bool) {
 	uid, passHash, enabled, passwordAuthEnabled, err := s.authRepo.GetLocalUserByUsername(ctx, req.Username)
 	localUserFound := false
 	if err == nil {
@@ -246,7 +257,13 @@ func (s *APIServer) authenticateLogin(ctx context.Context, w http.ResponseWriter
 	return loginPrincipal{}, false
 }
 
-func (s *APIServer) authenticateExternalLogin(ctx context.Context, w http.ResponseWriter, r *http.Request, req loginRequest, providers []registeredLoginProvider) (loginPrincipal, bool, bool) {
+func (s *APIServer) authenticateExternalLogin(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	req loginRequest,
+	providers []registeredLoginProvider,
+) (loginPrincipal, bool, bool) {
 	for _, registration := range providers {
 		if registration.provider == nil {
 			continue
@@ -303,7 +320,13 @@ func (s *APIServer) authenticateExternalLogin(ctx context.Context, w http.Respon
 	return loginPrincipal{}, false, false
 }
 
-func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w http.ResponseWriter, r *http.Request, identity sdkauth.Identity, providerKind string) (loginPrincipal, bool) {
+func (s *APIServer) localPrincipalForExternalIdentity(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	identity sdkauth.Identity,
+	providerKind string,
+) (loginPrincipal, bool) {
 	providerID := strings.TrimSpace(identity.Provider)
 	subject := strings.TrimSpace(identity.Subject)
 	username := strings.TrimSpace(identity.Username)
@@ -481,7 +504,13 @@ func (s *APIServer) localPrincipalForExternalIdentity(ctx context.Context, w htt
 	return s.linkExternalIdentityToLocalUser(ctx, w, r, uid, username, providerID, subject, displayName)
 }
 
-func (s *APIServer) principalForLinkedExternalIdentity(ctx context.Context, w http.ResponseWriter, r *http.Request, identity *dal.ExternalIdentityRecord, username, displayName string) (loginPrincipal, bool) {
+func (s *APIServer) principalForLinkedExternalIdentity(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	identity *dal.ExternalIdentityRecord,
+	username, displayName string,
+) (loginPrincipal, bool) {
 	if !identity.LocalUserEnabled {
 		s.auditLog(r.Context(), audit.EventAuthFailure, identity.LocalUserID, 0, map[string]any{
 			"reason":   "user_disabled",
@@ -504,13 +533,27 @@ func (s *APIServer) principalForLinkedExternalIdentity(ctx context.Context, w ht
 		return loginPrincipal{}, false
 	}
 
-	return loginPrincipal{LocalUserID: identity.LocalUserID, Username: identity.LocalUsername, Method: externalLoginMethod(identity.ProviderID)}, true
+	return loginPrincipal{
+		LocalUserID: identity.LocalUserID,
+		Username:    identity.LocalUsername,
+		Method:      externalLoginMethod(identity.ProviderID),
+	}, true
 }
 
-func (s *APIServer) linkExternalIdentityToLocalUser(ctx context.Context, w http.ResponseWriter, r *http.Request, localUserID int64, username, providerID, subject, displayName string) (loginPrincipal, bool) {
+func (s *APIServer) linkExternalIdentityToLocalUser(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	localUserID int64,
+	username, providerID, subject, displayName string,
+) (loginPrincipal, bool) {
 	identity, err := s.authRepo.LinkExternalIdentity(ctx, localUserID, providerID, subject, username, displayName)
 	if err == nil {
-		return loginPrincipal{LocalUserID: localUserID, Username: username, Method: externalLoginMethod(identity.ProviderID)}, true
+		return loginPrincipal{
+			LocalUserID: localUserID,
+			Username:    username,
+			Method:      externalLoginMethod(identity.ProviderID),
+		}, true
 	}
 
 	if dal.IsConflict(err) {
@@ -579,7 +622,11 @@ func externalLoginMethod(provider string) string {
 	return provider
 }
 
-func (s *APIServer) allowLoginForUsername(ctx context.Context, cacheService cache.Service, username string) (bool, time.Duration, error) {
+func (s *APIServer) allowLoginForUsername(
+	ctx context.Context,
+	cacheService cache.Service,
+	username string,
+) (bool, time.Duration, error) {
 	keyMaterial := strings.ToLower(strings.TrimSpace(username))
 	if keyMaterial == "" {
 		keyMaterial = "<empty>"

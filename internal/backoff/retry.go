@@ -34,7 +34,11 @@ func NewRetryer(config RetryConfig) *Retryer {
 	return &Retryer{config: config}
 }
 
-func (r *Retryer) Do(ctx context.Context, operation func() error, onRetry func(attempt int, nextDelay time.Duration, err error)) error {
+func (r *Retryer) Do(
+	ctx context.Context,
+	operation func() error,
+	onRetry func(attempt int, nextDelay time.Duration, err error),
+) error {
 	var lastErr error
 
 	for attempt := range r.config.MaxTries {

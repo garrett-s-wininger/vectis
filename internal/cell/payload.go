@@ -12,7 +12,13 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func RecordExecutionHandoffPayload(ctx context.Context, runs dal.RunsRepository, runID string, req *api.JobRequest, definitionHash string) (*api.JobRequest, error) {
+func RecordExecutionHandoffPayload(
+	ctx context.Context,
+	runs dal.RunsRepository,
+	runID string,
+	req *api.JobRequest,
+	definitionHash string,
+) (*api.JobRequest, error) {
 	if runs == nil {
 		return nil, errors.New("runs repository is required")
 	}
@@ -26,7 +32,12 @@ func RecordExecutionHandoffPayload(ctx context.Context, runs dal.RunsRepository,
 		return nil, fmt.Errorf("marshal execution payload: %w", err)
 	}
 
-	_, recordedPayloadJSON, err := runs.RecordExecutionPayload(ctx, runID, string(payloadJSON), strings.TrimSpace(definitionHash))
+	_, recordedPayloadJSON, err := runs.RecordExecutionPayload(
+		ctx,
+		runID,
+		string(payloadJSON),
+		strings.TrimSpace(definitionHash),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("record execution payload: %w", err)
 	}
@@ -64,7 +75,11 @@ func validateExecutionHandoffPayload(runID string, req *api.JobRequest, definiti
 
 	definitionHash = strings.TrimSpace(definitionHash)
 	if definitionHash != "" && submission.Envelope.DefinitionHash != definitionHash {
-		return fmt.Errorf("execution payload definition_hash %q does not match run definition_hash %q", submission.Envelope.DefinitionHash, definitionHash)
+		return fmt.Errorf(
+			"execution payload definition_hash %q does not match run definition_hash %q",
+			submission.Envelope.DefinitionHash,
+			definitionHash,
+		)
 	}
 
 	return nil

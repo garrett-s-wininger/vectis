@@ -77,7 +77,8 @@ func newBenchmarkReconcilerDBAndRepos(b *testing.B) (*sql.DB, *dal.SQLRepositori
 func seedBenchmarkReconcilerJob(b *testing.B, ctx context.Context, repos *dal.SQLRepositories, jobID string) {
 	b.Helper()
 
-	if err := repos.Jobs().CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(benchmarkReconcilerJobDefinition, jobID)); err != nil {
+	if err := repos.Jobs().
+		CreateDefinitionSnapshot(ctx, jobID, fmt.Sprintf(benchmarkReconcilerJobDefinition, jobID)); err != nil {
 		b.Fatalf("create benchmark job definition: %v", err)
 	}
 }

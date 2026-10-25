@@ -11,7 +11,11 @@ type SQLServiceLeasesRepository struct {
 	db *sql.DB
 }
 
-func (r *SQLServiceLeasesRepository) TryAcquire(ctx context.Context, name, owner string, now, leaseUntil time.Time) (bool, error) {
+func (r *SQLServiceLeasesRepository) TryAcquire(
+	ctx context.Context,
+	name, owner string,
+	now, leaseUntil time.Time,
+) (bool, error) {
 	if name == "" {
 		return false, fmt.Errorf("service lease name is required")
 	}

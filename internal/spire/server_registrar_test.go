@@ -27,7 +27,11 @@ type fakeSPIREEntryClient struct {
 	deleteErr  error
 }
 
-func (c *fakeSPIREEntryClient) BatchCreateEntry(_ context.Context, req *entryv1.BatchCreateEntryRequest, _ ...grpc.CallOption) (*entryv1.BatchCreateEntryResponse, error) {
+func (c *fakeSPIREEntryClient) BatchCreateEntry(
+	_ context.Context,
+	req *entryv1.BatchCreateEntryRequest,
+	_ ...grpc.CallOption,
+) (*entryv1.BatchCreateEntryResponse, error) {
 	c.createReqs = append(c.createReqs, req)
 	if c.createErr != nil {
 		return nil, c.createErr
@@ -35,7 +39,11 @@ func (c *fakeSPIREEntryClient) BatchCreateEntry(_ context.Context, req *entryv1.
 	return c.createResp, nil
 }
 
-func (c *fakeSPIREEntryClient) BatchUpdateEntry(_ context.Context, req *entryv1.BatchUpdateEntryRequest, _ ...grpc.CallOption) (*entryv1.BatchUpdateEntryResponse, error) {
+func (c *fakeSPIREEntryClient) BatchUpdateEntry(
+	_ context.Context,
+	req *entryv1.BatchUpdateEntryRequest,
+	_ ...grpc.CallOption,
+) (*entryv1.BatchUpdateEntryResponse, error) {
 	c.updateReqs = append(c.updateReqs, req)
 	if c.updateErr != nil {
 		return nil, c.updateErr
@@ -43,7 +51,11 @@ func (c *fakeSPIREEntryClient) BatchUpdateEntry(_ context.Context, req *entryv1.
 	return c.updateResp, nil
 }
 
-func (c *fakeSPIREEntryClient) BatchDeleteEntry(_ context.Context, req *entryv1.BatchDeleteEntryRequest, _ ...grpc.CallOption) (*entryv1.BatchDeleteEntryResponse, error) {
+func (c *fakeSPIREEntryClient) BatchDeleteEntry(
+	_ context.Context,
+	req *entryv1.BatchDeleteEntryRequest,
+	_ ...grpc.CallOption,
+) (*entryv1.BatchDeleteEntryResponse, error) {
 	c.deleteReqs = append(c.deleteReqs, req)
 	if c.deleteErr != nil {
 		return nil, c.deleteErr
@@ -85,7 +97,9 @@ func TestSPIREServerRegistrarCreatesEntry(t *testing.T) {
 	}
 	entry := client.createReqs[0].GetEntries()[0]
 	if entry.GetSpiffeId().GetTrustDomain() != "prod.example" ||
-		entry.GetSpiffeId().GetPath() != "/cell/cell-a/namespace/teams/build/job/job-1/run/run-1/execution/execution-1" {
+		entry.GetSpiffeId().
+			GetPath() !=
+			"/cell/cell-a/namespace/teams/build/job/job-1/run/run-1/execution/execution-1" {
 		t.Fatalf("entry SPIFFE ID = %+v", entry.GetSpiffeId())
 	}
 	if entry.GetParentId().GetTrustDomain() != "prod.example" ||
@@ -235,7 +249,10 @@ func TestSPIREServerRegistrarReleaseTreatsNotFoundAsSuccess(t *testing.T) {
 		t.Fatalf("NewSPIREServerRegistrar: %v", err)
 	}
 
-	if err := registrar.ReleaseRegistration(context.Background(), RegistrationHandle{EntryID: "entry-1", Managed: true}); err != nil {
+	if err := registrar.ReleaseRegistration(
+		context.Background(),
+		RegistrationHandle{EntryID: "entry-1", Managed: true},
+	); err != nil {
 		t.Fatalf("ReleaseRegistration: %v", err)
 	}
 }
@@ -244,10 +261,17 @@ func TestSPIREServerRegistrarValidationErrors(t *testing.T) {
 	if _, err := NewSPIREServerRegistrar(nil); err == nil || !strings.Contains(err.Error(), "client is required") {
 		t.Fatalf("NewSPIREServerRegistrar nil error = %v, want client requirement", err)
 	}
-	if _, err := NewSPIREServerRegistrar(&fakeSPIREEntryClient{}, WithSPIREServerX509SVIDTTL(time.Millisecond)); err == nil || !strings.Contains(err.Error(), "at least 1s") {
+	if _, err := NewSPIREServerRegistrar(
+		&fakeSPIREEntryClient{},
+		WithSPIREServerX509SVIDTTL(time.Millisecond),
+	); err == nil ||
+		!strings.Contains(err.Error(), "at least 1s") {
 		t.Fatalf("NewSPIREServerRegistrar ttl error = %v, want minimum", err)
 	}
-	if err := ValidateServerAPIAddress("tcp://127.0.0.1:8081"); err == nil || !strings.Contains(err.Error(), "unix://") {
+	if err := ValidateServerAPIAddress(
+		"tcp://127.0.0.1:8081",
+	); err == nil ||
+		!strings.Contains(err.Error(), "unix://") {
 		t.Fatalf("ValidateServerAPIAddress tcp error = %v, want unix requirement", err)
 	}
 	if err := ValidateServerAPIAddress("unix:///run/spire/server.sock"); err != nil {

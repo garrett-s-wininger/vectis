@@ -51,7 +51,8 @@ func TestLoadDefinitionResolvesReadsAndCanonicalizesJob(t *testing.T) {
 		t.Fatalf("source loader should not assign job id, got %q", loaded.Job.GetId())
 	}
 
-	if loaded.Source.RequestedRef != "main" || loaded.Source.Commit != repo.revision.Commit || loaded.Source.BlobSHA != repo.file.BlobSHA {
+	if loaded.Source.RequestedRef != "main" || loaded.Source.Commit != repo.revision.Commit ||
+		loaded.Source.BlobSHA != repo.file.BlobSHA {
 		t.Fatalf("source provenance mismatch: %+v", loaded.Source)
 	}
 
@@ -61,7 +62,11 @@ func TestLoadDefinitionResolvesReadsAndCanonicalizesJob(t *testing.T) {
 	}
 
 	if roundTrip.GetId() != "" || roundTrip.GetRoot().GetWith()["script"] != "go test ./..." {
-		t.Fatalf("canonical definition mismatch: id=%q command=%q", roundTrip.GetId(), roundTrip.GetRoot().GetWith()["script"])
+		t.Fatalf(
+			"canonical definition mismatch: id=%q command=%q",
+			roundTrip.GetId(),
+			roundTrip.GetRoot().GetWith()["script"],
+		)
 	}
 }
 

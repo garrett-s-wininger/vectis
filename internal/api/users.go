@@ -132,7 +132,9 @@ func (s *APIServer) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Username) < adminUsernameMinLen || len(req.Username) > adminUsernameMaxLen || !utf8.ValidString(req.Username) || strings.ContainsAny(req.Username, "\x00\r\n") {
+	if len(req.Username) < adminUsernameMinLen || len(req.Username) > adminUsernameMaxLen ||
+		!utf8.ValidString(req.Username) ||
+		strings.ContainsAny(req.Username, "\x00\r\n") {
 		writeAPIErrorCode(w, http.StatusBadRequest, apiErrInvalidUsername)
 		return
 	}
@@ -349,7 +351,14 @@ func (s *APIServer) CreateUserExternalIdentity(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	identity, err := s.authRepo.LinkExternalIdentity(ctx, id, req.ProviderID, req.Subject, req.Username, req.DisplayName)
+	identity, err := s.authRepo.LinkExternalIdentity(
+		ctx,
+		id,
+		req.ProviderID,
+		req.Subject,
+		req.Username,
+		req.DisplayName,
+	)
 	if err != nil {
 		if dal.IsNotFound(err) {
 			writeAPIErrorCode(w, http.StatusBadRequest, apiErrAuthProviderNotFound)

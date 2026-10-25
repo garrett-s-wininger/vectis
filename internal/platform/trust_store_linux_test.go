@@ -19,7 +19,10 @@ func TestInstallCertificateAuthority_LinuxUpdateCACertificates(t *testing.T) {
 	}
 
 	assertCapturedTrustCommands(t, commands, []capturedTrustCommand{
-		{name: "install", args: []string{"-m", "0644", "--", caFile, "/usr/local/share/ca-certificates/vectis-local-ca.crt"}},
+		{
+			name: "install",
+			args: []string{"-m", "0644", "--", caFile, "/usr/local/share/ca-certificates/vectis-local-ca.crt"},
+		},
 		{name: "update-ca-certificates"},
 	})
 }
@@ -36,7 +39,10 @@ func TestInstallCertificateAuthority_LinuxUpdateCATrust(t *testing.T) {
 	}
 
 	assertCapturedTrustCommands(t, commands, []capturedTrustCommand{
-		{name: "install", args: []string{"-m", "0644", "--", caFile, "/etc/pki/ca-trust/source/anchors/vectis-local-ca.pem"}},
+		{
+			name: "install",
+			args: []string{"-m", "0644", "--", caFile, "/etc/pki/ca-trust/source/anchors/vectis-local-ca.pem"},
+		},
 		{name: "update-ca-trust", args: []string{"extract"}},
 	})
 }

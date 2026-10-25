@@ -219,13 +219,16 @@ func BenchmarkQueue_IsolationMixedDistribution(b *testing.B) {
 	vmWorkers := max(1, workers-hostWorkers)
 
 	for _, hostPercent := range []int{90, 50, 10} {
-		b.Run(fmt.Sprintf("host_%d_vm_%d_workers_%dh_%dvm", hostPercent, 100-hostPercent, hostWorkers, vmWorkers), func(b *testing.B) {
-			runMixedIsolationDistributionBenchmark(b, mixedIsolationDistributionConfig{
-				hostPercent: hostPercent,
-				hostWorkers: hostWorkers,
-				vmWorkers:   vmWorkers,
-			})
-		})
+		b.Run(
+			fmt.Sprintf("host_%d_vm_%d_workers_%dh_%dvm", hostPercent, 100-hostPercent, hostWorkers, vmWorkers),
+			func(b *testing.B) {
+				runMixedIsolationDistributionBenchmark(b, mixedIsolationDistributionConfig{
+					hostPercent: hostPercent,
+					hostWorkers: hostWorkers,
+					vmWorkers:   vmWorkers,
+				})
+			},
+		)
 	}
 }
 
@@ -881,7 +884,11 @@ func runGRPCBlockedWorkerBurstDispatchManyConnsIteration(
 				b.Fatal(err)
 			}
 		case <-deadline:
-			b.Fatalf("timed out waiting for %d blocked grpc many-conn workers to receive burst jobs; got %d", workers, delivered)
+			b.Fatalf(
+				"timed out waiting for %d blocked grpc many-conn workers to receive burst jobs; got %d",
+				workers,
+				delivered,
+			)
 		}
 	}
 

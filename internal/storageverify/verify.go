@@ -143,7 +143,11 @@ func VerifyArtifacts(ctx context.Context, dir string) (Report, error) {
 		}
 
 		if !entry.Type().IsRegular() {
-			report.addWarning("artifact.non_regular_file", path, "non-regular file under artifact blob directory was skipped")
+			report.addWarning(
+				"artifact.non_regular_file",
+				path,
+				"non-regular file under artifact blob directory was skipped",
+			)
 			return nil
 		}
 
@@ -169,7 +173,11 @@ func VerifyArtifacts(ctx context.Context, dir string) (Report, error) {
 		}
 
 		if got != digest {
-			report.addError("artifact.digest_mismatch", path, fmt.Sprintf("content digest sha256:%s does not match path digest sha256:%s", got, digest))
+			report.addError(
+				"artifact.digest_mismatch",
+				path,
+				fmt.Sprintf("content digest sha256:%s does not match path digest sha256:%s", got, digest),
+			)
 			return nil
 		}
 
@@ -300,7 +308,11 @@ func VerifyQueue(ctx context.Context, dir string) (Report, error) {
 		}
 
 		if entry.Name() == queueSnapshotFileName+".tmp" {
-			report.addWarning("queue.snapshot_temp", path, "snapshot temp file was present; verify a quiesced backup if this persists")
+			report.addWarning(
+				"queue.snapshot_temp",
+				path,
+				"snapshot temp file was present; verify a quiesced backup if this persists",
+			)
 			continue
 		}
 
@@ -340,7 +352,11 @@ func VerifyLogForwarderSpool(ctx context.Context, dir string) (Report, error) {
 		}
 
 		if strings.HasSuffix(entry.Name(), ".spool.tmp") {
-			report.addWarning("spool.temp_file", path, "temporary spool file was present; verify a quiesced backup if this persists")
+			report.addWarning(
+				"spool.temp_file",
+				path,
+				"temporary spool file was present; verify a quiesced backup if this persists",
+			)
 			return nil
 		}
 
@@ -390,7 +406,11 @@ func VerifyWorkerLogSpool(ctx context.Context, dir string) (Report, error) {
 		}
 
 		if !strings.HasSuffix(entry.Name(), ".spool") {
-			report.addWarning("worker_spool.unrecognized_file", path, "file is not a worker pending log spool and was skipped")
+			report.addWarning(
+				"worker_spool.unrecognized_file",
+				path,
+				"file is not a worker pending log spool and was skipped",
+			)
 			return nil
 		}
 
@@ -574,7 +594,11 @@ func verifyRunLogFile(ctx context.Context, path string) (int64, error) {
 
 		bodyLen := binary.LittleEndian.Uint32(lengthBuf[:])
 		if bodyLen < logEntryRecordHeaderSize {
-			return records, fmt.Errorf("record body length %d is smaller than header length %d", bodyLen, logEntryRecordHeaderSize)
+			return records, fmt.Errorf(
+				"record body length %d is smaller than header length %d",
+				bodyLen,
+				logEntryRecordHeaderSize,
+			)
 		}
 
 		if uint64(bodyLen) > uint64(int(^uint(0)>>1)) {
@@ -610,7 +634,11 @@ func verifyRunLogRecordBody(body []byte) error {
 
 	dataLen := binary.LittleEndian.Uint32(body[28:32])
 	if dataLen != uint32(len(body)-logEntryRecordHeaderSize) {
-		return fmt.Errorf("record data length %d does not match body payload length %d", dataLen, len(body)-logEntryRecordHeaderSize)
+		return fmt.Errorf(
+			"record data length %d does not match body payload length %d",
+			dataLen,
+			len(body)-logEntryRecordHeaderSize,
+		)
 	}
 
 	nsec := binary.LittleEndian.Uint32(body[8:12])
@@ -657,7 +685,11 @@ func verifyQueueSnapshot(ctx context.Context, path string, report *Report) {
 
 	for i, row := range snap.Inflight {
 		if strings.TrimSpace(row.DeliveryID) == "" {
-			report.addError("queue.snapshot_delivery_id_missing", path, fmt.Sprintf("inflight[%d] delivery_id is required", i))
+			report.addError(
+				"queue.snapshot_delivery_id_missing",
+				path,
+				fmt.Sprintf("inflight[%d] delivery_id is required", i),
+			)
 		}
 
 		if err := verifyQueueJobPayload(row.Job); err != nil {
@@ -667,7 +699,11 @@ func verifyQueueSnapshot(ctx context.Context, path string, report *Report) {
 
 	for i, row := range snap.DeadLetter {
 		if strings.TrimSpace(row.DeliveryID) == "" {
-			report.addError("queue.snapshot_delivery_id_missing", path, fmt.Sprintf("dead_letter[%d] delivery_id is required", i))
+			report.addError(
+				"queue.snapshot_delivery_id_missing",
+				path,
+				fmt.Sprintf("dead_letter[%d] delivery_id is required", i),
+			)
 		}
 
 		if err := verifyQueueJobPayload(row.Job); err != nil {

@@ -12,7 +12,14 @@ import (
 
 func TestRouterRoutesMatchingSpecs(t *testing.T) {
 	specs := &fakeSpecRepository{specs: []dal.SCMPollTriggerSpec{
-		{TriggerID: 1, Provider: "gerrit", BaseURL: "http://gerrit.example.com/", Project: "project", Branch: "master", Query: "status:open"},
+		{
+			TriggerID: 1,
+			Provider:  "gerrit",
+			BaseURL:   "http://gerrit.example.com/",
+			Project:   "project",
+			Branch:    "master",
+			Query:     "status:open",
+		},
 		{TriggerID: 2, Provider: "gerrit", BaseURL: "http://gerrit.example.com", Project: "project", Branch: "stable"},
 		{TriggerID: 3, Provider: "gerrit", BaseURL: "http://other.example.com", Project: "project", Branch: "master"},
 		{TriggerID: 4, Provider: "git", BaseURL: "http://gerrit.example.com", Project: "project", Branch: "master"},
@@ -139,7 +146,11 @@ type fakeSpecRepository struct {
 	err      error
 }
 
-func (r *fakeSpecRepository) ListEnabledByProvider(_ context.Context, provider string, limit int) ([]dal.SCMPollTriggerSpec, error) {
+func (r *fakeSpecRepository) ListEnabledByProvider(
+	_ context.Context,
+	provider string,
+	limit int,
+) ([]dal.SCMPollTriggerSpec, error) {
 	r.provider = provider
 	r.limit = limit
 	return r.specs, r.err
@@ -151,7 +162,11 @@ type fakeEventProcessor struct {
 	err    error
 }
 
-func (p *fakeEventProcessor) HandleEvent(_ context.Context, spec dal.SCMPollTriggerSpec, _ scm.Event) (scmtrigger.HandleResult, error) {
+func (p *fakeEventProcessor) HandleEvent(
+	_ context.Context,
+	spec dal.SCMPollTriggerSpec,
+	_ scm.Event,
+) (scmtrigger.HandleResult, error) {
 	if p.err != nil {
 		return scmtrigger.HandleResult{}, p.err
 	}

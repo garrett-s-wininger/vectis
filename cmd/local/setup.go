@@ -124,7 +124,15 @@ func localSetupHTTPClient(https bool, material *localpki.Material) (*http.Client
 	return &http.Client{Timeout: 10 * time.Second, Transport: transport}, nil
 }
 
-func finishLocalSetup(ctx context.Context, logger interfaces.Logger, baseURL string, material *localpki.Material, bootstrapToken, bootstrapSource string, in *os.File, out io.Writer) localSetupResult {
+func finishLocalSetup(
+	ctx context.Context,
+	logger interfaces.Logger,
+	baseURL string,
+	material *localpki.Material,
+	bootstrapToken, bootstrapSource string,
+	in *os.File,
+	out io.Writer,
+) localSetupResult {
 	if localSetupSkipsAuto(bootstrapSource) {
 		return localSetupResult{Skipped: true, OperatorToken: localBootstrapFromOperator(bootstrapSource)}
 	}
@@ -306,7 +314,13 @@ func localCLITokenPath() (string, error) {
 	return filepath.Join(dir, "vectis", "token"), nil
 }
 
-func runLocalSetup(ctx context.Context, client *http.Client, baseURL, bootstrapToken string, creds localAdminCredentials, tokenPath, passwordPath string) (localSetupResult, error) {
+func runLocalSetup(
+	ctx context.Context,
+	client *http.Client,
+	baseURL, bootstrapToken string,
+	creds localAdminCredentials,
+	tokenPath, passwordPath string,
+) (localSetupResult, error) {
 	body, err := json.Marshal(map[string]string{
 		"bootstrap_token": bootstrapToken,
 		"admin_username":  creds.Username,
@@ -317,7 +331,12 @@ func runLocalSetup(ctx context.Context, client *http.Client, baseURL, bootstrapT
 		return localSetupResult{}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/setup/complete", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		baseURL+"/api/v1/setup/complete",
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return localSetupResult{}, err
 	}
@@ -336,7 +355,11 @@ func runLocalSetup(ctx context.Context, client *http.Client, baseURL, bootstrapT
 	case http.StatusOK:
 	default:
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return localSetupResult{}, fmt.Errorf("setup complete returned %s: %s", resp.Status, strings.TrimSpace(string(payload)))
+		return localSetupResult{}, fmt.Errorf(
+			"setup complete returned %s: %s",
+			resp.Status,
+			strings.TrimSpace(string(payload)),
+		)
 	}
 
 	var created struct {

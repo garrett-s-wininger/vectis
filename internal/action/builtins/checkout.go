@@ -72,29 +72,58 @@ func (c *CheckoutAction) Type() string {
 	return "builtins/checkout"
 }
 
-func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
+func (c *CheckoutAction) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	inputs map[string]any,
+	_ action.Ports,
+) action.Result {
 	started := time.Now()
 
 	url, ok := inputs["url"].(string)
 	if !ok || url == "" {
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyValidation, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonMissingURL, time.Since(started))
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyValidation,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonMissingURL,
+			time.Since(started),
+		)
 		return action.NewFailureResult(fmt.Errorf("checkout action requires 'url' input"))
 	}
 
 	if hasCredentialedCloneURL(url) {
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyValidation, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonCredentialedURL, time.Since(started))
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyValidation,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonCredentialedURL,
+			time.Since(started),
+		)
 		return action.NewFailureResult(fmt.Errorf("checkout action requires url without embedded credentials"))
 	}
 
 	fetchRefspecs, err := checkoutFetchRefspecs(inputs)
 	if err != nil {
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyValidation, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonInvalidFetchRefspecs, time.Since(started))
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyValidation,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonInvalidFetchRefspecs,
+			time.Since(started),
+		)
 		return action.NewFailureResult(err)
 	}
 
 	checkoutRef, err := checkoutRefInput(inputs)
 	if err != nil {
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyValidation, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonInvalidFetchRefspecs, time.Since(started))
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyValidation,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonInvalidFetchRefspecs,
+			time.Since(started),
+		)
 		return action.NewFailureResult(err)
 	}
 
@@ -105,37 +134,76 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 		cacheStarted := time.Now()
 		handled, err := cache.Checkout(ctx, url, state.Workspace, state.Logger)
 		if err != nil {
-			recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeFailed, observability.CheckoutActionReasonCacheError, time.Since(cacheStarted))
-			recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyCache, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonCacheError, time.Since(started))
+			recordCheckoutActionCacheCheck(
+				ctx,
+				observability.CheckoutActionCacheOutcomeFailed,
+				observability.CheckoutActionReasonCacheError,
+				time.Since(cacheStarted),
+			)
+			recordCheckoutActionResult(
+				ctx,
+				observability.CheckoutActionStrategyCache,
+				observability.CheckoutActionOutcomeFailed,
+				observability.CheckoutActionReasonCacheError,
+				time.Since(started),
+			)
 			state.Logger.Error("Cached checkout failed for %s: %v", displayURL, err)
 			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Cached checkout failed: %v", err))
 			return action.NewFailureResult(fmt.Errorf("cached checkout failed: %w", err))
 		}
 
 		if handled {
-			recordCheckoutActionCacheCheck(ctx, observability.CheckoutActionCacheOutcomeHit, observability.CheckoutActionReasonOK, time.Since(cacheStarted))
+			recordCheckoutActionCacheCheck(
+				ctx,
+				observability.CheckoutActionCacheOutcomeHit,
+				observability.CheckoutActionReasonOK,
+				time.Since(cacheStarted),
+			)
 			if err := c.fetchCachedCheckoutRefspecs(ctx, state, cache, url, fetchRefspecs); err != nil {
-				recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyCache, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitFetchFailed, time.Since(started))
+				recordCheckoutActionResult(
+					ctx,
+					observability.CheckoutActionStrategyCache,
+					observability.CheckoutActionOutcomeFailed,
+					observability.CheckoutActionReasonGitFetchFailed,
+					time.Since(started),
+				)
 				state.Logger.Error("Cached checkout ref fetch failed for %s: %v", displayURL, err)
 				sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Cached checkout ref fetch failed: %v", err))
 				return action.NewFailureResult(fmt.Errorf("cached checkout ref fetch failed: %w", err))
 			}
 
 			if err := c.fetchAndCheckoutRef(ctx, state, checkoutCacheRemoteName, checkoutRef); err != nil {
-				recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyCache, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitFetchFailed, time.Since(started))
+				recordCheckoutActionResult(
+					ctx,
+					observability.CheckoutActionStrategyCache,
+					observability.CheckoutActionOutcomeFailed,
+					observability.CheckoutActionReasonGitFetchFailed,
+					time.Since(started),
+				)
 				state.Logger.Error("Cached checkout ref checkout failed for %s: %v", displayURL, err)
 				sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Cached checkout ref checkout failed: %v", err))
 				return action.NewFailureResult(fmt.Errorf("cached checkout ref checkout failed: %w", err))
 			}
 
-			recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyCache, observability.CheckoutActionOutcomeSuccess, observability.CheckoutActionReasonOK, time.Since(started))
+			recordCheckoutActionResult(
+				ctx,
+				observability.CheckoutActionStrategyCache,
+				observability.CheckoutActionOutcomeSuccess,
+				observability.CheckoutActionReasonOK,
+				time.Since(started),
+			)
 			state.Logger.Info("Checkout completed successfully from worker cache")
 			sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully from worker cache")
 			return action.NewSuccessResult(nil)
 		}
 
 		cacheState = observability.CheckoutActionCacheOutcomeMiss
-		recordCheckoutActionCacheCheck(ctx, cacheState, observability.CheckoutActionReasonNoCache, time.Since(cacheStarted))
+		recordCheckoutActionCacheCheck(
+			ctx,
+			cacheState,
+			observability.CheckoutActionReasonNoCache,
+			time.Since(cacheStarted),
+		)
 	} else {
 		recordCheckoutActionCacheCheck(ctx, cacheState, observability.CheckoutActionReasonNoCache, 0)
 	}
@@ -145,10 +213,23 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 
 	env := action.AppendEnv(state.CommandEnv(), "GIT_TERMINAL_PROMPT", "0")
 	cloneStarted := time.Now()
-	process, err := c.processExecutor(state).Start(ctx, "git", gitcmd.NoAutoMaintenanceCloneArgs(url, "."), state.Workspace, env)
+	process, err := c.processExecutor(state).
+		Start(ctx, "git", gitcmd.NoAutoMaintenanceCloneArgs(url, "."), state.Workspace, env)
 	if err != nil {
-		recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(cloneStarted))
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonStartFailed, time.Since(started))
+		recordCheckoutActionDirectClone(
+			ctx,
+			cacheState,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonStartFailed,
+			time.Since(cloneStarted),
+		)
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyDirect,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonStartFailed,
+			time.Since(started),
+		)
 		return action.NewFailureResult(fmt.Errorf("failed to start git clone: %w", err))
 	}
 
@@ -169,35 +250,77 @@ func (c *CheckoutAction) Execute(ctx context.Context, state *action.ExecutionSta
 	cmdErr := process.Wait()
 
 	if cmdErr != nil {
-		recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitCloneFailed, time.Since(cloneStarted))
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitCloneFailed, time.Since(started))
+		recordCheckoutActionDirectClone(
+			ctx,
+			cacheState,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonGitCloneFailed,
+			time.Since(cloneStarted),
+		)
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyDirect,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonGitCloneFailed,
+			time.Since(started),
+		)
 		state.Logger.Error("Git clone failed: %v", cmdErr)
 		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Git clone failed: %v", cmdErr))
 		return action.NewFailureResult(fmt.Errorf("git clone failed: %w", cmdErr))
 	}
 
-	recordCheckoutActionDirectClone(ctx, cacheState, observability.CheckoutActionOutcomeSuccess, observability.CheckoutActionReasonOK, time.Since(cloneStarted))
+	recordCheckoutActionDirectClone(
+		ctx,
+		cacheState,
+		observability.CheckoutActionOutcomeSuccess,
+		observability.CheckoutActionReasonOK,
+		time.Since(cloneStarted),
+	)
 	if err := c.fetchCheckoutRefspecs(ctx, state, "origin", fetchRefspecs); err != nil {
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitFetchFailed, time.Since(started))
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyDirect,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonGitFetchFailed,
+			time.Since(started),
+		)
 		state.Logger.Error("Checkout ref fetch failed for %s: %v", displayURL, err)
 		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Checkout ref fetch failed: %v", err))
 		return action.NewFailureResult(fmt.Errorf("checkout ref fetch failed: %w", err))
 	}
 
 	if err := c.fetchAndCheckoutRef(ctx, state, "origin", checkoutRef); err != nil {
-		recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeFailed, observability.CheckoutActionReasonGitFetchFailed, time.Since(started))
+		recordCheckoutActionResult(
+			ctx,
+			observability.CheckoutActionStrategyDirect,
+			observability.CheckoutActionOutcomeFailed,
+			observability.CheckoutActionReasonGitFetchFailed,
+			time.Since(started),
+		)
 		state.Logger.Error("Checkout ref checkout failed for %s: %v", displayURL, err)
 		sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Checkout ref checkout failed: %v", err))
 		return action.NewFailureResult(fmt.Errorf("checkout ref checkout failed: %w", err))
 	}
 
-	recordCheckoutActionResult(ctx, observability.CheckoutActionStrategyDirect, observability.CheckoutActionOutcomeSuccess, observability.CheckoutActionReasonOK, time.Since(started))
+	recordCheckoutActionResult(
+		ctx,
+		observability.CheckoutActionStrategyDirect,
+		observability.CheckoutActionOutcomeSuccess,
+		observability.CheckoutActionReasonOK,
+		time.Since(started),
+	)
 	state.Logger.Info("Checkout completed successfully")
 	sendLog(state, api.Stream_STREAM_STDOUT, "Checkout completed successfully")
 	return action.NewSuccessResult(nil)
 }
 
-func (c *CheckoutAction) fetchCachedCheckoutRefspecs(ctx context.Context, state *action.ExecutionState, cache action.CheckoutCache, remoteURL string, refspecs []string) error {
+func (c *CheckoutAction) fetchCachedCheckoutRefspecs(
+	ctx context.Context,
+	state *action.ExecutionState,
+	cache action.CheckoutCache,
+	remoteURL string,
+	refspecs []string,
+) error {
 	if len(refspecs) == 0 {
 		return nil
 	}
@@ -292,7 +415,11 @@ func parseCheckoutRef(raw string) (string, error) {
 	return ref, nil
 }
 
-func (c *CheckoutAction) fetchAndCheckoutRef(ctx context.Context, state *action.ExecutionState, remote, ref string) error {
+func (c *CheckoutAction) fetchAndCheckoutRef(
+	ctx context.Context,
+	state *action.ExecutionState,
+	remote, ref string,
+) error {
 	if ref == "" {
 		return nil
 	}
@@ -330,7 +457,12 @@ func (c *CheckoutAction) fetchAndCheckoutRef(ctx context.Context, state *action.
 	return nil
 }
 
-func (c *CheckoutAction) fetchCheckoutRefspecs(ctx context.Context, state *action.ExecutionState, remote string, refspecs []string) error {
+func (c *CheckoutAction) fetchCheckoutRefspecs(
+	ctx context.Context,
+	state *action.ExecutionState,
+	remote string,
+	refspecs []string,
+) error {
 	if len(refspecs) == 0 {
 		return nil
 	}
@@ -343,7 +475,11 @@ func (c *CheckoutAction) fetchCheckoutRefspecs(ctx context.Context, state *actio
 		return fmt.Errorf("checkout fetch requires execution state")
 	}
 
-	sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Fetching %d additional checkout refspec(s) from %s...", len(refspecs), remote))
+	sendLog(
+		state,
+		api.Stream_STREAM_STDOUT,
+		fmt.Sprintf("Fetching %d additional checkout refspec(s) from %s...", len(refspecs), remote),
+	)
 
 	args := gitcmd.NoAutoMaintenanceArgs("fetch", "--no-auto-gc", "--no-tags", "--", remote)
 	args = append(args, refspecs...)

@@ -57,7 +57,11 @@ func (s *StreamRoute) Bind(chunk *api.LogChunk) (Route, error) {
 	}
 
 	if route.RunID != s.route.RunID {
-		return Route{}, fmt.Errorf("log stream already routed to run %q, got chunk for run %q", s.route.RunID, route.RunID)
+		return Route{}, fmt.Errorf(
+			"log stream already routed to run %q, got chunk for run %q",
+			s.route.RunID,
+			route.RunID,
+		)
 	}
 
 	if s.route.LogShardID == "" {
@@ -66,7 +70,11 @@ func (s *StreamRoute) Bind(chunk *api.LogChunk) (Route, error) {
 	}
 
 	if route.LogShardID != "" && route.LogShardID != s.route.LogShardID {
-		return Route{}, fmt.Errorf("log stream already routed to shard %q, got chunk for shard %q", s.route.LogShardID, route.LogShardID)
+		return Route{}, fmt.Errorf(
+			"log stream already routed to shard %q, got chunk for shard %q",
+			s.route.LogShardID,
+			route.LogShardID,
+		)
 	}
 
 	return s.route, nil

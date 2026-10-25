@@ -106,7 +106,8 @@ func TestLocalManifestSourceRejectsSymlinkManifestOutsideRoot(t *testing.T) {
 
 	source := newLocalManifestSourceForTest(t, root)
 	_, err := source.ResolveDescriptor("acme/cache")
-	if err == nil || !strings.Contains(err.Error(), "local action manifest must stay under local action manifest root") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "local action manifest must stay under local action manifest root") {
 		t.Fatalf("ResolveDescriptor error = %v, want manifest containment failure", err)
 	}
 }
@@ -133,7 +134,8 @@ func TestLocalManifestSourceRejectsSymlinkActionDirectoryOutsideRootForDigest(t 
 
 	source := newLocalManifestSourceForTest(t, root)
 	_, err := source.ResolveDescriptor("acme/cache@" + manifest.Digest)
-	if err == nil || !strings.Contains(err.Error(), "local action directory must stay under local action manifest root") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "local action directory must stay under local action manifest root") {
 		t.Fatalf("ResolveDescriptor error = %v, want action directory containment failure", err)
 	}
 }
@@ -268,13 +270,65 @@ func TestLocalManifestSourceRejectsInvalidManifest(t *testing.T) {
 		manifest LocalManifest
 		want     string
 	}{
-		{name: "schema version", manifest: LocalManifest{Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess}, want: "schema_version"},
-		{name: "name mismatch", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/other", Version: "1.2.3", Runtime: RuntimeProcess}, want: "does not match reference"},
-		{name: "builtin runtime", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeBuiltin}, want: "reserved for builtins"},
-		{name: "unknown status", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, Status: "retired"}, want: "status"},
-		{name: "absolute working directory", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, RuntimeConfig: map[string]string{"working_directory": "/tmp"}}, want: "must be relative"},
-		{name: "escaping working directory", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, RuntimeConfig: map[string]string{"working_directory": "../outside"}}, want: "must stay within the action base directory"},
-		{name: "unsupported runner", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, RuntimeConfig: map[string]string{"runner": "fish"}}, want: "unsupported runner"},
+		{
+			name:     "schema version",
+			manifest: LocalManifest{Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess},
+			want:     "schema_version",
+		},
+		{
+			name:     "name mismatch",
+			manifest: LocalManifest{SchemaVersion: 1, Name: "acme/other", Version: "1.2.3", Runtime: RuntimeProcess},
+			want:     "does not match reference",
+		},
+		{
+			name:     "builtin runtime",
+			manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeBuiltin},
+			want:     "reserved for builtins",
+		},
+		{
+			name: "unknown status",
+			manifest: LocalManifest{
+				SchemaVersion: 1,
+				Name:          "acme/cache",
+				Version:       "1.2.3",
+				Runtime:       RuntimeProcess,
+				Status:        "retired",
+			},
+			want: "status",
+		},
+		{
+			name: "absolute working directory",
+			manifest: LocalManifest{
+				SchemaVersion: 1,
+				Name:          "acme/cache",
+				Version:       "1.2.3",
+				Runtime:       RuntimeProcess,
+				RuntimeConfig: map[string]string{"working_directory": "/tmp"},
+			},
+			want: "must be relative",
+		},
+		{
+			name: "escaping working directory",
+			manifest: LocalManifest{
+				SchemaVersion: 1,
+				Name:          "acme/cache",
+				Version:       "1.2.3",
+				Runtime:       RuntimeProcess,
+				RuntimeConfig: map[string]string{"working_directory": "../outside"},
+			},
+			want: "must stay within the action base directory",
+		},
+		{
+			name: "unsupported runner",
+			manifest: LocalManifest{
+				SchemaVersion: 1,
+				Name:          "acme/cache",
+				Version:       "1.2.3",
+				Runtime:       RuntimeProcess,
+				RuntimeConfig: map[string]string{"runner": "fish"},
+			},
+			want: "unsupported runner",
+		},
 		{
 			name: "duplicate field",
 			manifest: LocalManifest{
@@ -291,7 +345,17 @@ func TestLocalManifestSourceRejectsInvalidManifest(t *testing.T) {
 			},
 			want: "duplicated",
 		},
-		{name: "unknown capability", manifest: LocalManifest{SchemaVersion: 1, Name: "acme/cache", Version: "1.2.3", Runtime: RuntimeProcess, Capabilities: []Capability{"telepathy"}}, want: "unsupported"},
+		{
+			name: "unknown capability",
+			manifest: LocalManifest{
+				SchemaVersion: 1,
+				Name:          "acme/cache",
+				Version:       "1.2.3",
+				Runtime:       RuntimeProcess,
+				Capabilities:  []Capability{"telepathy"},
+			},
+			want: "unsupported",
+		},
 	}
 
 	for _, tt := range tests {

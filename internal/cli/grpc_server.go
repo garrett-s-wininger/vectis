@@ -41,7 +41,14 @@ func WithGRPCHealthServer(health grpcHealthSetter, service string) GRPCServeOpti
 	}
 }
 
-func ServeGRPC(ctx context.Context, srv *grpc.Server, ln net.Listener, serviceName string, logger interfaces.Logger, options ...GRPCServeOption) error {
+func ServeGRPC(
+	ctx context.Context,
+	srv *grpc.Server,
+	ln net.Listener,
+	serviceName string,
+	logger interfaces.Logger,
+	options ...GRPCServeOption,
+) error {
 	opts := grpcServeOptions{shutdownTimeout: defaultGRPCShutdownTimeout}
 	for _, option := range options {
 		if option != nil {

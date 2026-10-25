@@ -181,13 +181,19 @@ func (m *limaVirtualMachineManager) run(ctx context.Context, stdin io.Reader, ar
 	return nil
 }
 
-func (e *limaVirtualMachine) StartCommand(ctx context.Context, command VirtualMachineCommand) (interfaces.Process, error) {
+func (e *limaVirtualMachine) StartCommand(
+	ctx context.Context,
+	command VirtualMachineCommand,
+) (interfaces.Process, error) {
 	if strings.TrimSpace(command.Path) == "" {
 		return nil, fmt.Errorf("lima command path is required")
 	}
 
 	// #nosec G204 -- limactl path and guest command are explicit VM execution configuration.
-	cmd := exec.CommandContext(ctx, e.limactlPath, e.commandArgsWithEnv(command.Path, command.Args, command.WorkDir, command.Env)...)
+	cmd := exec.CommandContext(
+		ctx,
+		e.limactlPath,
+		e.commandArgsWithEnv(command.Path, command.Args, command.WorkDir, command.Env)...)
 	return interfaces.StartProviderProcess(cmd)
 }
 
@@ -195,7 +201,12 @@ func (e *limaVirtualMachine) commandArgs(commandPath string, args []string, work
 	return e.commandArgsWithEnv(commandPath, args, workDir, nil)
 }
 
-func (e *limaVirtualMachine) commandArgsWithEnv(commandPath string, args []string, workDir string, env []string) []string {
+func (e *limaVirtualMachine) commandArgsWithEnv(
+	commandPath string,
+	args []string,
+	workDir string,
+	env []string,
+) []string {
 	guestCommand := guestCommandWithEnv(commandPath, args, env, e.preserveEnv)
 
 	limactlArgs := []string{"--tty=false", "shell"}
@@ -208,7 +219,16 @@ func (e *limaVirtualMachine) commandArgsWithEnv(commandPath string, args []strin
 	}
 
 	if guestWorkDir := e.guestWorkDir(workDir); guestWorkDir != "" {
-		limactlArgs = append(limactlArgs, e.instance, "--", "sh", "-c", limaWorkspaceCommand, "vectis-lima-workspace", guestWorkDir)
+		limactlArgs = append(
+			limactlArgs,
+			e.instance,
+			"--",
+			"sh",
+			"-c",
+			limaWorkspaceCommand,
+			"vectis-lima-workspace",
+			guestWorkDir,
+		)
 		limactlArgs = append(limactlArgs, guestCommand...)
 		return limactlArgs
 	}

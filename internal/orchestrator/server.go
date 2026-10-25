@@ -23,12 +23,20 @@ type grpcServer struct {
 	logger  interfaces.Logger
 }
 
-func RegisterOrchestratorService(s grpc.ServiceRegistrar, service *Service, logger interfaces.Logger) api.OrchestratorServiceServer {
+func RegisterOrchestratorService(
+	s grpc.ServiceRegistrar,
+	service *Service,
+	logger interfaces.Logger,
+) api.OrchestratorServiceServer {
 	server, _ := RegisterOrchestratorServiceWithHealth(s, service, logger)
 	return server
 }
 
-func RegisterOrchestratorServiceWithHealth(s grpc.ServiceRegistrar, service *Service, logger interfaces.Logger) (api.OrchestratorServiceServer, *health.Server) {
+func RegisterOrchestratorServiceWithHealth(
+	s grpc.ServiceRegistrar,
+	service *Service,
+	logger interfaces.Logger,
+) (api.OrchestratorServiceServer, *health.Server) {
 	server := &grpcServer{service: service, logger: logger}
 
 	hs := health.NewServer()
@@ -80,12 +88,21 @@ func (s *grpcServer) ListPending(ctx context.Context, req *api.ListPendingReques
 	return &api.ListPendingResponse{Executions: taskExecutionsToProto(pending)}, nil
 }
 
-func (s *grpcServer) ClaimExecution(ctx context.Context, req *api.ClaimExecutionRequest) (*api.ClaimExecutionResponse, error) {
+func (s *grpcServer) ClaimExecution(
+	ctx context.Context,
+	req *api.ClaimExecutionRequest,
+) (*api.ClaimExecutionResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "claim execution request is required")
 	}
 
-	claim, err := s.service.ClaimExecution(ctx, req.GetRunId(), req.GetExecutionId(), req.GetOwner(), unixNanoTime(req.GetLeaseUntilUnixNano()))
+	claim, err := s.service.ClaimExecution(
+		ctx,
+		req.GetRunId(),
+		req.GetExecutionId(),
+		req.GetOwner(),
+		unixNanoTime(req.GetLeaseUntilUnixNano()),
+	)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -103,7 +120,14 @@ func (s *grpcServer) RenewExecutionLease(ctx context.Context, req *api.RenewExec
 		return nil, status.Error(codes.InvalidArgument, "renew execution lease request is required")
 	}
 
-	err := s.service.RenewExecutionLease(ctx, req.GetRunId(), req.GetExecutionId(), req.GetOwner(), req.GetClaimToken(), unixNanoTime(req.GetLeaseUntilUnixNano()))
+	err := s.service.RenewExecutionLease(
+		ctx,
+		req.GetRunId(),
+		req.GetExecutionId(),
+		req.GetOwner(),
+		req.GetClaimToken(),
+		unixNanoTime(req.GetLeaseUntilUnixNano()),
+	)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -111,12 +135,24 @@ func (s *grpcServer) RenewExecutionLease(ctx context.Context, req *api.RenewExec
 	return &api.Empty{}, nil
 }
 
-func (s *grpcServer) CompleteExecution(ctx context.Context, req *api.CompleteExecutionRequest) (*api.CompleteExecutionResponse, error) {
+func (s *grpcServer) CompleteExecution(
+	ctx context.Context,
+	req *api.CompleteExecutionRequest,
+) (*api.CompleteExecutionResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "complete execution request is required")
 	}
 
-	result, err := s.service.CompleteExecutionByClaim(ctx, req.GetRunId(), req.GetExecutionId(), req.GetOwner(), req.GetClaimToken(), req.GetStatus(), req.GetFailureCode(), req.GetReason())
+	result, err := s.service.CompleteExecutionByClaim(
+		ctx,
+		req.GetRunId(),
+		req.GetExecutionId(),
+		req.GetOwner(),
+		req.GetClaimToken(),
+		req.GetStatus(),
+		req.GetFailureCode(),
+		req.GetReason(),
+	)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -132,7 +168,10 @@ func (s *grpcServer) CompleteExecution(ctx context.Context, req *api.CompleteExe
 	}, nil
 }
 
-func (s *grpcServer) GetRunTaskCompletion(ctx context.Context, req *api.GetRunTaskCompletionRequest) (*api.OrchestratorRunTaskCompletion, error) {
+func (s *grpcServer) GetRunTaskCompletion(
+	ctx context.Context,
+	req *api.GetRunTaskCompletionRequest,
+) (*api.OrchestratorRunTaskCompletion, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "get run task completion request is required")
 	}
@@ -145,7 +184,10 @@ func (s *grpcServer) GetRunTaskCompletion(ctx context.Context, req *api.GetRunTa
 	return runTaskCompletionToProto(summary), nil
 }
 
-func (s *grpcServer) GetRunTaskSnapshot(ctx context.Context, req *api.GetRunTaskSnapshotRequest) (*api.GetRunTaskSnapshotResponse, error) {
+func (s *grpcServer) GetRunTaskSnapshot(
+	ctx context.Context,
+	req *api.GetRunTaskSnapshotRequest,
+) (*api.GetRunTaskSnapshotResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "get run task snapshot request is required")
 	}
@@ -163,7 +205,9 @@ func (s *grpcServer) GetRunTaskSnapshot(ctx context.Context, req *api.GetRunTask
 	}, nil
 }
 
-func (s *grpcServer) ExecutionStream(stream grpc.BidiStreamingServer[api.ExecutionStreamRequest, api.ExecutionStreamResponse]) error {
+func (s *grpcServer) ExecutionStream(
+	stream grpc.BidiStreamingServer[api.ExecutionStreamRequest, api.ExecutionStreamResponse],
+) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -185,7 +229,10 @@ func (s *grpcServer) ExecutionStream(stream grpc.BidiStreamingServer[api.Executi
 	}
 }
 
-func (s *grpcServer) executionStreamResponse(ctx context.Context, req *api.ExecutionStreamRequest) (*api.ExecutionStreamResponse, error) {
+func (s *grpcServer) executionStreamResponse(
+	ctx context.Context,
+	req *api.ExecutionStreamRequest,
+) (*api.ExecutionStreamResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "execution stream request is required")
 	}

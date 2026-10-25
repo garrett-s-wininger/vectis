@@ -95,7 +95,11 @@ func (p *Publisher) PublishRunCompleted(ctx context.Context, completed RunComple
 	}
 
 	if !isRunCompletedStatus(status) {
-		return Publication{}, fmt.Errorf("%w: run completed event requires terminal status, got %q", dal.ErrConflict, status)
+		return Publication{}, fmt.Errorf(
+			"%w: run completed event requires terminal status, got %q",
+			dal.ErrConflict,
+			status,
+		)
 	}
 
 	jobID := strings.TrimSpace(completed.JobID)
@@ -126,11 +130,17 @@ func (p *Publisher) PublishRunCompleted(ctx context.Context, completed RunComple
 	})
 }
 
-func (p *Publisher) PublishDefinitionValidationFailed(ctx context.Context, failure DefinitionValidationFailed) (Publication, error) {
+func (p *Publisher) PublishDefinitionValidationFailed(
+	ctx context.Context,
+	failure DefinitionValidationFailed,
+) (Publication, error) {
 	message := strings.TrimSpace(failure.Message)
 	reason := strings.TrimSpace(failure.Reason)
 	if message == "" && reason == "" {
-		return Publication{}, fmt.Errorf("%w: definition validation failed event requires message or reason", dal.ErrConflict)
+		return Publication{}, fmt.Errorf(
+			"%w: definition validation failed event requires message or reason",
+			dal.ErrConflict,
+		)
 	}
 
 	jobID := strings.TrimSpace(failure.JobID)

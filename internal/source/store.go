@@ -28,7 +28,10 @@ func NewRepositoryDefinitionResolver(repo Repository) RepositoryDefinitionResolv
 	return RepositoryDefinitionResolver{Repository: repo}
 }
 
-func (r RepositoryDefinitionResolver) ResolveDefinition(ctx context.Context, req DefinitionRequest) (Definition, error) {
+func (r RepositoryDefinitionResolver) ResolveDefinition(
+	ctx context.Context,
+	req DefinitionRequest,
+) (Definition, error) {
 	return LoadDefinition(ctx, r.Repository, req)
 }
 
@@ -65,7 +68,10 @@ func (s GitDefinitionStore) ReadDefinitionFile(ctx context.Context, req Definiti
 	return s.Checkout.readDefinitionFile(ctx, req)
 }
 
-func (s GitDefinitionStore) ListDefinitionFiles(ctx context.Context, opts ListDefinitionFilesOptions) (DefinitionFileListing, error) {
+func (s GitDefinitionStore) ListDefinitionFiles(
+	ctx context.Context,
+	opts ListDefinitionFilesOptions,
+) (DefinitionFileListing, error) {
 	if s.Checkout == nil {
 		return DefinitionFileListing{}, fmt.Errorf("%w: checkout is required", ErrInvalidReference)
 	}
@@ -91,7 +97,11 @@ func NewGitCheckoutFromRecord(rec dal.SourceRepositoryRecord) (*GitCheckout, err
 	case dal.SourceKindLocalCheckout:
 		checkoutPath := strings.TrimSpace(rec.CheckoutPath)
 		if checkoutPath == "" {
-			return nil, fmt.Errorf("%w: checkout_path is required for %s", ErrInvalidReference, dal.SourceKindLocalCheckout)
+			return nil, fmt.Errorf(
+				"%w: checkout_path is required for %s",
+				ErrInvalidReference,
+				dal.SourceKindLocalCheckout,
+			)
 		}
 
 		if strings.TrimSpace(rec.CheckoutMode) == dal.SourceCheckoutModeManaged {

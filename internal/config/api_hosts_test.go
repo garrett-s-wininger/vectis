@@ -137,12 +137,28 @@ func TestDocsAllowedHostsOverrides(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	viper.Set("allowed_hosts", []string{"Docs.Example.com.", "docs.example.com", "localhost:8088"})
-	if got, want := DocsAllowedHosts("localhost"), []string{"docs.example.com", "localhost:8088"}; !reflect.DeepEqual(got, want) {
+	if got, want := DocsAllowedHosts(
+		"localhost",
+	), []string{
+		"docs.example.com",
+		"localhost:8088",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("DocsAllowedHosts() viper = %v, want %v", got, want)
 	}
 
 	t.Setenv(envDocsAllowedHosts, "docs-env.example, [::1]:8088")
-	if got, want := DocsAllowedHosts("localhost"), []string{"docs-env.example", "[::1]:8088"}; !reflect.DeepEqual(got, want) {
+	if got, want := DocsAllowedHosts(
+		"localhost",
+	), []string{
+		"docs-env.example",
+		"[::1]:8088",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("DocsAllowedHosts() env = %v, want %v", got, want)
 	}
 }
@@ -207,14 +223,30 @@ func TestMetricsAllowedHostsOverrides(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	viper.Set("metrics_allowed_hosts", []string{"Metrics.Example.com.", "metrics.example.com", "localhost:9090"})
-	if got, want := MetricsAllowedHosts("localhost"), []string{"metrics.example.com", "localhost:9090"}; !reflect.DeepEqual(got, want) {
+	if got, want := MetricsAllowedHosts(
+		"localhost",
+	), []string{
+		"metrics.example.com",
+		"localhost:9090",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("MetricsAllowedHosts() viper = %v, want %v", got, want)
 	}
 
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	t.Setenv(envMetricsAllowedHosts, "metrics-env.example, [::1]:9090")
-	if got, want := MetricsAllowedHosts("localhost"), []string{"metrics-env.example", "[::1]:9090"}; !reflect.DeepEqual(got, want) {
+	if got, want := MetricsAllowedHosts(
+		"localhost",
+	), []string{
+		"metrics-env.example",
+		"[::1]:9090",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("MetricsAllowedHosts() global env = %v, want %v", got, want)
 	}
 
@@ -284,12 +316,30 @@ func TestCellIngressAllowedHostsOverrides(t *testing.T) {
 	viper.Set("cell_ingress_endpoints", []string{"iad-a=http://ingress.example:8085"})
 	viper.Set("allowed_hosts", []string{"Ingress.Override.Example.", "ingress.override.example:8085"})
 
-	if got, want := CellIngressAllowedHosts("iad-a", "localhost"), []string{"ingress.override.example", "ingress.override.example:8085"}; !reflect.DeepEqual(got, want) {
+	if got, want := CellIngressAllowedHosts(
+		"iad-a",
+		"localhost",
+	), []string{
+		"ingress.override.example",
+		"ingress.override.example:8085",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("CellIngressAllowedHosts() viper = %v, want %v", got, want)
 	}
 
 	t.Setenv(envCellIngressAllowedHosts, "ingress-env.example, [::1]:8085")
-	if got, want := CellIngressAllowedHosts("iad-a", "localhost"), []string{"ingress-env.example", "[::1]:8085"}; !reflect.DeepEqual(got, want) {
+	if got, want := CellIngressAllowedHosts(
+		"iad-a",
+		"localhost",
+	), []string{
+		"ingress-env.example",
+		"[::1]:8085",
+	}; !reflect.DeepEqual(
+		got,
+		want,
+	) {
 		t.Fatalf("CellIngressAllowedHosts() env = %v, want %v", got, want)
 	}
 }

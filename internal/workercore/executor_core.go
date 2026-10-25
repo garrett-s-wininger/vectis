@@ -124,7 +124,10 @@ func (c *ExecutorCore) checkoutCacheForSession(session TaskSession) (action.Chec
 	return checkoutCache, err
 }
 
-func (c *ExecutorCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCacheRequest) (WarmCheckoutCacheResult, error) {
+func (c *ExecutorCore) WarmCheckoutCache(
+	ctx context.Context,
+	req WarmCheckoutCacheRequest,
+) (WarmCheckoutCacheResult, error) {
 	result := WarmCheckoutCacheResult{}
 	if c == nil || strings.TrimSpace(c.checkoutCacheRoot) == "" {
 		return result, nil
@@ -139,7 +142,11 @@ func (c *ExecutorCore) WarmCheckoutCache(ctx context.Context, req WarmCheckoutCa
 	return c.warmCheckoutCacheRemotes(ctx, remotes, c.checkoutCacheWarmParallelism)
 }
 
-func (c *ExecutorCore) warmCheckoutCacheRemotes(ctx context.Context, remotes []CheckoutCacheRemote, parallelism int) (WarmCheckoutCacheResult, error) {
+func (c *ExecutorCore) warmCheckoutCacheRemotes(
+	ctx context.Context,
+	remotes []CheckoutCacheRemote,
+	parallelism int,
+) (WarmCheckoutCacheResult, error) {
 	result := WarmCheckoutCacheResult{}
 	remotes = uniqueCheckoutCacheRemotes(remotes)
 	if len(remotes) == 0 {
@@ -232,7 +239,10 @@ func (r *WarmCheckoutCacheResult) add(remoteResult warmCheckoutCacheRemoteResult
 	r.Failures = append(r.Failures, remoteResult.failures...)
 }
 
-func (c *ExecutorCore) warmCheckoutCacheRemote(ctx context.Context, remote CheckoutCacheRemote) (warmCheckoutCacheRemoteResult, error) {
+func (c *ExecutorCore) warmCheckoutCacheRemote(
+	ctx context.Context,
+	remote CheckoutCacheRemote,
+) (warmCheckoutCacheRemoteResult, error) {
 	result := warmCheckoutCacheRemoteResult{}
 	cache, err := c.checkoutCacheForRemotes([]CheckoutCacheRemote{remote})
 	if err != nil {
@@ -279,7 +289,14 @@ func (c *ExecutorCore) recordCheckoutCacheRootStats(ctx context.Context) {
 		return
 	}
 
-	cache, err := source.NewWorkerCheckoutCache(c.checkoutCacheRoot, nil, workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL, c.checkoutCacheMaxBytes)...)
+	cache, err := source.NewWorkerCheckoutCache(
+		c.checkoutCacheRoot,
+		nil,
+		workerCheckoutCacheOptions(
+			c.checkoutCacheGenerationsToKeep,
+			c.checkoutCacheLeaseTTL,
+			c.checkoutCacheMaxBytes,
+		)...)
 	if err != nil {
 		return
 	}
@@ -306,7 +323,14 @@ func (c *ExecutorCore) checkoutCacheForRemotes(remotes []CheckoutCacheRemote) (*
 		return nil, nil
 	}
 
-	checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(c.checkoutCacheRoot, sourceWorkerCheckoutCacheRemotes(remotes), workerCheckoutCacheOptions(c.checkoutCacheGenerationsToKeep, c.checkoutCacheLeaseTTL, c.checkoutCacheMaxBytes)...)
+	checkoutCache, err := source.NewWorkerCheckoutCacheWithRemotes(
+		c.checkoutCacheRoot,
+		sourceWorkerCheckoutCacheRemotes(remotes),
+		workerCheckoutCacheOptions(
+			c.checkoutCacheGenerationsToKeep,
+			c.checkoutCacheLeaseTTL,
+			c.checkoutCacheMaxBytes,
+		)...)
 	if err != nil {
 		return nil, fmt.Errorf("initialize task checkout cache: %w", err)
 	}
@@ -332,7 +356,11 @@ func sourceWorkerCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []source.Wo
 	return out
 }
 
-func workerCheckoutCacheOptions(generationsToKeep int, leaseTTL time.Duration, maxBytes int64) []source.WorkerCheckoutCacheOption {
+func workerCheckoutCacheOptions(
+	generationsToKeep int,
+	leaseTTL time.Duration,
+	maxBytes int64,
+) []source.WorkerCheckoutCacheOption {
 	options := []source.WorkerCheckoutCacheOption{
 		source.WithWorkerCheckoutCacheCloneRecorder(recordCheckoutCacheClone),
 		source.WithWorkerCheckoutCacheDemandHydrationRecorder(recordCheckoutCacheDemandHydration),
@@ -393,7 +421,9 @@ func uniqueCheckoutCacheRemotes(remotes []CheckoutCacheRemote) []CheckoutCacheRe
 		}
 
 		if existing, ok := seen[remoteURL]; ok {
-			out[existing].FallbackRemoteURLs = uniqueCheckoutCacheRemoteURLs(append(out[existing].FallbackRemoteURLs, remote.FallbackRemoteURLs...))
+			out[existing].FallbackRemoteURLs = uniqueCheckoutCacheRemoteURLs(
+				append(out[existing].FallbackRemoteURLs, remote.FallbackRemoteURLs...),
+			)
 			out[existing].WarmRefspecs = mergeCheckoutCacheWarmRefspecs(out[existing].WarmRefspecs, remote.WarmRefspecs)
 			if out[existing].Credentials.IsZero() && !remote.Credentials.IsZero() {
 				out[existing].Credentials = remote.Credentials

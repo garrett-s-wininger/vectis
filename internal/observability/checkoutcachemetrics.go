@@ -57,16 +57,24 @@ type CheckoutCacheMetrics struct {
 func NewCheckoutCacheMetrics() (*CheckoutCacheMetrics, error) {
 	m := otel.Meter("vectis/checkout")
 
-	repositories, err := m.Int64ObservableGauge("vectis_checkout_cache_repositories",
-		metric.WithDescription("Worker-core checkout cache persistent repositories with at least one retained mirror generation"),
-		metric.WithUnit("{repository}"))
+	repositories, err := m.Int64ObservableGauge(
+		"vectis_checkout_cache_repositories",
+		metric.WithDescription(
+			"Worker-core checkout cache persistent repositories with at least one retained mirror generation",
+		),
+		metric.WithUnit("{repository}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_checkout_cache_repositories: %w", err)
 	}
 
-	generations, err := m.Int64ObservableGauge("vectis_checkout_cache_generations",
-		metric.WithDescription("Worker-core checkout cache immutable mirror generations retained across persistent repositories"),
-		metric.WithUnit("{generation}"))
+	generations, err := m.Int64ObservableGauge(
+		"vectis_checkout_cache_generations",
+		metric.WithDescription(
+			"Worker-core checkout cache immutable mirror generations retained across persistent repositories",
+		),
+		metric.WithUnit("{generation}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_checkout_cache_generations: %w", err)
 	}
@@ -92,16 +100,24 @@ func NewCheckoutCacheMetrics() (*CheckoutCacheMetrics, error) {
 		return nil, fmt.Errorf("vectis_checkout_cache_active_leases: %w", err)
 	}
 
-	clones, err := m.Int64Counter("vectis_checkout_cache_clones_total",
-		metric.WithDescription("Worker-core checkout cache workspace clones by local object transfer mode and selection reason"),
-		metric.WithUnit("{clone}"))
+	clones, err := m.Int64Counter(
+		"vectis_checkout_cache_clones_total",
+		metric.WithDescription(
+			"Worker-core checkout cache workspace clones by local object transfer mode and selection reason",
+		),
+		metric.WithUnit("{clone}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_checkout_cache_clones_total: %w", err)
 	}
 
-	demandHydrations, err := m.Int64Counter("vectis_checkout_cache_demand_hydrations_total",
-		metric.WithDescription("Worker-core checkout cache demand hydrations for auxiliary refs requested by checkout actions"),
-		metric.WithUnit("{hydration}"))
+	demandHydrations, err := m.Int64Counter(
+		"vectis_checkout_cache_demand_hydrations_total",
+		metric.WithDescription(
+			"Worker-core checkout cache demand hydrations for auxiliary refs requested by checkout actions",
+		),
+		metric.WithUnit("{hydration}"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("vectis_checkout_cache_demand_hydrations_total: %w", err)
 	}

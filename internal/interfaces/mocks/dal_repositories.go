@@ -16,11 +16,24 @@ func (StubEphemeralRunStarter) CreateDefinitionAndRun(context.Context, string, s
 	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
 }
 
-func (StubEphemeralRunStarter) CreateDefinitionAndRunInCell(context.Context, string, string, *int, string) (string, int, error) {
+func (StubEphemeralRunStarter) CreateDefinitionAndRunInCell(
+	context.Context,
+	string,
+	string,
+	*int,
+	string,
+) (string, int, error) {
 	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
 }
 
-func (StubEphemeralRunStarter) CreateDefinitionAndRunInCellWithAudit(context.Context, string, string, *int, string, dal.RunAuditMetadata) (string, int, error) {
+func (StubEphemeralRunStarter) CreateDefinitionAndRunInCellWithAudit(
+	context.Context,
+	string,
+	string,
+	*int,
+	string,
+	dal.RunAuditMetadata,
+) (string, int, error) {
 	return "", 0, fmt.Errorf("stub ephemeral run starter: not configured")
 }
 
@@ -58,11 +71,21 @@ func (m *MockJobsRepository) Create(ctx context.Context, jobID, definitionJSON s
 	return m.CreateWithTriggers(ctx, jobID, definitionJSON, namespaceID, nil)
 }
 
-func (m *MockJobsRepository) CreateWithTriggers(ctx context.Context, jobID, definitionJSON string, namespaceID int64, triggers []dal.JobTriggerConfig) error {
+func (m *MockJobsRepository) CreateWithTriggers(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	namespaceID int64,
+	triggers []dal.JobTriggerConfig,
+) error {
 	return m.createDefinition(jobID, definitionJSON, namespaceID, triggers, true)
 }
 
-func (m *MockJobsRepository) createDefinition(jobID, definitionJSON string, namespaceID int64, triggers []dal.JobTriggerConfig, replaceTriggers bool) error {
+func (m *MockJobsRepository) createDefinition(
+	jobID, definitionJSON string,
+	namespaceID int64,
+	triggers []dal.JobTriggerConfig,
+	replaceTriggers bool,
+) error {
 	if m.CreateErr != nil {
 		return m.CreateErr
 	}
@@ -176,7 +199,10 @@ func (m *MockJobsRepository) GetDefinitionVersion(ctx context.Context, jobID str
 	return def, nil
 }
 
-func (m *MockJobsRepository) GetEnabledTriggerID(ctx context.Context, jobID, triggerType, triggerKey string) (int64, error) {
+func (m *MockJobsRepository) GetEnabledTriggerID(
+	ctx context.Context,
+	jobID, triggerType, triggerKey string,
+) (int64, error) {
 	if m.GetErr != nil {
 		return 0, m.GetErr
 	}
@@ -214,11 +240,19 @@ func (m *MockJobsRepository) UpdateDefinition(ctx context.Context, jobID, defini
 	return m.updateDefinition(jobID, definitionJSON, nil, false)
 }
 
-func (m *MockJobsRepository) UpdateDefinitionWithTriggers(ctx context.Context, jobID, definitionJSON string, triggers []dal.JobTriggerConfig) (int, error) {
+func (m *MockJobsRepository) UpdateDefinitionWithTriggers(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	triggers []dal.JobTriggerConfig,
+) (int, error) {
 	return m.updateDefinition(jobID, definitionJSON, triggers, true)
 }
 
-func (m *MockJobsRepository) updateDefinition(jobID, definitionJSON string, triggers []dal.JobTriggerConfig, replaceTriggers bool) (int, error) {
+func (m *MockJobsRepository) updateDefinition(
+	jobID, definitionJSON string,
+	triggers []dal.JobTriggerConfig,
+	replaceTriggers bool,
+) (int, error) {
 	if m.UpdateErr != nil {
 		return 0, m.UpdateErr
 	}
@@ -465,7 +499,10 @@ func (m *MockRunsRepository) ApplyExecutionStatusUpdate(ctx context.Context, upd
 		return nil
 	case dal.ExecutionStatusRunning:
 		return m.MarkExecutionStarted(ctx, update.ExecutionID)
-	case dal.ExecutionStatusSucceeded, dal.ExecutionStatusFailed, dal.ExecutionStatusCancelled, dal.ExecutionStatusAborted:
+	case dal.ExecutionStatusSucceeded,
+		dal.ExecutionStatusFailed,
+		dal.ExecutionStatusCancelled,
+		dal.ExecutionStatusAborted:
 		if m.MarkExecutionErr != nil {
 			return m.MarkExecutionErr
 		}
@@ -551,7 +588,11 @@ func (m *MockRunsRepository) MarkExpiredRunningAsOrphaned(ctx context.Context, c
 	return append([]string(nil), m.OrphanedRunIDs...), nil
 }
 
-func (m *MockRunsRepository) MarkExpiredQueuedExecutionsFailed(ctx context.Context, cutoffUnixNano int64, limit int) ([]dal.ExpiredExecution, error) {
+func (m *MockRunsRepository) MarkExpiredQueuedExecutionsFailed(
+	ctx context.Context,
+	cutoffUnixNano int64,
+	limit int,
+) ([]dal.ExpiredExecution, error) {
 	if m.ExpireQueuedExecutionsErr != nil {
 		return nil, m.ExpireQueuedExecutionsErr
 	}
@@ -633,11 +674,22 @@ func (m *MockRunsRepository) AssignLogShard(ctx context.Context, runID, shardID 
 	return m.LogShardID, nil
 }
 
-func (m *MockRunsRepository) CreateRun(ctx context.Context, jobID string, runIndex *int, definitionVersion int) (string, int, error) {
+func (m *MockRunsRepository) CreateRun(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+) (string, int, error) {
 	return m.CreateRunInCell(ctx, jobID, runIndex, definitionVersion, dal.DefaultCellID)
 }
 
-func (m *MockRunsRepository) CreateRunInCell(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellID string) (string, int, error) {
+func (m *MockRunsRepository) CreateRunInCell(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellID string,
+) (string, int, error) {
 	created, err := m.CreateRunsInCells(ctx, jobID, runIndex, definitionVersion, []string{targetCellID})
 	if err != nil {
 		return "", 0, err
@@ -650,11 +702,24 @@ func (m *MockRunsRepository) CreateRunInCell(ctx context.Context, jobID string, 
 	return created[0].RunID, created[0].RunIndex, nil
 }
 
-func (m *MockRunsRepository) CreateRunsInCells(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string) ([]dal.CreatedRun, error) {
+func (m *MockRunsRepository) CreateRunsInCells(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellIDs []string,
+) ([]dal.CreatedRun, error) {
 	return m.CreateRunsInCellsWithAudit(ctx, jobID, runIndex, definitionVersion, targetCellIDs, dal.RunAuditMetadata{})
 }
 
-func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, jobID string, runIndex *int, definitionVersion int, targetCellIDs []string, audit dal.RunAuditMetadata) ([]dal.CreatedRun, error) {
+func (m *MockRunsRepository) CreateRunsInCellsWithAudit(
+	ctx context.Context,
+	jobID string,
+	runIndex *int,
+	definitionVersion int,
+	targetCellIDs []string,
+	audit dal.RunAuditMetadata,
+) ([]dal.CreatedRun, error) {
 	if m.CreateRunErr != nil {
 		return nil, m.CreateRunErr
 	}
@@ -725,11 +790,17 @@ func (m *MockRunsRepository) CreateRunsInCellsWithAudit(ctx context.Context, job
 	return created, nil
 }
 
-func (m *MockRunsRepository) ListCreatedByTriggerInvocation(ctx context.Context, invocationID string) ([]dal.CreatedRun, error) {
+func (m *MockRunsRepository) ListCreatedByTriggerInvocation(
+	ctx context.Context,
+	invocationID string,
+) ([]dal.CreatedRun, error) {
 	return m.ListRunsByTriggerInvocation(ctx, invocationID)
 }
 
-func (m *MockRunsRepository) ListRunsByTriggerInvocation(ctx context.Context, triggerInvocationID string) ([]dal.CreatedRun, error) {
+func (m *MockRunsRepository) ListRunsByTriggerInvocation(
+	ctx context.Context,
+	triggerInvocationID string,
+) ([]dal.CreatedRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -749,7 +820,15 @@ func (m *MockRunsRepository) ListRunsByTriggerInvocation(ctx context.Context, tr
 	return out, nil
 }
 
-func mockRootDispatchRecord(runID, jobID string, runIndex int, targetCellID string, definitionVersion int, definitionHash string, namespacePath string, startDeadlineUnixNano int64) dal.ExecutionDispatchRecord {
+func mockRootDispatchRecord(
+	runID, jobID string,
+	runIndex int,
+	targetCellID string,
+	definitionVersion int,
+	definitionHash string,
+	namespacePath string,
+	startDeadlineUnixNano int64,
+) dal.ExecutionDispatchRecord {
 	targetCellID = strings.TrimSpace(targetCellID)
 	if targetCellID == "" {
 		targetCellID = dal.DefaultCellID
@@ -788,10 +867,20 @@ func mockRootDispatchRecord(runID, jobID string, runIndex int, targetCellID stri
 	}
 }
 
-func (m *MockRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID string, targetCellID string, audit dal.RunAuditMetadata) (dal.CreatedRun, error) {
+func (m *MockRunsRepository) CreateReplayRun(
+	ctx context.Context,
+	sourceRunID string,
+	targetCellID string,
+	audit dal.RunAuditMetadata,
+) (dal.CreatedRun, error) {
 	sourceRun, ok := m.RunRecords[sourceRunID]
 	if ok && (sourceRun.Status == dal.RunStatusQueued || sourceRun.Status == dal.RunStatusRunning) {
-		return dal.CreatedRun{}, fmt.Errorf("%w: source run %s in status %s cannot be replayed", dal.ErrConflict, sourceRunID, sourceRun.Status)
+		return dal.CreatedRun{}, fmt.Errorf(
+			"%w: source run %s in status %s cannot be replayed",
+			dal.ErrConflict,
+			sourceRunID,
+			sourceRun.Status,
+		)
 	}
 
 	jobID := m.LastCreateJobID
@@ -824,7 +913,10 @@ func (m *MockRunsRepository) CreateReplayRun(ctx context.Context, sourceRunID st
 	return created[0], nil
 }
 
-func (m *MockRunsRepository) RecordExecutionPayload(ctx context.Context, runID, payloadJSON, definitionHash string) (string, string, error) {
+func (m *MockRunsRepository) RecordExecutionPayload(
+	ctx context.Context,
+	runID, payloadJSON, definitionHash string,
+) (string, string, error) {
 	payloadHash := dal.ExecutionPayloadHash(payloadJSON)
 	m.mu.Lock()
 	if m.RecordedPayloads == nil {
@@ -841,7 +933,10 @@ func (m *MockRunsRepository) RecordExecutionPayload(ctx context.Context, runID, 
 	return payloadHash, payloadJSON, nil
 }
 
-func (m *MockRunsRepository) GetExecutionPayloadForRun(ctx context.Context, runID string) (dal.ExecutionPayloadRecord, error) {
+func (m *MockRunsRepository) GetExecutionPayloadForRun(
+	ctx context.Context,
+	runID string,
+) (dal.ExecutionPayloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -880,7 +975,10 @@ func (m *MockRunsRepository) GetExecutionPayloadHashForRun(ctx context.Context, 
 	return "", fmt.Errorf("%w: execution payload for run %s", dal.ErrNotFound, runID)
 }
 
-func (m *MockRunsRepository) GetExecutionPayloadByHash(ctx context.Context, payloadHash string) (dal.ExecutionPayloadRecord, error) {
+func (m *MockRunsRepository) GetExecutionPayloadByHash(
+	ctx context.Context,
+	payloadHash string,
+) (dal.ExecutionPayloadRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -933,7 +1031,10 @@ func (m *MockRunsRepository) ClearRunHotStateOwner(ctx context.Context, runID st
 	return nil
 }
 
-func (m *MockRunsRepository) GetRunHotStateOwner(ctx context.Context, runID string) (dal.RunHotStateOwnerRecord, bool, error) {
+func (m *MockRunsRepository) GetRunHotStateOwner(
+	ctx context.Context,
+	runID string,
+) (dal.RunHotStateOwnerRecord, bool, error) {
 	if m.HotStateOwnerErr != nil {
 		return dal.RunHotStateOwnerRecord{}, false, m.HotStateOwnerErr
 	}
@@ -947,7 +1048,14 @@ func (m *MockRunsRepository) GetRunHotStateOwner(ctx context.Context, runID stri
 	return m.HotStateOwner, true, nil
 }
 
-func (m *MockRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Context, scheduleID int64, scheduledFor time.Time, jobID, definitionJSON string, source dal.JobDefinitionSourceRecord, audit dal.RunAuditMetadata) (string, int, int, bool, error) {
+func (m *MockRunsRepository) CreateScheduledSourceDefinitionRun(
+	ctx context.Context,
+	scheduleID int64,
+	scheduledFor time.Time,
+	jobID, definitionJSON string,
+	source dal.JobDefinitionSourceRecord,
+	audit dal.RunAuditMetadata,
+) (string, int, int, bool, error) {
 	if m.CreateRunErr != nil {
 		return "", 0, 0, false, m.CreateRunErr
 	}
@@ -972,7 +1080,13 @@ func (m *MockRunsRepository) CreateScheduledSourceDefinitionRun(ctx context.Cont
 	return m.CreateRunID, m.CreateRunIndex, definitionVersion, m.CreateRunCreated, nil
 }
 
-func (m *MockRunsRepository) CreateSCMEventRun(ctx context.Context, triggerID int64, eventKey, jobID string, definitionVersion int, audit dal.RunAuditMetadata) (string, int, bool, error) {
+func (m *MockRunsRepository) CreateSCMEventRun(
+	ctx context.Context,
+	triggerID int64,
+	eventKey, jobID string,
+	definitionVersion int,
+	audit dal.RunAuditMetadata,
+) (string, int, bool, error) {
 	if m.CreateRunErr != nil {
 		return "", 0, false, m.CreateRunErr
 	}
@@ -988,7 +1102,15 @@ func (m *MockRunsRepository) CreateSCMEventRun(ctx context.Context, triggerID in
 	return m.CreateRunID, m.CreateRunIndex, m.CreateRunCreated, nil
 }
 
-func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterIndex *int, since *time.Time, owningCell string, cursor int64, limit int) ([]dal.RunRecord, int64, error) {
+func (m *MockRunsRepository) ListByJob(
+	ctx context.Context,
+	jobID string,
+	afterIndex *int,
+	since *time.Time,
+	owningCell string,
+	cursor int64,
+	limit int,
+) ([]dal.RunRecord, int64, error) {
 	if m.ListByJobErr != nil {
 		return nil, 0, m.ListByJobErr
 	}
@@ -1014,7 +1136,12 @@ func (m *MockRunsRepository) ListByJob(ctx context.Context, jobID string, afterI
 	return append([]dal.RunRecord(nil), m.ListByJobResults...), 0, nil
 }
 
-func (m *MockRunsRepository) ListRunTasks(ctx context.Context, runID string, cursor int64, limit int) ([]dal.TaskRecord, int64, error) {
+func (m *MockRunsRepository) ListRunTasks(
+	ctx context.Context,
+	runID string,
+	cursor int64,
+	limit int,
+) ([]dal.TaskRecord, int64, error) {
 	if m.ListRunTasksErr != nil {
 		return nil, 0, m.ListRunTasksErr
 	}
@@ -1026,7 +1153,10 @@ func (m *MockRunsRepository) ListRunTasks(ctx context.Context, runID string, cur
 	return append([]dal.TaskRecord(nil), m.TaskRecords...), 0, nil
 }
 
-func (m *MockRunsRepository) RecordExecutionSecurityEvent(ctx context.Context, event dal.RecordExecutionSecurityEventParams) error {
+func (m *MockRunsRepository) RecordExecutionSecurityEvent(
+	ctx context.Context,
+	event dal.RecordExecutionSecurityEventParams,
+) error {
 	if m.RecordSecurityEventErr != nil {
 		return m.RecordSecurityEventErr
 	}
@@ -1038,7 +1168,11 @@ func (m *MockRunsRepository) RecordExecutionSecurityEvent(ctx context.Context, e
 	return nil
 }
 
-func (m *MockRunsRepository) LatestRunSecurityEvent(ctx context.Context, runID string, failedOnly bool) (*dal.ExecutionSecurityEvent, error) {
+func (m *MockRunsRepository) LatestRunSecurityEvent(
+	ctx context.Context,
+	runID string,
+	failedOnly bool,
+) (*dal.ExecutionSecurityEvent, error) {
 	if m.LatestSecurityEvent == nil {
 		return nil, nil //nolint:nilnil // Mock default is no optional security event.
 	}
@@ -1074,7 +1208,10 @@ func (m *MockRunsRepository) CountStuckBeforeDispatchCutoff(ctx context.Context,
 	return m.CountStuckResult, m.CountStuckErr
 }
 
-func (m *MockRunsRepository) CountStuckBeforeDispatchCutoffByCell(ctx context.Context, cutoffUnix int64) ([]dal.RunCountByCell, error) {
+func (m *MockRunsRepository) CountStuckBeforeDispatchCutoffByCell(
+	ctx context.Context,
+	cutoffUnix int64,
+) ([]dal.RunCountByCell, error) {
 	return append([]dal.RunCountByCell(nil), m.CountStuckByCell...), m.CountStuckByCellErr
 }
 
@@ -1171,11 +1308,18 @@ func (m *MockRunsRepository) SnapshotLastListOwningCell() string {
 	return m.LastListOwningCell
 }
 
-func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(ctx context.Context, cutoffUnix int64) ([]dal.QueuedRun, error) {
+func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoff(
+	ctx context.Context,
+	cutoffUnix int64,
+) ([]dal.QueuedRun, error) {
 	return m.ListQueuedBeforeDispatchCutoffLimit(ctx, cutoffUnix, 0)
 }
 
-func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoffLimit(ctx context.Context, cutoffUnix int64, limit int) ([]dal.QueuedRun, error) {
+func (m *MockRunsRepository) ListQueuedBeforeDispatchCutoffLimit(
+	ctx context.Context,
+	cutoffUnix int64,
+	limit int,
+) ([]dal.QueuedRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1221,7 +1365,10 @@ func (m *MockRunsRepository) GetQueuedRunForDispatch(ctx context.Context, runID 
 	return dal.QueuedRun{}, false, nil
 }
 
-func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID string) (dal.ExecutionDispatchRecord, error) {
+func (m *MockRunsRepository) GetPendingExecution(
+	ctx context.Context,
+	runID string,
+) (dal.ExecutionDispatchRecord, error) {
 	if m.PendingExecutionErr != nil {
 		return dal.ExecutionDispatchRecord{}, m.PendingExecutionErr
 	}
@@ -1233,7 +1380,10 @@ func (m *MockRunsRepository) GetPendingExecution(ctx context.Context, runID stri
 	return m.defaultPendingExecutionForRun(m.PendingExecution, runID), nil
 }
 
-func (m *MockRunsRepository) defaultPendingExecutionForRun(rec dal.ExecutionDispatchRecord, runID string) dal.ExecutionDispatchRecord {
+func (m *MockRunsRepository) defaultPendingExecutionForRun(
+	rec dal.ExecutionDispatchRecord,
+	runID string,
+) dal.ExecutionDispatchRecord {
 	if rec.RunID == "" {
 		rec.RunID = runID
 	}
@@ -1325,7 +1475,10 @@ func (m *MockRunsRepository) queuedRunByID(runID string) (dal.QueuedRun, bool) {
 	return dal.QueuedRun{}, false
 }
 
-func (m *MockRunsRepository) ListPendingExecutions(ctx context.Context, runID string) ([]dal.ExecutionDispatchRecord, error) {
+func (m *MockRunsRepository) ListPendingExecutions(
+	ctx context.Context,
+	runID string,
+) ([]dal.ExecutionDispatchRecord, error) {
 	if m.PendingExecutionErr != nil {
 		return nil, m.PendingExecutionErr
 	}
@@ -1341,7 +1494,10 @@ func (m *MockRunsRepository) ListPendingExecutions(ctx context.Context, runID st
 	return []dal.ExecutionDispatchRecord{m.defaultPendingExecutionForRun(m.PendingExecution, runID)}, nil
 }
 
-func (m *MockRunsRepository) GetExecutionDispatch(ctx context.Context, executionID string) (dal.ExecutionDispatchRecord, error) {
+func (m *MockRunsRepository) GetExecutionDispatch(
+	ctx context.Context,
+	executionID string,
+) (dal.ExecutionDispatchRecord, error) {
 	if m.PendingExecutionErr != nil {
 		return dal.ExecutionDispatchRecord{}, m.PendingExecutionErr
 	}
@@ -1360,7 +1516,11 @@ func (m *MockRunsRepository) GetExecutionDispatch(ctx context.Context, execution
 	return rec, nil
 }
 
-func (m *MockRunsRepository) EnsureExecutionStartDeadline(ctx context.Context, executionID string, deadlineUnixNano int64) (int64, error) {
+func (m *MockRunsRepository) EnsureExecutionStartDeadline(
+	ctx context.Context,
+	executionID string,
+	deadlineUnixNano int64,
+) (int64, error) {
 	if m.EnsureExecutionDeadlineErr != nil {
 		return 0, m.EnsureExecutionDeadlineErr
 	}
@@ -1383,7 +1543,10 @@ func (m *MockRunsRepository) EnsureExecutionStartDeadline(ctx context.Context, e
 	return deadlineUnixNano, nil
 }
 
-func (m *MockRunsRepository) GetActiveExecutionDispatch(ctx context.Context, runID, executionID string) (dal.ExecutionDispatchRecord, error) {
+func (m *MockRunsRepository) GetActiveExecutionDispatch(
+	ctx context.Context,
+	runID, executionID string,
+) (dal.ExecutionDispatchRecord, error) {
 	rec, err := m.GetExecutionDispatch(ctx, executionID)
 	if err != nil {
 		return dal.ExecutionDispatchRecord{}, err
@@ -1396,7 +1559,11 @@ func (m *MockRunsRepository) GetActiveExecutionDispatch(ctx context.Context, run
 	return rec, nil
 }
 
-func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID, owner string, leaseUntil time.Time) (dal.ExecutionClaimResult, error) {
+func (m *MockRunsRepository) TryClaimExecution(
+	ctx context.Context,
+	executionID, owner string,
+	leaseUntil time.Time,
+) (dal.ExecutionClaimResult, error) {
 	if m.TryClaimExecutionErr != nil {
 		return dal.ExecutionClaimResult{}, m.TryClaimExecutionErr
 	}
@@ -1435,7 +1602,11 @@ func (m *MockRunsRepository) TryClaimExecution(ctx context.Context, executionID,
 	}, nil
 }
 
-func (m *MockRunsRepository) MirrorExecutionClaim(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+func (m *MockRunsRepository) MirrorExecutionClaim(
+	ctx context.Context,
+	executionID, owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	if m.MirrorExecutionClaimErr != nil {
 		return m.MirrorExecutionClaimErr
 	}
@@ -1450,7 +1621,11 @@ func (m *MockRunsRepository) MirrorExecutionClaim(ctx context.Context, execution
 	return nil
 }
 
-func (m *MockRunsRepository) RenewExecutionLease(ctx context.Context, executionID, owner, claimToken string, leaseUntil time.Time) error {
+func (m *MockRunsRepository) RenewExecutionLease(
+	ctx context.Context,
+	executionID, owner, claimToken string,
+	leaseUntil time.Time,
+) error {
 	if m.RenewExecutionLeaseErr != nil {
 		return m.RenewExecutionLeaseErr
 	}
@@ -1463,7 +1638,10 @@ func (m *MockRunsRepository) RenewExecutionLease(ctx context.Context, executionI
 	return nil
 }
 
-func (m *MockRunsRepository) ValidateActiveExecutionClaim(ctx context.Context, runID, executionID, claimToken string) error {
+func (m *MockRunsRepository) ValidateActiveExecutionClaim(
+	ctx context.Context,
+	runID, executionID, claimToken string,
+) error {
 	if m.ValidateExecutionClaimErr != nil {
 		return m.ValidateExecutionClaimErr
 	}
@@ -1471,7 +1649,10 @@ func (m *MockRunsRepository) ValidateActiveExecutionClaim(ctx context.Context, r
 	return nil
 }
 
-func (m *MockRunsRepository) EnsurePendingTaskExecution(ctx context.Context, create dal.TaskExecutionCreate) (dal.TaskExecutionRecord, bool, error) {
+func (m *MockRunsRepository) EnsurePendingTaskExecution(
+	ctx context.Context,
+	create dal.TaskExecutionCreate,
+) (dal.TaskExecutionRecord, bool, error) {
 	m.mu.Lock()
 	m.LastTaskExecution = create
 	m.mu.Unlock()
@@ -1483,7 +1664,10 @@ func (m *MockRunsRepository) EnsurePendingTaskExecution(ctx context.Context, cre
 	return m.TaskExecution, m.TaskCreated, nil
 }
 
-func (m *MockRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, create dal.TaskExecutionCreate) (dal.TaskExecutionRecord, bool, error) {
+func (m *MockRunsRepository) EnsurePlannedTaskExecution(
+	ctx context.Context,
+	create dal.TaskExecutionCreate,
+) (dal.TaskExecutionRecord, bool, error) {
 	m.mu.Lock()
 	m.LastTaskExecution = create
 	m.mu.Unlock()
@@ -1495,7 +1679,10 @@ func (m *MockRunsRepository) EnsurePlannedTaskExecution(ctx context.Context, cre
 	return m.TaskExecution, m.TaskCreated, nil
 }
 
-func (m *MockRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context, update dal.TerminalExecutionSnapshotUpdate) error {
+func (m *MockRunsRepository) ApplyTerminalExecutionSnapshot(
+	ctx context.Context,
+	update dal.TerminalExecutionSnapshotUpdate,
+) error {
 	m.mu.Lock()
 	m.LastTerminalSnapshot = update
 	m.mu.Unlock()
@@ -1507,7 +1694,10 @@ func (m *MockRunsRepository) ApplyTerminalExecutionSnapshot(ctx context.Context,
 	return m.ClearRunHotStateOwner(ctx, update.RunID)
 }
 
-func (m *MockRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, taskID string) (dal.TaskExecutionRecord, bool, error) {
+func (m *MockRunsRepository) ActivatePlannedTaskExecution(
+	ctx context.Context,
+	taskID string,
+) (dal.TaskExecutionRecord, bool, error) {
 	m.mu.Lock()
 	m.LastActivatedTaskID = taskID
 	m.mu.Unlock()
@@ -1519,7 +1709,10 @@ func (m *MockRunsRepository) ActivatePlannedTaskExecution(ctx context.Context, t
 	return m.TaskExecution, m.TaskActivated, nil
 }
 
-func (m *MockRunsRepository) ActivatePlannedChildTaskExecutions(ctx context.Context, parentTaskID string) ([]dal.TaskExecutionRecord, int, error) {
+func (m *MockRunsRepository) ActivatePlannedChildTaskExecutions(
+	ctx context.Context,
+	parentTaskID string,
+) ([]dal.TaskExecutionRecord, int, error) {
 	m.mu.Lock()
 	m.LastActivatedParentID = parentTaskID
 	m.mu.Unlock()
@@ -1550,7 +1743,10 @@ func (m *MockRunsRepository) MarkExecutionStarted(ctx context.Context, execution
 	return nil
 }
 
-func (m *MockRunsRepository) CompleteExecutionAndFinalizeRunByClaim(ctx context.Context, executionID, owner, claimToken, status, failureCode, reason string) (dal.ExecutionFinalizationResult, error) {
+func (m *MockRunsRepository) CompleteExecutionAndFinalizeRunByClaim(
+	ctx context.Context,
+	executionID, owner, claimToken, status, failureCode, reason string,
+) (dal.ExecutionFinalizationResult, error) {
 	if m.ExecutionFinalizationErr != nil {
 		return dal.ExecutionFinalizationResult{}, m.ExecutionFinalizationErr
 	}
@@ -1585,7 +1781,10 @@ func (m *MockRunsRepository) GetRunTaskCompletion(ctx context.Context, runID str
 	return summary, nil
 }
 
-func (m *MockRunsRepository) ListOrphanedTaskFinalizationCandidates(ctx context.Context, limit int) ([]dal.RunTaskCompletion, error) {
+func (m *MockRunsRepository) ListOrphanedTaskFinalizationCandidates(
+	ctx context.Context,
+	limit int,
+) ([]dal.RunTaskCompletion, error) {
 	if m.TaskCompletionErr != nil {
 		return nil, m.TaskCompletionErr
 	}
@@ -1609,7 +1808,9 @@ func (m *MockRunsRepository) CountOrphanedTaskFinalizationCandidates(ctx context
 	return m.CountTaskFinalizeResult, nil
 }
 
-func (m *MockRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(ctx context.Context) ([]dal.RunCountByCell, error) {
+func (m *MockRunsRepository) CountOrphanedTaskFinalizationCandidatesByCell(
+	ctx context.Context,
+) ([]dal.RunCountByCell, error) {
 	if m.CountTaskFinalizeByCellErr != nil {
 		return nil, m.CountTaskFinalizeByCellErr
 	}
@@ -1718,7 +1919,10 @@ func NewMockSchedulesRepository() *MockSchedulesRepository {
 	}
 }
 
-func (m *MockSchedulesRepository) CreateCronSchedule(ctx context.Context, rec dal.CronScheduleRecord) (dal.CronScheduleRecord, error) {
+func (m *MockSchedulesRepository) CreateCronSchedule(
+	ctx context.Context,
+	rec dal.CronScheduleRecord,
+) (dal.CronScheduleRecord, error) {
 	if m.CreateCronScheduleErr != nil {
 		return dal.CronScheduleRecord{}, m.CreateCronScheduleErr
 	}
@@ -1739,7 +1943,10 @@ func (m *MockSchedulesRepository) CreateCronSchedule(ctx context.Context, rec da
 	return rec, nil
 }
 
-func (m *MockSchedulesRepository) UpdateCronSchedule(ctx context.Context, rec dal.CronScheduleRecord) (dal.CronScheduleRecord, error) {
+func (m *MockSchedulesRepository) UpdateCronSchedule(
+	ctx context.Context,
+	rec dal.CronScheduleRecord,
+) (dal.CronScheduleRecord, error) {
 	if m.UpdateCronScheduleErr != nil {
 		return dal.CronScheduleRecord{}, m.UpdateCronScheduleErr
 	}
@@ -1770,7 +1977,10 @@ func (m *MockSchedulesRepository) UpdateCronSchedule(ctx context.Context, rec da
 	return rec, nil
 }
 
-func (m *MockSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Context, scheduleID string) (dal.CronScheduleRecord, error) {
+func (m *MockSchedulesRepository) GetCronScheduleByScheduleID(
+	ctx context.Context,
+	scheduleID string,
+) (dal.CronScheduleRecord, error) {
 	if m.GetCronScheduleErr != nil {
 		return dal.CronScheduleRecord{}, m.GetCronScheduleErr
 	}
@@ -1784,7 +1994,11 @@ func (m *MockSchedulesRepository) GetCronScheduleByScheduleID(ctx context.Contex
 	return dal.CronScheduleRecord{}, fmt.Errorf("%w: cron schedule %s", dal.ErrNotFound, scheduleID)
 }
 
-func (m *MockSchedulesRepository) ListSourceCronSchedules(ctx context.Context, namespaceID int64, repositoryID string) ([]dal.CronScheduleRecord, error) {
+func (m *MockSchedulesRepository) ListSourceCronSchedules(
+	ctx context.Context,
+	namespaceID int64,
+	repositoryID string,
+) ([]dal.CronScheduleRecord, error) {
 	if m.ListSourceCronSchedulesErr != nil {
 		return nil, m.ListSourceCronSchedulesErr
 	}
@@ -1803,7 +2017,10 @@ func (m *MockSchedulesRepository) ListSourceCronSchedules(ctx context.Context, n
 	return out, nil
 }
 
-func (m *MockSchedulesRepository) CountSourceCronSchedules(ctx context.Context, declaredScheduleIDs []string) (dal.SourceCronScheduleCountSummary, error) {
+func (m *MockSchedulesRepository) CountSourceCronSchedules(
+	ctx context.Context,
+	declaredScheduleIDs []string,
+) (dal.SourceCronScheduleCountSummary, error) {
 	if m.ListSourceCronSchedulesErr != nil {
 		return dal.SourceCronScheduleCountSummary{}, m.ListSourceCronSchedulesErr
 	}
@@ -1845,7 +2062,11 @@ func (m *MockSchedulesRepository) CountSourceCronSchedules(ctx context.Context, 
 	return counts, nil
 }
 
-func (m *MockSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Context, scheduleID string, override dal.SourceScheduleOverride) (dal.CronScheduleRecord, error) {
+func (m *MockSchedulesRepository) SetSourceCronScheduleOverride(
+	ctx context.Context,
+	scheduleID string,
+	override dal.SourceScheduleOverride,
+) (dal.CronScheduleRecord, error) {
 	if m.SetSourceCronScheduleOverrideErr != nil {
 		return dal.CronScheduleRecord{}, m.SetSourceCronScheduleOverrideErr
 	}
@@ -1871,7 +2092,10 @@ func (m *MockSchedulesRepository) SetSourceCronScheduleOverride(ctx context.Cont
 	return rec, nil
 }
 
-func (m *MockSchedulesRepository) ClearSourceCronScheduleOverride(ctx context.Context, scheduleID string) (dal.CronScheduleRecord, error) {
+func (m *MockSchedulesRepository) ClearSourceCronScheduleOverride(
+	ctx context.Context,
+	scheduleID string,
+) (dal.CronScheduleRecord, error) {
 	if m.ClearSourceCronScheduleOverrideErr != nil {
 		return dal.CronScheduleRecord{}, m.ClearSourceCronScheduleOverrideErr
 	}
@@ -1920,7 +2144,13 @@ func (m *MockSchedulesRepository) GetReady(ctx context.Context, at time.Time) ([
 	return append([]dal.CronSchedule(nil), m.Ready...), nil
 }
 
-func (m *MockSchedulesRepository) ClaimDue(ctx context.Context, scheduleID int64, observedNextRun time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
+func (m *MockSchedulesRepository) ClaimDue(
+	ctx context.Context,
+	scheduleID int64,
+	observedNextRun time.Time,
+	claimToken string,
+	claimedUntil, now time.Time,
+) (bool, error) {
 	if m.ClaimDueErr != nil {
 		return false, m.ClaimDueErr
 	}
@@ -1936,7 +2166,12 @@ func (m *MockSchedulesRepository) ClaimDue(ctx context.Context, scheduleID int64
 	return m.ClaimDueOK, nil
 }
 
-func (m *MockSchedulesRepository) CompleteClaim(ctx context.Context, scheduleID int64, claimToken string, nextRun time.Time) (bool, error) {
+func (m *MockSchedulesRepository) CompleteClaim(
+	ctx context.Context,
+	scheduleID int64,
+	claimToken string,
+	nextRun time.Time,
+) (bool, error) {
 	if m.CompleteClaimErr != nil {
 		return false, m.CompleteClaimErr
 	}
@@ -1954,7 +2189,10 @@ func (m *MockSchedulesRepository) CountCronSchedules(ctx context.Context) (int64
 	return m.CountCronSchedulesResult, m.CountCronSchedulesErr
 }
 
-func (m *MockSchedulesRepository) CronScheduleSummary(ctx context.Context, at time.Time) (dal.CronScheduleSummary, error) {
+func (m *MockSchedulesRepository) CronScheduleSummary(
+	ctx context.Context,
+	at time.Time,
+) (dal.CronScheduleSummary, error) {
 	return m.CronScheduleSummaryResult, m.CronScheduleSummaryErr
 }
 

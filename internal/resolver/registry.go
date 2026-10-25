@@ -27,7 +27,11 @@ func (b *registryBuilder) Scheme() string {
 	return grpcResolverScheme(b.comp)
 }
 
-func (b *registryBuilder) Build(_ resolver.Target, cc resolver.ClientConn, _ resolver.BuildOptions) (resolver.Resolver, error) {
+func (b *registryBuilder) Build(
+	_ resolver.Target,
+	cc resolver.ClientConn,
+	_ resolver.BuildOptions,
+) (resolver.Resolver, error) {
 	return newRegistryResolver(
 		cc, b.reg, b.comp, b.logger,
 		config.RegistryResolverPollInterval(),
@@ -52,7 +56,13 @@ type registryResolver struct {
 	closeOnce               sync.Once
 }
 
-func newRegistryResolver(cc resolver.ClientConn, client registryAddressGetter, comp api.Component, logger interfaces.Logger, refreshInterval, pollTimeout, errorRefresh time.Duration) *registryResolver {
+func newRegistryResolver(
+	cc resolver.ClientConn,
+	client registryAddressGetter,
+	comp api.Component,
+	logger interfaces.Logger,
+	refreshInterval, pollTimeout, errorRefresh time.Duration,
+) *registryResolver {
 	r := &registryResolver{
 		cc: cc, client: client, comp: comp, logger: logger,
 		refreshInterval: refreshInterval,
@@ -61,7 +71,13 @@ func newRegistryResolver(cc resolver.ClientConn, client registryAddressGetter, c
 		done:            make(chan struct{}),
 	}
 
-	logger.Debug("resolver: starting registry resolver for %s (interval=%v poll_timeout=%v error_refresh=%v)", comp.String(), refreshInterval, pollTimeout, errorRefresh)
+	logger.Debug(
+		"resolver: starting registry resolver for %s (interval=%v poll_timeout=%v error_refresh=%v)",
+		comp.String(),
+		refreshInterval,
+		pollTimeout,
+		errorRefresh,
+	)
 	firstWait := r.resolveNow()
 	go r.pollLoop(firstWait)
 
@@ -125,7 +141,12 @@ func (r *registryResolver) resolveNow() time.Duration {
 		if r.lastGood != "" {
 			lg := r.lastGood
 			r.mu.Unlock()
-			r.logger.Debug("resolver: registry lookup failed for %s (keeping last known good %s): %v", r.comp.String(), lg, err)
+			r.logger.Debug(
+				"resolver: registry lookup failed for %s (keeping last known good %s): %v",
+				r.comp.String(),
+				lg,
+				err,
+			)
 			_ = r.cc.UpdateState(resolver.State{Addresses: []resolver.Address{{Addr: lg}}})
 			return r.refreshInterval
 		}
@@ -133,7 +154,10 @@ func (r *registryResolver) resolveNow() time.Duration {
 		if !r.resolveFailureAnnounced {
 			r.resolveFailureAnnounced = true
 			r.mu.Unlock()
-			r.logger.Warn("resolver: %s not yet reachable via registry (retries at debug; ensure registry and service are up)", r.comp.String())
+			r.logger.Warn(
+				"resolver: %s not yet reachable via registry (retries at debug; ensure registry and service are up)",
+				r.comp.String(),
+			)
 		} else {
 			r.mu.Unlock()
 			r.logger.Debug("resolver: failed to resolve %s: %v", r.comp.String(), err)

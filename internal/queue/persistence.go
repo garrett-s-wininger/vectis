@@ -115,9 +115,19 @@ type snapshotState struct {
 	jobAttempts map[string]int
 }
 
-func newPersistenceStore(dir string, snapshotEvery int, segmentMaxBytes int64, retainTailSegments int, log interfaces.Logger) (*persistenceStore, *queueState, error) {
+func newPersistenceStore(
+	dir string,
+	snapshotEvery int,
+	segmentMaxBytes int64,
+	retainTailSegments int,
+	log interfaces.Logger,
+) (*persistenceStore, *queueState, error) {
 	if dir == "" {
-		return nil, &queueState{inflight: make(map[string]inflightDelivery), deadLetter: make([]deadLetterItem, 0), jobAttempts: make(map[string]int)}, nil
+		return nil, &queueState{
+			inflight:    make(map[string]inflightDelivery),
+			deadLetter:  make([]deadLetterItem, 0),
+			jobAttempts: make(map[string]int),
+		}, nil
 	}
 
 	if snapshotEvery <= 0 {
@@ -174,7 +184,11 @@ func acquirePersistenceLock(dir string) (*os.File, error) {
 	if err := platform.TryLockFileExclusive(f); err != nil {
 		_ = f.Close()
 		if platform.IsFileLockUnavailable(err) {
-			return nil, fmt.Errorf("queue persistence directory %s is already in use by another queue process; use a distinct persistence directory for each active queue shard: %w", dir, err)
+			return nil, fmt.Errorf(
+				"queue persistence directory %s is already in use by another queue process; use a distinct persistence directory for each active queue shard: %w",
+				dir,
+				err,
+			)
 		}
 
 		return nil, fmt.Errorf("lock queue persistence directory %s: %w", dir, err)
@@ -327,22 +341,45 @@ func (p *persistenceStore) appendEnqueue(req *api.JobRequest, state snapshotStat
 	return p.appendRecord(walRecord{Type: walRecordEnqueue, Job: payload}, state)
 }
 
-func (p *persistenceStore) appendDeliver(deliveryID string, req *api.JobRequest, leaseUntil time.Time, attemptCount int, state snapshotState) error {
+func (p *persistenceStore) appendDeliver(
+	deliveryID string,
+	req *api.JobRequest,
+	leaseUntil time.Time,
+	attemptCount int,
+	state snapshotState,
+) error {
 	payload, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal deliver job: %w", err)
 	}
 
-	return p.appendRecord(walRecord{Type: walRecordDeliver, DeliveryID: deliveryID, Job: payload, LeaseUntilUTC: leaseUntil.UTC().Unix(), AttemptCount: attemptCount}, state)
+	return p.appendRecord(
+		walRecord{
+			Type:          walRecordDeliver,
+			DeliveryID:    deliveryID,
+			Job:           payload,
+			LeaseUntilUTC: leaseUntil.UTC().Unix(),
+			AttemptCount:  attemptCount,
+		},
+		state,
+	)
 }
 
-func (p *persistenceStore) appendDLQ(deliveryID string, req *api.JobRequest, attemptCount int, state snapshotState) error {
+func (p *persistenceStore) appendDLQ(
+	deliveryID string,
+	req *api.JobRequest,
+	attemptCount int,
+	state snapshotState,
+) error {
 	payload, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal dlq job: %w", err)
 	}
 
-	return p.appendRecord(walRecord{Type: walRecordDLQ, DeliveryID: deliveryID, Job: payload, AttemptCount: attemptCount}, state)
+	return p.appendRecord(
+		walRecord{Type: walRecordDLQ, DeliveryID: deliveryID, Job: payload, AttemptCount: attemptCount},
+		state,
+	)
 }
 
 func (p *persistenceStore) appendDLQRequeue(deliveryID string, req *api.JobRequest, state snapshotState) error {
@@ -442,7 +479,13 @@ func (p *persistenceStore) writeSnapshotAndCompact(lastApplied uint64, state sna
 		return fmt.Errorf("encode dead letter queue for snapshot: %w", err)
 	}
 
-	snap := queueSnapshot{LastAppliedIndex: lastApplied, Jobs: jobs, Inflight: inflight, DeadLetter: deadLetter, JobAttempts: state.jobAttempts}
+	snap := queueSnapshot{
+		LastAppliedIndex: lastApplied,
+		Jobs:             jobs,
+		Inflight:         inflight,
+		DeadLetter:       deadLetter,
+		JobAttempts:      state.jobAttempts,
+	}
 	tmp := p.snapshotPath + ".tmp"
 
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)

@@ -341,7 +341,10 @@ func encryptedFSRelativePath(raw string) (string, error) {
 
 	for _, part := range strings.Split(rel, "/") {
 		if part == "" || part == "." || part == ".." {
-			return "", fmt.Errorf("%w: encryptedfs ref path must not contain empty, current-directory, or parent-directory segments", ErrNotFound)
+			return "", fmt.Errorf(
+				"%w: encryptedfs ref path must not contain empty, current-directory, or parent-directory segments",
+				ErrNotFound,
+			)
 		}
 	}
 

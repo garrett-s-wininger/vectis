@@ -203,7 +203,15 @@ func TestSubmitToLocalQueueRejectsRemoteCellRequest(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	req := validJobRequestForCell(t, "pdx-b")
 
-	if err := SubmitToLocalQueue(context.Background(), "iad-a", queue, req, mocks.NewMockLogger()); !IsCellNotRoutable(err) {
+	if err := SubmitToLocalQueue(
+		context.Background(),
+		"iad-a",
+		queue,
+		req,
+		mocks.NewMockLogger(),
+	); !IsCellNotRoutable(
+		err,
+	) {
 		t.Fatalf("expected ErrCellNotRoutable, got %v", err)
 	}
 
@@ -306,7 +314,13 @@ func TestSubmitToLocalQueueReturnsQueueError(t *testing.T) {
 	queue := mocks.NewMockQueueService()
 	queue.SetEnqueueError(errors.New("nope"))
 
-	if err := SubmitToLocalQueue(context.Background(), "iad-a", queue, validJobRequest(t), mocks.NewMockLogger()); err == nil {
+	if err := SubmitToLocalQueue(
+		context.Background(),
+		"iad-a",
+		queue,
+		validJobRequest(t),
+		mocks.NewMockLogger(),
+	); err == nil {
 		t.Fatal("SubmitToLocalQueue succeeded, want error")
 	}
 }

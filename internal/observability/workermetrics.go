@@ -127,10 +127,30 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_passes_total: %w", err)
 	}
 
-	checkoutCacheWarmTime, err := m.Float64Histogram("vectis_worker_checkout_cache_warm_duration_seconds",
+	checkoutCacheWarmTime, err := m.Float64Histogram(
+		"vectis_worker_checkout_cache_warm_duration_seconds",
 		metric.WithDescription("Wall time spent in worker-driven persistent checkout cache warm passes"),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600))
+		metric.WithExplicitBucketBoundaries(
+			0.01,
+			0.05,
+			0.1,
+			0.25,
+			0.5,
+			1,
+			2.5,
+			5,
+			10,
+			30,
+			60,
+			120,
+			300,
+			600,
+			1200,
+			1800,
+			3600,
+		),
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_duration_seconds: %w", err)
@@ -144,8 +164,12 @@ func NewWorkerMetrics() (*WorkerMetrics, error) {
 		return nil, fmt.Errorf("vectis_worker_checkout_cache_warm_remotes_total: %w", err)
 	}
 
-	phaseGauge, err := m.Int64ObservableGauge("vectis_worker_lifecycle_state",
-		metric.WithDescription("Current worker lifecycle phase. One labelled state is 1 and the remaining states are 0."))
+	phaseGauge, err := m.Int64ObservableGauge(
+		"vectis_worker_lifecycle_state",
+		metric.WithDescription(
+			"Current worker lifecycle phase. One labelled state is 1 and the remaining states are 0.",
+		),
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf("vectis_worker_lifecycle_state: %w", err)
@@ -239,7 +263,12 @@ func (wm *WorkerMetrics) RecordSPIFFESVIDCheck(ctx context.Context, outcome, rea
 	))
 }
 
-func (wm *WorkerMetrics) RecordCheckoutCacheWarm(ctx context.Context, outcome, reason string, warmed, changed, unchanged, failed int, d time.Duration) {
+func (wm *WorkerMetrics) RecordCheckoutCacheWarm(
+	ctx context.Context,
+	outcome, reason string,
+	warmed, changed, unchanged, failed int,
+	d time.Duration,
+) {
 	if wm == nil {
 		return
 	}
@@ -260,19 +289,35 @@ func (wm *WorkerMetrics) RecordCheckoutCacheWarm(ctx context.Context, outcome, r
 	wm.checkoutCacheWarmTime.Record(ctx, max(d.Seconds(), 0), attrs)
 
 	if changed > 0 {
-		wm.checkoutCacheRemotes.Add(ctx, int64(changed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeChanged)))
+		wm.checkoutCacheRemotes.Add(
+			ctx,
+			int64(changed),
+			metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeChanged)),
+		)
 	}
 
 	if unchanged > 0 {
-		wm.checkoutCacheRemotes.Add(ctx, int64(unchanged), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeUnchanged)))
+		wm.checkoutCacheRemotes.Add(
+			ctx,
+			int64(unchanged),
+			metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeUnchanged)),
+		)
 	}
 
 	if unknownWarmed := warmed - changed - unchanged; unknownWarmed > 0 {
-		wm.checkoutCacheRemotes.Add(ctx, int64(unknownWarmed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeWarmed)))
+		wm.checkoutCacheRemotes.Add(
+			ctx,
+			int64(unknownWarmed),
+			metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeWarmed)),
+		)
 	}
 
 	if failed > 0 {
-		wm.checkoutCacheRemotes.Add(ctx, int64(failed), metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeFailed)))
+		wm.checkoutCacheRemotes.Add(
+			ctx,
+			int64(failed),
+			metric.WithAttributes(attribute.String("outcome", WorkerCheckoutCacheWarmRemoteOutcomeFailed)),
+		)
 	}
 }
 

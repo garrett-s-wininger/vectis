@@ -129,7 +129,11 @@ func TestServiceProcessCreatesRunAndDispatchesNewSCMEvent(t *testing.T) {
 	}
 
 	if len(ingress.submissions) != 1 {
-		t.Fatalf("expected one execution submission, got %d; errors=%v", len(ingress.submissions), logger.GetErrorCalls())
+		t.Fatalf(
+			"expected one execution submission, got %d; errors=%v",
+			len(ingress.submissions),
+			logger.GetErrorCalls(),
+		)
 	}
 
 	submission := ingress.submissions[0]
@@ -177,7 +181,8 @@ func TestServiceProcessCreatesRunAndDispatchesNewSCMEvent(t *testing.T) {
 		t.Fatalf("list dispatch events: %v", err)
 	}
 
-	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt || dispatches[1].EventType != dal.DispatchEventSuccess {
+	if len(dispatches) != 2 || dispatches[0].EventType != dal.DispatchEventAttempt ||
+		dispatches[1].EventType != dal.DispatchEventSuccess {
 		t.Fatalf("unexpected dispatch events: %+v", dispatches)
 	}
 
@@ -190,7 +195,13 @@ func TestServiceProcessCreatesRunAndDispatchesNewSCMEvent(t *testing.T) {
 	}
 }
 
-func insertSCMPollTestTrigger(t *testing.T, ctx context.Context, db *sql.DB, jobID, provider, project, branch string, nextPoll time.Time) int64 {
+func insertSCMPollTestTrigger(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	jobID, provider, project, branch string,
+	nextPoll time.Time,
+) int64 {
 	t.Helper()
 
 	result, err := db.ExecContext(ctx,
@@ -272,11 +283,21 @@ func (r *fakePollRepository) GetReady(_ context.Context, _ time.Time, _ int) ([]
 	return r.ready, nil
 }
 
-func (r *fakePollRepository) ListEnabledByProvider(_ context.Context, _ string, _ int) ([]dal.SCMPollTriggerSpec, error) {
+func (r *fakePollRepository) ListEnabledByProvider(
+	_ context.Context,
+	_ string,
+	_ int,
+) ([]dal.SCMPollTriggerSpec, error) {
 	return r.ready, nil
 }
 
-func (r *fakePollRepository) ClaimDue(_ context.Context, specID int64, observedNextPoll time.Time, claimToken string, claimedUntil, now time.Time) (bool, error) {
+func (r *fakePollRepository) ClaimDue(
+	_ context.Context,
+	specID int64,
+	observedNextPoll time.Time,
+	claimToken string,
+	claimedUntil, now time.Time,
+) (bool, error) {
 	r.claims = append(r.claims, claimCall{
 		specID:           specID,
 		observedNextPoll: observedNextPoll,
@@ -288,7 +309,13 @@ func (r *fakePollRepository) ClaimDue(_ context.Context, specID int64, observedN
 	return true, nil
 }
 
-func (r *fakePollRepository) CompleteClaim(_ context.Context, specID int64, claimToken string, nextPoll time.Time, cursor string) (bool, error) {
+func (r *fakePollRepository) CompleteClaim(
+	_ context.Context,
+	specID int64,
+	claimToken string,
+	nextPoll time.Time,
+	cursor string,
+) (bool, error) {
 	r.completions = append(r.completions, completeCall{
 		specID:     specID,
 		claimToken: claimToken,
@@ -304,7 +331,10 @@ func (r *fakePollRepository) ReleaseClaim(_ context.Context, specID int64, claim
 	return nil
 }
 
-func (r *fakePollRepository) RecordEvent(_ context.Context, event dal.SCMTriggerEvent) (dal.SCMTriggerEventRecord, bool, error) {
+func (r *fakePollRepository) RecordEvent(
+	_ context.Context,
+	event dal.SCMTriggerEvent,
+) (dal.SCMTriggerEventRecord, bool, error) {
 	r.events = append(r.events, event)
 	return dal.SCMTriggerEventRecord{
 		TriggerID:   event.TriggerID,

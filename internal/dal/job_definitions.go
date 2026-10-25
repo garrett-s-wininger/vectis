@@ -23,7 +23,12 @@ func (r *SQLJobsRepository) Create(ctx context.Context, jobID, definitionJSON st
 	return r.CreateWithTriggers(ctx, jobID, definitionJSON, namespaceID, nil)
 }
 
-func (r *SQLJobsRepository) CreateWithTriggers(ctx context.Context, jobID, definitionJSON string, namespaceID int64, triggers []JobTriggerConfig) error {
+func (r *SQLJobsRepository) CreateWithTriggers(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	namespaceID int64,
+	triggers []JobTriggerConfig,
+) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -35,8 +40,11 @@ func (r *SQLJobsRepository) CreateWithTriggers(ctx context.Context, jobID, defin
 		return err
 	}
 
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO stored_jobs (global_id, job_id, namespace_id, current_version, home_cell) VALUES (?, ?, ?, ?, ?)"),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"INSERT INTO stored_jobs (global_id, job_id, namespace_id, current_version, home_cell) VALUES (?, ?, ?, ?, ?)",
+		),
 		newGlobalID(),
 		jobID,
 		namespaceID,
@@ -107,8 +115,11 @@ func nextJobDefinitionVersionTx(ctx context.Context, tx *sql.Tx, jobID string) (
 
 func insertJobDefinitionTx(ctx context.Context, tx *sql.Tx, jobID string, version int, definitionJSON string) error {
 	definitionHash := DefinitionHash(definitionJSON)
-	if _, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)"),
+	if _, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"INSERT INTO job_definitions (global_id, job_id, version, definition_json, definition_hash) VALUES (?, ?, ?, ?, ?)",
+		),
 		newGlobalID(),
 		jobID,
 		version,
@@ -176,7 +187,16 @@ func (r *SQLJobsRepository) List(ctx context.Context, cursor int64, limit int) (
 	for rows.Next() {
 		var rec JobRecord
 		var id int64
-		if err := rows.Scan(&id, &rec.GlobalID, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.DefinitionHash, &rec.Version, &rec.HomeCell); err != nil {
+		if err := rows.Scan(
+			&id,
+			&rec.GlobalID,
+			&rec.JobID,
+			&rec.NamespaceID,
+			&rec.DefinitionJSON,
+			&rec.DefinitionHash,
+			&rec.Version,
+			&rec.HomeCell,
+		); err != nil {
 			return nil, 0, normalizeSQLError(err)
 		}
 
@@ -216,7 +236,15 @@ func (r *SQLJobsRepository) ListByNamespace(ctx context.Context, namespaceID int
 	var out []JobRecord
 	for rows.Next() {
 		var rec JobRecord
-		if err := rows.Scan(&rec.GlobalID, &rec.JobID, &rec.NamespaceID, &rec.DefinitionJSON, &rec.DefinitionHash, &rec.Version, &rec.HomeCell); err != nil {
+		if err := rows.Scan(
+			&rec.GlobalID,
+			&rec.JobID,
+			&rec.NamespaceID,
+			&rec.DefinitionJSON,
+			&rec.DefinitionHash,
+			&rec.Version,
+			&rec.HomeCell,
+		); err != nil {
 			return nil, normalizeSQLError(err)
 		}
 
@@ -238,8 +266,11 @@ func (r *SQLJobsRepository) GetLatestDefinition(ctx context.Context, jobID strin
 
 	var latestJSON string
 	var latestVersion int
-	if err := r.db.QueryRowContext(ctx,
-		rebindQueryForPgx("SELECT definition_json, version FROM job_definitions WHERE job_id = ? ORDER BY version DESC LIMIT 1"),
+	if err := r.db.QueryRowContext(
+		ctx,
+		rebindQueryForPgx(
+			"SELECT definition_json, version FROM job_definitions WHERE job_id = ? ORDER BY version DESC LIMIT 1",
+		),
 		jobID,
 	).Scan(&latestJSON, &latestVersion); err != nil {
 		if err == sql.ErrNoRows {
@@ -294,11 +325,20 @@ func (r *SQLJobsRepository) UpdateDefinition(ctx context.Context, jobID, definit
 	return r.updateDefinition(ctx, jobID, definitionJSON, nil, false)
 }
 
-func (r *SQLJobsRepository) UpdateDefinitionWithTriggers(ctx context.Context, jobID, definitionJSON string, triggers []JobTriggerConfig) (int, error) {
+func (r *SQLJobsRepository) UpdateDefinitionWithTriggers(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	triggers []JobTriggerConfig,
+) (int, error) {
 	return r.updateDefinition(ctx, jobID, definitionJSON, triggers, true)
 }
 
-func (r *SQLJobsRepository) updateDefinition(ctx context.Context, jobID, definitionJSON string, triggers []JobTriggerConfig, replaceTriggers bool) (int, error) {
+func (r *SQLJobsRepository) updateDefinition(
+	ctx context.Context,
+	jobID, definitionJSON string,
+	triggers []JobTriggerConfig,
+	replaceTriggers bool,
+) (int, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -318,8 +358,11 @@ func (r *SQLJobsRepository) updateDefinition(ctx context.Context, jobID, definit
 		return 0, err
 	}
 
-	result, err := tx.ExecContext(ctx,
-		rebindQueryForPgx("UPDATE stored_jobs SET current_version = ?, updated_at = CURRENT_TIMESTAMP WHERE job_id = ? AND current_version = ?"),
+	result, err := tx.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			"UPDATE stored_jobs SET current_version = ?, updated_at = CURRENT_TIMESTAMP WHERE job_id = ? AND current_version = ?",
+		),
 		newVersion,
 		jobID,
 		currentVersion,
@@ -350,7 +393,12 @@ func (r *SQLJobsRepository) updateDefinition(ctx context.Context, jobID, definit
 	return newVersion, nil
 }
 
-func (r *SQLJobsRepository) replaceJobTriggers(ctx context.Context, tx *sql.Tx, jobID string, triggers []JobTriggerConfig) error {
+func (r *SQLJobsRepository) replaceJobTriggers(
+	ctx context.Context,
+	tx *sql.Tx,
+	jobID string,
+	triggers []JobTriggerConfig,
+) error {
 	if err := r.deleteJobTriggerSpecs(ctx, tx, jobID); err != nil {
 		return err
 	}
@@ -480,7 +528,12 @@ func (r *SQLJobsRepository) deleteJobTriggerSpecs(ctx context.Context, tx *sql.T
 	return nil
 }
 
-func (r *SQLJobsRepository) ensureJobTrigger(ctx context.Context, tx *sql.Tx, jobID, triggerType string, trigger JobTriggerConfig) (int64, error) {
+func (r *SQLJobsRepository) ensureJobTrigger(
+	ctx context.Context,
+	tx *sql.Tx,
+	jobID, triggerType string,
+	trigger JobTriggerConfig,
+) (int64, error) {
 	var triggerID int64
 	err := tx.QueryRowContext(ctx,
 		rebindQueryForPgx(`
@@ -584,7 +637,10 @@ func (r *SQLJobsRepository) GetDefinitionVersion(ctx context.Context, jobID stri
 	return definitionJSON, nil
 }
 
-func (r *SQLJobsRepository) GetEnabledTriggerID(ctx context.Context, jobID, triggerType, triggerKey string) (int64, error) {
+func (r *SQLJobsRepository) GetEnabledTriggerID(
+	ctx context.Context,
+	jobID, triggerType, triggerKey string,
+) (int64, error) {
 	jobID = strings.TrimSpace(jobID)
 	triggerType = strings.TrimSpace(triggerType)
 	triggerKey = strings.TrimSpace(triggerKey)

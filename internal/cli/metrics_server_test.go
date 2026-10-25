@@ -72,7 +72,12 @@ func TestMetricsServerHandlerServesMetricsWithSecurityHeaders(t *testing.T) {
 	assertMetricsHeader(t, rec, "Origin-Agent-Cluster", "?1")
 	assertMetricsHeader(t, rec, "X-Permitted-Cross-Domain-Policies", "none")
 	assertMetricsHeader(t, rec, "X-Download-Options", "noopen")
-	assertMetricsHeader(t, rec, "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	assertMetricsHeader(
+		t,
+		rec,
+		"Content-Security-Policy",
+		"default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+	)
 }
 
 func TestMetricsServerHandlerAllowsConfiguredHost(t *testing.T) {

@@ -103,13 +103,22 @@ func executionJobForTriggerDispatch(job *api.Job) *api.Job {
 	return cloned
 }
 
-func (d Dispatcher) attachExecutionEnvelope(ctx context.Context, req *api.JobRequest, runID string, createdAtUnixNano int64) (*cell.ExecutionEnvelope, error) {
+func (d Dispatcher) attachExecutionEnvelope(
+	ctx context.Context,
+	req *api.JobRequest,
+	runID string,
+	createdAtUnixNano int64,
+) (*cell.ExecutionEnvelope, error) {
 	dispatch, err := d.Runs.GetPendingExecution(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
 
-	deadline, err := d.Runs.EnsureExecutionStartDeadline(ctx, dispatch.ExecutionID, dispatchmeta.DeadlineUnixNano(d.clock().Now(), config.DispatchStartTTL()))
+	deadline, err := d.Runs.EnsureExecutionStartDeadline(
+		ctx,
+		dispatch.ExecutionID,
+		dispatchmeta.DeadlineUnixNano(d.clock().Now(), config.DispatchStartTTL()),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +142,15 @@ func (d Dispatcher) executionIngress() (cell.ExecutionIngress, error) {
 		queueClient = nil
 	}
 
-	return cell.NewExecutionRouterWithOptions(config.CellID(), queueClient, endpoints, d.logger(), cell.ExecutionRouterOptions{
-		TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
-	}), nil
+	return cell.NewExecutionRouterWithOptions(
+		config.CellID(),
+		queueClient,
+		endpoints,
+		d.logger(),
+		cell.ExecutionRouterOptions{
+			TLSConfigForEndpoint: config.CellIngressHTTPClientTLSConfig,
+		},
+	), nil
 }
 
 func (d Dispatcher) recordDispatchEvent(ctx context.Context, runID, eventType string, message *string) {

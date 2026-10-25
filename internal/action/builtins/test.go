@@ -51,7 +51,12 @@ func (t *TestAction) Type() string {
 	return "builtins/test"
 }
 
-func (t *TestAction) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
+func (t *TestAction) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	inputs map[string]any,
+	_ action.Ports,
+) action.Result {
 	commandStr, ok := inputs[TestCommandField].(string)
 	if !ok || commandStr == "" {
 		return action.NewFailureResult(fmt.Errorf("test action requires 'command' input"))
@@ -70,7 +75,10 @@ func (t *TestAction) Execute(ctx context.Context, state *action.ExecutionState, 
 		return action.NewFailureResult(err)
 	}
 
-	process, err := processExecutor(t.executor, state).Start(ctx, runner.Path, runner.InlineArgs(commandStr), state.Workspace, state.CommandEnv())
+	process, err := processExecutor(
+		t.executor,
+		state,
+	).Start(ctx, runner.Path, runner.InlineArgs(commandStr), state.Workspace, state.CommandEnv())
 	if err != nil {
 		return action.NewFailureResult(fmt.Errorf("failed to start test command: %w", err))
 	}

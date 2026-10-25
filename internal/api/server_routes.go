@@ -92,7 +92,16 @@ func (s *APIServer) routeSpecs(includeMetrics bool) []routeSpec {
 			Pattern: "GET /api/v1/audit/events",
 			Handler: http.HandlerFunc(s.ListAuditEvents),
 			Auth:    routeAuthPolicy{Action: authz.ActionAdmin},
-			Query:   routeQueryParams("actor_id", "correlation_id", "cursor", "event_type", "limit", "since", "target_id", "until"),
+			Query: routeQueryParams(
+				"actor_id",
+				"correlation_id",
+				"cursor",
+				"event_type",
+				"limit",
+				"since",
+				"target_id",
+				"until",
+			),
 		},
 		{
 			Pattern: "GET /api/v1/db/pool-stats",
@@ -802,7 +811,11 @@ func (s *APIServer) rateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec
 	})
 }
 
-func (s *APIServer) authenticatedRateLimitMiddleware(rl ratelimit.RateLimiter, spec routeSpec, next http.Handler) http.Handler {
+func (s *APIServer) authenticatedRateLimitMiddleware(
+	rl ratelimit.RateLimiter,
+	spec routeSpec,
+	next http.Handler,
+) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := s.authenticatedRateLimitKey(r, spec)
 		allowed, retryAfter, err := rl.Allow(r.Context(), key, spec.RateLimit)

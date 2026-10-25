@@ -129,7 +129,10 @@ func (a *Authority) Stop() {
 	})
 }
 
-func (a *Authority) FetchX509SVID(_ *workloadpb.X509SVIDRequest, stream grpc.ServerStreamingServer[workloadpb.X509SVIDResponse]) error {
+func (a *Authority) FetchX509SVID(
+	_ *workloadpb.X509SVIDRequest,
+	stream grpc.ServerStreamingServer[workloadpb.X509SVIDResponse],
+) error {
 	if a == nil {
 		return status.Error(codes.Unavailable, "local spiffe authority is not configured")
 	}
@@ -147,7 +150,10 @@ func (a *Authority) FetchX509SVID(_ *workloadpb.X509SVIDRequest, stream grpc.Ser
 	return stream.Send(&workloadpb.X509SVIDResponse{Svids: svids})
 }
 
-func (a *Authority) FetchX509Bundles(_ *workloadpb.X509BundlesRequest, stream grpc.ServerStreamingServer[workloadpb.X509BundlesResponse]) error {
+func (a *Authority) FetchX509Bundles(
+	_ *workloadpb.X509BundlesRequest,
+	stream grpc.ServerStreamingServer[workloadpb.X509BundlesResponse],
+) error {
 	if a == nil {
 		return status.Error(codes.Unavailable, "local spiffe authority is not configured")
 	}
@@ -157,13 +163,18 @@ func (a *Authority) FetchX509Bundles(_ *workloadpb.X509BundlesRequest, stream gr
 	})
 }
 
-func (a *Authority) BatchCreateEntry(_ context.Context, req *entryv1.BatchCreateEntryRequest) (*entryv1.BatchCreateEntryResponse, error) {
+func (a *Authority) BatchCreateEntry(
+	_ context.Context,
+	req *entryv1.BatchCreateEntryRequest,
+) (*entryv1.BatchCreateEntryResponse, error) {
 	if a == nil {
 		return nil, status.Error(codes.Unavailable, "local spiffe authority is not configured")
 	}
 
 	now := time.Now().UTC()
-	resp := &entryv1.BatchCreateEntryResponse{Results: make([]*entryv1.BatchCreateEntryResponse_Result, 0, len(req.GetEntries()))}
+	resp := &entryv1.BatchCreateEntryResponse{
+		Results: make([]*entryv1.BatchCreateEntryResponse_Result, 0, len(req.GetEntries())),
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -172,7 +183,10 @@ func (a *Authority) BatchCreateEntry(_ context.Context, req *entryv1.BatchCreate
 	for _, incoming := range req.GetEntries() {
 		entry, err := a.prepareEntry(incoming, now)
 		if err != nil {
-			resp.Results = append(resp.Results, &entryv1.BatchCreateEntryResponse_Result{Status: apiStatus(codes.InvalidArgument, err.Error())})
+			resp.Results = append(
+				resp.Results,
+				&entryv1.BatchCreateEntryResponse_Result{Status: apiStatus(codes.InvalidArgument, err.Error())},
+			)
 			continue
 		}
 
@@ -197,13 +211,18 @@ func (a *Authority) BatchCreateEntry(_ context.Context, req *entryv1.BatchCreate
 	return resp, nil
 }
 
-func (a *Authority) BatchUpdateEntry(_ context.Context, req *entryv1.BatchUpdateEntryRequest) (*entryv1.BatchUpdateEntryResponse, error) {
+func (a *Authority) BatchUpdateEntry(
+	_ context.Context,
+	req *entryv1.BatchUpdateEntryRequest,
+) (*entryv1.BatchUpdateEntryResponse, error) {
 	if a == nil {
 		return nil, status.Error(codes.Unavailable, "local spiffe authority is not configured")
 	}
 
 	now := time.Now().UTC()
-	resp := &entryv1.BatchUpdateEntryResponse{Results: make([]*entryv1.BatchUpdateEntryResponse_Result, 0, len(req.GetEntries()))}
+	resp := &entryv1.BatchUpdateEntryResponse{
+		Results: make([]*entryv1.BatchUpdateEntryResponse_Result, 0, len(req.GetEntries())),
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -212,20 +231,31 @@ func (a *Authority) BatchUpdateEntry(_ context.Context, req *entryv1.BatchUpdate
 	for _, incoming := range req.GetEntries() {
 		id := strings.TrimSpace(incoming.GetId())
 		if id == "" {
-			resp.Results = append(resp.Results, &entryv1.BatchUpdateEntryResponse_Result{Status: apiStatus(codes.InvalidArgument, "entry ID is required")})
+			resp.Results = append(
+				resp.Results,
+				&entryv1.BatchUpdateEntryResponse_Result{
+					Status: apiStatus(codes.InvalidArgument, "entry ID is required"),
+				},
+			)
 			continue
 		}
 
 		existing, ok := a.entriesByID[id]
 		if !ok {
-			resp.Results = append(resp.Results, &entryv1.BatchUpdateEntryResponse_Result{Status: apiStatus(codes.NotFound, "entry not found")})
+			resp.Results = append(
+				resp.Results,
+				&entryv1.BatchUpdateEntryResponse_Result{Status: apiStatus(codes.NotFound, "entry not found")},
+			)
 			continue
 		}
 
 		updated := cloneEntry(existing)
 		applyEntryUpdate(updated, incoming, req.GetInputMask())
 		if err := a.validateEntry(updated, now); err != nil {
-			resp.Results = append(resp.Results, &entryv1.BatchUpdateEntryResponse_Result{Status: apiStatus(codes.InvalidArgument, err.Error())})
+			resp.Results = append(
+				resp.Results,
+				&entryv1.BatchUpdateEntryResponse_Result{Status: apiStatus(codes.InvalidArgument, err.Error())},
+			)
 			continue
 		}
 		updated.RevisionNumber = existing.GetRevisionNumber() + 1
@@ -234,7 +264,12 @@ func (a *Authority) BatchUpdateEntry(_ context.Context, req *entryv1.BatchUpdate
 		newKey := entryKey(updated)
 		if oldKey != newKey {
 			if existingID, exists := a.entryIDsByKey[newKey]; exists && existingID != id {
-				resp.Results = append(resp.Results, &entryv1.BatchUpdateEntryResponse_Result{Status: apiStatus(codes.AlreadyExists, "entry already exists")})
+				resp.Results = append(
+					resp.Results,
+					&entryv1.BatchUpdateEntryResponse_Result{
+						Status: apiStatus(codes.AlreadyExists, "entry already exists"),
+					},
+				)
 				continue
 			}
 			delete(a.entryIDsByKey, oldKey)
@@ -252,12 +287,17 @@ func (a *Authority) BatchUpdateEntry(_ context.Context, req *entryv1.BatchUpdate
 	return resp, nil
 }
 
-func (a *Authority) BatchDeleteEntry(_ context.Context, req *entryv1.BatchDeleteEntryRequest) (*entryv1.BatchDeleteEntryResponse, error) {
+func (a *Authority) BatchDeleteEntry(
+	_ context.Context,
+	req *entryv1.BatchDeleteEntryRequest,
+) (*entryv1.BatchDeleteEntryResponse, error) {
 	if a == nil {
 		return nil, status.Error(codes.Unavailable, "local spiffe authority is not configured")
 	}
 
-	resp := &entryv1.BatchDeleteEntryResponse{Results: make([]*entryv1.BatchDeleteEntryResponse_Result, 0, len(req.GetIds()))}
+	resp := &entryv1.BatchDeleteEntryResponse{
+		Results: make([]*entryv1.BatchDeleteEntryResponse_Result, 0, len(req.GetIds())),
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -265,20 +305,31 @@ func (a *Authority) BatchDeleteEntry(_ context.Context, req *entryv1.BatchDelete
 	for _, id := range req.GetIds() {
 		id = strings.TrimSpace(id)
 		if id == "" {
-			resp.Results = append(resp.Results, &entryv1.BatchDeleteEntryResponse_Result{Status: apiStatus(codes.InvalidArgument, "entry ID is required")})
+			resp.Results = append(
+				resp.Results,
+				&entryv1.BatchDeleteEntryResponse_Result{
+					Status: apiStatus(codes.InvalidArgument, "entry ID is required"),
+				},
+			)
 			continue
 		}
 
 		key, ok := a.keysByEntryID[id]
 		if !ok {
-			resp.Results = append(resp.Results, &entryv1.BatchDeleteEntryResponse_Result{Status: apiStatus(codes.NotFound, "entry not found"), Id: id})
+			resp.Results = append(
+				resp.Results,
+				&entryv1.BatchDeleteEntryResponse_Result{Status: apiStatus(codes.NotFound, "entry not found"), Id: id},
+			)
 			continue
 		}
 
 		delete(a.keysByEntryID, id)
 		delete(a.entryIDsByKey, key)
 		delete(a.entriesByID, id)
-		resp.Results = append(resp.Results, &entryv1.BatchDeleteEntryResponse_Result{Status: apiStatus(codes.OK, ""), Id: id})
+		resp.Results = append(
+			resp.Results,
+			&entryv1.BatchDeleteEntryResponse_Result{Status: apiStatus(codes.OK, ""), Id: id},
+		)
 	}
 
 	return resp, nil
@@ -288,7 +339,8 @@ func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.TrustDomain) == "" {
 		return fmt.Errorf("local spiffe: trust domain is required")
 	}
-	if strings.Contains(strings.TrimSpace(cfg.TrustDomain), "://") || strings.ContainsAny(strings.TrimSpace(cfg.TrustDomain), "/ \t\r\n") {
+	if strings.Contains(strings.TrimSpace(cfg.TrustDomain), "://") ||
+		strings.ContainsAny(strings.TrimSpace(cfg.TrustDomain), "/ \t\r\n") {
 		return fmt.Errorf("local spiffe: trust domain %q must be a bare trust domain", cfg.TrustDomain)
 	}
 	if strings.TrimSpace(cfg.DataDir) == "" {
@@ -543,7 +595,11 @@ func (a *Authority) validateEntry(entry *spiretypes.Entry, now time.Time) error 
 		return fmt.Errorf("entry SPIFFE ID is required")
 	}
 	if spiffeID.GetTrustDomain() != a.cfg.TrustDomain {
-		return fmt.Errorf("entry SPIFFE ID trust domain %q does not match local trust domain %q", spiffeID.GetTrustDomain(), a.cfg.TrustDomain)
+		return fmt.Errorf(
+			"entry SPIFFE ID trust domain %q does not match local trust domain %q",
+			spiffeID.GetTrustDomain(),
+			a.cfg.TrustDomain,
+		)
 	}
 	if strings.TrimSpace(spiffeID.GetPath()) == "" {
 		return fmt.Errorf("entry SPIFFE ID path is required")

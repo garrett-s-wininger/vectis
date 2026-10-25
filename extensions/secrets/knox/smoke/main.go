@@ -17,12 +17,37 @@ func main() {
 	var outputJSON bool
 
 	flag.StringVar(&opts.URL, "url", os.Getenv(knoxsecrets.EnvURL), "Knox base URL")
-	flag.StringVar(&opts.AuthToken, "auth-token", os.Getenv(knoxsecrets.EnvAuthToken), "Knox Authorization header value; prefer --auth-token-file")
-	flag.StringVar(&opts.AuthTokenFile, "auth-token-file", os.Getenv(knoxsecrets.EnvAuthTokenFile), "File containing the Knox Authorization header value")
-	flag.BoolVar(&opts.InsecureSkipVerify, "insecure-skip-verify", envBoolDefault(knoxsecrets.EnvInsecureSkipVerify, false), "Skip Knox TLS certificate verification")
+	flag.StringVar(
+		&opts.AuthToken,
+		"auth-token",
+		os.Getenv(knoxsecrets.EnvAuthToken),
+		"Knox Authorization header value; prefer --auth-token-file",
+	)
+	flag.StringVar(
+		&opts.AuthTokenFile,
+		"auth-token-file",
+		os.Getenv(knoxsecrets.EnvAuthTokenFile),
+		"File containing the Knox Authorization header value",
+	)
+	flag.BoolVar(
+		&opts.InsecureSkipVerify,
+		"insecure-skip-verify",
+		envBoolDefault(knoxsecrets.EnvInsecureSkipVerify, false),
+		"Skip Knox TLS certificate verification",
+	)
 	flag.StringVar(&opts.CAFile, "ca-file", os.Getenv(knoxsecrets.EnvCAFile), "Knox server CA certificate file")
-	flag.StringVar(&opts.ClientCertFile, "client-cert-file", os.Getenv(knoxsecrets.EnvClientCertFile), "Knox mTLS client certificate file")
-	flag.StringVar(&opts.ClientKeyFile, "client-key-file", os.Getenv(knoxsecrets.EnvClientKeyFile), "Knox mTLS client private key file")
+	flag.StringVar(
+		&opts.ClientCertFile,
+		"client-cert-file",
+		os.Getenv(knoxsecrets.EnvClientCertFile),
+		"Knox mTLS client certificate file",
+	)
+	flag.StringVar(
+		&opts.ClientKeyFile,
+		"client-key-file",
+		os.Getenv(knoxsecrets.EnvClientKeyFile),
+		"Knox mTLS client private key file",
+	)
 	flag.StringVar(&opts.Ref, "ref", knoxsecrets.DefaultSmokeRef, "Knox secret ref")
 	flag.StringVar(&opts.ID, "id", knoxsecrets.DefaultSmokeID, "Expected delivered secret id")
 	flag.StringVar(&opts.Path, "path", knoxsecrets.DefaultSmokePath, "Expected delivered secret path")
@@ -30,7 +55,12 @@ func main() {
 	flag.StringVar(&opts.ExpectedSHA256, "expected-sha256", "", "Expected secret SHA-256")
 	flag.StringVar(&opts.WrongAuthToken, "wrong-auth-token", "", "Optional token expected to be denied")
 	flag.StringVar(&opts.MissingRef, "missing-ref", "", "Optional Knox ref expected to be missing")
-	flag.DurationVar(&opts.Timeout, "timeout", knoxsecrets.DefaultSmokeTimeout, "Maximum time to wait for the Knox smoke")
+	flag.DurationVar(
+		&opts.Timeout,
+		"timeout",
+		knoxsecrets.DefaultSmokeTimeout,
+		"Maximum time to wait for the Knox smoke",
+	)
 	flag.BoolVar(&outputJSON, "json", false, "Write a JSON result after a successful smoke")
 	flag.Parse()
 
@@ -59,7 +89,17 @@ func main() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "Knox smoke succeeded: ref=%s id=%s path=%s bytes=%d sha256=%s wrong_token_denied=%t missing_ref_denied=%t\n", result.Ref, result.ID, result.Path, result.Bytes, result.SHA256, result.WrongTokenDenied, result.MissingRefDenied)
+	fmt.Fprintf(
+		os.Stdout,
+		"Knox smoke succeeded: ref=%s id=%s path=%s bytes=%d sha256=%s wrong_token_denied=%t missing_ref_denied=%t\n",
+		result.Ref,
+		result.ID,
+		result.Path,
+		result.Bytes,
+		result.SHA256,
+		result.WrongTokenDenied,
+		result.MissingRefDenied,
+	)
 }
 
 func envBoolDefault(key string, fallback bool) bool {

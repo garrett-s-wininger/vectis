@@ -331,7 +331,10 @@ func sourceDefinitionAuditEvent(createOnly bool) (eventType string, operation st
 	return audit.EventJobUpdated, "update"
 }
 
-func sourceDefinitionAuditMetadata(jobID, namespace, repositoryID, operation string, written sourcepkg.WrittenDefinition) map[string]any {
+func sourceDefinitionAuditMetadata(
+	jobID, namespace, repositoryID, operation string,
+	written sourcepkg.WrittenDefinition,
+) map[string]any {
 	return map[string]any{
 		"job_id":               jobID,
 		"namespace":            namespace,
@@ -366,7 +369,10 @@ func sourceScheduleAuditMetadata(rec dal.CronScheduleRecord, namespace, operatio
 	return metadata
 }
 
-func sourceRepositorySyncAuditMetadata(rec dal.SourceRepositoryRecord, namespace, outcome, reason, syncRef string) map[string]any {
+func sourceRepositorySyncAuditMetadata(
+	rec dal.SourceRepositoryRecord,
+	namespace, outcome, reason, syncRef string,
+) map[string]any {
 	metadata := map[string]any{
 		"repository_id": rec.RepositoryID,
 		"namespace":     namespace,
@@ -445,14 +451,26 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	req.CanonicalURL = strings.TrimSpace(req.CanonicalURL)
 	fallbackRemoteURLs, err := normalizeSourceRepositoryFallbackRemoteURLs(req.FallbackRemoteURLs)
 	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_fallback_remote_url", "fallback_remote_urls contains an unsafe Git remote", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_fallback_remote_url",
+			"fallback_remote_urls contains an unsafe Git remote",
+			nil,
+		)
 		return
 	}
 
 	req.FallbackRemoteURLs = fallbackRemoteURLs
 	workerCacheWarmRefspecs, err := normalizeSourceRepositoryWarmRefspecs(req.WorkerCacheWarmRefspecs)
 	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_worker_cache_warm_refspec", "worker_cache_warm_refspecs contains an unsafe Git fetch refspec", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_worker_cache_warm_refspec",
+			"worker_cache_warm_refspecs contains an unsafe Git fetch refspec",
+			nil,
+		)
 		return
 	}
 
@@ -497,12 +515,24 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	if !validSourceWorkerCacheMode(req.WorkerCacheMode) {
-		writeAPIError(w, http.StatusBadRequest, "unsupported_worker_cache_mode", "worker_cache_mode is not supported", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"unsupported_worker_cache_mode",
+			"worker_cache_mode is not supported",
+			nil,
+		)
 		return
 	}
 
 	if !sourceAuthoringModeCompatible(req.AuthoringMode, req.CheckoutMode) {
-		writeAPIError(w, http.StatusBadRequest, "incompatible_authoring_mode", "authoring_mode is not compatible with checkout_mode", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"incompatible_authoring_mode",
+			"authoring_mode is not compatible with checkout_mode",
+			nil,
+		)
 		return
 	}
 
@@ -523,7 +553,13 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 		checkoutPath, err := s.managedSourceCheckoutPath(req.RepositoryID)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_repository_id", "repository_id cannot be mapped to a managed checkout path", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_repository_id",
+				"repository_id cannot be mapped to a managed checkout path",
+				nil,
+			)
 			return
 		}
 
@@ -531,7 +567,13 @@ func (s *APIServer) CreateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := s.validateSourceCheckoutPath(req.CheckoutPath); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "checkout_path_forbidden", "checkout_path must be under the configured source checkout root", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"checkout_path_forbidden",
+			"checkout_path must be under the configured source checkout root",
+			nil,
+		)
 		return
 	}
 
@@ -831,9 +873,14 @@ func (s *APIServer) ListSourceRepositorySchedules(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, sourceCronSchedulesResponse{
 		Namespace:    nsPath,
 		RepositoryID: rec.RepositoryID,
-		Schedules: sourceCronScheduleRecordsToResponseWithSync(recs, nsPath, declared, map[string]sourceRepositorySyncResponse{
-			rec.RepositoryID: sourceRepositorySyncRecordToResponse(rec),
-		}),
+		Schedules: sourceCronScheduleRecordsToResponseWithSync(
+			recs,
+			nsPath,
+			declared,
+			map[string]sourceRepositorySyncResponse{
+				rec.RepositoryID: sourceRepositorySyncRecordToResponse(rec),
+			},
+		),
 	})
 }
 
@@ -896,7 +943,13 @@ func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusBadRequest, "invalid_source_schedule_update", "invalid source schedule update", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_source_schedule_update",
+				"invalid source schedule update",
+				nil,
+			)
 			return
 		}
 
@@ -906,7 +959,13 @@ func (s *APIServer) PatchSourceSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 	s.markDBRecovered()
 
-	s.auditLog(ctx, audit.EventSourceScheduleUpdated, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(updated, namespacePath, "update"))
+	s.auditLog(
+		ctx,
+		audit.EventSourceScheduleUpdated,
+		actorIDFromPrincipal(p),
+		0,
+		sourceScheduleAuditMetadata(updated, namespacePath, "update"),
+	)
 
 	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(updated, namespacePath, declared))
 }
@@ -938,17 +997,35 @@ func (s *APIServer) DeleteSourceSchedule(w http.ResponseWriter, r *http.Request)
 	}
 
 	if sourceCronScheduleIsDeclared(rec.ScheduleID, declared) {
-		writeAPIError(w, http.StatusConflict, "source_schedule_declared", "source schedule is still declared in current config", nil)
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_schedule_declared",
+			"source schedule is still declared in current config",
+			nil,
+		)
 		return
 	}
 
 	if rec.Enabled {
-		writeAPIError(w, http.StatusConflict, "source_schedule_enabled", "source schedule must be disabled before deletion", nil)
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_schedule_enabled",
+			"source schedule must be disabled before deletion",
+			nil,
+		)
 		return
 	}
 
 	if sourceCronScheduleHasOverride(rec) {
-		writeAPIError(w, http.StatusConflict, "source_schedule_override_active", "source schedule override must be cleared before deletion", nil)
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_schedule_override_active",
+			"source schedule override must be cleared before deletion",
+			nil,
+		)
 		return
 	}
 
@@ -968,7 +1045,13 @@ func (s *APIServer) DeleteSourceSchedule(w http.ResponseWriter, r *http.Request)
 	}
 	s.markDBRecovered()
 
-	s.auditLog(ctx, audit.EventSourceScheduleDeleted, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(rec, namespacePath, "delete"))
+	s.auditLog(
+		ctx,
+		audit.EventSourceScheduleDeleted,
+		actorIDFromPrincipal(p),
+		0,
+		sourceScheduleAuditMetadata(rec, namespacePath, "delete"),
+	)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1058,7 +1141,13 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 			return
 		}
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusBadRequest, "invalid_source_schedule_override", "invalid source schedule override", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_source_schedule_override",
+				"invalid source schedule override",
+				nil,
+			)
 			return
 		}
 
@@ -1068,7 +1157,13 @@ func (s *APIServer) PutSourceScheduleOverride(w http.ResponseWriter, r *http.Req
 	}
 	s.markDBRecovered()
 
-	s.auditLog(ctx, audit.EventSourceScheduleOverrideSet, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(rec, namespacePath, "override_set"))
+	s.auditLog(
+		ctx,
+		audit.EventSourceScheduleOverrideSet,
+		actorIDFromPrincipal(p),
+		0,
+		sourceScheduleAuditMetadata(rec, namespacePath, "override_set"),
+	)
 
 	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
 }
@@ -1115,7 +1210,13 @@ func (s *APIServer) DeleteSourceScheduleOverride(w http.ResponseWriter, r *http.
 	}
 	s.markDBRecovered()
 
-	s.auditLog(ctx, audit.EventSourceScheduleOverrideCleared, actorIDFromPrincipal(p), 0, sourceScheduleAuditMetadata(rec, namespacePath, "override_cleared"))
+	s.auditLog(
+		ctx,
+		audit.EventSourceScheduleOverrideCleared,
+		actorIDFromPrincipal(p),
+		0,
+		sourceScheduleAuditMetadata(rec, namespacePath, "override_cleared"),
+	)
 
 	writeJSON(w, http.StatusOK, sourceCronScheduleRecordToResponse(rec, namespacePath, declared))
 }
@@ -1144,7 +1245,13 @@ func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	if sourceRepositoryIsDeclared(rec.RepositoryID, declared) {
-		writeAPIError(w, http.StatusConflict, "source_repository_declared", "source repository is still declared in current config", nil)
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_repository_declared",
+			"source repository is still declared in current config",
+			nil,
+		)
 		return
 	}
 
@@ -1159,7 +1266,13 @@ func (s *APIServer) DeleteSourceRepository(w http.ResponseWriter, r *http.Reques
 		}
 
 		if dal.IsConflict(err) {
-			writeAPIError(w, http.StatusConflict, "source_repository_in_use", "source repository has recorded source references", nil)
+			writeAPIError(
+				w,
+				http.StatusConflict,
+				"source_repository_in_use",
+				"source repository has recorded source references",
+				nil,
+			)
 			return
 		}
 
@@ -1585,7 +1698,13 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 	}
 
 	if err := jobvalidation.ValidateJob(&job, jobvalidation.Options{}); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_job_definition",
+			"invalid job definition",
+			jobvalidation.ErrorDetails(err),
+		)
 		return
 	}
 
@@ -1599,7 +1718,13 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 	if definitionPath == "" {
 		definitionPath, err = sourcepkg.DefinitionPathForJobID(jobID)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_job_id", "job_id cannot be mapped to a source definition path", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_job_id",
+				"job_id cannot be mapped to a source definition path",
+				nil,
+			)
 			return
 		}
 	}
@@ -1647,7 +1772,13 @@ func (s *APIServer) PutSourceRepositoryJobDefinition(w http.ResponseWriter, r *h
 	}
 
 	eventType, operation := sourceDefinitionAuditEvent(req.CreateOnly)
-	s.auditLog(ctx, eventType, actorID, 0, sourceDefinitionAuditMetadata(jobID, nsPath, rec.RepositoryID, operation, written))
+	s.auditLog(
+		ctx,
+		eventType,
+		actorID,
+		0,
+		sourceDefinitionAuditMetadata(jobID, nsPath, rec.RepositoryID, operation, written),
+	)
 
 	writeJSON(w, http.StatusOK, sourceRepositoryJobDefinitionResponse{
 		JobID:          jobID,
@@ -1672,7 +1803,13 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	}
 
 	if len(bytes.TrimSpace(body)) > 0 && !requestContentTypeIsJSON(r) {
-		writeAPIError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "content type must be application/json", nil)
+		writeAPIError(
+			w,
+			http.StatusUnsupportedMediaType,
+			"unsupported_media_type",
+			"content type must be application/json",
+			nil,
+		)
 		return
 	}
 
@@ -1704,7 +1841,13 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 
 	sourceRunStarter, ok := s.ephemeralRuns.(dal.SourceDefinitionRunStarter)
 	if !ok {
-		writeAPIError(w, http.StatusServiceUnavailable, "source_run_starter_not_configured", "source-backed run persistence not configured", nil)
+		writeAPIError(
+			w,
+			http.StatusServiceUnavailable,
+			"source_run_starter_not_configured",
+			"source-backed run persistence not configured",
+			nil,
+		)
 		return
 	}
 
@@ -1727,8 +1870,18 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 
 	idempotencyKey := idempotencyKeyFromRequest(r)
 	idempotencyScope := principalIdempotencyScope("source-trigger:"+rec.RepositoryID+":"+jobID, p)
-	idempotencyHash := hashIdempotencyRequest(http.MethodPost, "/api/v1/source-repositories/"+rec.RepositoryID+"/jobs/"+jobID+"/trigger", string(bytes.TrimSpace(body)))
-	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyHash)
+	idempotencyHash := hashIdempotencyRequest(
+		http.MethodPost,
+		"/api/v1/source-repositories/"+rec.RepositoryID+"/jobs/"+jobID+"/trigger",
+		string(bytes.TrimSpace(body)),
+	)
+	idempotencyRecord, idempotencyReserved, idempotencyInProgress, ok := s.reserveRecoverableIdempotency(
+		w,
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyHash,
+	)
 	if !ok {
 		return
 	}
@@ -1741,22 +1894,29 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	}
 
 	if idempotencyInProgress {
-		if s.recoverRunCreationIdempotency(w, ctx, idempotencyScope, idempotencyKey, idempotencyRecord, func(createdRuns []dal.CreatedRun) (any, bool) {
-			if len(createdRuns) != 1 || createdRuns[0].JobID != jobID || createdRuns[0].Source == nil {
-				return nil, false
-			}
+		if s.recoverRunCreationIdempotency(
+			w,
+			ctx,
+			idempotencyScope,
+			idempotencyKey,
+			idempotencyRecord,
+			func(createdRuns []dal.CreatedRun) (any, bool) {
+				if len(createdRuns) != 1 || createdRuns[0].JobID != jobID || createdRuns[0].Source == nil {
+					return nil, false
+				}
 
-			createdRun := createdRuns[0]
-			return sourceJobTriggerResponse{
-				JobID:             createdRun.JobID,
-				RunID:             createdRun.RunID,
-				RunIndex:          createdRun.RunIndex,
-				DefinitionVersion: createdRun.DefinitionVersion,
-				DefinitionHash:    createdRun.DefinitionHash,
-				Source:            sourceRecordToProvenance(*createdRun.Source),
-				RepositorySync:    sourceRepositorySyncRecordToResponse(rec),
-			}, true
-		}) {
+				createdRun := createdRuns[0]
+				return sourceJobTriggerResponse{
+					JobID:             createdRun.JobID,
+					RunID:             createdRun.RunID,
+					RunIndex:          createdRun.RunIndex,
+					DefinitionVersion: createdRun.DefinitionVersion,
+					DefinitionHash:    createdRun.DefinitionHash,
+					Source:            sourceRecordToProvenance(*createdRun.Source),
+					RepositorySync:    sourceRepositorySyncRecordToResponse(rec),
+				}, true
+			},
+		) {
 			return
 		}
 
@@ -1781,7 +1941,14 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	targetCellID := runTargetOptions{CellID: req.CellID, TargetCellID: req.TargetCellID}.targetCellID()
 	definitionHash := dal.DefinitionHash(loaded.DefinitionJSON)
 	triggerPayload := string(bytes.TrimSpace(body))
-	invocationID, err := s.recordTriggerInvocation(ctx, jobID, dal.TriggerTypeManual, nil, triggerPayload, []string{targetCellID})
+	invocationID, err := s.recordTriggerInvocation(
+		ctx,
+		jobID,
+		dal.TriggerTypeManual,
+		nil,
+		triggerPayload,
+		[]string{targetCellID},
+	)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1796,7 +1963,13 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := s.attachIdempotencyResource(ctx, idempotencyScope, idempotencyKey, idempotencyResourceTriggerInvocation, invocationID); err != nil {
+	if err := s.attachIdempotencyResource(
+		ctx,
+		idempotencyScope,
+		idempotencyKey,
+		idempotencyResourceTriggerInvocation,
+		invocationID,
+	); err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
 		}
@@ -1812,7 +1985,14 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 
 	sourceRec := sourcepkg.NewJobDefinitionSourceRecord(jobID, rec.RepositoryID, loaded)
 
-	runID, runIndex, definitionVersion, err := sourceRunStarter.CreateSourceDefinitionAndRunInCellWithAudit(ctx, jobID, loaded.DefinitionJSON, sourceRec, targetCellID, dal.RunAuditMetadata{TriggerInvocationID: invocationID})
+	runID, runIndex, definitionVersion, err := sourceRunStarter.CreateSourceDefinitionAndRunInCellWithAudit(
+		ctx,
+		jobID,
+		loaded.DefinitionJSON,
+		sourceRec,
+		targetCellID,
+		dal.RunAuditMetadata{TriggerInvocationID: invocationID},
+	)
 	if err != nil {
 		if idempotencyReserved {
 			s.releaseIdempotency(ctx, idempotencyScope, idempotencyKey)
@@ -1874,7 +2054,14 @@ func (s *APIServer) TriggerSourceRepositoryJob(w http.ResponseWriter, r *http.Re
 	s.completeIdempotency(ctx, idempotencyScope, idempotencyKey, buf.Bytes())
 
 	bgCtx := detachedTraceContextFromContext(context.WithoutCancel(r.Context()))
-	go s.finishRunJobEnqueueWithKind(bgCtx, observability.APIEnqueueRunKindSource, jobID, runID, loaded.Job, definitionHash)
+	go s.finishRunJobEnqueueWithKind(
+		bgCtx,
+		observability.APIEnqueueRunKindSource,
+		jobID,
+		runID,
+		loaded.Job,
+		definitionHash,
+	)
 }
 
 func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Request) {
@@ -1903,7 +2090,13 @@ func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Re
 
 	runLister, ok := s.runs.(dal.SourceRepositoryRunLister)
 	if !ok {
-		writeAPIError(w, http.StatusServiceUnavailable, "source_run_lister_not_configured", "source-backed run listing not configured", nil)
+		writeAPIError(
+			w,
+			http.StatusServiceUnavailable,
+			"source_run_lister_not_configured",
+			"source-backed run listing not configured",
+			nil,
+		)
 		return
 	}
 
@@ -1912,7 +2105,16 @@ func (s *APIServer) GetSourceRepositoryJobRuns(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	runRows, nextCursor, err := runLister.ListBySourceRepositoryJob(ctx, rec.RepositoryID, jobID, opts.afterIndex, opts.since, opts.owningCell, opts.cursor, opts.limit)
+	runRows, nextCursor, err := runLister.ListBySourceRepositoryJob(
+		ctx,
+		rec.RepositoryID,
+		jobID,
+		opts.afterIndex,
+		opts.since,
+		opts.owningCell,
+		opts.cursor,
+		opts.limit,
+	)
 	if err != nil {
 		if s.handleDBUnavailableError(w, err) {
 			return
@@ -2036,7 +2238,13 @@ func (s *APIServer) HandleSSESourceRepositoryJobRuns(w http.ResponseWriter, r *h
 	s.streamRunEvents(w, r, subscriptionKey, "source repository "+rec.RepositoryID+" job "+jobID)
 }
 
-func (s *APIServer) broadcastSourceRepositoryRunEvent(ctx context.Context, jobID string, definitionVersion int, runID string, runIndex int) {
+func (s *APIServer) broadcastSourceRepositoryRunEvent(
+	ctx context.Context,
+	jobID string,
+	definitionVersion int,
+	runID string,
+	runIndex int,
+) {
 	if s.sources == nil {
 		return
 	}
@@ -2044,7 +2252,12 @@ func (s *APIServer) broadcastSourceRepositoryRunEvent(ctx context.Context, jobID
 	source, err := s.sources.GetDefinitionSource(ctx, jobID, definitionVersion)
 	if err != nil {
 		if !dal.IsNotFound(err) {
-			s.logger.Error("Failed to resolve source repository run broadcast target for job %s version %d: %v", jobID, definitionVersion, err)
+			s.logger.Error(
+				"Failed to resolve source repository run broadcast target for job %s version %d: %v",
+				jobID,
+				definitionVersion,
+				err,
+			)
 		}
 		return
 	}
@@ -2078,14 +2291,33 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 
 	attemptStarted := time.Now()
 	recordSync := func(outcome, reason string) {
-		s.recordSourceRepositorySyncMetric(ctx, observability.SourceSyncTriggerManual, rec, outcome, reason, time.Since(attemptStarted))
+		s.recordSourceRepositorySyncMetric(
+			ctx,
+			observability.SourceSyncTriggerManual,
+			rec,
+			outcome,
+			reason,
+			time.Since(attemptStarted),
+		)
 	}
 
 	syncRef := sourceRepositorySyncRef(rec)
 	releaseSync, syncStarted := s.tryBeginSourceRepositorySync(rec.RepositoryID)
 	if !syncStarted {
 		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock)
-		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(rec, nsPath, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonInMemoryLock, syncRef))
+		s.auditLog(
+			ctx,
+			audit.EventSourceRepositorySyncRequested,
+			actorID,
+			0,
+			sourceRepositorySyncAuditMetadata(
+				rec,
+				nsPath,
+				observability.SourceSyncOutcomeAlreadyRunning,
+				observability.SourceSyncReasonInMemoryLock,
+				syncRef,
+			),
+		)
 		s.writeRunningSourceRepositorySync(w, rec, nsPath, syncRef, declared)
 		return
 	}
@@ -2122,7 +2354,19 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 
 	if !began {
 		recordSync(observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock)
-		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(running, nsPath, observability.SourceSyncOutcomeAlreadyRunning, observability.SourceSyncReasonDatabaseLock, syncRef))
+		s.auditLog(
+			ctx,
+			audit.EventSourceRepositorySyncRequested,
+			actorID,
+			0,
+			sourceRepositorySyncAuditMetadata(
+				running,
+				nsPath,
+				observability.SourceSyncOutcomeAlreadyRunning,
+				observability.SourceSyncReasonDatabaseLock,
+				syncRef,
+			),
+		)
 		s.writeRunningSourceRepositorySync(w, running, nsPath, syncRef, declared)
 		return
 	}
@@ -2176,10 +2420,28 @@ func (s *APIServer) SyncSourceRepository(w http.ResponseWriter, r *http.Request)
 	if syncRecord.Status == dal.SourceSyncStatusFailed {
 		reason := sourceRepositorySyncMetricReason(syncRecord.Error)
 		recordSync(observability.SourceSyncOutcomeFailed, reason)
-		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(updated, nsPath, observability.SourceSyncOutcomeFailed, reason, syncRef))
+		s.auditLog(
+			ctx,
+			audit.EventSourceRepositorySyncRequested,
+			actorID,
+			0,
+			sourceRepositorySyncAuditMetadata(updated, nsPath, observability.SourceSyncOutcomeFailed, reason, syncRef),
+		)
 	} else {
 		recordSync(observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone)
-		s.auditLog(ctx, audit.EventSourceRepositorySyncRequested, actorID, 0, sourceRepositorySyncAuditMetadata(updated, nsPath, observability.SourceSyncOutcomeSucceeded, observability.SourceSyncReasonNone, syncRef))
+		s.auditLog(
+			ctx,
+			audit.EventSourceRepositorySyncRequested,
+			actorID,
+			0,
+			sourceRepositorySyncAuditMetadata(
+				updated,
+				nsPath,
+				observability.SourceSyncOutcomeSucceeded,
+				observability.SourceSyncReasonNone,
+				syncRef,
+			),
+		)
 	}
 
 	writeJSON(w, http.StatusOK, s.sourceRepositoryRecordToResponse(updated, nsPath, declared))
@@ -2257,7 +2519,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 	if req.FallbackRemoteURLs != nil {
 		fallbackRemoteURLs, err := normalizeSourceRepositoryFallbackRemoteURLs(*req.FallbackRemoteURLs)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_fallback_remote_url", "fallback_remote_urls contains an unsafe Git remote", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_fallback_remote_url",
+				"fallback_remote_urls contains an unsafe Git remote",
+				nil,
+			)
 			return
 		}
 
@@ -2267,7 +2535,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 	if req.WorkerCacheWarmRefspecs != nil {
 		workerCacheWarmRefspecs, err := normalizeSourceRepositoryWarmRefspecs(*req.WorkerCacheWarmRefspecs)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_worker_cache_warm_refspec", "worker_cache_warm_refspecs contains an unsafe Git fetch refspec", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_worker_cache_warm_refspec",
+				"worker_cache_warm_refspecs contains an unsafe Git fetch refspec",
+				nil,
+			)
 			return
 		}
 
@@ -2297,12 +2571,24 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 	}
 
 	if !validSourceWorkerCacheMode(updated.WorkerCacheMode) {
-		writeAPIError(w, http.StatusBadRequest, "unsupported_worker_cache_mode", "worker_cache_mode is not supported", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"unsupported_worker_cache_mode",
+			"worker_cache_mode is not supported",
+			nil,
+		)
 		return
 	}
 
 	if !sourceAuthoringModeCompatible(updated.AuthoringMode, updated.CheckoutMode) {
-		writeAPIError(w, http.StatusBadRequest, "incompatible_authoring_mode", "authoring_mode is not compatible with checkout_mode", nil)
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"incompatible_authoring_mode",
+			"authoring_mode is not compatible with checkout_mode",
+			nil,
+		)
 		return
 	}
 
@@ -2324,7 +2610,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 		checkoutPath, err := s.managedSourceCheckoutPath(updated.RepositoryID)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "invalid_repository_id", "repository_id cannot be mapped to a managed checkout path", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"invalid_repository_id",
+				"repository_id cannot be mapped to a managed checkout path",
+				nil,
+			)
 			return
 		}
 
@@ -2333,7 +2625,13 @@ func (s *APIServer) UpdateSourceRepository(w http.ResponseWriter, r *http.Reques
 
 	if req.CheckoutPath != nil || (req.CheckoutMode != nil && updated.CheckoutMode == dal.SourceCheckoutModeManaged) {
 		if err := s.validateSourceCheckoutPath(updated.CheckoutPath); err != nil {
-			writeAPIError(w, http.StatusBadRequest, "checkout_path_forbidden", "checkout_path must be under the configured source checkout root", nil)
+			writeAPIError(
+				w,
+				http.StatusBadRequest,
+				"checkout_path_forbidden",
+				"checkout_path must be under the configured source checkout root",
+				nil,
+			)
 			return
 		}
 	}
@@ -2446,7 +2744,14 @@ func (s *APIServer) ResolveSourceDefinition(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (s *APIServer) getAuthorizedSourceRepository(ctx context.Context, w http.ResponseWriter, p *authn.Principal, repositoryID string, action authz.Action, requireEnabled bool) (dal.SourceRepositoryRecord, string, bool) {
+func (s *APIServer) getAuthorizedSourceRepository(
+	ctx context.Context,
+	w http.ResponseWriter,
+	p *authn.Principal,
+	repositoryID string,
+	action authz.Action,
+	requireEnabled bool,
+) (dal.SourceRepositoryRecord, string, bool) {
 	repositoryID = strings.TrimSpace(repositoryID)
 	if repositoryID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_repository_id", "repository_id is required", nil)
@@ -2473,7 +2778,13 @@ func (s *APIServer) getAuthorizedSourceRepository(ctx context.Context, w http.Re
 	ns, err := s.namespaces.GetByID(ctx, rec.NamespaceID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository namespace not found", nil)
+			writeAPIError(
+				w,
+				http.StatusNotFound,
+				"source_repository_not_found",
+				"source repository namespace not found",
+				nil,
+			)
 			return dal.SourceRepositoryRecord{}, "", false
 		}
 
@@ -2498,7 +2809,13 @@ func (s *APIServer) getAuthorizedSourceRepository(ctx context.Context, w http.Re
 	return rec, ns.Path, true
 }
 
-func (s *APIServer) getAuthorizedSourceSchedule(ctx context.Context, w http.ResponseWriter, p *authn.Principal, scheduleID string, action authz.Action) (dal.CronScheduleRecord, string, bool) {
+func (s *APIServer) getAuthorizedSourceSchedule(
+	ctx context.Context,
+	w http.ResponseWriter,
+	p *authn.Principal,
+	scheduleID string,
+	action authz.Action,
+) (dal.CronScheduleRecord, string, bool) {
 	scheduleID = strings.TrimSpace(scheduleID)
 	if scheduleID == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing_schedule_id", "schedule_id is required", nil)
@@ -2546,7 +2863,13 @@ func (s *APIServer) getAuthorizedSourceSchedule(ctx context.Context, w http.Resp
 	ns, err := s.namespaces.GetByID(ctx, repo.NamespaceID)
 	if err != nil {
 		if dal.IsNotFound(err) {
-			writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository namespace not found", nil)
+			writeAPIError(
+				w,
+				http.StatusNotFound,
+				"source_repository_not_found",
+				"source repository namespace not found",
+				nil,
+			)
 			return dal.CronScheduleRecord{}, "", false
 		}
 
@@ -2566,7 +2889,10 @@ func (s *APIServer) getAuthorizedSourceSchedule(ctx context.Context, w http.Resp
 	return rec, ns.Path, true
 }
 
-func (s *APIServer) sourceRepositoryDeclarationIDsForResponse(w http.ResponseWriter, operation string) (map[string]struct{}, bool) {
+func (s *APIServer) sourceRepositoryDeclarationIDsForResponse(
+	w http.ResponseWriter,
+	operation string,
+) (map[string]struct{}, bool) {
 	declared, err := sourceRepositoryDeclarationIDs()
 	if err != nil {
 		s.logger.Error("Configuration error %s source repository: %v", operation, err)
@@ -2577,7 +2903,11 @@ func (s *APIServer) sourceRepositoryDeclarationIDsForResponse(w http.ResponseWri
 	return declared, true
 }
 
-func (s *APIServer) sourceRepositoryRecordToResponse(rec dal.SourceRepositoryRecord, namespacePath string, declared map[string]struct{}) sourceRepositoryResponse {
+func (s *APIServer) sourceRepositoryRecordToResponse(
+	rec dal.SourceRepositoryRecord,
+	namespacePath string,
+	declared map[string]struct{},
+) sourceRepositoryResponse {
 	return sourceRepositoryResponse{
 		RepositoryID:            rec.RepositoryID,
 		Namespace:               namespacePath,
@@ -2624,24 +2954,45 @@ func sourceRepositoryIsDeclared(repositoryID string, declared map[string]struct{
 	return ok
 }
 
-func sourceCronScheduleRecordsToResponse(recs []dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}) []sourceCronScheduleResponse {
+func sourceCronScheduleRecordsToResponse(
+	recs []dal.CronScheduleRecord,
+	namespacePath string,
+	declared map[string]struct{},
+) []sourceCronScheduleResponse {
 	return sourceCronScheduleRecordsToResponseWithSync(recs, namespacePath, declared, nil)
 }
 
-func sourceCronScheduleRecordsToResponseWithSync(recs []dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}, syncByRepositoryID map[string]sourceRepositorySyncResponse) []sourceCronScheduleResponse {
+func sourceCronScheduleRecordsToResponseWithSync(
+	recs []dal.CronScheduleRecord,
+	namespacePath string,
+	declared map[string]struct{},
+	syncByRepositoryID map[string]sourceRepositorySyncResponse,
+) []sourceCronScheduleResponse {
 	resp := make([]sourceCronScheduleResponse, 0, len(recs))
 	for _, rec := range recs {
-		resp = append(resp, sourceCronScheduleRecordToResponseWithSync(rec, namespacePath, declared, syncByRepositoryID))
+		resp = append(
+			resp,
+			sourceCronScheduleRecordToResponseWithSync(rec, namespacePath, declared, syncByRepositoryID),
+		)
 	}
 
 	return resp
 }
 
-func sourceCronScheduleRecordToResponse(rec dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}) sourceCronScheduleResponse {
+func sourceCronScheduleRecordToResponse(
+	rec dal.CronScheduleRecord,
+	namespacePath string,
+	declared map[string]struct{},
+) sourceCronScheduleResponse {
 	return sourceCronScheduleRecordToResponseWithSync(rec, namespacePath, declared, nil)
 }
 
-func sourceCronScheduleRecordToResponseWithSync(rec dal.CronScheduleRecord, namespacePath string, declared map[string]struct{}, syncByRepositoryID map[string]sourceRepositorySyncResponse) sourceCronScheduleResponse {
+func sourceCronScheduleRecordToResponseWithSync(
+	rec dal.CronScheduleRecord,
+	namespacePath string,
+	declared map[string]struct{},
+	syncByRepositoryID map[string]sourceRepositorySyncResponse,
+) sourceCronScheduleResponse {
 	effectiveRef := strings.TrimSpace(rec.SourceRef)
 	if ref := strings.TrimSpace(rec.SourceOverrideRef); ref != "" {
 		effectiveRef = ref
@@ -2693,7 +3044,10 @@ func sourceCronScheduleRecordToResponseWithSync(rec dal.CronScheduleRecord, name
 	return resp
 }
 
-func (s *APIServer) sourceRepositorySyncResponsesByID(ctx context.Context, namespaceID int64) (map[string]sourceRepositorySyncResponse, error) {
+func (s *APIServer) sourceRepositorySyncResponsesByID(
+	ctx context.Context,
+	namespaceID int64,
+) (map[string]sourceRepositorySyncResponse, error) {
 	if s.sources == nil {
 		return map[string]sourceRepositorySyncResponse{}, nil
 	}
@@ -2741,7 +3095,12 @@ func sourceCronScheduleHasOverride(rec dal.CronScheduleRecord) bool {
 	return strings.TrimSpace(rec.SourceOverrideRef) != "" || strings.TrimSpace(rec.SourceOverridePath) != ""
 }
 
-func (s *APIServer) sourceRepositoryStatusFromRecord(ctx context.Context, rec dal.SourceRepositoryRecord, namespacePath string, declared map[string]struct{}) sourceRepositoryStatusResponse {
+func (s *APIServer) sourceRepositoryStatusFromRecord(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	namespacePath string,
+	declared map[string]struct{},
+) sourceRepositoryStatusResponse {
 	resp := sourceRepositoryStatusResponse{
 		RepositoryID:    rec.RepositoryID,
 		Namespace:       namespacePath,
@@ -2925,7 +3284,13 @@ func sourceRepositoryStatusSyncError(status sourcepkg.GitCheckoutStatus) string 
 	return status.ErrorCode + ": " + status.ErrorMessage
 }
 
-func (s *APIServer) recordSourceRepositorySyncMetric(ctx context.Context, trigger string, rec dal.SourceRepositoryRecord, outcome, reason string, d time.Duration) {
+func (s *APIServer) recordSourceRepositorySyncMetric(
+	ctx context.Context,
+	trigger string,
+	rec dal.SourceRepositoryRecord,
+	outcome, reason string,
+	d time.Duration,
+) {
 	if s.sourceSyncMetrics == nil {
 		return
 	}
@@ -2933,7 +3298,11 @@ func (s *APIServer) recordSourceRepositorySyncMetric(ctx context.Context, trigge
 	s.sourceSyncMetrics.RecordSourceRepositorySync(ctx, trigger, rec.SourceKind, rec.CheckoutMode, outcome, reason, d)
 }
 
-func (s *APIServer) recordSourceRepositoryObjectStoreMetric(ctx context.Context, rec dal.SourceRepositoryRecord, status sourcepkg.GitCheckoutStatus) {
+func (s *APIServer) recordSourceRepositoryObjectStoreMetric(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	status sourcepkg.GitCheckoutStatus,
+) {
 	if s.sourceObjectStoreMetrics == nil || !status.GitRepository {
 		return
 	}
@@ -2952,7 +3321,9 @@ func (s *APIServer) recordSourceRepositoryObjectStoreMetric(ctx context.Context,
 	)
 }
 
-func sourceRepositoryObjectStoreMetricWarnings(warnings []sourcepkg.GitCheckoutObjectStoreWarning) []observability.SourceRepositoryObjectStoreWarning {
+func sourceRepositoryObjectStoreMetricWarnings(
+	warnings []sourcepkg.GitCheckoutObjectStoreWarning,
+) []observability.SourceRepositoryObjectStoreWarning {
 	if len(warnings) == 0 {
 		return nil
 	}
@@ -2978,7 +3349,12 @@ func sourceRepositorySyncMetricReason(raw string) string {
 	return observability.SourceSyncReasonFromErrorCode(code)
 }
 
-func (s *APIServer) writeRunningSourceRepositorySync(w http.ResponseWriter, rec dal.SourceRepositoryRecord, namespacePath, syncRef string, declared map[string]struct{}) {
+func (s *APIServer) writeRunningSourceRepositorySync(
+	w http.ResponseWriter,
+	rec dal.SourceRepositoryRecord,
+	namespacePath, syncRef string,
+	declared map[string]struct{},
+) {
 	running := rec
 	running.SyncStatus = dal.SourceSyncStatusRunning
 	if strings.TrimSpace(running.LastSyncRef) == "" {
@@ -3122,7 +3498,11 @@ func (s *APIServer) tryBeginSourceRepositorySync(repositoryID string) (func(), b
 	}, true
 }
 
-func (s *APIServer) sourceRepositorySyncCheckoutStatus(ctx context.Context, rec dal.SourceRepositoryRecord, syncRef string) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) sourceRepositorySyncCheckoutStatus(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	syncRef string,
+) sourcepkg.GitCheckoutStatus {
 	if s.sourceSyncCheckoutStatus != nil {
 		return s.sourceSyncCheckoutStatus(ctx, rec, syncRef)
 	}
@@ -3256,7 +3636,11 @@ func newGitCheckoutForSourceRepository(rec dal.SourceRepositoryRecord) *sourcepk
 	return sourcepkg.NewGitCheckout(rec.CheckoutPath)
 }
 
-func (s *APIServer) listSourceRepositoryTree(ctx context.Context, rec dal.SourceRepositoryRecord, opts sourcepkg.ListTreeOptions) (sourcepkg.TreeListing, error) {
+func (s *APIServer) listSourceRepositoryTree(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	opts sourcepkg.ListTreeOptions,
+) (sourcepkg.TreeListing, error) {
 	checkout := newGitCheckoutForSourceRepository(rec)
 	listing, err := checkout.ListTree(ctx, opts)
 	hydrated, hydrationErr := s.hydrateSourceRepositoryRefAfterNotFound(ctx, rec, opts.Ref, err)
@@ -3271,7 +3655,11 @@ func (s *APIServer) listSourceRepositoryTree(ctx context.Context, rec dal.Source
 	return newGitCheckoutForSourceRepository(rec).ListTree(ctx, opts)
 }
 
-func (s *APIServer) listSourceRepositoryDefinitionFiles(ctx context.Context, rec dal.SourceRepositoryRecord, opts sourcepkg.ListDefinitionFilesOptions) (sourcepkg.DefinitionFileListing, error) {
+func (s *APIServer) listSourceRepositoryDefinitionFiles(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	opts sourcepkg.ListDefinitionFilesOptions,
+) (sourcepkg.DefinitionFileListing, error) {
 	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
 	if err != nil {
 		return sourcepkg.DefinitionFileListing{}, err
@@ -3295,7 +3683,11 @@ func (s *APIServer) listSourceRepositoryDefinitionFiles(ctx context.Context, rec
 	return store.ListDefinitionFiles(ctx, opts)
 }
 
-func (s *APIServer) resolveSourceRepositoryDefinition(ctx context.Context, rec dal.SourceRepositoryRecord, req sourcepkg.DefinitionRequest) (sourcepkg.Definition, error) {
+func (s *APIServer) resolveSourceRepositoryDefinition(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	req sourcepkg.DefinitionRequest,
+) (sourcepkg.Definition, error) {
 	store, err := sourcepkg.NewDefinitionStoreFromRecord(rec)
 	if err != nil {
 		return sourcepkg.Definition{}, err
@@ -3319,7 +3711,12 @@ func (s *APIServer) resolveSourceRepositoryDefinition(ctx context.Context, rec d
 	return store.ResolveDefinition(ctx, req)
 }
 
-func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context, rec dal.SourceRepositoryRecord, ref string, err error) (bool, error) {
+func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref string,
+	err error,
+) (bool, error) {
 	if !errors.Is(err, sourcepkg.ErrNotFound) ||
 		strings.TrimSpace(rec.SourceKind) != dal.SourceKindLocalCheckout ||
 		strings.TrimSpace(rec.CheckoutMode) != dal.SourceCheckoutModeManaged {
@@ -3347,7 +3744,11 @@ func (s *APIServer) hydrateSourceRepositoryRefAfterNotFound(ctx context.Context,
 	return false, nil
 }
 
-func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) hydrateSourceRepositoryRef(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref string,
+) sourcepkg.GitCheckoutStatus {
 	key := sourceRefHydrationKey(rec.RepositoryID, ref)
 	preferredRemote, cacheHit := s.cachedSourceRefHydrationRemote(key)
 	if key == "" {
@@ -3398,7 +3799,12 @@ func (s *APIServer) hydrateSourceRepositoryRef(ctx context.Context, rec dal.Sour
 	return call.status
 }
 
-func (s *APIServer) hydrateSourceRepositoryRefAttempt(ctx context.Context, rec dal.SourceRepositoryRecord, ref, key, preferredRemote string, cacheHit bool) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) hydrateSourceRepositoryRefAttempt(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref, key, preferredRemote string,
+	cacheHit bool,
+) sourcepkg.GitCheckoutStatus {
 	startedAt := time.Now()
 	status := s.hydrateSourceRepositoryRefWithLease(ctx, rec, ref, key, preferredRemote)
 	status.HydrationCacheHit = cacheHit
@@ -3421,7 +3827,11 @@ func (s *APIServer) hydrateSourceRepositoryRefAttempt(ctx context.Context, rec d
 	return status
 }
 
-func (s *APIServer) hydrateSourceRepositoryRefWithLease(ctx context.Context, rec dal.SourceRepositoryRecord, ref, key, preferredRemote string) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) hydrateSourceRepositoryRefWithLease(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref, key, preferredRemote string,
+) sourcepkg.GitCheckoutStatus {
 	if strings.TrimSpace(key) == "" || s.serviceLeases == nil {
 		return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
 	}
@@ -3429,7 +3839,12 @@ func (s *APIServer) hydrateSourceRepositoryRefWithLease(ctx context.Context, rec
 	releaseLease, acquired, err := s.tryAcquireSourceRefHydrationLease(ctx, key)
 	if err != nil {
 		if s.logger != nil {
-			s.logger.Warn("Source ref hydration lease acquire failed for repository %s ref %s: %v", rec.RepositoryID, ref, err)
+			s.logger.Warn(
+				"Source ref hydration lease acquire failed for repository %s ref %s: %v",
+				rec.RepositoryID,
+				ref,
+				err,
+			)
 		}
 
 		return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
@@ -3443,7 +3858,11 @@ func (s *APIServer) hydrateSourceRepositoryRefWithLease(ctx context.Context, rec
 	return s.waitForSourceRefHydrationLease(ctx, rec, ref, key, preferredRemote)
 }
 
-func (s *APIServer) waitForSourceRefHydrationLease(ctx context.Context, rec dal.SourceRepositoryRecord, ref, key, preferredRemote string) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) waitForSourceRefHydrationLease(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref, key, preferredRemote string,
+) sourcepkg.GitCheckoutStatus {
 	wait := s.sourceRefHydrationLeaseWait
 	if wait <= 0 {
 		wait = defaultSourceRefHydrationLeaseWait
@@ -3466,7 +3885,12 @@ func (s *APIServer) waitForSourceRefHydrationLease(ctx context.Context, rec dal.
 		releaseLease, acquired, err := s.tryAcquireSourceRefHydrationLease(ctx, key)
 		if err != nil {
 			if s.logger != nil {
-				s.logger.Warn("Source ref hydration lease retry failed for repository %s ref %s: %v", rec.RepositoryID, ref, err)
+				s.logger.Warn(
+					"Source ref hydration lease retry failed for repository %s ref %s: %v",
+					rec.RepositoryID,
+					ref,
+					err,
+				)
 			}
 			return s.hydrateSourceRepositoryRefDirect(ctx, rec, ref, preferredRemote)
 		}
@@ -3526,7 +3950,11 @@ func (s *APIServer) tryAcquireSourceRefHydrationLease(ctx context.Context, key s
 	}, true, nil
 }
 
-func sourceRefHydrationLocalStatus(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+func sourceRefHydrationLocalStatus(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref string,
+) sourcepkg.GitCheckoutStatus {
 	status := sourcepkg.NewManagedGitCheckout(rec.CheckoutPath).Status(ctx, ref)
 	if status.ErrorCode == "" {
 		status.HydrationTier = sourceRefHydrationCoalescedTier
@@ -3535,7 +3963,11 @@ func sourceRefHydrationLocalStatus(ctx context.Context, rec dal.SourceRepository
 	return status
 }
 
-func sourceRefHydrationContextStatus(ctx context.Context, rec dal.SourceRepositoryRecord, ref string) sourcepkg.GitCheckoutStatus {
+func sourceRefHydrationContextStatus(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref string,
+) sourcepkg.GitCheckoutStatus {
 	err := ctx.Err()
 	if err == nil {
 		err = context.Canceled
@@ -3558,7 +3990,11 @@ func sourceRefHydrationInFlightStatus(rec dal.SourceRepositoryRecord, ref string
 	}
 }
 
-func (s *APIServer) hydrateSourceRepositoryRefDirect(ctx context.Context, rec dal.SourceRepositoryRecord, ref, preferredRemote string) sourcepkg.GitCheckoutStatus {
+func (s *APIServer) hydrateSourceRepositoryRefDirect(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	ref, preferredRemote string,
+) sourcepkg.GitCheckoutStatus {
 	if hydrator := s.sourceRefHydrator; hydrator != nil {
 		return hydrator(ctx, rec, ref, preferredRemote)
 	}
@@ -3571,7 +4007,14 @@ func (s *APIServer) hydrateSourceRepositoryRefDirect(ctx context.Context, rec da
 	})
 }
 
-func (s *APIServer) recordSourceRefHydrationMetric(ctx context.Context, rec dal.SourceRepositoryRecord, status sourcepkg.GitCheckoutStatus, preferredRemote string, cacheHit bool, d time.Duration) {
+func (s *APIServer) recordSourceRefHydrationMetric(
+	ctx context.Context,
+	rec dal.SourceRepositoryRecord,
+	status sourcepkg.GitCheckoutStatus,
+	preferredRemote string,
+	cacheHit bool,
+	d time.Duration,
+) {
 	metrics := s.sourceRefHydrationMetrics
 	if metrics == nil {
 		return
@@ -3784,7 +4227,9 @@ func validSourceCheckoutMode(mode string) bool {
 
 func validSourceAuthoringMode(mode string) bool {
 	switch strings.TrimSpace(mode) {
-	case dal.SourceAuthoringModeReadOnly, dal.SourceAuthoringModeLocalCommit, dal.SourceAuthoringModeExternalChangeRequest:
+	case dal.SourceAuthoringModeReadOnly,
+		dal.SourceAuthoringModeLocalCommit,
+		dal.SourceAuthoringModeExternalChangeRequest:
 		return true
 	default:
 		return false
@@ -3818,7 +4263,11 @@ func sourceRecordToProvenance(rec dal.JobDefinitionSourceRecord) sourceProvenanc
 	}
 }
 
-func (s *APIServer) definitionSourceProvenance(ctx context.Context, jobID string, version int) (*sourceProvenanceResponse, error) {
+func (s *APIServer) definitionSourceProvenance(
+	ctx context.Context,
+	jobID string,
+	version int,
+) (*sourceProvenanceResponse, error) {
 	sources, err := s.definitionSourceProvenanceByVersion(ctx, jobID, []int{version})
 	if err != nil {
 		return nil, err
@@ -3832,7 +4281,11 @@ func (s *APIServer) definitionSourceProvenance(ctx context.Context, jobID string
 	return &source, nil
 }
 
-func (s *APIServer) definitionSourceProvenanceByVersion(ctx context.Context, jobID string, versions []int) (map[int]sourceProvenanceResponse, error) {
+func (s *APIServer) definitionSourceProvenanceByVersion(
+	ctx context.Context,
+	jobID string,
+	versions []int,
+) (map[int]sourceProvenanceResponse, error) {
 	out := map[int]sourceProvenanceResponse{}
 	if s.sources == nil || strings.TrimSpace(jobID) == "" || len(versions) == 0 {
 		return out, nil
@@ -3859,25 +4312,79 @@ func (s *APIServer) writeSourceDefinitionError(w http.ResponseWriter, err error)
 	switch {
 	case errors.As(err, &pendingHydration):
 		w.Header().Set("Retry-After", strconv.Itoa(sourceRefHydrationRetryAfterSeconds))
-		writeAPIError(w, http.StatusAccepted, sourceRefHydrationInFlightErrorCode, "source ref hydration is in flight", map[string]string{
-			"repository_id": pendingHydration.repositoryID,
-			"ref":           pendingHydration.ref,
-			"retry":         "retry after the in-flight source ref hydration completes",
-		})
+		writeAPIError(
+			w,
+			http.StatusAccepted,
+			sourceRefHydrationInFlightErrorCode,
+			"source ref hydration is in flight",
+			map[string]string{
+				"repository_id": pendingHydration.repositoryID,
+				"ref":           pendingHydration.ref,
+				"retry":         "retry after the in-flight source ref hydration completes",
+			},
+		)
 	case dal.IsConflict(err):
-		writeAPIError(w, http.StatusConflict, "source_job_conflict", "source job conflict", sourceDefinitionErrorDetails("job_version_conflict", "refresh the job definition and retry the source write"))
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_job_conflict",
+			"source job conflict",
+			sourceDefinitionErrorDetails(
+				"job_version_conflict",
+				"refresh the job definition and retry the source write",
+			),
+		)
 	case errors.Is(err, sourcepkg.ErrAlreadyExists):
-		writeAPIError(w, http.StatusConflict, "source_definition_already_exists", "source definition already exists", sourceDefinitionErrorDetails("definition_already_exists", "use PUT to update the existing source definition or choose a different job_id/path"))
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_definition_already_exists",
+			"source definition already exists",
+			sourceDefinitionErrorDetails(
+				"definition_already_exists",
+				"use PUT to update the existing source definition or choose a different job_id/path",
+			),
+		)
 	case errors.Is(err, sourcepkg.ErrAuthoringUnavailable):
-		writeAPIError(w, http.StatusConflict, "source_authoring_unavailable", "source repository does not support local definition authoring", sourceDefinitionErrorDetails("authoring_unavailable", "enable local_commit authoring on a managed source repository or choose a writable repository"))
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_authoring_unavailable",
+			"source repository does not support local definition authoring",
+			sourceDefinitionErrorDetails(
+				"authoring_unavailable",
+				"enable local_commit authoring on a managed source repository or choose a writable repository",
+			),
+		)
 	case errors.Is(err, sourcepkg.ErrConflict):
-		writeAPIError(w, http.StatusConflict, "source_conflict", "source conflict", sourceDefinitionErrorDetails("stale_head", "refresh the branch head and retry with an updated expected_head"))
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_conflict",
+			"source conflict",
+			sourceDefinitionErrorDetails(
+				"stale_head",
+				"refresh the branch head and retry with an updated expected_head",
+			),
+		)
 	case errors.Is(err, sourcepkg.ErrBusy):
-		writeAPIError(w, http.StatusConflict, "source_busy", "source repository is busy", sourceDefinitionErrorDetails("source_busy", "retry after the current source operation completes"))
+		writeAPIError(
+			w,
+			http.StatusConflict,
+			"source_busy",
+			"source repository is busy",
+			sourceDefinitionErrorDetails("source_busy", "retry after the current source operation completes"),
+		)
 	case dal.IsNotFound(err):
 		writeAPIError(w, http.StatusNotFound, "source_repository_not_found", "source repository not found", nil)
 	case errors.Is(err, sourcepkg.ErrInvalidDefinition):
-		writeAPIError(w, http.StatusBadRequest, "invalid_job_definition", "invalid job definition", jobvalidation.ErrorDetails(err))
+		writeAPIError(
+			w,
+			http.StatusBadRequest,
+			"invalid_job_definition",
+			"invalid job definition",
+			jobvalidation.ErrorDetails(err),
+		)
 	case errors.Is(err, sourcepkg.ErrInvalidReference):
 		writeAPIError(w, http.StatusBadRequest, "invalid_source_reference", "invalid source reference", nil)
 	case errors.Is(err, sourcepkg.ErrTooLarge):

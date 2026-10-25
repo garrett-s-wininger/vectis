@@ -25,7 +25,15 @@ func TestPlanTaskExecutionsBuildsStableBoundaryPlan(t *testing.T) {
 		t.Fatalf("plan len: got %d, want 3: %+v", len(plan), plan)
 	}
 
-	assertPlanEntry(t, plan[0], "build", dal.RootTaskKey, "root.steps[1]", "builtins/parallel", []string{"compile", "test"})
+	assertPlanEntry(
+		t,
+		plan[0],
+		"build",
+		dal.RootTaskKey,
+		"root.steps[1]",
+		"builtins/parallel",
+		[]string{"compile", "test"},
+	)
 	assertPlanEntry(t, plan[1], "compile", "build", "root.steps[1].steps[0]", "builtins/script", nil)
 	assertPlanEntry(t, plan[2], "test", "build", "root.steps[1].steps[1]", "builtins/script", nil)
 
@@ -107,7 +115,11 @@ func TestPlanTaskExecutionsIncludesActionDigestsInSpecHash(t *testing.T) {
 
 	for i := range first {
 		if first[i].SpecHash == second[i].SpecHash {
-			t.Fatalf("task %q spec hash did not change after resolved script digest changed: %q", first[i].TaskKey, first[i].SpecHash)
+			t.Fatalf(
+				"task %q spec hash did not change after resolved script digest changed: %q",
+				first[i].TaskKey,
+				first[i].SpecHash,
+			)
 		}
 	}
 }
@@ -168,7 +180,9 @@ func TestPlanTaskExecutionsRejectsInvalidTaskKeys(t *testing.T) {
 func assertPlanEntry(t *testing.T, got job.TaskPlanEntry, key, parent, path, uses string, children []string) {
 	t.Helper()
 
-	if got.TaskKey != key || got.Name != key || got.NodeID != key || got.ParentTaskKey != parent || got.NodePath != path || got.Uses != uses {
+	if got.TaskKey != key || got.Name != key || got.NodeID != key || got.ParentTaskKey != parent ||
+		got.NodePath != path ||
+		got.Uses != uses {
 		t.Fatalf("plan entry mismatch: got %+v", got)
 	}
 

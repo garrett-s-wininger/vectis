@@ -45,7 +45,12 @@ func (r *RetryNode) PortSchema() []action.PortSpec {
 	}}
 }
 
-func (r *RetryNode) Execute(ctx context.Context, state *action.ExecutionState, inputs map[string]any, ports action.Ports) action.Result {
+func (r *RetryNode) Execute(
+	ctx context.Context,
+	state *action.ExecutionState,
+	inputs map[string]any,
+	ports action.Ports,
+) action.Result {
 	body := ports.Children(taskgraph.BodyPort)
 	if len(body) == 0 {
 		return action.NewFailureResult(fmt.Errorf("retry action requires at least one body node"))
@@ -64,7 +69,11 @@ func (r *RetryNode) Execute(ctx context.Context, state *action.ExecutionState, i
 		last = executeOrderedChildren(ctx, state, taskgraph.BodyPort, body)
 		if last.Status == action.StatusSuccess {
 			if attempt > 1 {
-				sendLog(state, api.Stream_STREAM_STDOUT, fmt.Sprintf("Retry succeeded on attempt %d/%d", attempt, attempts))
+				sendLog(
+					state,
+					api.Stream_STREAM_STDOUT,
+					fmt.Sprintf("Retry succeeded on attempt %d/%d", attempt, attempts),
+				)
 			}
 
 			return last
@@ -76,7 +85,11 @@ func (r *RetryNode) Execute(ctx context.Context, state *action.ExecutionState, i
 
 		if attempt < attempts {
 			state.Logger.Warn("Retry attempt %d/%d failed: %v", attempt, attempts, last.Error)
-			sendLog(state, api.Stream_STREAM_STDERR, fmt.Sprintf("Retry attempt %d/%d failed: %v", attempt, attempts, last.Error))
+			sendLog(
+				state,
+				api.Stream_STREAM_STDERR,
+				fmt.Sprintf("Retry attempt %d/%d failed: %v", attempt, attempts, last.Error),
+			)
 		}
 	}
 

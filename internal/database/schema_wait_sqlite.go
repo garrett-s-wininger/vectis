@@ -15,7 +15,12 @@ func sqliteWaitIsConnectFailure(err error) (connectFailure bool, matched bool) {
 	}
 
 	switch e.Code {
-	case sqlite3.ErrCantOpen, sqlite3.ErrNotADB, sqlite3.ErrAuth, sqlite3.ErrCorrupt, sqlite3.ErrIoErr, sqlite3.ErrNomem:
+	case sqlite3.ErrCantOpen,
+		sqlite3.ErrNotADB,
+		sqlite3.ErrAuth,
+		sqlite3.ErrCorrupt,
+		sqlite3.ErrIoErr,
+		sqlite3.ErrNomem:
 		return true, true
 	default:
 		return false, true

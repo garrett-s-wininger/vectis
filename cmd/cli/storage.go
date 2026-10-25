@@ -65,7 +65,14 @@ var storageVerifyLogForwarderSpoolCmd = &cobra.Command{
 	Short: "Verify log-forwarder CRC spool files",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		runCLIError(writeStorageVerification(cmd.Context(), os.Stdout, storageverify.SurfaceLogForwarderSpool, storageVerifyDir))
+		runCLIError(
+			writeStorageVerification(
+				cmd.Context(),
+				os.Stdout,
+				storageverify.SurfaceLogForwarderSpool,
+				storageVerifyDir,
+			),
+		)
 	},
 }
 
@@ -74,7 +81,9 @@ var storageVerifyWorkerLogSpoolCmd = &cobra.Command{
 	Short: "Verify worker pending log spool files",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		runCLIError(writeStorageVerification(cmd.Context(), os.Stdout, storageverify.SurfaceWorkerLogSpool, storageVerifyDir))
+		runCLIError(
+			writeStorageVerification(cmd.Context(), os.Stdout, storageverify.SurfaceWorkerLogSpool, storageVerifyDir),
+		)
 	},
 }
 

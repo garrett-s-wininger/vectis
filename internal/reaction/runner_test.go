@@ -266,7 +266,12 @@ func TestRunnerRunOnceFinalizesExpiredMaxAttemptsWithoutExecuting(t *testing.T) 
 		t.Fatalf("create invocation: %v", err)
 	}
 
-	claimed, err := store.MarkInvocationRunning(ctx, invocation.InvocationID, "stale-runner", time.Now().Add(-time.Second).UnixNano())
+	claimed, err := store.MarkInvocationRunning(
+		ctx,
+		invocation.InvocationID,
+		"stale-runner",
+		time.Now().Add(-time.Second).UnixNano(),
+	)
 	if err != nil {
 		t.Fatalf("mark running: %v", err)
 	}

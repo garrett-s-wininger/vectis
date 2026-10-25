@@ -545,7 +545,14 @@ func runWorkerCoreSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, er
 
 	fmt.Fprintln(out, "Verifying worker-core smoke logs")
 	logCtx, logCancel := context.WithTimeout(ctx, opts.Wait)
-	err = waitForSmokeLogMarkers(logCtx, baseURL, opts.APIToken, run.RunID, []string{"kubernetes-worker-core-smoke-ok"}, out)
+	err = waitForSmokeLogMarkers(
+		logCtx,
+		baseURL,
+		opts.APIToken,
+		run.RunID,
+		[]string{"kubernetes-worker-core-smoke-ok"},
+		out,
+	)
 	logCancel()
 	if err != nil {
 		return SmokeResult{}, err
@@ -660,7 +667,13 @@ func runScaleSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) 
 
 	restore := false
 	if originalReplicas != opts.ScaleWorkerReplicas {
-		fmt.Fprintf(out, "Scaling %s from %d to %d replicas\n", smokeWorkerDeploymentName, originalReplicas, opts.ScaleWorkerReplicas)
+		fmt.Fprintf(
+			out,
+			"Scaling %s from %d to %d replicas\n",
+			smokeWorkerDeploymentName,
+			originalReplicas,
+			opts.ScaleWorkerReplicas,
+		)
 		scaleCtx, scaleCancel = context.WithTimeout(ctx, opts.Wait)
 		err = scaleSmokeWorkerDeployment(scaleCtx, opts, opts.ScaleWorkerReplicas)
 		scaleCancel()
@@ -698,7 +711,16 @@ func runScaleSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error) 
 	fmt.Fprintln(out, "Waiting for distributed scale branches to be owned by multiple workers")
 	scaleTaskKeys := []string{"scale-branch-a", "scale-branch-b", "scale-branch-c"}
 	ownerCtx, ownerCancel := context.WithTimeout(ctx, opts.Wait)
-	owners, err := waitForSmokeTaskLeaseOwners(ownerCtx, client, baseURL, opts.APIToken, run.RunID, scaleTaskKeys, opts.ScaleMinWorkers, out)
+	owners, err := waitForSmokeTaskLeaseOwners(
+		ownerCtx,
+		client,
+		baseURL,
+		opts.APIToken,
+		run.RunID,
+		scaleTaskKeys,
+		opts.ScaleMinWorkers,
+		out,
+	)
 	ownerCancel()
 	if err != nil {
 		return SmokeResult{}, err
@@ -771,7 +793,13 @@ func runOrphanSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 		DeletedPod:   orphan.DeletedPod,
 	}
 
-	fmt.Fprintf(opts.Stdout, "Kubernetes orphan smoke succeeded: run_id=%s deleted_pod=%s owner=%s\n", orphan.Run.RunID, orphan.DeletedPod, orphan.Owner)
+	fmt.Fprintf(
+		opts.Stdout,
+		"Kubernetes orphan smoke succeeded: run_id=%s deleted_pod=%s owner=%s\n",
+		orphan.Run.RunID,
+		orphan.DeletedPod,
+		orphan.Owner,
+	)
 	return result, nil
 }
 
@@ -847,19 +875,41 @@ func runRepairSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 	}
 
 	runCtx, runCancel := context.WithTimeout(ctx, opts.Wait)
-	requeuedDetail, err := waitForSmokeRunStatus(runCtx, client, baseURL, opts.APIToken, requeueOrphan.Run.RunID, out, "succeeded")
+	requeuedDetail, err := waitForSmokeRunStatus(
+		runCtx,
+		client,
+		baseURL,
+		opts.APIToken,
+		requeueOrphan.Run.RunID,
+		out,
+		"succeeded",
+	)
 	runCancel()
 	if err != nil {
 		return SmokeResult{}, err
 	}
 
-	if err := assertSmokeRunTaskAttemptCount(client, baseURL, opts.APIToken, requeueOrphan.Run.RunID, "root", 2); err != nil {
+	if err := assertSmokeRunTaskAttemptCount(
+		client,
+		baseURL,
+		opts.APIToken,
+		requeueOrphan.Run.RunID,
+		"root",
+		2,
+	); err != nil {
 		return SmokeResult{}, err
 	}
 
 	fmt.Fprintln(out, "Verifying force-requeue retry logs")
 	logCtx, logCancel := context.WithTimeout(ctx, opts.Wait)
-	err = waitForSmokeLogMarkers(logCtx, baseURL, opts.APIToken, requeueOrphan.Run.RunID, []string{"repair-task-requeued"}, out)
+	err = waitForSmokeLogMarkers(
+		logCtx,
+		baseURL,
+		opts.APIToken,
+		requeueOrphan.Run.RunID,
+		[]string{"repair-task-requeued"},
+		out,
+	)
 	logCancel()
 	if err != nil {
 		return SmokeResult{}, err
@@ -896,18 +946,40 @@ func runRepairSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 
 	markBaseURL := fmt.Sprintf("http://127.0.0.1:%d", opts.APILocalPort)
 	fmt.Fprintf(out, "Repair-marking orphaned run_id=%s abandoned\n", markOrphan.Run.RunID)
-	if err := repairMarkSmokeRun(client, markBaseURL, opts.APIToken, markOrphan.Run.RunID, "abandoned", "kubernetes repair smoke mark-abandoned"); err != nil {
+	if err := repairMarkSmokeRun(
+		client,
+		markBaseURL,
+		opts.APIToken,
+		markOrphan.Run.RunID,
+		"abandoned",
+		"kubernetes repair smoke mark-abandoned",
+	); err != nil {
 		return SmokeResult{}, err
 	}
 
 	markCtx, markCancel := context.WithTimeout(ctx, opts.Wait)
-	markedDetail, err := waitForSmokeRunStatus(markCtx, client, markBaseURL, opts.APIToken, markOrphan.Run.RunID, out, "abandoned")
+	markedDetail, err := waitForSmokeRunStatus(
+		markCtx,
+		client,
+		markBaseURL,
+		opts.APIToken,
+		markOrphan.Run.RunID,
+		out,
+		"abandoned",
+	)
 	markCancel()
 	if err != nil {
 		return SmokeResult{}, err
 	}
 
-	if err := assertSmokeRunTaskAttemptCount(client, markBaseURL, opts.APIToken, markOrphan.Run.RunID, "root", 1); err != nil {
+	if err := assertSmokeRunTaskAttemptCount(
+		client,
+		markBaseURL,
+		opts.APIToken,
+		markOrphan.Run.RunID,
+		"root",
+		1,
+	); err != nil {
 		return SmokeResult{}, err
 	}
 
@@ -932,11 +1004,20 @@ func runRepairSmoke(ctx context.Context, opts SmokeOptions) (SmokeResult, error)
 		RepairChecks: checks,
 	}
 
-	fmt.Fprintf(out, "Kubernetes repair smoke succeeded: force_requeue_run_id=%s mark_abandoned_run_id=%s\n", requeueOrphan.Run.RunID, markOrphan.Run.RunID)
+	fmt.Fprintf(
+		out,
+		"Kubernetes repair smoke succeeded: force_requeue_run_id=%s mark_abandoned_run_id=%s\n",
+		requeueOrphan.Run.RunID,
+		markOrphan.Run.RunID,
+	)
 	return result, nil
 }
 
-func runPodLossOrphanScenario(ctx context.Context, opts SmokeOptions, scenario smokePodLossScenario) (smokePodLossResult, error) {
+func runPodLossOrphanScenario(
+	ctx context.Context,
+	opts SmokeOptions,
+	scenario smokePodLossScenario,
+) (smokePodLossResult, error) {
 	name := strings.TrimSpace(scenario.Name)
 	if name == "" {
 		name = "pod-loss smoke"
@@ -986,10 +1067,20 @@ func runPodLossOrphanScenario(ctx context.Context, opts SmokeOptions, scenario s
 		defer restoreSmokeWorkerDeployment(opts, originalReplicas)
 	}
 
-	originalLeaseTTL, hadLeaseTTL := smokeDeploymentContainerEnv(deployment, smokeWorkerContainerName, smokeWorkerLeaseTTLEnv)
+	originalLeaseTTL, hadLeaseTTL := smokeDeploymentContainerEnv(
+		deployment,
+		smokeWorkerContainerName,
+		smokeWorkerLeaseTTLEnv,
+	)
 	desiredLeaseTTL := scenario.LeaseTTL.String()
 	if originalLeaseTTL != desiredLeaseTTL {
-		fmt.Fprintf(out, "Temporarily setting %s=%s on %s\n", smokeWorkerLeaseTTLEnv, desiredLeaseTTL, smokeWorkerDeploymentName)
+		fmt.Fprintf(
+			out,
+			"Temporarily setting %s=%s on %s\n",
+			smokeWorkerLeaseTTLEnv,
+			desiredLeaseTTL,
+			smokeWorkerDeploymentName,
+		)
 		envCtx, envCancel := context.WithTimeout(ctx, opts.Wait)
 		err = setSmokeWorkerEnv(envCtx, opts, smokeWorkerLeaseTTLEnv, desiredLeaseTTL)
 		envCancel()
@@ -1458,7 +1549,16 @@ func seedSmokeSecret(ctx context.Context, opts SmokeOptions) error {
 	defer cleanupSmokeSeedResources(opts, name)
 
 	waitTimeout := opts.Wait.String()
-	stdout, stderr, err = runSmokeKubectl(ctx, opts, nil, "wait", "--for=condition=complete", "job/"+name, "--timeout", waitTimeout)
+	stdout, stderr, err = runSmokeKubectl(
+		ctx,
+		opts,
+		nil,
+		"wait",
+		"--for=condition=complete",
+		"job/"+name,
+		"--timeout",
+		waitTimeout,
+	)
 	if err != nil {
 		logs, logErr := smokeSeedJobLogs(ctx, opts, name)
 		if logErr != nil {
@@ -1616,7 +1716,12 @@ func smokeDeploymentContainerEnv(deployment smokeDeployment, containerName, envN
 	return "", false
 }
 
-func waitForSmokeWorkerCoreTaskJob(ctx context.Context, opts SmokeOptions, runID string, out io.Writer) (string, error) {
+func waitForSmokeWorkerCoreTaskJob(
+	ctx context.Context,
+	opts SmokeOptions,
+	runID string,
+	out io.Writer,
+) (string, error) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -1647,8 +1752,22 @@ func waitForSmokeWorkerCoreTaskJob(ctx context.Context, opts SmokeOptions, runID
 	}
 }
 
-func fetchSmokeWorkerCoreTaskJob(ctx context.Context, opts SmokeOptions, runID string) (smokeKubernetesJob, bool, error) {
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "get", "jobs", "-l", smokeWorkerCoreTaskJobSelector, "-o", "json")
+func fetchSmokeWorkerCoreTaskJob(
+	ctx context.Context,
+	opts SmokeOptions,
+	runID string,
+) (smokeKubernetesJob, bool, error) {
+	stdout, stderr, err := runSmokeKubectl(
+		ctx,
+		opts,
+		nil,
+		"get",
+		"jobs",
+		"-l",
+		smokeWorkerCoreTaskJobSelector,
+		"-o",
+		"json",
+	)
 	if err != nil {
 		return smokeKubernetesJob{}, false, fmt.Errorf("list worker-core task Jobs: %w: %s%s", err, stdout, stderr)
 	}
@@ -1700,7 +1819,15 @@ func cleanupSmokeWorkerCoreTaskJob(opts SmokeOptions, name string) {
 }
 
 func scaleSmokeWorkerDeployment(ctx context.Context, opts SmokeOptions, replicas int) error {
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "scale", smokeWorkerDeploymentName, "--replicas", strconv.Itoa(replicas))
+	stdout, stderr, err := runSmokeKubectl(
+		ctx,
+		opts,
+		nil,
+		"scale",
+		smokeWorkerDeploymentName,
+		"--replicas",
+		strconv.Itoa(replicas),
+	)
 	if err != nil {
 		return fmt.Errorf("scale %s to %d: %w: %s%s", smokeWorkerDeploymentName, replicas, err, stdout, stderr)
 	}
@@ -1754,7 +1881,16 @@ func unsetSmokeWorkerEnv(ctx context.Context, opts SmokeOptions, name string) er
 
 func waitForSmokeWorkerDeployment(ctx context.Context, opts SmokeOptions) error {
 	timeout := opts.Wait.String()
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "rollout", "status", smokeWorkerDeploymentName, "--timeout", timeout)
+	stdout, stderr, err := runSmokeKubectl(
+		ctx,
+		opts,
+		nil,
+		"rollout",
+		"status",
+		smokeWorkerDeploymentName,
+		"--timeout",
+		timeout,
+	)
 	if err != nil {
 		return fmt.Errorf("rollout status: %w: %s%s", err, stdout, stderr)
 	}
@@ -1768,7 +1904,14 @@ func waitForSmokeWorkerDeployment(ctx context.Context, opts SmokeOptions) error 
 
 func applySmokeWorkerCoreRBAC(ctx context.Context, opts SmokeOptions) error {
 	fmt.Fprintf(opts.Stdout, "Applying temporary Kubernetes worker-core RBAC\n")
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, strings.NewReader(smokeWorkerCoreRBACManifest()), "apply", "-f", "-")
+	stdout, stderr, err := runSmokeKubectl(
+		ctx,
+		opts,
+		strings.NewReader(smokeWorkerCoreRBACManifest()),
+		"apply",
+		"-f",
+		"-",
+	)
 	if err != nil {
 		return fmt.Errorf("apply worker-core smoke RBAC: %w: %s%s", err, stdout, stderr)
 	}
@@ -1845,9 +1988,24 @@ func patchSmokeWorkerForKubernetesCore(ctx context.Context, opts SmokeOptions) e
 	}
 
 	fmt.Fprintf(opts.Stdout, "Patching %s to use %s\n", smokeWorkerDeploymentName, opts.WorkerCoreImage)
-	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "patch", smokeWorkerDeploymentName, "--type=strategic", "--patch", patch)
+	stdout, stderr, err := runSmokeKubectl(
+		ctx,
+		opts,
+		nil,
+		"patch",
+		smokeWorkerDeploymentName,
+		"--type=strategic",
+		"--patch",
+		patch,
+	)
 	if err != nil {
-		return fmt.Errorf("patch %s for Kubernetes worker core: %w: %s%s", smokeWorkerDeploymentName, err, stdout, stderr)
+		return fmt.Errorf(
+			"patch %s for Kubernetes worker core: %w: %s%s",
+			smokeWorkerDeploymentName,
+			err,
+			stdout,
+			stderr,
+		)
 	}
 
 	if text := strings.TrimSpace(stdout + stderr); text != "" {
@@ -1899,7 +2057,14 @@ func restoreSmokeWorkerAfterKubernetesCore(opts SmokeOptions) {
 	fmt.Fprintf(opts.Stdout, "Restoring %s after Kubernetes worker-core smoke\n", smokeWorkerDeploymentName)
 	stdout, stderr, err := runSmokeKubectl(ctx, opts, nil, "rollout", "undo", smokeWorkerDeploymentName)
 	if err != nil {
-		fmt.Fprintf(opts.Stdout, "Warning: restore %s failed: %v: %s%s\n", smokeWorkerDeploymentName, err, stdout, stderr)
+		fmt.Fprintf(
+			opts.Stdout,
+			"Warning: restore %s failed: %v: %s%s\n",
+			smokeWorkerDeploymentName,
+			err,
+			stdout,
+			stderr,
+		)
 		return
 	}
 
@@ -2034,7 +2199,10 @@ func runSmokeKubectl(ctx context.Context, opts SmokeOptions, stdin io.Reader, ar
 	kubectlArgs = append(kubectlArgs, "-n", opts.Namespace)
 	kubectlArgs = append(kubectlArgs, args...)
 
-	cmd := exec.CommandContext(ctx, opts.Kubectl, kubectlArgs...) // #nosec G204 -- kubectl path and args are smoke-harness controlled.
+	cmd := exec.CommandContext(
+		ctx,
+		opts.Kubectl,
+		kubectlArgs...) // #nosec G204 -- kubectl path and args are smoke-harness controlled.
 	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -2100,7 +2268,13 @@ type smokePortMapping struct {
 	RemotePort int
 }
 
-func startSmokePortForward(ctx context.Context, opts SmokeOptions, target string, mappings []smokePortMapping, label string) (*smokePortForward, error) {
+func startSmokePortForward(
+	ctx context.Context,
+	opts SmokeOptions,
+	target string,
+	mappings []smokePortMapping,
+	label string,
+) (*smokePortForward, error) {
 	pfCtx, cancel := context.WithCancel(ctx)
 	args := []string{}
 	if opts.Context != "" {
@@ -2116,7 +2290,10 @@ func startSmokePortForward(ctx context.Context, opts SmokeOptions, target string
 		label = target
 	}
 
-	cmd := exec.CommandContext(pfCtx, opts.Kubectl, args...) // #nosec G204 -- kubectl path and args are smoke-harness controlled.
+	cmd := exec.CommandContext(
+		pfCtx,
+		opts.Kubectl,
+		args...) // #nosec G204 -- kubectl path and args are smoke-harness controlled.
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
@@ -2183,7 +2360,11 @@ func startSmokePortForward(ctx context.Context, opts SmokeOptions, target string
 			return nil, pf.exitError(label)
 		case <-readyCtx.Done():
 			cancel()
-			return nil, fmt.Errorf("timed out waiting for %s port-forward: %s", label, strings.TrimSpace(output.String()))
+			return nil, fmt.Errorf(
+				"timed out waiting for %s port-forward: %s",
+				label,
+				strings.TrimSpace(output.String()),
+			)
 		}
 	}
 }
@@ -2276,7 +2457,12 @@ func submitSmokeJob(client *http.Client, baseURL string, opts SmokeOptions) (smo
 	return submitSmokeJobWithReplacements(client, baseURL, opts, nil)
 }
 
-func submitSmokeJobWithReplacements(client *http.Client, baseURL string, opts SmokeOptions, replacements map[string]string) (smokeJobRunResult, error) {
+func submitSmokeJobWithReplacements(
+	client *http.Client,
+	baseURL string,
+	opts SmokeOptions,
+	replacements map[string]string,
+) (smokeJobRunResult, error) {
 	body, err := os.ReadFile(opts.JobPath)
 	if err != nil {
 		return smokeJobRunResult{}, fmt.Errorf("read smoke job %s: %w", opts.JobPath, err)
@@ -2294,7 +2480,12 @@ func submitSmokeJobWithReplacements(client *http.Client, baseURL string, opts Sm
 	return submitSmokeJobBody(client, baseURL, opts, body)
 }
 
-func submitSmokeJobBody(client *http.Client, baseURL string, opts SmokeOptions, body []byte) (smokeJobRunResult, error) {
+func submitSmokeJobBody(
+	client *http.Client,
+	baseURL string,
+	opts SmokeOptions,
+	body []byte,
+) (smokeJobRunResult, error) {
 	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, "/api/v1/jobs/run", opts.APIToken, bytes.NewReader(body))
 	if err != nil {
 		return smokeJobRunResult{}, err
@@ -2341,7 +2532,13 @@ func waitUntilSmokeTime(ctx context.Context, target time.Time, out io.Writer, re
 	}
 }
 
-func waitForSmokeRunStatus(ctx context.Context, client *http.Client, baseURL, token, runID string, out io.Writer, expectedStatuses ...string) (smokeRunDetail, error) {
+func waitForSmokeRunStatus(
+	ctx context.Context,
+	client *http.Client,
+	baseURL, token, runID string,
+	out io.Writer,
+	expectedStatuses ...string,
+) (smokeRunDetail, error) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -2374,13 +2571,23 @@ func waitForSmokeRunStatus(ctx context.Context, client *http.Client, baseURL, to
 
 		switch status {
 		case "succeeded", "failed", "orphaned", "cancelled", "abandoned", "aborted":
-			return detail, fmt.Errorf("run %s reached terminal status %s%s", runID, detail.Status, smokeRunWaitSuffix(detail))
+			return detail, fmt.Errorf(
+				"run %s reached terminal status %s%s",
+				runID,
+				detail.Status,
+				smokeRunWaitSuffix(detail),
+			)
 		}
 
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			return smokeRunDetail{}, fmt.Errorf("timed out waiting for run %s%s: %w", runID, smokeRunWaitSuffix(detail), ctx.Err())
+			return smokeRunDetail{}, fmt.Errorf(
+				"timed out waiting for run %s%s: %w",
+				runID,
+				smokeRunWaitSuffix(detail),
+				ctx.Err(),
+			)
 		}
 	}
 }
@@ -2454,7 +2661,14 @@ func smokeRunDispatchDiagnostics(detail smokeRunDetail) string {
 	return strings.Join(failures, "; ")
 }
 
-func waitForSmokeTaskLeaseOwners(ctx context.Context, client *http.Client, baseURL, token, runID string, taskKeys []string, minOwners int, out io.Writer) ([]string, error) {
+func waitForSmokeTaskLeaseOwners(
+	ctx context.Context,
+	client *http.Client,
+	baseURL, token, runID string,
+	taskKeys []string,
+	minOwners int,
+	out io.Writer,
+) ([]string, error) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -2506,18 +2720,35 @@ func waitForSmokeTaskLeaseOwners(ctx context.Context, client *http.Client, baseU
 
 		switch strings.ToLower(strings.TrimSpace(detail.Status)) {
 		case "succeeded", "failed", "orphaned", "cancelled", "abandoned", "aborted":
-			return nil, fmt.Errorf("run %s reached terminal status %s before %d distinct worker owners were observed; saw %d: %s", runID, detail.Status, minOwners, len(owners), strings.Join(owners, ","))
+			return nil, fmt.Errorf(
+				"run %s reached terminal status %s before %d distinct worker owners were observed; saw %d: %s",
+				runID,
+				detail.Status,
+				minOwners,
+				len(owners),
+				strings.Join(owners, ","),
+			)
 		}
 
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			return nil, fmt.Errorf("timed out waiting for %d distinct worker owners on run %s: %w", minOwners, runID, ctx.Err())
+			return nil, fmt.Errorf(
+				"timed out waiting for %d distinct worker owners on run %s: %w",
+				minOwners,
+				runID,
+				ctx.Err(),
+			)
 		}
 	}
 }
 
-func waitForSmokeTaskLeaseOwner(ctx context.Context, client *http.Client, baseURL, token, runID, taskKey string, out io.Writer) (string, error) {
+func waitForSmokeTaskLeaseOwner(
+	ctx context.Context,
+	client *http.Client,
+	baseURL, token, runID, taskKey string,
+	out io.Writer,
+) (string, error) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -2546,13 +2777,23 @@ func waitForSmokeTaskLeaseOwner(ctx context.Context, client *http.Client, baseUR
 
 		switch strings.ToLower(strings.TrimSpace(detail.Status)) {
 		case "succeeded", "failed", "orphaned", "cancelled", "abandoned", "aborted":
-			return "", fmt.Errorf("run %s reached terminal status %s before task %s had an active owner", runID, detail.Status, taskKey)
+			return "", fmt.Errorf(
+				"run %s reached terminal status %s before task %s had an active owner",
+				runID,
+				detail.Status,
+				taskKey,
+			)
 		}
 
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			return "", fmt.Errorf("timed out waiting for active owner on task %s for run %s: %w", taskKey, runID, ctx.Err())
+			return "", fmt.Errorf(
+				"timed out waiting for active owner on task %s for run %s: %w",
+				taskKey,
+				runID,
+				ctx.Err(),
+			)
 		}
 	}
 }
@@ -2604,7 +2845,13 @@ func assertSmokeRunTaskAttemptCount(client *http.Client, baseURL, token, runID, 
 	return nil
 }
 
-func assertSmokeRunRemainsOrphaned(ctx context.Context, client *http.Client, baseURL, token, runID, taskKey string, wantAttempts int, out io.Writer) error {
+func assertSmokeRunRemainsOrphaned(
+	ctx context.Context,
+	client *http.Client,
+	baseURL, token, runID, taskKey string,
+	wantAttempts int,
+	out io.Writer,
+) error {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -2646,7 +2893,13 @@ func smokeTaskAttemptCount(tasks smokeRunTasksResponse, taskKey string) (int, bo
 }
 
 func fetchSmokeRunTasks(client *http.Client, baseURL, token, runID string) (smokeRunTasksResponse, error) {
-	req, err := newSmokeAPIRequest(http.MethodGet, baseURL, fmt.Sprintf("/api/v1/runs/%s/tasks?limit=200", url.PathEscape(runID)), token, nil)
+	req, err := newSmokeAPIRequest(
+		http.MethodGet,
+		baseURL,
+		fmt.Sprintf("/api/v1/runs/%s/tasks?limit=200", url.PathEscape(runID)),
+		token,
+		nil,
+	)
 	if err != nil {
 		return smokeRunTasksResponse{}, err
 	}
@@ -2699,7 +2952,13 @@ func formatSmokeOwnersByTask(ownersByTask map[string]string) string {
 }
 
 func cancelSmokeRun(client *http.Client, baseURL, token, runID string) error {
-	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, fmt.Sprintf("/api/v1/runs/%s/cancel", url.PathEscape(runID)), token, nil)
+	req, err := newSmokeAPIRequest(
+		http.MethodPost,
+		baseURL,
+		fmt.Sprintf("/api/v1/runs/%s/cancel", url.PathEscape(runID)),
+		token,
+		nil,
+	)
 	if err != nil {
 		return err
 	}
@@ -2715,14 +2974,23 @@ func cancelSmokeRun(client *http.Client, baseURL, token, runID string) error {
 		return nil
 	case http.StatusAccepted:
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("cancel smoke run used durable pending path instead of worker-control fast path: %s", strings.TrimSpace(string(body)))
+		return fmt.Errorf(
+			"cancel smoke run used durable pending path instead of worker-control fast path: %s",
+			strings.TrimSpace(string(body)),
+		)
 	default:
 		return smokeUnexpectedStatus("cancel smoke run", resp)
 	}
 }
 
 func forceRequeueSmokeRun(client *http.Client, baseURL, token, runID string) error {
-	req, err := newSmokeAPIRequest(http.MethodPost, baseURL, fmt.Sprintf("/api/v1/runs/%s/force-requeue", url.PathEscape(runID)), token, nil)
+	req, err := newSmokeAPIRequest(
+		http.MethodPost,
+		baseURL,
+		fmt.Sprintf("/api/v1/runs/%s/force-requeue", url.PathEscape(runID)),
+		token,
+		nil,
+	)
 	if err != nil {
 		return err
 	}
@@ -2772,7 +3040,13 @@ func repairMarkSmokeRun(client *http.Client, baseURL, token, runID, status, reas
 }
 
 func fetchSmokeRunDetail(client *http.Client, baseURL, token, runID string) (smokeRunDetail, error) {
-	req, err := newSmokeAPIRequest(http.MethodGet, baseURL, fmt.Sprintf("/api/v1/runs/%s", url.PathEscape(runID)), token, nil)
+	req, err := newSmokeAPIRequest(
+		http.MethodGet,
+		baseURL,
+		fmt.Sprintf("/api/v1/runs/%s", url.PathEscape(runID)),
+		token,
+		nil,
+	)
 	if err != nil {
 		return smokeRunDetail{}, err
 	}
@@ -2827,7 +3101,13 @@ type smokeLogMarkerState struct {
 	maxSequence int64
 }
 
-func readSmokeLogMarkerStream(ctx context.Context, baseURL, token, runID string, markers []string, out io.Writer, state *smokeLogMarkerState) error {
+func readSmokeLogMarkerStream(
+	ctx context.Context,
+	baseURL, token, runID string,
+	markers []string,
+	out io.Writer,
+	state *smokeLogMarkerState,
+) error {
 	path := fmt.Sprintf("/api/v1/runs/%s/logs", url.PathEscape(runID))
 	if state.maxSequence > 0 {
 		path += "?since_sequence=" + strconv.FormatInt(state.maxSequence, 10)
@@ -2994,7 +3274,10 @@ func verifySmokeArtifacts(client *http.Client, baseURL, token, runID string) ([]
 		exact    string
 	}{
 		{name: "e2e-smoke-report", exact: "canonical-artifact-ok\n"},
-		{name: "e2e-registry-retry", contains: []string{"canonical-registry-retry-attempt=2", "canonical-registry-retry-succeeded"}},
+		{
+			name:     "e2e-registry-retry",
+			contains: []string{"canonical-registry-retry-attempt=2", "canonical-registry-retry-succeeded"},
+		},
 	}
 
 	out := make([]SmokeArtifactCheck, 0, len(checks))

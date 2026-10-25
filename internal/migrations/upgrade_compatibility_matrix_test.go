@@ -9,7 +9,9 @@ import (
 )
 
 func TestUpgradeCompatibilityMatrixMentionsOperatorContract(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "website", "docs", "operating", "reference", "upgrade-compatibility-matrix.md"))
+	raw, err := os.ReadFile(
+		filepath.Join("..", "..", "website", "docs", "operating", "reference", "upgrade-compatibility-matrix.md"),
+	)
 	if err != nil {
 		t.Fatalf("read upgrade compatibility matrix: %v", err)
 	}

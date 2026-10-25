@@ -194,7 +194,18 @@ func TestFault() error {
 
 // TestLima runs the Lima virtual machine integration tests.
 func TestLima() error {
-	return run("", nil, goCommand(), "test", "./internal/platform", "./internal/job", "-run", "TestVirtualMachineIntegration", "-count=1", "-v")
+	return run(
+		"",
+		nil,
+		goCommand(),
+		"test",
+		"./internal/platform",
+		"./internal/job",
+		"-run",
+		"TestVirtualMachineIntegration",
+		"-count=1",
+		"-v",
+	)
 }
 
 // TestPostgresIntegration runs the Postgres integration tests.
@@ -282,7 +293,8 @@ func goTestEnv() (map[string]string, error) {
 
 func goTestTempDir() (string, error) {
 	value := strings.TrimSpace(os.Getenv("VECTIS_TEST_TEMPDIR"))
-	if value == "" || strings.EqualFold(value, "0") || strings.EqualFold(value, "off") || strings.EqualFold(value, "false") {
+	if value == "" || strings.EqualFold(value, "0") || strings.EqualFold(value, "off") ||
+		strings.EqualFold(value, "false") {
 		return "", nil
 	}
 

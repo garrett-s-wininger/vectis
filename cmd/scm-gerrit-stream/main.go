@@ -121,7 +121,14 @@ func runSCMGerritStream(cmd *cobra.Command, args []string) {
 		}
 
 		if result.Handled > 0 {
-			logger.Info("Gerrit stream event %s routed to %d trigger(s), dispatched=%d new_runs=%d already_dispatched=%d", event.Key, result.Handled, result.Dispatched, result.RunsCreated, result.AlreadyDispatched)
+			logger.Info(
+				"Gerrit stream event %s routed to %d trigger(s), dispatched=%d new_runs=%d already_dispatched=%d",
+				event.Key,
+				result.Handled,
+				result.Dispatched,
+				result.RunsCreated,
+				result.AlreadyDispatched,
+			)
 		}
 
 		return nil
@@ -132,7 +139,12 @@ func runSCMGerritStream(cmd *cobra.Command, args []string) {
 	}
 }
 
-func routeGerritStreamEvent(ctx context.Context, baseURL string, router gerritStreamRouter, event scm.Event) (scmstream.RouteResult, error) {
+func routeGerritStreamEvent(
+	ctx context.Context,
+	baseURL string,
+	router gerritStreamRouter,
+	event scm.Event,
+) (scmstream.RouteResult, error) {
 	if router == nil {
 		return scmstream.RouteResult{}, fmt.Errorf("gerrit stream router is required")
 	}
@@ -168,10 +180,15 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cli.ConfigureVersion(rootCmd)
-	_ = viper.BindEnv("cell_ingress_endpoints", "VECTIS_SCM_GERRIT_STREAM_CELL_INGRESS_ENDPOINTS", "VECTIS_CELL_INGRESS_ENDPOINTS")
+	_ = viper.BindEnv(
+		"cell_ingress_endpoints",
+		"VECTIS_SCM_GERRIT_STREAM_CELL_INGRESS_ENDPOINTS",
+		"VECTIS_CELL_INGRESS_ENDPOINTS",
+	)
 	_ = viper.BindEnv("scm_gerrit_stream.queue.address", "VECTIS_SCM_GERRIT_STREAM_QUEUE_ADDRESS")
 	_ = viper.BindEnv("scm_gerrit_stream.registry.address", "VECTIS_SCM_GERRIT_STREAM_REGISTRY_ADDRESS")
-	rootCmd.PersistentFlags().String("url", "", "Gerrit base URL used to normalize stream events and match trigger specs")
+	rootCmd.PersistentFlags().
+		String("url", "", "Gerrit base URL used to normalize stream events and match trigger specs")
 	rootCmd.PersistentFlags().String("transport", "auto", "Stream transport: auto, input, or ssh")
 	rootCmd.PersistentFlags().String("input", "-", "Path to newline-delimited Gerrit stream JSON, or '-' for stdin")
 	rootCmd.PersistentFlags().String("ssh-host", "", "Gerrit SSH host for managed stream mode")
@@ -179,17 +196,26 @@ func init() {
 	rootCmd.PersistentFlags().String("ssh-user", "", "Gerrit SSH username; defaults to the current user when omitted")
 	rootCmd.PersistentFlags().String("ssh-key-file", "", "SSH private key file for managed stream mode")
 	rootCmd.PersistentFlags().Bool("ssh-use-agent", true, "Use SSH_AUTH_SOCK agent identities for managed stream mode")
-	rootCmd.PersistentFlags().String("ssh-known-hosts-file", "", "Known hosts file for Gerrit SSH host-key verification; defaults to ~/.ssh/known_hosts")
-	rootCmd.PersistentFlags().Bool("ssh-insecure-ignore-host-key", false, "Disable SSH host-key verification; intended only for local development")
+	rootCmd.PersistentFlags().
+		String("ssh-known-hosts-file", "", "Known hosts file for Gerrit SSH host-key verification; defaults to ~/.ssh/known_hosts")
+	rootCmd.PersistentFlags().
+		Bool("ssh-insecure-ignore-host-key", false, "Disable SSH host-key verification; intended only for local development")
 	rootCmd.PersistentFlags().String("ssh-command", defaultGerritSSHCommand, "Remote Gerrit SSH stream command")
-	rootCmd.PersistentFlags().Duration("ssh-connect-timeout", 10*time.Second, "Timeout for establishing the Gerrit SSH connection")
-	rootCmd.PersistentFlags().Duration("ssh-reconnect-base-delay", time.Second, "Initial delay before reconnecting a dropped Gerrit SSH stream")
-	rootCmd.PersistentFlags().Duration("ssh-reconnect-max-delay", 30*time.Second, "Maximum delay before reconnecting a dropped Gerrit SSH stream")
-	rootCmd.PersistentFlags().Int("ssh-reconnect-max-attempts", 0, "Maximum managed SSH reconnect attempts; 0 retries forever until shutdown")
-	rootCmd.PersistentFlags().String("instance-id", "", "Stable Gerrit stream bridge instance identifier recorded on trigger invocations and dispatch events")
-	rootCmd.PersistentFlags().Int("spec-limit", scmstream.DefaultSpecLimit, "Maximum enabled Gerrit trigger specs to evaluate per stream event")
+	rootCmd.PersistentFlags().
+		Duration("ssh-connect-timeout", 10*time.Second, "Timeout for establishing the Gerrit SSH connection")
+	rootCmd.PersistentFlags().
+		Duration("ssh-reconnect-base-delay", time.Second, "Initial delay before reconnecting a dropped Gerrit SSH stream")
+	rootCmd.PersistentFlags().
+		Duration("ssh-reconnect-max-delay", 30*time.Second, "Maximum delay before reconnecting a dropped Gerrit SSH stream")
+	rootCmd.PersistentFlags().
+		Int("ssh-reconnect-max-attempts", 0, "Maximum managed SSH reconnect attempts; 0 retries forever until shutdown")
+	rootCmd.PersistentFlags().
+		String("instance-id", "", "Stable Gerrit stream bridge instance identifier recorded on trigger invocations and dispatch events")
+	rootCmd.PersistentFlags().
+		Int("spec-limit", scmstream.DefaultSpecLimit, "Maximum enabled Gerrit trigger specs to evaluate per stream event")
 	rootCmd.PersistentFlags().String("queue-address", config.SCMGerritStreamQueueAddress(), "Pinned queue gRPC address")
-	rootCmd.PersistentFlags().String("registry-address", config.SCMGerritStreamRegistryAddress(), "Registry gRPC address for queue discovery")
+	rootCmd.PersistentFlags().
+		String("registry-address", config.SCMGerritStreamRegistryAddress(), "Registry gRPC address for queue discovery")
 	_ = viper.BindPFlag("url", rootCmd.PersistentFlags().Lookup("url"))
 	_ = viper.BindPFlag("transport", rootCmd.PersistentFlags().Lookup("transport"))
 	_ = viper.BindPFlag("input", rootCmd.PersistentFlags().Lookup("input"))
@@ -199,7 +225,10 @@ func init() {
 	_ = viper.BindPFlag("ssh_key_file", rootCmd.PersistentFlags().Lookup("ssh-key-file"))
 	_ = viper.BindPFlag("ssh_use_agent", rootCmd.PersistentFlags().Lookup("ssh-use-agent"))
 	_ = viper.BindPFlag("ssh_known_hosts_file", rootCmd.PersistentFlags().Lookup("ssh-known-hosts-file"))
-	_ = viper.BindPFlag("ssh_insecure_ignore_host_key", rootCmd.PersistentFlags().Lookup("ssh-insecure-ignore-host-key"))
+	_ = viper.BindPFlag(
+		"ssh_insecure_ignore_host_key",
+		rootCmd.PersistentFlags().Lookup("ssh-insecure-ignore-host-key"),
+	)
 	_ = viper.BindPFlag("ssh_command", rootCmd.PersistentFlags().Lookup("ssh-command"))
 	_ = viper.BindPFlag("ssh_connect_timeout", rootCmd.PersistentFlags().Lookup("ssh-connect-timeout"))
 	_ = viper.BindPFlag("ssh_reconnect_base_delay", rootCmd.PersistentFlags().Lookup("ssh-reconnect-base-delay"))

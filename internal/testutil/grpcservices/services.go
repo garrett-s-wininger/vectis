@@ -13,7 +13,10 @@ import (
 	"google.golang.org/grpc"
 )
 
-func StartQueueServer(t *testing.T, logger interfaces.Logger) (*grpctest.Server, interfaces.QueueClient, interfaces.QueueService) {
+func StartQueueServer(
+	t *testing.T,
+	logger interfaces.Logger,
+) (*grpctest.Server, interfaces.QueueClient, interfaces.QueueService) {
 	t.Helper()
 
 	server := grpctest.StartServer(t, func(srv *grpc.Server) {
@@ -25,7 +28,11 @@ func StartQueueServer(t *testing.T, logger interfaces.Logger) (*grpctest.Server,
 	return server, client, service
 }
 
-func StartLogServer(t *testing.T, logger interfaces.Logger, store logserver.RunLogStore) (*grpctest.Server, interfaces.LogClient) {
+func StartLogServer(
+	t *testing.T,
+	logger interfaces.Logger,
+	store logserver.RunLogStore,
+) (*grpctest.Server, interfaces.LogClient) {
 	t.Helper()
 
 	server := grpctest.StartServer(t, func(srv *grpc.Server) {

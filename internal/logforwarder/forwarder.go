@@ -352,7 +352,11 @@ func closeLogStream(stream interfaces.LogStream) error {
 	return stream.CloseSend()
 }
 
-func (f *Forwarder) sendChunkBatch(ctx context.Context, runID, logShardID string, chunks []*api.LogChunk) (bool, error) {
+func (f *Forwarder) sendChunkBatch(
+	ctx context.Context,
+	runID, logShardID string,
+	chunks []*api.LogChunk,
+) (bool, error) {
 	if assigned, ok := f.logClient.(interfaces.AssignedRunLogBatchClient); ok && runID != "" && logShardID != "" {
 		return true, assigned.SendLogBatchForAssignedRun(ctx, runID, logShardID, chunks)
 	}
@@ -595,7 +599,12 @@ func defaultSpoolDir() string {
 
 // ResolveLogClient creates a gRPC log client using the same discovery
 // semantics as the worker.
-func ResolveLogClient(ctx context.Context, logger interfaces.Logger, retryMetrics backoff.RetryMetrics, routingMetrics logclient.RoutingMetrics) (interfaces.LogClient, func(), error) {
+func ResolveLogClient(
+	ctx context.Context,
+	logger interfaces.Logger,
+	retryMetrics backoff.RetryMetrics,
+	routingMetrics logclient.RoutingMetrics,
+) (interfaces.LogClient, func(), error) {
 	client, err := logclient.NewManagingLogClient(ctx, logger, logclient.PoolOptions{
 		PinnedAddress:   config.PinnedLogAddress(),
 		RegistryAddress: config.WorkerRegistryDialAddress(),

@@ -83,10 +83,22 @@ func TestValidateBlobDescriptor(t *testing.T) {
 		mutate func(*BlobDescriptor)
 		want   error
 	}{
-		{name: "bad algorithm", mutate: func(d *BlobDescriptor) { d.Algorithm = "md5" }, want: ErrInvalidBlobDescriptor},
+		{
+			name:   "bad algorithm",
+			mutate: func(d *BlobDescriptor) { d.Algorithm = "md5" },
+			want:   ErrInvalidBlobDescriptor,
+		},
 		{name: "bad key", mutate: func(d *BlobDescriptor) { d.Key = "md5:" + digest }, want: ErrInvalidBlobKey},
-		{name: "bad digest", mutate: func(d *BlobDescriptor) { d.Digest = strings.ToUpper(digest) }, want: ErrInvalidDigest},
-		{name: "key digest mismatch", mutate: func(d *BlobDescriptor) { d.Digest = sha256Hex("other") }, want: ErrInvalidBlobDescriptor},
+		{
+			name:   "bad digest",
+			mutate: func(d *BlobDescriptor) { d.Digest = strings.ToUpper(digest) },
+			want:   ErrInvalidDigest,
+		},
+		{
+			name:   "key digest mismatch",
+			mutate: func(d *BlobDescriptor) { d.Digest = sha256Hex("other") },
+			want:   ErrInvalidBlobDescriptor,
+		},
 		{name: "negative size", mutate: func(d *BlobDescriptor) { d.Size = -1 }, want: ErrInvalidBlobDescriptor},
 	}
 

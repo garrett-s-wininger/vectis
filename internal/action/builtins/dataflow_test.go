@@ -23,7 +23,12 @@ func (n *inputCaptureNode) Type() string { return "test/input-capture" }
 
 func (n *inputCaptureNode) ValidateWith(map[string]string) []action.FieldError { return nil }
 
-func (n *inputCaptureNode) Execute(_ context.Context, _ *action.ExecutionState, inputs map[string]any, _ action.Ports) action.Result {
+func (n *inputCaptureNode) Execute(
+	_ context.Context,
+	_ *action.ExecutionState,
+	inputs map[string]any,
+	_ action.Ports,
+) action.Result {
 	n.count.Add(1)
 
 	n.mu.Lock()
@@ -107,7 +112,8 @@ func TestSequenceNodeFailsWhenBoundOutputUnavailable(t *testing.T) {
 		t.Fatalf("status: got %s, want failure", result.Status)
 	}
 
-	if result.Error == nil || !strings.Contains(result.Error.Error(), "references unavailable output producer.command") {
+	if result.Error == nil ||
+		!strings.Contains(result.Error.Error(), "references unavailable output producer.command") {
 		t.Fatalf("error: got %v, want unavailable output", result.Error)
 	}
 

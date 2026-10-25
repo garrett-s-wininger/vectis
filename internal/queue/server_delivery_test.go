@@ -105,7 +105,12 @@ func TestQueueDelivery_EnqueueRejectsMissingExecutionHandoff(t *testing.T) {
 	}
 
 	jobID := "job-missing-handoff"
-	if _, err := svc.Enqueue(ctx, &api.JobRequest{Job: &api.Job{Id: &jobID}}); status.Code(err) != codes.InvalidArgument {
+	if _, err := svc.Enqueue(
+		ctx,
+		&api.JobRequest{Job: &api.Job{Id: &jobID}},
+	); status.Code(
+		err,
+	) != codes.InvalidArgument {
 		t.Fatalf("Enqueue error = %v, want InvalidArgument", err)
 	}
 
@@ -197,7 +202,10 @@ func TestQueueDelivery_TryDequeueSkipsUnsupportedIsolation(t *testing.T) {
 		t.Fatalf("expected host worker to skip VM job and receive %s, got %#v", hostJobID, hostOnly)
 	}
 
-	vmCapable, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}})
+	vmCapable, err := svc.TryDequeue(
+		ctx,
+		&api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}},
+	)
 	if err != nil {
 		t.Fatalf("vm trydequeue filtered: %v", err)
 	}
@@ -277,7 +285,10 @@ func TestQueueDelivery_TryDequeueChecksInheritedNodeIsolation(t *testing.T) {
 		t.Fatalf("expected host-only worker not to receive VM child job, got %#v", hostOnly)
 	}
 
-	vmCapable, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}})
+	vmCapable, err := svc.TryDequeue(
+		ctx,
+		&api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}},
+	)
 	if err != nil {
 		t.Fatalf("vm trydequeue filtered: %v", err)
 	}
@@ -384,7 +395,11 @@ func TestQueueDelivery_ExpiredPendingDeadlineDropsBeforeDelivery(t *testing.T) {
 	}
 
 	expiredJobID := "job-expired-pending"
-	expiredReq := queueTestJobRequestWithDeadline(t, &api.Job{Id: &expiredJobID}, time.Now().Add(-time.Second).UnixNano())
+	expiredReq := queueTestJobRequestWithDeadline(
+		t,
+		&api.Job{Id: &expiredJobID},
+		time.Now().Add(-time.Second).UnixNano(),
+	)
 	if _, err := svc.Enqueue(ctx, expiredReq); err != nil {
 		t.Fatalf("enqueue expired job: %v", err)
 	}
@@ -456,7 +471,10 @@ func TestQueueDelivery_ExpiredFilteredPendingDeadlineDropsBeforeDelivery(t *test
 		t.Fatalf("expected expired filtered job to drop and valid host job to deliver, got %#v", hostOnly)
 	}
 
-	vmCapable, err := svc.TryDequeue(ctx, &api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}})
+	vmCapable, err := svc.TryDequeue(
+		ctx,
+		&api.DequeueRequest{SupportedIsolation: []string{action.IsolationHost, action.IsolationVM}},
+	)
 	if err != nil {
 		t.Fatalf("vm trydequeue filtered: %v", err)
 	}
@@ -658,7 +676,11 @@ func TestQueueDelivery_DLQSurvivesRestart(t *testing.T) {
 	}
 
 	if dlq2.GetItems()[0].GetJobRequest().GetJob().GetId() != jobID {
-		t.Fatalf("expected dead letter job %s after restart, got %s", jobID, dlq2.GetItems()[0].GetJobRequest().GetJob().GetId())
+		t.Fatalf(
+			"expected dead letter job %s after restart, got %s",
+			jobID,
+			dlq2.GetItems()[0].GetJobRequest().GetJob().GetId(),
+		)
 	}
 
 	if dlq2.GetItems()[0].GetAttemptCount() != 2 {
@@ -686,7 +708,12 @@ func TestQueueDelivery_RequeueDeadLetterRejectsInvalidHandoff(t *testing.T) {
 		attemptCount: 1,
 	}}
 
-	if _, err := svc.RequeueDeadLetter(ctx, &api.RequeueDeadLetterRequest{DeliveryId: &deliveryID}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := svc.RequeueDeadLetter(
+		ctx,
+		&api.RequeueDeadLetterRequest{DeliveryId: &deliveryID},
+	); status.Code(
+		err,
+	) != codes.FailedPrecondition {
 		t.Fatalf("RequeueDeadLetter error = %v, want FailedPrecondition", err)
 	}
 

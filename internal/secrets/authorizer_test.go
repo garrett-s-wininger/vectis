@@ -13,7 +13,10 @@ type fakeClaimValidator struct {
 	err         error
 }
 
-func (v *fakeClaimValidator) ValidateActiveExecutionClaim(_ context.Context, runID, executionID, claimToken string) error {
+func (v *fakeClaimValidator) ValidateActiveExecutionClaim(
+	_ context.Context,
+	runID, executionID, claimToken string,
+) error {
 	v.runID = runID
 	v.executionID = executionID
 	v.claimToken = claimToken
@@ -27,7 +30,10 @@ type fakeExecutionScopeResolver struct {
 	err         error
 }
 
-func (r *fakeExecutionScopeResolver) ResolveExecutionScope(_ context.Context, runID, executionID string) (ExecutionScope, error) {
+func (r *fakeExecutionScopeResolver) ResolveExecutionScope(
+	_ context.Context,
+	runID, executionID string,
+) (ExecutionScope, error) {
 	r.runID = runID
 	r.executionID = executionID
 	if r.err != nil {
@@ -55,7 +61,12 @@ func TestClaimAuthorizerAllowsActiveExecutionClaim(t *testing.T) {
 	}
 
 	if validator.runID != "run-1" || validator.executionID != "execution-1" || validator.claimToken != "claim-1" {
-		t.Fatalf("validator received run=%q execution=%q claim=%q", validator.runID, validator.executionID, validator.claimToken)
+		t.Fatalf(
+			"validator received run=%q execution=%q claim=%q",
+			validator.runID,
+			validator.executionID,
+			validator.claimToken,
+		)
 	}
 }
 

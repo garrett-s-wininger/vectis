@@ -71,12 +71,21 @@ func TestAuthRepository_ExternalIdentities(t *testing.T) {
 		t.Fatalf("CreateLocalUser: %v", err)
 	}
 
-	link, err := repo.LinkExternalIdentity(ctx, userID, "corp-ldap", "uid=alice,ou=people,dc=example,dc=org", "alice", "Alice")
+	link, err := repo.LinkExternalIdentity(
+		ctx,
+		userID,
+		"corp-ldap",
+		"uid=alice,ou=people,dc=example,dc=org",
+		"alice",
+		"Alice",
+	)
 	if err != nil {
 		t.Fatalf("LinkExternalIdentity: %v", err)
 	}
 
-	if link.LocalUserID != userID || link.ProviderID != "corp-ldap" || link.Subject != "uid=alice,ou=people,dc=example,dc=org" || link.LocalUsername != "alice" {
+	if link.LocalUserID != userID || link.ProviderID != "corp-ldap" ||
+		link.Subject != "uid=alice,ou=people,dc=example,dc=org" ||
+		link.LocalUsername != "alice" {
 		t.Fatalf("unexpected link: %+v", link)
 	}
 
@@ -111,7 +120,14 @@ func TestAuthRepository_ExternalIdentities(t *testing.T) {
 		t.Fatalf("touched identity = %+v", found)
 	}
 
-	_, err = repo.LinkExternalIdentity(ctx, userID, "corp-ldap", "uid=alice2,ou=people,dc=example,dc=org", "alice", "Alice")
+	_, err = repo.LinkExternalIdentity(
+		ctx,
+		userID,
+		"corp-ldap",
+		"uid=alice2,ou=people,dc=example,dc=org",
+		"alice",
+		"Alice",
+	)
 	if !IsConflict(err) {
 		t.Fatalf("second subject for provider/local user error = %v, want conflict", err)
 	}
@@ -120,7 +136,14 @@ func TestAuthRepository_ExternalIdentities(t *testing.T) {
 		t.Fatalf("EnsureAuthProvider contractor: %v", err)
 	}
 
-	if _, err := repo.LinkExternalIdentity(ctx, userID, "contractor-ldap", "uid=alice,ou=people,dc=example,dc=org", "alice", "Alice"); err != nil {
+	if _, err := repo.LinkExternalIdentity(
+		ctx,
+		userID,
+		"contractor-ldap",
+		"uid=alice,ou=people,dc=example,dc=org",
+		"alice",
+		"Alice",
+	); err != nil {
 		t.Fatalf("same subject under different provider should link: %v", err)
 	}
 
@@ -546,7 +569,8 @@ func TestAuthRepository_ChangePasswordAndRevokeTokens_revokesSessions(t *testing
 	}
 
 	_, err = db.ExecContext(ctx, rebindQueryForPgx(
-		`INSERT INTO api_sessions (session_hash, csrf_token_hash, local_user_id, expires_at_unix_nano, last_used_unix_nano) VALUES (?, ?, ?, ?, ?)`),
+		`INSERT INTO api_sessions (session_hash, csrf_token_hash, local_user_id, expires_at_unix_nano, last_used_unix_nano) VALUES (?, ?, ?, ?, ?)`,
+	),
 		"session-hash", "csrf-hash", uid, time.Now().UTC().Add(time.Hour).UnixNano(), time.Now().UTC().UnixNano(),
 	)
 
@@ -596,9 +620,16 @@ func TestAuthRepository_DisableLocalUserAndRevokeTokens(t *testing.T) {
 		t.Fatalf("CompleteInitialSetup: %v", err)
 	}
 
-	_, err = db.ExecContext(ctx, rebindQueryForPgx(
-		`INSERT INTO api_sessions (session_hash, csrf_token_hash, local_user_id, expires_at_unix_nano, last_used_unix_nano) VALUES (?, ?, ?, ?, ?)`),
-		"disabled-session-hash", "disabled-csrf-hash", uid, time.Now().UTC().Add(time.Hour).UnixNano(), time.Now().UTC().UnixNano(),
+	_, err = db.ExecContext(
+		ctx,
+		rebindQueryForPgx(
+			`INSERT INTO api_sessions (session_hash, csrf_token_hash, local_user_id, expires_at_unix_nano, last_used_unix_nano) VALUES (?, ?, ?, ?, ?)`,
+		),
+		"disabled-session-hash",
+		"disabled-csrf-hash",
+		uid,
+		time.Now().UTC().Add(time.Hour).UnixNano(),
+		time.Now().UTC().UnixNano(),
 	)
 
 	if err != nil {
@@ -653,7 +684,13 @@ func TestAuthRepository_RootAdminQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := repo.CompleteInitialSetup(ctx, "root", string(passHash), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "t"); err != nil {
+	if _, err := repo.CompleteInitialSetup(
+		ctx,
+		"root",
+		string(passHash),
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"t",
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -673,12 +710,19 @@ func TestAuthRepository_RootAdminQueries(t *testing.T) {
 		t.Fatal("setup user should be root admin")
 	}
 
-	if _, err := db.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO namespaces (name, path, parent_id) VALUES (?, ?, ?)`), "team-a", "/team-a", 1); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		rebindQueryForPgx(`INSERT INTO namespaces (name, path, parent_id) VALUES (?, ?, ?)`),
+		"team-a",
+		"/team-a",
+		1,
+	); err != nil {
 		t.Fatal(err)
 	}
 
 	var teamNSID int64
-	if err := db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT id FROM namespaces WHERE path = ?`), "/team-a").Scan(&teamNSID); err != nil {
+	if err := db.QueryRowContext(ctx, rebindQueryForPgx(`SELECT id FROM namespaces WHERE path = ?`), "/team-a").
+		Scan(&teamNSID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -687,7 +731,13 @@ func TestAuthRepository_RootAdminQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := db.ExecContext(ctx, rebindQueryForPgx(`INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`), teamAdminID, teamNSID, "admin"); err != nil {
+	if _, err := db.ExecContext(
+		ctx,
+		rebindQueryForPgx(`INSERT INTO role_bindings (local_user_id, namespace_id, role) VALUES (?, ?, ?)`),
+		teamAdminID,
+		teamNSID,
+		"admin",
+	); err != nil {
 		t.Fatal(err)
 	}
 

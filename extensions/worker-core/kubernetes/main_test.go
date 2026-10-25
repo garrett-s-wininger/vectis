@@ -110,10 +110,13 @@ func TestExecuteTaskAppliesCustomProcessAction(t *testing.T) {
 	runner := &fakeRunner{outcome: jobOutcome{Phase: jobSucceeded}}
 	core := newTestCore(runner)
 
-	result, err := core.ExecuteTask(context.Background(), customProcessTask(t, customProcessDescriptor("process"), map[string]string{
-		"target":  "prod",
-		"dry-run": "false",
-	}))
+	result, err := core.ExecuteTask(
+		context.Background(),
+		customProcessTask(t, customProcessDescriptor("process"), map[string]string{
+			"target":  "prod",
+			"dry-run": "false",
+		}),
+	)
 
 	if err != nil {
 		t.Fatalf("ExecuteTask: %v", err)
@@ -216,7 +219,10 @@ func TestExecuteTaskRejectsUnsupportedTaskShape(t *testing.T) {
 func TestExecuteTaskRejectsCustomActionWithoutFrozenDescriptor(t *testing.T) {
 	core := newTestCore(&fakeRunner{})
 
-	result, err := core.ExecuteTask(context.Background(), customProcessTask(t, nil, map[string]string{"target": "prod"}))
+	result, err := core.ExecuteTask(
+		context.Background(),
+		customProcessTask(t, nil, map[string]string{"target": "prod"}),
+	)
 	if err != nil {
 		t.Fatalf("ExecuteTask: %v", err)
 	}
@@ -237,7 +243,10 @@ func TestExecuteTaskRejectsCustomActionWithoutFrozenDescriptor(t *testing.T) {
 func TestExecuteTaskRejectsUnsupportedCustomRuntime(t *testing.T) {
 	core := newTestCore(&fakeRunner{})
 
-	result, err := core.ExecuteTask(context.Background(), customProcessTask(t, customProcessDescriptor("container"), map[string]string{"target": "prod"}))
+	result, err := core.ExecuteTask(
+		context.Background(),
+		customProcessTask(t, customProcessDescriptor("container"), map[string]string{"target": "prod"}),
+	)
 	if err != nil {
 		t.Fatalf("ExecuteTask: %v", err)
 	}
@@ -258,9 +267,12 @@ func TestExecuteTaskRejectsUnsupportedCustomRuntime(t *testing.T) {
 func TestExecuteTaskRejectsInvalidCustomInputs(t *testing.T) {
 	core := newTestCore(&fakeRunner{})
 
-	result, err := core.ExecuteTask(context.Background(), customProcessTask(t, customProcessDescriptor("process"), map[string]string{
-		"dry-run": "false",
-	}))
+	result, err := core.ExecuteTask(
+		context.Background(),
+		customProcessTask(t, customProcessDescriptor("process"), map[string]string{
+			"dry-run": "false",
+		}),
+	)
 
 	if err != nil {
 		t.Fatalf("ExecuteTask: %v", err)
@@ -398,7 +410,10 @@ func TestExecuteTaskObservesExplicitCancel(t *testing.T) {
 	core := newTestCore(runner)
 	done := make(chan sdk.Result, 1)
 	go func() {
-		result, err := core.ExecuteTask(context.Background(), testTaskWithSession(t, "session-observe-cancel", "builtins/script", "sleep 300"))
+		result, err := core.ExecuteTask(
+			context.Background(),
+			testTaskWithSession(t, "session-observe-cancel", "builtins/script", "sleep 300"),
+		)
 		if err != nil {
 			t.Errorf("ExecuteTask: %v", err)
 		}
@@ -673,7 +688,13 @@ func (r *fakeRunner) ReadLogs(_ context.Context, _ string, _ string) ([]byte, er
 	return append([]byte(nil), r.readLogs...), nil
 }
 
-func (r *fakeRunner) WaitJob(ctx context.Context, _ string, _ string, _ time.Duration, _ time.Duration) (jobOutcome, error) {
+func (r *fakeRunner) WaitJob(
+	ctx context.Context,
+	_ string,
+	_ string,
+	_ time.Duration,
+	_ time.Duration,
+) (jobOutcome, error) {
 	if r.waitStarted != nil {
 		r.waitOnce.Do(func() { close(r.waitStarted) })
 	}

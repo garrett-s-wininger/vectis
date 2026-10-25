@@ -59,7 +59,11 @@ type queueClientStatsSnapshot struct {
 	ack             int64
 }
 
-func (b *benchmarkQueueServiceClient) Enqueue(context.Context, *api.JobRequest, ...grpc.CallOption) (*api.Empty, error) {
+func (b *benchmarkQueueServiceClient) Enqueue(
+	context.Context,
+	*api.JobRequest,
+	...grpc.CallOption,
+) (*api.Empty, error) {
 	if b.state != nil {
 		b.state.stats.enqueue.Add(1)
 	}
@@ -67,11 +71,19 @@ func (b *benchmarkQueueServiceClient) Enqueue(context.Context, *api.JobRequest, 
 	return &api.Empty{}, nil
 }
 
-func (b *benchmarkQueueServiceClient) Dequeue(context.Context, *api.DequeueRequest, ...grpc.CallOption) (*api.JobRequest, error) {
+func (b *benchmarkQueueServiceClient) Dequeue(
+	context.Context,
+	*api.DequeueRequest,
+	...grpc.CallOption,
+) (*api.JobRequest, error) {
 	return b.tryDequeue()
 }
 
-func (b *benchmarkQueueServiceClient) TryDequeue(context.Context, *api.DequeueRequest, ...grpc.CallOption) (*api.JobRequest, error) {
+func (b *benchmarkQueueServiceClient) TryDequeue(
+	context.Context,
+	*api.DequeueRequest,
+	...grpc.CallOption,
+) (*api.JobRequest, error) {
 	return b.tryDequeue()
 }
 
@@ -110,11 +122,19 @@ func (b *benchmarkQueueServiceClient) Ack(context.Context, *api.AckRequest, ...g
 	return &api.Empty{}, nil
 }
 
-func (b *benchmarkQueueServiceClient) ListDeadLetter(context.Context, *api.Empty, ...grpc.CallOption) (*api.ListDeadLetterResponse, error) {
+func (b *benchmarkQueueServiceClient) ListDeadLetter(
+	context.Context,
+	*api.Empty,
+	...grpc.CallOption,
+) (*api.ListDeadLetterResponse, error) {
 	return &api.ListDeadLetterResponse{}, nil
 }
 
-func (b *benchmarkQueueServiceClient) RequeueDeadLetter(context.Context, *api.RequeueDeadLetterRequest, ...grpc.CallOption) (*api.Empty, error) {
+func (b *benchmarkQueueServiceClient) RequeueDeadLetter(
+	context.Context,
+	*api.RequeueDeadLetterRequest,
+	...grpc.CallOption,
+) (*api.Empty, error) {
 	return &api.Empty{}, nil
 }
 
@@ -568,7 +588,13 @@ func (s queueClientStatsSnapshot) subtract(other queueClientStatsSnapshot) queue
 	}
 }
 
-func reportQueueClientStats(b *testing.B, prefix string, stats queueClientStatsSnapshot, dequeued int64, elapsed time.Duration) {
+func reportQueueClientStats(
+	b *testing.B,
+	prefix string,
+	stats queueClientStatsSnapshot,
+	dequeued int64,
+	elapsed time.Duration,
+) {
 	b.Helper()
 
 	tryDequeueRPCsPerJob := 0.0
