@@ -26,8 +26,11 @@ jobs:
           go install github.com/magefile/mage@v1.17.2
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
-      - name: Install pre-commit
-        run: python3 -m pip install --user pre-commit
+      - name: Install prek
+        uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
+        with:
+          install-only: true
+          prek-version: "0.5.6"
       - name: Run Vectis dogfood gate
         run: mage ciQuick
 

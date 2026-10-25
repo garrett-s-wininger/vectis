@@ -454,7 +454,7 @@ func (l *AsyncLogger) Close() error {
 	if l == nil || l.core == nil {
 		return nil
 	}
-	
+
 	err := l.core.Close()
 	if closer, ok := l.inner.(interface{ Close() error }); ok {
 		if closeErr := closer.Close(); err == nil {

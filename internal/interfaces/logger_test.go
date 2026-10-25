@@ -224,7 +224,7 @@ func TestNewLogOutput_WritesFileWhenDirectoryConfigured(t *testing.T) {
 	if closer, ok := logger.(interface{ Close() error }); ok {
 		t.Cleanup(func() { _ = closer.Close() })
 	}
-	
+
 	logger.Info("persisted")
 
 	b, err := os.ReadFile(filepath.Join(logDir, "log-aggregator.jsonl"))

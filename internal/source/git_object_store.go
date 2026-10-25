@@ -301,7 +301,7 @@ func (s *GitCheckoutObjectStoreStatus) recordHydratedRef(ref string, seen map[st
 	if _, ok := seen[ref]; ok {
 		return true
 	}
-	
+
 	if s.HydratedRefs >= s.HydratedRefScanLimit {
 		s.HydratedRefsTruncated = true
 		return false
