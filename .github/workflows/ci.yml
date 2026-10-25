@@ -48,7 +48,7 @@ jobs:
         run: mage vulncheck
 
   website-a11y:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/website/node_modules/.cache/ms-playwright
     defaults:
